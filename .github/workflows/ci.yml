@@ -27,7 +27,7 @@ jobs:
       - name: Compile
         run: sbt compile
       - name: Test
-        run: sbt -v "test:compile; domain/test"
+        run: sbt -v "test:compile; domain/test; api/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
       - name: Test Report

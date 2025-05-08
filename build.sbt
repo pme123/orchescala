@@ -99,7 +99,7 @@ lazy val api = project
         "com.typesafe"            % "config"    % typesafeConfigVersion
       )
   )
-  .dependsOn(engine)
+  .dependsOn(domain)
 
 lazy val dmn = project
   .in(file("./03-dmn"))
@@ -110,7 +110,7 @@ lazy val dmn = project
     libraryDependencies ++= sttpDependencies :+
       "io.github.pme123" %% "camunda-dmn-tester-shared" % dmnTesterVersion
   )
-  .dependsOn(engine)
+  .dependsOn(domain)
 
 lazy val simulation = project
   .in(file("./03-simulation"))
@@ -122,7 +122,7 @@ lazy val simulation = project
       "org.scala-sbt" % "test-interface" % testInterfaceVersion
     )
   )
-  .dependsOn(engine)
+  .dependsOn(domain)
 
 // layer 04
 lazy val helper = project
@@ -133,4 +133,4 @@ lazy val helper = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav)
-  ).dependsOn(api, simulation, engine)
+  ).dependsOn(api, simulation)
