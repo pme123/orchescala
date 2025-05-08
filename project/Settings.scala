@@ -35,7 +35,8 @@ object Settings {
     libraryDependencies ++= Seq(
       "org.scalameta" %% "munit" % mUnitVersion % Test,
     ),
-    testFrameworks += new TestFramework("munit.Framework")
+    testFrameworks += new TestFramework("munit.Framework"),
+    Test / testOptions += Tests.Argument(TestFrameworks.MUnit, "+l", "--verbose")
   )
 
   lazy val zioTestSettings = Seq(
