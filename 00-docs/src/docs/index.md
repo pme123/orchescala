@@ -1,9 +1,14 @@
+
+![orchescala](images/orchescala.png)
+
 # Intro
 
 @:callout()
 _The main goal of **Orchescala** is to use your **Domain** as much as possible in your **Process Automation**._
 
 _Define the **Domain** and let **Orchescala** do most of the rest._ 
+
+This project is the follow up of [Camundala](https://github.com/pme123/camundala)
 @:@
 
 @:callout(info)
