@@ -1,5 +1,5 @@
 
-![orchescala](orchescala.png)
+![orchescala](00-docs/src/docs/images/orchescala.png)
 
 ## Description
 In Progress...
