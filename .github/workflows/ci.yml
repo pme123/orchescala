@@ -3,6 +3,11 @@ on:
   pull_request:
   push:
     branches: [ master, develop ]
+
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   testAndGenerateDocs:
     runs-on: ubuntu-latest
