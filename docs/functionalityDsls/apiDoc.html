@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en-CH">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>API Documentation</title>
+  
+  
+  <meta name="description" content="orchescala-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="../helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="../helium/site/laika-helium.css" />
+  <script src="../helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="../"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/pme123/orchescala"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/pme123/orchescala"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="../">Intro</a></li>
+    <li class="level1 nav-leaf"><a href="../specification.html">Process &amp; Domain Specification</a></li>
+    <li class="level1 nav-leaf"><a href="../bpmnDsl.html">BPMN DSL</a></li>
+    <li class="level1 nav-leaf"><a href="../technologies.html">Technologies</a></li>
+    <li class="level1 nav-leaf"><a href="../generalConcerns.html">General Concerns</a></li>
+    <li class="level1 nav-header">Functional DSLs</li>
+    <li class="level2 active nav-leaf"><a href="#">API Documentation</a></li>
+    <li class="level2 nav-leaf"><a href="simulation.html">Simulations</a></li>
+    <li class="level2 nav-leaf"><a href="worker.html">Workers</a></li>
+    <li class="level2 nav-leaf"><a href="dmnTester.html">DMN Tester</a></li>
+    <li class="level2 nav-leaf"><a href="workers_advanced.html">Advanced Custom Workers</a></li>
+    <li class="level1 nav-header">development</li>
+    <li class="level2 nav-leaf"><a href="../development/intro.html">Introduction</a></li>
+    <li class="level2 nav-leaf"><a href="../development/initCompany.html">Init Company</a></li>
+    <li class="level2 nav-leaf"><a href="../development/createProject.html">Create Project</a></li>
+    <li class="level2 nav-leaf"><a href="../development/projectDev.html">Project Development</a></li>
+    <li class="level1 nav-header">company</li>
+    <li class="level2 nav-leaf"><a href="../company/intro.html">Introduction</a></li>
+    <li class="level2 nav-leaf"><a href="../company/sbt.html">sbt</a></li>
+    <li class="level2 nav-leaf"><a href="../company/00-docs.html">00-docs</a></li>
+    <li class="level2 nav-leaf"><a href="../company/02-bpmn.html">02-bpmn</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-api.html">03-api</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-dmn.html">03-dmn</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-simulation.html">03-simulation</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-worker.html">03-worker</a></li>
+    <li class="level2 nav-leaf"><a href="../company/04-helper.html">04-helper</a></li>
+    <li class="level2 nav-leaf"><a href="../company/development.html">Development</a></li>
+    <li class="level2 nav-leaf"><a href="../company/postman.html">Postman</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">API Documentation</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#why">Why</a></li>
+    <li class="level1 nav-node"><a href="#getting-started">Getting Started</a></li>
+    <li class="level2 nav-leaf"><a href="#document-1">document</a></li>
+    <li class="level2 nav-leaf"><a href="#api">api</a></li>
+    <li class="level2 nav-leaf"><a href="#group">group</a></li>
+    <li class="level2 nav-leaf"><a href="#create-the-documentation">Create the Documentation</a></li>
+    <li class="level1 nav-node"><a href="#document-2">Document</a></li>
+    <li class="level2 nav-leaf"><a href="#naming">Naming</a></li>
+    <li class="level2 nav-leaf"><a href="#strange-stuff">Strange Stuff</a></li>
+    <li class="level1 nav-node"><a href="#apis">Apis</a></li>
+    <li class="level2 nav-leaf"><a href="#implicit-apis">Implicit Apis</a></li>
+    <li class="level2 nav-leaf"><a href="#process-apis">Process Apis</a></li>
+    <li class="level2 nav-leaf"><a href="#input-output-variables">Input-/ Output-Variables</a></li>
+    <li class="level2 nav-leaf"><a href="#examples">Examples</a></li>
+    <li class="level2 nav-leaf"><a href="#generic-service-process">Generic Service Process</a></li>
+    <li class="level1 nav-leaf"><a href="#groups">Groups</a></li>
+    <li class="level1 nav-leaf"><a href="#postman-open-api">Postman Open API</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="api-documentation" class="title">API Documentation</h1>
+        <div class="callout info">
+          <i class="icofont-laika info">&#xef4e;</i>
+          <p>The focus is to describe or better define how someone must interact with your processes.</p>
+          <p>This is done with <a href="https://redocly.com/redoc/">ReDoc</a> which is an Open API documentation tool.
+          So there are some quirks, but I think you get used to them fast.</p>
+        </div>
+        
+        <h2 id="why" class="section"><a class="anchor-link left" href="#why"><i class="icofont-laika link">&#xef71;</i></a>Why</h2>
+        <p>To have accurate and not outdated documentation is a challenge. 
+        The closest you can get, is when your running- or tested code is the documentation.</p>
+        <p>And this is what we do here!
+        Together with the <a href="simulation.html#simulations">Simulations</a> and the <a href="worker.html#workers">Workers</a> you get the most accurate documentation possible without having too much work.</p>
+        
+        <h2 id="getting-started" class="section"><a class="anchor-link left" href="#getting-started"><i class="icofont-laika link">&#xef71;</i></a>Getting Started</h2>
+        <p>The documentation uses the BPMNs you created - in this context I refer to the <a href="../bpmnDsl.html#bpmn-dsl">Bpmn DSL</a>.</p>
+        <p>Let&#39;s start with a basic example:</p>
+        <pre><code class="nohighlight"><span class="comment">// put your api in a package of your project
+</span><span class="keyword">package</span><span> </span><span class="identifier">orchescala</span><span>.</span><span class="identifier">examples</span><span>.</span><span class="identifier">invoice</span><span>.</span><span class="identifier">api</span><span>
+
+</span><span class="comment">// define an object that extends from a common Api Creator
+</span><span class="keyword">object</span><span> </span><span class="type-name">ApiProjectCreator</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">DefaultApiCreator</span><span>:
+  </span><span class="comment">// technical name of the project
+</span><span>  </span><span class="keyword">val</span><span> </span><span class="identifier">projectName</span><span> = </span><span class="string-literal">&quot;invoice-example&quot;</span><span>
+  </span><span class="comment">// readable name of the project
+</span><span>  </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">title</span><span> = </span><span class="string-literal">&quot;Invoice Example Process API&quot;</span><span>
+  </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">projectDescr</span><span> = </span><span class="string-literal">&quot;This is the API Documentation for the Invoice Example Process.&quot;</span><span>
+  </span><span class="comment">// version of your project
+</span><span>  </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">version</span><span> = </span><span class="string-literal">&quot;1.0&quot;</span><span>
+
+  </span><span class="comment">// the documentation
+</span><span>  </span><span class="identifier">document</span><span> (
+    </span><span class="identifier">api</span><span>(</span><span class="identifier">`Invoice Receipt`</span><span>)(
+      </span><span class="type-name">InvoiceAssignApproverDMN</span><span>,
+      </span><span class="type-name">ApproveInvoiceUT</span><span>,
+      </span><span class="type-name">PrepareBankTransferUT</span><span>
+    ),
+    </span><span class="identifier">api</span><span>(</span><span class="identifier">`Review Invoice`</span><span>)(
+      </span><span class="type-name">AssignReviewerUT</span><span>,
+      </span><span class="type-name">ReviewInvoiceUT</span><span>
+    ),
+    </span><span class="identifier">group</span><span>(</span><span class="string-literal">&quot;DMNs&quot;</span><span>, </span><span class="string-literal">&quot;All the DMNs&quot;</span><span>)(
+      </span><span class="type-name">InvoiceAssignApproverDMN</span><span>
+    )
+  )</span></code></pre>
+        
+        <h4 id="document-1" class="section"><a class="anchor-link left" href="#document-1"><i class="icofont-laika link">&#xef71;</i></a>document</h4>
+        <p>This is the entry point for your documentation.
+        There is one documentation for a project.
+        A document consists of one or more <code>api</code>s and/or <code>group</code>s.</p>
+        
+        <h4 id="api" class="section"><a class="anchor-link left" href="#api"><i class="icofont-laika link">&#xef71;</i></a>api</h4>
+        <p>Usually there is an api for each process with its interactions, like DMN Decisions or User Tasks.</p>
+        
+        <h4 id="group" class="section"><a class="anchor-link left" href="#group"><i class="icofont-laika link">&#xef71;</i></a>group</h4>
+        <p>If you have no process to organize your Process Interactions, you can use a group.
+        This is especially useful if you have only Workers (a shared Service project) or DMN Decisions.
+        It is also possible to add a description to the group.</p>
+        
+        <h3 id="create-the-documentation" class="section"><a class="anchor-link left" href="#create-the-documentation"><i class="icofont-laika link">&#xef71;</i></a>Create the Documentation</h3>
+        <ul>
+          <li>
+            <p>In your <em>sbt-console</em>:  <code>api/run</code></p>
+            <ul>
+              <li>If you have more runnable applications you need to choose the <em>ApiCreator</em> class. </li>
+            </ul>
+          </li>
+          <li>
+            <p>This creates a YAML file (Open API) with your documentation. </p>
+          </li>
+          <li>
+            <p>In the console you find the paths to the created documentation.</p>
+            <ul>
+              <li>By default, it&#39;s here: <code>YOUR_PROJECT_PATH/03-api/OpenApi.yml</code></li>
+            </ul>
+            <ul>
+              <li>There is also an HTML that wraps it (<code>YOUR_PROJECT_PATH/03-api/OpenApi.html</code> that is created with <code>./helper.scala update</code>.). </li>
+            </ul>
+          </li>
+          <li>
+            <p>Open <code>OpenApi.html</code> in a webserver (e.g. from your IDE).
+            The parts of the document are described in the following chapters.</p>
+          </li>
+        </ul>
+        
+        <h2 id="document-2" class="section"><a class="anchor-link left" href="#document-2"><i class="icofont-laika link">&#xef71;</i></a>Document</h2>
+        
+        <h3 id="naming" class="section"><a class="anchor-link left" href="#naming"><i class="icofont-laika link">&#xef71;</i></a>Naming</h3>
+        <p>The DSL uses the <code>InOut.id</code> as the references throughout the documentation.
+        For the <code>api</code> it uses the <code>Process.processName</code> also as the Tag (grouping in the document structure).</p>
+        <p>Example:</p>
+        <p><img src="images/api_apiStructure.png" alt="api_apiStructure"></p>
+        <ul>
+          <li>The tag is the name created from the variable <code>Invoice Receipt</code>. </li>
+          <li>Each Api is composed by the <em>endpointType</em> (e.g. <em>Process</em>) and the <em>id</em> of the BPMN object (e.g. <em>example-invoice-c7</em>).</li>
+        </ul>
+        
+        <h3 id="strange-stuff" class="section"><a class="anchor-link left" href="#strange-stuff"><i class="icofont-laika link">&#xef71;</i></a>Strange Stuff</h3>
+        <p>As we use a REST API documentation tool, there are some strange things to get used to.</p>
+        
+        <h4 id="head" class="section"><a class="anchor-link left" href="#head"><i class="icofont-laika link">&#xef71;</i></a>head</h4>
+        <p>As there are not really services behind*, we just use the HTTP method <em>HEAD</em>.</p>
+        
+        <h4 id="path" class="section"><a class="anchor-link left" href="#path"><i class="icofont-laika link">&#xef71;</i></a>path</h4>
+        <p>We create a unique path, like <em>endpointType / tag / nameOrId</em>.
+        This is required as Open API skips Apis with identical paths.</p>
+        
+        <h4 id="responses-200" class="section"><a class="anchor-link left" href="#responses-200"><i class="icofont-laika link">&#xef71;</i></a>Responses 200</h4>
+        <p>The output variables are described in the <em>200</em> (<em>ok</em>) response, as a status is required by Open API.</p>
+        <p>See <a href="#postman-open-api">Postman Open API</a> for additional information.</p>
+        <div class="callout info">
+          <i class="icofont-laika info">&#xef4e;</i>
+          <p>There is an idea to provide a <em>Domain Driven Gateway</em>, so this will be more natural.</p>
+        </div>
+        
+        <h2 id="apis" class="section"><a class="anchor-link left" href="#apis"><i class="icofont-laika link">&#xef71;</i></a>Apis</h2>
+        <p>Each Api defines its inputs and outputs, as well as if needed additional information.</p>
+        <p>Based on the BPMN objects</p>
+        
+        <h3 id="implicit-apis" class="section"><a class="anchor-link left" href="#implicit-apis"><i class="icofont-laika link">&#xef71;</i></a>Implicit Apis</h3>
+        <p>All Apis that have no &#39;children&#39;, are created automatically from their BPMN objects.</p>
+        <p>So <code>api</code> is optional (example <code>AssignReviewerUT</code> is equal to <code>api(AssignReviewerUT)</code>).
+        You can do whatever you prefer.</p>
+        
+        <h3 id="process-apis" class="section"><a class="anchor-link left" href="#process-apis"><i class="icofont-laika link">&#xef71;</i></a>Process Apis</h3>
+        <p>A process Api must be specific, if you want to group all its interactions in the processes tag.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span>...
+</span><span class="identifier">api</span><span>(</span><span class="type-name">PROCESS</span><span>)(
+  </span><span class="type-name">INTERACTIONS</span><span>
+)
+...</span></code></pre>
+        <ul>
+          <li>PROCESS: The Process you want to document.</li>
+          <li>INTERACTIONS: The interactions with this process, like User Tasks.</li>
+        </ul>
+        <p>Example:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span>...
+</span><span class="identifier">api</span><span>(</span><span class="identifier">`Invoice Receipt`</span><span>)(
+  </span><span class="type-name">InvoiceAssignApproverDMN</span><span>,
+  </span><span class="type-name">ApproveInvoiceUT</span><span>,
+  </span><span class="type-name">PrepareBankTransferUT</span><span>
+)
+...</span></code></pre>
+        <p>This will create the following structure in  the doc:</p>
+        <p><img src="images/api_apiStructure.png" alt="api_apiStructure"></p>
+        
+        <h3 id="input-output-variables" class="section"><a class="anchor-link left" href="#input-output-variables"><i class="icofont-laika link">&#xef71;</i></a>Input-/ Output-Variables</h3>
+        <p>The input- and output variables are taken from the domain model of the BPMN object.</p>
+        <p>See <a href="../bpmnDsl.html#bpmn-dsl">Bpmn DSL</a> for more information.</p>
+        <p>This creates this input description documentation:</p>
+        <p><img src="images/api_inputs.png" alt="api_inputs"></p>
+        <p>And it creates this output description documentation:</p>
+        <p><img src="images/api_outputs.png" alt="api_outputs"></p>
+        
+        <h3 id="examples" class="section"><a class="anchor-link left" href="#examples"><i class="icofont-laika link">&#xef71;</i></a>Examples</h3>
+        <p>By default, we create an example for the input- and one for the output variables.
+        You find them on the right side of your Api documentation.</p>
+        <p>If you want to add more examples, you can do this the following ways:</p>
+        
+        <h4 id="input" class="section"><a class="anchor-link left" href="#input"><i class="icofont-laika link">&#xef71;</i></a>input</h4>
+        <p>Just add another input object and give it a name:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">private</span><span> </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="type-name">InvoiceAssignApproverDMN</span><span> =
+  </span><span class="identifier">bpmn</span><span>.</span><span class="type-name">InvoiceAssignApproverDMN</span><span>
+    .</span><span class="identifier">withInExample</span><span>(</span><span class="identifier">budget</span><span>)
+    .</span><span class="identifier">withInExample</span><span>(</span><span class="identifier">`day-to-day expense`</span><span>)
+    .</span><span class="identifier">withInExample</span><span>(</span><span class="identifier">exceptional</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">budget</span><span> = </span><span class="type-name">SelectApproverGroup</span><span>()
+</span><span class="keyword">val</span><span> </span><span class="identifier">`day-to-day expense`</span><span> = </span><span class="type-name">SelectApproverGroup</span><span>(</span><span class="number-literal">125</span><span>, </span><span class="type-name">InvoiceCategory</span><span>.</span><span class="type-name">Misc</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">exceptional</span><span> = </span><span class="type-name">SelectApproverGroup</span><span>(</span><span class="number-literal">12345</span><span>, </span><span class="type-name">InvoiceCategory</span><span>.</span><span class="type-name">Misc</span><span>)</span></code></pre>
+        <p>Here the name of the example is taken from the variable name automatically.</p>
+        <p>In the documentation you can now select the different examples.</p>
+        <p><img src="images/api_inputExamples.png" alt="api_inputExamples"></p>
+        
+        <h4 id="output" class="section"><a class="anchor-link left" href="#output"><i class="icofont-laika link">&#xef71;</i></a>output</h4>
+        <p>Same with output objects:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span>  </span><span class="keyword">private</span><span> </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="type-name">ReviewInvoiceUT</span><span> =
+    </span><span class="identifier">bpmn</span><span>.</span><span class="type-name">ReviewInvoiceUT</span><span>
+      .</span><span class="identifier">withOutExample</span><span>(</span><span class="string-literal">&quot;Invoice clarified&quot;</span><span>, </span><span class="type-name">InvoiceReviewed</span><span>())
+      .</span><span class="identifier">withOutExample</span><span>(</span><span class="string-literal">&quot;Invoice NOT clarified&quot;</span><span>, </span><span class="type-name">InvoiceReviewed</span><span>(</span><span class="boolean-literal">false</span><span>))</span></code></pre>
+        <p>Here the name of the example is given explicitly.</p>
+        <p>In the documentation you can now select the different examples.</p>
+        <p><img src="images/api_outputExamples.png" alt="api_outputExamples"></p>
+        
+        <h4 id="in-and-output" class="section"><a class="anchor-link left" href="#in-and-output"><i class="icofont-laika link">&#xef71;</i></a>in- and output</h4>
+        <p>You can also add input- and output examples in one step:</p>
+        <pre><code class="nohighlight"><span class="keyword">private</span><span> </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="type-name">InvoiceAssignApproverDMN</span><span> =
+    </span><span class="identifier">bpmn</span><span>.</span><span class="type-name">InvoiceAssignApproverDMN</span><span>
+      .</span><span class="identifier">withExample</span><span>(
+        </span><span class="string-literal">&quot;budget&quot;</span><span>,
+        </span><span class="identifier">bpmn</span><span>.</span><span class="type-name">InvoiceAssignApproverDMN</span><span>
+          .</span><span class="identifier">withIn</span><span>(</span><span class="type-name">SelectApproverGroup</span><span>())
+          .</span><span class="identifier">withOut</span><span>(</span><span class="type-name">CollectEntries</span><span>(</span><span class="type-name">ApproverGroup</span><span>.</span><span class="identifier">management</span><span>))
+      )
+      .</span><span class="identifier">withExample</span><span>(
+        </span><span class="string-literal">&quot;day-to-day expense&quot;</span><span>,
+        </span><span class="identifier">bpmn</span><span>.</span><span class="type-name">InvoiceAssignApproverDMN</span><span>
+          .</span><span class="identifier">withIn</span><span>(</span><span class="type-name">SelectApproverGroup</span><span>(</span><span class="number-literal">125</span><span>, </span><span class="type-name">InvoiceCategory</span><span>.</span><span class="type-name">Misc</span><span>))
+          .</span><span class="identifier">withOut</span><span>(
+            </span><span class="type-name">CollectEntries</span><span>(</span><span class="type-name">ApproverGroup</span><span>.</span><span class="identifier">accounting</span><span>, </span><span class="type-name">ApproverGroup</span><span>.</span><span class="identifier">sales</span><span>)
+          )
+      )</span></code></pre>
+        
+        <h3 id="generic-service-process" class="section"><a class="anchor-link left" href="#generic-service-process"><i class="icofont-laika link">&#xef71;</i></a>Generic Service Process</h3>
+        <div class="callout info">
+          <i class="icofont-laika info">&#xef4e;</i>
+          <p>This is now <em><strong>DEPRECATED</strong></em> and replaced by <em>Service Workers</em>.
+          See <a href="worker.html#service-worker">Service Worker</a>.</p>
+        </div>
+        
+        <h2 id="groups" class="section"><a class="anchor-link left" href="#groups"><i class="icofont-laika link">&#xef71;</i></a>Groups</h2>
+        <p>You can organize your Apis within Groups.
+        This is especially useful if you have a lot of processes or dmns.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span>...
+</span><span class="identifier">group</span><span>(</span><span class="type-name">NAME_OF_GROUP</span><span>)(
+  </span><span class="type-name">APIs</span><span>
+)
+...</span></code></pre>
+        <ul>
+          <li>NAME<em>OF</em>GROUP: A name for your group.</li>
+          <li>APIs: A list of BPMN objects (they will be translated to apis automatically).</li>
+        </ul>
+        <p>Example:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span>...
+</span><span class="identifier">group</span><span>(</span><span class="string-literal">&quot;User Tasks&quot;</span><span>)(
+  </span><span class="type-name">ApproveInvoiceUT</span><span>,
+  </span><span class="type-name">PrepareBankTransferUT</span><span>,
+  </span><span class="type-name">AssignReviewerUT</span><span>,
+  </span><span class="type-name">ReviewInvoiceUT</span><span>
+)
+...</span></code></pre>
+        <p>This will create the following structure in  the doc:</p>
+        <p><img src="images/api_groupStructure.png" alt="api_groupStructure"></p>
+        <div class="callout warning">
+          <i class="icofont-laika warning">&#xf026;</i>
+          <p>Be aware that <code>document</code> only supports two levels. 
+          This is because we use Tags to structure the APIs.</p>
+          <p>Correct 1-2 Levels:</p>
+          <pre class="keep-together pdf epub"><code class="nohighlight"><span>    </span><span class="identifier">api</span><span>(</span><span class="identifier">`Review Invoice`</span><span>)(
+      </span><span class="type-name">AssignReviewerUT</span><span>,
+      </span><span class="type-name">ReviewInvoiceUT</span><span>
+    ),
+    </span><span class="type-name">OtherExternalTask</span><span>,
+    </span><span class="identifier">group</span><span>(</span><span class="string-literal">&quot;DMNs&quot;</span><span>)(
+      </span><span class="type-name">InvoiceAssignApproverDMN</span><span>
+    ),
+    </span><span class="identifier">group</span><span>(</span><span class="string-literal">&quot;Helper Processes&quot;</span><span>)(
+      </span><span class="type-name">MyServiceProcess</span><span>
+    ),</span></code></pre>
+          <p>Wrong &gt; 2 Levels:</p>
+          <pre class="keep-together pdf epub"><code class="nohighlight"><span>    </span><span class="identifier">api</span><span>(</span><span class="identifier">`Review Invoice`</span><span>)(
+       </span><span class="identifier">api</span><span>(</span><span class="type-name">MyServiceProcess</span><span>)(
+         </span><span class="type-name">SelectServiceUT</span><span>
+       )
+    )
+    </span><span class="identifier">group</span><span>(</span><span class="string-literal">&quot;Cool Processes&quot;</span><span>)(
+      </span><span class="identifier">api</span><span>(</span><span class="type-name">MyServiceProcess</span><span>)(
+        </span><span class="type-name">SelectServiceUT</span><span>
+      )
+    )</span></code></pre>
+        </div>
+        
+        <h2 id="postman-open-api" class="section"><a class="anchor-link left" href="#postman-open-api"><i class="icofont-laika link">&#xef71;</i></a>Postman Open API</h2>
+        <p>Next to the Documentation, it creates also a YAML that you can import into Postman.
+        With a few manual adjustments (due to restrictions in Open API) you have test client for your processes.</p>
+        <ul>
+          <li>By default it&#39;s here: <code>YOUR_PROJECT_PATH/postmanOpenApi.yml</code></li>
+          <li>There is also a link to an HTML (<code>YOUR_PROJECT_PATH/PostmanOpenApi.html</code>).
+          You can copy it from here <a href="https://github.com/pme123/orchescala-example/blob/master/PostmanOpenApi.html">PostmanOpenApi.html</a></li>
+        </ul>
+        <p>Import into Postman:</p>
+        <ul>
+          <li>
+            <p><em>Show import settings</em>:</p>
+            <ul>
+              <li>Select: <em>Copy collections to workspace</em></li>
+              <li>Select <em>Folder organization</em>: <em>Tags</em></li>
+            </ul>
+          </li>
+        </ul>
+        <p>Manual adjustments in most request:</p>
+        <ul>
+          <li>
+            <p>Remove part of the path:</p>
+            <ul>
+              <li>if you have a path like this: <code>{{baseUrl}}/decision-definition/key/:key/--REMOVE:example-invoice-c7-assignApprover--/evaluate</code></li>
+              <li>just delete this part: <code>--REMOVE:some identifier--</code></li>
+            </ul>
+          </li>
+          <li>
+            <p>Connect the requests (set the reference to the process or task)</p>
+            <ul>
+              <li>
+                for Start Process:
+                <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">let</span><span> </span><span class="identifier">processInstanceId</span><span> = </span><span class="identifier">pm</span><span>.</span><span class="identifier">response</span><span>.</span><span class="identifier">json</span><span>().</span><span class="identifier">id</span><span>
+</span><span class="identifier">console</span><span>.</span><span class="identifier">log</span><span>(</span><span class="string-literal">&quot;processInstanceId: &quot;</span><span> + </span><span class="identifier">processInstanceId</span><span>)
+</span><span class="identifier">pm</span><span>.</span><span class="identifier">collectionVariables</span><span>.</span><span class="identifier">set</span><span>(</span><span class="string-literal">&quot;processInstanceId&quot;</span><span>, </span><span class="identifier">processInstanceId</span><span>)</span></code></pre>
+              </li>
+              <li>
+                for Get Task:
+                <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">let</span><span> </span><span class="identifier">taskId</span><span> = </span><span class="identifier">pm</span><span>.</span><span class="identifier">response</span><span>.</span><span class="identifier">json</span><span>()[</span><span class="number-literal">0</span><span>].</span><span class="identifier">id</span><span>
+</span><span class="identifier">console</span><span>.</span><span class="identifier">log</span><span>(</span><span class="string-literal">&quot;taskId: &quot;</span><span> + </span><span class="identifier">taskId</span><span>)
+</span><span class="identifier">pm</span><span>.</span><span class="identifier">collectionVariables</span><span>.</span><span class="identifier">set</span><span>(</span><span class="string-literal">&quot;taskId&quot;</span><span>, </span><span class="identifier">taskId</span><span>)</span></code></pre>
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <div class="callout info">
+          <i class="icofont-laika info">&#xef4e;</i>
+          <p>That it is not possible to have the API Documentation as the postman Open API is not nice.</p>
+          <p>However as we can describe a UserTask as one API, it takes three requests to actually handle a UserTask.</p>
+          <p>In the future we may provide a REST API that will work for both.</p>
+          <p>This would also allow a painless transition to Camunda 8.</p>
+        </div>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>
