@@ -2,7 +2,7 @@ package orchescala.worker
 
 import orchescala.domain.*
 import orchescala.worker.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import io.circe.parser
 import sttp.client3.*
 import sttp.client3.circe.*

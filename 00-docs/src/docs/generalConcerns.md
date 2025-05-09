@@ -190,8 +190,8 @@ For example, you want to handle a _400_ error, but only if the message contains 
 
 If an error is handled, the worker will add the following variables to the process:
 
-- `errorCode: String` - the error code (`OrchescalaWorkerError.errorCode`)
-- `errorMsg: String` - the error message (`OrchescalaWorkerError.errorMsg`)
+- `errorCode: String` - the error code (`WorkerError.errorCode`)
+- `errorMsg: String` - the error message (`WorkerError.errorMsg`)
 
 ### Authorization
 

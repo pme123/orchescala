@@ -45,7 +45,7 @@ class MyCustomTaskWorker extends CompanyCustomWorkerDsl[In, Out]:
 
   lazy val customTask = example
 
-  override def runWork(in: In): Either[OrchescalaWorkerError.CustomError, Out] =
+  override def runWork(in: In): Either[WorkerError.CustomError, Out] =
     // your business logic
     ???
 ```
@@ -53,20 +53,20 @@ class MyCustomTaskWorker extends CompanyCustomWorkerDsl[In, Out]:
 - `runWork` is the method that is called by the _Worker_ to execute the business logic.
 - The code can either:
   - complete the task successfully with a result -> `Right[Out]`
-  - fail the task with an error -> `Left[OrchescalaWorkerError.CustomError]`
+  - fail the task with an error -> `Left[WorkerError.CustomError]`
 
 Example:
 
 ```scala
-def runWork(in: In): Either[OrchescalaWorkerError.CustomError, Out] =
+def runWork(in: In): Either[WorkerError.CustomError, Out] =
   doSomethingThatCanFail(in)
     .left.map: e => 
-      OrchescalaWorkerError.CustomError("Problem in Worker: " + e.getMessage)
+      WorkerError.CustomError("Problem in Worker: " + e.getMessage)
     
 private def doSomethingThatCanFail(in: In): Either[Throwable, In] = ???    
 ```
 `doSomethingThatCanFail` does some mapping or business logic that can fail.
-If it fails, it returns a `Left` with an error message, that you wrap with a _OrchescalaWorkerError.CustomError_.
+If it fails, it returns a `Left` with an error message, that you wrap with a _WorkerError.CustomError_.
 
 @:include(workers_advanced.md)
 

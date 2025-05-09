@@ -1,7 +1,7 @@
 package orchescala.worker
 package oauth
 
-import orchescala.worker.OrchescalaWorkerError.ServiceAuthError
+import orchescala.worker.WorkerError.ServiceAuthError
 import sttp.client3.*
 import sttp.client3.circe.*
 import sttp.model.Uri

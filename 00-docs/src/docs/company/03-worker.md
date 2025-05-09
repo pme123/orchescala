@@ -76,7 +76,7 @@ Some specific configuration or authentication for the RestApiClient.
 package mycompany.orchescala.worker
 
 import orchescala.camunda7.worker.RestApiClient
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import sttp.client3.*
 
 @SpringConfiguration

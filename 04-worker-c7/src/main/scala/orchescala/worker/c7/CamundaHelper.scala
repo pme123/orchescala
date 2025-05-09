@@ -2,7 +2,7 @@ package orchescala.worker.c7
 
 import orchescala.domain.{*, given}
 import orchescala.worker.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import io.circe.Decoder.Result
 import org.camunda.bpm.client.task.ExternalTask
 import org.camunda.bpm.engine.variable.`type`.{PrimitiveValueType, ValueType}
@@ -121,7 +121,7 @@ object CamundaHelper:
     def toEither(msg: String): HelperContext[Either[BadVariableError, T]] =
       toEither(BadVariableError(errorMsg = msg))
 
-    def toEither[E <: OrchescalaWorkerError](
+    def toEither[E <: WorkerError](
         error: E
     ): HelperContext[Either[E, T]] =
       option
@@ -133,7 +133,7 @@ object CamundaHelper:
     def toZIO(msg: String): HelperContext[IO[BadVariableError, T]] =
       toZIO(BadVariableError(errorMsg = msg))
 
-    def toZIO[E <: OrchescalaWorkerError](
+    def toZIO[E <: WorkerError](
         error: E
     ): HelperContext[IO[E, T]] =
       option

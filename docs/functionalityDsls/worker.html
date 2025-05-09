@@ -169,7 +169,7 @@
 
   </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">customTask</span><span> = </span><span class="identifier">example</span><span>
 
-  </span><span class="keyword">override</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">runWork</span><span>(</span><span class="identifier">in</span><span>: </span><span class="type-name">In</span><span>): </span><span class="type-name">Either</span><span>[</span><span class="type-name">OrchescalaWorkerError</span><span>.</span><span class="type-name">CustomError</span><span>, </span><span class="type-name">Out</span><span>] =
+  </span><span class="keyword">override</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">runWork</span><span>(</span><span class="identifier">in</span><span>: </span><span class="type-name">In</span><span>): </span><span class="type-name">Either</span><span>[</span><span class="type-name">WorkerError</span><span>.</span><span class="type-name">CustomError</span><span>, </span><span class="type-name">Out</span><span>] =
     </span><span class="comment">// your business logic
 </span><span>    ???</span></code></pre>
         <ul>
@@ -181,17 +181,17 @@
           <li>complete the task successfully with a result -&gt; <code>Right[Out]</code></li>
         </ul>
         <ul>
-          <li>fail the task with an error -&gt; <code>Left[OrchescalaWorkerError.CustomError]</code></li>
+          <li>fail the task with an error -&gt; <code>Left[WorkerError.CustomError]</code></li>
         </ul>
         <p>Example:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">def</span><span> </span><span class="declaration-name">runWork</span><span>(</span><span class="identifier">in</span><span>: </span><span class="type-name">In</span><span>): </span><span class="type-name">Either</span><span>[</span><span class="type-name">OrchescalaWorkerError</span><span>.</span><span class="type-name">CustomError</span><span>, </span><span class="type-name">Out</span><span>] =
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">def</span><span> </span><span class="declaration-name">runWork</span><span>(</span><span class="identifier">in</span><span>: </span><span class="type-name">In</span><span>): </span><span class="type-name">Either</span><span>[</span><span class="type-name">WorkerError</span><span>.</span><span class="type-name">CustomError</span><span>, </span><span class="type-name">Out</span><span>] =
   </span><span class="identifier">doSomethingThatCanFail</span><span>(</span><span class="identifier">in</span><span>)
     .</span><span class="identifier">left</span><span>.</span><span class="identifier">map</span><span>: </span><span class="identifier">e</span><span> =&gt; 
-      </span><span class="type-name">OrchescalaWorkerError</span><span>.</span><span class="type-name">CustomError</span><span>(</span><span class="string-literal">&quot;Problem in Worker: &quot;</span><span> + </span><span class="identifier">e</span><span>.</span><span class="identifier">getMessage</span><span>)
+      </span><span class="type-name">WorkerError</span><span>.</span><span class="type-name">CustomError</span><span>(</span><span class="string-literal">&quot;Problem in Worker: &quot;</span><span> + </span><span class="identifier">e</span><span>.</span><span class="identifier">getMessage</span><span>)
     
 </span><span class="keyword">private</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">doSomethingThatCanFail</span><span>(</span><span class="identifier">in</span><span>: </span><span class="type-name">In</span><span>): </span><span class="type-name">Either</span><span>[</span><span class="type-name">Throwable</span><span>, </span><span class="type-name">In</span><span>] = ???    </span></code></pre>
         <p><code>doSomethingThatCanFail</code> does some mapping or business logic that can fail.
-        If it fails, it returns a <code>Left</code> with an error message, that you wrap with a <em>OrchescalaWorkerError.CustomError</em>.</p>
+        If it fails, it returns a <code>Left</code> with an error message, that you wrap with a <em>WorkerError.CustomError</em>.</p>
         
         <h2 id="advanced-custom-workers" class="section"><a class="anchor-link left" href="#advanced-custom-workers"><i class="icofont-laika link">&#xef71;</i></a>Advanced Custom Workers</h2>
         <p>It is possible to orchestrate Workers in a <em>Custom Worker</em>.</p>
@@ -213,7 +213,7 @@
             The code can either:
             <ul>
               <li>complete the task successfully with a result -&gt; <code>ZIO.succeed[Out]</code></li>
-              <li>fail the task with an error -&gt; <code>ZIO.fail[OrchescalaWorkerError.CustomError]</code></li>
+              <li>fail the task with an error -&gt; <code>ZIO.fail[WorkerError.CustomError]</code></li>
             </ul>
           </li>
           <li>

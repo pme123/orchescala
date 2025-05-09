@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import io.circe.*
 import sttp.client3.{HttpClientSyncBackend, Identity, SttpBackend}
 import zio.{Executor, IO, ZIO, ZLayer}
@@ -22,12 +22,12 @@ type SendRequestType[ServiceOut] =
 
 def decodeTo[A: InOutDecoder](
     jsonStr: String
-): IO[OrchescalaWorkerError.UnexpectedError, A] =
+): IO[WorkerError.UnexpectedError, A] =
   ZIO.fromEither(io.circe.parser
     .decodeAccumulating[A](jsonStr)
     .toEither)
     .mapError { ex =>
-      OrchescalaWorkerError.UnexpectedError(errorMsg =
+      WorkerError.UnexpectedError(errorMsg =
         ex.toList
           .map(_.getMessage())
           .mkString(
@@ -41,21 +41,21 @@ end decodeTo
 
 type HandledErrorCodes = Seq[ErrorCodeType]
 
-sealed trait OrchescalaWorkerError extends Throwable:
+sealed trait WorkerError extends Throwable:
   def isMock = false
   def errorCode: ErrorCodeType
   def errorMsg: String
 
   def causeMsg                                   = s"$errorCode: $errorMsg"
-  def causeError: Option[OrchescalaWorkerError]   = None
+  def causeError: Option[WorkerError]   = None
   def generalVariables: Option[GeneralVariables] = None
   override def toString(): String                = causeMsg + causeError.map(e =>s"Caused by ${e.causeMsg}").getOrElse("")
-end OrchescalaWorkerError
+end WorkerError
 
-sealed trait ErrorWithOutput extends OrchescalaWorkerError:
+sealed trait ErrorWithOutput extends WorkerError:
   def output: Map[String, Any]
 
-object OrchescalaWorkerError:
+object WorkerError:
 
   case class CamundaBpmnError(errorCode: ErrorCodes, errorMsg: String)
 
@@ -74,37 +74,37 @@ object OrchescalaWorkerError:
     override val isMock       = true
   end MockedOutput
 
-  case object AlreadyHandledError extends OrchescalaWorkerError:
+  case object AlreadyHandledError extends WorkerError:
     val errorMsg: String      = "Error already handled."
     val errorCode: ErrorCodes = ErrorCodes.`error-already-handled`
 
   case class InitProcessError(
       errorMsg: String = "Problems initialize default variables of the Process."
-  ) extends OrchescalaWorkerError:
+  ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
 
   case class MockerError(
       errorMsg: String
-  ) extends OrchescalaWorkerError:
+  ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`mocking-failed`
 
   case class MappingError(
       errorMsg: String
-  ) extends OrchescalaWorkerError:
+  ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`mapping-error`
 
   case class UnexpectedError(
       errorMsg: String
-  ) extends OrchescalaWorkerError:
+  ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
 
   case class HandledRegexNotMatchedError(
       errorMsg: String
-  ) extends OrchescalaWorkerError:
+  ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-handledRegexNotMatched`
 
   object HandledRegexNotMatchedError:
-    def apply(error: OrchescalaWorkerError): HandledRegexNotMatchedError =
+    def apply(error: WorkerError): HandledRegexNotMatchedError =
       HandledRegexNotMatchedError(
         s"""The error was handled, but did not match the defined 'regexHandledErrors'.
            |Original Error: ${error.errorCode} - ${error.errorMsg}
@@ -114,10 +114,10 @@ object OrchescalaWorkerError:
 
   case class BadVariableError(
       errorMsg: String
-  ) extends OrchescalaWorkerError:
+  ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`bad-variable`
 
-  sealed trait RunWorkError extends OrchescalaWorkerError
+  sealed trait RunWorkError extends WorkerError
 
   case class MissingHandlerError(
       errorMsg: String
@@ -127,7 +127,7 @@ object OrchescalaWorkerError:
   case class CustomError(
       errorMsg: String,
       override val generalVariables: Option[GeneralVariables] = None,
-      override val causeError: Option[OrchescalaWorkerError] = None
+      override val causeError: Option[WorkerError] = None
   ) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
   end CustomError
@@ -190,7 +190,7 @@ object OrchescalaWorkerError:
     s"""Service Error: $status
        |ErrorMsg: $errorMsg
        |${requestMsg(runnableRequest)}""".stripMargin
-end OrchescalaWorkerError
+end WorkerError
 
 def niceClassName(clazz: Class[?]) =
   clazz.getName.split("""\$""").head

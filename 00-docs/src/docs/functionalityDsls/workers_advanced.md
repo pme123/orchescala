@@ -21,7 +21,7 @@ class MyCustomTaskWorker extends CompanyCustomWorkerDsl[In, Out]:
 - `runWorkZIO` instead of `runWork` is the method that is called by the _Worker_ to execute the business logic.
 - The code can either:
     - complete the task successfully with a result -> `ZIO.succeed[Out]`
-    - fail the task with an error -> `ZIO.fail[OrchescalaWorkerError.CustomError]`
+    - fail the task with an error -> `ZIO.fail[WorkerError.CustomError]`
 - What about the strange return value `EngineRunContext ?=> IO[CustomError, Seq[Account]]`?
     - No worries `EngineRunContext ?=>` is just a way to pass the `EngineRunContext` to the function implicitly.
     - As you have this already in the `runWorkZIO` method, you can use it in the `getAccounts` method.

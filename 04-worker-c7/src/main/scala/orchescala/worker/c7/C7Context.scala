@@ -2,7 +2,7 @@ package orchescala.worker.c7
 
 import orchescala.domain.*
 import orchescala.worker.*
-import orchescala.worker.OrchescalaWorkerError.ServiceError
+import orchescala.worker.WorkerError.ServiceError
 import org.camunda.bpm.client.variable.ClientValues
 import org.slf4j.{Logger, LoggerFactory}
 import zio.ZIO

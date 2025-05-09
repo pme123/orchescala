@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.{RunWorkError, *}
+import orchescala.worker.WorkerError.{RunWorkError, *}
 import zio.{IO, UIO, ZIO}
 
 import scala.concurrent.duration.*
@@ -19,7 +19,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
 
   def runWorkFromWorker(in: In)(using
       EngineRunContext
-  ): IO[OrchescalaWorkerError, Out | NoOutput] =
+  ): IO[WorkerError, Out | NoOutput] =
     for
       validatedInput            <- ZIO.fromEither(
                                      worker.validationHandler.validate(in)
@@ -33,11 +33,11 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   /*
     Only call this if it is NOT an InitWorker
    */
-  def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[OrchescalaWorkerError, Out] =
+  def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[WorkerError, Out] =
     runWorkFromWorker(in)
       .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
 
-  protected def errorHandled(error: OrchescalaWorkerError, handledErrors: Seq[String]): Boolean =
+  protected def errorHandled(error: WorkerError, handledErrors: Seq[String]): Boolean =
     error.isMock || // if it is mocked, it is handled in the error, as it also could be a successful output
       handledErrors.contains(error.errorCode.toString) || handledErrors.map(
         _.toLowerCase
@@ -45,7 +45,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
 
   protected def regexMatchesAll(
       errorHandled: Boolean,
-      error: OrchescalaWorkerError,
+      error: WorkerError,
       regexHandledErrors: Seq[String]
   ) =
     val errorMsg = error.errorMsg.replace("\n", "")
@@ -68,7 +68,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   end filteredOutput
 
   extension [T](option: Option[T])
-    def toEither[E <: OrchescalaWorkerError](
+    def toEither[E <: WorkerError](
         error: E
     ): Either[E, T] =
       option
@@ -77,7 +77,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
           Left(error)
         )
 
-    def toIO[E <: OrchescalaWorkerError](
+    def toIO[E <: WorkerError](
         error: E
     ): IO[E, T] =
       option

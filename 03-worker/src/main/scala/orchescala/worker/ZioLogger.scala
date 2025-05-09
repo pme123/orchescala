@@ -24,7 +24,7 @@ case class Slf4JLogger(private val delegateLogger: Logger) extends WorkerLogger:
     if delegateLogger.isWarnEnabled then
       delegateLogger.warn(message)
 
-  def error(err: OrchescalaWorkerError): Unit =
+  def error(err: WorkerError): Unit =
     if delegateLogger.isErrorEnabled then
       delegateLogger.error(err.errorMsg)
 

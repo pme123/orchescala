@@ -2,7 +2,7 @@ package orchescala.worker.oauth
 
 import orchescala.domain.InOutDecoder
 import orchescala.worker.*
-import orchescala.worker.OrchescalaWorkerError.ServiceAuthError
+import orchescala.worker.WorkerError.ServiceAuthError
 import sttp.client3.*
 
 trait OAuthPasswordFlow:

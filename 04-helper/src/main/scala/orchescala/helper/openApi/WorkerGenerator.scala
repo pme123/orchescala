@@ -49,7 +49,7 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
     name ->
       s"""package $workerPackage
          |
-         |import OrchescalaWorkerError.*
+         |import WorkerError.*
          |import org.springframework.context.annotation.Configuration
          |
          |import $bpmnPackage.*
@@ -110,7 +110,7 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
     name ->
       s"""package $workerPackage
          |
-         |import OrchescalaWorkerError.*
+         |import WorkerError.*
          |
          |import $bpmnPackage.*
          |import $bpmnPackage.schema.*

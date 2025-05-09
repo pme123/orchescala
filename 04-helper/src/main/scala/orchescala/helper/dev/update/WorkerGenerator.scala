@@ -93,7 +93,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |  lazy val inOutExample = example
        |  
        |  // remove it if not needed
-       |  override def validate(in: In): Either[OrchescalaWorkerError.ValidatorError, In] = super.validate(in)
+       |  override def validate(in: In): Either[WorkerError.ValidatorError, In] = super.validate(in)
        |
        |end ${workerName}Worker""".stripMargin
   end eventWorker
@@ -122,7 +122,7 @@ case class WorkerGenerator()(using config: DevConfig):
     then
       """  lazy val customTask = example
         |
-        |  override def runWork(in: In): Either[OrchescalaWorkerError.CustomError, Out] =
+        |  override def runWork(in: In): Either[WorkerError.CustomError, Out] =
         |    ???
         |  end runWork""".stripMargin
     else

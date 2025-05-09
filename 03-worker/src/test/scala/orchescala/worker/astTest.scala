@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.{MockedOutput, ServiceError}
+import orchescala.worker.WorkerError.{MockedOutput, ServiceError}
 import zio.*
 import zio.test.*
 import zio.test.Assertion.*

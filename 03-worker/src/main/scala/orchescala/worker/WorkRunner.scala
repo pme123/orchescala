@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import zio.*
 
 final class WorkRunner[

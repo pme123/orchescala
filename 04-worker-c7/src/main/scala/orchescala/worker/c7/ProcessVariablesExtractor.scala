@@ -3,7 +3,7 @@ package orchescala.worker.c7
 import orchescala.worker.c7.CamundaHelper.*
 import orchescala.domain.*
 import orchescala.worker.*
-import orchescala.worker.OrchescalaWorkerError.BadVariableError
+import orchescala.worker.WorkerError.BadVariableError
 import org.camunda.bpm.engine.variable.`type`.ValueType
 import org.camunda.bpm.engine.variable.value.TypedValue
 import zio.{IO, ZIO}

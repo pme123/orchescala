@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import io.circe
 import sttp.model.Uri.QuerySegment
 import sttp.model.{Method, Uri}

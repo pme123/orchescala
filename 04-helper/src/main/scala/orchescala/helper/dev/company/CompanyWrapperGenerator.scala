@@ -181,7 +181,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.camunda7.worker.RestApiClient
-       |import orchescala.worker.OrchescalaWorkerError.*
+       |import orchescala.worker.WorkerError.*
        |import sttp.client3.*
        |
        |@SpringConfiguration

@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.ServiceError
+import orchescala.worker.WorkerError.ServiceError
 import zio.ZIO
 
 import java.time.{LocalDate, LocalDateTime}
@@ -100,7 +100,7 @@ trait WorkerLogger:
   def debug(message: String): Unit
   def info(message: String): Unit
   def warn(message: String): Unit
-  def error(err: OrchescalaWorkerError): Unit
+  def error(err: WorkerError): Unit
 end WorkerLogger
 
 final case class EngineRunContext(engineContext: EngineContext, generalVariables: GeneralVariables):

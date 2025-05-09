@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import zio.*
 import zio.test.*
 import zio.test.Assertion.*

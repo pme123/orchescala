@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.WorkerError.*
 import io.circe.syntax.*
 import zio.*
 
@@ -17,7 +17,7 @@ case class WorkerExecutor[
 
   def execute(
       processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
-  ): IO[OrchescalaWorkerError, Map[String, Any]] =
+  ): IO[WorkerError, Map[String, Any]] =
     (for
       validatedInput               <- InputValidator.validate(processVariables)
       initializedOutput            <- Initializer.initVariables(validatedInput)
