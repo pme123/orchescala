@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.1.2 - 2025-05-09
+### Changed 
+- Adjustments for new Sonatype portal. - see [Commit](git@github.com:pme123/orchescala/commit/51a212d3e9310e5b738f6077f9fd3a1471fc8ce3)
+- Added favicon.ico - see [Commit](git@github.com:pme123/orchescala/commit/e6cd8ce946627091b8e027a5df57d9985d958f1f)
+
 ## 0.1.1 - 2025-05-09
 ### Changed 
 - Generate docs for release. - see [Commit](git@github.com:pme123/orchescala/commit/6b310bf3c10a1fa1c5f3148655ad7f598b6d8ad5)
