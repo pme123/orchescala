@@ -26,7 +26,10 @@ lazy val root = project
     api,
     dmn,
     simulation,
-    helper
+    worker,
+    helper,
+    workerC7,
+    workerC8
   )
 
 // general independent
@@ -124,6 +127,22 @@ lazy val simulation = project
   )
   .dependsOn(domain)
 
+lazy val worker = project
+  .in(file("./03-worker"))
+  .configure(publicationSettings)
+  .settings(
+    projectSettings("worker"),
+    unitTestSettings,
+    autoImportSetting,
+    libraryDependencies ++= sttpDependencies ++ Seq(
+      scaffeineDependency,
+      zioDependency,
+      zioSlf4jDependency,
+      logbackDependency
+    ) ++ zioTestDependencies
+  )
+  .dependsOn(domain)
+
 // layer 04
 lazy val helper = project
   .in(file("./04-helper"))
@@ -134,3 +153,27 @@ lazy val helper = project
     autoImportSetting,
     libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav)
   ).dependsOn(api, simulation)
+
+lazy val workerC7 = project
+  .in(file("./04-worker-c7"))
+  .configure(publicationSettings)
+  .settings(projectSettings("worker-c7"))
+  .settings(unitTestSettings)
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++=
+      camunda7ZioWorkerDependencies ++ zioTestDependencies
+  )
+  .dependsOn(worker)
+lazy val workerC8    = project
+  .in(file("./04-worker-c8"))
+  .configure(publicationSettings)
+  .settings(projectSettings("worker-c8"))
+  .settings(unitTestSettings)
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++= Seq(
+      zeebeJavaClientDependency
+    ) ++ zioTestDependencies
+  )
+  .dependsOn(worker)
