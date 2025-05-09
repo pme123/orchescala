@@ -8,7 +8,6 @@ import laika.sbt.LaikaPlugin.autoImport.*
 import mdoc.MdocPlugin.autoImport.*
 import sbt.*
 import sbt.Keys.*
-import xerial.sbt.Sonatype.autoImport.sonatypeRepository
 
 import scala.util.Using
 
@@ -49,15 +48,7 @@ object Settings {
   lazy val publicationSettings: Project => Project = _.settings(
     // publishMavenStyle := true,
     pomIncludeRepository := { _ => false },
-    sonatypeRepository := "https://s01.oss.sonatype.org/service/local",
-    /*  publishTo := {
-      val nexus = "https://s01.oss.sonatype.org/"
-      if (isSnapshot.value)
-        Some("snapshots" at nexus + "content/repositories/snapshots")
-      else Some("releases" at nexus + "service/local/staging/deploy/maven2")
-    },
-    credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credentials"),
-     */ licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
+    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
     homepage := Some(url(githubUrl)),
     startYear := Some(2021),
     // logLevel := Level.Debug,

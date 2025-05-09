@@ -5,9 +5,11 @@ import laika.config.*
 import laika.format.Markdown.GitHubFlavor
 import laika.helium.Helium
 import laika.helium.config.{Favicon, HeliumIcon, IconLink}
+import xerial.sbt.Sonatype.sonatypeCentralHost
 
 ThisBuild / versionScheme          := Some("early-semver")
-ThisBuild / sonatypeCredentialHost := "s01.oss.sonatype.org"
+ThisBuild / sonatypeCredentialHost := sonatypeCentralHost
+
 ThisBuild / evictionErrorLevel     := Level.Warn
 //Problems in Scala 3.5.0: ThisBuild / usePipelining := true
 
