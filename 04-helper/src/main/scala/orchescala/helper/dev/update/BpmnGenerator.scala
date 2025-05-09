@@ -6,7 +6,10 @@ case class BpmnGenerator()(using config: DevConfig):
 
   def createProcess(setupElement: SetupElement): Unit =
     createIfNotExists(
-      domainPath(setupElement.processName, setupElement.version) / s"${setupElement.bpmnName}.scala",
+      domainPath(
+        setupElement.processName,
+        setupElement.version
+      ) / s"${setupElement.bpmnName}.scala",
       objectDefinition(
         setupElement,
         isProcess = true
@@ -16,7 +19,7 @@ case class BpmnGenerator()(using config: DevConfig):
 
   def createProcessElement(setupElement: SetupElement): Unit =
     val processName = setupElement.processName
-    val version = setupElement.version
+    val version     = setupElement.version
     createIfNotExists(
       domainPath(
         processName,
@@ -39,7 +42,10 @@ case class BpmnGenerator()(using config: DevConfig):
 
   def createEvent(setupElement: SetupElement): Unit =
     createIfNotExists(
-      domainPath(setupElement.processName, setupElement.version) / s"${setupElement.bpmnName}.scala",
+      domainPath(
+        setupElement.processName,
+        setupElement.version
+      ) / s"${setupElement.bpmnName}.scala",
       eventDefinition(setupElement)
     )
 
@@ -59,12 +65,12 @@ case class BpmnGenerator()(using config: DevConfig):
        |
        |  val ${
         label match
-          case "Process" => "processName"
-          case "UserTask" => "name"
-          case "Decision" => "decisionId"
+          case "Process"                      => "processName"
+          case "UserTask"                     => "name"
+          case "Decision"                     => "decisionId"
           case "SignalEvent" | "MessageEvent" => "messageName"
-          case "TimerEvent" => "title"
-          case _ => "topicName"
+          case "TimerEvent"                   => "title"
+          case _                              => "topicName"
       } = "${setupObject.identifier}"
        |  val descr: String = ""
        |
@@ -80,23 +86,8 @@ case class BpmnGenerator()(using config: DevConfig):
       }
        |${inOutDefinitions(isProcess)}
        |
-       |  lazy val example = ${
-        if label == "Decision" then
-          """singleResult( // singleEntry or collectEntries or  or resultList
-            |    In(),
-            |    Out() // Seq[Out] for collectEntries or  or resultList""".stripMargin
-        else
-          s"""${label.head.toLower + label.tail}(
-             |    In(),
-             |    Out()${if isProcess then ",\n    InitIn()" else ""}""".stripMargin
-      }    ${
-        if label == "ServiceTask" then
-          s""",
-             |    serviceMock,
-             |    serviceInExample""".stripMargin
-        else ""
-      }
-       |  )
+       |  lazy val example = ${example(label, isProcess)}
+       |    ${exampleServiceTask(label)}
        |end $domainName""".stripMargin
   end objectDefinition
 
@@ -156,7 +147,7 @@ case class BpmnGenerator()(using config: DevConfig):
 
   private def domainPath(processName: String, version: Option[Int]) =
     val subProject = config.subProjects.find(_ == processName)
-    val dir = config.projectDir / ModuleConfig.domainModule.packagePath(
+    val dir        = config.projectDir / ModuleConfig.domainModule.packagePath(
       config.projectPath,
       subProject = subProject
     ) / subProject.map(_ => os.rel).getOrElse(os.rel / processName) / version.versionPath
@@ -166,61 +157,85 @@ case class BpmnGenerator()(using config: DevConfig):
 
   private def inOutDefinitions(isProcess: Boolean = false) =
     s"""  case class In(
-      |     //TODO input variables
-      |  ${
-        if isProcess then
-          """    @description(
-            |        "A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**"
-            |      )
-            |      inConfig: Option[InConfig] = None
-            |  ) extends WithConfig[InConfig]:
-            |    lazy val defaultConfig = InConfig()
-            |  end In""".stripMargin
-        else """  )
-        |  //type In = NoInput // if no input is needed
-              |  """
+       |     //TODO input variables
+       |  ${}
+       |  object In:
+       |    given ApiSchema[In] = deriveApiSchema
+       |    given InOutCodec[In] = deriveInOutCodec
+       |${
+        if isProcess then inConfig else ""
       }
-      |  object In:
-      |    given ApiSchema[In] = deriveApiSchema
-      |    given InOutCodec[In] = deriveInOutCodec
-      |${
-        if isProcess then
-          """  case class InConfig(
-            |    // Process Configuration
-            |    // @description("To test cancel from other processes you need to set this flag.")
-            |    //  waitForCancel: Boolean = false,
-            |    // Mocks
-            |    // outputServiceMock
-            |    // @description(serviceOrProcessMockDescr(GetRelationship.serviceMock))
-            |    // getRelationshipMock: Option[MockedServiceResponse[GetRelationship.ServiceOut]] = None,
-            |    // outputMock
-            |    // @description(serviceOrProcessMockDescr(GetContractContractKey.Out()))
-            |    // getContractMock: Option[GetContractContractKey.Out] = None
-            |  )
-            |  object InConfig:
-            |    given ApiSchema[InConfig] = deriveApiSchema
-            |    given InOutCodec[InConfig] = deriveInOutCodec
-            |
-            |  //type InitIn = NoInput // if no initialisation is needed
-            |  case class InitIn(
-            |    //TODO init variables
-            |  )
-            |  object InitIn:
-            |    given ApiSchema[InitIn] = deriveApiSchema
-            |    given InOutCodec[InitIn] = deriveInOutCodec
-            |
-            |""".stripMargin
-        else ""
-      }
-      |  case class Out(//TODO output variables
-            ${//TODO output variables
+       |  case class Out(//TODO output variables
+            ${ // TODO output variables
         if isProcess then
           "        processStatus: ProcessStatus.succeeded.type = ProcessStatus.succeeded"
         else ""
       }
-      |  )
-      |  object Out:
-      |    given ApiSchema[Out] = deriveApiSchema
-      |    given InOutCodec[Out] = deriveInOutCodec"""
+       |  )
+       |  object Out:
+       |    given ApiSchema[Out] = deriveApiSchema
+       |    given InOutCodec[Out] = deriveInOutCodec""".stripMargin
 
+  private lazy val inConfig =
+    """  case class InConfig(
+      |    // Process Configuration
+      |    // @description("To test cancel from other processes you need to set this flag.")
+      |    //  waitForCancel: Boolean = false,
+      |    // Mocks
+      |    // outputServiceMock
+      |    // @description(serviceOrProcessMockDescr(GetRelationship.serviceMock))
+      |    // getRelationshipMock: Option[MockedServiceResponse[GetRelationship.ServiceOut]] = None,
+      |    // outputMock
+      |    // @description(serviceOrProcessMockDescr(GetContractContractKey.Out()))
+      |    // getContractMock: Option[GetContractContractKey.Out] = None
+      |  )
+      |  object InConfig:
+      |    given ApiSchema[InConfig] = deriveApiSchema
+      |    given InOutCodec[InConfig] = deriveInOutCodec
+      |
+      |  //type InitIn = NoInput // if no initialisation is needed
+      |  case class InitIn(
+      |    //TODO init variables
+      |  )
+      |  object InitIn:
+      |    given ApiSchema[InitIn] = deriveApiSchema
+      |    given InOutCodec[InitIn] = deriveInOutCodec
+      |
+      |""".stripMargin
+
+  private def extraInVars(isProcess: Boolean) =
+    if isProcess then
+      """    @description(
+        |        "A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**"
+        |      )
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |  end In""".stripMargin
+    else
+      """  )
+        |  //type In = NoInput // if no input is needed
+        |  """.stripMargin
+
+  private def example(label: String, isProcess: Boolean) =
+    if label == "Decision"
+    then
+      """singleResult( // singleEntry or collectEntries or  or resultList
+        |    In(),
+        |    Out() // Seq[Out] for collectEntries or  or resultList
+        | """.stripMargin
+    else
+      s"""${label.head.toLower + label.tail}(
+         |    In(),
+         |    Out()${if isProcess then ",\n    InitIn()" else ""}
+         |  """.stripMargin
+  end example
+
+  private def exampleServiceTask(label: String) =
+    if label == "ServiceTask" then
+      if label == "ServiceTask" then
+        s""",
+           |    serviceMock,
+           |    serviceInExample""".stripMargin
+      else ""
 end BpmnGenerator

@@ -112,43 +112,42 @@ case class WorkerGenerator()(using config: DevConfig):
         if label == "CustomTask" then "" else ", ServiceIn, ServiceOut"
       }]:
        |
-       |${
-        if label == "CustomTask"
-        then
-          """  lazy val customTask = example
-            |
-            |  override def runWork(in: In): Either[OrchescalaWorkerError.CustomError, Out] =
-            |    ???
-            |  end runWork""".stripMargin
-        else
-          """
-            |  lazy val serviceTask = example
-            |
-            |  override lazy val method = Method.GET
-            |
-            |  def apiUri(in: In) = uri"your/path/TODO"
-            |
-            |  override def querySegments(in: In) = ???
-            |    // queryKeys(ks: String*)
-            |    // queryKeyValues(kvs: (String, Any)*)
-            |    // queryValues(vs: Any*)
-            |
-            |  override def inputHeaders(in: In) = ???
-            |
-            |  override def inputMapper(in: In): Option[ServiceIn] = ???
-            |
-            |  override def outputMapper(
-            |      out: ServiceResponse[ServiceOut],
-            |      in: In
-            |  ) = ???
-            |
-            |""".stripMargin
-      }
-       |
+       |${workerContent(label)}
        |
        |end ${workerName}Worker""".stripMargin
   end processElement
 
+  private def workerContent(label: String) =
+    if label == "CustomTask"
+    then
+      """  lazy val customTask = example
+        |
+        |  override def runWork(in: In): Either[OrchescalaWorkerError.CustomError, Out] =
+        |    ???
+        |  end runWork""".stripMargin
+    else
+      """
+        |  lazy val serviceTask = example
+        |
+        |  override lazy val method = Method.GET
+        |
+        |  def apiUri(in: In) = uri"your/path/TODO"
+        |
+        |  override def querySegments(in: In) = ???
+        |    // queryKeys(ks: String*)
+        |    // queryKeyValues(kvs: (String, Any)*)
+        |    // queryValues(vs: Any*)
+        |
+        |  override def inputHeaders(in: In) = ???
+        |
+        |  override def inputMapper(in: In): Option[ServiceIn] = ???
+        |
+        |  override def outputMapper(
+        |      out: ServiceResponse[ServiceOut],
+        |      in: In
+        |  ) = ???
+        |
+        |""".stripMargin
   private def processWorkerTest(setupElement: SetupElement) =
     workerTest(setupElement):
       s"""
