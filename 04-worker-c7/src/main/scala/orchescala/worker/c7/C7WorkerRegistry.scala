@@ -1,4 +1,4 @@
-package orchescala.worker.c8
+package orchescala.worker.c7
 
 import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient

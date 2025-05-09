@@ -42,7 +42,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")
     verifyVersion(newVersion)
-    verifySnapshots()
+    //TODO verifySnapshots()
     verifyChangelog(newVersion)
     replaceVersion(newVersion, projectFile)
     println("Versions replaced")

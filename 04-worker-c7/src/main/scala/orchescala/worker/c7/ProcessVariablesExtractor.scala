@@ -1,6 +1,6 @@
-package orchescala.worker.c8
+package orchescala.worker.c7
 
-import orchescala.worker.c8.CamundaHelper.*
+import orchescala.worker.c7.CamundaHelper.*
 import orchescala.domain.*
 import orchescala.worker.*
 import orchescala.worker.OrchescalaWorkerError.BadVariableError
