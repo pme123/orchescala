@@ -70,7 +70,7 @@ trait SScenarioExtensions extends SStepExtensions:
       val uri = uri"${config.endpoint}/message"
 
       val request = basicRequest
-        .auth()
+        .authorize()
         .contentType("application/json")
         .body(body)
         .post(uri)
@@ -114,7 +114,7 @@ trait SScenarioExtensions extends SStepExtensions:
           uri"${config.endpoint}/process-definition/key/${process.processName}/start"
 
       val request: Request[Either[String, String], Any] = basicRequest
-        .auth()
+        .authorize()
         .contentType("application/json")
         .body(body)
         .post(uri)

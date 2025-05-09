@@ -1,9 +1,9 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
-import camundala.worker.c7zio.CamundaHelper.*
-import camundala.domain.*
-import camundala.worker.*
-import camundala.worker.CamundalaWorkerError.BadVariableError
+import orchescala.worker.c8.CamundaHelper.*
+import orchescala.domain.*
+import orchescala.worker.*
+import orchescala.worker.OrchescalaWorkerError.BadVariableError
 import org.camunda.bpm.engine.variable.`type`.ValueType
 import org.camunda.bpm.engine.variable.value.TypedValue
 import zio.{IO, ZIO}

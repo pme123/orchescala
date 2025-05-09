@@ -1,4 +1,4 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
 import io.camunda.zeebe.client.ZeebeClient
 import io.camunda.zeebe.client.impl.oauth.OAuthCredentialsProviderBuilder

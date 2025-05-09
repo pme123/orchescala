@@ -28,7 +28,7 @@ trait DmnScenarioExtensions extends SScenarioExtensions:
           uri"${config.endpoint}/decision-definition/key/${dmn.decisionDefinitionKey}/evaluate"
 
       val request = basicRequest
-        .auth()
+        .authorize()
         .contentType("application/json")
         .body(body)
         .post(uri)

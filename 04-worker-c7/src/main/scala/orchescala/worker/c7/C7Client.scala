@@ -1,7 +1,7 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
-import camundala.worker.oauth.OAuthPasswordFlow
-import camundala.worker.{Slf4JLogger, WorkerLogger}
+import orchescala.worker.oauth.OAuthPasswordFlow
+import orchescala.worker.{Slf4JLogger, WorkerLogger}
 import org.apache.hc.client5.http.config.RequestConfig
 import org.apache.hc.client5.http.impl.classic.*
 import org.apache.hc.core5.http.*

@@ -18,7 +18,7 @@ trait SimulationHelper extends ResultChecker, Logging:
   lazy val cockpitUrl =
     config.endpoint.replace("/engine-rest", "/camunda/app/cockpit/default")
   extension (request: RequestT[Empty, Either[String, String], Any])
-    def auth(): RequestT[Empty, Either[String, String], Any] =
+    def authorize(): RequestT[Empty, Either[String, String], Any] =
       config.authHeader(request)
 
   extension (request: Request[Either[String, String], Any])
@@ -176,7 +176,7 @@ trait SimulationHelper extends ResultChecker, Logging:
         case None =>
           uri"${config.endpoint}/incident?processInstanceId=$processInstanceId&deserializeValues=false"
       val request = basicRequest
-        .auth()
+        .authorize()
         .get(uri)
 
       given ScenarioData = data

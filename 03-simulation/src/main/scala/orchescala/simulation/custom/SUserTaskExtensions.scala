@@ -29,7 +29,7 @@ trait SUserTaskExtensions extends SimulationHelper:
         val uri =
           uri"${config.endpoint}/task?processInstanceId=$processInstanceId&taskDefinitionKey=$taskDefinitionKey"
         val request = basicRequest
-          .auth()
+          .authorize()
           .get(uri)
         given ScenarioData = data
           .info(
@@ -68,7 +68,7 @@ trait SUserTaskExtensions extends SimulationHelper:
       val uri =
         uri"${config.endpoint}/process-instance/$processInstanceId/variables?deserializeValues=false"
       val request = basicRequest
-        .auth()
+        .authorize()
         .get(uri)
 
       given ScenarioData = data
@@ -115,7 +115,7 @@ trait SUserTaskExtensions extends SimulationHelper:
         userTask.camundaOutMap
       ).asJson.deepDropNullValues.toString
       val request = basicRequest
-        .auth()
+        .authorize()
         .contentType("application/json")
         .body(body)
         .post(uri)

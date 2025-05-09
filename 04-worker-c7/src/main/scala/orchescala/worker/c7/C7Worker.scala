@@ -1,8 +1,8 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
-import camundala.domain.*
-import camundala.worker.*
-import camundala.worker.CamundalaWorkerError.*
+import orchescala.domain.*
+import orchescala.worker.*
+import orchescala.worker.OrchescalaWorkerError.*
 import org.camunda.bpm.client.task as camunda
 import zio.*
 import zio.ZIO.*
@@ -99,7 +99,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     .ignore
 
     private[worker] def handleError(
-        error: CamundalaWorkerError,
+        error: OrchescalaWorkerError,
         generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, Unit]] =
       checkError(error, generalVariables)
@@ -112,7 +112,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end handleError
 
     private[worker] def isErrorHandled(
-        error: CamundalaWorkerError,
+        error: OrchescalaWorkerError,
         handledErrors: Seq[String]
     ): Boolean =
       error.isMock || // if it is mocked, it is handled in the error, as it also could be a successful output
@@ -123,9 +123,9 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         ).contains("catchall")
 
     private[worker] def checkError(
-        error: CamundalaWorkerError,
+        error: OrchescalaWorkerError,
         generalVariables: GeneralVariables
-    ): HelperContext[URIO[Any, CamundalaWorkerError]] =
+    ): HelperContext[URIO[Any, OrchescalaWorkerError]] =
 
       val errorMsg          = error.errorMsg.replace("\n", "")
       val errorHandled      = isErrorHandled(error, generalVariables.handledErrors)
@@ -159,7 +159,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end checkError
 
     private[worker] def handleBpmnError(
-        error: CamundalaWorkerError,
+        error: OrchescalaWorkerError,
         filteredGeneralVariables: Map[String, Any]
     ): HelperContext[URIO[Any, Unit]] =
       val errorVars = Map(
@@ -184,7 +184,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end handleBpmnError
 
     private[worker] def handleFailure(
-        error: CamundalaWorkerError,
+        error: OrchescalaWorkerError,
         doRetry: Boolean = false
     ): HelperContext[URIO[Any, Unit]] =
       val taskId            = summon[camunda.ExternalTask].getId
@@ -213,7 +213,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end handleFailure
 
     private[worker] def calcRetries(
-        error: CamundalaWorkerError
+        error: OrchescalaWorkerError
     ): HelperContext[Int] =
       val doRetryMsgs = Seq(
         "Entity was updated by another transaction concurrently",

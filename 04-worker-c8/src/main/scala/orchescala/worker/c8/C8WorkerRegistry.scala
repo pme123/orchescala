@@ -1,6 +1,6 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
-import camundala.worker.{WorkerDsl, WorkerRegistry}
+import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import io.camunda.zeebe.client.ZeebeClient
 import zio.ZIO.*
 import zio.{Console, *}

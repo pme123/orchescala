@@ -1,8 +1,8 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
-import camundala.domain.*
-import camundala.worker.CamundalaWorkerError.*
-import camundala.worker.*
+import orchescala.domain.*
+import orchescala.worker.OrchescalaWorkerError.*
+import orchescala.worker.*
 import io.camunda.zeebe.client.api.response.ActivatedJob
 import io.camunda.zeebe.client.api.worker.{JobClient, JobHandler}
 import zio.*
@@ -67,7 +67,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   private[worker] def handleError(
       client: JobClient,
       job: ActivatedJob,
-      error: CamundalaWorkerError
+      error: OrchescalaWorkerError
   ): ZIO[Any, Throwable, Unit] =
     (for
       _                <- logError(s"Error: ${error.causeMsg}")

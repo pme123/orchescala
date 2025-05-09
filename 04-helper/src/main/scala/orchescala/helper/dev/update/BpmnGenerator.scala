@@ -233,9 +233,8 @@ case class BpmnGenerator()(using config: DevConfig):
 
   private def exampleServiceTask(label: String) =
     if label == "ServiceTask" then
-      if label == "ServiceTask" then
-        s""",
-           |    serviceMock,
-           |    serviceInExample""".stripMargin
-      else ""
+      s""",
+         |    serviceMock,
+         |    serviceInExample""".stripMargin
+    else ""
 end BpmnGenerator

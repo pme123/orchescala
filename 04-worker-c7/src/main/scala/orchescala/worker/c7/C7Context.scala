@@ -1,8 +1,8 @@
-package camundala.worker.c7zio
+package orchescala.worker.c8
 
-import camundala.domain.*
-import camundala.worker.*
-import camundala.worker.CamundalaWorkerError.ServiceError
+import orchescala.domain.*
+import orchescala.worker.*
+import orchescala.worker.OrchescalaWorkerError.ServiceError
 import org.camunda.bpm.client.variable.ClientValues
 import org.slf4j.{Logger, LoggerFactory}
 import zio.ZIO

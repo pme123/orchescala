@@ -13,7 +13,7 @@ trait SSubProcessExtensions extends SimulationHelper:
         val uri =
           uri"${config.endpoint}/process-instance?superProcessInstance=$superProcessInstanceId&active=true&processDefinitionKey=${process.processName}"
         val request = basicRequest
-          .auth()
+          .authorize()
           .get(uri)
 
         given ScenarioData = data

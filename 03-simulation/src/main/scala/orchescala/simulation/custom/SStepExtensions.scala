@@ -60,7 +60,7 @@ trait SStepExtensions
       val uri =
         uri"${config.endpoint}/history/variable-instance?processInstanceIdIn=$processInstanceId&executionIdIn=$processInstanceId&deserializeValues=false"
       val request = basicRequest
-        .auth()
+        .authorize()
         .get(uri)
       runRequest(request, s"Process '${hasProcessSteps.name}' checkVars")((body, data) =>
         body
@@ -99,7 +99,7 @@ trait SStepExtensions
       val uri =
         uri"${config.endpoint}/history/process-instance/$processInstanceId"
       val request = basicRequest
-        .auth()
+        .authorize()
         .get(uri)
       given ScenarioData = data
       runRequest(request, s"Process '${hasProcessSteps.name}' checkProcess") {

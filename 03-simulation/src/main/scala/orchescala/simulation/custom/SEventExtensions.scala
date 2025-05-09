@@ -17,7 +17,7 @@ trait SEventExtensions extends SimulationHelper:
         val uri =
           uri"${config.endpoint}/history/variable-instance?variableName=$variableName&processInstanceId=$processInstanceId&deserializeValues=false"
         val request = basicRequest
-          .auth()
+          .authorize()
           .get(uri)
         given ScenarioData = data
         runRequest(
@@ -89,7 +89,7 @@ trait SEventExtensions extends SimulationHelper:
         val uri = uri"${config.endpoint}/message"
 
         val request = basicRequest
-          .auth()
+          .authorize()
           .contentType("application/json")
           .body(body)
           .post(uri)
@@ -134,7 +134,7 @@ trait SEventExtensions extends SimulationHelper:
       val uri = uri"${config.endpoint}/signal"
 
       val request = basicRequest
-        .auth()
+        .authorize()
         .contentType("application/json")
         .body(body)
         .post(uri)
@@ -168,7 +168,7 @@ trait SEventExtensions extends SimulationHelper:
         val uri =
           uri"${config.endpoint}/job?processInstanceId=$processInstanceId"
         val request = basicRequest
-          .auth()
+          .authorize()
           .get(uri)
 
         given ScenarioData = data
@@ -215,7 +215,7 @@ trait SEventExtensions extends SimulationHelper:
       val uri = uri"${config.endpoint}/job/${data.context.jobId}/execute"
 
       val request = basicRequest
-        .auth()
+        .authorize()
         .contentType("application/json")
         .post(uri)
 
