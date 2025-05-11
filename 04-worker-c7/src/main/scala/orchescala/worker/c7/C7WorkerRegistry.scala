@@ -2,8 +2,8 @@ package orchescala.worker.c7
 
 import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient
+import zio.{UIO, ZIO}
 import zio.ZIO.*
-import zio.{Console, ZIO}
 
 class C7WorkerRegistry(client: C7Client)
     extends WorkerRegistry:
@@ -11,11 +11,11 @@ class C7WorkerRegistry(client: C7Client)
   protected def registerWorkers(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any] =
     acquireReleaseWith(client.client)(_.closeClient()): client =>
       for
-        _                             <- ZIO.logInfo(s"Starting C7 Worker Client - Available Processors: ${Runtime.getRuntime.availableProcessors()}")
+        _                             <- logInfo(s"Starting C7 Worker Client - Available Processors: ${Runtime.getRuntime.availableProcessors()}")
         server                        <- never.forever.fork
         c7Workers: Set[C7Worker[?, ?]] = workers.collect { case w: C7Worker[?, ?] => w }
         _                             <- foreachParDiscard(c7Workers)(w => registerWorker(w, client))
-        _                             <- ZIO.logInfo(s"C7 Worker Client started - registered ${workers.size} workers")
+        _                             <- logInfo(s"C7 Worker Client started - registered ${workers.size} workers")
         _                             <- server.join
       yield ()
 
@@ -27,7 +27,7 @@ class C7WorkerRegistry(client: C7Client)
       logInfo("Registered C7 Worker: " + worker.topic)
 
   extension (client: ExternalTaskClient)
-    def closeClient(): ZIO[Any, Nothing, Unit] =
+    private def closeClient(): UIO[Unit] =
       logInfo("Closing C7 Worker Client")
         .as(if client != null then client.stop() else ())
 end C7WorkerRegistry

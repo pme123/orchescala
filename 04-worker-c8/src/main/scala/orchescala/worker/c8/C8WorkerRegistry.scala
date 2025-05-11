@@ -14,7 +14,7 @@ class C8WorkerRegistry(client: C8Client)
         for
           server   <- ZIO.never.forever.fork
           c8Workers = workers.collect { case w: C8Worker[?, ?] => w }
-          _        <- collectAllPar(c8Workers.map(w => registerWorker(w, client)))
+          _        <- foreachParDiscard(c8Workers)(w => registerWorker(w, client))
           _        <- server.join
         yield ()
 
@@ -28,8 +28,7 @@ class C8WorkerRegistry(client: C8Client)
       logInfo("Registered C8 Worker: " + worker.topic)
 
   extension (client: ZeebeClient)
-    def closeClient() =
-      logInfo("Closing C7 Worker Client") *>
-        succeed(if client != null then client.close() else ())
+    private def closeClient(): UIO[Unit] =
+      logInfo("Closing C7 Worker Client").as(if client != null then client.close() else ())
 
 end C8WorkerRegistry
