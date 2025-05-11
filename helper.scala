@@ -7,13 +7,15 @@ import orchescala.helper.dev.publish.ChangeLogUpdater
 @main
 def release(version: String): Unit =
   println(s"Publishing orchescala: $version")
-  ChangeLogUpdater.verifyChangelog(version)
 
   val releaseVersion = """^(\d+)\.(\d+)\.(\d+)(-.*)?$"""
   if !version.matches(releaseVersion) then
     throw new IllegalArgumentException(
-      "Your Version has not the expected format (2.1.2(-SNAPSHOT))"
+      """Your Version has not the expected format (2.1.2(-SNAPSHOT))
+        |Command is ./helper.scala <VERSION>
+        |""".stripMargin
     )
+  ChangeLogUpdater.verifyChangelog(version)
 
   replaceVersion(version)
 
