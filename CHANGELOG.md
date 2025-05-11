@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.1.4 - 2025-05-11
+### Changed 
+- Cleanup Registries. - see [Commit](git@github.com:pme123/orchescala/commit/aa30ec1bac0fab77b534fe887cd888108f6271bc)
+- Renamed OrchescalaWorkerError to WorkerError. - see [Commit](git@github.com:pme123/orchescala/commit/a291bd23ce1c73276229848edf495f20913406ae)
+- Adjusted README. - see [Commit](git@github.com:pme123/orchescala/commit/8ed5b40eb1322b88d184899a35e0378ba4b3037f)
+
 ## 0.1.3 - 2025-05-09
 ### Changed 
 - Fixed bad package- and DevCompanyOrchescalaHelper name. - see [Commit](git@github.com:pme123/orchescala/commit/2ed750ebdc21425961095567a99fbc7ebf277eca)
