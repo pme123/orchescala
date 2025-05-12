@@ -148,10 +148,10 @@ case class CompanySbtGenerator()(using
        |  lazy val simulationDeps = Seq(
        |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV
        |  )
-       |  lazy val workersDeps = Seq(
-       |    "io.github.pme123" %% "orchescala-camunda7-worker" % orchescalaV
+       |  lazy val workerDeps = Seq(
+       |    "io.github.pme123" %% "orchescala-worker-c7" % orchescalaV,
+       |    "io.github.pme123" %% "orchescala-worker-c8" % orchescalaV,
        |  )
-       |
        |  lazy val helperDeps = apiDeps ++ Seq(
        |    "io.github.pme123" %% "orchescala-helper" % orchescalaV
        |  )
@@ -184,7 +184,7 @@ case class CompanySbtGenerator()(using
        |  .settings(name := projectName, sourcesInBase := false)
        |  .settings(preventPublication)
        |  .aggregate(
-       |    bpmn,
+       |    domain,
        |    api,
        |    dmn,
        |    simulation,
@@ -193,9 +193,9 @@ case class CompanySbtGenerator()(using
        |    docs
        |  )
        |
-       |lazy val bpmn = project
-       |  .in(file("./02-bpmn"))
-       |  .settings(generalSettings(Some("bpmn")))
+       |lazy val domain = project
+       |  .in(file("./01-domain"))
+       |  .settings(generalSettings(Some("domain")))
        |  .settings(publicationSettings)
        |  .settings(libraryDependencies ++= domainDeps)
        |  .settings(buildInfoSettings())
@@ -228,7 +228,7 @@ case class CompanySbtGenerator()(using
        |  .settings(generalSettings(Some("worker")))
        |  .settings(publicationSettings)
        |  .settings(unitTestSettings)
-       |  .settings(libraryDependencies ++= workersDeps)
+       |  .settings(libraryDependencies ++= workerDeps)
        |  .dependsOn(domain)
        |
        |lazy val helper = project

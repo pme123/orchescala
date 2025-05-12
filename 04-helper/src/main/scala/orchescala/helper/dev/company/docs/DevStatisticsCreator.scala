@@ -32,7 +32,7 @@ case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path):
             }.mkString
         }
          |${
-          Seq("bpmn", "dmn", "groovy", "scala")
+          Seq("bpmn", "dmn", "scala")
             .map(lineCount(_))
             .map { case ftc @ FileTypeCount(fileType, projectCounts, _) =>
               s"""

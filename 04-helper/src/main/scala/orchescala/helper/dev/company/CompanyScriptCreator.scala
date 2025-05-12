@@ -9,7 +9,6 @@ case class CompanyScriptCreator()(using config: DevConfig):
     s"""#!/usr/bin/env -S scala shebang
        |$helperCompanyDoNotAdjustText
        |
-       |//> using toolkit 0.5.0
        |//> using dep io.github.pme123::orchescala-helper:${VersionHelper.orchescalaVersion}
        |
        |import orchescala.helper.dev.DevCompanyHelper

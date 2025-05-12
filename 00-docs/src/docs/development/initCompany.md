@@ -45,7 +45,6 @@ open helperCompany.scala
    #!/usr/bin/env -S scala shebang
    // DO NOT ADJUST. This file is replaced by `./helper.scala update`.
 
-   //> using toolkit 0.5.0
    //> using dep io.github.pme123::orchescala-helper:@VERSION@
    
    import orchescala.helper.dev.DevCompanyHelper
@@ -68,6 +67,7 @@ chmod +x helperCompany.scala
 1. Open the `company-orchescala` directory with your IDE (I use Intellij).
 1. Import the sbt project. The project should compile without errors.
 1. Update `build.sbt` with your repository settings.
+1. Add your project to your Version Source Control.
 1. Release the `company-orchescala` project to your repository.
 
 ### Next Step: [Create Project]

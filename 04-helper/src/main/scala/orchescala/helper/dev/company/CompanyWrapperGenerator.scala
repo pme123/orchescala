@@ -6,11 +6,12 @@ import orchescala.helper.util.*
 case class CompanyWrapperGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
-    createIfNotExists(projectBpmnPath, bpmnWrapper)
+    createIfNotExists(projectDomainPath, domainWrapper)
     createIfNotExists(projectApiPath, apiWrapper)
     createIfNotExists(projectDmnPath, dmnWrapper)
     createIfNotExists(projectSimulationPath, simulationWrapper)
-    createIfNotExists(projectWorkerHandlerPath, workerHandlerWrapper)
+    os.makeDir.all(projectWorkerOrchescalaPath)
+    createIfNotExists(projectWorkerPath, workerWrapper)
     createIfNotExists(projectWorkerContextPath, workerContextWrapper)
     createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
     createIfNotExists(projectWorkerRestApiPath, workerRestApiWrapper)
@@ -21,11 +22,12 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
 
   private lazy val companyName = config.companyName
 
-  private lazy val projectBpmnPath = ModuleConfig.domainModule.srcPath / "CompanyBpmnDsl.scala"
+  private lazy val projectDomainPath = ModuleConfig.domainModule.srcPath / "CompanyBpmnDsl.scala"
   private lazy val projectApiPath = ModuleConfig.apiModule.srcPath / "CompanyApiCreator.scala"
   private lazy val projectDmnPath = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
   private lazy val projectSimulationPath = ModuleConfig.simulationModule.srcPath / "CompanySimulation.scala"
-  private lazy val projectWorkerHandlerPath = ModuleConfig.workerModule.srcPath / "CompanyWorkerHandler.scala"
+  private lazy val projectWorkerOrchescalaPath = os.Path(ModuleConfig.workerModule.srcPath.toString.replace(s"/$companyName", ""))
+  private lazy val projectWorkerPath = projectWorkerOrchescalaPath / "CompanyWorker.scala"
   private lazy val projectWorkerContextPath = ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
   private lazy val projectWorkerPasswordPath = ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
   private lazy val projectWorkerRestApiPath = ModuleConfig.workerModule.srcPath / "CompanyRestApiClient.scala"
@@ -34,7 +36,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val helperCompanyDevConfigPath = ModuleConfig.helperModule.srcPath / "CompanyDevConfig.scala"
   private lazy val helperCompanyOrchescalaDevHelperPath = ModuleConfig.helperModule.srcPath / "CompanyOrchescalaDevHelper.scala"
 
-  private lazy val bpmnWrapper =
+  private lazy val domainWrapper =
     s"""package $companyName.orchescala.domain
        |
        |/**
@@ -99,41 +101,46 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |end CompanySimulation
        |""".stripMargin
 
-  private lazy val workerHandlerWrapper =
+  private lazy val workerWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.camunda7.worker.C7WorkerHandler
+       |import orchescala.worker.c7.{C7Context, C7Worker}
+       |import orchescala.worker.c8.{C8Context, C8Worker}
+       |import $companyName.orchescala.worker.*
+       |
        |import scala.reflect.ClassTag
        |
        |/**
        | * Add here company specific stuff, to run the Workers.
-       | * You also define the implementation of the WorkerHandler here.
+       | * You also define the implementation of the Worker here.
        | */
-       |trait CompanyWorkerHandler[In <: Product : InOutCodec, Out <: Product : InOutCodec] 
-       |  extends C7WorkerHandler[In, Out]
+       |trait CompanyWorker[In <: Product : InOutCodec, Out <: Product : InOutCodec]
+       |  extends C7Worker[In, Out], C8Worker[In, Out]
+       |  protected def c7Context: C7Context = CompanyEngineContext(CompanyRestApiClient())
+       |  protected def c8Context: C8Context = CompanyEngineContext(CompanyRestApiClient())
        |
        |trait CompanyValidationWorkerDsl[
        |    In <: Product: InOutCodec
-       |] extends CompanyWorkerHandler[In, NoOutput], ValidationWorkerDsl[In]
+       |] extends CompanyWorker[In, NoOutput], ValidationWorkerDsl[In]
        |
        |trait CompanyInitWorkerDsl[
        |    In <: Product: InOutCodec,
        |    Out <: Product: InOutCodec,
        |    InitIn <: Product: InOutCodec,
        |    InConfig <: Product: InOutCodec
-       |] extends CompanyWorkerHandler[In, Out], InitWorkerDsl[In, Out, InitIn, InConfig]
+       |] extends CompanyWorker[In, Out], InitWorkerDsl[In, Out, InitIn, InConfig]
        |
        |trait CompanyCustomWorkerDsl[
        |    In <: Product: InOutCodec,
        |    Out <: Product: InOutCodec
-       |] extends CompanyWorkerHandler[In, Out], CustomWorkerDsl[In, Out]
+       |] extends CompanyWorker[In, Out], CustomWorkerDsl[In, Out]
        |
        |trait CompanyServiceWorkerDsl[
        |    In <: Product: InOutCodec,
        |    Out <: Product: InOutCodec,
        |    ServiceIn: InOutEncoder,
        |    ServiceOut: {InOutDecoder, ClassTag}
-       |] extends CompanyWorkerHandler[In, Out], ServiceWorkerDsl[In, Out, ServiceIn, ServiceOut]
+       |] extends CompanyWorker[In, Out], ServiceWorkerDsl[In, Out, ServiceIn, ServiceOut]
        |""".stripMargin
 
   private lazy val workerContextWrapper =
@@ -180,13 +187,11 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val workerRestApiWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.camunda7.worker.RestApiClient
-       |import orchescala.worker.WorkerError.*
+       |import orchescala.worker.WorkerError.ServiceAuthError
+       |import orchescala.worker.oauth.TokenService
        |import sttp.client3.*
        |
-       |@SpringConfiguration
-       |class CompanyRestApiClient extends RestApiClient, CompanyPasswordFlow:
-       |
+       |class CompanyRestApiClient extends RestApiClient, CompanyOAuth2Client:
        |  override protected def auth(
        |      request: Request[Either[String, String], Any]
        |  )(using
