@@ -87,6 +87,11 @@ inline def deriveApiSchema[T](using
     m: Mirror.Of[T]
 ): Schema[T] =
   Schema.derived[T]
+  
+inline def deriveSeqApiSchema[T](using
+    m: Mirror.Of[T]
+): Schema[Seq[T]] =
+  Schema.derived[T].asIterable[Seq]
 
 inline def deriveUnionApiSchema[T](using
     m: Mirror.Of[T]

@@ -5,7 +5,7 @@ object ProjectApiGenerator extends App:
 
   OpenApiGenerator().generate
 
-  private given OpenApiConfig = gravitonConf
+  private given OpenApiConfig = camundaConf
   private lazy val typeMappers =
     OpenApiConfig.generalTypeMapping ++
       Seq(
@@ -20,9 +20,5 @@ object ProjectApiGenerator extends App:
     superWorkerClass = "orchescala.worker.ServiceWorkerDsl",
     filterNames = Seq("{id}")
   )
-
-  private lazy val gravitonConf = OpenApiConfig(
-    projectName = "valiant-graviton",
-    openApiFile = os.rel / "gravitonOpenApi.json"
-  )
+  
 end ProjectApiGenerator

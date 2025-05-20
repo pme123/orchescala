@@ -19,7 +19,10 @@ case class WorkerExecutor[
       processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
   ): IO[WorkerError, Map[String, Any]] =
     (for
+      _ <- ZIO.logInfo(s"Executing Worker: ${processVariables}")
       validatedInput               <- InputValidator.validate(processVariables)
+        .tapError(error => ZIO.logError(s"Error: ${error}"))
+
       initializedOutput            <- Initializer.initVariables(validatedInput)
       mockedOutput                 <- OutMocker(worker).mockedOutput(validatedInput)
       // only run the work if it is not mocked
@@ -47,6 +50,7 @@ case class WorkerExecutor[
           .flatMap:
             case (failures, successes) if failures.isEmpty =>
               ZIO.succeed(successes.toSeq)
+                .tap(json => ZIO.logInfo(s"validated JSON Input: ${json}"))
             case (failures, _)                             =>
               ZIO.fail(
                 ValidatorError(
@@ -54,7 +58,7 @@ case class WorkerExecutor[
                     .collect { case Left(value) => value }
                     .mkString("Validator Error(s):\n - ", " - ", "\n")
                 )
-              )
+              ).tapError(err => ZIO.logError(s"vvvvError: ${err}"))
 
       val json: IO[ValidatorError, JsonObject] = jsonResult
         .map(_.foldLeft(JsonObject()) { case (jsonObj, jsonKey -> jsonValue) =>
@@ -67,10 +71,11 @@ case class WorkerExecutor[
         posJsonObj
           .flatMap(jsonObj =>
             decodeTo[In](jsonObj.asJson.deepDropNullValues.toString)
+              .tapError(err => ZIO.logError(s"eeeError: ${err}"))
               .mapError(ex => ValidatorError(errorMsg = ex.errorMsg))
               .flatMap(in =>
                 ZIO.fromEither(validationHandler.validate(in))
-              )
+              ).tapError(err => ZIO.logError(s"vvvvError: ${err}"))
           )
 
       val in     = toIn(json)
@@ -93,7 +98,8 @@ case class WorkerExecutor[
 
         case x =>
           in
-      result
+      result.tapError(err => ZIO.logError(s"xxxError: ${err}"))
+        .tap(in => ZIO.logInfo(s"validatedInput: ${in}"))
     end validate
 
   end InputValidator

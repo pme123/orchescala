@@ -5,7 +5,7 @@ import io.camunda.zeebe.client.ZeebeClient
 import zio.ZIO.*
 import zio.{Console, *}
 
-class C8WorkerRegistry(client: C8Client)
+class C8WorkerRegistry(client: C8WorkerClient)
     extends WorkerRegistry:
 
   protected def registerWorkers(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any] =

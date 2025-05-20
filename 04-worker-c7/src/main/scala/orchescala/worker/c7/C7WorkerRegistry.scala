@@ -5,7 +5,7 @@ import org.camunda.bpm.client.ExternalTaskClient
 import zio.{UIO, ZIO}
 import zio.ZIO.*
 
-class C7WorkerRegistry(client: C7Client)
+class C7WorkerRegistry(client: C7WorkerClient)
     extends WorkerRegistry:
 
   protected def registerWorkers(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any] =

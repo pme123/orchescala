@@ -68,7 +68,6 @@ case class WorkerGenerator()(using config: DevConfig):
        |
        |import ${config.projectPackage}.domain.$processName${version.versionPackage}.$workerName.*
        |
-       |@SpringConfiguration
        |class ${workerName}Worker extends CompanyInitWorkerDsl[In, Out, InitIn, InConfig]:
        |
        |  lazy val inOutExample = example
@@ -87,7 +86,6 @@ case class WorkerGenerator()(using config: DevConfig):
        |
        |import ${config.projectPackage}.domain.$processName${version.versionPackage}.$workerName.*
        |
-       |@SpringConfiguration
        |class ${workerName}Worker extends CompanyValidationWorkerDsl[In]:
        |
        |  lazy val inOutExample = example
@@ -107,7 +105,6 @@ case class WorkerGenerator()(using config: DevConfig):
        |
        |import ${config.projectPackage}.domain.$processName${version.versionPackage}.$workerName.*
        |
-       |@SpringConfiguration
        |class ${workerName}Worker extends Company${label.replace("Task", "")}WorkerDsl[In, Out${
         if label == "CustomTask" then "" else ", ServiceIn, ServiceOut"
       }]:

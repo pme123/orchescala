@@ -88,6 +88,7 @@ case class BpmnGenerator()(using config: DevConfig):
        |
        |  lazy val example = ${example(label, isProcess)}
        |    ${exampleServiceTask(label)}
+       |  )
        |end $domainName""".stripMargin
   end objectDefinition
 
@@ -158,7 +159,7 @@ case class BpmnGenerator()(using config: DevConfig):
   private def inOutDefinitions(isProcess: Boolean = false) =
     s"""  case class In(
        |     //TODO input variables
-       |  ${}
+       |  ${extraInVars(isProcess)}
        |  object In:
        |    given ApiSchema[In] = deriveApiSchema
        |    given InOutCodec[In] = deriveInOutCodec

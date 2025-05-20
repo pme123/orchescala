@@ -8,6 +8,7 @@ import sttp.client3.*
 trait OAuthPasswordFlow:
   def fssoRealm: String
   def fssoBaseUrl: String
+  
   def identityUrl =
     uri"$fssoBaseUrl/realms/$fssoRealm/protocol/openid-connect/token"
 

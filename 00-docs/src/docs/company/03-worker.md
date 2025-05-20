@@ -30,19 +30,16 @@ Depending on the Camunda Engine and Authentication you use, you have to provide 
 ```scala
 package mycompany.orchescala.worker
 
-import orchescala.camunda7.worker.Camunda7Context
+import orchescala.worker.c7.C7Context
 import scala.compiletime.uninitialized
 import scala.reflect.ClassTag
 
-@SpringConfiguration
-class CompanyEngineContext extends Camunda7Context:
+class CompanyEngineContext(restApiClient: CompanyRestApiClient) extends C7Context:
 
-  @Autowired()
-  var restApiClient: CompanyRestApiClient = uninitialized
 
-  override def sendRequest[ServiceIn: Encoder, ServiceOut: Decoder: ClassTag](
-      request: RunnableRequest[ServiceIn]
-  ): SendRequestType[ServiceOut] =
+  override def sendRequest[ServiceIn: Encoder, ServiceOut: {Decoder, ClassTag}](
+                                                                                 request: RunnableRequest[ServiceIn]
+                                                                               ): SendRequestType[ServiceOut] =
     restApiClient.sendRequest(request)
 
 end CompanyEngineContext
@@ -53,21 +50,14 @@ Basically you override the sendRequest to use your RestApiClient with the specif
 Configure the Token Service - this is tested only with Keycloak.
 
 ```scala
-package mycompany.orchescala.worker
+import orchescala.worker.c7.OAuth2WorkerClient
 
-import orchescala.camunda7.worker.oauth.OAuthPasswordFlow
+trait CompanyPasswordFlow extends OAuth2WorkerClient:
 
-trait CompanyPasswordFlow extends OAuthPasswordFlow:
+  def fssoRealm: String = ???
+  def fssoBaseUrl: String = ???
 
-  lazy val fssoRealm: String = sys.env.getOrElse("FSSO_REALM", "myRealm")
-  // default is a local keycloak server on colime docker environment
-  lazy val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
-
-  override lazy val client_id = sys.env.getOrElse("FSSO_CLIENT_NAME", "myClientKey")
-  override lazy val client_secret = sys.env.getOrElse("FSSO_CLIENT_SECRET", "myClientSecret")
-  override lazy val scope = sys.env.getOrElse("FSSO_SCOPE", "myScope")
-  override lazy val username = sys.env.getOrElse("FSSO_TECHUSER_NAME", "myTechUser")
-  override lazy val password = sys.env.getOrElse("FSSO_TECHUSER_PASSWORD", "myTechUserPassword")
+  // override the config if needed or change the WorkerClient
 
 end CompanyPasswordFlow
 ```
@@ -77,21 +67,18 @@ Some specific configuration or authentication for the RestApiClient.
 ```scala
 package mycompany.orchescala.worker
 
-import orchescala.camunda7.worker.RestApiClient
-import orchescala.worker.WorkerError.*
+import orchescala.worker.WorkerError.ServiceAuthError
 import sttp.client3.*
 
-@SpringConfiguration
 class CompanyRestApiClient extends RestApiClient, CompanyPasswordFlow:
 
-    override protected def auth(
-                                 request: Request[Either[String, String], Any]
-                               )(using context: EngineRunContext
-    ): Either[ServiceAuthError, Request[Either[String, String], Any]] =
-      tokenService.adminToken()
-        .map:
-          request.addToken
-    end auth
+  override protected def auth(
+                               request: Request[Either[String, String], Any]
+                             )(using
+                               context: EngineRunContext
+                             ): IO[ServiceAuthError, Request[Either[String, String], Any]] = ???
+
+  end auth
 
 end CompanyRestApiClient
 ```

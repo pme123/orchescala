@@ -15,7 +15,6 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     createIfNotExists(projectWorkerContextPath, workerContextWrapper)
     createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
     createIfNotExists(projectWorkerRestApiPath, workerRestApiWrapper)
-    createIfNotExists(projectWorkerConfigPath, workerApplicationConfig)
     createIfNotExists(helperCompanyDevHelperPath, helperCompanyDevHelperWrapper)
     createIfNotExists(helperCompanyDevConfigPath, helperCompanyDevConfigWrapper)
     createIfNotExists(helperCompanyOrchescalaDevHelperPath, helperCompanyOrchescalaDevHelperWrapper)
@@ -31,7 +30,6 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val projectWorkerContextPath = ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
   private lazy val projectWorkerPasswordPath = ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
   private lazy val projectWorkerRestApiPath = ModuleConfig.workerModule.srcPath / "CompanyRestApiClient.scala"
-  private lazy val projectWorkerConfigPath = ModuleConfig.workerModule.resourcePath / "application-company-defaults.yaml"
   private lazy val helperCompanyDevHelperPath = ModuleConfig.helperModule.srcPath / "CompanyDevHelper.scala"
   private lazy val helperCompanyDevConfigPath = ModuleConfig.helperModule.srcPath / "CompanyDevConfig.scala"
   private lazy val helperCompanyOrchescalaDevHelperPath = ModuleConfig.helperModule.srcPath / "CompanyOrchescalaDevHelper.scala"
@@ -146,17 +144,14 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val workerContextWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.camunda7.worker.Camunda7Context
+       |import orchescala.worker.c7.C7Context
        |import scala.compiletime.uninitialized
        |import scala.reflect.ClassTag
        |
-       |@SpringConfiguration
-       |class CompanyEngineContext extends Camunda7Context:
+       |class CompanyEngineContext(restApiClient: CompanyRestApiClient) extends C7Context:
        |
-       |  @Autowired()
-       |  var restApiClient: CompanyRestApiClient = uninitialized
        |
-       |  override def sendRequest[ServiceIn: Encoder, ServiceOut: Decoder: ClassTag](
+       |  override def sendRequest[ServiceIn: Encoder, ServiceOut: {Decoder, ClassTag}](
        |      request: RunnableRequest[ServiceIn]
        |  ): SendRequestType[ServiceOut] =
        |    restApiClient.sendRequest(request)
@@ -167,19 +162,14 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val workerPasswordWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.camunda7.worker.oauth.OAuthPasswordFlow
+       |import orchescala.worker.c7.OAuth2WorkerClient
        |
-       |trait CompanyPasswordFlow extends OAuthPasswordFlow:
+       |trait CompanyPasswordFlow extends OAuth2WorkerClient:
        |
-       |  lazy val fssoRealm: String = sys.env.getOrElse("FSSO_REALM", "myRealm")
-       |  // default is a local keycloak server on colime docker environment
-       |  lazy val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+       |  def fssoRealm: String = ???
+       |  def fssoBaseUrl: String = ???
        |
-       |  override lazy val client_id = sys.env.getOrElse("FSSO_CLIENT_NAME", "myClientKey")
-       |  override lazy val client_secret = sys.env.getOrElse("FSSO_CLIENT_SECRET", "myClientSecret")
-       |  override lazy val scope = sys.env.getOrElse("FSSO_SCOPE", "myScope")
-       |  override lazy val username = sys.env.getOrElse("FSSO_TECHUSER_NAME", "myTechUser")
-       |  override lazy val password = sys.env.getOrElse("FSSO_TECHUSER_PASSWORD", "myTechUserPassword")
+       | // override the config if needed or change the WorkerClient
        |
        |end CompanyPasswordFlow
        |""".stripMargin
@@ -188,65 +178,20 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.worker.WorkerError.ServiceAuthError
-       |import orchescala.worker.oauth.TokenService
        |import sttp.client3.*
        |
-       |class CompanyRestApiClient extends RestApiClient, CompanyOAuth2Client:
+       |class CompanyRestApiClient extends RestApiClient, CompanyPasswordFlow:
+       |
        |  override protected def auth(
        |      request: Request[Either[String, String], Any]
        |  )(using
        |      context: EngineRunContext
-       |  ): Either[ServiceAuthError, Request[Either[String, String], Any]] =
-       |    tokenService.adminToken()
-       |      .map:
-       |        request.addToken
+       |  ): IO[ServiceAuthError, Request[Either[String, String], Any]] = ???
+       |
        |  end auth
        |
        |end CompanyRestApiClient
        |""".stripMargin
-
-  private lazy val workerApplicationConfig =
-    """server:
-      |  port: 8093
-      |camunda.bpm:
-      |  job-execution:
-      |    wait-time-in-millis: 200 # this is for speedup testing
-      |  client:
-      |    base-url: ${CAMUNDA_BASE_URL:http://localhost:8080/engine-rest}
-      |    worker-id: ${WORKER_ID:my-worker}
-      |    disable-backoff-strategy: true # only during testing - faster topic
-      |    async-response-timeout: 10000
-      |
-      |spring:
-      |  security:
-      |    oauth2:
-      |      client:
-      |        registration:
-      |          worker:
-      |            provider: keycloak-primary
-      |            client-id: myclient
-      |            client-secret: ${FSSO_CLIENT_SECRET}
-      |            clientName: ${FSSO_CLIENT_NAME:myclient}
-      |            authorization-grant-type: client_credentials
-      |            redirect-uri: '{baseUrl}/login/oauth2/code/{registrationId}'
-      |            scope:
-      |              - openid
-      |              - profile
-      |              - email
-      |        provider:
-      |          keycloak-primary:
-      |            authorization-uri: ${FSSO_BASE_URL:http://kubernetes.docker.internal:8090/auth}/realms/${FSSO_REALM:master}/protocol/openid-connect/auth
-      |            token-uri: ${FSSO_BASE_URL:http://kubernetes.docker.internal:8090/auth}/realms/${FSSO_REALM:master}/protocol/openid-connect/token
-      |            user-info-uri: ${FSSO_BASE_URL:http://kubernetes.docker.internal:8090/auth}/realms/${FSSO_REALM:master}/protocol/openid-connect/userinfo
-      |            jwk-set-uri: ${FSSO_BASE_URL:http://kubernetes.docker.internal:8090/auth}/realms/${FSSO_REALM:master}/protocol/openid-connect/certs
-      |            user-name-attribute: preferred_username
-      |
-      |management:
-      |  endpoints:
-      |    web:
-      |      exposure:
-      |        include: "health"
-      |""".stripMargin
 
   private lazy val helperCompanyDevHelperWrapper =
     s"""package $companyName.orchescala.helper

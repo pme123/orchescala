@@ -9,7 +9,6 @@ Here are the main differences to a simple _Custom Worker_:
 ```scala
 import mycompany.myproject.bpmn.myprocess.v1.MyCustomTask.*
 
-@SpringConfiguration
 class MyCustomTaskWorker extends CompanyCustomWorkerDsl[In, Out]:
 
   lazy val customTask = example
