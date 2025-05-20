@@ -6,10 +6,10 @@ import zio.{Task, ZIO}
 
 import java.net.URI
 
-trait C8Client:
+trait C8WorkerClient:
   def client: Task[ZeebeClient]
   
-object C8SaasClient extends C8Client:
+trait C8SaasWorkerClient extends C8WorkerClient:
   
   lazy val client: Task[ZeebeClient] =
     ZIO.attempt:

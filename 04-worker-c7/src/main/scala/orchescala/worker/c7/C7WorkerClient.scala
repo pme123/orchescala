@@ -17,10 +17,10 @@ import java.io.IOException
 import java.util.Base64
 import scala.jdk.CollectionConverters.*
 
-trait C7Client:
+trait C7WorkerClient:
   def client: ZIO[Any, Throwable, ExternalTaskClient]
 
-object C7NoAuthClient extends C7Client:
+object C7NoAuthWorkerClient extends C7WorkerClient:
 
   def client =
     ZIO.attempt:
@@ -32,9 +32,9 @@ object C7NoAuthClient extends C7Client:
             // .setResponseTimeout(Timeout.ofSeconds(15))
             .build())
         .build()
-end C7NoAuthClient
+end C7NoAuthWorkerClient
 
-object C7BasicAuthClient extends C7Client:
+object C7BasicAuthWorkerClient extends C7WorkerClient:
 
   def client =
     ZIO.attempt:
@@ -56,9 +56,9 @@ object C7BasicAuthClient extends C7Client:
   private def encodeCredentials(username: String, password: String): String =
     val credentials = s"$username:$password"
     Base64.getEncoder.encodeToString(credentials.getBytes)
-end C7BasicAuthClient
+end C7BasicAuthWorkerClient
 
-trait OAuth2Client extends C7Client, OAuthPasswordFlow:
+trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
   given WorkerLogger       = Slf4JLogger.logger(getClass.getName)
   def camundaRestUrl       = "http://localhost:8080/engine-rest"
   def maxTimeForAcquireJob = 500.millis
@@ -93,4 +93,4 @@ trait OAuth2Client extends C7Client, OAuthPasswordFlow:
           .build()
     
 
-end OAuth2Client
+end OAuth2WorkerClient

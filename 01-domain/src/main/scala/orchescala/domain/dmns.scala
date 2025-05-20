@@ -87,8 +87,12 @@ end DecisionDmn
 
 given InOutDecoder[LocalDate] = new InOutDecoder[LocalDate]:
   final def apply(c: HCursor): Decoder.Result[LocalDate] =
-    for result <- c.as[String]
-    yield LocalDate.parse(result)
+    c.as[String]
+      .flatMap: dateStr =>
+        Try(LocalDate.parse(dateStr)) match
+          case Success(date) => Right(date)
+          case Failure(_)    =>
+            Left(DecodingFailure(s"Could not parse LocalDate from $dateStr", c.history))
 
 given InOutDecoder[LocalDateTime] =
   new InOutDecoder[LocalDateTime]:
