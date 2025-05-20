@@ -15,6 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.1.5 - 2025-05-20
+### Changed 
+- Adjustments in company project and worker documentation / generation. - see [Commit](git@github.com:pme123/orchescala/commit/a742498b19daf3b99c1c6afd0ac80fe27b92f774)
+- Fixed decoding function for LocalDate. - see [Commit](git@github.com:pme123/orchescala/commit/9c57e5d940d518cf901ad4a76dfef83ace2d770d)
+- Changes in company generator. - see [Commit](git@github.com:pme123/orchescala/commit/0d6b6a6e97b1317d1bd088b00dcf7ee95f1190db)
+- Added check for correct version in helper.scala - see [Commit](git@github.com:pme123/orchescala/commit/a4ed4025322762741a5b9be0cbacf7511bbd2ad3)
+
 ## 0.1.4 - 2025-05-11
 ### Changed 
 - Cleanup Registries. - see [Commit](git@github.com:pme123/orchescala/commit/aa30ec1bac0fab77b534fe887cd888108f6271bc)
