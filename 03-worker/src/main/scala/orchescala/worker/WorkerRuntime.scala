@@ -1,6 +1,6 @@
 package orchescala.worker
 
-import zio.{Executor, ZIOAppArgs, ZIOAppDefault, ZLayer, Scope, ZIO}
+import zio.{Executor, ZIOAppArgs, ZIOAppDefault, ZLayer, Scope, ZIO, Runtime}
 
 import java.util.concurrent.{Executors, ThreadPoolExecutor, TimeUnit}
 
@@ -18,14 +18,20 @@ object WorkerRuntime:
   // Create a layer that provides the executor
   lazy val sharedExecutorLayer = ZLayer.succeed(executor)
 
-  // Add shutdown hook to clean up the thread pool when the JVM exits
-  Runtime.getRuntime.addShutdownHook(new Thread(() => {
-    threadPool.shutdown()
-    if (!threadPool.awaitTermination(10, TimeUnit.SECONDS)) {
-      threadPool.shutdownNow()
-    }
-    println("Thread pool has shut down.")
-  }))
+  // Register a finalizer with the ZIO runtime to clean up resources
+  lazy val finalizer = ZIO
+    .addFinalizer :
+      ZIO
+        .attempt :
+          threadPool.shutdown()
+          if (!threadPool.awaitTermination(10, TimeUnit.SECONDS)) then
+            threadPool.shutdownNow()
+        .catchAll: ex =>
+          ZIO.logError(s"Error shutting down thread pool.\n$ex")
+            .as(threadPool.shutdownNow())
+        .zipLeft(ZIO.logInfo("Thread pool has shut down."))
+      
+    .uninterruptible
 
   lazy val zioRuntime = zio.Runtime.default
 end WorkerRuntime
