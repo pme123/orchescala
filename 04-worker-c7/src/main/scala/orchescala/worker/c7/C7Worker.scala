@@ -39,12 +39,12 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       startDate <- succeed(new Date())
       _         <-
         logInfo(
-          s"Worker: ${externalTask.getTopicName} (${externalTask.getId}) started > ${externalTask.getBusinessKey}"
+          s"Worker: ${externalTask.getTopicName} (${externalTask.getId}) started > ${externalTask.getProcessInstanceId}"
         )
       _         <- executeWorker(externalTaskService)
       _         <-
         logInfo(
-          s"Worker: ${externalTask.getTopicName} (${externalTask.getId}) ended ${printTimeOnConsole(startDate)}   > ${externalTask.getBusinessKey}"
+          s"Worker: ${externalTask.getTopicName} (${externalTask.getProcessInstanceId}) ended ${printTimeOnConsole(startDate)}   > ${externalTask.getBusinessKey}"
         )
     yield ()
 

@@ -31,7 +31,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       json                  <- extractJson(job)
       businessKey           <- extractBusinessKey(json)
       _                     <- logInfo(
-                                 s"Worker: ${job.getType} (${job.getWorker}) started > $businessKey"
+                                 s"Worker: ${job.getType} (${job.getBpmnProcessId}) started > $businessKey"
                                )
       processVariables       = worker.variableNames.map(k => processVariable(k, json))
       generalVariables      <- extractGeneralVariables(json)
@@ -41,7 +41,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       _                     <- handleSuccess(client, job, filteredOut, generalVariables.manualOutMapping, businessKey)
       _                     <-
         logInfo(
-          s"Worker: ${job.getType} (${job.getWorker}) ended ${printTimeOnConsole(startDate)} > $businessKey"
+          s"Worker: ${job.getType} (${job.getBpmnProcessId}) ended ${printTimeOnConsole(startDate)} > $businessKey"
         )
     yield ())
       .catchAll: ex =>
