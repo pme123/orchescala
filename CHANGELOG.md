@@ -15,6 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.1.7 - 2025-05-21
+### Changed 
+- Added finalizer for thread pool/ only create thread pool once. - see [Commit](git@github.com:pme123/orchescala/commit/6bc0922274bcd601dd3ea7ec448ef776a3f10022)
+- Adjusted that only one thread pool is created. - see [Commit](git@github.com:pme123/orchescala/commit/bb48ab931fde664a2e6b4e941f39a612ad8afe56)
+- Changed logging Worker execution to processInstanceId. - see [Commit](git@github.com:pme123/orchescala/commit/a8c00908823e06c929c5359f63c440fd1285f68f)
+- Removed logInfos for validation in WorkerExecutor. - see [Commit](git@github.com:pme123/orchescala/commit/24b006095a2a253deab0654f738a8efaeb73eb13)
+
 ## 0.1.6 - 2025-05-21
 ### Changed 
 - Changed to managed thread pool / update to scala 3.7.0. - see [Commit](git@github.com:pme123/orchescala/commit/0094d5241ab8d04a226ecd4d9075275925d77875)
