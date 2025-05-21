@@ -8,8 +8,6 @@ import zio.*
 import zio.ZIO.*
 
 import java.util.Date
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
 import scala.jdk.CollectionConverters.*
 
 trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
@@ -27,10 +25,9 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     Unsafe
       .unsafe:
         implicit unsafe =>
-          runtime.unsafe.runToFuture(
+          WorkerRuntime.zioRuntime.unsafe.runToFuture(
             run(externalTaskService)(using externalTask)
-              .provideLayer(ZioLogger.logger)
-              .provideLayer(fixedThreadExecutorLayer(nrOfThreads))
+              .provideLayer(WorkerRuntime.sharedExecutorLayer)
           )
 
   end execute
@@ -60,7 +57,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       generalVariables      <- ProcessVariablesExtractor.extractGeneral()
       given EngineRunContext = EngineRunContext(c7Context, generalVariables)
       filteredOut           <- WorkerExecutor(worker).execute(tryProcessVariables)
-        .tapError(error => ZIO.logError(s"Error: ${error}"))
+                                 .tapError(error => ZIO.logError(s"Error: ${error}"))
       _                     <- externalTaskService.handleSuccess(
                                  filteredOut,
                                  generalVariables.manualOutMapping
@@ -197,20 +194,21 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       logError(
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | doRetry: $doRetry | retries: $retries | $error"
       ) *>
-        (if retries >= 0 || doRetry then
-           ZIO.attempt(
-             externalTaskService.handleFailure(
-               taskId,
-               error.causeMsg,
-               s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
-               Math.max(retries, 0), // < 0 not allowed
-               10.seconds.toMillis
-             )
-           ).flatMapError: throwable =>
-             logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
-           .ignore
-         else
-           ZIO.unit)
+        ZIO
+          .when(retries >= 0 || doRetry):
+            ZIO.attempt(
+              externalTaskService.handleFailure(
+                taskId,
+                error.causeMsg,
+                s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
+                Math.max(retries, 0), // < 0 not allowed
+                10.seconds.toMillis
+              )
+            ).flatMapError: throwable =>
+              logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
+            .ignore
+          .ignore  
+
     end handleFailure
 
     private[worker] def calcRetries(
@@ -244,6 +242,5 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end filteredOutput
 
   end extension
-  private lazy val runtime = zio.Runtime.default
 
 end C7Worker

@@ -79,7 +79,7 @@ object VersionHelper:
               String.format("%03d", nr.trim.toInt)
             .foldLeft("")(_ + _)
           v -> vers
-        .sortBy(_._2)(Ordering[String].reverse)
+        .sortBy(_._2)(using Ordering[String].reverse)
         .headOption
         .map(_._1)
     val version = versionStr.getOrElse:

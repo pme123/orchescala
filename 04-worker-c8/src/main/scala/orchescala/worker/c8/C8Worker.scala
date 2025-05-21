@@ -16,15 +16,14 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends WorkerDsl[In, Out],
       JobHandler:
   protected def c8Context: C8Context
-  private lazy val runtime = Runtime.default
 
   def handle(client: JobClient, job: ActivatedJob): Unit =
     Unsafe.unsafe: //TODO: check C7Worker execute
       implicit unsafe =>
-        runtime.unsafe.runToFuture(
+        WorkerRuntime.zioRuntime.unsafe.runToFuture(
           run(client, job)
-            .provideLayer(ZioLogger.logger)
-        ).future
+            .provideLayer(WorkerRuntime.sharedExecutorLayer)
+        )
 
   def run(client: JobClient, job: ActivatedJob): ZIO[Any, Throwable, Unit] =
     (for

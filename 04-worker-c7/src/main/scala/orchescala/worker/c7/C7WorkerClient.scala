@@ -36,7 +36,7 @@ end C7NoAuthWorkerClient
 
 object C7BasicAuthWorkerClient extends C7WorkerClient:
 
-  def client =
+  lazy val client =
     ZIO.attempt:
       val encodedCredentials = encodeCredentials("admin", "admin")
       val cl                 = ExternalTaskClient.create()
@@ -70,7 +70,7 @@ trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
       val token = adminToken().toOption.getOrElse("NO TOKEN")
       request.addHeader("Authorization", token)
 
-  def client =
+  lazy val client =
     ZIO
       .attempt:
         ExternalTaskClient.create()
