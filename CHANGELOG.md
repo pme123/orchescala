@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.1.6 - 2025-05-21
+### Changed 
+- Changed to managed thread pool / update to scala 3.7.0. - see [Commit](git@github.com:pme123/orchescala/commit/0094d5241ab8d04a226ecd4d9075275925d77875)
+- Updated Scala Version. - see [Commit](git@github.com:pme123/orchescala/commit/41bdc4e406fdb52c8c529f63b5a006989b643707)
+
 ## 0.1.5 - 2025-05-20
 ### Changed 
 - Adjustments in company project and worker documentation / generation. - see [Commit](git@github.com:pme123/orchescala/commit/a742498b19daf3b99c1c6afd0ac80fe27b92f774)
