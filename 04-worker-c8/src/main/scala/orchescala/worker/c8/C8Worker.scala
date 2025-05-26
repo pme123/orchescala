@@ -18,12 +18,13 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   protected def c8Context: C8Context
 
   def handle(client: JobClient, job: ActivatedJob): Unit =
-    Unsafe.unsafe: //TODO: check C7Worker execute
-      implicit unsafe =>
-        WorkerRuntime.zioRuntime.unsafe.runToFuture(
-          run(client, job)
-            .provideLayer(WorkerRuntime.sharedExecutorLayer)
-        )
+    Unsafe
+      .unsafe:
+        implicit unsafe =>
+          WorkerRuntime.zioRuntime.unsafe.fork(
+            run(client, job)
+              .provideLayer(WorkerRuntime.sharedExecutorLayer)
+          )
 
   def run(client: JobClient, job: ActivatedJob): ZIO[Any, Throwable, Unit] =
     (for

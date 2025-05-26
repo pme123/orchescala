@@ -19,7 +19,7 @@ case class WorkerExecutor[
       processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
   ): IO[WorkerError, Map[String, Any]] =
     (for
-      _                            <- ZIO.logInfo(s"Executing Worker: ${processVariables}")
+      _                            <- ZIO.logDebug(s"Executing Worker: ${processVariables}")
       validatedInput               <- InputValidator.validate(processVariables)
       initializedOutput            <- Initializer.initVariables(validatedInput)
       mockedOutput                 <- OutMocker(worker).mockedOutput(validatedInput)

@@ -221,7 +221,7 @@ case class ServiceHandler[
       .map { mock =>
         context
           .getLogger(getClass)
-          .info(s"""Mocked Service: ${niceClassName(this.getClass)}
+          .debug(s"""Mocked Service: ${niceClassName(this.getClass)}
                    |${requestMsg(runnableRequest)}
                    | - mockedResponse: ${mock.asJson.deepDropNullValues}
                    |""".stripMargin)

@@ -21,15 +21,13 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       externalTask: camunda.ExternalTask,
       externalTaskService: camunda.ExternalTaskService
   ): Unit =
-    // see also https://discord.com/channels/629491597070827530/1367819728944500786
     Unsafe
       .unsafe:
         implicit unsafe =>
-          WorkerRuntime.zioRuntime.unsafe.runToFuture(
+          WorkerRuntime.zioRuntime.unsafe.fork(
             run(externalTaskService)(using externalTask)
               .provideLayer(WorkerRuntime.sharedExecutorLayer)
           )
-
   end execute
 
   private[worker] def run(externalTaskService: camunda.ExternalTaskService)(using
@@ -207,7 +205,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             ).flatMapError: throwable =>
               logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
             .ignore
-          .ignore  
+          .ignore
 
     end handleFailure
 
