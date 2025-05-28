@@ -6,7 +6,6 @@ import orchescala.worker.WorkerError.*
 import io.circe.parser
 import sttp.client3.*
 import sttp.client3.circe.*
-import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, ZioWebSocketsStreams}
 import sttp.model.Uri.QuerySegment
 import sttp.model.{Header, Uri}
 import zio.{Scope, Task, ZIO}
@@ -55,17 +54,16 @@ trait RestApiClient:
 
   protected def sendRequest(
       req: Request[Either[String, String], Any]
-  ): ZIO[Scope, ServiceUnexpectedError, Response[Either[String, String]]] =
-    AsyncHttpClientZioBackend.scoped()
-      .flatMap:
-        req.send(_)
-      .mapError(ex =>
-        val unexpectedError =
-          s"""Unexpected error while sending request: ${ex.getMessage} / ${ex.getClass}.
-             | -> ${req.toCurl(Set("Authorization"))}
-             |""".stripMargin
-        ServiceUnexpectedError(unexpectedError)
-      )
+  ): ZIO[SttpClientBackend, ServiceUnexpectedError, Response[Either[String, String]]] =
+    ZIO.serviceWithZIO[SttpClientBackend]: backend =>
+      req.send(backend)
+        .mapError(ex =>
+          val unexpectedError =
+            s"""Unexpected error while sending request: ${ex.getMessage} / ${ex.getClass}.
+               | -> ${req.toCurl(Set("Authorization"))}
+               |""".stripMargin
+          ServiceUnexpectedError(unexpectedError)
+        )
 
   protected def decodeResponse[
       ServiceOut: {InOutDecoder, ClassTag} // output of service

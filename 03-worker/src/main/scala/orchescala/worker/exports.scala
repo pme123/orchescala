@@ -18,7 +18,7 @@ export zio.ZIO
 export zio.IO
 
 type SendRequestType[ServiceOut] =
-  EngineRunContext ?=> IO[ServiceError, ServiceResponse[ServiceOut]]
+  EngineRunContext ?=> ZIO[SttpClientBackend, ServiceError, ServiceResponse[ServiceOut]]
 
 def decodeTo[A: InOutDecoder](
     jsonStr: String

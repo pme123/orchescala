@@ -3,18 +3,15 @@ package orchescala.worker.c7
 import orchescala.worker.oauth.OAuthPasswordFlow
 import orchescala.worker.{Slf4JLogger, WorkerLogger}
 import org.apache.hc.client5.http.config.RequestConfig
-import org.apache.hc.client5.http.impl.classic.*
 import org.apache.hc.core5.http.*
 import org.apache.hc.core5.http.protocol.HttpContext
 import org.apache.hc.core5.util.Timeout
 import org.camunda.bpm.client.ExternalTaskClient
-import org.camunda.bpm.client.backoff.{ExponentialBackoffStrategy, ExponentialErrorBackoffStrategy}
+import org.camunda.bpm.client.backoff.ExponentialBackoffStrategy
 import zio.ZIO
-import zio.ZIO.*
 
-import scala.concurrent.duration.*
-import java.io.IOException
 import java.util.Base64
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 trait C7WorkerClient:
@@ -80,8 +77,8 @@ trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
         //  .disableBackoffStrategy()
           .backoffStrategy(
             new ExponentialBackoffStrategy(
-              100L,
-              2.0,
+              100L,  // Initial backoff time in milliseconds
+              2.0,   // Backoff factor
               maxTimeForAcquireJob.toMillis
             )
           )

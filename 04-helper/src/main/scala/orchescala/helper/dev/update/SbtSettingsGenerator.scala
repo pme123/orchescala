@@ -7,8 +7,8 @@ case class SbtSettingsGenerator()(using config: DevConfig):
   end generate
 
   private lazy val versionConfig = config.versionConfig
-  private lazy val repoConfig = config.sbtConfig.reposConfig
-  private lazy val settingsSbt =
+  private lazy val repoConfig    = config.sbtConfig.reposConfig
+  private lazy val settingsSbt   =
     s"""$helperDoNotAdjustText
        |
        |import com.typesafe.sbt.SbtNativePackager.Docker
@@ -21,6 +21,8 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |  val scalaV = "${versionConfig.scalaVersion}"
        |  val customer = ProjectDef.org
        |  val customerOrchescalaV = "${versionConfig.companyOrchescalaVersion}"
+       |  // to override the version defined in customerOrchescala
+       |  val orchescalaV = "${versionConfig.orchescalaVersion}"
        |
        |  // other dependencies
        |  // run worker
@@ -39,7 +41,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |
        |  lazy val loadingMessage = s\"\"\"Successfully started
        |- Dependencies:
-       |  - Orchescala: ${versionConfig.orchescalaVersion}
+       |  - Orchescala: $$orchescalaV
        |  - Camunda: ${versionConfig.camundaVersion}
        |  - Customer-Orchescala: $$customerOrchescalaV
        |  - Scala: $$scalaV
@@ -86,7 +88,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |    )
        |  )
        |""".stripMargin
-  private lazy val sbtPublish =
+  private lazy val sbtPublish      =
     s"""  lazy val preventPublication = Seq(
        |    publish / skip := true,
        |    publish := {},
@@ -107,7 +109,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
   private lazy val sbtDependencies =
     config.modules
       .map: moduleConfig =>
-        val name = moduleConfig.name
+        val name         = moduleConfig.name
         val dependencies = moduleConfig.sbtDependencies
         s"""
            |  lazy val ${name}Deps = ${
@@ -117,10 +119,15 @@ case class SbtSettingsGenerator()(using config: DevConfig):
             if dependencies.nonEmpty then dependencies.mkString("\n      ", ",\n      ", ",")
             else ""
           }
-           |      customer %% s"$$customer-orchescala-$name" % customerOrchescalaV
+           |      customer %% s"$$customer-orchescala-$name" % customerOrchescalaV${
+            if name == "worker" then
+              ",\n//      \"io.github.pme123\" %% \"orchescala-worker-c7\" % orchescalaV"
+            else ""
+          }
            |    )
            |""".stripMargin
       .mkString
+
   private lazy val sbtRepos =
     s"""// Credentials
        |${
@@ -139,8 +146,8 @@ case class SbtSettingsGenerator()(using config: DevConfig):
 
   private lazy val sbtDocker =
     s"  lazy val dockerSettings = " +
-    config.sbtConfig.dockerSettings
-      .getOrElse("Seq()")
+      config.sbtConfig.dockerSettings
+        .getOrElse("Seq()")
 
   private lazy val testSettings =
     s"""  lazy val testSettings = Seq(

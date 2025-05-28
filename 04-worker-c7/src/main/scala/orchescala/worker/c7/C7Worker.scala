@@ -21,18 +21,33 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       externalTask: camunda.ExternalTask,
       externalTaskService: camunda.ExternalTaskService
   ): Unit =
-    Unsafe
-      .unsafe:
-        implicit unsafe =>
-          WorkerRuntime.zioRuntime.unsafe.fork(
-            run(externalTaskService)(using externalTask)
-              .provideLayer(WorkerRuntime.sharedExecutorLayer)
-          )
+    Unsafe.unsafe:
+      implicit unsafe =>
+        WorkerRuntime.zioRuntime.unsafe.fork:
+          ZIO.scoped:
+            for
+              // Fork the worker execution within the scope
+              fiber <- run(externalTaskService)(using externalTask)
+                         .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
+                         .fork
+
+              // Add a finalizer to ensure the fiber is interrupted if the scope closes
+              _ <- ZIO.addFinalizer:
+                     fiber.status.flatMap: status =>
+                       fiber.interrupt.when(!status.isDone)
+
+              // Join the fiber to wait for completion
+              result <- fiber.join
+            yield result
+          .ensuring:
+            ZIO.logDebug(
+              s"Worker execution for task ${externalTask.getId} completed and resources cleaned up"
+            )
   end execute
 
   private[worker] def run(externalTaskService: camunda.ExternalTaskService)(using
       externalTask: camunda.ExternalTask
-  ): ZIO[Any, Throwable, Unit] =
+  ): ZIO[SttpClientBackend, Throwable, Unit] =
     for
       startDate <- succeed(new Date())
       _         <-
@@ -48,7 +63,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   private def executeWorker(
       externalTaskService: camunda.ExternalTaskService
-  ): HelperContext[ZIO[Any, Throwable, Unit]] =
+  ): HelperContext[ZIO[SttpClientBackend, Throwable, Unit]] =
     val tryProcessVariables =
       ProcessVariablesExtractor.extract(worker.variableNames)
     (for

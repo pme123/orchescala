@@ -11,29 +11,27 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
     // Get all garbage collector MX beans
     val gcBeans = ManagementFactory.getGarbageCollectorMXBeans.asScala.toList
 
-    // Log initial GC information
-    for
-      _ <- logTech("===== Garbage Collector Information =====")
-      _ <-
-        ZIO.foreachDiscard(gcBeans) {
-          gc =>
+    // Log initial GC information and start monitoring within a scoped context
+    ZIO.scoped:
+      for
+        _ <- logTech("===== Garbage Collector Information =====")
+        _ <-
+          ZIO.foreachDiscard(gcBeans): gc =>
             logTech(
               s"GC: ${gc.getName}, Valid: ${gc.isValid}, Collection Count: ${gc.getCollectionCount}, Collection Time: ${gc.getCollectionTime}ms"
             )
-        }
-      _ <- logTech("=" * 30)
+        _ <- logTech("=" * 30)
 
-      // Log detailed memory information
-      _ <- logDetailedMemoryInfo
+        // Start periodic monitoring with proper resource management
+        monitorFiber <- monitorMemory(gcBeans).fork
 
-      // Start periodic monitoring
-      _ <- monitorGcActivity(gcBeans).fork
+        // Ensure the fiber is interrupted when the scope closes
+        _ <- ZIO.addFinalizer(monitorFiber.interrupt)
 
-      // Start periodic forced GC if memory usage is high
-      _ <- forceGcWhenNeeded.fork
-    yield ()
-    end for
-  end start
+        // Optionally add GC forcing with proper cleanup
+        // gcFiber <- forceGcWhenNeeded.fork
+        // _ <- ZIO.addFinalizer(gcFiber.interrupt)
+      yield ()  
 
   private def logDetailedMemoryInfo: ZIO[Any, Nothing, Unit] =
     // Get memory pools information
@@ -128,7 +126,7 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
           ZIO.when(bufferPoolMXBeans != null && !bufferPoolMXBeans.isEmpty) {
             logTech("--- Direct Buffer Memory ---") *>
               ZIO.foreach(bufferPoolMXBeans.asScala.toList) { bean =>
-                val memoryUsed = bean.getMemoryUsed / 1024 / 1024
+                val memoryUsed    = bean.getMemoryUsed / 1024 / 1024
                 val totalCapacity = bean.getTotalCapacity / 1024 / 1024
                 logTech(
                   f"${bean.getName}: $memoryUsed MB / $totalCapacity MB (Count: ${bean.getCount})"
@@ -145,8 +143,8 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
         try
           val objectName =
             new javax.management.ObjectName("com.sun.management:type=DiagnosticCommand")
-          val params = Array("", "")
-          val signature = Array("java.lang.String", "java.lang.String")
+          val params     = Array("", "")
+          val signature  = Array("java.lang.String", "java.lang.String")
 
           logTech("--- JVM Native Memory Summary ---") *>
             ZIO.attempt {
@@ -182,12 +180,13 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
         end if
   end logDetailedMemoryInfo
 
-  private def monitorGcActivity(gcBeans: List[GarbageCollectorMXBean]): ZIO[Any, Nothing, Unit] =
+  private def monitorMemory(gcBeans: List[GarbageCollectorMXBean]): ZIO[Any, Nothing, Unit] =
     // Record previous collection counts to detect new collections
     var prevCounts = gcBeans.map(gc => gc.getName -> gc.getCollectionCount).toMap
 
     def checkGcActivity =
       for
+        _ <- ThreadMonitor(logTech).analyzeThreads
         _ <- logTech("===== GC Activity Check =====")
         _ <- ZIO.foreachDiscard(gcBeans) {
                gc =>
@@ -216,9 +215,9 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
         _ <- logTech("===========================")
       yield ()
 
-    // Check GC activity every 5 minutes using ZIO Schedule
-    checkGcActivity.repeat(Schedule.fixed(5.minute)).unit
-  end monitorGcActivity
+    // Check GC activity every 10 minutes using ZIO Schedule
+    checkGcActivity.repeat(Schedule.fixed(10.minutes)).unit
+  end monitorMemory
 
   private def forceGcWhenNeeded: ZIO[Any, Nothing, Unit] =
     def checkAndForceGc =

@@ -17,7 +17,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
 
   def runWorkFromWorker(in: In)(using
       EngineRunContext
-  ): IO[WorkerError, Out | NoOutput] =
+  ): ZIO[SttpClientBackend, WorkerError, Out | NoOutput] =
     for
       validatedInput            <- ZIO.fromEither(
                                      worker.validationHandler.validate(in)

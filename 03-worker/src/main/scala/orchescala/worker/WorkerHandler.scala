@@ -130,7 +130,7 @@ trait RunWorkHandler[
   type RunnerOutput    =
     EngineRunContext ?=> Either[RunWorkError, Out]
   type RunnerOutputZIO =
-    EngineRunContext ?=> IO[RunWorkError, Out]
+    EngineRunContext ?=> ZIO[SttpClientBackend, RunWorkError, Out]
 
   def runWorkZIO(inputObject: In): RunnerOutputZIO
 

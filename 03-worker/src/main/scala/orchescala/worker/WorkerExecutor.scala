@@ -17,7 +17,7 @@ case class WorkerExecutor[
 
   def execute(
       processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
-  ): IO[WorkerError, Map[String, Any]] =
+  ): ZIO[SttpClientBackend, WorkerError, Map[String, Any]] =
     (for
       _                            <- ZIO.logDebug(s"Executing Worker: ${processVariables}")
       validatedInput               <- InputValidator.validate(processVariables)

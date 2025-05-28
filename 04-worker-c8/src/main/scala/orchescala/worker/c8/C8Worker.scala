@@ -18,15 +18,28 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   protected def c8Context: C8Context
 
   def handle(client: JobClient, job: ActivatedJob): Unit =
-    Unsafe
-      .unsafe:
-        implicit unsafe =>
-          WorkerRuntime.zioRuntime.unsafe.fork(
-            run(client, job)
-              .provideLayer(WorkerRuntime.sharedExecutorLayer)
-          )
+    Unsafe.unsafe:
+      implicit unsafe =>
+        WorkerRuntime.zioRuntime.unsafe.fork:
+          ZIO.scoped:
+            for
+              // Fork the worker execution within the scope
+              fiber <- run(client, job)
+                .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
+                .fork
 
-  def run(client: JobClient, job: ActivatedJob): ZIO[Any, Throwable, Unit] =
+              // Add a finalizer to ensure the fiber is interrupted if the scope closes
+              _ <- ZIO.addFinalizer:
+                fiber.status.flatMap: status =>
+                  fiber.interrupt.when(!status.isDone)
+
+              // Join the fiber to wait for completion
+              result <- fiber.join
+            yield result
+          .ensuring:
+            ZIO.logDebug(s"Worker execution for job ${job.getKey} completed and resources cleaned up")
+
+  def run(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
     (for
       startDate             <- succeed(new Date())
       json                  <- extractJson(job)
