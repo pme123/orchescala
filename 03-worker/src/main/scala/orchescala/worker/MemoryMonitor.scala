@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import zio.*
-import zio.Duration.{*, given}
+import zio.Duration.given
 
 import java.lang.management.*
 import scala.jdk.CollectionConverters.*
@@ -11,27 +11,26 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
     // Get all garbage collector MX beans
     val gcBeans = ManagementFactory.getGarbageCollectorMXBeans.asScala.toList
 
-    // Log initial GC information and start monitoring within a scoped context
-    ZIO.scoped:
-      for
-        _ <- logTech("===== Garbage Collector Information =====")
-        _ <-
-          ZIO.foreachDiscard(gcBeans): gc =>
+    // Log initial GC information
+    for
+      _ <- logTech("===== Garbage Collector Information =====")
+      _ <-
+        ZIO.foreachDiscard(gcBeans) {
+          gc =>
             logTech(
               s"GC: ${gc.getName}, Valid: ${gc.isValid}, Collection Count: ${gc.getCollectionCount}, Collection Time: ${gc.getCollectionTime}ms"
             )
-        _ <- logTech("=" * 30)
+        }
+      _ <- logTech("=" * 30)
 
-        // Start periodic monitoring with proper resource management
-        monitorFiber <- monitorMemory(gcBeans).fork
+      // Start periodic monitoring
+      _ <- monitorMemory(gcBeans).fork
 
-        // Ensure the fiber is interrupted when the scope closes
-        _ <- ZIO.addFinalizer(monitorFiber.interrupt)
-
-        // Optionally add GC forcing with proper cleanup
-        // gcFiber <- forceGcWhenNeeded.fork
-        // _ <- ZIO.addFinalizer(gcFiber.interrupt)
-      yield ()  
+      // Start periodic forced GC if memory usage is high
+      //_ <- forceGcWhenNeeded.fork
+    yield ()
+    end for
+  end start
 
   private def logDetailedMemoryInfo: ZIO[Any, Nothing, Unit] =
     // Get memory pools information
@@ -113,10 +112,6 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
         .flatten.catchAll(_ => logTech("Process Memory: Not available"))) *>
       // Try to get direct buffer memory info
       ZIO.attempt {
-        import java.lang.management.ManagementFactory
-        import java.nio.ByteBuffer
-        import javax.management.{MBeanServer, ObjectName}
-
         val server = ManagementFactory.getPlatformMBeanServer
 
         // Try to get direct buffer pool info

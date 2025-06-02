@@ -37,7 +37,8 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
       "Timer"             -> "Timer Threads",
       "Attach"            -> "Attach Listener",
       "HttpClient"        -> "HTTP Client",
-      "async-http-client"   -> "AsyncHTTP Client",
+      "AsyncHttpClient"   -> "AsyncHTTP Client",
+      "async-http-client"   -> "async-http-client",
       "sttp-"             -> "STTP Client"
     )
 
@@ -45,7 +46,7 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
     threads.foreach { thread =>
       val name     = thread.getName
       val matched  = threadPatterns.keys.find(pattern => name.contains(pattern))
-      val category = matched.map(threadPatterns).getOrElse(name)
+      val category = matched.flatMap(threadPatterns.get).getOrElse(name)
       threadsByPattern.put(category, thread :: threadsByPattern.getOrElse(category, List.empty))
     }
 
@@ -91,9 +92,9 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
 
       // Log threads by pattern
       _ <- logTech("--- Threads by Category ---")
-      _ <- ZIO.foreachDiscard(threadsByPattern.toList.sortBy(_._1)) {
+      _ <- ZIO.foreachDiscard(threadsByPattern.toList.sortBy(-_._2.size)) {
              case (pattern, threads) =>
-               logTech(s"$pattern: ${threads.size} threads")
+               logTech(s"-- $pattern: ${threads.size} threads")
            }
 
       // Log blocked threads and their blocking points
@@ -134,27 +135,21 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
 
       // Group threads by creation time ranges
       val now       = new Date().getTime
-      val last5Min  = currentThreads.count(t =>
-        Option(threadCreationHistory.get(t.getName)).exists(time => now - time < 5 * 60 * 1000)
-      )
-      val last30Min = currentThreads.count(t =>
-        Option(threadCreationHistory.get(t.getName)).exists(time => now - time < 30 * 60 * 1000)
-      )
-      val lastHour  = currentThreads.count(t =>
-        Option(threadCreationHistory.get(t.getName)).exists(time => now - time < 60 * 60 * 1000)
+      val last10Min  = currentThreads.count(t =>
+        Option(threadCreationHistory.get(t.getName)).exists(time => now - time < 10 * 60 * 1000)
       )
       for
         _ <- logTech(s"New threads since last check: ${newThreads.size}")
         _ <- logTech(s"Disappeared threads since last check: ${disappearedThreads.size}")
-        _ <- logTech(s"Threads created in last 5 minutes: $last5Min")
-        _ <- logTech(s"Threads created in last 30 minutes: $last30Min")
-        _ <- logTech(s"Threads created in last hour: $lastHour")
-        _ <- ZIO.when(newThreads.nonEmpty && newThreads.size < 10) {
-               logTech("New thread names:") *>
+        _ <- logTech(s"Threads created in last 10 minutes: $last10Min")
+        _ <- logTech("New thread names:") *>
                  ZIO.foreachDiscard(newThreads.toList.sorted) { name =>
                    logTech(s"  - $name")
                  }
-             }
+        _ <- logTech("Disappeared thread names:") *>
+                 ZIO.foreachDiscard(disappearedThreads.toList.sorted) { name =>
+                   logTech(s"  - $name")
+                 }
       yield ()
       end for
     else ZIO.unit
