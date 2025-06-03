@@ -2,26 +2,27 @@ package orchescala.worker
 
 import zio.*
 import zio.Duration.given
+import zio.ZIO.logDebug
 
 import java.lang.management.*
 import scala.jdk.CollectionConverters.*
 
-case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
+object MemoryMonitor:
   def start: ZIO[Any, Nothing, Unit] =
     // Get all garbage collector MX beans
     val gcBeans = ManagementFactory.getGarbageCollectorMXBeans.asScala.toList
 
     // Log initial GC information
     for
-      _ <- logTech("===== Garbage Collector Information =====")
+      _ <- logDebug("===== Garbage Collector Information =====")
       _ <-
         ZIO.foreachDiscard(gcBeans) {
           gc =>
-            logTech(
+            logDebug(
               s"GC: ${gc.getName}, Valid: ${gc.isValid}, Collection Count: ${gc.getCollectionCount}, Collection Time: ${gc.getCollectionTime}ms"
             )
         }
-      _ <- logTech("=" * 30)
+      _ <- logDebug("=" * 30)
 
       // Start periodic monitoring
       _ <- monitorMemory(gcBeans).fork
@@ -78,21 +79,21 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
     val totalJvmMemoryUsed = usedHeap + totalNonHeapUsedMB + estimatedThreadStackMemory
 
     // Log all memory information
-    logTech("===== Detailed Memory Information =====") *>
-      logTech(
+    logDebug("===== Detailed Memory Information =====") *>
+      logDebug(
         f"JVM Heap Memory: $usedHeap%d MB / $maxHeap%d MB (${usedHeap.toDouble / maxHeap.toDouble * 100}%.1f%%)"
       ) *>
-      logTech(f"Non-Heap Memory: $totalNonHeapUsedMB%d MB${
+      logDebug(f"Non-Heap Memory: $totalNonHeapUsedMB%d MB${
           if totalNonHeapMaxMB > 0 then f" / $totalNonHeapMaxMB%d MB" else ""
         }") *>
-      logTech(
+      logDebug(
         f"Thread Count: $threadCount (Peak: $peakThreadCount, Total Started: $totalStartedThreadCount)"
       ) *>
-      logTech(f"Estimated Thread Stack Memory: $estimatedThreadStackMemory MB") *>
-      logTech(
+      logDebug(f"Estimated Thread Stack Memory: $estimatedThreadStackMemory MB") *>
+      logDebug(
         f"Loaded Classes: $loadedClassCount (Total Loaded: $totalLoadedClassCount, Unloaded: $unloadedClassCount)"
       ) *>
-      logTech(f"Total Estimated JVM Memory: $totalJvmMemoryUsed MB") *>
+      logDebug(f"Total Estimated JVM Memory: $totalJvmMemoryUsed MB") *>
       // Try to get process memory info if possible
       (ZIO
         .attempt:
@@ -103,13 +104,13 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
             val freeMemorySize         = processBean.getFreeMemorySize / 1024 / 1024
             val totalPhysicalMemory    = processBean.getTotalMemorySize / 1024 / 1024
 
-            logTech(f"Committed Virtual Memory: $committedVirtualMemory MB") *>
-              logTech(f"Free Physical Memory: $freeMemorySize MB") *>
-              logTech(f"Total Physical Memory: $totalPhysicalMemory MB")
+            logDebug(f"Committed Virtual Memory: $committedVirtualMemory MB") *>
+              logDebug(f"Free Physical Memory: $freeMemorySize MB") *>
+              logDebug(f"Total Physical Memory: $totalPhysicalMemory MB")
           else
-            logTech("Process Memory: Not available")
+            logDebug("Process Memory: Not available")
           end if
-        .flatten.catchAll(_ => logTech("Process Memory: Not available"))) *>
+        .flatten.catchAll(_ => logDebug("Process Memory: Not available"))) *>
       // Try to get direct buffer memory info
       ZIO.attempt {
         val server = ManagementFactory.getPlatformMBeanServer
@@ -119,11 +120,11 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
           val bufferPoolMXBeans =
             ManagementFactory.getPlatformMXBeans(classOf[BufferPoolMXBean])
           ZIO.when(bufferPoolMXBeans != null && !bufferPoolMXBeans.isEmpty) {
-            logTech("--- Direct Buffer Memory ---") *>
+            logDebug("--- Direct Buffer Memory ---") *>
               ZIO.foreach(bufferPoolMXBeans.asScala.toList) { bean =>
                 val memoryUsed    = bean.getMemoryUsed / 1024 / 1024
                 val totalCapacity = bean.getTotalCapacity / 1024 / 1024
-                logTech(
+                logDebug(
                   f"${bean.getName}: $memoryUsed MB / $totalCapacity MB (Count: ${bean.getCount})"
                 )
               }
@@ -141,7 +142,7 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
           val params     = Array("", "")
           val signature  = Array("java.lang.String", "java.lang.String")
 
-          logTech("--- JVM Native Memory Summary ---") *>
+          logDebug("--- JVM Native Memory Summary ---") *>
             ZIO.attempt {
               val result = server.invoke(
                 objectName,
@@ -149,9 +150,9 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
                 Array("summary"),
                 Array("java.lang.String")
               ).toString
-              logTech(result)
+              logDebug(result)
             }.catchAll(_ =>
-              logTech(
+              logDebug(
                 "Native memory tracking not enabled. Use -XX:NativeMemoryTracking=summary"
               )
             )
@@ -160,18 +161,18 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
         end try
       }.flatten.ignore *>
       // Log memory pool details
-      logTech("--- Memory Pools ---") *>
+      logDebug("--- Memory Pools ---") *>
       ZIO.foreachDiscard(memoryPools): pool =>
         val usage = pool.getUsage
         if usage != null then
           val used    = usage.getUsed / 1024 / 1024
           val max     = if usage.getMax > 0 then usage.getMax / 1024 / 1024 else -1
           val typeStr = if pool.getType == MemoryType.HEAP then "HEAP" else "NON-HEAP"
-          logTech(
+          logDebug(
             f"${pool.getName} ($typeStr): $used%d MB${if max > 0 then f" / $max%d MB" else ""}"
           )
         else
-          logTech(s"${pool.getName}: Usage not available")
+          logDebug(s"${pool.getName}: Usage not available")
         end if
   end logDetailedMemoryInfo
 
@@ -181,8 +182,8 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
 
     def checkGcActivity =
       for
-        _ <- ThreadMonitor(logTech).analyzeThreads
-        _ <- logTech("===== GC Activity Check =====")
+        _ <- ThreadMonitor.analyzeThreads
+        _ <- logDebug("===== GC Activity Check =====")
         _ <- ZIO.foreachDiscard(gcBeans) {
                gc =>
                  val currentCount   = gc.getCollectionCount
@@ -192,7 +193,7 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
                  // Update previous count
                  prevCounts = prevCounts + (gc.getName -> currentCount)
 
-                 logTech(
+                 logDebug(
                    s"GC: ${gc.getName}, New Collections: $newCollections, Total: $currentCount, Time: ${gc.getCollectionTime}ms"
                  )
              }
@@ -205,9 +206,9 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
         usedMemory   = totalMemory - freeMemory
         usagePercent = (usedMemory.toDouble / maxMemory.toDouble) * 100
 
-        _ <- logTech(f"Memory Usage: $usedMemory%d MB / $maxMemory%d MB ($usagePercent%.1f%%)")
+        _ <- logDebug(f"Memory Usage: $usedMemory%d MB / $maxMemory%d MB ($usagePercent%.1f%%)")
         _ <- logDetailedMemoryInfo
-        _ <- logTech("===========================")
+        _ <- logDebug("===========================")
       yield ()
 
     // Check GC activity every 10 minutes using ZIO Schedule
@@ -233,7 +234,7 @@ case class MemoryMonitor(logTech: String => UIO[Unit])(using Trace):
           val newFreeMemory   = runtime.freeMemory()
           val newUsedMemory   = newTotalMemory - newFreeMemory
           val newUsagePercent = (newUsedMemory.toDouble / maxMemory.toDouble) * 100
-          logTech(
+          logDebug(
             f"After GC: Memory usage $newUsedMemory%d MB / $maxMemory%d MB ($newUsagePercent%.1f%%)"
           )
         }.ignore)

@@ -19,7 +19,7 @@ object WorkerRuntime:
   lazy val sharedExecutorLayer = ZLayer.succeed(executor)
 
   // Register a finalizer with the ZIO runtime to clean up resources
-  lazy val finalizer = ZIO
+  lazy val threadPoolFinalizer = ZIO
     .addFinalizer :
       ZIO
         .attempt :

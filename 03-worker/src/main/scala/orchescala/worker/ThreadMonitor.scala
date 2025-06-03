@@ -2,7 +2,7 @@ package orchescala.worker
 
 import zio.*
 import zio.Duration.{*, given}
-
+import zio.ZIO.logDebug
 import java.lang.management.*
 import scala.jdk.CollectionConverters.*
 import java.lang.Thread.State
@@ -10,7 +10,7 @@ import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 
-case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
+object ThreadMonitor:
 
   def analyzeThreads: ZIO[Any, Nothing, Unit] =
     val threadMXBean = ManagementFactory.getThreadMXBean
@@ -74,36 +74,36 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
       .take(5)
 
     for
-      _ <- logTech("===== Thread Analysis =====")
-      _ <- logTech(s"Total Threads: ${Thread.activeCount()}")
+      _ <- logDebug("===== Thread Analysis =====")
+      _ <- logDebug(s"Total Threads: ${Thread.activeCount()}")
 
       // Log threads by group
-      _ <- logTech("--- Threads by Group ---")
+      _ <- logDebug("--- Threads by Group ---")
       _ <- ZIO.foreachDiscard(threadsByGroup.toList.sortBy(-_._2.size)) {
              case (group, threads) =>
-               logTech(s"Group '$group': ${threads.size} threads")
+               logDebug(s"Group '$group': ${threads.size} threads")
            }
 
       // Log threads by state
-      _ <- logTech("--- Threads by State ---")
+      _ <- logDebug("--- Threads by State ---")
       _ <- ZIO.foreachDiscard(threadsByState.toList) { case (state, threads) =>
-             logTech(s"$state: ${threads.size} threads")
+             logDebug(s"$state: ${threads.size} threads")
            }
 
       // Log threads by pattern
-      _ <- logTech("--- Threads by Category ---")
+      _ <- logDebug("--- Threads by Category ---")
       _ <- ZIO.foreachDiscard(threadsByPattern.toList.sortBy(-_._2.size)) {
              case (pattern, threads) =>
-               logTech(s"-- $pattern: ${threads.size} threads")
+               logDebug(s"-- $pattern: ${threads.size} threads")
            }
 
       // Log blocked threads and their blocking points
-      _   <- logTech("--- Top Blocking Points ---")
+      _   <- logDebug("--- Top Blocking Points ---")
       res <-
         ZIO.foreach(blockingPoints):
           case (point, count) =>
             ZIO.succeed(s"$count threads blocked at: $point")
-      _   <- logTech(res.mkString("\n", "\n", ""))
+      _   <- logDebug(res.mkString("\n", "\n", ""))
 
       // Log thread creation history if available
       _ <- logThreadCreationHistory
@@ -139,16 +139,16 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
         Option(threadCreationHistory.get(t.getName)).exists(time => now - time < 10 * 60 * 1000)
       )
       for
-        _ <- logTech(s"New threads since last check: ${newThreads.size}")
-        _ <- logTech(s"Disappeared threads since last check: ${disappearedThreads.size}")
-        _ <- logTech(s"Threads created in last 10 minutes: $last10Min")
-        _ <- logTech("New thread names:") *>
+        _ <- logDebug(s"New threads since last check: ${newThreads.size}")
+        _ <- logDebug(s"Disappeared threads since last check: ${disappearedThreads.size}")
+        _ <- logDebug(s"Threads created in last 10 minutes: $last10Min")
+        _ <- logDebug("New thread names:") *>
                  ZIO.foreachDiscard(newThreads.toList.sorted) { name =>
-                   logTech(s"  - $name")
+                   logDebug(s"  - $name")
                  }
-        _ <- logTech("Disappeared thread names:") *>
+        _ <- logDebug("Disappeared thread names:") *>
                  ZIO.foreachDiscard(disappearedThreads.toList.sorted) { name =>
-                   logTech(s"  - $name")
+                   logDebug(s"  - $name")
                  }
       yield ()
       end for
@@ -170,12 +170,12 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
 
       threadDetails
     }.fold(
-      _ => logTech(s"Failed to analyze thread group: $groupName"),
+      _ => logDebug(s"Failed to analyze thread group: $groupName"),
       details =>
-        logTech(s"===== Thread Group: $groupName (${details.size} threads) =====") *>
+        logDebug(s"===== Thread Group: $groupName (${details.size} threads) =====") *>
           ZIO.foreachDiscard(details.sortBy(_._1)) { case (name, state, stack) =>
-            logTech(s"Thread: $name, State: $state") *>
-              logTech(s"  Stack: $stack")
+            logDebug(s"Thread: $name, State: $state") *>
+              logDebug(s"  Stack: $stack")
           }
     )
 
@@ -197,12 +197,12 @@ case class ThreadMonitor(logTech: String => UIO[Unit])(using Trace):
 
       threadDetails
     }.fold(
-      _ => logTech(s"Failed to find threads matching pattern: $pattern"),
+      _ => logDebug(s"Failed to find threads matching pattern: $pattern"),
       details =>
-        logTech(s"===== Threads matching '$pattern' (${details.size} threads) =====") *>
+        logDebug(s"===== Threads matching '$pattern' (${details.size} threads) =====") *>
           ZIO.foreachDiscard(details.sortBy(_._1)) { case (name, state, stack) =>
-            logTech(s"Thread: $name, State: $state") *>
-              logTech(s"  Stack: $stack")
+            logDebug(s"Thread: $name, State: $state") *>
+              logDebug(s"  Stack: $stack")
           }
     )
 end ThreadMonitor

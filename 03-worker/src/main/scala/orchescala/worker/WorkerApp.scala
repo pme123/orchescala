@@ -31,16 +31,17 @@ trait WorkerApp extends ZIOAppDefault:
   override def run: ZIO[Any, Any, Any] =
     ZIO.scoped:
       for
-        _ <- WorkerRuntime.finalizer
+        _ <- WorkerRuntime.threadPoolFinalizer
+        _ <- HttpClientProvider.threadPoolFinalizer
         _ <- logInfo(banner)
         _ <- printJvmInfologInfo
-        _ <- MemoryMonitor(logTech).start
+        _ <- MemoryMonitor.start
         _ <- foreachParDiscard(workerRegistries): registry =>
                registry.register((theDependencies :+ this).flatMap(_.theWorkers).toSet)
       yield ()
     .provideLayer(
       WorkerRuntime.sharedExecutorLayer ++
-      HttpClientProvider.live
+        HttpClientProvider.live
     )
 
   private lazy val banner =
@@ -66,7 +67,10 @@ trait WorkerApp extends ZIOAppDefault:
   private def printJvmInfologInfo(using Trace): ZIO[Any, Nothing, Unit] =
     // Print JVM arguments at startup
     val runtimeMxBean = ManagementFactory.getRuntimeMXBean
-    val jvmArgs = runtimeMxBean.getInputArguments.asScala.mkString("\n  ")
+    val jvmArgs       = runtimeMxBean.getInputArguments.asScala.mkString("\n  ")
     logTech(s"JVM Arguments:\n  $jvmArgs") *>
-      logTech(s"Memory Settings: Max=${java.lang.Runtime.getRuntime.maxMemory() / 1024 / 1024}MB, Total=${java.lang.Runtime.getRuntime.totalMemory() / 1024 / 1024}MB, Free=${java.lang.Runtime.getRuntime.freeMemory() / 1024 / 1024}MB")
+      logTech(
+        s"Memory Settings: Max=${java.lang.Runtime.getRuntime.maxMemory() / 1024 / 1024}MB, Total=${java.lang.Runtime.getRuntime.totalMemory() / 1024 / 1024}MB, Free=${java.lang.Runtime.getRuntime.freeMemory() / 1024 / 1024}MB"
+      )
+  end printJvmInfologInfo
 end WorkerApp

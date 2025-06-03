@@ -27,15 +27,13 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           ZIO.scoped:
             for
               // Fork the worker execution within the scope
-              fiber <- run(externalTaskService)(using externalTask)
-                         .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
-                         .fork
-
+              fiber  <- run(externalTaskService)(using externalTask)
+                          .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
+                          .fork
               // Add a finalizer to ensure the fiber is interrupted if the scope closes
-              _ <- ZIO.addFinalizer:
-                     fiber.status.flatMap: status =>
-                       fiber.interrupt.when(!status.isDone)
-
+              _      <- ZIO.addFinalizer:
+                          fiber.status.flatMap: status =>
+                            fiber.interrupt.when(!status.isDone)
               // Join the fiber to wait for completion
               result <- fiber.join
             yield result
@@ -43,6 +41,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             ZIO.logDebug(
               s"Worker execution for task ${externalTask.getId} completed and resources cleaned up"
             )
+
   end execute
 
   private[worker] def run(externalTaskService: camunda.ExternalTaskService)(using

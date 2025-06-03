@@ -25,19 +25,20 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             for
               // Fork the worker execution within the scope
               fiber <- run(client, job)
-                .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
-                .fork
-
+                         .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
+                         .fork
               // Add a finalizer to ensure the fiber is interrupted if the scope closes
-              _ <- ZIO.addFinalizer:
-                fiber.status.flatMap: status =>
-                  fiber.interrupt.when(!status.isDone)
+              _     <- ZIO.addFinalizer:
+                         fiber.status.flatMap: status =>
+                           fiber.interrupt.when(!status.isDone)
 
               // Join the fiber to wait for completion
               result <- fiber.join
             yield result
           .ensuring:
-            ZIO.logDebug(s"Worker execution for job ${job.getKey} completed and resources cleaned up")
+            ZIO.logDebug(
+              s"Worker execution for job ${job.getKey} completed and resources cleaned up"
+            )
 
   def run(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
     (for
