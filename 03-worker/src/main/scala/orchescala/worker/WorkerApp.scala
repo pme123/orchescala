@@ -61,15 +61,13 @@ trait WorkerApp extends ZIOAppDefault:
        |  Orchescala: ${BuildInfo.version}
        |  Scala: ${BuildInfo.scalaVersion}
        |""".stripMargin
-
-  protected def logTech: String => UIO[Unit] = logDebug
-
+  
   private def printJvmInfologInfo(using Trace): ZIO[Any, Nothing, Unit] =
     // Print JVM arguments at startup
     val runtimeMxBean = ManagementFactory.getRuntimeMXBean
     val jvmArgs       = runtimeMxBean.getInputArguments.asScala.mkString("\n  ")
-    logTech(s"JVM Arguments:\n  $jvmArgs") *>
-      logTech(
+    ZIO.logDebug(s"JVM Arguments:\n  $jvmArgs") *>
+      ZIO.logDebug(
         s"Memory Settings: Max=${java.lang.Runtime.getRuntime.maxMemory() / 1024 / 1024}MB, Total=${java.lang.Runtime.getRuntime.totalMemory() / 1024 / 1024}MB, Free=${java.lang.Runtime.getRuntime.freeMemory() / 1024 / 1024}MB"
       )
   end printJvmInfologInfo
