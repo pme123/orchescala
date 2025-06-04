@@ -26,10 +26,10 @@ object SharedHttpClientManager:
       val defaultConnectionConfig = ConnectionConfig.custom()
         .setConnectTimeout(Timeout.ofSeconds(30))
         .setSocketTimeout(Timeout.ofSeconds(30))
-        // Increase TTL to reduce connection churn
-        .setTimeToLive(TimeValue.ofHours(1))
+        // Increase TTL to reduce connection churn - set to 24 hours
+        .setTimeToLive(TimeValue.ofHours(24))
         // Increase validation time to reduce connection churn
-        .setValidateAfterInactivity(Timeout.ofMinutes(5))
+        .setValidateAfterInactivity(Timeout.ofHours(1))
         .build()
 
       // Create the connection manager with the builder
