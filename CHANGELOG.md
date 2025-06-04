@@ -15,6 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.1.8 - 2025-06-04
+### Changed 
+- Small adjustments in SharedHttpClientManager. - see [Commit](git@github.com:pme123/orchescala/commit/5f683a172f2687bcd90c9453c744d50a629d8b5f)
+- Added SharedHttpClientManager / HttpClientProvider.sharedHttpClient. - see [Commit](git@github.com:pme123/orchescala/commit/c6a025da52b818e617c235c6a09b2237ecfa6888)
+- Removed logTech from WorkerApp. - see [Commit](git@github.com:pme123/orchescala/commit/1daa77060315df6fca83d4d39d6ca2c1853294b2)
+- Only create one async HTTP client and close it at the end. - see [Commit](git@github.com:pme123/orchescala/commit/c723984232d8a51f3eb3e753be3ede808e10c023)
+- Improved Thread debugging. - see [Commit](git@github.com:pme123/orchescala/commit/0b1f218f426b3723771b574fb0ae2f7a8ef58143)
+- Adding HttpClientProvider. - see [Commit](git@github.com:pme123/orchescala/commit/cfd6172045cd67e179230b4e5fc1dce455316331)
+- Added MemoryMonitor / fixed memory leak with runToFuture (using fork) in C7Worker / C8Worker. - see [Commit](git@github.com:pme123/orchescala/commit/f69185f43251995f67775b1f4b92526c8518a16d)
+
 ## 0.1.7 - 2025-05-21
 ### Changed 
 - Added finalizer for thread pool/ only create thread pool once. - see [Commit](git@github.com:pme123/orchescala/commit/6bc0922274bcd601dd3ea7ec448ef776a3f10022)
