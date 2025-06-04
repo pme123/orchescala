@@ -2,7 +2,7 @@ package orchescala.worker
 
 import orchescala.BuildInfo
 import zio.ZIO.*
-import zio.{Trace, UIO, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
+import zio.{Scope, Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
 
 import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters.*
@@ -33,6 +33,8 @@ trait WorkerApp extends ZIOAppDefault:
       for
         _ <- WorkerRuntime.threadPoolFinalizer
         _ <- HttpClientProvider.threadPoolFinalizer
+        _ <- foreachParDiscard(workerRegistries): registry =>
+               registry.engineConnectionManagerFinalizer
         _ <- logInfo(banner)
         _ <- printJvmInfologInfo
         _ <- MemoryMonitor.start
@@ -61,7 +63,7 @@ trait WorkerApp extends ZIOAppDefault:
        |  Orchescala: ${BuildInfo.version}
        |  Scala: ${BuildInfo.scalaVersion}
        |""".stripMargin
-  
+
   private def printJvmInfologInfo(using Trace): ZIO[Any, Nothing, Unit] =
     // Print JVM arguments at startup
     val runtimeMxBean = ManagementFactory.getRuntimeMXBean

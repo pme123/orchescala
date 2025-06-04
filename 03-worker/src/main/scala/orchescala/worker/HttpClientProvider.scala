@@ -1,6 +1,6 @@
 package orchescala.worker
 
-import org.asynchttpclient.{DefaultAsyncHttpClient, DefaultAsyncHttpClientConfig}
+import org.asynchttpclient.{AsyncHttpClient, DefaultAsyncHttpClient, DefaultAsyncHttpClientConfig}
 import sttp.client3.SttpBackend
 import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, ZioWebSocketsStreams}
 import zio.{Task, Unsafe, ZIO, ZLayer}
@@ -14,8 +14,13 @@ object HttpClientProvider:
     implicit unsafe =>
       WorkerRuntime.zioRuntime.unsafe.run(createBackend).getOrThrow()
 
-  private lazy val createBackend: ZIO[Any, Throwable, SttpClientBackend] =
-    ZIO.logInfo("Creating shared HTTP client") *>
+  // A shared, cached instance of the underlying AsyncHttpClient
+  private lazy val sharedHttpClient: AsyncHttpClient = Unsafe.unsafe:
+    implicit unsafe =>
+      WorkerRuntime.zioRuntime.unsafe.run(createHttpClient).getOrThrow()
+
+  private lazy val createHttpClient: ZIO[Any, Throwable, AsyncHttpClient] =
+    ZIO.logInfo("Creating shared AsyncHttpClient") *>
       ZIO.attempt {
         val config = new DefaultAsyncHttpClientConfig.Builder()
           .setThreadPoolName("async-http-client")
@@ -29,9 +34,17 @@ object HttpClientProvider:
           .setPooledConnectionIdleTimeout(30000) // Close idle connections after 30 seconds
           .build()
 
-        val client = new DefaultAsyncHttpClient(config)
-        AsyncHttpClientZioBackend.usingClient(runtime = WorkerRuntime.zioRuntime, client = client)
+        new DefaultAsyncHttpClient(config)
       }
+
+  lazy val createBackend: ZIO[Any, Throwable, SttpClientBackend] =
+    ZIO.logInfo("Creating STTP client backend using shared HTTP client") *>
+      ZIO.succeed(
+        AsyncHttpClientZioBackend.usingClient(
+          runtime = WorkerRuntime.zioRuntime,
+          client = sharedHttpClient
+        )
+      )
 
   // Keep the layer for compatibility
   lazy val live: ZLayer[Any, Throwable, SttpClientBackend] = ZLayer
@@ -39,9 +52,7 @@ object HttpClientProvider:
 
   lazy val threadPoolFinalizer = ZIO
     .addFinalizer:
-      ZIO
-        .attempt:
-          cachedBackend.close()
+      (cachedBackend.close() *> ZIO.attempt(sharedHttpClient.close()))
         .catchAll: ex =>
           ZIO.logError(s"Error closing HTTP client.\n$ex")
         .zipLeft(ZIO.logInfo("HTTP client closed successfully"))

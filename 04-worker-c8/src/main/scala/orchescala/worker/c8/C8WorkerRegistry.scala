@@ -31,4 +31,5 @@ class C8WorkerRegistry(client: C8WorkerClient)
     private def closeClient(): UIO[Unit] =
       logInfo("Closing C7 Worker Client").as(if client != null then client.close() else ())
 
+  lazy val engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any] = ???
 end C8WorkerRegistry

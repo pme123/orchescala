@@ -86,6 +86,7 @@ trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
           .customizeHttpClient: httpClientBuilder =>
             httpClientBuilder
               .addRequestInterceptorLast(addAccessToken)
+              .setConnectionManager(SharedHttpClientManager.connectionManager)
               .build()
           .build()
     

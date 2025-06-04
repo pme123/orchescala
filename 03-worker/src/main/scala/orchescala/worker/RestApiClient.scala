@@ -49,7 +49,7 @@ trait RestApiClient:
   // no auth per default
   protected def auth(
       request: Request[Either[String, String], Any]
-  )(using EngineRunContext): IO[ServiceAuthError, Request[Either[String, String], Any]] =
+  )(using EngineRunContext): ZIO[SttpClientBackend, ServiceAuthError, Request[Either[String, String], Any]] =
     ZIO.succeed(request)
 
   protected def sendRequest(

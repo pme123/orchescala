@@ -2,7 +2,7 @@ package orchescala.worker.c7
 
 import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient
-import zio.{UIO, ZIO}
+import zio.{Scope, UIO, ZIO}
 import zio.ZIO.*
 
 class C7WorkerRegistry(client: C7WorkerClient)
@@ -35,4 +35,6 @@ class C7WorkerRegistry(client: C7WorkerClient)
     private def closeClient(): UIO[Unit] =
       logInfo("Closing C7 Worker Client")
         .as(if client != null then client.stop() else ())
+
+  lazy val engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any] = SharedHttpClientManager.engineConnectionManagerFinalizer
 end C7WorkerRegistry
