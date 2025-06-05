@@ -69,7 +69,6 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       generalVariables      <- ProcessVariablesExtractor.extractGeneral()
       given EngineRunContext = EngineRunContext(c7Context, generalVariables)
       filteredOut           <- WorkerExecutor(worker).execute(tryProcessVariables)
-                                 .tapError(error => ZIO.logError(s"Error: ${error}"))
       _                     <- externalTaskService.handleSuccess(
                                  filteredOut,
                                  generalVariables.manualOutMapping
