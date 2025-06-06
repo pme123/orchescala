@@ -50,7 +50,6 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
       s"""package $workerPackage
          |
          |import WorkerError.*
-         |import org.springframework.context.annotation.Configuration
          |
          |import $bpmnPackage.*
          |import $bpmnPackage.schema.*

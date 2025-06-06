@@ -10,6 +10,7 @@ import scala.annotation.tailrec
 sealed trait CamundaVariable:
   
   def value: Any
+  def `type`: String
 
   def toJson: Json =
     import CamundaVariable.*
@@ -145,26 +146,25 @@ object CamundaVariable:
 
   case object CNull extends CamundaVariable:
     val value: Null = null
-
-    private val `type`: String = "String"
+    val `type`: String = "String"
   end CNull
-  case class CString(value: String, private val `type`: String = "String")
+  case class CString(value: String, val `type`: String = "String")
       extends CamundaVariable
-  case class CInteger(value: Int, private val `type`: String = "Integer")
+  case class CInteger(value: Int, val `type`: String = "Integer")
       extends CamundaVariable
-  case class CLong(value: Long, private val `type`: String = "Long")
+  case class CLong(value: Long, val `type`: String = "Long")
       extends CamundaVariable
-  case class CBoolean(value: Boolean, private val `type`: String = "Boolean")
+  case class CBoolean(value: Boolean, val `type`: String = "Boolean")
       extends CamundaVariable
 
-  case class CDouble(value: Double, private val `type`: String = "Double")
+  case class CDouble(value: Double, val `type`: String = "Double")
       extends CamundaVariable
 
   case class CFile(
       @description("The File's content as Base64 encoded String.")
       value: String,
       valueInfo: CFileValueInfo,
-      private val `type`: String = "File"
+      val `type`: String = "File"
   ) extends CamundaVariable
 
   case class CFileValueInfo(
@@ -172,7 +172,7 @@ object CamundaVariable:
       mimetype: Option[String]
   )
 
-  case class CJson(value: String, private val `type`: String = "Json")
+  case class CJson(value: String, val `type`: String = "Json")
       extends CamundaVariable
 
   given InOutDecoder[CamundaVariable] =

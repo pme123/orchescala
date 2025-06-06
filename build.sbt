@@ -30,6 +30,7 @@ lazy val root = project
     simulation,
     worker,
     helper,
+    engineC7,
     workerC7,
     workerC8
   )
@@ -155,6 +156,17 @@ lazy val helper = project
     autoImportSetting,
     libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav)
   ).dependsOn(api, simulation)
+
+lazy val engineC7 = project
+  .in(file("./04-engine-c7"))
+  .configure(publicationSettings)
+  .settings(projectSettings("engine-c7"))
+  .settings(
+    autoImportSetting,
+    unitTestSettings,
+    libraryDependencies ++= camunda7EngineDependencies ++zioTestDependencies
+  )
+  .dependsOn(engine)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))

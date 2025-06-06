@@ -45,7 +45,7 @@ case class BpmnProcessGenerator()(using config: DevConfig):
        |      </bpmn:extensionElements>
        |      <bpmn:incoming>Flow_151h2k5</bpmn:incoming>
        |    </bpmn:endEvent>
-       |    <bpmn:boundaryEvent id="MockedBoundaryEvent" attachedToRef="InitProcessTask">
+       |    <bpmn:boundaryEvent id="MockedBoundaryEvent" name="output-mocked" attachedToRef="InitProcessTask">
        |      <bpmn:outgoing>Flow_1tnbvod</bpmn:outgoing>
        |      <bpmn:errorEventDefinition id="ErrorEventDefinition_11vypoq" errorRef="Error_1rvzdyr" />
        |    </bpmn:boundaryEvent>
@@ -67,7 +67,6 @@ case class BpmnProcessGenerator()(using config: DevConfig):
        |      <bpmn:linkEventDefinition id="LinkEventDefinition_17cwbts" name="output-mocked" />
        |    </bpmn:intermediateCatchEvent>
        |  </bpmn:process>
-       |  <bpmn:message id="Message_0q4quzr" name="$processId" />
        |  <bpmn:error id="Error_1rvzdyr" name="output-mocked" errorCode="output-mocked" />
        |  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
        |    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1nchi5w">
