@@ -7,7 +7,8 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
 
   protected def run(sim: SSimulation): T
 
-  def simulate(body: => (Seq[SScenario] | SScenario)*): Unit =
+  def simulate(body: => (Seq[SScenario] | SScenario)*): Unit = {
+    println("simulate started!")
     try
       val scenarios = body.flatMap:
         case s: Seq[?] => s.collect { case ss: SScenario => ss }
@@ -25,6 +26,7 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     catch
       case err => // there could be errors in the creation of the SScenarios
         err.printStackTrace()
+  }
 
   def scenario(scen: ProcessScenario): SScenario =
     scenario(scen)()
@@ -33,10 +35,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     scen
 
   inline def serviceScenario[
-      In <: Product: InOutEncoder: InOutDecoder: Schema,
-      Out <: Product: InOutEncoder: InOutDecoder: Schema,
-      ServiceIn: InOutEncoder: InOutDecoder,
-      ServiceOut: InOutEncoder: InOutDecoder
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+      ServiceIn: {InOutEncoder, InOutDecoder},
+      ServiceOut: {InOutEncoder, InOutDecoder}
   ](
       task: ServiceTask[In, Out, ServiceIn, ServiceOut],
       outputMock: Out,
@@ -58,10 +60,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
   end serviceScenario
 
   inline def serviceScenario[
-      In <: Product: InOutEncoder: InOutDecoder: Schema,
-      Out <: Product: InOutEncoder: InOutDecoder: Schema,
-      ServiceIn: InOutEncoder: InOutDecoder,
-      ServiceOut: InOutEncoder: InOutDecoder
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+      ServiceIn: {InOutEncoder, InOutDecoder},
+      ServiceOut: {InOutEncoder, InOutDecoder}
   ](
       task: ServiceTask[In, Out, ServiceIn, ServiceOut],
       outputMock: Out,
@@ -75,10 +77,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     )
 
   inline def serviceScenario[
-      In <: Product: InOutEncoder: InOutDecoder: Schema,
-      Out <: Product: InOutEncoder: InOutDecoder: Schema,
-      ServiceIn: InOutEncoder: InOutDecoder,
-      ServiceOut: InOutEncoder: InOutDecoder
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+      ServiceIn: {InOutEncoder, InOutDecoder},
+      ServiceOut: {InOutEncoder, InOutDecoder}
   ](
       task: ServiceTask[In, Out, ServiceIn, ServiceOut]
   ): Seq[ExternalTaskScenario] =
@@ -201,10 +203,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       scen.ignored.withSteps(body.toList)
 
     inline def serviceScenario[
-        In <: Product: InOutEncoder: InOutDecoder: Schema,
-        Out <: Product: InOutEncoder: InOutDecoder: Schema,
-        ServiceIn: InOutEncoder: InOutDecoder,
-        ServiceOut: InOutEncoder: InOutDecoder
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+        ServiceIn: {InOutEncoder, InOutDecoder},
+        ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut],
         outputMock: Out,
@@ -213,10 +215,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       Seq(ExternalTaskScenario(nameOfVariable(task) + " defaultMock", task).ignored)
 
     inline def serviceScenario[
-        In <: Product: InOutEncoder: InOutDecoder: Schema,
-        Out <: Product: InOutEncoder: InOutDecoder: Schema,
-        ServiceIn: InOutEncoder: InOutDecoder,
-        ServiceOut: InOutEncoder: InOutDecoder
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+        ServiceIn: {InOutEncoder, InOutDecoder},
+        ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut],
         outputMock: Out,
@@ -230,10 +232,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       )
 
     inline def serviceScenario[
-        In <: Product: InOutEncoder: InOutDecoder: Schema,
-        Out <: Product: InOutEncoder: InOutDecoder: Schema,
-        ServiceIn: InOutEncoder: InOutDecoder,
-        ServiceOut: InOutEncoder: InOutDecoder
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+        ServiceIn: {InOutEncoder, InOutDecoder},
+        ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut]
     ): Seq[ExternalTaskScenario] =
@@ -264,10 +266,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       scen.only.withSteps(body.toList)
 
     inline def serviceScenario[
-        In <: Product: InOutEncoder: InOutDecoder: Schema,
-        Out <: Product: InOutEncoder: InOutDecoder: Schema,
-        ServiceIn: InOutEncoder: InOutDecoder,
-        ServiceOut: InOutEncoder: InOutDecoder
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+        ServiceIn: {InOutEncoder, InOutDecoder},
+        ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut],
         outputMock: Out,
@@ -276,10 +278,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       Seq(ExternalTaskScenario(nameOfVariable(task) + " defaultMock", task).only)
 
     inline def serviceScenario[
-        In <: Product: InOutEncoder: InOutDecoder: Schema,
-        Out <: Product: InOutEncoder: InOutDecoder: Schema,
-        ServiceIn: InOutEncoder: InOutDecoder,
-        ServiceOut: InOutEncoder: InOutDecoder
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+        ServiceIn: {InOutEncoder, InOutDecoder},
+        ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut],
         outputMock: Out,
@@ -293,10 +295,10 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       )
 
     inline def serviceScenario[
-        In <: Product: InOutEncoder: InOutDecoder: Schema,
-        Out <: Product: InOutEncoder: InOutDecoder: Schema,
-        ServiceIn: InOutEncoder: InOutDecoder,
-        ServiceOut: InOutEncoder: InOutDecoder
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
+        ServiceIn: {InOutEncoder, InOutDecoder},
+        ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut]
     ): Seq[ExternalTaskScenario] =

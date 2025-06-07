@@ -28,6 +28,7 @@ lazy val root = project
     api,
     dmn,
     simulation,
+    simulation2,
     worker,
     helper,
     engineC7,
@@ -129,6 +130,17 @@ lazy val simulation = project
     )
   )
   .dependsOn(domain)
+lazy val simulation2 = project
+  .in(file("./03-simulation2"))
+  .configure(publicationSettings)
+  .settings(projectSettings("simulation2"))
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++= Seq(
+      "org.scala-sbt" % "test-interface" % testInterfaceVersion
+    )
+  )
+  .dependsOn(engine)
 
 lazy val worker = project
   .in(file("./03-worker"))
