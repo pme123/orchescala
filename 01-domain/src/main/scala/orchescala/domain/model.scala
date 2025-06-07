@@ -49,6 +49,8 @@ trait InOut[
   lazy val in: In                = inOutDescr.in
   lazy val out: Out              = inOutDescr.out
   lazy val niceName: String      = inOutDescr.niceName
+  lazy val outAsJson: Json        = out.asJson.deepDropNullValues
+  lazy val inAsJson: Json        = out.asJson.deepDropNullValues
 
   def camundaInMap: Map[String, CamundaVariable]       =
     CamundaVariable.toCamunda(in)

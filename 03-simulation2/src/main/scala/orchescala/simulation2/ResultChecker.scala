@@ -11,86 +11,46 @@ import scala.collection.mutable.ListBuffer
 import scala.deriving.Mirror.Sum
 import scala.reflect.ClassTag
 
-trait ResultChecker[
-    In <: Product: {InOutEncoder, InOutDecoder},
-    Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
-    T <: InOut[In, Out, T]
-]:
+trait ResultChecker:
   def scenarioData: ScenarioData
 
   def checkProps(
-      withOverrides: WithTestOverrides[In, Out, ?],
-      result: Out,
+      withOverrides: WithTestOverrides[?],
+      result: Json,
       scenarioData: ScenarioData
   ): ScenarioData =
     withOverrides.testOverrides match
       case Some(TestOverrides(overrides)) =>
         checkO(overrides, result, scenarioData)
       case _                              =>
-        checkP(withOverrides.inOut.out, result, scenarioData)
+        checkP(withOverrides.inOut.outAsJson, result, scenarioData)
     end match
   end checkProps
 
   private def checkO(
       overrides: Seq[TestOverride],
-      result: Out,
+      result: Json,
       scenarioData: ScenarioData
   ): ScenarioData =
     overrides
-      .foldLeft(scenarioData) : (scenarioData, testOverride) =>
+      .foldLeft(scenarioData): (scenarioData, testOverride) =>
         testOverride match
           case TestOverride(Some(k), Exists, _)             =>
             checkExistsInResult(result, k, scenarioData)
           case TestOverride(Some(k), NotExists, _)          =>
-            val matches = !result.productElementNames.contains(k)
-            if !matches then
-              scenarioData.error(s"$k did EXIST in $result")
-            else
-              scenarioData
+            checkExistsNotInResult(result, k, scenarioData)
           case TestOverride(Some(k), IsEquals, Some(v))     =>
-            result
-              .productElementNames
-              .zip(result.productIterator)
-              .find(_._1 == k)
-              .map:
-                case (key, value) =>
-                  checkIsEqualValue(key, v, value, scenarioData)
-              .getOrElse:
-                scenarioData.error(s"$k did NOT exist in $result")
+            checkIsEqualValue(k, v, result, scenarioData)
           case TestOverride(Some(k), HasSize, Some(value))  =>
-            result.productElementNames.find(_ == k)
-              .map:
-                case it: Iterable[?] if it.size == value =>
-                  scenarioData
-                case it: Iterable[?] =>
-                  scenarioData.error(
-                    s"$k does NOT have the correct size $value in $it"
-                  )
-                case _           =>
-                  scenarioData.error(s"$k is not a collection in $result")
-              .getOrElse:
-                scenarioData.error(s"$k did NOT exist in $result")
-
+            checkHasSize(k, value, result, scenarioData)
           case TestOverride(Some(k), Contains, Some(value)) =>
-            result.productElementNames.find(_ == k)
-              .map:
-                case it: Iterable[?] if it.contains(value) =>
-                  scenarioData
-                case it: Iterable[?] =>
-                  scenarioData.error(
-                    s"$k does NOT contains $value in $it"
-                  )
-                case _           => 
-                  scenarioData.error(s"$k is not a collection in $result")
-              .getOrElse:    
-                  scenarioData.error(s"$k did NOT exist in $result")
-
+            checkContains(k, value, result, scenarioData)
           case _                                            =>
             scenarioData.error(
-              s"!!! Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
+              s"Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
             )
 
-/*
+  /*
   // DMN
   def checkOForCollection(
       overrides: Seq[TestOverride],
@@ -127,10 +87,10 @@ trait ResultChecker[
           false
       }
       .forall(_ == true)
-*/
+   */
   private def checkP[T <: Product](
-      expected: Out,
-      result: Out,
+      expected: Json,
+      result: Json,
       scenarioData: ScenarioData
   ): ScenarioData =
     if expected == result then
@@ -142,89 +102,141 @@ trait ResultChecker[
   end checkP
 
   private def checkExistsInResult(
-      result: Out,
+      result: Json,
       key: String,
       scenarioData: ScenarioData
   ): ScenarioData =
-    val matches = result.productElementNames.contains(key)
-    if !matches then
+    if !checkExistsInResult(result, key) then
       scenarioData.error(s"$key did NOT exist in $result")
     else
       scenarioData
   end checkExistsInResult
 
-  private def checkIsEqualValue(
+  private def checkExistsInResult(
+      result: Json,
+      key: String
+  ): Boolean =
+    result.hcursor.keys.toSeq.flatten.contains(key)
+  end checkExistsInResult
+
+  private def checkExistsNotInResult(
+      result: Json,
       key: String,
-      expectedValue: Any,
-      resultValue: Any,
       scenarioData: ScenarioData
   ): ScenarioData =
-    val matches: Boolean = resultValue == expectedValue
-    if !matches then
-      val scData = scenarioData.error(
-        s"""The value of $key is different:
-           | - expected: ${expectedValue}
-           | - result  : ${resultValue}""".stripMargin
-      )
-      if resultValue.getClass != expectedValue.getClass then
-        scData.error(
-          s"""The type of $key is different:
-             | - expected: ${expectedValue.getClass} 
-             | - result  : ${resultValue.getClass}""".stripMargin
-        )
-      else
-        checkMultiLines(expectedValue, resultValue, scData)
-      end if
+    if checkExistsInResult(result, key) then
+      scenarioData.error(s"$key did NOT exist in $result")
     else
       scenarioData
-    end if
-  end checkIsEqualValue
+  end checkExistsNotInResult
 
-  private def checkMultiLines(expectedValue: Any, resultValue: Any, scData: ScenarioData) = {
-    if expectedValue.toString.contains("\n") then // compare each line for complex strings
-      val result = resultValue.toString.split("\n")
-      val expected = expectedValue.toString.split("\n")
-      result.zip(expected).foldLeft(scData):
-        case (sd, (r, e)) =>
-          if r != e then
-            sd.error(
-              s""">>> Bad Line:
-                 | - expected: '$e'
-                 | - result  : '$r'""".stripMargin
-            )
-          else sd
+  private def checkIsEqualValue(
+      key: String,
+      expectedValue: Json,
+      result: Json,
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    if checkExistsInResult(result, key) then
+      if expectedValue == result.hcursor.downField(key).focus.get then
+        scenarioData
+      else
+        val sd = scenarioData.error(
+          s"""The value of $key is different:
+             | - expected: ${expectedValue}
+             | - result  : ${result.hcursor.downField(key).focus.get}""".stripMargin
+        )
+        checkMultiLines(expectedValue, result, sd)
+    else
+      scenarioData.error(s"$key did NOT exist in $result")
+
+  private def checkMultiLines(expectedValue: Json, resultValue: Json, scData: ScenarioData) =
+    if expectedValue.isString && resultValue.isString then
+      if expectedValue.asString.get.contains("\n") then // compare each line for complex strings
+        val result   = resultValue.asString.get.split("\n")
+        val expected = expectedValue.asString.get.split("\n")
+        result.zip(expected).foldLeft(scData):
+          case (sd, (r, e)) =>
+            if r != e then
+              sd.error(
+                s""">>> Bad Line:
+                   | - expected: '$e'
+                   | - result  : '$r'""".stripMargin
+              )
+            else sd
+      else scData
     else scData
-  }
+
+  private def checkHasSize(
+      key: String,
+      expectedSize: Json,
+      result: Json,
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    if checkExistsInResult(result, key) then
+      result.hcursor.downField(key).focus match
+        case Some(r) if r.isArray && expectedSize.asNumber.get.toInt.contains(r.asArray.get.size) =>
+          scenarioData
+        case _                                                                                    =>
+          scenarioData.error(s"""Size of $key is different:
+                                | - expected: ${expectedSize.asNumber.get.toInt}
+                                | - result  : ${result.hcursor.downField(
+                                 key
+                               ).focus.get.asArray.get.size}""".stripMargin)
+    else
+      scenarioData.error(s"$key did NOT exist in $result")
+
+  private def checkContains(
+      key: String,
+      expectedValue: Json,
+      result: Json,
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    result.hcursor.downField(key).focus match
+      case Some(r) if r.isArray =>
+        if r.asArray.get.contains(expectedValue) then
+          scenarioData
+        else
+          scenarioData.error(s"$key does NOT contains $expectedValue in $r")
+      case Some(r)              =>
+        scenarioData.error(s"$key is NOT an array in $result")
+      case None                 =>
+        scenarioData.error(s"$key does NOT exist in $result")
 
   private def checkJson(
       expectedJson: io.circe.Json,
       resultJson: io.circe.Json,
       key: String
-  ): Boolean =
-    val diffs: ListBuffer[String] = ListBuffer()
+  ): ScenarioData =
     def compareJsons(
         expJson: io.circe.Json,
         resJson: io.circe.Json,
-        path: String
-    ): Unit =
+        path: String,
+        scenarioData: ScenarioData
+    ): ScenarioData =
       if expJson != resJson then
         (expJson, resJson) match
+          case _ if expJson == resJson                   =>
+            scenarioData
           case _ if expJson.isArray && resJson.isArray   =>
             val expJsonArray = expJson.asArray.toList.flatten
             val resJsonArray = resJson.asArray.toList.flatten
-            for
-              (expJson, resJson) <- expJsonArray.zipAll(
-                                      resJsonArray,
-                                      Json.Null,
-                                      Json.Null
-                                    )
-            do
-              compareJsons(
-                expJson,
-                resJson,
-                s"$path[${expJsonArray.indexOf(expJson)}]"
+            if expJsonArray.size != resJsonArray.size then
+              scenarioData.error(
+                s"""Size of array is different:
+                   | - expected: $expJsonArray
+                   | - result  : $resJsonArray""".stripMargin
               )
-            end for
+            else
+              expJsonArray.foldLeft(scenarioData): (sd, expJson) =>
+                resJsonArray.find(_ == expJson) match
+                  case Some(_) => sd
+                  case None    =>
+                    sd.error(
+                      s"""Value not found in array:
+                         | - expected: $expJson
+                         | - result  : $resJsonArray""".stripMargin
+                    )
+            end if
           case _ if expJson.isObject && resJson.isObject =>
             val expJsonObj = expJson.asObject.get
             val resJsonObj = resJson.asObject.get
@@ -232,36 +244,34 @@ trait ResultChecker[
             val resKeys    = resJsonObj.keys.toSeq
             val commonKeys = expKeys.intersect(resKeys).toSet
             val uniqueKeys = (expKeys ++ resKeys).toSet.diff(commonKeys)
-            for key <- commonKeys do
+            val scenData   = commonKeys.foldLeft(scenarioData): (sd, key) =>
               compareJsons(
                 expJsonObj(key).get,
                 resJsonObj(key).get,
-                s"$path.$key"
+                s"$path.$key",
+                sd
               )
-            end for
-            for key <- uniqueKeys do
-              if expKeys.contains(key) then
-                expJsonObj(key).foreach { json =>
-                  diffs += s"$path.$key: ${json.noSpaces} (expected field not in result)"
-                }
-              else
-                resJsonObj(key).foreach { json =>
-                  diffs += s"$path.$key: ${json.noSpaces} (field in result not expected)"
-                }
-            end for
+            val diffs      = uniqueKeys.foldLeft(Seq.empty[String]): (ds, key) =>
+              expJsonObj(key)
+                .map: json =>
+                  ds :+
+                    s" - $path.$key: ${json.noSpaces} (expected field not in result)"
+                .orElse:
+                  resJsonObj(key).map: json =>
+                    ds :+
+                      s" - $path.$key: ${json.noSpaces} (field in result not expected)"
+                .getOrElse(ds)
+            if diffs.nonEmpty then
+              scenData.error(diffs.mkString("\n"))
+            else scenData
           case _                                         =>
-            diffs += s"$path: ${expJson.noSpaces} (expected) != ${resJson.noSpaces} (result)"
+            scenarioData.error(
+              s"$path: ${expJson.noSpaces} (expected) != ${resJson.noSpaces} (result)"
+            )
+      else scenarioData
 
-    compareJsons(expectedJson, resultJson, "")
+    compareJsons(expectedJson, resultJson, "", scenarioData)
 
-    if diffs.nonEmpty then
-      println(
-        s"!!! The JSON variable $key have the following different fields:"
-      )
-      for diff <- diffs do
-        println(diff)
-    end if
-    diffs.isEmpty
   end checkJson
 
 end ResultChecker

@@ -2,55 +2,49 @@ package orchescala.simulation2
 
 import orchescala.domain.*
 
-import scala.reflect.ClassTag
-
-trait SimulationDsl[T]:
+trait SimulationDsl[T] extends TestOverrideExtensions:
 
   protected def run(sim: SSimulation): T
 
-  inline def simulate(body: => (Seq[SScenario[?, ?]] | SScenario[?, ?])*): Unit =
+  def simulate(body: => (Seq[SScenario] | SScenario)*): Unit = {
+    println("simulate started!")
     try
       val scenarios = body.flatMap:
-        case s: Seq[?]          => s.collect { case ss: SScenario[?, ?] => ss }
-        case s: SScenario[?, ?] => Seq(s)
+        case s: Seq[?] => s.collect { case ss: SScenario => ss }
+        case s: SScenario => Seq(s)
 
       val modScen =
         if scenarios.exists(_.isOnly)
         then
           scenarios.map:
             case s if s.isOnly => s
-            case s             => s.ignored
+            case s => s.ignored
         else scenarios
 
       run(SSimulation(modScen.toList)) // runs Scenarios
     catch
       case err => // there could be errors in the creation of the SScenarios
         err.printStackTrace()
+  }
 
-  def scenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](scen: ProcessScenario[In, Out]): SScenario[In, Out] =
+  def scenario(scen: ProcessScenario): SScenario =
     scenario(scen)()
 
-  def scenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](scen: ExternalTaskScenario[In, Out]): SScenario[In, Out] =
+  def scenario(scen: ExternalTaskScenario): SScenario =
     scen
 
   inline def serviceScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema},
       ServiceIn: {InOutEncoder, InOutDecoder},
       ServiceOut: {InOutEncoder, InOutDecoder}
   ](
       task: ServiceTask[In, Out, ServiceIn, ServiceOut],
       outputMock: Out,
       outputServiceMock: MockedServiceResponse[ServiceOut]
-  ): Seq[ExternalTaskScenario[In, Out]] =
-    val withDefaultMock       = task.mockServicesWithDefault
-    val withOutputMock        = task
+  ): Seq[ExternalTaskScenario] =
+    val withDefaultMock = task.mockServicesWithDefault
+    val withOutputMock = task
       .mockWith(outputMock)
       .withOut(outputMock)
     val withServiceOutputMock = task
@@ -65,8 +59,8 @@ trait SimulationDsl[T]:
   end serviceScenario
 
   inline def serviceScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema},
       ServiceIn: {InOutEncoder, InOutDecoder},
       ServiceOut: {InOutEncoder, InOutDecoder}
   ](
@@ -74,7 +68,7 @@ trait SimulationDsl[T]:
       outputMock: Out,
       outputServiceMock: ServiceOut,
       respHeaders: Map[String, String] = Map.empty
-  ): Seq[ExternalTaskScenario[In, Out]] =
+  ): Seq[ExternalTaskScenario] =
     serviceScenario(
       task,
       outputMock,
@@ -82,213 +76,146 @@ trait SimulationDsl[T]:
     )
 
   inline def serviceScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema},
       ServiceIn: {InOutEncoder, InOutDecoder},
       ServiceOut: {InOutEncoder, InOutDecoder}
   ](
       task: ServiceTask[In, Out, ServiceIn, ServiceOut]
-  ): Seq[ExternalTaskScenario[In, Out]] =
+  ): Seq[ExternalTaskScenario] =
     serviceScenario(task, task.out, task.defaultServiceOutMock)
 
-  def scenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](scen: DmnScenario[In, Out]): SScenario[In, Out] =
+  def scenario(scen: DmnScenario): SScenario =
     scen
 
-  def scenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](scen: ProcessScenario[In, Out])(body: SStep*): SScenario[In, Out] =
+  def scenario(scen: ProcessScenario)(body: SStep*): SScenario =
     scen.withSteps(body.toList)
 
-  inline def badScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](
-      inline process: Process[In, Out, ?],
+  inline def badScenario(
+      inline process: Process[?, ?, ?],
       status: Int,
       errorMsg: Optable[String] = None
-  ): BadScenario[In, Out] =
+  ): BadScenario =
     BadScenario(nameOfVariable(process), process, status, errorMsg.value)
 
-  inline def incidentScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](
-      inline process: Process[In, Out, ?],
+  inline def incidentScenario(
+      inline process: Process[?, ?, ?],
       incidentMsg: String
-  )(body: SStep*): IncidentScenario[In, Out] =
+  )(body: SStep*): IncidentScenario =
     IncidentScenario(nameOfVariable(process), process, body.toList, incidentMsg)
 
-  inline def incidentScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](
-      inline process: Process[In, Out, ?],
+  inline def incidentScenario(
+      inline process: Process[?, ?, ?],
       incidentMsg: String
-  ): IncidentScenario[In, Out] =
+  ): IncidentScenario =
     incidentScenario(process, incidentMsg)()
 
-  inline def incidentScenario[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](
+  inline def incidentScenario(
       inline process: ExternalTask[?, ?, ?],
       incidentMsg: String
-  ): IncidentServiceScenario[In, Out] =
+  ): IncidentServiceScenario =
     IncidentServiceScenario(nameOfVariable(process), process, incidentMsg)
 
-  inline def subProcess[
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](inline process: Process[In, Out, ?])(
+  inline def subProcess(inline process: Process[?, ?, ?])(
       body: SStep*
-  ): SSubProcess[In, Out] =
+  ): SSubProcess =
     SSubProcess(nameOfVariable(process), process, body.toList)
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[Process[In, Out, ?], ProcessScenario[In, Out]] with
-    inline def apply(process: Process[In, Out, ?]): ProcessScenario[In, Out] =
+  inline given Conversion[Process[?, ?, ?], ProcessScenario] with
+    inline def apply(process: Process[?, ?, ?]): ProcessScenario =
       ProcessScenario(nameOfVariable(process), process)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[ServiceTask[In, Out, ?, ?], ExternalTaskScenario[In, Out]] with
-    inline def apply(task: ServiceTask[In, Out, ?, ?]): ExternalTaskScenario[In, Out] =
+  inline given Conversion[ServiceTask[?, ?, ?, ?], ExternalTaskScenario] with
+    inline def apply(task: ServiceTask[?, ?, ?, ?]): ExternalTaskScenario =
       ExternalTaskScenario(nameOfVariable(task), task)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[CustomTask[In, Out], ExternalTaskScenario[In, Out]] with
-    inline def apply(task: CustomTask[In, Out]): ExternalTaskScenario[In, Out] =
+  inline given Conversion[CustomTask[?, ?], ExternalTaskScenario] with
+    inline def apply(task: CustomTask[?, ?]): ExternalTaskScenario =
       ExternalTaskScenario(nameOfVariable(task), task)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[DecisionDmn[In, Out], DmnScenario[In, Out]] with
-    inline def apply(task: DecisionDmn[In, Out]): DmnScenario[In, Out] =
+  inline given Conversion[DecisionDmn[?, ?], DmnScenario] with
+    inline def apply(task: DecisionDmn[?, ?]): DmnScenario =
       DmnScenario(nameOfVariable(task), task)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[UserTask[In, Out], SUserTask[In, Out]] with
-    inline def apply(task: UserTask[In, Out]): SUserTask[In, Out] =
+  inline given Conversion[UserTask[?, ?], SUserTask] with
+    inline def apply(task: UserTask[?, ?]): SUserTask =
       SUserTask(nameOfVariable(task), task)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[MessageEvent[In], SMessageEvent[In]] with
-    inline def apply(event: MessageEvent[In]): SMessageEvent[In] =
+  inline given Conversion[MessageEvent[?], SMessageEvent] with
+    inline def apply(event: MessageEvent[?]): SMessageEvent =
       SMessageEvent(nameOfVariable(event), event)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[SignalEvent[In], SSignalEvent[In]] with
-    inline def apply(event: SignalEvent[In]): SSignalEvent[In] =
+  inline given Conversion[SignalEvent[?], SSignalEvent] with
+    inline def apply(event: SignalEvent[?]): SSignalEvent =
       SSignalEvent(nameOfVariable(event), event)
-  end given
 
-  inline given [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ]: Conversion[TimerEvent, STimerEvent] with
+  inline given Conversion[TimerEvent, STimerEvent] with
     inline def apply(event: TimerEvent): STimerEvent =
       STimerEvent(nameOfVariable(event), event)
-  end given
 
-  extension [
-      In <: Product: {InOutEncoder, InOutDecoder}
-  ](event: MessageEvent[In])
-    def waitFor(readyVariable: String): SMessageEvent[In]                  =
+  extension (event: MessageEvent[?])
+    def waitFor(readyVariable: String): SMessageEvent =
       event.waitFor(readyVariable, true)
-    def waitFor(readyVariable: String, readyValue: Any): SMessageEvent[In] =
-      SMessageEvent(event.messageName, event, Some(readyVariable), readyValue)
-    def start: SMessageEvent[In]                                           =
-      SMessageEvent(event.messageName, event).start
+    def waitFor(readyVariable: String, readyValue: Any): SMessageEvent =
+      SMessageEvent(event.name, event, Some(readyVariable), readyValue)
+    def start: SMessageEvent =
+      SMessageEvent(event.name, event).start
   end extension
 
-  extension [In <: Product: {InOutEncoder, InOutDecoder}](event: SignalEvent[In])
-    def waitFor(readyVariable: String): SSignalEvent[In]                         =
+  extension (event: SignalEvent[?])
+    def waitFor(readyVariable: String): SSignalEvent =
       event.waitFor(readyVariable, true)
-    def waitFor(readyVariable: String, readyValue: Any = true): SSignalEvent[In] =
-      SSignalEvent(event.messageName, event, readyVariable, readyValue)
+    def waitFor(readyVariable: String, readyValue: Any = true): SSignalEvent =
+      SSignalEvent(event.name, event, readyVariable, readyValue)
   end extension
 
   extension (event: TimerEvent)
-    def waitFor(readyVariable: String): STimerEvent                  =
+    def waitFor(readyVariable: String): STimerEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): STimerEvent =
-      STimerEvent(event.title, event, Some(readyVariable), readyValue)
+      STimerEvent(event.name, event, Some(readyVariable), readyValue)
   end extension
 
-  extension [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](ut: UserTask[In, Out])
-    def waitForSec(sec: Int): SUserTask[In, Out] =
+  extension (ut: UserTask[?, ?])
+    def waitForSec(sec: Int): SUserTask =
       SUserTask(ut.name, ut, waitForSec = Some(sec))
 
   end extension
 
   def waitFor(timeInSec: Int): SWaitTime = SWaitTime(timeInSec)
 
-  extension [
-      In <: Product: {InOutEncoder, InOutDecoder},
-      Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-  ](scen: ProcessScenario[In, Out])
-    def startWithMsg: ProcessScenario[In, Out] =
+  extension (scen: ProcessScenario)
+    def startWithMsg: ProcessScenario =
       scen.copy(startType = ProcessStartType.MESSAGE)
 
   end extension
 
   object ignore:
 
-    def simulate(body: SScenario[?, ?]*): T =
+    def simulate(body: SScenario*): T =
       run(SSimulation(body.map(_.ignored).toList))
 
-    def scenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](scen: SScenario[In, Out]): SScenario[In, Out] =
+    def scenario(scen: SScenario): SScenario =
       scen.ignored
 
-    def scenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](scen: SScenario[In, Out])(body: SStep*): SScenario[In, Out] =
+    def scenario(scen: SScenario)(body: SStep*): SScenario =
       scen.ignored.withSteps(body.toList)
 
     inline def serviceScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
         ServiceIn: {InOutEncoder, InOutDecoder},
         ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut],
         outputMock: Out,
         outputServiceMock: MockedServiceResponse[ServiceOut]
-    ): Seq[ExternalTaskScenario[In, Out]] =
+    ): Seq[ExternalTaskScenario] =
       Seq(ExternalTaskScenario(nameOfVariable(task) + " defaultMock", task).ignored)
 
     inline def serviceScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
         ServiceIn: {InOutEncoder, InOutDecoder},
         ServiceOut: {InOutEncoder, InOutDecoder}
     ](
@@ -296,7 +223,7 @@ trait SimulationDsl[T]:
         outputMock: Out,
         outputServiceMock: ServiceOut,
         respHeaders: Map[String, String] = Map.empty
-    ): Seq[ExternalTaskScenario[In, Out]] =
+    ): Seq[ExternalTaskScenario] =
       serviceScenario(
         task,
         outputMock,
@@ -304,69 +231,54 @@ trait SimulationDsl[T]:
       )
 
     inline def serviceScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
         ServiceIn: {InOutEncoder, InOutDecoder},
         ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut]
-    ): Seq[ExternalTaskScenario[In, Out]] =
+    ): Seq[ExternalTaskScenario] =
       serviceScenario(task, task.out, task.defaultServiceOutMock)
 
-    def badScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](
-        scen: SScenario[In, Out],
+    def badScenario(
+        scen: SScenario,
         status: Int,
         errorMsg: Optable[String] = None
-    ): SScenario[In, Out] =
+    ): SScenario =
       scen.ignored
 
-    def incidentScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](scen: SScenario[In, Out], incidentMsg: String): SScenario[In, Out] =
+    def incidentScenario(scen: SScenario, incidentMsg: String): SScenario =
       scen.ignored
 
-    def incidentScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](scen: SScenario[In, Out], incidentMsg: String)(
+    def incidentScenario(scen: SScenario, incidentMsg: String)(
         body: SStep*
-    ): SScenario[In, Out] =
+    ): SScenario =
       scen.ignored
   end ignore
 
   object only:
 
-    def scenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](scen: SScenario[In, Out]): SScenario[In, Out] =
+    def scenario(scen: SScenario): SScenario =
       scen.only
 
-    def scenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](scen: SScenario[In, Out])(body: SStep*): SScenario[In, Out] =
+    def scenario(scen: SScenario)(body: SStep*): SScenario =
       scen.only.withSteps(body.toList)
 
     inline def serviceScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
         ServiceIn: {InOutEncoder, InOutDecoder},
         ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut],
         outputMock: Out,
         outputServiceMock: MockedServiceResponse[ServiceOut]
-    ): Seq[ExternalTaskScenario[In, Out]] =
+    ): Seq[ExternalTaskScenario] =
       Seq(ExternalTaskScenario(nameOfVariable(task) + " defaultMock", task).only)
 
     inline def serviceScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
         ServiceIn: {InOutEncoder, InOutDecoder},
         ServiceOut: {InOutEncoder, InOutDecoder}
     ](
@@ -374,7 +286,7 @@ trait SimulationDsl[T]:
         outputMock: Out,
         outputServiceMock: ServiceOut,
         respHeaders: Map[String, String] = Map.empty
-    ): Seq[ExternalTaskScenario[In, Out]] =
+    ): Seq[ExternalTaskScenario] =
       serviceScenario(
         task,
         outputMock,
@@ -382,41 +294,32 @@ trait SimulationDsl[T]:
       )
 
     inline def serviceScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
+        In <: Product: {InOutEncoder, InOutDecoder, Schema},
+        Out <: Product: {InOutEncoder, InOutDecoder, Schema},
         ServiceIn: {InOutEncoder, InOutDecoder},
         ServiceOut: {InOutEncoder, InOutDecoder}
     ](
         task: ServiceTask[In, Out, ServiceIn, ServiceOut]
-    ): Seq[ExternalTaskScenario[In, Out]] =
+    ): Seq[ExternalTaskScenario] =
       serviceScenario(task, task.out, task.defaultServiceOutMock)
 
-    inline def badScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](
-        inline process: Process[In, Out, ?],
-        status: Int,
-        errorMsg: Optable[String] = None
-    ): BadScenario[In, Out] =
+    inline def badScenario(
+                            inline process: Process[?, ?, ?],
+                            status: Int,
+                            errorMsg: Optable[String] = None
+                          ): BadScenario =
       BadScenario(nameOfVariable(process), process, status, errorMsg.value, isOnly = true)
 
-    inline def incidentScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](
-        inline process: Process[In, Out, ?],
-        incidentMsg: String
-    )(body: SStep*): IncidentScenario[In, Out] =
+    inline def incidentScenario(
+                                 inline process: Process[?, ?, ?],
+                                 incidentMsg: String
+                               )(body: SStep*): IncidentScenario =
       IncidentScenario(nameOfVariable(process), process, body.toList, incidentMsg, isOnly = true)
 
-    inline def incidentScenario[
-        In <: Product: {InOutEncoder, InOutDecoder},
-        Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-    ](
-        inline process: Process[In, Out, ?],
-        incidentMsg: String
-    ): IncidentScenario[In, Out] =
+    inline def incidentScenario(
+                                 inline process: Process[?, ?, ?],
+                                 incidentMsg: String
+                               ): IncidentScenario =
       incidentScenario(process, incidentMsg)()
   end only
 

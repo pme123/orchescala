@@ -1,264 +1,218 @@
 package orchescala.simulation2
 
 import orchescala.domain
-import orchescala.domain.{CamundaVariable, DecisionDmn, ExternalTask, InOut, InOutDecoder, InOutDescr, InOutEncoder, MessageEvent, NoInput, NoOutput, ProcessOrExternalTask, SignalEvent, TimerEvent, UserTask}
+import orchescala.domain.*
 
-import scala.reflect.ClassTag
+case class SSimulation(scenarios: List[SScenario])
 
-case class SSimulation(scenarios: List[SScenario[?, ?]])
-
-sealed trait WithTestOverrides[
-    In <: Product: {InOutEncoder, InOutDecoder},
-    Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
-    T <: WithTestOverrides[T, In, Out]
-]:
-  def inOut: InOut[In, Out, ?]
+sealed trait WithTestOverrides[T <: WithTestOverrides[T]]:
+  def inOut: InOut[?, ?, ?]
   def testOverrides: Option[TestOverrides]
   def add(testOverride: TestOverride): T
-  
   protected def addOverride(testOverride: TestOverride): Option[TestOverrides] =
     Some(
       testOverrides
         .map(_ :+ testOverride)
         .getOrElse(TestOverrides(Seq(testOverride)))
     )
+  lazy val camundaToCheckMap: Map[String, CamundaVariable] =
+    inOut.camundaToCheckMap
 end WithTestOverrides
 
 sealed trait ScenarioOrStep:
   def name: String
   def typeName: String = getClass.getSimpleName
 
-sealed trait SScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
-] extends ScenarioOrStep:
-  def inOut: InOut[In, Out, ?]
+sealed trait SScenario extends ScenarioOrStep:
+  def inOut: InOut[?, ?, ?]
   def isIgnored: Boolean
-  def ignored: SScenario[In, Out]
+  def ignored: SScenario
   def isOnly: Boolean
-  def only: SScenario[In, Out]
-  def withSteps(steps: List[SStep]): SScenario[In, Out]
+  def only: SScenario
+  def withSteps(steps: List[SStep]): SScenario
 end SScenario
 
-sealed trait HasProcessSteps[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}] extends ScenarioOrStep:
-  def process: ProcessOrExternalTask[In, Out, ?]
+sealed trait HasProcessSteps extends ScenarioOrStep:
+  def process: ProcessOrExternalTask[?, ?, ?]
   def steps: List[SStep]
 
-sealed trait IsProcessScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-] extends HasProcessSteps[In, Out], SScenario[In, Out]
+sealed trait IsProcessScenario extends HasProcessSteps, SScenario
 
-case class ProcessScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
-    // this is name of process in case of START
-    // this is message name in case of MESSAGE
-    // this is signal name in case of SIGNAL
-    name: String,
-    process: domain.Process[In, Out, ?],
-    steps: List[SStep] = List.empty,
-    isIgnored: Boolean = false,
-    isOnly: Boolean = false,
-    testOverrides: Option[TestOverrides] = None,
-    startType: ProcessStartType = ProcessStartType.START
-) extends IsProcessScenario[In, Out],
-      WithTestOverrides[In, Out, ProcessScenario[In, Out]]:
+case class ProcessScenario(
+                            // this is name of process in case of START
+                            // this is message name in case of MESSAGE
+                            // this is signal name in case of SIGNAL
+                            name: String,
+                            process: domain.Process[?, ?, ?],
+                            steps: List[SStep] = List.empty,
+                            isIgnored: Boolean = false,
+                            isOnly: Boolean = false,
+                            testOverrides: Option[TestOverrides] = None,
+                            startType: ProcessStartType = ProcessStartType.START
+) extends IsProcessScenario,
+      WithTestOverrides[ProcessScenario]:
   def inOut: InOut[?, ?, ?] = process
 
-  def add(testOverride: TestOverride): ProcessScenario[In, Out] =
+  def add(testOverride: TestOverride): ProcessScenario =
     copy(testOverrides = addOverride(testOverride))
 
-  def ignored: ProcessScenario[In, Out]                 = copy(isIgnored = true)
-  def only: ProcessScenario[In, Out]                    = copy(isOnly = true)
-  def withSteps(steps: List[SStep]): SScenario[In, Out] =
+  def ignored: ProcessScenario = copy(isIgnored = true)
+  def only: ProcessScenario = copy(isOnly = true)
+  def withSteps(steps: List[SStep]): SScenario =
     copy(steps = steps)
 end ProcessScenario
 
 enum ProcessStartType:
   case START, MESSAGE
 
-case class ExternalTaskScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
+case class ExternalTaskScenario(
     name: String,
-    process: ExternalTask[In, Out, ?],
+    process: ExternalTask[?, ?, ?],
     isIgnored: Boolean = false,
     isOnly: Boolean = false,
     testOverrides: Option[TestOverrides] = None,
     startType: ProcessStartType = ProcessStartType.START
-) extends IsProcessScenario[In, Out],
-      WithTestOverrides[In, Out, ExternalTaskScenario[In, Out]]:
+) extends IsProcessScenario,
+      WithTestOverrides[ExternalTaskScenario]:
 
   lazy val steps: List[SStep] = List.empty
-  def inOut: InOut[?, ?, ?]   = process
+  def inOut: InOut[?, ?, ?] = process
 
-  def add(testOverride: TestOverride): ExternalTaskScenario[In, Out] =
+  def add(testOverride: TestOverride): ExternalTaskScenario =
     copy(testOverrides = addOverride(testOverride))
 
-  def ignored: ExternalTaskScenario[In, Out] = copy(isIgnored = true)
+  def ignored: ExternalTaskScenario = copy(isIgnored = true)
 
-  def only: ExternalTaskScenario[In, Out] = copy(isOnly = true)
+  def only: ExternalTaskScenario = copy(isOnly = true)
 
-  def withSteps(steps: List[SStep]): SScenario[In, Out] =
+  def withSteps(steps: List[SStep]): SScenario =
     this
 
 end ExternalTaskScenario
 
-case class DmnScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
+case class DmnScenario(
     name: String,
     inOut: DecisionDmn[?, ?],
     isIgnored: Boolean = false,
     isOnly: Boolean = false,
     testOverrides: Option[TestOverrides] = None
-) extends SScenario[In, Out],
-      WithTestOverrides[In, Out, DmnScenario[In, Out]]:
-  def add(testOverride: TestOverride): DmnScenario[In, Out] =
+) extends SScenario,
+      WithTestOverrides[DmnScenario]:
+  def add(testOverride: TestOverride): DmnScenario =
     copy(testOverrides = addOverride(testOverride))
 
-  def ignored: DmnScenario[In, Out] = copy(isIgnored = true)
+  def ignored: DmnScenario = copy(isIgnored = true)
 
-  def only: DmnScenario[In, Out] = copy(isOnly = true)
+  def only: DmnScenario = copy(isOnly = true)
 
-  def withSteps(steps: List[SStep]): SScenario[In, Out] =
+  def withSteps(steps: List[SStep]): SScenario =
     this
 end DmnScenario
 
-case class BadScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
-    name: String,
-    process: domain.Process[?, ?, ?],
-    status: Int,
-    errorMsg: Option[String],
-    isIgnored: Boolean = false,
-    isOnly: Boolean = false
-) extends IsProcessScenario[In, Out]:
+case class BadScenario(
+                        name: String,
+                        process: domain.Process[?, ?, ?],
+                        status: Int,
+                        errorMsg: Option[String],
+                        isIgnored: Boolean = false,
+                        isOnly: Boolean = false
+) extends IsProcessScenario:
   lazy val inOut: domain.Process[?, ?, ?] = process
-  lazy val steps: List[SStep]             = List.empty
-  def ignored: BadScenario[In, Out]                = copy(isIgnored = true)
-  def only: BadScenario[In, Out]                   = copy(isOnly = true)
+  lazy val steps: List[SStep] = List.empty
+  def ignored: BadScenario = copy(isIgnored = true)
+  def only: BadScenario = copy(isOnly = true)
 
-  def withSteps(steps: List[SStep]): SScenario[In, Out] =
+  def withSteps(steps: List[SStep]): SScenario =
     this
 end BadScenario
 
-trait IsIncidentScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-] extends IsProcessScenario[In, Out], HasProcessSteps[In, Out]:
+trait IsIncidentScenario extends IsProcessScenario, HasProcessSteps:
   def incidentMsg: String
 
-case class IncidentScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
-    name: String,
-    process: domain.Process[?, ?, ?],
-    steps: List[SStep] = List.empty,
-    incidentMsg: String,
-    isIgnored: Boolean = false,
-    isOnly: Boolean = false
-) extends IsIncidentScenario[In, Out],
-      HasProcessSteps[In, Out]:
+case class IncidentScenario(
+                             name: String,
+                             process: domain.Process[?, ?, ?],
+                             steps: List[SStep] = List.empty,
+                             incidentMsg: String,
+                             isIgnored: Boolean = false,
+                             isOnly: Boolean = false
+) extends IsIncidentScenario,
+      HasProcessSteps:
   lazy val inOut: domain.Process[?, ?, ?] = process
 
-  def ignored: IncidentScenario[In, Out] = copy(isIgnored = true)
+  def ignored: IncidentScenario = copy(isIgnored = true)
 
-  def only: IncidentScenario[In, Out] = copy(isOnly = true)
+  def only: IncidentScenario = copy(isOnly = true)
 
-  def withSteps(steps: List[SStep]): SScenario[In, Out] =
+  def withSteps(steps: List[SStep]): SScenario =
     copy(steps = steps)
 
 end IncidentScenario
 
-case class IncidentServiceScenario[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
+case class IncidentServiceScenario(
     name: String,
     process: ExternalTask[?, ?, ?],
     incidentMsg: String,
     isIgnored: Boolean = false,
     isOnly: Boolean = false
-) extends IsIncidentScenario[In, Out]:
+) extends IsIncidentScenario:
   lazy val inOut: ExternalTask[?, ?, ?] = process
-  lazy val steps: List[SStep]           = List.empty
+  lazy val steps: List[SStep] = List.empty
 
-  def ignored: IncidentServiceScenario[In, Out] = copy(isIgnored = true)
+  def ignored: IncidentServiceScenario = copy(isIgnored = true)
 
-  def only: IncidentServiceScenario[In, Out] = copy(isOnly = true)
+  def only: IncidentServiceScenario = copy(isOnly = true)
 
-  def withSteps(steps: List[SStep]): SScenario[In, Out] = this
+  def withSteps(steps: List[SStep]): SScenario = this
 
 end IncidentServiceScenario
 
 sealed trait SStep extends ScenarioOrStep
 
-sealed trait SInServiceOuttep[
-  In <: Product: {InOutEncoder, InOutDecoder},
-]
+sealed trait SInServiceOuttep
     extends SStep,
-      WithTestOverrides[In, NoOutput, SInServiceOuttep[In]]:
-  lazy val inOutDescr: InOutDescr[?, ?]                = inOut.inOutDescr
-  lazy val id: String                                  = inOutDescr.id
-  lazy val descr: Option[String]                       = inOutDescr.descr
-  lazy val camundaInMap: Map[String, CamundaVariable]  = inOut.camundaInMap
+      WithTestOverrides[SInServiceOuttep]:
+  lazy val inOutDescr: InOutDescr[?, ?] = inOut.inOutDescr
+  lazy val id: String = inOutDescr.id
+  lazy val descr: Option[String] = inOutDescr.descr
+  lazy val camundaInMap: Map[String, CamundaVariable] = inOut.camundaInMap
   lazy val camundaOutMap: Map[String, CamundaVariable] = inOut.camundaOutMap
 end SInServiceOuttep
 
-case class SUserTask[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
+case class SUserTask(
     name: String,
     inOut: UserTask[?, ?],
     testOverrides: Option[TestOverrides] = None,
     // after getting a task, you can wait - used for intermediate events running something.
     waitForSec: Option[Int] = None
-) extends SInServiceOuttep[In]:
+) extends SInServiceOuttep:
 
-  def add(testOverride: TestOverride): SUserTask[In, Out] =
+  def add(testOverride: TestOverride): SUserTask =
     copy(testOverrides = addOverride(testOverride))
 end SUserTask
 
-case class SSubProcess[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](
-    name: String,
-    process: domain.Process[In, Out, ?],
-    steps: List[SStep],
-    testOverrides: Option[TestOverrides] = None
-) extends SInServiceOuttep[In],
-      HasProcessSteps[In, Out]:
+case class SSubProcess(
+                        name: String,
+                        process: domain.Process[?, ?, ?],
+                        steps: List[SStep],
+                        testOverrides: Option[TestOverrides] = None
+) extends SInServiceOuttep,
+      HasProcessSteps:
 
-  lazy val processName: String            = process.processName
-  lazy val inOut: domain.Process[In, Out, ?] = process
+  lazy val processName: String = process.processName
+  lazy val inOut: domain.Process[?, ?, ?] = process
 
-  def add(testOverride: TestOverride): SSubProcess[In, Out] =
+  def add(testOverride: TestOverride): SSubProcess =
     copy(testOverrides = addOverride(testOverride))
 end SSubProcess
 
-sealed trait SEvent[
-  In <: Product: {InOutEncoder, InOutDecoder}
-] extends SInServiceOuttep[In]:
+sealed trait SEvent extends SInServiceOuttep:
   def readyVariable: String
   def readyValue: Any
 
-case class SMessageEvent[
-  In <: Product: {InOutEncoder, InOutDecoder},
-](
+case class SMessageEvent(
     name: String,
-    inOut: MessageEvent[In],
+    inOut: MessageEvent[?],
     optReadyVariable: Option[String] = None,
     readyValue: Any = true,
     processInstanceId: Boolean = true,
@@ -266,16 +220,15 @@ case class SMessageEvent[
 ) extends SEvent:
   lazy val readyVariable: String = optReadyVariable.getOrElse(notSet)
 
-  def add(testOverride: TestOverride): SMessageEvent[In] =
+  def add(testOverride: TestOverride): SMessageEvent =
     copy(testOverrides = addOverride(testOverride))
 
   // If you send a Message to start a process, there is no processInstanceId
-  def start: SMessageEvent[In] =
+  def start: SMessageEvent =
     copy(processInstanceId = false)
 end SMessageEvent
 
-case class SSignalEvent[
-  In <: Product: {InOutEncoder, InOutDecoder}](
+case class SSignalEvent(
     name: String,
     inOut: SignalEvent[?],
     readyVariable: String = "waitForSignal",
@@ -283,7 +236,7 @@ case class SSignalEvent[
     testOverrides: Option[TestOverrides] = None
 ) extends SEvent:
 
-  def add(testOverride: TestOverride): SSignalEvent[In] =
+  def add(testOverride: TestOverride): SSignalEvent =
     copy(testOverrides = addOverride(testOverride))
 
 end SSignalEvent
@@ -294,7 +247,7 @@ case class STimerEvent(
     optReadyVariable: Option[String] = None,
     readyValue: Any = true,
     testOverrides: Option[TestOverrides] = None
-) extends SEvent[NoInput]:
+) extends SEvent:
   lazy val readyVariable: String = optReadyVariable.getOrElse(notSet)
 
   def add(testOverride: TestOverride): STimerEvent =

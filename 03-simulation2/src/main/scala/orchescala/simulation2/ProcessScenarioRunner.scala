@@ -6,11 +6,8 @@ import zio.{IO, ZIO}
 
 import scala.reflect.ClassTag
 
-class ProcessScenarioRunner[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag}
-](scenario: ProcessScenario[In, Out])(using engine: ProcessEngine)
-  extends ScenarioRunner[In, Out]:
+class ProcessScenarioRunner(val scenario: ProcessScenario)(using engine: ProcessEngine)
+  extends ScenarioRunner:
   
   def run: IO[SimulationError, ScenarioData] =
     for 

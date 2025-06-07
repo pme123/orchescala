@@ -6,11 +6,8 @@ import zio.{IO, UIO, ZIO}
 import java.util.concurrent.TimeUnit
 import scala.reflect.ClassTag
 
-trait ScenarioRunner[
-  In <: Product: {InOutEncoder, InOutDecoder},
-  Out <: Product: {InOutEncoder, InOutDecoder, ClassTag},
-]:
-  def scenario: SScenario[In, Out]
+trait ScenarioRunner:
+  def scenario: SScenario
 
   def logScenario(body: ScenarioData => IO[SimulationError, ScenarioData])
       : IO[SimulationError, ScenarioData] =

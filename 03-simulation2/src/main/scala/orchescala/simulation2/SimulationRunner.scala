@@ -23,7 +23,7 @@ abstract class SimulationRunner
     println(s"SimulationRunner started ${sim.scenarios}")
     simulation = ZIO
       .foreachPar(sim.scenarios):
-        case scen: ProcessScenario[?, ?] =>
+        case scen: ProcessScenario =>
           ZIO.logInfo(s"Running ProcessScenario: ${scen.name}") *>
             ProcessScenarioRunner(scen).run
         case scen                  =>
