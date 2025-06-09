@@ -67,9 +67,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
                          case state                                            =>
                            val scenData =
                              data.debug(s"State for ${hasProcessSteps.name} is $state")
-
-                           ZIO.logInfo(s"Waiting for process to finish: $state / ${data.context.processInstanceId}") *>
-                             tryOrFail(scenData, checkFinished)
+                           tryOrFail(scenData, checkFinished)
     yield scenarioData1
     end for
   end checkFinished

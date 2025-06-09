@@ -32,7 +32,9 @@ class ProcessScenarioRunner(val scenario: ProcessScenario)(using
               scenarioData2 <- ProcessStepsRunner(scenario).runSteps(scenarioData1)
               scenarioData3 <- ProcessStepsRunner(scenario).check(scenarioData2)
             yield scenarioData3).fold(
-              (err: SimulationError) => err.scenarioData,
+              err =>
+                println(s"ProcessScenarioRunner.run: ${err.scenarioData.logEntries}")
+                err.scenarioData,
               data => data
             )
     yield data

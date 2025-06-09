@@ -18,7 +18,7 @@ trait ScenarioRunner:
       clock        <- ZIO.clock
       startTime    <- clock.currentTime(TimeUnit.MILLISECONDS)
       scenarioData <-
-        if scenario.isIgnored then  
+        if scenario.isIgnored then
           ZIO.succeed:
             ScenarioData(scenario.name)
               .warn(
@@ -28,6 +28,13 @@ trait ScenarioRunner:
           val data = ScenarioData(scenario.name)
             .info(s"${"#" * 7} Scenario '${scenario.name}' ${"#" * 7}")
           body(data)
+            .fold(
+              err =>
+                err.printStackTrace()
+                println(s"Error in Scenario: ${err}")
+                err.scenarioData,
+              sd => sd
+            )
             .map:
               case sd if sd.maxLevel == LogLevel.ERROR =>
                 sd.error(
@@ -36,7 +43,7 @@ trait ScenarioRunner:
                         .currentTimeMillis() - startTime
                     } ms ${"*" * 6}${Console.RESET}"
                 )
-              case sd =>
+              case sd                                  =>
                 sd.info(
                   s"${Console.GREEN}${"*" * 4} Scenario '${scenario.name}' SUCCEEDED in ${
                       System
@@ -44,6 +51,6 @@ trait ScenarioRunner:
                     } ms ${"*" * 4}${Console.RESET}"
                 )
         end if
-      _ <- ZIO.logInfo(s"Logged Scenario: ${scenario.name}")
+      _            <- ZIO.logInfo(s"Logged Scenario: ${scenario.name}")
     yield scenarioData
 end ScenarioRunner

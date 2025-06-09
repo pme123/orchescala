@@ -36,7 +36,10 @@ case class LogEntry(
 end LogEntry
 
 enum LogLevel(val color: String) extends Ordered[LogLevel]:
-  override def compare(that: LogLevel): Int = that.ordinal - ordinal
+  override def compare(that: LogLevel): Int =
+    println(s"Compare: $this - $that: ${that.ordinal - ordinal}")
+    that.ordinal - ordinal
+
 
   case DEBUG extends LogLevel(Console.GREEN)
   case INFO extends LogLevel(Console.GREEN)
