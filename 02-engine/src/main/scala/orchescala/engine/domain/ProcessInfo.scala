@@ -1,9 +1,11 @@
-package orchescala.engine
+package orchescala.engine.domain
 
+import orchescala.domain.*
+import orchescala.engine.domain.ProcessInfo.ProcessStatus
 import sttp.tapir.Schema.annotations.description
 
 @description("Contains information about a process instance or execution")
-case class EngineProcessInfo(
+case class ProcessInfo(
     @description("ID of the process instance")
     processInstanceId: String,
     
@@ -14,6 +16,12 @@ case class EngineProcessInfo(
     status: ProcessStatus = ProcessStatus.Active
 )
 
-@description("Status of a process instance")
-enum ProcessStatus:
-  case Active, Completed, Failed
+object ProcessInfo:
+  given InOutCodec[ProcessInfo] = deriveInOutCodec
+
+  @description("Status of a process instance")
+  enum ProcessStatus:
+    case Active, Completed, Failed
+  object ProcessStatus:
+    given InOutCodec[ProcessStatus] = deriveInOutCodec
+end ProcessInfo 

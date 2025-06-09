@@ -1,17 +1,20 @@
-package orchescala.simulation2
+package orchescala.simulation2.runner
 
-import orchescala.domain.{InOutDecoder, InOutEncoder}
-import zio.{IO, UIO, ZIO}
+import orchescala.simulation2.*
+import zio.{IO, ZIO}
 
 import java.util.concurrent.TimeUnit
-import scala.reflect.ClassTag
 
 trait ScenarioRunner:
+  def config: SimulationConfig
   def scenario: SScenario
+
+  lazy val cockpitUrl: String = config.cockpitUrl
 
   def logScenario(body: ScenarioData => IO[SimulationError, ScenarioData])
       : IO[SimulationError, ScenarioData] =
     for
+      _            <- ZIO.logInfo(s"Logging Scenario: ${scenario.name}")
       clock        <- ZIO.clock
       startTime    <- clock.currentTime(TimeUnit.MILLISECONDS)
       scenarioData <-
@@ -41,5 +44,6 @@ trait ScenarioRunner:
                     } ms ${"*" * 4}${Console.RESET}"
                 )
         end if
+      _ <- ZIO.logInfo(s"Logged Scenario: ${scenario.name}")
     yield scenarioData
 end ScenarioRunner

@@ -137,7 +137,8 @@ lazy val simulation2 = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= Seq(
-      "org.scala-sbt" % "test-interface" % testInterfaceVersion
+      "org.scala-sbt" % "test-interface" % testInterfaceVersion,
+      logbackDependency
     )
   )
   .dependsOn(engine)

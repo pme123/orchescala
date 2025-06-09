@@ -14,6 +14,9 @@ case class SimulationConfig(
     logLevel: LogLevel = LogLevel.INFO
 ):
 
+  lazy val cockpitUrl: String =
+    endpoint.replace("/engine-rest", "/camunda/app/cockpit/default")
+
   def withTenantId(tenantId: String): SimulationConfig =
     copy(tenantId = Some(tenantId))
 

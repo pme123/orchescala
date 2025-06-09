@@ -1,6 +1,8 @@
 package orchescala.simulation2
 
 import orchescala.engine.ProcessEngine
+import orchescala.simulation2.*
+import orchescala.simulation2.runner.ProcessScenarioRunner
 import zio.{IO, ZIO}
 
 import scala.compiletime.uninitialized
@@ -20,12 +22,11 @@ abstract class SimulationRunner
 
   protected def run(sim: SSimulation): IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
     given ProcessEngine = engine
-    println(s"SimulationRunner started ${sim.scenarios}")
+    given SimulationConfig = config
     simulation = ZIO
       .foreachPar(sim.scenarios):
         case scen: ProcessScenario =>
-          ZIO.logInfo(s"Running ProcessScenario: ${scen.name}") *>
-            ProcessScenarioRunner(scen).run
+          ProcessScenarioRunner(scen).run
         case scen                  =>
           ZIO.logInfo(s"NOTHING to RUN: ${scen.name}")
             .as(ScenarioData(scen.name))

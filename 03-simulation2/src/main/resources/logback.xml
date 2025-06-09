@@ -1,0 +1,18 @@
+<!-- DO NOT ADJUST. This file is replaced by `./helper.scala update` -->
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="orchescala" level="DEBUG"/>
+    <logger name="valiant" level="INFO"/>
+    <logger name="org.camunda.bpm.client" level="INFO"/>
+    <logger name="org.glassfish.jaxb" level="WARN"/>
+    <logger name="com.sun.xml.bind" level="WARN"/>
+
+    <root level="WARN">
+        <appender-ref ref="STDOUT" />
+    </root>
+</configuration>

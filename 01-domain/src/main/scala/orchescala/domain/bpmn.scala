@@ -41,13 +41,14 @@ end InputParams
 type ErrorCodeType = ErrorCodes | String | Int
 
 enum ErrorCodes:
-  // gateway errors
-  case `gateway-decoding-error`
-  case `gateway-encoding-error`
-  case `gateway-process-error`
-  case `gateway-dmn-error`
-  case `gateway-worker-error`
-  case `gateway-service-error`
+  // engine errors
+  case `engine-mapping-error`
+  case `engine-decoding-error`
+  case `engine-encoding-error`
+  case `engine-process-error`
+  case `engine-dmn-error`
+  case `engine-worker-error`
+  case `engine-service-error`
   
   // worker errors
   case `output-mocked` // mocking successful - but the mock is sent as BpmnError to handle in the diagram correctly

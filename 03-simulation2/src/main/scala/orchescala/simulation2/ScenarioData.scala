@@ -9,6 +9,9 @@ case class ScenarioData(
   lazy val maxLevel: LogLevel =
     logEntries.map(_.logLevel).sorted.headOption.getOrElse(LogLevel.DEBUG)
 
+  lazy val maxLevelMsg: String =
+    logEntries.sortBy(_.logLevel).headOption.map(_.msg).getOrElse("No Log Entries")
+
   def log(logLevel: LogLevel, msg: String): ScenarioData =
     copy(logEntries = logEntries :+ LogEntry(logLevel, msg))
 

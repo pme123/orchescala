@@ -191,21 +191,6 @@ case class SUserTask(
     copy(testOverrides = addOverride(testOverride))
 end SUserTask
 
-case class SSubProcess(
-                        name: String,
-                        process: domain.Process[?, ?, ?],
-                        steps: List[SStep],
-                        testOverrides: Option[TestOverrides] = None
-) extends SInServiceOuttep,
-      HasProcessSteps:
-
-  lazy val processName: String = process.processName
-  lazy val inOut: domain.Process[?, ?, ?] = process
-
-  def add(testOverride: TestOverride): SSubProcess =
-    copy(testOverrides = addOverride(testOverride))
-end SSubProcess
-
 sealed trait SEvent extends SInServiceOuttep:
   def readyVariable: String
   def readyValue: Any

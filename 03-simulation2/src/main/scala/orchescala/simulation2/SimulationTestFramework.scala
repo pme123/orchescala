@@ -89,7 +89,6 @@ final class SimulationTestRunner(
           ZIO
             .scoped:
               for
-                _ <- ZIO.logInfo(s"Runningxxx Simulation: ${taskDef.fullyQualifiedName()}")
                 // Fork the worker execution within the scope
                 //fiber <-
                 logLevelAndTime <-
@@ -118,10 +117,8 @@ final class SimulationTestRunner(
     val name = taskDef.fullyQualifiedName().split('.').last
     val line = "~" * (((maxLine - 5) - name.length) / 2)
     for
-      _ <- ZIO.logInfo(s"Running Simulation 1: $name")
       clock <- ZIO.clock
       startTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-      _ <- ZIO.logInfo(s"Running Simulation 2: $name")
       sim <- ZIO.attempt(
         Class
           .forName(taskDef.fullyQualifiedName())
@@ -129,8 +126,6 @@ final class SimulationTestRunner(
           .newInstance()
           .asInstanceOf[SimulationRunner]
       )
-      _ <- ZIO.logInfo(s"Running Simulation 3: $name")
-
       endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
       _ <- ZIO.logInfo(s"Running Simulation 4: ${sim.simulation}")
       results <- sim.simulation

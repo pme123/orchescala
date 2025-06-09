@@ -12,24 +12,23 @@ import scala.deriving.Mirror.Sum
 import scala.reflect.ClassTag
 
 trait ResultChecker:
-  def scenarioData: ScenarioData
 
   def checkProps(
       withOverrides: WithTestOverrides[?],
-      result: Json,
+      result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
     withOverrides.testOverrides match
       case Some(TestOverrides(overrides)) =>
         checkO(overrides, result, scenarioData)
       case _                              =>
-        checkP(withOverrides.inOut.outAsJson, result, scenarioData)
+        checkP(withOverrides.camundaToCheckMap, result, scenarioData)
     end match
   end checkProps
 
   private def checkO(
       overrides: Seq[TestOverride],
-      result: Json,
+      result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
     overrides
@@ -89,20 +88,38 @@ trait ResultChecker:
       .forall(_ == true)
    */
   private def checkP[T <: Product](
-      expected: Json,
-      result: Json,
+      expected: Map[String, CamundaVariable],
+      result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
-    if expected == result then
-      scenarioData
-    else
-      scenarioData.error(
-        s"The expected value does not match the result:\n${DiffPrinter.printDeepDiff(expected, result)}"
-      )
+    expected
+      .foldLeft(scenarioData):
+        case (scenarioData, key -> CNull) =>
+          result
+            .find: p =>
+              p.key == key && p.value.isNull
+            // it is only ok, if the value is null
+            .map: p =>
+              scenarioData.error(
+                s"The variable '$key' (value: '${p.value}') exists in the result - but is NOT expected."
+              )
+            .getOrElse(scenarioData) // it is ok if not in the result
+
+        case (scenarioData, key -> expectedValue) =>
+          result
+            .find(_.key == key)
+            .map:
+              case JsonProperty(key, resultJson) =>
+                val expectedJson = toJson(expectedValue.value.toString)
+                checkJson(expectedJson, resultJson, key, scenarioData)
+            .getOrElse:
+              scenarioData.error(
+                s"$key does not exist in the result variables.\n $result"
+              )
   end checkP
 
   private def checkExistsInResult(
-      result: Json,
+      result: Seq[JsonProperty],
       key: String,
       scenarioData: ScenarioData
   ): ScenarioData =
@@ -113,14 +130,14 @@ trait ResultChecker:
   end checkExistsInResult
 
   private def checkExistsInResult(
-      result: Json,
+      result: Seq[JsonProperty],
       key: String
   ): Boolean =
-    result.hcursor.keys.toSeq.flatten.contains(key)
+    result.exists(_.key == key)
   end checkExistsInResult
 
   private def checkExistsNotInResult(
-      result: Json,
+      result: Seq[JsonProperty],
       key: String,
       scenarioData: ScenarioData
   ): ScenarioData =
@@ -133,19 +150,21 @@ trait ResultChecker:
   private def checkIsEqualValue(
       key: String,
       expectedValue: Json,
-      result: Json,
+      result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
     if checkExistsInResult(result, key) then
-      if expectedValue == result.hcursor.downField(key).focus.get then
+      val json = result.find(_.key == key).map(_.value)
+      if json.contains(expectedValue) then
         scenarioData
       else
         val sd = scenarioData.error(
           s"""The value of $key is different:
              | - expected: ${expectedValue}
-             | - result  : ${result.hcursor.downField(key).focus.get}""".stripMargin
+             | - result  : ${json.mkString}""".stripMargin
         )
-        checkMultiLines(expectedValue, result, sd)
+        checkMultiLines(expectedValue, json.get, sd)
+      end if
     else
       scenarioData.error(s"$key did NOT exist in $result")
 
@@ -169,29 +188,34 @@ trait ResultChecker:
   private def checkHasSize(
       key: String,
       expectedSize: Json,
-      result: Json,
+      result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
     if checkExistsInResult(result, key) then
-      result.hcursor.downField(key).focus match
+      val json = result.find(_.key == key).map(_.value)
+      json match
         case Some(r) if r.isArray && expectedSize.asNumber.get.toInt.contains(r.asArray.get.size) =>
           scenarioData
         case _                                                                                    =>
-          scenarioData.error(s"""Size of $key is different:
-                                | - expected: ${expectedSize.asNumber.get.toInt}
-                                | - result  : ${result.hcursor.downField(
-                                 key
-                               ).focus.get.asArray.get.size}""".stripMargin)
+          scenarioData.error(
+            s"""Size of $key is different:
+               | - expected: ${expectedSize.asNumber.get.toInt}
+               | - result  : ${
+                json.get.asArray.get.size
+              }""".stripMargin
+          )
+      end match
     else
       scenarioData.error(s"$key did NOT exist in $result")
 
   private def checkContains(
       key: String,
       expectedValue: Json,
-      result: Json,
+      result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
-    result.hcursor.downField(key).focus match
+    val json = result.find(_.key == key).map(_.value)
+    json match
       case Some(r) if r.isArray =>
         if r.asArray.get.contains(expectedValue) then
           scenarioData
@@ -201,11 +225,14 @@ trait ResultChecker:
         scenarioData.error(s"$key is NOT an array in $result")
       case None                 =>
         scenarioData.error(s"$key does NOT exist in $result")
+    end match
+  end checkContains
 
   private def checkJson(
       expectedJson: io.circe.Json,
       resultJson: io.circe.Json,
-      key: String
+      key: String,
+      scenarioData: ScenarioData
   ): ScenarioData =
     def compareJsons(
         expJson: io.circe.Json,
