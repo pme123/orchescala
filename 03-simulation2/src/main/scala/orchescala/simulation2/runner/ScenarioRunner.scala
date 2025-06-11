@@ -14,7 +14,6 @@ trait ScenarioRunner:
   def logScenario(body: ScenarioData => IO[SimulationError, ScenarioData])
       : IO[SimulationError, ScenarioData] =
     for
-      _            <- ZIO.logInfo(s"Logging Scenario: ${scenario.name}")
       clock        <- ZIO.clock
       startTime    <- clock.currentTime(TimeUnit.MILLISECONDS)
       scenarioData <-
@@ -51,6 +50,5 @@ trait ScenarioRunner:
                     } ms ${"*" * 4}${Console.RESET}"
                 )
         end if
-      _            <- ZIO.logInfo(s"Logged Scenario: ${scenario.name}")
     yield scenarioData
 end ScenarioRunner

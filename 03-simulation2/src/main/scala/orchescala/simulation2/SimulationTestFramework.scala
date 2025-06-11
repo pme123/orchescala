@@ -1,6 +1,7 @@
 package orchescala.simulation2
 
 import orchescala.engine.EngineRuntime
+import zio.ZIO.logInfo
 import zio.{IO, Unsafe, ZIO}
 
 import java.util.concurrent.TimeUnit
@@ -27,8 +28,8 @@ final class SimulationTestFramework extends sbt.testing.Framework:
 end SimulationTestFramework
 
 object SimulationFingerprint extends sbt.testing.SubclassFingerprint:
-  def superclassName(): String = SimulationRunner.getClass.getName.replace("$", "")
-  final def isModule() = false
+  def superclassName(): String        = SimulationRunner.getClass.getName.replace("$", "")
+  final def isModule()                = false
   final def requireNoArgConstructor() = true
 end SimulationFingerprint
 
@@ -43,13 +44,12 @@ final class SimulationTestRunner(
       taskDefs: Array[sbt.testing.TaskDef]
   ): Array[sbt.testing.Task] =
     taskDefs.map { td =>
-
       Task(
         td,
         (loggers, eventHandler) =>
           println(s"Running Simulation: ${td.fullyQualifiedName()}")
           runSimulationZIO(td)
-            .map : (logLevel, time) =>
+            .map: (logLevel, time) =>
               println(s"Finished Simulation: $logLevel, $time")
 
               eventHandler.synchronized {
@@ -62,7 +62,7 @@ final class SimulationTestRunner(
                   def status(): sbt.testing.Status = logLevel match
                     case LogLevel.ERROR =>
                       sbt.testing.Status.Failure
-                    case _ =>
+                    case _              =>
                       sbt.testing.Status.Success
 
                   def selector(): sbt.testing.NestedTestSelector =
@@ -73,8 +73,7 @@ final class SimulationTestRunner(
 
                   def fingerprint(): sbt.testing.Fingerprint = td.fingerprint()
 
-                  def duration(): Long = time
-                )
+                  def duration(): Long = time)
               }
       )
     }
@@ -90,61 +89,57 @@ final class SimulationTestRunner(
             .scoped:
               for
                 // Fork the worker execution within the scope
-                //fiber <-
-                logLevelAndTime <-
+                fiber           <-
                   runSimulation(taskDef)
-                  .provideLayer(EngineRuntime.sharedExecutorLayer)
-                 // .fork
-
+                    .provideLayer(EngineRuntime.sharedExecutorLayer)
+                    .fork
                 // Add a finalizer to ensure the fiber is interrupted if the scope closes
-            /*    _ <- ZIO.addFinalizer:
-                  fiber.status.flatMap: status =>
-                    fiber.interrupt.when(!status.isDone)*/
+                _               <- ZIO.addFinalizer:
+                                     fiber.status.flatMap: status =>
+                                       fiber.interrupt.when(!status.isDone)
                 // Join the fiber to wait for completion
-              //  logLevelAndTime <- fiber.join
-                _ <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime")
-
+                logLevelAndTime <- fiber.join
+                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime")
               yield logLevelAndTime
             .catchAll: ex =>
               ZIO.logError(s"Error running Simulation: ${ex.getMessage}")
                 .as((LogLevel.ERROR, 0L))
             .ensuring:
               ZIO.logInfo(
-              s"Simulation for task ${taskDef.fullyQualifiedName()} completed and resources cleaned up"
-            )
+                s"Simulation for task ${taskDef.fullyQualifiedName()} completed and resources cleaned up"
+              )
 
   private def runSimulation(taskDef: sbt.testing.TaskDef): IO[Throwable, (LogLevel, Long)] =
     val name = taskDef.fullyQualifiedName().split('.').last
     val line = "~" * (((maxLine - 5) - name.length) / 2)
     for
-      clock <- ZIO.clock
+      clock     <- ZIO.clock
       startTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-      sim <- ZIO.attempt(
-        Class
-          .forName(taskDef.fullyQualifiedName())
-          .getDeclaredConstructor()
-          .newInstance()
-          .asInstanceOf[SimulationRunner]
-      )
-      endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-      _ <- ZIO.logInfo(s"Running Simulation 4: ${sim.simulation}")
-      results <- sim.simulation
-      _ <- ZIO.logInfo(s"Running Simulation 5: $name")
-      logLevel = results.head._1
-      _ <- ZIO.logInfo(s"Running Simulation 6: $name")
-      _ <- ZIO.logInfo(
-        s"""
-        |${logLevel.color}${s"$line START $name $line"
-            .takeRight(maxLine)}${Console.RESET}
-           |${results.reverse.flatMap((sr: (LogLevel, Seq[ScenarioResult])) =>
-            sr._2.map(_.log)
-          ).mkString("\n")}
-           |${results.map(sr => printResult(sr._1, sr._2)).mkString("\n")}
-           |${logLevel.color}${s"$line END $name in ${endTime - startTime} ms $line"
-            .takeRight(maxLine)}${Console.RESET}
-           |""".stripMargin
-      )
+      sim       <- ZIO.attempt(
+                     Class
+                       .forName(taskDef.fullyQualifiedName())
+                       .getDeclaredConstructor()
+                       .newInstance()
+                       .asInstanceOf[SimulationRunner]
+                   )
+      endTime   <- clock.currentTime(TimeUnit.MILLISECONDS)
+      results   <- sim.simulation
+      logLevel   = results.head._1
+      _         <- logInfo(
+                     s"""
+                |${logLevel.color}${s"$line START $name $line"
+                         .takeRight(maxLine)}${Console.RESET}
+                |${results.reverse.flatMap((sr: (LogLevel, Seq[ScenarioResult])) =>
+                         sr._2.map(_.log)
+                       ).mkString("\n")}
+                |${results.map(sr => printResult(sr._1, sr._2)).mkString("\n")}
+                |${logLevel.color}${s"$line END $name in ${endTime - startTime} ms $line"
+                         .takeRight(maxLine)}${Console.RESET}
+                |""".stripMargin
+                   )
     yield (logLevel, endTime - startTime)
+    end for
+  end runSimulation
 
   private def printResult(
       level: LogLevel,

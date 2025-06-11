@@ -5,6 +5,7 @@ import orchescala.domain.{InOutDecoder, InOutEncoder}
 import orchescala.engine.EngineError
 import orchescala.engine.ProcessEngine
 import zio.{IO, ZIO}
+import zio.ZIO.*
 
 import scala.reflect.ClassTag
 
@@ -12,11 +13,11 @@ class ProcessScenarioRunner(val scenario: ProcessScenario)(using
     engine: ProcessEngine,
     val config: SimulationConfig
 ) extends ScenarioRunner:
-  private lazy val processInstanceService = engine.processInstanceService
+  private lazy val processInstanceService = engine.jProcessInstanceService
 
   def run: IO[SimulationError, ScenarioData] =
     for
-      _    <- ZIO.logInfo(s"Running ProcessScenario: ${scenario.name} / ${scenario.process.inAsJson}")
+      _    <- ZIO.logInfo(s"Running ProcessScenario: ${scenario.name}")
       data <-
         logScenario: (data: ScenarioData) =>
           if scenario.process == null then
@@ -40,10 +41,10 @@ class ProcessScenarioRunner(val scenario: ProcessScenario)(using
     yield data
 
   private[simulation2] def startProcess(data: ScenarioData): IO[SimulationError, ScenarioData] =
-    ZIO.logInfo(s"Starting process: ${scenario.process.processName}") *>
+    logDebug(s"Starting process: ${scenario.process.processName} - ${scenario.process.camundaInBody.asJson}") *>
       processInstanceService.startProcessAsync(
         scenario.process.processName,
-        scenario.process.inAsJson,
+        scenario.process.camundaInBody,
         Some(scenario.name)
       ).mapError: err =>
         SimulationError.ProcessError(

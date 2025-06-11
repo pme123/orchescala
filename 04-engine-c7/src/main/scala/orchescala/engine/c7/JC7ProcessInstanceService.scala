@@ -6,6 +6,7 @@ import orchescala.engine.json.JProcessInstanceService
 import org.camunda.community.rest.client.api.ProcessDefinitionApi
 import org.camunda.community.rest.client.dto.{StartProcessInstanceDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
+import zio.ZIO.logDebug
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
@@ -21,9 +22,9 @@ class JC7ProcessInstanceService(using apiClientZIO: IO[EngineError, ApiClient], 
 
     for
       apiClient        <- apiClientZIO
-      _                <- ZIO.logInfo(s"Starting Process '$processDefId' with variables: $in")
+      _                <- logDebug(s"Starting Process '$processDefId' with variables: $in")
       processVariables <- C7VariableMapper.toC7Variables(in)
-      _                <- ZIO.logInfo(s"Starting Process '$processDefId' with variables: $processVariables")
+      _                <- logDebug(s"Starting Process '$processDefId' with variables: $processVariables")
       instance         <- callStartProcessAsync(processDefId, businessKey, apiClient, processVariables)
     yield ProcessInfo(
       processInstanceId = instance.getId,

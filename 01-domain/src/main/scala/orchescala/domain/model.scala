@@ -54,6 +54,7 @@ trait InOut[
 
   def camundaInMap: Map[String, CamundaVariable]       =
     CamundaVariable.toCamunda(in)
+
   lazy val camundaOutMap: Map[String, CamundaVariable] =
     CamundaVariable.toCamunda(out)
   def camundaToCheckMap: Map[String, CamundaVariable]  =
@@ -160,6 +161,15 @@ sealed trait ProcessOrExternalTask[
     }.toMap
     super.camundaInMap ++ camundaImpersonateUserId ++ camundaOutputMock + camundaServicesMocked
   end camundaInMap
+
+  def camundaInBody: Json =
+    inAsJson.asObject.get
+      .add(InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null))
+      .add(InputParams.servicesMocked.toString, servicesMocked.asJson)
+      .add(InputParams.impersonateUserId.toString, impersonateUserId.map(_.asJson).getOrElse(Json.Null))
+      .asJson.deepDropNullValues
+  end camundaInBody
+
 end ProcessOrExternalTask
 
 case class Process[

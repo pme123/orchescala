@@ -66,13 +66,17 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     val tryProcessVariables =
       ProcessVariablesExtractor.extract(worker.variableNames)
     (for
+      _                     <- logDebug(s"Executing Worker: ${worker.topic}")
       generalVariables      <- ProcessVariablesExtractor.extractGeneral()
+      _                     <- logDebug(s"generalVariables: $generalVariables")
       given EngineRunContext = EngineRunContext(c7Context, generalVariables)
       filteredOut           <- WorkerExecutor(worker).execute(tryProcessVariables)
+      _                     <- logDebug(s"filteredOut: $filteredOut")
       _                     <- externalTaskService.handleSuccess(
                                  filteredOut,
                                  generalVariables.manualOutMapping
                                )
+      _                     <- logDebug(s"Worker: ${worker.topic} completed successfully")
     yield ())
       .catchAll: ex =>
         ProcessVariablesExtractor.extractGeneral(ex.generalVariables)

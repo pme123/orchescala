@@ -37,7 +37,6 @@ end LogEntry
 
 enum LogLevel(val color: String) extends Ordered[LogLevel]:
   override def compare(that: LogLevel): Int =
-    println(s"Compare: $this - $that: ${that.ordinal - ordinal}")
     that.ordinal - ordinal
 
 

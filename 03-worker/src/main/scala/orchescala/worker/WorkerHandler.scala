@@ -1,14 +1,12 @@
 package orchescala
 package worker
 
+import io.circe
 import orchescala.domain.*
 import orchescala.worker.WorkerError.*
-import io.circe
-import sttp.model.Uri.QuerySegment
 import sttp.model.{Method, Uri}
 import zio.{IO, ZIO}
 
-import scala.concurrent.duration.*
 import scala.reflect.ClassTag
 
 trait WorkerHandler[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
@@ -156,8 +154,14 @@ case class ServiceHandler[
   override def runWorkZIO(
       inputObject: In
   ): RunnerOutputZIO =
-    val rRequest = runnableRequest(inputObject)
     for
+      rRequest           <-
+        ZIO.attempt(runnableRequest(inputObject))
+          .mapError: err =>
+            err.printStackTrace()
+            ServiceUnexpectedError(
+              s"There was an unexpected Error creating runnable Request: ${err.getMessage}"
+            )
       optWithServiceMock <- withServiceMock(rRequest, inputObject)
       output             <- handleMocking(optWithServiceMock, rRequest).getOrElse(
                               summon[EngineRunContext]
@@ -222,9 +226,9 @@ case class ServiceHandler[
         context
           .getLogger(getClass)
           .debug(s"""Mocked Service: ${niceClassName(this.getClass)}
-                   |${requestMsg(runnableRequest)}
-                   | - mockedResponse: ${mock.asJson.deepDropNullValues}
-                   |""".stripMargin)
+                    |${requestMsg(runnableRequest)}
+                    | - mockedResponse: ${mock.asJson.deepDropNullValues}
+                    |""".stripMargin)
         mock
       }
       .map(m => ZIO.succeed(m))

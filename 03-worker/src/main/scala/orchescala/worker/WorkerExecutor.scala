@@ -5,6 +5,7 @@ import orchescala.domain.*
 import orchescala.worker.WorkerError.*
 import io.circe.syntax.*
 import zio.*
+import zio.ZIO.*
 
 case class WorkerExecutor[
     In <: Product: InOutCodec,
@@ -19,14 +20,18 @@ case class WorkerExecutor[
       processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
   ): ZIO[SttpClientBackend, WorkerError, Map[String, Any]] =
     (for
-      _                            <- ZIO.logDebug(s"Executing Worker: ${processVariables}")
+      _                            <- logDebug(s"Executing Worker: ${worker.topic}")
       validatedInput               <- InputValidator.validate(processVariables)
+      _                            <- logDebug(s"- validatedInput: $validatedInput")
       initializedOutput            <- Initializer.initVariables(validatedInput)
+      _                            <- logDebug(s"- initializedOutput: $initializedOutput")
       mockedOutput                 <- OutMocker(worker).mockedOutput(validatedInput)
+      _                            <- logDebug(s"- mockedOutput: $mockedOutput")
       // only run the work if it is not mocked
       output                       <-
         if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
         else ZIO.succeed(mockedOutput.get)
+      _                            <- logDebug(s"- output: $output")
       allOutputs: Map[String, Any]  = camundaOutputs(validatedInput, initializedOutput, output)
       filteredOut: Map[String, Any] =
         filteredOutput(allOutputs, context.generalVariables.outputVariables)

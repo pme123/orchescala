@@ -35,7 +35,6 @@ abstract class SimulationRunner
         case scen: DmnScenario          => scen.run()
         case scen: BadScenario          => scen.run()*/
       .map: results =>
-        println(s"SimulationRunner results \n${results.head.logEntries.mkString("\n")}")
         results
           .map { (resultData: ScenarioData) =>
             val log =
