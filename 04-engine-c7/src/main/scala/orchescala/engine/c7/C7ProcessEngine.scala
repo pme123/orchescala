@@ -19,6 +19,7 @@ class C7ProcessEngine()(
   lazy val historicVariableService: HistoricVariableService               = new C7HistoricVariableService()
   lazy val incidentService: IncidentService = new C7IncidentService()    
   lazy val jobService: JobService = new C7JobService()    
+  lazy val messageService: MessageService = new C7MessageService()
   lazy val signalService: SignalService = new C7SignalService()
   lazy val userTaskService: UserTaskService = new C7UserTaskService()
 

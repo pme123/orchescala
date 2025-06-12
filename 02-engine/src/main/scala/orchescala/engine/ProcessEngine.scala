@@ -9,6 +9,7 @@ trait ProcessEngine:
   def historicVariableService: HistoricVariableService
   def incidentService: IncidentService
   def jobService: JobService
+  def messageService: MessageService
   def signalService: SignalService
   def userTaskService: UserTaskService
   

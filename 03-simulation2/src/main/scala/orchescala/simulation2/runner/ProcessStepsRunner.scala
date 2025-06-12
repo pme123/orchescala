@@ -25,10 +25,9 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
           case ut: SUserTask      =>
             UserTaskRunner(ut).getAndComplete
           case e: SMessageEvent   =>
-            ZIO.succeed(summon[ScenarioData].info(s"Running MessageEvent: ${e.name}"))
-          // e.sendMessage()
+            MessageRunner(e).sendMessage
           case e: SSignalEvent    =>
-            SignalRunner(e).sendSignal()
+            SignalRunner(e).sendSignal
           case e: STimerEvent     =>
             ZIO.succeed(summon[ScenarioData].info(s"Running TimerEvent: ${e.name}"))
           // e.getAndExecute()

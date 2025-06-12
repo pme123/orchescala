@@ -9,12 +9,10 @@ import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.logInfo
 import zio.{IO, ZIO}
 
-import scala.jdk.CollectionConverters.*
-
 class C7SignalService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends SignalService:
+) extends SignalService, C7EventService:
 
   def sendSignal(
       name: String,
@@ -41,17 +39,4 @@ class C7SignalService(using
               s"Problem sending Signal '$name': ${err.getMessage}"
             )
     yield ()
-  private def mapToC7Variables(
-      variables: Option[Map[String, CamundaVariable]]
-  ): java.util.Map[String, VariableValueDto] =
-    variables
-      .map: in =>
-        in
-          .map:
-            case (k, v) =>
-              k -> new VariableValueDto()
-                .value(v.value)
-                .`type`(v.`type`)
-      .getOrElse(Map.empty)
-      .asJava
 end C7SignalService

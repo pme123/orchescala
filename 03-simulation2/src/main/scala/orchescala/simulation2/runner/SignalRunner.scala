@@ -14,13 +14,13 @@ class SignalRunner(val signalScenario: SSignalEvent)(using
   lazy val signalService          = engine.signalService
   lazy val processInstanceService = engine.jProcessInstanceService
 
-  def sendSignal()(using ScenarioData): ResultType =
+  def sendSignal: ResultType =
     for
       given ScenarioData <- EventRunner(signalScenario).loadVariable
-      given ScenarioData <- sndSgnl()
+      given ScenarioData <- sndSgnl
     yield summon[ScenarioData]
 
-  private def sndSgnl(): ResultType =
+  private def sndSgnl: ResultType =
 
     for
       given ScenarioData <- signalService
