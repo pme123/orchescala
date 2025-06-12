@@ -1,6 +1,7 @@
 package orchescala.engine
 package c7
 
+import orchescala.domain.CamundaVariable
 import orchescala.engine.domain.HistoricVariable
 import orchescala.engine.inOut.HistoricVariableService
 import org.camunda.community.rest.client.api.HistoricVariableInstanceApi
@@ -72,7 +73,7 @@ class C7HistoricVariableService(using
       HistoricVariable(
         id = dto.getId,
         name = dto.getName,
-        value = Option(dto.getValue).map(_.toString.asJson),
+        value = Option(dto.getValue).map(CamundaVariable.valueToCamunda),
         processDefinitionKey = Option(dto.getProcessDefinitionKey),
         processDefinitionId = Option(dto.getProcessDefinitionId),
         processInstanceId = Option(dto.getProcessInstanceId),

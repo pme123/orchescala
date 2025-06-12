@@ -23,20 +23,17 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
     ZIO.logInfo("Running Step: " + step.name) *>
       (step match
           case ut: SUserTask      =>
-            ZIO.logInfo(s"Running UserTask: ${ut.name}") *>
-              UserTaskRunner(ut).getAndComplete
+            UserTaskRunner(ut).getAndComplete
           case e: SMessageEvent   =>
             ZIO.succeed(summon[ScenarioData].info(s"Running MessageEvent: ${e.name}"))
           // e.sendMessage()
           case e: SSignalEvent    =>
-            ZIO.succeed(summon[ScenarioData].info(s"Running SignalEvent: ${e.name}"))
-          // e.sendSignal()
+            SignalRunner(e).sendSignal()
           case e: STimerEvent     =>
             ZIO.succeed(summon[ScenarioData].info(s"Running TimerEvent: ${e.name}"))
           // e.getAndExecute()
           case SWaitTime(seconds) =>
-            ZIO.succeed(summon[ScenarioData].info(s"Running WaitTime: ${seconds}"))
-            // step.waitFor(seconds)
+            waitFor(seconds)
       )
 
   def check: ResultType =
@@ -105,5 +102,5 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   ): Seq[JsonProperty] =
     variables
       .map: v =>
-        JsonProperty(v.name, v.value.getOrElse(Json.Null))
+        JsonProperty(v.name, v.value.map(_.toJson).getOrElse(Json.Null))
 end ProcessStepsRunner

@@ -122,8 +122,8 @@ final class SimulationTestRunner(
                        .newInstance()
                        .asInstanceOf[SimulationRunner]
                    )
-      endTime   <- clock.currentTime(TimeUnit.MILLISECONDS)
       results   <- sim.simulation
+      endTime   <- clock.currentTime(TimeUnit.MILLISECONDS)
       logLevel   = results.head._1
       _         <- logInfo(
                      s"""
