@@ -8,6 +8,7 @@ trait ProcessEngine:
   def historicProcessInstanceService: HistoricProcessInstanceService
   def historicVariableService: HistoricVariableService
   def incidentService: IncidentService
+  def jobService: JobService
   def userTaskService: UserTaskService
   
   def jProcessInstanceService: JProcessInstanceService
