@@ -15,33 +15,30 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
   lazy val userTaskService        = engine.userTaskService
   lazy val processInstanceService = engine.jProcessInstanceService
 
-  def getAndComplete(scenarioData: ScenarioData): ResultType =
-    val scenarioData1 = scenarioData.withTaskId(notSet)
+  def getAndComplete: ResultType =
+    val scenarioData1 = summon[ScenarioData].withTaskId(notSet)
     for
-      scenarioData2 <- task(scenarioData1)
-      _             <- logInfo(s"UserTask ${scenarioData2.context.taskId} found")
-      scenarioData3 <- checkForm(scenarioData2)
-      _             <- logInfo(s"UserTask ${scenarioData2.context.taskId} checkedForm")
-      scenarioData4 <-
-        userTaskScenario.waitForSec.map(waitFor(
-          _,
-          scenarioData3
-        )).getOrElse(ZIO.succeed(scenarioData3))
-      scenarioData5 <- completeTask(scenarioData4)
-    yield scenarioData5
+      given ScenarioData <- task
+      _                  <- logInfo(s"UserTask ${summon[ScenarioData].context.taskId} found")
+      given ScenarioData <- checkForm
+      _                  <- logInfo(s"UserTask ${summon[ScenarioData].context.taskId} checkedForm")
+      given ScenarioData <-
+        userTaskScenario.waitForSec.map(waitFor).getOrElse(ZIO.succeed(summon[ScenarioData]))
+      given ScenarioData <- completeTask
+    yield summon[ScenarioData]
     end for
   end getAndComplete
 
-  private def task(scenarioData: ScenarioData): ResultType =
+  private def task: ResultType =
     def getTask(
         processInstanceId: String,
         taskDefinitionKey: String
-    )(data: ScenarioData): ResultType =
+    ): ResultType =
       userTaskService
         .getUserTask(processInstanceId)
         .mapError: err =>
           SimulationError.ProcessError(
-            data.error(
+            summon[ScenarioData].error(
               s"Problem getting Task '${userTaskScenario.name}': ${err.errorMsg}"
             )
           )
@@ -49,7 +46,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
           case Some(userTask) =>
             logDebug(s"UserTask found: $taskDefinitionKey - ${userTask.id}")
               .as(
-                data
+                summon[ScenarioData]
                   .withTaskId(userTask.id)
                   .info(
                     s"UserTask '${userTask.name.mkString}' ready"
@@ -59,50 +56,49 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
               )
           case None           =>
             logDebug(s"UserTask $taskDefinitionKey not ready") *>
-              tryOrFail(data, getTask(processInstanceId, taskDefinitionKey))
+              tryOrFail(getTask(processInstanceId, taskDefinitionKey))
     end getTask
 
-    val processInstanceId = scenarioData.context.processInstanceId
+    val processInstanceId = summon[ScenarioData].context.processInstanceId
 
-    getTask(processInstanceId, userTaskScenario.id)(scenarioData.withRequestCount(0))
+    getTask(processInstanceId, userTaskScenario.id)(using summon[ScenarioData].withRequestCount(0))
   end task
 
-  def checkForm(data: ScenarioData): ResultType =
-    val processInstanceId = data.context.processInstanceId
+  def checkForm: ResultType =
+    val processInstanceId = summon[ScenarioData].context.processInstanceId
     for
-      variables     <-
+      variables          <-
         processInstanceService
           .getVariables(processInstanceId, userTaskScenario.inOut.in)
           .mapError: err =>
             SimulationError.ProcessError(
-              data.error(s"Problem getting Task '${userTaskScenario.name}': ${err.errorMsg}")
+              summon[ScenarioData].error(
+                s"Problem getting Task '${userTaskScenario.name}': ${err.errorMsg}"
+              )
             )
-      _             <- logDebug(s"Variables fetched for ${userTaskScenario.name}: $variables")
-      scenarioData1 <- ZIO.attempt(checkProps(
-                         userTaskScenario,
-                         variables,
-                         data
-                       )).mapError: err =>
-                         err.printStackTrace()
-                         SimulationError.ProcessError(
-                           data.error(
-                             s"Tests for UserTask Form ${userTaskScenario.name} failed - check log above (look for !!!)"
-                           )
-                         )
-      _             <- logDebug(s"UserTask Form is correct for ${userTaskScenario.name}")
-    yield scenarioData1
+      _                  <- logDebug(s"Variables fetched for ${userTaskScenario.name}: $variables")
+      given ScenarioData <- ZIO.succeed(summon[ScenarioData].info(s"UserTask '${userTaskScenario.name}' Form ready to check."))
+      given ScenarioData <-
+        checkProps(
+          userTaskScenario,
+          variables
+        )
+      _ <- logDebug(s"UserTask Form is correct for ${userTaskScenario.name}")
+    yield summon[ScenarioData]
     end for
   end checkForm
 
-  private def completeTask(data: ScenarioData): ResultType =
-    val taskId = data.context.taskId
+  private def completeTask: ResultType =
+    val taskId = summon[ScenarioData].context.taskId
     for
       _ <- userTaskService.complete(taskId, userTaskScenario.camundaOutMap)
              .mapError: err =>
                SimulationError.ProcessError(
-                 data.error(s"Problem completing Task '${userTaskScenario.name}': ${err.errorMsg}")
+                 summon[ScenarioData].error(
+                   s"Problem completing Task '${userTaskScenario.name}': ${err.errorMsg}"
+                 )
                )
-    yield data.info(s"Successful completed UserTask ${userTaskScenario.name}.")
+    yield summon[ScenarioData].info(s"Successful completed UserTask ${userTaskScenario.name}.")
     end for
   end completeTask
 

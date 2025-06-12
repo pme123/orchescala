@@ -15,15 +15,20 @@ trait ResultChecker:
 
   def checkProps(
       withOverrides: WithTestOverrides[?],
-      result: Seq[JsonProperty],
-      scenarioData: ScenarioData
-  ): ScenarioData =
-    withOverrides.testOverrides match
-      case Some(TestOverrides(overrides)) =>
-        checkO(overrides, result, scenarioData)
-      case _                              =>
-        checkP(withOverrides.camundaToCheckMap, result, scenarioData)
-    end match
+      result: Seq[JsonProperty]
+  ): ResultType = {
+    val scenarioData =
+      withOverrides.testOverrides match
+        case Some(TestOverrides(overrides)) =>
+          checkO(overrides, result, summon[ScenarioData])
+        case _                              =>
+          checkP(withOverrides.camundaToCheckMap, result, summon[ScenarioData])
+      end match
+    if scenarioData.hasErrors then
+      ZIO.fail(SimulationError.ProcessError(scenarioData))
+    else
+      ZIO.succeed(scenarioData)
+  }
   end checkProps
 
   private def checkO(
@@ -258,7 +263,7 @@ trait ResultChecker:
                   case Some(_) => sd
                   case None    =>
                     sd.error(
-                      s"""Value not found in array:
+                      s"""Value for $key not found in array:
                          | - expected: $expJson
                          | - result  : $resJsonArray""".stripMargin
                     )
@@ -292,7 +297,7 @@ trait ResultChecker:
             else scenData
           case _                                         =>
             scenarioData.error(
-              s"$path: ${expJson.noSpaces} (expected) != ${resJson.noSpaces} (result)"
+              s"$key: ${expJson.noSpaces} (expected) != ${resJson.noSpaces} (result)\n -> Path: ${if path.isEmpty then "." else path}"
             )
       else scenarioData
 

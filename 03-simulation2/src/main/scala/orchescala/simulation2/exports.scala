@@ -2,4 +2,4 @@ package orchescala.simulation2
 
 import zio.IO
 
-type ResultType = IO[SimulationError, ScenarioData]
+type ResultType = ScenarioData ?=> IO[SimulationError, ScenarioData]

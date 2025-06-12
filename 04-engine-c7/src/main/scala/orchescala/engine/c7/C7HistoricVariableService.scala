@@ -54,7 +54,14 @@ class C7HistoricVariableService(using
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': ${err.getMessage}"
             )
-    yield mapToHistoricVariables(variableDtos)
+      variables <- ZIO
+        .attempt:
+          mapToHistoricVariables(variableDtos)
+        .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': ${err.getMessage}"
+            )  
+    yield variables
 
   private def mapToHistoricVariables(
       variableDtos: java.util.List[HistoricVariableInstanceDto]
@@ -65,7 +72,7 @@ class C7HistoricVariableService(using
       HistoricVariable(
         id = dto.getId,
         name = dto.getName,
-        value = dto.getValue.toString.asJson,
+        value = Option(dto.getValue).map(_.toString.asJson),
         processDefinitionKey = Option(dto.getProcessDefinitionKey),
         processDefinitionId = Option(dto.getProcessDefinitionId),
         processInstanceId = Option(dto.getProcessInstanceId),

@@ -20,6 +20,7 @@ class ProcessScenarioRunner(val scenario: ProcessScenario)(using
       _    <- ZIO.logInfo(s"Running ProcessScenario: ${scenario.name}")
       data <-
         logScenario: (data: ScenarioData) =>
+          given ScenarioData = data
           if scenario.process == null then
             ZIO.succeed:
               data.error(
@@ -27,19 +28,19 @@ class ProcessScenarioRunner(val scenario: ProcessScenario)(using
               )
           else
             (for
-              scenarioData1 <- scenario.startType match
-                                 case ProcessStartType.START   => startProcess(data)
-                                 case ProcessStartType.MESSAGE => sendMessage(data)
-              scenarioData2 <- ProcessStepsRunner(scenario).runSteps(scenarioData1)
-              scenarioData3 <- ProcessStepsRunner(scenario).check(scenarioData2)
-            yield scenarioData3).fold(
+              given ScenarioData <- scenario.startType match
+                                 case ProcessStartType.START   => startProcess
+                                 case ProcessStartType.MESSAGE => sendMessage
+              given ScenarioData <- ProcessStepsRunner(scenario).runSteps
+              given ScenarioData <- ProcessStepsRunner(scenario).check
+            yield summon[ScenarioData]).fold(
               err =>
                 err.scenarioData,
-              data => data
+              scenData => scenData
             )
     yield data
 
-  private[simulation2] def startProcess(data: ScenarioData): IO[SimulationError, ScenarioData] =
+  private[simulation2] def startProcess: ResultType =
     logDebug(s"Starting process: ${scenario.process.processName} - ${scenario.process.camundaInBody.asJson}") *>
       processInstanceService.startProcessAsync(
         scenario.process.processName,
@@ -47,16 +48,16 @@ class ProcessScenarioRunner(val scenario: ProcessScenario)(using
         Some(scenario.name)
       ).mapError: err =>
         SimulationError.ProcessError(
-          data.error(
+          summon[ScenarioData].error(
             s"Problem starting Process '${scenario.process.processName}': ${err.errorMsg}"
           )
         )
       .map: engineProcessInfo =>
-        data.withProcessInstanceId(engineProcessInfo.processInstanceId)
+        summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
           .info(
             s"Process '${scenario.process.processName}' started (check $cockpitUrl/#/process-instance/${engineProcessInfo.processInstanceId})"
           )
 
-  private def sendMessage(data: ScenarioData): IO[SimulationError, ScenarioData] =
-    ZIO.succeed(data.info("Sending message"))
+  private def sendMessage: ResultType =
+    ZIO.succeed(summon[ScenarioData].info("Sending message"))
 end ProcessScenarioRunner
