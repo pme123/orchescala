@@ -110,8 +110,7 @@ trait ResultChecker:
             .find(_.key == key)
             .map:
               case JsonProperty(key, resultJson) =>
-                val expectedJson = toJson(expectedValue.value.toString)
-                checkJson(expectedJson, resultJson, key, scenarioData)
+                checkJson(expectedValue.toJson, resultJson, key, scenarioData)
             .getOrElse:
               scenarioData.error(
                 s"$key does not exist in the result variables.\n $result"

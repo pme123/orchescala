@@ -25,14 +25,15 @@ trait ScenarioOrStepRunner:
             checkIfIncidentOccurred(scenarioData)
           else
             ZIO.succeed(scenarioData)
+        _ <- ZIO.logDebug(s"Waiting for ${step.name} (${step.typeName} - count: $count)")
         scenarioData2 <- funct(
-                           scenarioData
+                           scenarioData1
                              .withRequestCount(count + 1)
                              .info(
                                s"Waiting for ${step.name} (${step.typeName} - count: $count)"
                              )
                          )
-      yield scenarioData1
+      yield scenarioData2
     else
       ZIO.fail(
         SimulationError.WaitingError(
@@ -44,6 +45,14 @@ trait ScenarioOrStepRunner:
       )
     end if
   end tryOrFail
+
+  protected def waitFor(
+                         seconds: Int,
+                         data: ScenarioData
+                       ): ResultType =
+    ZIO.sleep(1.second)
+      .as(data.info(s"Waited for $seconds second(s)."))
+  end waitFor
 
   private def checkIfIncidentOccurred(data: ScenarioData): ResultType =
     handleIncident(data): (incidents, data) =>

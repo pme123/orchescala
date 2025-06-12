@@ -4,7 +4,7 @@ package runner
 import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
 import orchescala.engine.ProcessEngine
 import orchescala.engine.domain.HistoricVariable
-import zio.ZIO
+import zio.*
 
 class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
     val engine: ProcessEngine,
@@ -19,31 +19,31 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
       runStep(step, data)
 
   private def runStep(step: SStep, data: ScenarioData): ResultType =
-    step match
-      case ut: SUserTask      =>
-        ZIO.succeed(data.info(s"Running UserTask: ${ut.name}"))
-        // ut.getAndComplete()
-      case e: SMessageEvent   =>
-        ZIO.succeed(data.info(s"Running MessageEvent: ${e.name}"))
-      // e.sendMessage()
-      case e: SSignalEvent    =>
-        ZIO.succeed(data.info(s"Running SignalEvent: ${e.name}"))
-      // e.sendSignal()
-      case e: STimerEvent     =>
-        ZIO.succeed(data.info(s"Running TimerEvent: ${e.name}"))
-      // e.getAndExecute()
-      case SWaitTime(seconds) =>
-        ZIO.succeed(data.info(s"Running WaitTime: ${seconds}"))
-        // step.waitFor(seconds)
+    ZIO.logInfo("Running Step: " + step.name) *>
+      (step match
+          case ut: SUserTask      =>
+            ZIO.logInfo(s"Running UserTask: ${ut.name}") *>
+              UserTaskRunner(ut).getAndComplete(data)
+          case e: SMessageEvent   =>
+            ZIO.succeed(data.info(s"Running MessageEvent: ${e.name}"))
+          // e.sendMessage()
+          case e: SSignalEvent    =>
+            ZIO.succeed(data.info(s"Running SignalEvent: ${e.name}"))
+          // e.sendSignal()
+          case e: STimerEvent     =>
+            ZIO.succeed(data.info(s"Running TimerEvent: ${e.name}"))
+          // e.getAndExecute()
+          case SWaitTime(seconds) =>
+            ZIO.succeed(data.info(s"Running WaitTime: ${seconds}"))
+            // step.waitFor(seconds)
+      )
 
   def check(
       data: ScenarioData
-  ): ResultType = {
-    for
-      scenarioData1 <- checkFinished(data.withRequestCount(0))
-     // scenarioData2 <- checkVars(scenarioData1)
+  ): ResultType =
+    for scenarioData1 <- checkFinished(data.withRequestCount(0))
+    // scenarioData2 <- checkVars(scenarioData1)
     yield scenarioData1
-  }
   end check
 
   def checkFinished(data: ScenarioData): ResultType =
@@ -75,7 +75,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   private def checkVars(scenarioData: ScenarioData): ResultType =
     val processInstanceId = scenarioData.context.processInstanceId
     for
-      variableDtos  <-
+      variableDtos <-
         historicVariableService
           .getVariables(
             variableName = None,

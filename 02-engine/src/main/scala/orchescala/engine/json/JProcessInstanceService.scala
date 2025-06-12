@@ -6,11 +6,6 @@ import orchescala.engine.domain.ProcessInfo
 import zio.*
 
 trait JProcessInstanceService:
-  def startProcess(
-      processDefId: String,
-      in: Json,
-      businessKey: Option[String]
-  ): IO[EngineError, Json]
 
   def startProcessAsync(
       processDefId: String,
@@ -18,13 +13,8 @@ trait JProcessInstanceService:
       businessKey: Option[String]
   ): IO[EngineError, ProcessInfo]
 
-  def sendMessage(
-      messageDefId: String,
-      in: Json
-  ): IO[EngineError, ProcessInfo]
-
-  def sendSignal(
-      signalDefId: String,
-      in: Json
-  ): IO[EngineError, ProcessInfo]
+  def getVariables(
+      processInstanceId: String,
+      inOut: Product
+  ): IO[EngineError, Seq[JsonProperty]]
 end JProcessInstanceService

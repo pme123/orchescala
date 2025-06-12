@@ -89,6 +89,7 @@ object CamundaVariable:
           k -> objectToCamunda(product, k, v)
       .toMap
 
+
   @tailrec
   def objectToCamunda[T <: Product: InOutEncoder](
       product: T,

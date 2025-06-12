@@ -10,7 +10,7 @@ import zio.{IO, ZIO}
 
 class C7ProcessInstanceService(jProcessService: JProcessInstanceService) extends ProcessInstanceService:
   
-  override def startProcessAsync[In <: Product: InOutEncoder](
+  def startProcessAsync[In <: Product: InOutEncoder](
       processDefId: String,
       in: In,
       businessKey: Option[String] = None
@@ -18,19 +18,23 @@ class C7ProcessInstanceService(jProcessService: JProcessInstanceService) extends
     jProcessService.startProcessAsync(processDefId, in.asJson, businessKey)
   end startProcessAsync
 
-  def startProcess[In <: Product: InOutEncoder, Out <: Product: InOutDecoder](
-      processDefId: String,
-      in: In,
-      businessKey: Option[String]
-  ): IO[EngineError, Out] = ???
+  def getVariables[In <: Product : InOutDecoder](
+                                                  processInstanceId: String,
+                                                  inOut: In
+                                                ): IO[EngineError, In] =
+    for
+      variables <- jProcessService.getVariables(processInstanceId, inOut)
+      json <- 
+        ZIO
+          .foldLeft(variables)(JsonObject.empty):
+            case (jsonObj, jsonProp) =>
+              ZIO.succeed(jsonObj.add(jsonProp.key, jsonProp.value))
+          
+      in <- ZIO.fromEither(json.toJson.as[In])
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem decoding variables for $processInstanceId ($variables): ${err.getMessage}"
+            )
+    yield in        
 
-  def sendMessage[In <: Product: InOutEncoder](
-      messageDefId: String,
-      in: In
-  ): IO[EngineError, ProcessInfo] = ???
-
-  def sendSignal[In <: Product: InOutEncoder](
-      signalDefId: String,
-      in: In
-  ): IO[EngineError, ProcessInfo] = ???
 end C7ProcessInstanceService

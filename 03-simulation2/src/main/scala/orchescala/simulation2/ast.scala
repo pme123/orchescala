@@ -169,15 +169,15 @@ end IncidentServiceScenario
 
 sealed trait SStep extends ScenarioOrStep
 
-sealed trait SInServiceOuttep
+sealed trait SInServiceOutStep
     extends SStep,
-      WithTestOverrides[SInServiceOuttep]:
+      WithTestOverrides[SInServiceOutStep]:
   lazy val inOutDescr: InOutDescr[?, ?] = inOut.inOutDescr
   lazy val id: String = inOutDescr.id
   lazy val descr: Option[String] = inOutDescr.descr
   lazy val camundaInMap: Map[String, CamundaVariable] = inOut.camundaInMap
   lazy val camundaOutMap: Map[String, CamundaVariable] = inOut.camundaOutMap
-end SInServiceOuttep
+end SInServiceOutStep
 
 case class SUserTask(
     name: String,
@@ -185,13 +185,13 @@ case class SUserTask(
     testOverrides: Option[TestOverrides] = None,
     // after getting a task, you can wait - used for intermediate events running something.
     waitForSec: Option[Int] = None
-) extends SInServiceOuttep:
+) extends SInServiceOutStep:
 
   def add(testOverride: TestOverride): SUserTask =
     copy(testOverrides = addOverride(testOverride))
 end SUserTask
 
-sealed trait SEvent extends SInServiceOuttep:
+sealed trait SEvent extends SInServiceOutStep:
   def readyVariable: String
   def readyValue: Any
 
