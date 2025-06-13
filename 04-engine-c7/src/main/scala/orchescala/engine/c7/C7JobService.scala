@@ -29,7 +29,7 @@ class C7JobService(using
                 null, // jobId
                 null, // jobIds
                 null, // jobDefinitionId
-                null, // processInstanceId
+                processInstanceId.orNull, // processInstanceId
                 null, // processInstanceIds
                 null, // executionId
                 null, // processDefinitionId
