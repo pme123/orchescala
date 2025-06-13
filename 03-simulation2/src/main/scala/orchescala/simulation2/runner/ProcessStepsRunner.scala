@@ -29,8 +29,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
           case e: SSignalEvent    =>
             SignalRunner(e).sendSignal
           case e: STimerEvent     =>
-            ZIO.succeed(summon[ScenarioData].info(s"Running TimerEvent: ${e.name}"))
-          // e.getAndExecute()
+             TimerRunner(e).getAndExecute
           case SWaitTime(seconds) =>
             waitFor(seconds)
       )

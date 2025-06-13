@@ -6,6 +6,7 @@ import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.JobApi
 import org.camunda.community.rest.client.dto.JobDto
 import org.camunda.community.rest.client.invoker.ApiClient
+import zio.ZIO.logInfo
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
@@ -62,6 +63,21 @@ class C7JobService(using
             )
     yield mapToJobs(jobDtos)
 
+  def execute(jobId: String): IO[EngineError, Unit] =
+    for
+      apiClient <- apiClientZIO
+      _         <- logInfo(s"Executing Job: $jobId")
+      _         <-
+        ZIO
+          .attempt:
+            new JobApi(apiClient)
+              .executeJob(jobId)
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem executing Job '$jobId': ${err.getMessage}"
+            )
+    yield ()
+
   private def mapToJobs(
       jobs: java.util.List[JobDto]
   ): List[Job] =
@@ -72,9 +88,11 @@ class C7JobService(using
   ): Job =
     Job(
       id = Option(job.getId),
+      jobDefinitionId = Option(job.getJobDefinitionId),
+      dueDate = Option(job.getDueDate),
+      processDefinitionKey = Option(job.getProcessDefinitionKey),
       processDefinitionId = Option(job.getProcessDefinitionId),
       processInstanceId = Option(job.getProcessInstanceId),
-      executionId = Option(job.getExecutionId),
-      
+      executionId = Option(job.getExecutionId)
     )
 end C7JobService
