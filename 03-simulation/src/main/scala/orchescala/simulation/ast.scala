@@ -136,8 +136,9 @@ case class IncidentScenario(
                              steps: List[SStep] = List.empty,
                              incidentMsg: String,
                              isIgnored: Boolean = false,
-                             isOnly: Boolean = false
-) extends IsIncidentScenario,
+                             isOnly: Boolean = false,
+                             startType: ProcessStartType = ProcessStartType.START
+                           ) extends IsIncidentScenario,
       HasProcessSteps:
   lazy val inOut: domain.Process[?, ?, ?] = process
 

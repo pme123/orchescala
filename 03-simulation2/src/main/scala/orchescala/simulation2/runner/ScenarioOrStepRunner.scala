@@ -5,14 +5,14 @@ import orchescala.engine.ProcessEngine
 import orchescala.engine.domain.Incident
 import zio.*
 
-trait ScenarioOrStepRunner:
-  def step: ScenarioOrStep
-  def config: SimulationConfig
-  def engine: ProcessEngine
+class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
+     engine: ProcessEngine,
+     config: SimulationConfig
+):
 
   private lazy val incidentService = engine.incidentService
 
-  protected def tryOrFail(
+  def tryOrFail(
       funct: => ResultType
   ): ResultType =
     val count = summon[ScenarioData].context.requestCount
@@ -20,16 +20,16 @@ trait ScenarioOrStepRunner:
       for
         _             <- ZIO.sleep(1.second)
         given ScenarioData <-
-          if !step.isInstanceOf[IsIncidentScenario] then
+          if !scenarioOrStep.isInstanceOf[IncidentScenario] then
             checkIfIncidentOccurred
           else
             ZIO.succeed(summon[ScenarioData])
-        _ <- ZIO.logDebug(s"Waiting for ${step.name} (${step.typeName} - count: $count)")
+        _ <- ZIO.logDebug(s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)")
         given ScenarioData <- funct(
                            using summon[ScenarioData]
                              .withRequestCount(count + 1)
                              .info(
-                               s"Waiting for ${step.name} (${step.typeName} - count: $count)"
+                               s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)"
                              )
                          )
       yield summon[ScenarioData]
@@ -38,25 +38,25 @@ trait ScenarioOrStepRunner:
         SimulationError.WaitingError(
           summon[ScenarioData]
             .error(
-              s"Expected ${step.name} (${step.typeName}) was not found! Tried $count times."
+              s"Expected ${scenarioOrStep.name} (${scenarioOrStep.typeName}) was not found! Tried $count times."
             )
         )
       )
     end if
   end tryOrFail
 
-  protected def waitFor(
+  def waitFor(
                          seconds: Int): ResultType =
     ZIO.sleep(1.second)
       .as(summon[ScenarioData].info(s"Waited for $seconds second(s)."))
   end waitFor
 
-  private def checkIfIncidentOccurred: ResultType =
+  protected def checkIfIncidentOccurred: ResultType =
     handleIncident(): incidents =>
       if incidents.isEmpty then
         ZIO.succeed(summon[ScenarioData]
           .debug(
-            s"No incident so far for ${step.name}."
+            s"No incident so far for ${scenarioOrStep.name}."
           ))
       else
         ZIO.fail(
@@ -71,7 +71,7 @@ trait ScenarioOrStepRunner:
           )
         )
 
-  private def handleIncident(
+  def handleIncident(
       rootIncidentId: Option[String] = None
   )(
       handleBody: Seq[Incident] => ResultType

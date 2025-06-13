@@ -1,17 +1,11 @@
 package orchescala.simulation2
 
-import io.circe.*
-import io.circe.parser.*
 import orchescala.domain.*
 import orchescala.domain.CamundaVariable.*
 import orchescala.simulation2.TestOverrideType.*
-import zio.{IO, ZIO}
+import zio.ZIO
 
-import scala.collection.mutable.ListBuffer
-import scala.deriving.Mirror.Sum
-import scala.reflect.ClassTag
-
-trait ResultChecker:
+object ResultChecker:
 
   def checkProps(
       withOverrides: WithTestOverrides[?],

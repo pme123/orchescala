@@ -5,11 +5,9 @@ import zio.{IO, ZIO}
 
 import java.util.concurrent.TimeUnit
 
-trait ScenarioRunner:
-  def config: SimulationConfig
-  def scenario: SScenario
-
-  lazy val cockpitUrl: String = config.cockpitUrl
+class ScenarioRunner(scenario: SScenario)(using
+    val config: SimulationConfig
+):
 
   def logScenario(body: ScenarioData => IO[SimulationError, ScenarioData])
       : IO[SimulationError, ScenarioData] =
@@ -31,7 +29,8 @@ trait ScenarioRunner:
               err =>
                 err.printStackTrace()
                 println(s"Error in Scenario: ${err}")
-                err.scenarioData,
+                err.scenarioData
+              ,
               sd => sd
             )
             .map:

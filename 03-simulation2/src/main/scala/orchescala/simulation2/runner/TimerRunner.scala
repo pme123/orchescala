@@ -9,10 +9,11 @@ import zio.ZIO.{logDebug, logInfo}
 class TimerRunner(val timerScenario: STimerEvent)(using
     val engine: ProcessEngine,
     val config: SimulationConfig
-) extends ScenarioOrStepRunner, ResultChecker:
-  lazy val step                   = timerScenario
+):
+  lazy val scenarioOrStep                   = timerScenario
   lazy val jobService             = engine.jobService
   lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val scenarioOrStepRunner = ScenarioOrStepRunner(timerScenario)
 
   def getAndExecute: ResultType =
 
@@ -59,7 +60,7 @@ class TimerRunner(val timerScenario: STimerEvent)(using
                     )
                   )  
           else
-            tryOrFail(getJob(processInstanceId))
+            scenarioOrStepRunner.tryOrFail(getJob(processInstanceId))
       yield summon[ScenarioData]
       end for
     end getJob

@@ -7,6 +7,7 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
   protected def run(sim: SSimulation): T
 
   def simulate(body: => (Seq[SScenario] | SScenario)*): Unit = {
+    println("simulate started!")
     try
       val scenarios = body.flatMap:
         case s: Seq[?] => s.collect { case ss: SScenario => ss }
@@ -108,13 +109,7 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       incidentMsg: String
   ): IncidentScenario =
     incidentScenario(process, incidentMsg)()
-
-  inline def incidentScenario(
-      inline process: ExternalTask[?, ?, ?],
-      incidentMsg: String
-  ): IncidentServiceScenario =
-    IncidentServiceScenario(nameOfVariable(process), process, incidentMsg)
-
+  
   inline given Conversion[Process[?, ?, ?], ProcessScenario] with
     inline def apply(process: Process[?, ?, ?]): ProcessScenario =
       ProcessScenario(nameOfVariable(process), process)
@@ -181,7 +176,11 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
   extension (scen: ProcessScenario)
     def startWithMsg: ProcessScenario =
       scen.copy(startType = ProcessStartType.MESSAGE)
+  end extension
 
+  extension (scen: IncidentScenario)
+    def startWithMsg: IncidentScenario =
+      scen.copy(startType = ProcessStartType.MESSAGE)
   end extension
 
   object ignore:

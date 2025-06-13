@@ -65,6 +65,7 @@ end ProcessScenario
 enum ProcessStartType:
   case START, MESSAGE
 
+@deprecated("Not used anymore")
 case class ExternalTaskScenario(
     name: String,
     process: ExternalTask[?, ?, ?],
@@ -126,17 +127,15 @@ case class BadScenario(
     this
 end BadScenario
 
-trait IsIncidentScenario extends IsProcessScenario, HasProcessSteps:
-  def incidentMsg: String
-
 case class IncidentScenario(
                              name: String,
                              process: domain.Process[?, ?, ?],
                              steps: List[SStep] = List.empty,
                              incidentMsg: String,
                              isIgnored: Boolean = false,
-                             isOnly: Boolean = false
-) extends IsIncidentScenario,
+                             isOnly: Boolean = false,
+                             startType: ProcessStartType = ProcessStartType.START
+                           ) extends IsProcessScenario,
       HasProcessSteps:
   lazy val inOut: domain.Process[?, ?, ?] = process
 
@@ -149,35 +148,17 @@ case class IncidentScenario(
 
 end IncidentScenario
 
-case class IncidentServiceScenario(
-    name: String,
-    process: ExternalTask[?, ?, ?],
-    incidentMsg: String,
-    isIgnored: Boolean = false,
-    isOnly: Boolean = false
-) extends IsIncidentScenario:
-  lazy val inOut: ExternalTask[?, ?, ?] = process
-  lazy val steps: List[SStep] = List.empty
-
-  def ignored: IncidentServiceScenario = copy(isIgnored = true)
-
-  def only: IncidentServiceScenario = copy(isOnly = true)
-
-  def withSteps(steps: List[SStep]): SScenario = this
-
-end IncidentServiceScenario
-
 sealed trait SStep extends ScenarioOrStep
 
-sealed trait SInServiceOutStep
+sealed trait SInServiceOuttep
     extends SStep,
-      WithTestOverrides[SInServiceOutStep]:
+      WithTestOverrides[SInServiceOuttep]:
   lazy val inOutDescr: InOutDescr[?, ?] = inOut.inOutDescr
   lazy val id: String = inOutDescr.id
   lazy val descr: Option[String] = inOutDescr.descr
   lazy val camundaInMap: Map[String, CamundaVariable] = inOut.camundaInMap
   lazy val camundaOutMap: Map[String, CamundaVariable] = inOut.camundaOutMap
-end SInServiceOutStep
+end SInServiceOuttep
 
 case class SUserTask(
     name: String,
@@ -185,13 +166,13 @@ case class SUserTask(
     testOverrides: Option[TestOverrides] = None,
     // after getting a task, you can wait - used for intermediate events running something.
     waitForSec: Option[Int] = None
-) extends SInServiceOutStep:
+) extends SInServiceOuttep:
 
   def add(testOverride: TestOverride): SUserTask =
     copy(testOverrides = addOverride(testOverride))
 end SUserTask
 
-sealed trait SEvent extends SInServiceOutStep:
+sealed trait SEvent extends SInServiceOuttep:
   def readyVariable: String
   def readyValue: Any
 

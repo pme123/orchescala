@@ -10,10 +10,10 @@ import zio.ZIO.logInfo
 class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
     val engine: ProcessEngine,
     val config: SimulationConfig
-) extends ScenarioOrStepRunner, ResultChecker:
-  lazy val step                                   = hasProcessSteps
+):
   private lazy val historicProcessInstanceService = engine.historicProcessInstanceService
   private lazy val historicVariableService        = engine.historicVariableService
+  private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(hasProcessSteps)
 
   def runSteps: ResultType =
     ZIO.foldLeft(hasProcessSteps.steps)(summon[ScenarioData]): (data, step) =>
@@ -31,7 +31,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
           case e: STimerEvent     =>
              TimerRunner(e).getAndExecute
           case SWaitTime(seconds) =>
-            waitFor(seconds)
+            scenarioOrStepRunner.waitFor(seconds)
       )
 
   def check: ResultType =
@@ -65,7 +65,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
                                   summon[ScenarioData].debug(
                                     s"State for ${hasProcessSteps.name} is $state"
                                   )
-                                tryOrFail(checkFinished)
+                                scenarioOrStepRunner.tryOrFail(checkFinished)
     yield summon[ScenarioData]
     end for
   end checkFinished
@@ -86,7 +86,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
             )
       _                  <- ZIO.logInfo(s"Variables fetched for ${hasProcessSteps.name}: $variableDtos")
       given ScenarioData <-
-        checkProps(
+        ResultChecker.checkProps(
           hasProcessSteps.asInstanceOf[WithTestOverrides[?]],
           mapVariablesToJsonProperties(variableDtos, summon[ScenarioData])
         )

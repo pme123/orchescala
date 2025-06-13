@@ -9,14 +9,16 @@ import zio.ZIO.logInfo
 class MessageRunner(val messageScenario: SMessageEvent)(using
     val engine: ProcessEngine,
     val config: SimulationConfig
-) extends ScenarioOrStepRunner, ResultChecker:
-  lazy val step                   = messageScenario
+):
   lazy val messageService         = engine.messageService
   lazy val processInstanceService = engine.jProcessInstanceService
 
   def sendMessage: ResultType =
     for
-      _ <- logInfo(s"Sending message: ${messageScenario.name}: ${summon[ScenarioData].context.processInstanceId}")
+      _                  <-
+        logInfo(
+          s"Sending message: ${messageScenario.name}: ${summon[ScenarioData].context.processInstanceId}"
+        )
       given ScenarioData <-
         messageScenario.optReadyVariable
           .map(_ => EventRunner(messageScenario).loadVariable)
@@ -25,13 +27,13 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
     yield summon[ScenarioData]
 
   private def sendMsg: ResultType =
-    val msgName = messageScenario.inOut.messageName.replace(
+    val msgName           = messageScenario.inOut.messageName.replace(
       SignalEvent.Dynamic_ProcessInstance,
       summon[ScenarioData].context.processInstanceId
     )
     val processInstanceId = summon[ScenarioData].context.optProcessInstance
-    val businessKey = if processInstanceId.isDefined then None else Some(messageScenario.name)
-    val tenantId = if processInstanceId.isDefined then None else config.tenantId
+    val businessKey       = if processInstanceId.isDefined then None else Some(messageScenario.name)
+    val tenantId          = if processInstanceId.isDefined then None else config.tenantId
     for
       given ScenarioData <- messageService
                               .sendMessage(

@@ -8,8 +8,8 @@ import zio.ZIO.logInfo
 class EventRunner(sEvent: SEvent)(using
     val engine: ProcessEngine,
     val config: SimulationConfig
-) extends ScenarioOrStepRunner, ResultChecker:
-  lazy val step = sEvent
+):
+  private lazy val scenOrStepRunner = ScenarioOrStepRunner(sEvent)
   private lazy val historicVariableService = engine.historicVariableService
 
   def loadVariable: ResultType =
@@ -35,7 +35,7 @@ class EventRunner(sEvent: SEvent)(using
               s"Variable for '${sEvent.name}' ready ($variableName = '$readyValue')"
             ))
         else
-          tryOrFail(loadVariable)
+          scenOrStepRunner.tryOrFail(loadVariable)
     yield summon[ScenarioData]
     end for
   end loadVariable

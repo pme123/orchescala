@@ -9,8 +9,8 @@ import zio.ZIO.{logDebug, logInfo}
 class SignalRunner(val signalScenario: SSignalEvent)(using
     val engine: ProcessEngine,
     val config: SimulationConfig
-) extends ScenarioOrStepRunner, ResultChecker:
-  lazy val step                   = signalScenario
+):
+  lazy val scenarioOrStep                   = signalScenario
   lazy val signalService          = engine.signalService
   lazy val processInstanceService = engine.jProcessInstanceService
 

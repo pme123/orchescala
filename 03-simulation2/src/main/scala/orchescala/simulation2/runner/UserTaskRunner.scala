@@ -1,7 +1,5 @@
 package orchescala.simulation2.runner
 
-import io.circe.*
-import orchescala.domain.{CamundaProperty, CompleteTaskOut, FormVariables}
 import orchescala.engine.ProcessEngine
 import orchescala.simulation2.*
 import zio.ZIO
@@ -10,10 +8,11 @@ import zio.ZIO.{logDebug, logInfo}
 class UserTaskRunner(val userTaskScenario: SUserTask)(using
     val engine: ProcessEngine,
     val config: SimulationConfig
-) extends ScenarioOrStepRunner, ResultChecker:
-  lazy val step                   = userTaskScenario
+) :
+  lazy val scenarioOrStep                   = userTaskScenario
   lazy val userTaskService        = engine.userTaskService
   lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val scenarioOrStepRunner = ScenarioOrStepRunner(userTaskScenario)
 
   def getAndComplete: ResultType =
     val scenarioData1 = summon[ScenarioData].withTaskId(notSet)
@@ -23,7 +22,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
       given ScenarioData <- checkForm
       _                  <- logInfo(s"UserTask ${summon[ScenarioData].context.taskId} checkedForm")
       given ScenarioData <-
-        userTaskScenario.waitForSec.map(waitFor).getOrElse(ZIO.succeed(summon[ScenarioData]))
+        userTaskScenario.waitForSec.map(scenarioOrStepRunner.waitFor).getOrElse(ZIO.succeed(summon[ScenarioData]))
       given ScenarioData <- completeTask
     yield summon[ScenarioData]
     end for
@@ -56,7 +55,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
               )
           case None           =>
             logDebug(s"UserTask $taskDefinitionKey not ready") *>
-              tryOrFail(getTask(processInstanceId, taskDefinitionKey))
+              scenarioOrStepRunner.tryOrFail(getTask(processInstanceId, taskDefinitionKey))
     end getTask
 
     val processInstanceId = summon[ScenarioData].context.processInstanceId
@@ -79,7 +78,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
       _                  <- logDebug(s"Variables fetched for ${userTaskScenario.name}: $variables")
       given ScenarioData <- ZIO.succeed(summon[ScenarioData].info(s"UserTask '${userTaskScenario.name}' Form ready to check."))
       given ScenarioData <-
-        checkProps(
+        ResultChecker.checkProps(
           userTaskScenario,
           variables
         )
