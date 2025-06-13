@@ -2,7 +2,7 @@ package orchescala.simulation2
 
 import orchescala.engine.ProcessEngine
 import orchescala.simulation2.*
-import orchescala.simulation2.runner.{IncidentScenarioRunner, ProcessScenarioRunner}
+import orchescala.simulation2.runner.*
 import zio.{IO, ZIO}
 
 import scala.compiletime.uninitialized
@@ -25,16 +25,11 @@ abstract class SimulationRunner
     given SimulationConfig = config
     simulation = ZIO
       .foreachPar(sim.scenarios):
-        case scen: ProcessScenario    =>
+        case scen: ProcessScenario  =>
           ProcessScenarioRunner(scen).run
         case scen: IncidentScenario => IncidentScenarioRunner(scen).run
-        case scen                     =>
-          ZIO.logInfo(s"NOTHING to RUN: ${scen.name}")
-            .as(ScenarioData(scen.name))
-      /*    case scen: ExternalTaskScenario => scen.run()
-        
-        case scen: DmnScenario          => scen.run()
-        case scen: BadScenario          => scen.run()*/
+        case scen: BadScenario      => BadScenarioRunner(scen).run
+      
       .map: results =>
         results
           .map { (resultData: ScenarioData) =>

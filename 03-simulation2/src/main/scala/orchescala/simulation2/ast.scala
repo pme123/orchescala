@@ -65,56 +65,10 @@ end ProcessScenario
 enum ProcessStartType:
   case START, MESSAGE
 
-@deprecated("Not used anymore")
-case class ExternalTaskScenario(
-    name: String,
-    process: ExternalTask[?, ?, ?],
-    isIgnored: Boolean = false,
-    isOnly: Boolean = false,
-    testOverrides: Option[TestOverrides] = None,
-    startType: ProcessStartType = ProcessStartType.START
-) extends IsProcessScenario,
-      WithTestOverrides[ExternalTaskScenario]:
-
-  lazy val steps: List[SStep] = List.empty
-  def inOut: InOut[?, ?, ?] = process
-
-  def add(testOverride: TestOverride): ExternalTaskScenario =
-    copy(testOverrides = addOverride(testOverride))
-
-  def ignored: ExternalTaskScenario = copy(isIgnored = true)
-
-  def only: ExternalTaskScenario = copy(isOnly = true)
-
-  def withSteps(steps: List[SStep]): SScenario =
-    this
-
-end ExternalTaskScenario
-
-case class DmnScenario(
-    name: String,
-    inOut: DecisionDmn[?, ?],
-    isIgnored: Boolean = false,
-    isOnly: Boolean = false,
-    testOverrides: Option[TestOverrides] = None
-) extends SScenario,
-      WithTestOverrides[DmnScenario]:
-  def add(testOverride: TestOverride): DmnScenario =
-    copy(testOverrides = addOverride(testOverride))
-
-  def ignored: DmnScenario = copy(isIgnored = true)
-
-  def only: DmnScenario = copy(isOnly = true)
-
-  def withSteps(steps: List[SStep]): SScenario =
-    this
-end DmnScenario
-
 case class BadScenario(
                         name: String,
                         process: domain.Process[?, ?, ?],
-                        status: Int,
-                        errorMsg: Option[String],
+                        errorMsg: String,
                         isIgnored: Boolean = false,
                         isOnly: Boolean = false
 ) extends IsProcessScenario:

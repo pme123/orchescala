@@ -16,24 +16,29 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
   private lazy val processInstanceService = engine.jProcessInstanceService
 
   private[simulation2] def startProcess: ResultType =
-    logDebug(
-      s"Starting process: ${scenario.process.processName} - ${scenario.process.camundaInBody.asJson}"
-    ) *>
-      processInstanceService.startProcessAsync(
-        scenario.process.processName,
-        scenario.process.camundaInBody,
-        Some(scenario.name)
-      ).mapError: err =>
-        SimulationError.ProcessError(
-          summon[ScenarioData].error(
-            s"Problem starting Process '${scenario.process.processName}': ${err.errorMsg}"
-          )
+    for
+      _                  <-
+        logDebug(
+          s"Starting process: ${scenario.process.processName} - ${scenario.process.camundaInBody.asJson}"
         )
-      .map: engineProcessInfo =>
-        summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
-          .info(
-            s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl}/#/process-instance/${engineProcessInfo.processInstanceId})"
+      given ScenarioData <-
+        processInstanceService.startProcessAsync(
+          scenario.process.processName,
+          scenario.process.camundaInBody,
+          Some(scenario.name)
+        ).mapError: err =>
+          SimulationError.ProcessError(
+            summon[ScenarioData].error(
+              s"Problem starting Process '${scenario.process.processName}': ${err.errorMsg}"
+            )
           )
+        .map: engineProcessInfo =>
+          summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
+            .info(
+              s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl}/#/process-instance/${engineProcessInfo.processInstanceId})"
+            )
+    yield summon[ScenarioData]
+  end startProcess
 
   private[simulation2] def sendMessage: ResultType =
     ZIO.succeed(summon[ScenarioData].info("Sending message"))
