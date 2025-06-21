@@ -1,94 +1,59 @@
-package orchescala
-package simulation
+package orchescala.simulation
 
-import orchescala.domain.CamundaVariable.*
 import orchescala.domain.*
+import orchescala.domain.CamundaVariable.*
 import orchescala.simulation.TestOverrideType.*
-import io.circe.*
-import io.circe.parser.*
+import zio.ZIO
 
-import scala.collection.mutable.ListBuffer
-import scala.deriving.Mirror.Sum
-
-trait ResultChecker:
+object ResultChecker:
 
   def checkProps(
       withOverrides: WithTestOverrides[?],
-      result: Seq[CamundaProperty]
-  ): Boolean =
-    withOverrides.testOverrides match
-      case Some(TestOverrides(overrides)) =>
-        checkO(overrides, result)
-      case _ =>
-        checkP(withOverrides.camundaToCheckMap, result)
+      result: Seq[JsonProperty]
+  ): ResultType = {
+    val scenarioData =
+      withOverrides.testOverrides match
+        case Some(TestOverrides(overrides)) =>
+          checkO(overrides, result, summon[ScenarioData])
+        case _                              =>
+          checkP(withOverrides.camundaToCheckMap, result, summon[ScenarioData])
+      end match
+    if scenarioData.hasErrors then
+      ZIO.fail(SimulationError.ProcessError(scenarioData))
+    else
+      ZIO.succeed(scenarioData)
+  }
+  end checkProps
 
   private def checkO(
       overrides: Seq[TestOverride],
-      result: Seq[CamundaProperty]
-  ) =
+      result: Seq[JsonProperty],
+      scenarioData: ScenarioData
+  ): ScenarioData =
     overrides
-      .map {
-        case TestOverride(Some(k), Exists, _) =>
-          checkExistsInResult(result, k)
-        case TestOverride(Some(k), NotExists, _) =>
-          val matches = !result.exists(_.key == k)
-          if !matches then
-            println(s"!!! $k did EXIST in $result")
-          matches
-        case TestOverride(Some(k), IsEquals, Some(v)) =>
-          val r = result.find(_.key == k)
-          checkExistsInResult(result, k) && checkIsEqualValue(k, v, r.get.value)
-        case TestOverride(Some(k), HasSize, Some(value)) =>
-          val r = result.find(_.key == k)
-          val matches = r.exists {
-            _.value match
-              case CJson(j, _) =>
-                (toJson(j).asArray, value) match
-                  case (Some(vector), CInteger(s, _)) =>
-                    vector.size == s
-                  case _ =>
-                    false
-              case _ => false
-          }
-          if !matches then
-            println(s"!!! $k has NOT Size $value in $r")
-          matches
-        case TestOverride(Some(k), Contains, Some(value)) =>
-          val r = result.find(_.key == k)
-          val matches = r.exists {
-            _.value match
-              case CJson(j, _) =>
-                toJson(j).asArray match
-                  case Some(vector) =>
-                    vector
-                      .exists(x =>
-                        value match
-                          case CString(v, _) =>
-                            x.asString.contains(v)
-                          case CInteger(v, _) => x.asNumber.contains(v)
-                          case CBoolean(v, _) => x.asBoolean.contains(v)
-                          case _ => x.toString == value.value.toString
-                      )
-                  case _ =>
-                    false
-              case _ => false
-          }
-          if !matches then
-            println(s"!!! $k does NOT contains $value in $r")
-          matches
-        case _ =>
-          println(
-            s"!!! Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
-          )
-          false
-      }
-      .forall(_ == true)
+      .foldLeft(scenarioData): (scenarioData, testOverride) =>
+        testOverride match
+          case TestOverride(Some(k), Exists, _)             =>
+            checkExistsInResult(result, k, scenarioData)
+          case TestOverride(Some(k), NotExists, _)          =>
+            checkExistsNotInResult(result, k, scenarioData)
+          case TestOverride(Some(k), IsEquals, Some(v))     =>
+            checkIsEqualValue(k, v, result, scenarioData)
+          case TestOverride(Some(k), HasSize, Some(value))  =>
+            checkHasSize(k, value, result, scenarioData)
+          case TestOverride(Some(k), Contains, Some(value)) =>
+            checkContains(k, value, result, scenarioData)
+          case _                                            =>
+            scenarioData.error(
+              s"Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
+            )
 
+  /*
   // DMN
   def checkOForCollection(
       overrides: Seq[TestOverride],
       result: Seq[CamundaVariable | Map[String, CamundaVariable]]
-  ) =
+  ): IO[SimulationError, ScenarioData] =
     overrides
       .map {
         case TestOverride(None, HasSize, Some(CInteger(size, _))) =>
@@ -98,197 +63,240 @@ trait ResultChecker:
               s"!!! Size '${result.size}' of collection is NOT equal to $size in $result"
             )
           matches
-        case TestOverride(None, Contains, Some(expected)) =>
-          val exp = expected match
+        case TestOverride(None, Contains, Some(expected))         =>
+          val exp     = expected match
             case CJson(jsonStr, _) =>
               parse(jsonStr) match
                 case Right(json) =>
                   CamundaVariable.jsonToCamundaValue(json)
-                case Left(ex) =>
+                case Left(ex)    =>
                   throwErr(s"Problem parsing Json: $jsonStr\n$ex")
-            case other => other
+            case other             => other
           val matches = result.contains(exp)
           if !matches then
             println(
               s"!!! Result '$result' of collection does NOT contain to $expected"
             )
           matches
-        case _ =>
+        case _                                                    =>
           println(
             s"!!! Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
           )
           false
       }
       .forall(_ == true)
-
+   */
   private def checkP[T <: Product](
-      camundaVariableMap: Map[String, CamundaVariable],
-      result: Seq[CamundaProperty]
-  ): Boolean =
-    camundaVariableMap
-      .map {
-        case key -> CNull => // must not be in the result
+      expected: Map[String, CamundaVariable],
+      result: Seq[JsonProperty],
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    expected
+      .foldLeft(scenarioData):
+        case (scenarioData, key -> CNull) =>
           result
-            .find(p =>
-              p.key == key && p.value != CNull
-            ) // it is only ok, if the value is null
-            .map(p =>
-              println(
-                s"!!! The variable '$key' (value: '${p.value.value}') exists in the result - but is NOT expected."
+            .find: p =>
+              p.key == key && (!p.value.isNull)
+            // it is only ok, if the value is null
+            .map: p =>
+              scenarioData.error(
+                s"The variable '$key' (value: '${p.value}') exists in the result - but is NOT expected."
               )
-            )
-            .isEmpty
-        case key -> expectedValue =>
+            .getOrElse(scenarioData) // it is ok if not in the result
+
+        case (scenarioData, key -> expectedValue) =>
           result
             .find(_.key == key)
-            .map {
-              case CamundaProperty(
-                    _,
-                    cValue @ CFile(
-                      _,
-                      cFileValueInfo @ CFileValueInfo(cFileName, _),
-                      _
-                    )
-                  ) =>
-                val matches = expectedValue match
-                  case CFile(_, CFileValueInfo(pFileName, _), _) =>
-                    cFileName == pFileName
-                  case o =>
-                    false
-                if !matches then
-                  println(
-                    s"<<< cFile: ${cValue.getClass} / expectedFile: ${expectedValue.getClass}"
-                  )
-                  println(
-                    s"!!! The expected File value '${expectedValue}'\n of $key does not match the result variable: '$cFileValueInfo'."
-                  )
-                end if
-                matches
-              case CamundaProperty(key, CJson(cValue, _)) =>
-                val resultJson = toJson(cValue)
-                val expectedJson = toJson(expectedValue.value.toString)
-                checkJson(expectedJson, resultJson, key)
-              case CamundaProperty(_, cValue) =>
-                checkIsEqualValue(key, expectedValue, cValue)
-            }
-            .getOrElse {
-              println(
-                s"!!! $key does not exist in the result variables.\n $result"
+            .map:
+              case JsonProperty(key, resultJson) =>
+                checkJson(expectedValue.toJson, resultJson, key, scenarioData)
+            .getOrElse:
+              scenarioData.error(
+                s"$key does not exist in the result variables.\n $result"
               )
-              false
-            }
-      }
-      .forall(_ == true)
-
   end checkP
 
-  private def checkExistsInResult(result: Seq[CamundaProperty], key: String) =
-    val matches = result.exists(_.key == key)
-    if !matches then
-      println(s"!!! $key did NOT exist in $result")
-    matches
-
-  private def checkIsEqualValue[T <: Product](
+  private def checkExistsInResult(
+      result: Seq[JsonProperty],
       key: String,
-      expectedValue: CamundaVariable,
-      resultValue: CamundaVariable
-  ) =
-    val matches: Boolean = resultValue.value == expectedValue.value
-    if !matches then
-      if resultValue.getClass != expectedValue.getClass then
-        println(
-          s"""!!! The type of $key is different:
-             | - expected: ${expectedValue.getClass} 
-             | - result  : ${resultValue.getClass}""".stripMargin
-        )
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    if !checkExistsInResult(result, key) then
+      scenarioData.error(s"$key did NOT exist in $result")
+    else
+      scenarioData
+  end checkExistsInResult
+
+  private def checkExistsInResult(
+      result: Seq[JsonProperty],
+      key: String
+  ): Boolean =
+    result.exists(_.key == key)
+  end checkExistsInResult
+
+  private def checkExistsNotInResult(
+      result: Seq[JsonProperty],
+      key: String,
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    if checkExistsInResult(result, key) then
+      scenarioData.error(s"$key did NOT exist in $result")
+    else
+      scenarioData
+  end checkExistsNotInResult
+
+  private def checkIsEqualValue(
+      key: String,
+      expectedValue: Json,
+      result: Seq[JsonProperty],
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    if checkExistsInResult(result, key) then
+      val json = result.find(_.key == key).map(_.value)
+      if json.contains(expectedValue) then
+        scenarioData
       else
-        println(
-          s"""!!! The value of $key is different:
-             | - expected: ${expectedValue.value}
-             | - result  : ${resultValue.value}""".stripMargin
+        val sd = scenarioData.error(
+          s"""The value of $key is different:
+             | - expected: ${expectedValue}
+             | - result  : ${json.mkString}""".stripMargin
         )
-        if expectedValue.value.toString.contains("\n") then // compare each line for complex strings
-          val result = resultValue.value.toString.split("\n")
-          val expected = expectedValue.value.toString.split("\n")
-          result.zip(expected).foreach:
-            case (r, e) =>
-              if r != e then
-                println(
-                  s""">>> Bad Line:
-                     | - expected: '$e'
-                     | - result  : '$r'""".stripMargin
-                )
-        end if
-    end if
-    matches
-  end checkIsEqualValue
+        checkMultiLines(expectedValue, json.get, sd)
+      end if
+    else
+      scenarioData.error(s"$key did NOT exist in $result")
+
+  private def checkMultiLines(expectedValue: Json, resultValue: Json, scData: ScenarioData) =
+    if expectedValue.isString && resultValue.isString then
+      if expectedValue.asString.get.contains("\n") then // compare each line for complex strings
+        val result   = resultValue.asString.get.split("\n")
+        val expected = expectedValue.asString.get.split("\n")
+        result.zip(expected).foldLeft(scData):
+          case (sd, (r, e)) =>
+            if r != e then
+              sd.error(
+                s""">>> Bad Line:
+                   | - expected: '$e'
+                   | - result  : '$r'""".stripMargin
+              )
+            else sd
+      else scData
+    else scData
+
+  private def checkHasSize(
+      key: String,
+      expectedSize: Json,
+      result: Seq[JsonProperty],
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    if checkExistsInResult(result, key) then
+      val json = result.find(_.key == key).map(_.value)
+      json match
+        case Some(r) if r.isArray && expectedSize.asNumber.get.toInt.contains(r.asArray.get.size) =>
+          scenarioData
+        case _                                                                                    =>
+          scenarioData.error(
+            s"""Size of $key is different:
+               | - expected: ${expectedSize.asNumber.get.toInt}
+               | - result  : ${
+                json.get.asArray.get.size
+              }""".stripMargin
+          )
+      end match
+    else
+      scenarioData.error(s"$key did NOT exist in $result")
+
+  private def checkContains(
+      key: String,
+      expectedValue: Json,
+      result: Seq[JsonProperty],
+      scenarioData: ScenarioData
+  ): ScenarioData =
+    val json = result.find(_.key == key).map(_.value)
+    json match
+      case Some(r) if r.isArray =>
+        if r.asArray.get.contains(expectedValue) then
+          scenarioData
+        else
+          scenarioData.error(s"$key does NOT contains $expectedValue in $r")
+      case Some(r)              =>
+        scenarioData.error(s"$key is NOT an array in $result")
+      case None                 =>
+        scenarioData.error(s"$key does NOT exist in $result")
+    end match
+  end checkContains
 
   private def checkJson(
       expectedJson: io.circe.Json,
       resultJson: io.circe.Json,
-      key: String
-  ): Boolean =
-    val diffs: ListBuffer[String] = ListBuffer()
+      key: String,
+      scenarioData: ScenarioData
+  ): ScenarioData =
     def compareJsons(
         expJson: io.circe.Json,
         resJson: io.circe.Json,
-        path: String
-    ): Unit =
+        path: String,
+        scenarioData: ScenarioData
+    ): ScenarioData =
       if expJson != resJson then
         (expJson, resJson) match
-          case _ if expJson.isArray && resJson.isArray =>
+          case _ if expJson == resJson                   =>
+            scenarioData
+          case _ if expJson.isArray && resJson.isArray   =>
             val expJsonArray = expJson.asArray.toList.flatten
             val resJsonArray = resJson.asArray.toList.flatten
-            for
-              (expJson, resJson) <- expJsonArray.zipAll(
-                resJsonArray,
-                Json.Null,
-                Json.Null
+            if expJsonArray.size != resJsonArray.size then
+              scenarioData.error(
+                s"""Size of array is different:
+                   | - expected: $expJsonArray
+                   | - result  : $resJsonArray""".stripMargin
               )
-            do
-              compareJsons(
-                expJson,
-                resJson,
-                s"$path[${expJsonArray.indexOf(expJson)}]"
-              )
-            end for
+            else
+              expJsonArray.foldLeft(scenarioData): (sd, expJson) =>
+                resJsonArray.find(_ == expJson) match
+                  case Some(_) => sd
+                  case None    =>
+                    sd.error(
+                      s"""Value for $key not found in array:
+                         | - expected: $expJson
+                         | - result  : $resJsonArray""".stripMargin
+                    )
+            end if
           case _ if expJson.isObject && resJson.isObject =>
             val expJsonObj = expJson.asObject.get
             val resJsonObj = resJson.asObject.get
-            val expKeys = expJsonObj.keys.toSeq
-            val resKeys = resJsonObj.keys.toSeq
+            val expKeys    = expJsonObj.keys.toSeq
+            val resKeys    = resJsonObj.keys.toSeq
             val commonKeys = expKeys.intersect(resKeys).toSet
             val uniqueKeys = (expKeys ++ resKeys).toSet.diff(commonKeys)
-            for key <- commonKeys do
+            val scenData   = commonKeys.foldLeft(scenarioData): (sd, key) =>
               compareJsons(
                 expJsonObj(key).get,
                 resJsonObj(key).get,
-                s"$path.$key"
+                s"$path.$key",
+                sd
               )
-            end for
-            for key <- uniqueKeys do
-              if expKeys.contains(key) then
-                expJsonObj(key).foreach { json =>
-                  diffs += s"$path.$key: ${json.noSpaces} (expected field not in result)"
-                }
-              else
-                resJsonObj(key).foreach { json =>
-                  diffs += s"$path.$key: ${json.noSpaces} (field in result not expected)"
-                }
-            end for
-          case _ =>
-            diffs += s"$path: ${expJson.noSpaces} (expected) != ${resJson.noSpaces} (result)"
+            val diffs      = uniqueKeys.foldLeft(Seq.empty[String]): (ds, key) =>
+              expJsonObj(key)
+                .map: json =>
+                  ds :+
+                    s" - $path.$key: ${json.noSpaces} (expected field not in result)"
+                .orElse:
+                  resJsonObj(key).map: json =>
+                    ds :+
+                      s" - $path.$key: ${json.noSpaces} (field in result not expected)"
+                .getOrElse(ds)
+            if diffs.nonEmpty then
+              scenData.error(diffs.mkString("\n"))
+            else scenData
+          case _                                         =>
+            scenarioData.error(
+              s"$key: ${expJson.noSpaces} (expected) != ${resJson.noSpaces} (result)\n -> Path: ${if path.isEmpty then "." else path}"
+            )
+      else scenarioData
 
-    compareJsons(expectedJson, resultJson, "")
+    compareJsons(expectedJson, resultJson, "", scenarioData)
 
-    if diffs.nonEmpty then
-      println(
-        s"!!! The JSON variable $key have the following different fields:"
-      )
-      for diff <- diffs do
-        println(diff)
-    end if
-    diffs.isEmpty
   end checkJson
 
 end ResultChecker

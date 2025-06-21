@@ -1,7 +1,8 @@
-package orchescala.simulation
+package orchescala
+package simulation
 
 import orchescala.domain
-import orchescala.domain.*
+import orchescala.domain.{CamundaVariable, DecisionDmn, ExternalTask, InOut, InOutDescr, MessageEvent, ProcessOrExternalTask, SignalEvent, TimerEvent, UserTask}
 
 case class SSimulation(scenarios: List[SScenario])
 
@@ -65,10 +66,55 @@ end ProcessScenario
 enum ProcessStartType:
   case START, MESSAGE
 
+case class ExternalTaskScenario(
+    name: String,
+    process: ExternalTask[?, ?, ?],
+    isIgnored: Boolean = false,
+    isOnly: Boolean = false,
+    testOverrides: Option[TestOverrides] = None,
+    startType: ProcessStartType = ProcessStartType.START
+) extends IsProcessScenario,
+      WithTestOverrides[ExternalTaskScenario]:
+
+  lazy val steps: List[SStep] = List.empty
+  def inOut: InOut[?, ?, ?] = process
+
+  def add(testOverride: TestOverride): ExternalTaskScenario =
+    copy(testOverrides = addOverride(testOverride))
+
+  def ignored: ExternalTaskScenario = copy(isIgnored = true)
+
+  def only: ExternalTaskScenario = copy(isOnly = true)
+
+  def withSteps(steps: List[SStep]): SScenario =
+    this
+
+end ExternalTaskScenario
+
+case class DmnScenario(
+    name: String,
+    inOut: DecisionDmn[?, ?],
+    isIgnored: Boolean = false,
+    isOnly: Boolean = false,
+    testOverrides: Option[TestOverrides] = None
+) extends SScenario,
+      WithTestOverrides[DmnScenario]:
+  def add(testOverride: TestOverride): DmnScenario =
+    copy(testOverrides = addOverride(testOverride))
+
+  def ignored: DmnScenario = copy(isIgnored = true)
+
+  def only: DmnScenario = copy(isOnly = true)
+
+  def withSteps(steps: List[SStep]): SScenario =
+    this
+end DmnScenario
+
 case class BadScenario(
                         name: String,
                         process: domain.Process[?, ?, ?],
-                        errorMsg: String,
+                        status: Int,
+                        errorMsg: Option[String],
                         isIgnored: Boolean = false,
                         isOnly: Boolean = false
 ) extends IsProcessScenario:
@@ -81,6 +127,9 @@ case class BadScenario(
     this
 end BadScenario
 
+trait IsIncidentScenario extends IsProcessScenario, HasProcessSteps:
+  def incidentMsg: String
+
 case class IncidentScenario(
                              name: String,
                              process: domain.Process[?, ?, ?],
@@ -89,7 +138,7 @@ case class IncidentScenario(
                              isIgnored: Boolean = false,
                              isOnly: Boolean = false,
                              startType: ProcessStartType = ProcessStartType.START
-                           ) extends IsProcessScenario,
+                           ) extends IsIncidentScenario,
       HasProcessSteps:
   lazy val inOut: domain.Process[?, ?, ?] = process
 
@@ -101,6 +150,24 @@ case class IncidentScenario(
     copy(steps = steps)
 
 end IncidentScenario
+
+case class IncidentServiceScenario(
+    name: String,
+    process: ExternalTask[?, ?, ?],
+    incidentMsg: String,
+    isIgnored: Boolean = false,
+    isOnly: Boolean = false
+) extends IsIncidentScenario:
+  lazy val inOut: ExternalTask[?, ?, ?] = process
+  lazy val steps: List[SStep] = List.empty
+
+  def ignored: IncidentServiceScenario = copy(isIgnored = true)
+
+  def only: IncidentServiceScenario = copy(isOnly = true)
+
+  def withSteps(steps: List[SStep]): SScenario = this
+
+end IncidentServiceScenario
 
 sealed trait SStep extends ScenarioOrStep
 
@@ -125,6 +192,21 @@ case class SUserTask(
   def add(testOverride: TestOverride): SUserTask =
     copy(testOverrides = addOverride(testOverride))
 end SUserTask
+
+case class SSubProcess(
+                        name: String,
+                        process: domain.Process[?, ?, ?],
+                        steps: List[SStep],
+                        testOverrides: Option[TestOverrides] = None
+) extends SInServiceOuttep,
+      HasProcessSteps:
+
+  lazy val processName: String = process.processName
+  lazy val inOut: domain.Process[?, ?, ?] = process
+
+  def add(testOverride: TestOverride): SSubProcess =
+    copy(testOverrides = addOverride(testOverride))
+end SSubProcess
 
 sealed trait SEvent extends SInServiceOuttep:
   def readyVariable: String

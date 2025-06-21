@@ -1,15 +1,13 @@
 package orchescala
 package simulation
 
-import orchescala.domain.*
 import orchescala.domain.CamundaVariable.*
-
-import scala.reflect.ClassTag
+import domain.*
 
 case class TestOverride(
     key: Option[String],
     overrideType: TestOverrideType,
-    value: Option[Json] = None
+    value: Option[CamundaVariable] = None
 )
 
 case class TestOverrides(overrides: Seq[TestOverride]): // Seq[TestOverride])
@@ -24,7 +22,7 @@ enum TestOverrideType:
 
 object TestOverrideType:
   given InOutCodec[TestOverrideType] = deriveCodec
-  given ApiSchema[TestOverrideType]  = deriveApiSchema
+  given ApiSchema[TestOverrideType] = deriveApiSchema
 
 def addOverride[
     T <: Product
@@ -32,21 +30,23 @@ def addOverride[
     model: T,
     key: Option[String],
     overrideType: TestOverrideType,
-    value: Option[Json] = None
+    value: Option[CamundaVariable] = None
 ): TestOverrides =
-  val testOverride                    = TestOverride(key, overrideType, value)
+  val testOverride = TestOverride(key, overrideType, value)
   val newOverrides: Seq[TestOverride] = model match
     case TestOverrides(overrides) =>
       overrides :+ testOverride
-    case _                        =>
+    case _ =>
       Seq(testOverride)
   TestOverrides(newOverrides)
 end addOverride
 
 object TestOverrides:
+  given ApiSchema[TestOverrides] = deriveApiSchema
   given InOutCodec[TestOverrides] = deriveInOutCodec
 
 object TestOverride:
+  given ApiSchema[TestOverride] = deriveApiSchema
   given InOutCodec[TestOverride] = deriveInOutCodec
 
 trait TestOverrideExtensions:
@@ -63,14 +63,14 @@ trait TestOverrideExtensions:
     ): T =
       add(Some(key), TestOverrideType.NotExists)
 
-    def isEquals(
+    def isEquals[V: InOutEncoder](
         key: String,
-        value: Json
+        value: V
     ): T =
       add(
         Some(key),
         TestOverrideType.IsEquals,
-        Some(value)
+        camundaVariable(value)
       )
     // used for collections
     def hasSize(
@@ -80,7 +80,7 @@ trait TestOverrideExtensions:
       add(
         Some(key),
         TestOverrideType.HasSize,
-        Some(size.asJson)
+        Some(CInteger(size))
       )
 
     // used for DMNs ResultList and CollectEntries
@@ -90,18 +90,18 @@ trait TestOverrideExtensions:
       add(
         None,
         TestOverrideType.HasSize,
-        Some(size.asJson)
+        Some(CInteger(size))
       )
 
     // used for collections
-    def contains(
+    def contains[V: InOutEncoder](
         key: String,
-        value: Json
+        value: V
     ): T =
       add(
         Some(key),
         TestOverrideType.Contains,
-        Some(value)
+        camundaVariable(value)
       )
 
     // used for DMNs ResultList and CollectEntries
@@ -111,16 +111,15 @@ trait TestOverrideExtensions:
       add(
         None,
         TestOverrideType.Contains,
-        Some(expected.asJson.deepDropNullValues)
+        Some(CamundaVariable.valueToCamunda(expected.asJson.deepDropNullValues))
       )
 
     private def add(
         key: Option[String],
         overrideType: TestOverrideType,
-        value: Option[Json] = None
+        value: Option[CamundaVariable] = None
     ): T =
       withOverride.add(TestOverride(key, overrideType, value))
-        .asInstanceOf[T]
 
     private def camundaVariable[V: InOutEncoder](
         value: V
@@ -128,7 +127,7 @@ trait TestOverrideExtensions:
       val v = value match
         case _: scala.reflect.Enum => value
         case _: (Seq[?] | Product) => value.asJson
-        case _                     => value
+        case _ => value
       Some(CamundaVariable.valueToCamunda(v))
     end camundaVariable
   end extension

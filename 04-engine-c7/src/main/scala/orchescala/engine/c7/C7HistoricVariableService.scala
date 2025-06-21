@@ -2,6 +2,7 @@ package orchescala.engine
 package c7
 
 import orchescala.domain.CamundaVariable
+import orchescala.domain.CamundaVariable.*
 import orchescala.engine.domain.HistoricVariable
 import orchescala.engine.inOut.HistoricVariableService
 import org.camunda.community.rest.client.api.HistoricVariableInstanceApi
@@ -55,13 +56,14 @@ class C7HistoricVariableService(using
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': ${err.getMessage}"
             )
-      variables <- ZIO
-        .attempt:
-          mapToHistoricVariables(variableDtos)
-        .mapError: err =>
+      variables    <-
+        ZIO
+          .attempt:
+            mapToHistoricVariables(variableDtos)
+          .mapError: err =>
             EngineError.ProcessError(
               s"Problem mapping Historic Variables for Process Instance '$processInstanceId': ${err.getMessage}"
-            )  
+            )
     yield variables
 
   private def mapToHistoricVariables(
@@ -73,7 +75,7 @@ class C7HistoricVariableService(using
       HistoricVariable(
         id = dto.getId,
         name = dto.getName,
-        value = Option(dto.getValue).map(CamundaVariable.valueToCamunda),
+        value = mapToCamundaVariable(dto),
         processDefinitionKey = Option(dto.getProcessDefinitionKey),
         processDefinitionId = Option(dto.getProcessDefinitionId),
         processInstanceId = Option(dto.getProcessInstanceId),
@@ -94,4 +96,16 @@ class C7HistoricVariableService(using
     }
   end mapToHistoricVariables
 
+  private def mapToCamundaVariable(histVar: HistoricVariableInstanceDto) =
+    histVar.getType.toLowerCase match
+      case "null"            => None
+      case "string"          => Option(CString(histVar.getValue.toString))
+      case "integer" | "int" => Option(CInteger(histVar.getValue.toString.toInt))
+      case "long"            => Option(CLong(histVar.getValue.toString.toLong))
+      case "double"          => Option(CDouble(histVar.getValue.toString.toDouble))
+      case "boolean"         => Option(CBoolean(histVar.getValue.toString.toBoolean))
+      case "json"            => Option(CJson(histVar.getValue.toString))
+      case other             =>
+        //  println(s"UNKNOWN TYPE: ${histVar.getType}")
+        Option(CString(histVar.getValue.toString))
 end C7HistoricVariableService

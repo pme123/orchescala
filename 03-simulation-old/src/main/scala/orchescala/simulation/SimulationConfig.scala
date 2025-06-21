@@ -1,6 +1,9 @@
 package orchescala.simulation
 
-case class SimulationConfig(
+/** @tparam B
+  *   Builder for Authentication and preRequest
+  */
+case class SimulationConfig[B](
     // define tenant if you have one
     tenantId: Option[String] = None,
     // the Camunda Port
@@ -10,23 +13,26 @@ case class SimulationConfig(
     maxCount: Int = 10,
     // REST endpoint of Camunda
     endpoint: String = "http://localhost:8080/engine-rest",
+    // you can add authentication with this - default there is none.
+    // see BasicSimulationDsl / OAuthSimulationDsl for examples
+    authHeader: B => B = (b: B) => b,
     // the maximum LogLevel you want to print the LogEntries.
     logLevel: LogLevel = LogLevel.INFO
 ):
 
-  lazy val cockpitUrl: String =
-    endpoint.replace("/engine-rest", "/camunda/app/cockpit/default")
-
-  def withTenantId(tenantId: String): SimulationConfig =
+  def withTenantId(tenantId: String): SimulationConfig[B] =
     copy(tenantId = Some(tenantId))
 
-  def withMaxCount(maxCount: Int): SimulationConfig =
+  def withMaxCount(maxCount: Int): SimulationConfig[B] =
     copy(maxCount = maxCount)
 
-  def withPort(port: Int): SimulationConfig =
+  def withAuthHeader(authHeader: B => B = b => b): SimulationConfig[B] =
+    copy(authHeader = authHeader)
+
+  def withPort(port: Int): SimulationConfig[B] =
     copy(endpoint = s"http://localhost:$port/engine-rest")
 
-  def withLogLevel(logLevel: LogLevel): SimulationConfig =
+  def withLogLevel(logLevel: LogLevel): SimulationConfig[B] =
     copy(logLevel = logLevel)
 
   lazy val tenantPath: String = tenantId
