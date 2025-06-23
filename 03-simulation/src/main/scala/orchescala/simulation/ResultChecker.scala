@@ -48,44 +48,6 @@ object ResultChecker:
               s"Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
             )
 
-  /*
-  // DMN
-  def checkOForCollection(
-      overrides: Seq[TestOverride],
-      result: Seq[CamundaVariable | Map[String, CamundaVariable]]
-  ): IO[SimulationError, ScenarioData] =
-    overrides
-      .map {
-        case TestOverride(None, HasSize, Some(CInteger(size, _))) =>
-          val matches = result.size == size
-          if !matches then
-            println(
-              s"!!! Size '${result.size}' of collection is NOT equal to $size in $result"
-            )
-          matches
-        case TestOverride(None, Contains, Some(expected))         =>
-          val exp     = expected match
-            case CJson(jsonStr, _) =>
-              parse(jsonStr) match
-                case Right(json) =>
-                  CamundaVariable.jsonToCamundaValue(json)
-                case Left(ex)    =>
-                  throwErr(s"Problem parsing Json: $jsonStr\n$ex")
-            case other             => other
-          val matches = result.contains(exp)
-          if !matches then
-            println(
-              s"!!! Result '$result' of collection does NOT contain to $expected"
-            )
-          matches
-        case _                                                    =>
-          println(
-            s"!!! Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
-          )
-          false
-      }
-      .forall(_ == true)
-   */
   private def checkP[T <: Product](
       expected: Map[String, CamundaVariable],
       result: Seq[JsonProperty],
@@ -112,7 +74,7 @@ object ResultChecker:
                 checkJson(expectedValue.toJson, resultJson, key, scenarioData)
             .getOrElse:
               scenarioData.error(
-                s"$key does not exist in the result variables.\n $result"
+                s"$key does NOT exist in the result variables."
               )
   end checkP
 
@@ -122,7 +84,7 @@ object ResultChecker:
       scenarioData: ScenarioData
   ): ScenarioData =
     if !checkExistsInResult(result, key) then
-      scenarioData.error(s"$key did NOT exist in $result")
+      scenarioData.error(s"$key does NOT exist in the result variables.")
     else
       scenarioData
   end checkExistsInResult
@@ -140,7 +102,7 @@ object ResultChecker:
       scenarioData: ScenarioData
   ): ScenarioData =
     if checkExistsInResult(result, key) then
-      scenarioData.error(s"$key did NOT exist in $result")
+      scenarioData.error(s"$key does NOT exist in the result variables.")
     else
       scenarioData
   end checkExistsNotInResult
@@ -164,7 +126,7 @@ object ResultChecker:
         checkMultiLines(expectedValue.toJson, json.get, sd)
       end if
     else
-      scenarioData.error(s"$key did NOT exist in $result")
+      scenarioData.error(s"$key does NOT exist.")
 
   private def checkMultiLines(expectedValue: Json, resultValue: Json, scData: ScenarioData) =
     if expectedValue.isString && resultValue.isString then
@@ -204,7 +166,7 @@ object ResultChecker:
           )
       end match
     else
-      scenarioData.error(s"$key did NOT exist in $result")
+      scenarioData.error(s"$key NOT exist in the result variables.")
 
   private def checkContains(
       key: String,
@@ -220,9 +182,9 @@ object ResultChecker:
         else
           scenarioData.error(s"$key does NOT contains $expectedValue in $r")
       case Some(r)              =>
-        scenarioData.error(s"$key is NOT an array in $result")
+        scenarioData.error(s"$key is NOT an array in the result variables.")
       case None                 =>
-        scenarioData.error(s"$key does NOT exist in $result")
+        scenarioData.error(s"$key does NOT exist in the result variables.")
     end match
   end checkContains
 
@@ -247,9 +209,9 @@ object ResultChecker:
             val resJsonArray = resJson.asArray.toList.flatten
             if expJsonArray.size != resJsonArray.size then
               scenarioData.error(
-                s"""Size of array is different:
-                   | - expected: $expJsonArray
-                   | - result  : $resJsonArray""".stripMargin
+                s"""Size of array '$key' is different:
+                   | - expected: ${expJsonArray.size}
+                   | - result  : ${resJsonArray.size}""".stripMargin
               )
             else
               expJsonArray.foldLeft(scenarioData): (sd, expJson) =>
