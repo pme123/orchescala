@@ -15,6 +15,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.0 - 2025-06-23
+### Changed 
+- Added sendMessage to start process in Simulation. - see [Commit](git@github.com:pme123/orchescala/commit/de234a8eafc70b6c8c10676cede587168291ebb0)
+- Adjusted simulation documentation. - see [Commit](git@github.com:pme123/orchescala/commit/4d5e8ccdcf98e26db206b39fa9bb8a6793f6ac03)
+- Fixes in new Simulation / adjusted Generation. - see [Commit](git@github.com:pme123/orchescala/commit/a15122da66420b138dc4ae1676950694efd92747)
+- Replaced Simulation with Simulation2. - see [Commit](git@github.com:pme123/orchescala/commit/00f4674bd1ef4f2b115f3d896f6aa356acd28e9a)
+- Added BadScenario in Simulation2. - see [Commit](git@github.com:pme123/orchescala/commit/a3ee71d3c2284bcfbd412e0db0527bdf3090f5f8)
+- Added IncidentScenario in C7JobService. - see [Commit](git@github.com:pme123/orchescala/commit/2d1c2720485a57fb25c6278ea2efbf37b0433d99)
+- Fixes in C7JobService. - see [Commit](git@github.com:pme123/orchescala/commit/b25a102cdfa46f5c0392fa7bb9062dad5901a3c4)
+- Added TimerRunner to Simulations2. - see [Commit](git@github.com:pme123/orchescala/commit/96c1339ca91b72f3b406af4fef7ac7815b322797)
+- Added MessageRunner to Simulations2. - see [Commit](git@github.com:pme123/orchescala/commit/e42f229bda9222f8c5ee14d5ade1d5768e90e3b3)
+- Added Signals to Simulations2. - see [Commit](git@github.com:pme123/orchescala/commit/40f15de32ac4a6a4b539f4948b8363af7b7c85f2)
+- Added JobService in Simulations2. - see [Commit](git@github.com:pme123/orchescala/commit/9cf2d57514d433f6c579d059c29b7c1601768819)
+- Testing differences in Simulations2. - see [Commit](git@github.com:pme123/orchescala/commit/bbe196838ac347b66a3f9fea0aeef8b4b3e38a71)
+- Working UserTaskScenarios in Simulations2. - see [Commit](git@github.com:pme123/orchescala/commit/6fd25c9cc78523e7bb098837f504faa106a3b7fb)
+- Working ProcessSimulation with only services. - see [Commit](git@github.com:pme123/orchescala/commit/9b7026dd0ec801e48ec93b6a05d99387ae541342)
+- Working ProcessScenarioRunner. - see [Commit](git@github.com:pme123/orchescala/commit/020fdf64857e33418617cb48c52ef0ec02c1b252)
+- Simulation2 state of work - see [Commit](git@github.com:pme123/orchescala/commit/a36464faf26fe7622ac0478226ce95c1b510772a)
+- Json version - compiling. - see [Commit](git@github.com:pme123/orchescala/commit/2bb2ad35f14937383646f5c3ed24a79545724265)
+- Typed version - not working. - see [Commit](git@github.com:pme123/orchescala/commit/01fa9d5e818901a8d6128dbcb85a555b01364951)
+- Added engine and engineC7 modules starting with the engineGateway. - see [Commit](git@github.com:pme123/orchescala/commit/ab7a0620fe8b2dab5196849051c98a2d01e207c0)
+- Removed duplicate error logging. - see [Commit](git@github.com:pme123/orchescala/commit/574ac514a70a834452096636af598c160f24fa4b)
+
 ## 0.1.8 - 2025-06-04
 ### Changed 
 - Small adjustments in SharedHttpClientManager. - see [Commit](git@github.com:pme123/orchescala/commit/5f683a172f2687bcd90c9453c744d50a629d8b5f)
