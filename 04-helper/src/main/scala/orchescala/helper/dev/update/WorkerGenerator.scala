@@ -224,7 +224,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |end ${workerName}WorkerTest""".stripMargin
   end workerTest
 
-  private lazy val logbackXml =
+  lazy val logbackXml =
     s"""<!-- DO NOT ADJUST. This file is replaced by `./helper.scala update` -->
        |<configuration>
        |    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">

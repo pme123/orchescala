@@ -16,7 +16,7 @@ final class SimulationTestFramework extends sbt.testing.Framework:
   val fingerprints: Array[sbt.testing.Fingerprint] = Array(
     SimulationFingerprint
   )
-  println(s"SimulationTestFramework2 started")
+
   def runner(
       args: Array[String],
       remoteArgs: Array[String],

@@ -134,7 +134,7 @@ lazy val simulation = project
 
 lazy val simulationOld = project
   .in(file("./03-simulation-old"))
-  .configure(publicationSettings)
+  .configure(preventPublication)
   .settings(projectSettings("simulation-old"))
   .settings(
     autoImportSetting,

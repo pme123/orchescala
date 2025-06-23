@@ -12,6 +12,7 @@ case class SetupGenerator()(using config: DevConfig):
     SbtSettingsGenerator().generate
     GenericFileGenerator().generate
     WorkerGenerator().generate
+    SimulationGenerator().generate
     DmnGenerator().generate
     ApiGeneratorGenerator().generate
     ApiGenerator().generate
@@ -20,7 +21,7 @@ case class SetupGenerator()(using config: DevConfig):
   def createProcess(setupElement: SetupElement): Unit =
     BpmnGenerator().createProcess(setupElement)
     BpmnProcessGenerator().createBpmn(setupElement)
-    SimulationGenerator().createProcess(setupElement)
+    SimulationGenerator().createSimulation(setupElement)
     WorkerGenerator().createProcessWorker(setupElement)
   end createProcess
 

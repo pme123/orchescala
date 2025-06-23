@@ -139,6 +139,7 @@ sealed trait ProcessOrExternalTask[
 
   def dynamicOutMock: Option[In => Out]
 
+  protected def mockedWorkers: Seq[String]
   protected def servicesMocked: Boolean
   protected def outputMock: Option[Out]
   protected def impersonateUserId: Option[String]
@@ -166,6 +167,7 @@ sealed trait ProcessOrExternalTask[
     inAsJson.asObject.get
       .add(InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null))
       .add(InputParams.servicesMocked.toString, servicesMocked.asJson)
+      .add(InputParams.mockedWorkers.toString, mockedWorkers.asJson.deepDropNullValues)
       .add(InputParams.impersonateUserId.toString, impersonateUserId.map(_.asJson).getOrElse(Json.Null))
       .asJson.deepDropNullValues
   end camundaInBody
@@ -287,6 +289,7 @@ sealed trait ExternalTask[
   protected def outputVariables: Seq[String]
   protected def handledErrors: Seq[ErrorCodeType]
   protected def regexHandledErrors: Seq[String]
+  protected def mockedWorkers: Seq[String] = Seq.empty
   lazy val inOutType: InOutType        = InOutType.Worker
 
   def processName: String = GenericExternalTaskProcessName

@@ -160,6 +160,8 @@ object CamundaHelper:
             ZIO.succeed(vt.asJson)
           case en: scala.reflect.Enum =>
             ZIO.succeed(Json.fromString(en.toString))
+          case null                  =>
+            ZIO.succeed(Json.Null)
           case other                  =>
             ZIO.fail(
               BadVariableError(

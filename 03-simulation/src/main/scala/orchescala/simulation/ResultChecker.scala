@@ -40,9 +40,9 @@ object ResultChecker:
           case TestOverride(Some(k), IsEquals, Some(v))     =>
             checkIsEqualValue(k, v, result, scenarioData)
           case TestOverride(Some(k), HasSize, Some(value))  =>
-            checkHasSize(k, value, result, scenarioData)
+            checkHasSize(k, value.toJson, result, scenarioData)
           case TestOverride(Some(k), Contains, Some(value)) =>
-            checkContains(k, value, result, scenarioData)
+            checkContains(k, value.toJson, result, scenarioData)
           case _                                            =>
             scenarioData.error(
               s"Only ${TestOverrideType.values.mkString(", ")} for TestOverrides supported."
@@ -147,13 +147,13 @@ object ResultChecker:
 
   private def checkIsEqualValue(
       key: String,
-      expectedValue: Json,
+      expectedValue: CamundaVariable,
       result: Seq[JsonProperty],
       scenarioData: ScenarioData
   ): ScenarioData =
     if checkExistsInResult(result, key) then
       val json = result.find(_.key == key).map(_.value)
-      if json.contains(expectedValue) then
+      if json.contains(expectedValue.toJson) then
         scenarioData
       else
         val sd = scenarioData.error(
@@ -161,7 +161,7 @@ object ResultChecker:
              | - expected: ${expectedValue}
              | - result  : ${json.mkString}""".stripMargin
         )
-        checkMultiLines(expectedValue, json.get, sd)
+        checkMultiLines(expectedValue.toJson, json.get, sd)
       end if
     else
       scenarioData.error(s"$key did NOT exist in $result")

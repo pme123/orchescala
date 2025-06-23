@@ -2,12 +2,16 @@ package orchescala.helper.dev.update
 
 case class SimulationGenerator()(using config: DevConfig):
 
-  def createProcess(setupElement: SetupElement): Unit =
+  def generate: Unit =
+    createOrUpdate(simulationConfigTestPath / "logback.xml", WorkerGenerator().logbackXml)
+  end generate
+
+  def createSimulation(setupElement: SetupElement): Unit =
     os.write.over(
-      simulationTestPath(setupElement) / s"${setupElement.bpmnName}Simulation.scala",
+      simulationTestPath / s"${setupElement.bpmnName}Simulation.scala",
       process(setupElement)
     )
-  end createProcess
+  end createSimulation
 
   private def process(
       setupElement: SetupElement
@@ -40,7 +44,7 @@ case class SimulationGenerator()(using config: DevConfig):
        |end ${name}Simulation""".stripMargin
   end process
 
-  private def simulationTestPath(setupElement: SetupElement) =
+  private lazy val simulationTestPath =
     val dir = config.projectDir / ModuleConfig.simulationModule.packagePath(
       config.projectPath,
       mainOrTest = "test"
@@ -48,5 +52,14 @@ case class SimulationGenerator()(using config: DevConfig):
     os.makeDir.all(dir)
     dir
   end simulationTestPath
+
+  private lazy val simulationConfigTestPath =
+    val dir = config.projectDir / ModuleConfig.simulationModule.packagePath(
+      config.projectPath,
+      isSourceDir = false,
+      mainOrTest = "test"
+    )
+    os.makeDir.all(dir)
+    dir
 
 end SimulationGenerator

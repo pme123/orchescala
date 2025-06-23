@@ -7,7 +7,6 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
   protected def run(sim: SSimulation): T
 
   def simulate(body: => (Seq[SScenario] | SScenario)*): Unit = {
-    println("simulate started!")
     try
       val scenarios = body.flatMap:
         case s: Seq[?] => s.collect { case ss: SScenario => ss }

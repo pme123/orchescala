@@ -79,6 +79,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       _                     <- logDebug(s"Worker: ${worker.topic} completed successfully")
     yield ())
       .catchAll: ex =>
+        ex.printStackTrace()
         ProcessVariablesExtractor.extractGeneral(ex.generalVariables)
           .flatMap(generalVariables =>
             externalTaskService.handleError(ex, generalVariables)

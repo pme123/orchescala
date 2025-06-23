@@ -12,6 +12,7 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
 ):
   lazy val messageService         = engine.messageService
   lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val scenarioOrStepRunner = ScenarioOrStepRunner(messageScenario)
 
   def sendMessage: ResultType =
     for
@@ -27,36 +28,35 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
     yield summon[ScenarioData]
 
   private def sendMsg: ResultType =
-    val msgName           = messageScenario.inOut.messageName.replace(
-      SignalEvent.Dynamic_ProcessInstance,
-      summon[ScenarioData].context.processInstanceId
-    )
-    val processInstanceId = summon[ScenarioData].context.optProcessInstance
-    val businessKey       = if processInstanceId.isDefined then None else Some(messageScenario.name)
-    val tenantId          = if processInstanceId.isDefined then None else config.tenantId
-    for
-      given ScenarioData <- messageService
-                              .sendMessage(
-                                name = msgName,
-                                tenantId = tenantId,
-                                processInstanceId = processInstanceId,
-                                businessKey = businessKey,
-                                variables = Some(messageScenario.inOut.camundaInMap)
-                              )
-                              .as:
-                                summon[ScenarioData]
-                                  .info(
-                                    s"Message '$msgName' sent successfully."
-                                  )
-                              .mapError: err =>
-                                SimulationError.ProcessError(
-                                  summon[ScenarioData].error(
-                                    err.errorMsg
-                                  )
+    def correlate: ResultType =
+      val msgName           = messageScenario.inOut.messageName.replace(
+        SignalEvent.Dynamic_ProcessInstance,
+        summon[ScenarioData].context.processInstanceId
+      )
+      val processInstanceId = summon[ScenarioData].context.optProcessInstance
+      val businessKey       = if processInstanceId.isDefined then None else Some(messageScenario.name)
+      val tenantId          = if processInstanceId.isDefined then None else config.tenantId
+      for
+        given ScenarioData <- messageService
+                                .sendMessage(
+                                  name = msgName,
+                                  tenantId = tenantId,
+                                  processInstanceId = processInstanceId,
+                                  businessKey = businessKey,
+                                  variables = Some(messageScenario.inOut.camundaInMap)
                                 )
-      _                  <- logInfo(s"Message ${summon[ScenarioData].context.taskId} sent")
-    yield summon[ScenarioData]
-    end for
+                                .as:
+                                  summon[ScenarioData]
+                                    .info(
+                                      s"Message '$msgName' sent successfully."
+                                    )
+                                .catchAll: err =>
+                                  scenarioOrStepRunner.tryOrFail(correlate)
+        _                  <- logInfo(s"Message ${summon[ScenarioData].context.taskId} sent")
+      yield summon[ScenarioData]
+      end for
+      
+    correlate(using summon[ScenarioData].withRequestCount(0))  
   end sendMsg
 
 end MessageRunner

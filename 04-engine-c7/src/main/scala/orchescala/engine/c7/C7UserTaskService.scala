@@ -1,6 +1,7 @@
 package orchescala.engine
 package c7
 
+import orchescala.domain.CamundaVariable.CNull
 import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder}
 import orchescala.engine.*
 import orchescala.engine.EngineError.MappingError
@@ -134,7 +135,7 @@ class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineCo
   def complete(taskId: String, variables: Map[String, CamundaVariable]): IO[EngineError, Unit] =
     for
       apiClient    <- apiClientZIO
-      _            <- logInfo(s"Completing UserTask: $taskId")
+      _            <- logDebug(s"Completing UserTask: $taskId - $variables")
       variableDtos <- toC7Variables(variables)
       _            <- ZIO
         .attempt:
@@ -185,7 +186,7 @@ class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineCo
 
   private[c7] def toC7Variables(camundaVariables: Map[String, CamundaVariable])
   : IO[MappingError, Map[String, VariableValueDto]] =
-    ZIO.foreach(camundaVariables): (k, v) =>
+    ZIO.foreach(camundaVariables.filterNot(_._2 == CNull)): (k, v) =>
       toC7VariableValue(v).map(k -> _)
 
   private[c7] def toC7VariableValue(cValue: CamundaVariable) =

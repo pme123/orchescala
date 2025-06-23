@@ -6,8 +6,8 @@ import orchescala.engine.domain.Incident
 import zio.*
 
 class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
-     engine: ProcessEngine,
-     config: SimulationConfig
+    engine: ProcessEngine,
+    config: SimulationConfig
 ):
 
   private lazy val incidentService = engine.incidentService
@@ -18,20 +18,24 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
     val count = summon[ScenarioData].context.requestCount
     if count < config.maxCount then
       for
-        _             <- ZIO.sleep(1.second)
+        _                  <- ZIO.sleep(1.second)
         given ScenarioData <-
           if !scenarioOrStep.isInstanceOf[IncidentScenario] then
             checkIfIncidentOccurred
           else
             ZIO.succeed(summon[ScenarioData])
-        _ <- ZIO.logDebug(s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)")
-        given ScenarioData <- funct(
-                           using summon[ScenarioData]
-                             .withRequestCount(count + 1)
-                             .info(
-                               s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)"
-                             )
-                         )
+        _                  <- ZIO.logDebug(
+                                s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)"
+                              )
+        given ScenarioData <-
+          funct(
+            using
+            summon[ScenarioData]
+              .withRequestCount(count + 1)
+              .info(
+                s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)"
+              )
+          )
       yield summon[ScenarioData]
     else
       ZIO.fail(
@@ -46,8 +50,9 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
   end tryOrFail
 
   def waitFor(
-                         seconds: Int): ResultType =
-    ZIO.sleep(1.second)
+      seconds: Int
+  ): ResultType =
+    ZIO.sleep(Duration.fromSeconds(seconds.toLong))
       .as(summon[ScenarioData].info(s"Waited for $seconds second(s)."))
   end waitFor
 
@@ -76,7 +81,8 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
   )(
       handleBody: Seq[Incident] => ResultType
   ): ResultType =
-    val processInstanceId = rootIncidentId.orElse(Some(summon[ScenarioData].context.processInstanceId))
+    val processInstanceId =
+      rootIncidentId.orElse(Some(summon[ScenarioData].context.processInstanceId))
     incidentService
       .getIncidents(
         processInstanceId = processInstanceId,

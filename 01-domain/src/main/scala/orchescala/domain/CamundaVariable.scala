@@ -14,7 +14,6 @@ sealed trait CamundaVariable:
 
   def toJson: Json =
     import CamundaVariable.*
-    println(s"CAMUNDA VARIABLE TO JSON: ${`type`} / $value / $this")
     this match
       case CNull =>
         Json.Null

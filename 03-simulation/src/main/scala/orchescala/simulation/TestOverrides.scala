@@ -9,7 +9,7 @@ import scala.reflect.ClassTag
 case class TestOverride(
     key: Option[String],
     overrideType: TestOverrideType,
-    value: Option[Json] = None
+    value: Option[CamundaVariable] = None
 )
 
 case class TestOverrides(overrides: Seq[TestOverride]): // Seq[TestOverride])
@@ -32,7 +32,7 @@ def addOverride[
     model: T,
     key: Option[String],
     overrideType: TestOverrideType,
-    value: Option[Json] = None
+    value: Option[CamundaVariable] = None
 ): TestOverrides =
   val testOverride                    = TestOverride(key, overrideType, value)
   val newOverrides: Seq[TestOverride] = model match
@@ -63,14 +63,14 @@ trait TestOverrideExtensions:
     ): T =
       add(Some(key), TestOverrideType.NotExists)
 
-    def isEquals(
+    def isEquals[V: InOutEncoder](
         key: String,
-        value: Json
+        value: V
     ): T =
       add(
         Some(key),
         TestOverrideType.IsEquals,
-        Some(value)
+        camundaVariable(value)
       )
     // used for collections
     def hasSize(
@@ -80,7 +80,7 @@ trait TestOverrideExtensions:
       add(
         Some(key),
         TestOverrideType.HasSize,
-        Some(size.asJson)
+        Some(CInteger(size))
       )
 
     // used for DMNs ResultList and CollectEntries
@@ -90,13 +90,13 @@ trait TestOverrideExtensions:
       add(
         None,
         TestOverrideType.HasSize,
-        Some(size.asJson)
+        Some(CInteger(size))
       )
 
     // used for collections
     def contains(
         key: String,
-        value: Json
+        value: CamundaVariable
     ): T =
       add(
         Some(key),
@@ -111,13 +111,13 @@ trait TestOverrideExtensions:
       add(
         None,
         TestOverrideType.Contains,
-        Some(expected.asJson.deepDropNullValues)
+        camundaVariable(expected)
       )
 
     private def add(
         key: Option[String],
         overrideType: TestOverrideType,
-        value: Option[Json] = None
+        value: Option[CamundaVariable] = None
     ): T =
       withOverride.add(TestOverride(key, overrideType, value))
         .asInstanceOf[T]
