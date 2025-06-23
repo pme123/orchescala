@@ -14,6 +14,8 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
 ):
 
   private lazy val processInstanceService = engine.jProcessInstanceService
+  private lazy val messageService         = engine.messageService
+  private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(scenario)
 
   private[simulation] def startProcess: ResultType =
     for
@@ -41,5 +43,39 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
   end startProcess
 
   private[simulation] def sendMessage: ResultType =
-    ZIO.succeed(summon[ScenarioData].info("Sending message"))
+    def correlate: ResultType =
+      val msgName           = scenario.inOut.id
+      val businessKey       = Some(scenario.name)
+      val tenantId          = config.tenantId
+      for
+        given ScenarioData <- messageService
+                                .sendMessage(
+                                  name = msgName,
+                                  tenantId = tenantId,
+                                  businessKey = businessKey,
+                                  variables = Some(scenario.inOut.camundaInMap)
+                                )
+                                .map: result =>
+                                  summon[ScenarioData]
+                                    .withProcessInstanceId(result.id)
+                                    .info(
+                                      s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl}/#/process-instance/${result.id})"
+                                    )
+                                .mapError: err =>
+                                  SimulationError.ProcessError(
+                                    summon[ScenarioData].error(
+                                      err.errorMsg
+                                    )
+                                  )
+        _                  <- logInfo(s"Start Message ${summon[ScenarioData].context.taskId} sent")
+      yield summon[ScenarioData]
+      end for
+    end correlate
+
+    logInfo(
+      s"Sending message: ${scenario.name}: ${summon[ScenarioData].context.processInstanceId}"
+    ) *>
+      correlate(using summon[ScenarioData].withRequestCount(0))
+  end sendMessage
+
 end IsProcessScenarioRunner

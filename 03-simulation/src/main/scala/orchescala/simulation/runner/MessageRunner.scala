@@ -12,7 +12,7 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
 ):
   lazy val messageService         = engine.messageService
   lazy val processInstanceService = engine.jProcessInstanceService
-  lazy val scenarioOrStepRunner = ScenarioOrStepRunner(messageScenario)
+  lazy val scenarioOrStepRunner   = ScenarioOrStepRunner(messageScenario)
 
   def sendMessage: ResultType =
     for
@@ -55,8 +55,9 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
         _                  <- logInfo(s"Message ${summon[ScenarioData].context.taskId} sent")
       yield summon[ScenarioData]
       end for
-      
-    correlate(using summon[ScenarioData].withRequestCount(0))  
+    end correlate
+
+    correlate(using summon[ScenarioData].withRequestCount(0))
   end sendMsg
 
 end MessageRunner

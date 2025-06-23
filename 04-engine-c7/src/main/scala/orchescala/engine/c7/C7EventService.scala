@@ -12,8 +12,8 @@ trait C7EventService :
     variables
       .map: in =>
         in
-          .map:
-            case (k, v) =>
+          .collect:
+            case (k, v) if v.value != null =>
               k -> new VariableValueDto()
                 .value(v.value)
                 .`type`(v.`type`)

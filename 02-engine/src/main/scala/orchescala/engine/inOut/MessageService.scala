@@ -2,6 +2,7 @@ package orchescala.engine.inOut
 
 import orchescala.domain.*
 import orchescala.engine.EngineError
+import orchescala.engine.domain.MessageCorrelationResult
 import zio.IO
 
 trait MessageService:
@@ -13,5 +14,5 @@ trait MessageService:
                    businessKey: Option[String] = None,
                    processInstanceId: Option[String] = None,
                    variables: Option[Map[String, CamundaVariable]] = None
-                ): IO[EngineError, Unit]
+                ): IO[EngineError, MessageCorrelationResult]
 end MessageService
