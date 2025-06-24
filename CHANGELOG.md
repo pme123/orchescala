@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.1 - 2025-06-24
+### Changed 
+- Fixed null values in jsons in ResultChecker. - see [Commit](git@github.com:pme123/orchescala/commit/25578d64b832405acd7e405935588882a898eda3)
+- Merge branch 'simulation2' into develop - see [Commit](git@github.com:pme123/orchescala/commit/3891156d9a3b2d6d31fef502ab28c6ab063f7ae5)
+
 ## 0.2.0 - 2025-06-23
 ### Changed 
 - Added sendMessage to start process in Simulation. - see [Commit](git@github.com:pme123/orchescala/commit/de234a8eafc70b6c8c10676cede587168291ebb0)
