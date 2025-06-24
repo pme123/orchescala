@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.2 - 2025-06-24
+### Changed 
+- Fixed impersonateUserId as In parameter for simulation. - see [Commit](git@github.com:pme123/orchescala/commit/cf29daa04e8f906c02461cafc4d45a98c6326750)
+
 ## 0.2.1 - 2025-06-24
 ### Changed 
 - Fixed null values in jsons in ResultChecker. - see [Commit](git@github.com:pme123/orchescala/commit/25578d64b832405acd7e405935588882a898eda3)
