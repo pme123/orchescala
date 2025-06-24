@@ -257,7 +257,7 @@ object ResultChecker:
             )
       else scenarioData
 
-    compareJsons(expectedJson, resultJson, "", scenarioData)
+    compareJsons(expectedJson.deepDropNullValues, resultJson.deepDropNullValues, "", scenarioData)
 
   end checkJson
 
