@@ -1,8 +1,10 @@
 package orchescala
 package simulation
 
+import orchescala.domain.*
 import orchescala.domain.CamundaVariable.*
-import domain.*
+
+import scala.reflect.ClassTag
 
 case class TestOverride(
     key: Option[String],
@@ -22,7 +24,7 @@ enum TestOverrideType:
 
 object TestOverrideType:
   given InOutCodec[TestOverrideType] = deriveCodec
-  given ApiSchema[TestOverrideType] = deriveApiSchema
+  given ApiSchema[TestOverrideType]  = deriveApiSchema
 
 def addOverride[
     T <: Product
@@ -32,21 +34,19 @@ def addOverride[
     overrideType: TestOverrideType,
     value: Option[CamundaVariable] = None
 ): TestOverrides =
-  val testOverride = TestOverride(key, overrideType, value)
+  val testOverride                    = TestOverride(key, overrideType, value)
   val newOverrides: Seq[TestOverride] = model match
     case TestOverrides(overrides) =>
       overrides :+ testOverride
-    case _ =>
+    case _                        =>
       Seq(testOverride)
   TestOverrides(newOverrides)
 end addOverride
 
 object TestOverrides:
-  given ApiSchema[TestOverrides] = deriveApiSchema
   given InOutCodec[TestOverrides] = deriveInOutCodec
 
 object TestOverride:
-  given ApiSchema[TestOverride] = deriveApiSchema
   given InOutCodec[TestOverride] = deriveInOutCodec
 
 trait TestOverrideExtensions:
@@ -94,14 +94,14 @@ trait TestOverrideExtensions:
       )
 
     // used for collections
-    def contains[V: InOutEncoder](
+    def contains(
         key: String,
-        value: V
+        value: CamundaVariable
     ): T =
       add(
         Some(key),
         TestOverrideType.Contains,
-        camundaVariable(value)
+        Some(value)
       )
 
     // used for DMNs ResultList and CollectEntries
@@ -111,7 +111,7 @@ trait TestOverrideExtensions:
       add(
         None,
         TestOverrideType.Contains,
-        Some(CamundaVariable.valueToCamunda(expected.asJson.deepDropNullValues))
+        camundaVariable(expected)
       )
 
     private def add(
@@ -120,6 +120,7 @@ trait TestOverrideExtensions:
         value: Option[CamundaVariable] = None
     ): T =
       withOverride.add(TestOverride(key, overrideType, value))
+        .asInstanceOf[T]
 
     private def camundaVariable[V: InOutEncoder](
         value: V
@@ -127,7 +128,7 @@ trait TestOverrideExtensions:
       val v = value match
         case _: scala.reflect.Enum => value
         case _: (Seq[?] | Product) => value.asJson
-        case _ => value
+        case _                     => value
       Some(CamundaVariable.valueToCamunda(v))
     end camundaVariable
   end extension

@@ -49,9 +49,12 @@ trait InOut[
   lazy val in: In                = inOutDescr.in
   lazy val out: Out              = inOutDescr.out
   lazy val niceName: String      = inOutDescr.niceName
+  lazy val outAsJson: Json       = out.asJson.deepDropNullValues
+  lazy val inAsJson: Json        = in.asJson.deepDropNullValues
 
   def camundaInMap: Map[String, CamundaVariable]       =
     CamundaVariable.toCamunda(in)
+
   lazy val camundaOutMap: Map[String, CamundaVariable] =
     CamundaVariable.toCamunda(out)
   def camundaToCheckMap: Map[String, CamundaVariable]  =
@@ -136,6 +139,7 @@ sealed trait ProcessOrExternalTask[
 
   def dynamicOutMock: Option[In => Out]
 
+  protected def mockedWorkers: Seq[String]
   protected def servicesMocked: Boolean
   protected def outputMock: Option[Out]
   protected def impersonateUserId: Option[String]
@@ -158,6 +162,16 @@ sealed trait ProcessOrExternalTask[
     }.toMap
     super.camundaInMap ++ camundaImpersonateUserId ++ camundaOutputMock + camundaServicesMocked
   end camundaInMap
+
+  def camundaInBody: Json =
+    inAsJson.asObject.get
+      .add(InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null))
+      .add(InputParams.servicesMocked.toString, servicesMocked.asJson)
+      .add(InputParams.mockedWorkers.toString, mockedWorkers.asJson.deepDropNullValues)
+      .add(InputParams.impersonateUserId.toString, impersonateUserId.map(_.asJson).getOrElse(Json.Null))
+      .asJson.deepDropNullValues
+  end camundaInBody
+
 end ProcessOrExternalTask
 
 case class Process[
@@ -275,6 +289,7 @@ sealed trait ExternalTask[
   protected def outputVariables: Seq[String]
   protected def handledErrors: Seq[ErrorCodeType]
   protected def regexHandledErrors: Seq[String]
+  protected def mockedWorkers: Seq[String] = Seq.empty
   lazy val inOutType: InOutType        = InOutType.Worker
 
   def processName: String = GenericExternalTaskProcessName

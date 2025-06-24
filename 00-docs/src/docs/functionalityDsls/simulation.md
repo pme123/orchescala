@@ -6,7 +6,7 @@ This expects that your variables are simple values or JSON-objects/ -arrays.
 For now this only works for **_Camunda 7_**.
 @:@
 
-Simulations let you run BPMNs and DMNs automatically on an installed Camunda 7 Platform.
+Simulations let you run BPMNs automatically on an installed Camunda 7 Platform.
 The diagrams must be deployed.
 
 @:callout(info)
@@ -20,7 +20,7 @@ See [deploy](../development/projectDev.md#deploy).
 I like Simulations because:
 
 - If there are problems, you easily can check the Camunda Cockpit.
-- I think they are easy to maintain.
+- I think they are easier to maintain.
 - The in- and outputs are exactly the API of the BPMNs.
 - You can move to every part of your BPMN automatically,
   for example to check a _UserTask_.
@@ -299,69 +299,6 @@ badScenario(
 ...
 ```
 
-### DMN Scenario
-
-_Orchescala_ uses
-the [Evaluate Decision REST API](https://docs.camunda.org/manual/7.18/reference/rest/decision-definition/post-evaluate/)
-from _Camunda_.
-
-```scala
-simulate(
-  scenario(InvoiceAssignApproverDMN)
-)
-// OR
-simulate(
-  InvoiceAssignApproverDMN // scenario is created automatically
-)
-```
-
-As this is a single request, all you need is to add your DMN description you did with the BPMN DSL.
-
-See [Business Rule Tasks (Decision DMNs)]
-
-The simulation does the following steps:
-
-- Take the attributes from your input
-- Call the evaluation service
-- Validate the result with your output
-
-**The Example:**
-
-We have the following DMN definition (bpmn):
-
-```scala
-lazy val InvoiceAssignApproverDMN = collectEntries(
-  decisionDefinitionKey = "example-invoice-c7-assignApprover",
-  in = SelectApproverGroup(),
-  out = Seq(ApproverGroup.management),
-  descr = "Decision Table on who must approve the Invoice.",
-)
-```
-
-This uses the following Inputs and outputs (domain):
-
-```scala
-case class SelectApproverGroup(
-                                amount: Double = 30.0,
-                                invoiceCategory: InvoiceCategory =
-                                InvoiceCategory.`Software License Costs`
-                              )
-
-@description("These Groups can approve the invoice.")
-enum ApproverGroup:
-case accounting
-, sales
-, management
-```
-
-- Running this will use the inputs `amount` and `invoiceCategory` for the evaluation.
-- The result, a list of `ApproverGroup`s (_collectEntries_), will then be matched against our specified `ApproverGroup`
-  s.
-
-@:callout(info)
-At time of writing, there is no replacement in **_Camunda 8_** for this.
-@:@
-
 ### Start Scenario with message
 
 It is also possible to send a message to a process with a _Start Message Event_.
@@ -466,32 +403,7 @@ See example in [Process Scenarios].
 
 ### Sub Process (Call Activity)
 
-A special case are sub processes. If your process contains sub processes, there are
-the following possibilities:
-
-- The sub process has no interactions:
-    - Nothing to do.
-- The sub process contains interactions, but is mocked (returns a defined result, skipping the interactions):
-    - Nothing to do.
-- The sub process contains interactions:
-    - You can add a subProcess to your simulation, like:
-  ```scala
-   ...
-  subProcess(`Review Invoice`)(
-    AssignReviewerUT,
-    ReviewInvoiceUT // do clarify
-  ),
-  ... 
-  ```
-  This will change the context to the sub process and in the end switch it back to
-  the main process.
-
-@:callout(info)
-This only works for one hierarchy of sub processes.
-When you have more complex sub processes, you must mock them.
-
-**Not recommended**: please test each process separately.
-@:@
+A sub process must be mocked, see [Mocking].
 
 ## Validation
 
@@ -679,11 +591,11 @@ The expected value does not match the value of the process.
 Example:
 
 ```shell
-!!! The expected value 'CString(hello,String)' of someOut does not match the result variable 'CString(other,String)'.
- List(CamundaProperty(.., CamundaProperty(simpleEnum,CString(One,String)), CamundaProperty(someValue,CString(hello,String)), ...))
+07:21:29.081 ERROR: success: false (expected) != true (result)
+ -> Path: .
 ```
 
-> It always lists all Variables of the Process below the message.
+> You find all Variables of the Process above in the log.
 
 #### Result is missing
 
@@ -692,8 +604,7 @@ This is for optional variables, where you expect a value, but in the process the
 Example:
 
 ```shell
-!!! The expected value 'CString(hello,String)' of someOut does not match the result variable 'CNull'.
- List(CamundaProperty(.., CamundaProperty(simpleEnum,CString(One,String)), CamundaProperty(someValue,CString(hello,String)), ...))
+07:35:24.960 ERROR: validationErrors does NOT exist in the result variables.
 ```
 
 #### Result is not expected
@@ -703,8 +614,31 @@ This is for optional variables you have set to `None`, but in the process such a
 Example:
 
 ```shell
-!!! The expected value 'CNull' of someOut does not match the result variable 'CString(hello,String)'.
- List(CamundaProperty(.., CamundaProperty(simpleEnum,CString(One,String)), CamundaProperty(someValue,CString(hello,String)), ...))
+07:57:14.529 ERROR: The variable 'contracts' (value: '[...]') exists in the result - but is NOT expected.
+```
+
+#### Result collection has different size
+
+This is for arrays and collections.
+
+Example:
+
+```shell
+08:06:38.681 ERROR: Size of array 'contracts' is different:
+ - expected: 1
+ - result  : 2
+ ```
+
+#### Result collection does not contain value
+
+This is for arrays and collections.
+
+Example:
+
+```shell
+08:09:08.465 ERROR: Value for myType not found in array:
+ - expected: 5
+ - result  : List(1, 2, 4)
 ```
 
 ## Timing

@@ -12,29 +12,34 @@ sealed trait EngineError extends Throwable:
 end EngineError
 
 object EngineError:
+  case class MappingError(
+      errorMsg: String,
+      errorCode: ErrorCodes = ErrorCodes.`engine-mapping-error`
+  ) extends EngineError
+
   case class DecodingError(
       errorMsg: String,
-      errorCode: ErrorCodes = ErrorCodes.`gateway-decoding-error`
+      errorCode: ErrorCodes = ErrorCodes.`engine-decoding-error`
   ) extends EngineError
 
   case class EncodingError(
       errorMsg: String,
-      errorCode: ErrorCodes = ErrorCodes.`gateway-encoding-error`
+      errorCode: ErrorCodes = ErrorCodes.`engine-encoding-error`
   ) extends EngineError
 
   case class ProcessError(
       errorMsg: String,
-      errorCode: ErrorCodes = ErrorCodes.`gateway-process-error`
+      errorCode: ErrorCodes = ErrorCodes.`engine-process-error`
   ) extends EngineError
 
   case class DmnError(
       errorMsg: String,
-      errorCode: ErrorCodes = ErrorCodes.`gateway-dmn-error`
+      errorCode: ErrorCodes = ErrorCodes.`engine-dmn-error`
   ) extends EngineError
 
   case class WorkerError(
       errorMsg: String,
-      errorCode: ErrorCodes = ErrorCodes.`gateway-worker-error`
+      errorCode: ErrorCodes = ErrorCodes.`engine-worker-error`
   ) extends EngineError
 
   case class UnexpectedError(
@@ -44,6 +49,6 @@ object EngineError:
 
   case class ServiceError(
       errorMsg: String,
-      errorCode: ErrorCodes = ErrorCodes.`gateway-service-error`
+      errorCode: ErrorCodes = ErrorCodes.`engine-service-error`
   ) extends EngineError
 end EngineError

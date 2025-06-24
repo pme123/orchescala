@@ -28,6 +28,7 @@ lazy val root = project
     api,
     dmn,
     simulation,
+    simulationOld,
     worker,
     helper,
     engineC7,
@@ -122,6 +123,19 @@ lazy val simulation = project
   .in(file("./03-simulation"))
   .configure(publicationSettings)
   .settings(projectSettings("simulation"))
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++= Seq(
+      "org.scala-sbt" % "test-interface" % testInterfaceVersion,
+      logbackDependency
+    )
+  )
+  .dependsOn(engine)
+
+lazy val simulationOld = project
+  .in(file("./03-simulation-old"))
+  .configure(preventPublication)
+  .settings(projectSettings("simulation-old"))
   .settings(
     autoImportSetting,
     libraryDependencies ++= sttpDependencies ++ Seq(

@@ -157,7 +157,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |  )
        |  lazy val simulationSettings = Seq(
        |    Test / parallelExecution := false,
-       |    testFrameworks += new TestFramework("orchescala.simulation.custom.SimulationTestFramework")
+       |    testFrameworks += new TestFramework("orchescala.simulation.SimulationTestFramework")
        |  )
        |  lazy val zioTestSettings = Seq(
        |    libraryDependencies ++= zioTestDependencies,

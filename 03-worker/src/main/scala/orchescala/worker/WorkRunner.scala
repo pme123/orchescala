@@ -11,7 +11,9 @@ final class WorkRunner[
     T <: Worker[In, Out, ?]
 ](worker: T):
 
-  def run(inputObject: In)(using EngineRunContext): ZIO[SttpClientBackend, RunWorkError, Out | NoOutput] =
+  def run(inputObject: In)(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, RunWorkError, Out | NoOutput] =
     worker.runWorkHandler
       .map:
         _.runWorkZIO(inputObject)

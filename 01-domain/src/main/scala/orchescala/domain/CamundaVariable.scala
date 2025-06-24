@@ -89,6 +89,7 @@ object CamundaVariable:
           k -> objectToCamunda(product, k, v)
       .toMap
 
+
   @tailrec
   def objectToCamunda[T <: Product: InOutEncoder](
       product: T,
@@ -139,10 +140,10 @@ object CamundaVariable:
         CString(ldt.toString)
       case other if other == null =>
         CNull
-      case v: Json =>
+      case v: (Json | JsonObject) =>
         CJson(v.toString)
       case other =>
-        throwErr(s"Unexpected Value to map to CamundaVariable: $other")
+        throwErr(s"Unexpected Value to map to CamundaVariable: $other / ${other.getClass}")
 
   case object CNull extends CamundaVariable:
     val value: Null = null
