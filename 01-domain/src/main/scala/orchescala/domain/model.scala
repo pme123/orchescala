@@ -52,7 +52,7 @@ trait InOut[
   lazy val outAsJson: Json       = out.asJson.deepDropNullValues
   lazy val inAsJson: Json        = in.asJson.deepDropNullValues
 
-  def camundaInMap: Map[String, CamundaVariable]       =
+  def camundaInMap: Map[String, CamundaVariable] =
     CamundaVariable.toCamunda(in)
 
   lazy val camundaOutMap: Map[String, CamundaVariable] =
@@ -164,12 +164,13 @@ sealed trait ProcessOrExternalTask[
   end camundaInMap
 
   def camundaInBody: Json =
-    inAsJson.asObject.get
-      .add(InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null))
-      .add(InputParams.servicesMocked.toString, servicesMocked.asJson)
-      .add(InputParams.mockedWorkers.toString, mockedWorkers.asJson.deepDropNullValues)
-      .add(InputParams.impersonateUserId.toString, impersonateUserId.map(_.asJson).getOrElse(Json.Null))
-      .asJson.deepDropNullValues
+    Json.obj(
+      (InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null)),
+      (InputParams.servicesMocked.toString, servicesMocked.asJson),
+      (InputParams.mockedWorkers.toString, mockedWorkers.asJson.deepDropNullValues),
+      (InputParams.impersonateUserId.toString, impersonateUserId.map(_.asJson).getOrElse(Json.Null))
+    ).deepMerge(inAsJson)
+      .deepDropNullValues
   end camundaInBody
 
 end ProcessOrExternalTask
@@ -284,13 +285,13 @@ sealed trait ExternalTask[
     Out <: Product: {InOutEncoder, InOutDecoder, Schema},
     T <: ExternalTask[In, Out, T]
 ] extends ProcessOrExternalTask[In, Out, T]:
-  override final def topicName: String = inOutDescr.id
+  override final def topicName: String     = inOutDescr.id
   protected def manualOutMapping: Boolean
   protected def outputVariables: Seq[String]
   protected def handledErrors: Seq[ErrorCodeType]
   protected def regexHandledErrors: Seq[String]
   protected def mockedWorkers: Seq[String] = Seq.empty
-  lazy val inOutType: InOutType        = InOutType.Worker
+  lazy val inOutType: InOutType            = InOutType.Worker
 
   def processName: String = GenericExternalTaskProcessName
 
