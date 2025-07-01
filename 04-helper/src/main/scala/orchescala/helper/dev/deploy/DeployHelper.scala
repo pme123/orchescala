@@ -17,7 +17,10 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
 
     os.proc("sbt", "publishLocal").callOnConsole()
 
-    os.proc(
+    val dockerInternalHostOpt = sys.env.get("DOCKER_INTERNAL_HOST")
+
+    // Base Newman command
+    val newmanCmd = Seq(
       "newman",
       "run",
       s"https://api.getpostman.com/collections/$collectionId?apikey=$postmanApiKey",
@@ -27,7 +30,14 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
       "deploy_manifest",
       "--global-var",
       s"developer=${System.getProperty("user.name").toUpperCase}"
-    ).callOnConsole()
+    ) ++ dockerInternalHostOpt.toSeq.flatMap { host =>
+      Seq(
+        "--env-var", s"tokenService=http://$host:8090",
+        "--env-var", s"tokenServiceTemp=http://$host:8090"
+      )
+    }
+
+    os.proc(newmanCmd).callOnConsole()
 
     integrationTest.map { test =>
       val testName = if test == "all" then "" else test
