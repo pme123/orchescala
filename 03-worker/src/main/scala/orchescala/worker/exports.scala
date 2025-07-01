@@ -104,10 +104,12 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-handledRegexNotMatched`
 
   object HandledRegexNotMatchedError:
-    def apply(error: WorkerError): HandledRegexNotMatchedError =
+    def apply(error: WorkerError, regexHandledErrors: Seq[String]
+    ): HandledRegexNotMatchedError =
       HandledRegexNotMatchedError(
         s"""The error was handled, but did not match the defined 'regexHandledErrors'.
            |Original Error: ${error.errorCode} - ${error.errorMsg}
+           |Regexes: ${regexHandledErrors.mkString(">", "<, >", "<")}
            |""".stripMargin
       )
   end HandledRegexNotMatchedError

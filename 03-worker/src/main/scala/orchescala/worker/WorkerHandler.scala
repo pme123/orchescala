@@ -194,7 +194,9 @@ case class ServiceHandler[
     ) match
       case (_, Some(json)) =>
         (for
+          _              <- ZIO.logDebug(s"Mocking Service with: $json")
           mockedResponse <- decodeMock[MockedServiceResponse[ServiceOut]](json)
+          _              <- ZIO.logDebug(s"Mocked Response: $mockedResponse")
           out            <- handleServiceMock(mockedResponse, runnableRequest, in)
         yield out)
           .map(Some.apply)

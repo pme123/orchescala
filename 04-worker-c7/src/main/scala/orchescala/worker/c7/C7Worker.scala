@@ -79,7 +79,6 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       _                     <- logDebug(s"Worker: ${worker.topic} completed successfully")
     yield ())
       .catchAll: ex =>
-        ex.printStackTrace()
         ProcessVariablesExtractor.extractGeneral(ex.generalVariables)
           .flatMap(generalVariables =>
             externalTaskService.handleError(ex, generalVariables)
@@ -144,8 +143,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val errorMsg          = error.errorMsg.replace("\n", "")
       val errorHandled      = isErrorHandled(error, generalVariables.handledErrors)
       val errorRegexHandled =
-        errorHandled && generalVariables.regexHandledErrors.forall(regex =>
-          errorMsg.matches(s".*$regex.*")
+        error.isMock ||(errorHandled && generalVariables.regexHandledErrors.forall(regex =>
+          errorMsg.matches(s".*$regex.*"))
         )
 
       (errorHandled, errorRegexHandled) match
@@ -166,7 +165,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
              handleBpmnError(error, filtered)
           ).as(AlreadyHandledError)
         case (true, false) =>
-          ZIO.succeed(HandledRegexNotMatchedError(error))
+          ZIO.succeed(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrors))
         case _             =>
           ZIO.succeed(error)
       end match

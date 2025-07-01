@@ -124,8 +124,8 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 .errorMessage(error.causeMsg)
                 .send().join()
           )
-        case (true, false, _)               =>
-          ZIO.fail(HandledRegexNotMatchedError(error))
+        case (true, false, generalVariables)               =>
+          ZIO.fail(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrors))
         case _                              =>
           ZIO.fail(error)
 
