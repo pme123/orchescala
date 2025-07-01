@@ -38,7 +38,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
         .mapError: err =>
           SimulationError.ProcessError(
             summon[ScenarioData].error(
-              s"Problem getting Task '${userTaskScenario.name}': ${err.errorMsg}"
+              s"Problem getting Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
             )
           )
         .flatMap:
@@ -72,17 +72,17 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
           .mapError: err =>
             SimulationError.ProcessError(
               summon[ScenarioData].error(
-                s"Problem getting Task '${userTaskScenario.name}': ${err.errorMsg}"
+                s"Problem getting Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
               )
             )
-      _                  <- logDebug(s"Variables fetched for ${userTaskScenario.name}: $variables")
-      given ScenarioData <- ZIO.succeed(summon[ScenarioData].info(s"UserTask '${userTaskScenario.name}' Form ready to check."))
+      _                  <- logDebug(s"Variables fetched for ${userTaskScenario.scenarioName}: $variables")
+      given ScenarioData <- ZIO.succeed(summon[ScenarioData].info(s"UserTask '${userTaskScenario.scenarioName}' Form ready to check."))
       given ScenarioData <-
         ResultChecker.checkProps(
           userTaskScenario,
           variables
         )
-      _ <- logDebug(s"UserTask Form is correct for ${userTaskScenario.name}")
+      _ <- logDebug(s"UserTask Form is correct for ${userTaskScenario.scenarioName}")
     yield summon[ScenarioData]
     end for
   end checkForm
@@ -94,10 +94,10 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
              .mapError: err =>
                SimulationError.ProcessError(
                  summon[ScenarioData].error(
-                   s"Problem completing Task '${userTaskScenario.name}': ${err.errorMsg}"
+                   s"Problem completing Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
                  )
                )
-    yield summon[ScenarioData].info(s"Successful completed UserTask ${userTaskScenario.name}.")
+    yield summon[ScenarioData].info(s"Successful completed UserTask ${userTaskScenario.scenarioName}.")
     end for
   end completeTask
 

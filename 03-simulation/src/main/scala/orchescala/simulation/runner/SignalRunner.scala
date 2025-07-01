@@ -35,7 +35,7 @@ class SignalRunner(val signalScenario: SSignalEvent)(using
                               .as:
                                 summon[ScenarioData]
                                   .info(
-                                    s"Signal '${signalScenario.name}' sent successfully."
+                                    s"Signal '${signalScenario.scenarioName}' sent successfully."
                                   )
                               .mapError: err =>
                                 SimulationError.ProcessError(

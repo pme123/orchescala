@@ -26,7 +26,7 @@ class IncidentScenarioRunner(incidentScenario: IncidentScenario)(using
 
   def run: IO[SimulationError, ScenarioData] =
     for
-      _    <- ZIO.logInfo(s"Running IncidentScenario: ${incidentScenario.name}")
+      _    <- ZIO.logInfo(s"Running IncidentScenario: ${incidentScenario.scenarioName}")
       data <-
         scenarioRunner.logScenario: (data: ScenarioData) =>
           given ScenarioData = data
@@ -65,7 +65,7 @@ class IncidentScenarioRunner(incidentScenario: IncidentScenario)(using
             ZIO.succeed:
               summon[ScenarioData]
                 .info(
-                  s"Process ${incidentScenario.name} has finished with incident (as expected)."
+                  s"Process ${incidentScenario.scenarioName} has finished with incident (as expected)."
                 )
           case (Some(incidentMessage), _, _)                                                   =>
             ZIO.fail:

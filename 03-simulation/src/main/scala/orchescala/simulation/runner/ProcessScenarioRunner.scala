@@ -19,7 +19,7 @@ class ProcessScenarioRunner(processScenario: ProcessScenario)(using
 
   def run: IO[SimulationError, ScenarioData] =
     for
-      _    <- ZIO.logDebug(s"Running ProcessScenario: ${processScenario.name}")
+      _    <- ZIO.logDebug(s"Running ProcessScenario: ${processScenario.scenarioName}")
       data <-
         scenarioRunner.logScenario: (data: ScenarioData) =>
           given ScenarioData = data

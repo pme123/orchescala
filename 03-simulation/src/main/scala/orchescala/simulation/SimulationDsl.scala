@@ -83,19 +83,19 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     def waitFor(readyVariable: String): SSignalEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any = true): SSignalEvent =
-      SSignalEvent(event.name, event, readyVariable, readyValue)
+      SSignalEvent(event.scenarioName, event, readyVariable, readyValue)
   end extension
 
   extension (event: TimerEvent)
     def waitFor(readyVariable: String): STimerEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): STimerEvent =
-      STimerEvent(event.name, event, Some(readyVariable), readyValue)
+      STimerEvent(event.scenarioName, event, Some(readyVariable), readyValue)
   end extension
 
   extension (ut: UserTask[?, ?])
     def waitForSec(sec: Int): SUserTask =
-      SUserTask(ut.name, ut, waitForSec = Some(sec))
+      SUserTask(ut.scenarioName, ut, waitForSec = Some(sec))
 
   end extension
 

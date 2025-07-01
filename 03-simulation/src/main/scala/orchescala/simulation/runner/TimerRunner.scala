@@ -43,7 +43,7 @@ class TimerRunner(val timerScenario: STimerEvent)(using
               SimulationError.ProcessError(
                 summon[ScenarioData].error(err.errorMsg)
               )
-        _                  <- logInfo(s"Jobs fetched for ${timerScenario.name}: $jobs")
+        _                  <- logInfo(s"Jobs fetched for ${timerScenario.scenarioName}: $jobs")
         given ScenarioData <-
           if jobs.nonEmpty then
             jobs.head.id
@@ -56,7 +56,7 @@ class TimerRunner(val timerScenario: STimerEvent)(using
                 ZIO.fail:
                   SimulationError.ProcessError(
                     summon[ScenarioData].error(
-                      s"Job for '${timerScenario.name}' not found!"
+                      s"Job for '${timerScenario.scenarioName}' not found!"
                     )
                   )  
           else
@@ -78,7 +78,7 @@ class TimerRunner(val timerScenario: STimerEvent)(using
                               .as:
                                 summon[ScenarioData]
                                   .info(
-                                    s"Timer '${timerScenario.name}' executed successfully."
+                                    s"Timer '${timerScenario.scenarioName}' executed successfully."
                                   )
                               .mapError: err =>
                                 SimulationError.ProcessError(

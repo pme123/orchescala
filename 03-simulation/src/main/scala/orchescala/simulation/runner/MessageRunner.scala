@@ -8,7 +8,7 @@ import zio.ZIO.logInfo
 
 class MessageRunner(val messageScenario: SMessageEvent)(using
     val engine: ProcessEngine,
-    val config: SimulationConfig
+    val config: SimulationConfig,
 ):
   lazy val messageService         = engine.messageService
   lazy val processInstanceService = engine.jProcessInstanceService
@@ -33,8 +33,10 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
         SignalEvent.Dynamic_ProcessInstance,
         summon[ScenarioData].context.processInstanceId
       )
-      val processInstanceId = summon[ScenarioData].context.optProcessInstance
-      val businessKey       = if processInstanceId.isDefined then None else Some(messageScenario.name)
+      val processInstanceId: Option[String] =
+        if messageScenario.processInstanceId then summon[ScenarioData].context.optProcessInstance
+        else None
+      val businessKey       = if processInstanceId.isDefined || !messageScenario.processInstanceId then None else Some(messageScenario.name)
       val tenantId          = if processInstanceId.isDefined then None else config.tenantId
       for
         given ScenarioData <- messageService
@@ -52,7 +54,13 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
                                     )
                                 .catchAll: err =>
                                   scenarioOrStepRunner.tryOrFail(correlate)
-        _                  <- logInfo(s"Message ${summon[ScenarioData].context.taskId} sent")
+        _                  <- logInfo(
+          s"""Message ${summon[ScenarioData].context.taskId} sent:
+             |- msgName: $msgName
+             |- processInstanceId: ${processInstanceId.getOrElse("-")}
+             |- businessKey: ${businessKey.getOrElse("-")}
+             |- tenantId: ${tenantId.getOrElse("-")}
+             |""".stripMargin)
       yield summon[ScenarioData]
       end for
     end correlate

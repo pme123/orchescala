@@ -14,16 +14,16 @@ class BadScenarioRunner(badScenario: BadScenario)(using
   private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(badScenario)
 
   def run: IO[SimulationError, ScenarioData] =
-    given ScenarioData = ScenarioData(badScenario.name)
+    given ScenarioData = ScenarioData(badScenario.scenarioName)
     scenarioRunner.logScenario: (data: ScenarioData) =>
       given ScenarioData = data
       for
-        _    <- ZIO.logInfo(s"Running BadScenario: ${badScenario.name}")
+        _    <- ZIO.logInfo(s"Running BadScenario: ${badScenario.scenarioName}")
         given ScenarioData <-
           processInstanceService.startProcessAsync(
             badScenario.process.processName,
             badScenario.process.camundaInBody,
-            Some(badScenario.name)
+            Some(badScenario.scenarioName)
           ).foldZIO (
               err =>
                 if err.errorMsg.contains(badScenario.errorMsg) then

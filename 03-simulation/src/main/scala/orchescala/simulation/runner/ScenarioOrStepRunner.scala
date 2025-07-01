@@ -25,7 +25,7 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
           else
             ZIO.succeed(summon[ScenarioData])
         _                  <- ZIO.logDebug(
-                                s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)"
+                                s"Waiting for ${scenarioOrStep.scenarioName} (${scenarioOrStep.typeName} - count: $count)"
                               )
         given ScenarioData <-
           funct(
@@ -33,7 +33,7 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
             summon[ScenarioData]
               .withRequestCount(count + 1)
               .info(
-                s"Waiting for ${scenarioOrStep.name} (${scenarioOrStep.typeName} - count: $count)"
+                s"Waiting for ${scenarioOrStep.scenarioName} (${scenarioOrStep.typeName} - count: $count)"
               )
           )
       yield summon[ScenarioData]
@@ -42,7 +42,7 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
         SimulationError.WaitingError(
           summon[ScenarioData]
             .error(
-              s"Expected ${scenarioOrStep.name} (${scenarioOrStep.typeName}) was not found! Tried $count times."
+              s"Expected ${scenarioOrStep.scenarioName} (${scenarioOrStep.typeName}) was not found! Tried $count times."
             )
         )
       )
@@ -61,7 +61,7 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
       if incidents.isEmpty then
         ZIO.succeed(summon[ScenarioData]
           .debug(
-            s"No incident so far for ${scenarioOrStep.name}."
+            s"No incident so far for ${scenarioOrStep.scenarioName}."
           ))
       else
         ZIO.fail(
