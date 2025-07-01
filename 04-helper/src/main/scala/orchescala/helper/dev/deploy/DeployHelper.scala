@@ -18,6 +18,8 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
     os.proc("sbt", "publishLocal").callOnConsole()
 
     val dockerInternalHostOpt = sys.env.get("DOCKER_INTERNAL_HOST")
+    println(s"DOCKER_INTERNAL_HOST = ${dockerInternalHostOpt.getOrElse("not set")}")
+
 
     // Base Newman command
     val newmanCmd = Seq(
