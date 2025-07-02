@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.3 - 2025-07-02
+### Changed 
+- Merge pull request #1 from pme123/feature/adapt-newman-cmd - see [Commit](git@github.com:pme123/orchescala/commit/db4efa93ef470d054a2a3dbf3ea7077bbd210e23)
+- debug message added - see [Commit](git@github.com:pme123/orchescala/commit/84129ff5b57d742449fd283d980501c3e69e8b7d)
+- check if DOCKER_INTERNAL_HOST is present and overwrite env var'st - see [Commit](git@github.com:pme123/orchescala/commit/6aef25f6135fb98f8f6a02bcc2f8b65ea3ac5c20)
+- Added more debug information to the Regex Error matching. - see [Commit](git@github.com:pme123/orchescala/commit/0e8967fe9904d36c6d21470bd3a5b4f63cddc9ec)
+- Cosmetics in Simulations. - see [Commit](git@github.com:pme123/orchescala/commit/59558a5f7606090dae0d5f18bdb2f198c6b37b64)
+
 ## 0.2.2 - 2025-06-24
 ### Changed 
 - Fixed impersonateUserId as In parameter for simulation. - see [Commit](git@github.com:pme123/orchescala/commit/cf29daa04e8f906c02461cafc4d45a98c6326750)
