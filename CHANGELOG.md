@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.4 - 2025-07-02
+### Changed 
+- Fixed Logging Configuration for simulaitons / shared logging. - see [Commit](git@github.com:pme123/orchescala/commit/86e6c05a35f873f3302abf360b491381cdb83956)
+- Fixed Logging Configuration for workers. - see [Commit](git@github.com:pme123/orchescala/commit/821d9150700c3744ae6ea2c99731939059ea3cd7)
+
 ## 0.2.3 - 2025-07-02
 ### Changed 
 - Merge pull request #1 from pme123/feature/adapt-newman-cmd - see [Commit](git@github.com:pme123/orchescala/commit/db4efa93ef470d054a2a3dbf3ea7077bbd210e23)
