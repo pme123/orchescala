@@ -25,7 +25,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             for
               // Fork the worker execution within the scope
               fiber <- run(client, job)
-                         .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
+                         .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ ZioLogger.logger)
                          .fork
               // Add a finalizer to ensure the fiber is interrupted if the scope closes
               _     <- ZIO.addFinalizer:

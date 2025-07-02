@@ -12,12 +12,12 @@ object HttpClientProvider:
   // A shared, cached instance of the backend
   lazy val cachedBackend: SttpClientBackend = Unsafe.unsafe:
     implicit unsafe =>
-      WorkerRuntime.zioRuntime.unsafe.run(createBackend).getOrThrow()
+      WorkerRuntime.zioRuntime.unsafe.run(createBackend.provideLayer(ZioLogger.logger)).getOrThrow()
 
   // A shared, cached instance of the underlying AsyncHttpClient
   private lazy val sharedHttpClient: AsyncHttpClient = Unsafe.unsafe:
     implicit unsafe =>
-      WorkerRuntime.zioRuntime.unsafe.run(createHttpClient).getOrThrow()
+      WorkerRuntime.zioRuntime.unsafe.run(createHttpClient.provideLayer(ZioLogger.logger)).getOrThrow()
 
   private lazy val createHttpClient: ZIO[Any, Throwable, AsyncHttpClient] =
     ZIO.logInfo("Creating shared AsyncHttpClient") *>
