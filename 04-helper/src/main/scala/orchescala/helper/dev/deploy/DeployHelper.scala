@@ -17,8 +17,8 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
 
     os.proc("sbt", "publishLocal").callOnConsole()
 
-    val dockerInternalHostOpt = sys.env.get("DOCKER_INTERNAL_HOST")
-    println(s"DOCKER_INTERNAL_HOST = ${dockerInternalHostOpt.getOrElse("not set")}")
+    val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+    println(s"FSSO_BASE_URL = $fssoBaseUrl")
 
 
     // Base Newman command
@@ -32,12 +32,12 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
       "deploy_manifest",
       "--global-var",
       s"developer=${System.getProperty("user.name").toUpperCase}"
-    ) ++ dockerInternalHostOpt.toSeq.flatMap { host =>
+    ) ++ 
       Seq(
-        "--env-var", s"tokenService=http://$host:8090",
-        "--env-var", s"tokenServiceTemp=http://$host:8090"
+        "--env-var", s"tokenService=$fssoBaseUrl",
+        "--env-var", s"tokenServiceTemp=$fssoBaseUrl"
       )
-    }
+    
 
     os.proc(newmanCmd).callOnConsole()
 
