@@ -1,6 +1,7 @@
 package orchescala.worker.c7
 
 import orchescala.domain.*
+import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
 import org.camunda.bpm.client.task as camunda
@@ -15,7 +16,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   protected def c7Context: C7Context
 
-  def logger = Slf4JLogger.logger(getClass.getName)
+  def logger = c7Context.getLogger(getClass)
 
   override def execute(
       externalTask: camunda.ExternalTask,
@@ -23,12 +24,12 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   ): Unit =
     Unsafe.unsafe:
       implicit unsafe =>
-        WorkerRuntime.zioRuntime.unsafe.fork:
+        EngineRuntime.zioRuntime.unsafe.fork:
           ZIO.scoped:
             for
               // Fork the worker execution within the scope
               fiber  <- run(externalTaskService)(using externalTask)
-                          .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ ZioLogger.logger)
+                          .provideLayer(EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger)
                           .fork
               // Add a finalizer to ensure the fiber is interrupted if the scope closes
               _      <- ZIO.addFinalizer:

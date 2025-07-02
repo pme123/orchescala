@@ -1,5 +1,6 @@
 package orchescala.worker
 
+import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import org.asynchttpclient.{AsyncHttpClient, DefaultAsyncHttpClient, DefaultAsyncHttpClientConfig}
 import sttp.client3.SttpBackend
 import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, ZioWebSocketsStreams}
@@ -12,12 +13,12 @@ object HttpClientProvider:
   // A shared, cached instance of the backend
   lazy val cachedBackend: SttpClientBackend = Unsafe.unsafe:
     implicit unsafe =>
-      WorkerRuntime.zioRuntime.unsafe.run(createBackend.provideLayer(ZioLogger.logger)).getOrThrow()
+      EngineRuntime.zioRuntime.unsafe.run(createBackend.provideLayer(EngineRuntime.logger)).getOrThrow()
 
   // A shared, cached instance of the underlying AsyncHttpClient
   private lazy val sharedHttpClient: AsyncHttpClient = Unsafe.unsafe:
     implicit unsafe =>
-      WorkerRuntime.zioRuntime.unsafe.run(createHttpClient.provideLayer(ZioLogger.logger)).getOrThrow()
+      EngineRuntime.zioRuntime.unsafe.run(createHttpClient.provideLayer(EngineRuntime.logger)).getOrThrow()
 
   private lazy val createHttpClient: ZIO[Any, Throwable, AsyncHttpClient] =
     ZIO.logInfo("Creating shared AsyncHttpClient") *>
@@ -39,12 +40,11 @@ object HttpClientProvider:
 
   lazy val createBackend: ZIO[Any, Throwable, SttpClientBackend] =
     ZIO.logInfo("Creating STTP client backend using shared HTTP client") *>
-      ZIO.succeed(
+      ZIO.attempt:
         AsyncHttpClientZioBackend.usingClient(
-          runtime = WorkerRuntime.zioRuntime,
+          runtime = EngineRuntime.zioRuntime,
           client = sharedHttpClient
         )
-      )
 
   // Keep the layer for compatibility
   lazy val live: ZLayer[Any, Throwable, SttpClientBackend] = ZLayer

@@ -1,8 +1,9 @@
 package orchescala.worker
 
 import orchescala.BuildInfo
+import orchescala.engine.EngineRuntime
 import zio.ZIO.*
-import zio.{Scope, Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
+import zio.{Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
 
 import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters.*
@@ -26,12 +27,12 @@ trait WorkerApp extends ZIOAppDefault:
   protected var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
   protected var theDependencies: Seq[WorkerApp]  = Seq.empty
 
-  override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = ZioLogger.logger
+  override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = EngineRuntime.logger
 
   override def run: ZIO[Any, Any, Any] =
     ZIO.scoped:
       for
-        _ <- WorkerRuntime.threadPoolFinalizer
+        _ <- EngineRuntime.threadPoolFinalizer
         _ <- HttpClientProvider.threadPoolFinalizer
         _ <- foreachParDiscard(workerRegistries): registry =>
                registry.engineConnectionManagerFinalizer
@@ -42,7 +43,7 @@ trait WorkerApp extends ZIOAppDefault:
                registry.register((theDependencies :+ this).flatMap(_.theWorkers).toSet)
       yield ()
     .provideLayer(
-      WorkerRuntime.sharedExecutorLayer ++
+      EngineRuntime.sharedExecutorLayer ++
         HttpClientProvider.live
     )
 

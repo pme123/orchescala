@@ -1,7 +1,8 @@
 package orchescala.worker.c7
 
+import orchescala.domain.OrchescalaLogger
+import orchescala.engine.Slf4JLogger
 import orchescala.worker.oauth.OAuthPasswordFlow
-import orchescala.worker.{Slf4JLogger, WorkerLogger}
 import org.apache.hc.client5.http.config.RequestConfig
 import org.apache.hc.core5.http.*
 import org.apache.hc.core5.http.protocol.HttpContext
@@ -56,7 +57,7 @@ object C7BasicAuthWorkerClient extends C7WorkerClient:
 end C7BasicAuthWorkerClient
 
 trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
-  given WorkerLogger       = Slf4JLogger.logger(getClass.getName)
+  given OrchescalaLogger   = Slf4JLogger.logger(getClass.getName)
   def camundaRestUrl       = "http://localhost:8080/engine-rest"
   def maxTimeForAcquireJob = 500.millis
   def lockDuration: Long   = 30.seconds.toMillis
@@ -74,11 +75,11 @@ trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
           .baseUrl(camundaRestUrl)
           .maxTasks(maxTasks)
           .asyncResponseTimeout(10.seconds.toMillis)
-        //  .disableBackoffStrategy()
+          //  .disableBackoffStrategy()
           .backoffStrategy(
             new ExponentialBackoffStrategy(
-              100L,  // Initial backoff time in milliseconds
-              2.0,   // Backoff factor
+              100L, // Initial backoff time in milliseconds
+              2.0,  // Backoff factor
               maxTimeForAcquireJob.toMillis
             )
           )
@@ -89,6 +90,5 @@ trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
               .setConnectionManager(SharedHttpClientManager.connectionManager)
               .build()
           .build()
-    
 
 end OAuth2WorkerClient

@@ -9,7 +9,7 @@ import java.time.{LocalDate, LocalDateTime}
 import scala.reflect.ClassTag
 
 trait EngineContext:
-  def getLogger(clazz: Class[?]): WorkerLogger
+  def getLogger(clazz: Class[?]): OrchescalaLogger
   def toEngineObject: Json => Any
 
   def sendRequest[ServiceIn: InOutEncoder, ServiceOut: {InOutDecoder, ClassTag}](
@@ -96,16 +96,9 @@ trait EngineContext:
 
 end EngineContext
 
-trait WorkerLogger:
-  def debug(message: String): Unit
-  def info(message: String): Unit
-  def warn(message: String): Unit
-  def error(err: WorkerError): Unit
-end WorkerLogger
-
 final case class EngineRunContext(engineContext: EngineContext, generalVariables: GeneralVariables):
 
-  def getLogger(clazz: Class[?]): WorkerLogger = engineContext.getLogger(clazz)
+  def getLogger(clazz: Class[?]): OrchescalaLogger = engineContext.getLogger(clazz)
 
   def sendRequest[ServiceIn: InOutEncoder, ServiceOut: InOutDecoder: ClassTag](
       request: RunnableRequest[ServiceIn]

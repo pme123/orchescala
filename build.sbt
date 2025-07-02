@@ -87,7 +87,8 @@ lazy val engine = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= Seq(
-      zioDependency
+      zioDependency,
+      zioSlf4jDependency
     )
   )
   .dependsOn(domain)
@@ -127,7 +128,6 @@ lazy val simulation = project
     autoImportSetting,
     libraryDependencies ++= Seq(
       "org.scala-sbt" % "test-interface" % testInterfaceVersion,
-      logbackDependency
     )
   )
   .dependsOn(engine)
@@ -153,12 +153,10 @@ lazy val worker = project
     autoImportSetting,
     libraryDependencies ++= sttpDependencies ++ Seq(
       scaffeineDependency,
-      zioDependency,
-      zioSlf4jDependency,
       logbackDependency
     ) ++ zioTestDependencies
   )
-  .dependsOn(domain)
+  .dependsOn(engine)
 
 // layer 04
 lazy val helper = project

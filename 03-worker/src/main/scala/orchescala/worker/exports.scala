@@ -41,16 +41,9 @@ end decodeTo
 
 type HandledErrorCodes = Seq[ErrorCodeType]
 
-sealed trait WorkerError extends Throwable:
+sealed trait WorkerError extends OrchescalaError:
   def isMock = false
-  def errorCode: ErrorCodeType
-  def errorMsg: String
-
-  def causeMsg                                   = s"$errorCode: $errorMsg"
-  def causeError: Option[WorkerError]   = None
   def generalVariables: Option[GeneralVariables] = None
-  override def toString(): String                = causeMsg + causeError.map(e =>s"Caused by ${e.causeMsg}").getOrElse("")
-end WorkerError
 
 sealed trait ErrorWithOutput extends WorkerError:
   def output: Map[String, Any]

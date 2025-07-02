@@ -13,7 +13,7 @@ object AstSpec extends ZIOSpecDefault:
 
   given EngineRunContext = EngineRunContext(
     new EngineContext:
-      override def getLogger(clazz: Class[?]): WorkerLogger = ???
+      override def getLogger(clazz: Class[?]): OrchescalaLogger = ???
 
       override def toEngineObject: Json => Any =
         json => json.asBoolean.get

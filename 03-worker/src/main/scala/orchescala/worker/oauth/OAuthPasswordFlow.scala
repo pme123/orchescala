@@ -1,6 +1,6 @@
 package orchescala.worker.oauth
 
-import orchescala.domain.InOutDecoder
+import orchescala.domain.{InOutDecoder, OrchescalaLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.ServiceAuthError
 import sttp.client3.*
@@ -30,7 +30,7 @@ trait OAuthPasswordFlow:
   )
 
   def adminToken(tokenKey: String = username)(using
-      logger: WorkerLogger
+      logger: OrchescalaLogger
   ): Either[ServiceAuthError, String] =
     TokenCache.cache.getIfPresent(tokenKey)
       .map: token =>
@@ -46,7 +46,7 @@ trait OAuthPasswordFlow:
             token
 
   def clientCredentialsToken()(using
-      logger: WorkerLogger
+      logger: OrchescalaLogger
   ): Either[ServiceAuthError, String] =
     TokenCache.cache.getIfPresent("clientCredentials")
       .map: token =>
@@ -62,7 +62,7 @@ trait OAuthPasswordFlow:
             token
 
   def impersonateToken(username: String, adminToken: String)(using
-      logger: WorkerLogger
+      logger: OrchescalaLogger
   ): IO[ServiceAuthError, String] =
     TokenCache.cache.getIfPresent(username)
       .map: token =>

@@ -2,7 +2,8 @@ package orchescala.simulation
 
 import orchescala.engine.EngineRuntime
 import zio.ZIO.logInfo
-import zio.{IO, Unsafe, ZIO}
+import zio.logging.backend.SLF4J
+import zio.{IO, Runtime, Unsafe, ZIO}
 
 import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -47,11 +48,8 @@ final class SimulationTestRunner(
       Task(
         td,
         (loggers, eventHandler) =>
-          println(s"Running Simulation: ${td.fullyQualifiedName()}")
           runSimulationZIO(td)
             .map: (logLevel, time) =>
-              println(s"Finished Simulation: $logLevel, $time")
-
               eventHandler.synchronized {
                 eventHandler.handle(new sbt.testing.Event:
                   def fullyQualifiedName(): String = td.fullyQualifiedName()
@@ -87,11 +85,11 @@ final class SimulationTestRunner(
         EngineRuntime.zioRuntime.unsafe.runToFuture:
           ZIO
             .scoped:
-              for
+              (for
                 // Fork the worker execution within the scope
                 fiber           <-
                   runSimulation(taskDef)
-                    .provideLayer(EngineRuntime.sharedExecutorLayer)
+                    .provideLayer(EngineRuntime.sharedExecutorLayer ++ EngineRuntime.logger)
                     .fork
                 // Add a finalizer to ensure the fiber is interrupted if the scope closes
                 _               <- ZIO.addFinalizer:
@@ -99,15 +97,18 @@ final class SimulationTestRunner(
                                        fiber.interrupt.when(!status.isDone)
                 // Join the fiber to wait for completion
                 logLevelAndTime <- fiber.join
-                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime")
-              yield logLevelAndTime
+                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime").provideLayer(EngineRuntime.logger)
+              yield logLevelAndTime)
+
             .catchAll: ex =>
               ZIO.logError(s"Error running Simulation: ${ex.getMessage}")
-                .as((LogLevel.ERROR, 0L))
+                .as((LogLevel.ERROR, 0L)).provideLayer(EngineRuntime.logger)
+
             .ensuring:
               ZIO.logInfo(
                 s"Simulation for task ${taskDef.fullyQualifiedName()} completed and resources cleaned up"
-              )
+              ).provideLayer(EngineRuntime.logger)
+
 
   private def runSimulation(taskDef: sbt.testing.TaskDef): IO[Throwable, (LogLevel, Long)] =
     val name = taskDef.fullyQualifiedName().split('.').last

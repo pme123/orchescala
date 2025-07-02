@@ -1,8 +1,11 @@
 package orchescala.worker.c7
 
-import orchescala.worker.{WorkerRuntime, ZioLogger}
+import orchescala.engine.EngineRuntime
 import org.apache.hc.client5.http.config.ConnectionConfig
-import org.apache.hc.client5.http.impl.io.{PoolingHttpClientConnectionManager, PoolingHttpClientConnectionManagerBuilder}
+import org.apache.hc.client5.http.impl.io.{
+  PoolingHttpClientConnectionManager,
+  PoolingHttpClientConnectionManagerBuilder
+}
 import org.apache.hc.core5.pool.{PoolConcurrencyPolicy, PoolReusePolicy}
 import org.apache.hc.core5.util.{TimeValue, Timeout}
 import zio.{Scope, Unsafe, ZIO}
@@ -16,7 +19,7 @@ object SharedHttpClientManager:
   // A shared, cached instance of the connection manager
   lazy val connectionManager: PoolingHttpClientConnectionManager = Unsafe.unsafe :
     implicit unsafe =>
-      WorkerRuntime.zioRuntime.unsafe.run(createConnectionManager.provideLayer(ZioLogger.logger)).getOrThrow()
+      EngineRuntime.zioRuntime.unsafe.run(createConnectionManager.provideLayer(EngineRuntime.logger)).getOrThrow()
   
   private lazy val createConnectionManager: ZIO[Any, Throwable, PoolingHttpClientConnectionManager] =
     ZIO.logInfo("Creating shared HTTP connection manager for Camunda clients") *>

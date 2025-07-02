@@ -1,16 +1,17 @@
 package orchescala.worker.c8
 
-import orchescala.domain.*
-import orchescala.worker.WorkerError.*
-import orchescala.worker.*
 import io.camunda.zeebe.client.api.response.ActivatedJob
 import io.camunda.zeebe.client.api.worker.{JobClient, JobHandler}
+import orchescala.domain.*
+import orchescala.engine.EngineRuntime
+import orchescala.worker.*
+import orchescala.worker.WorkerError.*
 import zio.*
 import zio.ZIO.*
 
 import java.time
-import scala.jdk.CollectionConverters.*
 import java.util.Date
+import scala.jdk.CollectionConverters.*
 
 trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends WorkerDsl[In, Out],
@@ -20,12 +21,12 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   def handle(client: JobClient, job: ActivatedJob): Unit =
     Unsafe.unsafe:
       implicit unsafe =>
-        WorkerRuntime.zioRuntime.unsafe.fork:
+        EngineRuntime.zioRuntime.unsafe.fork:
           ZIO.scoped:
             for
               // Fork the worker execution within the scope
               fiber <- run(client, job)
-                         .provideLayer(WorkerRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ ZioLogger.logger)
+                         .provideLayer(EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger)
                          .fork
               // Add a finalizer to ensure the fiber is interrupted if the scope closes
               _     <- ZIO.addFinalizer:

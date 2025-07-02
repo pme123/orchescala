@@ -1,16 +1,9 @@
-package orchescala.worker
+package orchescala.engine
 
+import orchescala.domain.{OrchescalaError, OrchescalaLogger}
 import org.slf4j.{Logger, LoggerFactory}
-import zio.*
-import zio.logging.*
-import zio.logging.backend.SLF4J
 
-object ZioLogger:
-  val logger = Runtime.removeDefaultLoggers >>> SLF4J.slf4j
-
-end ZioLogger
-
-case class Slf4JLogger(private val delegateLogger: Logger) extends WorkerLogger:
+case class Slf4JLogger(private val delegateLogger: Logger) extends OrchescalaLogger:
 
   def debug(message: String): Unit =
     if delegateLogger.isDebugEnabled then
@@ -24,7 +17,7 @@ case class Slf4JLogger(private val delegateLogger: Logger) extends WorkerLogger:
     if delegateLogger.isWarnEnabled then
       delegateLogger.warn(message)
 
-  def error(err: WorkerError): Unit =
+  def error(err: OrchescalaError): Unit =
     if delegateLogger.isErrorEnabled then
       delegateLogger.error(err.errorMsg)
 

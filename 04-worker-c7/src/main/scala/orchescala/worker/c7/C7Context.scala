@@ -1,6 +1,7 @@
 package orchescala.worker.c7
 
 import orchescala.domain.*
+import orchescala.engine.Slf4JLogger
 import orchescala.worker.*
 import orchescala.worker.WorkerError.ServiceError
 import org.camunda.bpm.client.variable.ClientValues
@@ -11,7 +12,7 @@ import scala.reflect.ClassTag
 
 trait C7Context extends EngineContext:
 
-  def getLogger(clazz: Class[?]): WorkerLogger =
+  def getLogger(clazz: Class[?]): OrchescalaLogger =
     Slf4JLogger.logger(clazz.getName)
 
   lazy val toEngineObject: Json => Any =

@@ -15,7 +15,7 @@ object WorkerExecutorSpec extends ZIOSpecDefault:
 
   given EngineRunContext = EngineRunContext(
     new EngineContext:
-      override def getLogger(clazz: Class[?]): WorkerLogger = ???
+      override def getLogger(clazz: Class[?]): OrchescalaLogger = ???
       override def toEngineObject: Json => Any = ???
       override def sendRequest[ServiceIn: Encoder, ServiceOut: {Decoder, ClassTag}](
           request: RunnableRequest[ServiceIn]

@@ -32,7 +32,7 @@ trait WorkerHandler[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
     end if
   end registerHandler
 
-  protected lazy val logger: WorkerLogger
+  protected lazy val logger: OrchescalaLogger
 end WorkerHandler
 
 /** handler for Custom Validation (next to the automatic Validation of the In Object.
