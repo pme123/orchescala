@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.5 - 2025-07-03
+### Changed 
+- Adjusted Generation files for FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/f1ed0c1558b7fd55e0e30fd44dc1e95dcc03a995)
+- Changed DOCKER_INTERNAL_HOST to FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/11aa3413acd4a0f364a2becec1046dac207da3bf)
+
 ## 0.2.4 - 2025-07-02
 ### Changed 
 - Fixed Logging Configuration for simulaitons / shared logging. - see [Commit](git@github.com:pme123/orchescala/commit/86e6c05a35f873f3302abf360b491381cdb83956)
