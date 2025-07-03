@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.6 - 2025-07-03
+### Changed 
+- Removed generation of Intellij/VSCode run configuration. - see [Commit](git@github.com:pme123/orchescala/commit/05a856e018b2254e490f3c9810f936c989f571c0)
+
 ## 0.2.5 - 2025-07-03
 ### Changed 
 - Adjusted Generation files for FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/f1ed0c1558b7fd55e0e30fd44dc1e95dcc03a995)
