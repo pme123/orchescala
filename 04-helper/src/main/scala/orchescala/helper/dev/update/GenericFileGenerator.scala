@@ -8,13 +8,14 @@ case class GenericFileGenerator()(using config: DevConfig):
     createOrUpdate(config.projectDir / "helper.scala", helperScala)
     os.proc("chmod", "+x", config.projectDir / "helper.scala").call()
     createIfNotExists(config.projectDir / "CHANGELOG.md", changeLog)
-    os.makeDir.all(config.projectDir / ".run")
-    os.makeDir.all(config.projectDir / ".vscode")
-    createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
-    createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
+    // not needed anymore TODO remove in the future
+    // os.makeDir.all(config.projectDir / ".run")
+    // os.makeDir.all(config.projectDir / ".vscode")
+    // not needed anymore createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
+    // createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
   end generate
 
-  lazy val createScalaFmt =
+  lazy val createScalaFmt  =
     createOrUpdate(config.projectDir / ".scalafmt.conf", scalafmt)
   lazy val createGitIgnore =
     createOrUpdate(config.projectDir / ".gitignore", gitignore)
@@ -110,7 +111,8 @@ case class GenericFileGenerator()(using config: DevConfig):
        |
        |""".stripMargin
 
-  private lazy val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+  private lazy val fssoBaseUrl =
+    sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
 
   private lazy val workerTestAppIntellij =
     s"""|<!-- DO NOT ADJUST. This file is replaced by `./helper.scala update` -->
@@ -134,7 +136,7 @@ case class GenericFileGenerator()(using config: DevConfig):
         |  </configuration>
         |</component>
         |""".stripMargin
-  private lazy val workerTestAppVsCode =
+  private lazy val workerTestAppVsCode   =
     s"""|// DO NOT ADJUST. This file is replaced by `./helper.scala update`.
         |{
         |    "version": "2.0.0",

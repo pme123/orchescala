@@ -1,5 +1,7 @@
 package orchescala.helper.dev.update
 
+import orchescala.BuildInfo
+
 case class SbtSettingsGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
@@ -18,7 +20,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |
        |object Settings {
        |
-       |  val scalaV = "${versionConfig.scalaVersion}"
+       |  val scalaV = "${BuildInfo.scalaVersion}"
        |  val customer = ProjectDef.org
        |  val customerOrchescalaV = "${versionConfig.companyOrchescalaVersion}"
        |  // to override the version defined in customerOrchescala

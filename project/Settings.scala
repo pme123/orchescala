@@ -15,13 +15,13 @@ object Settings {
 
   lazy val projectVersion =
     Using(scala.io.Source.fromFile("version"))(_.mkString.trim).get
-  val scala3Version = "3.7.1"
+  val scalaV = "3.7.1"
   val org = "io.github.pme123"
 
   def projectSettings(projName: String) = Seq(
     name := s"orchescala-$projName",
     organization := org,
-    scalaVersion := scala3Version,
+    scalaVersion := scalaV,
     version := projectVersion,
     scalacOptions ++= Seq(
       //   "-Xmax-inlines:50", // is declared as erased, but is in fact used
