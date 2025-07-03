@@ -168,7 +168,10 @@ object ModuleConfig:
     "simulation",
     level = 3,
     testType = TestType.Simulation,
-    doPublish = false
+    doPublish = false,
+    sbtDependencies = Seq(
+      """"ch.qos.logback" % "logback-classic" % logbackVersion % Test"""
+    )
   )
   lazy val workerModule     = ModuleConfig(
     "worker",
