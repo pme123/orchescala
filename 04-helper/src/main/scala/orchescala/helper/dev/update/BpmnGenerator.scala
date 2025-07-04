@@ -86,7 +86,16 @@ case class BpmnGenerator()(using config: DevConfig):
       }
        |${inOutDefinitions(isProcess)}
        |
+       |  lazy val inExample = In()
+       |  lazy val outExample = Out()
+       |  lazy val inExampleMinimal = inExample
+       |  lazy val outExampleMinimal = outExample
+       |
        |  lazy val example = ${example(label, isProcess)}
+       |    ${exampleServiceTask(label)}
+       |  )
+       |
+       |  lazy val exampleMinimal = ${example(label, isProcess, isMinimal = true)}
        |    ${exampleServiceTask(label)}
        |  )
        |end $domainName""".stripMargin
@@ -218,18 +227,17 @@ case class BpmnGenerator()(using config: DevConfig):
         |  //type In = NoInput // if no input is needed
         |  """.stripMargin
 
-  private def example(label: String, isProcess: Boolean) =
+  private def example(label: String, isProcess: Boolean, isMinimal: Boolean = false) =
     if label == "Decision"
     then
       """singleResult( // singleEntry or collectEntries or  or resultList
-        |    In(),
-        |    Out() // Seq[Out] for collectEntries or  or resultList
+        |    inExample,
+        |    outExample // Seq[Out] for collectEntries or  or resultList
         | """.stripMargin
     else
       s"""${label.head.toLower + label.tail}(
-         |    In(),
-         |    Out()${if isProcess then ",\n    InitIn()" else ""}
-         |  """.stripMargin
+         |    inExample${if isMinimal then "Minimal" else ""},
+         |    outExample${if isMinimal then "Minimal" else ""}${if isProcess then ",\n    InitIn()" else ""}""".stripMargin
   end example
 
   private def exampleServiceTask(label: String) =

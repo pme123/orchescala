@@ -149,11 +149,18 @@ case class WorkerGenerator()(using config: DevConfig):
     workerTest(setupElement):
       s"""
          |  test("customInit"):
-         |    val in = In()
+         |    val in = inExample
          |    val out = InitIn()
          |    assertEquals(
          |      worker.customInit(in),
          |      out
+         |    )
+         |    test("customInit minimal"):
+         |      val in = inExampleMinimal
+         |      val out = InitIn()
+         |      assertEquals(
+         |        worker.customInit(in),
+         |        out
          |    )""".stripMargin
 
   private def eventWorkerTest(setupElement: SetupElement) =

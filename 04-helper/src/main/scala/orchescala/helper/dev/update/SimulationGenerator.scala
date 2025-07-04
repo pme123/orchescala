@@ -28,7 +28,10 @@ case class SimulationGenerator()(using config: DevConfig):
        |class ${name}Simulation extends CompanySimulation:
        |
        |  simulate(
-       |    scenario(`${config.projectShortClassName} $name`)(
+       |    scenario(`$name`)(
+       |      //TODO remove or add process steps like UserTasks
+       |    ),
+       |    scenario(`$name minimal`)(
        |      //TODO remove or add process steps like UserTasks
        |    )
        |  )
@@ -38,8 +41,17 @@ case class SimulationGenerator()(using config: DevConfig):
        |      //.withMaxCount(30)
        |      //.withLogLevel(LogLevel.DEBUG)
        |
-       |  private lazy val `${config.projectShortClassName} $name` =
-       |    example.mockServices
+       |  private lazy val `$name` =
+       |    example
+       |      .mockServices
+       |      .mockWorkers(workers*)
+       |
+       |  private lazy val `$name minimal` =
+       |    exampleMinimal
+       |      .mockServices
+       |      .mockWorkers(workers*)
+       |
+       |  private lazy val workers = Seq()
        |
        |end ${name}Simulation""".stripMargin
   end process
