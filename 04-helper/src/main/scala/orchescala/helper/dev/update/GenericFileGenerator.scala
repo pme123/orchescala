@@ -112,7 +112,7 @@ case class GenericFileGenerator()(using config: DevConfig):
        |""".stripMargin
 
   private lazy val fssoBaseUrl =
-    sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+    sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090/auth")
 
   private lazy val workerTestAppIntellij =
     s"""|<!-- DO NOT ADJUST. This file is replaced by `./helper.scala update` -->
