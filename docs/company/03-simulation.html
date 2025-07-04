@@ -185,7 +185,7 @@
 </span><span class="keyword">trait</span><span> </span><span class="type-name">CompanySimulation</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">OAuthSimulationDsl</span><span>:
 
   </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">fsso</span><span>: </span><span class="type-name">Fsso</span><span> = </span><span class="type-name">Fsso</span><span>(
-    </span><span class="string-literal">s&quot;</span><span class="substitution">$fssoBaseUrl</span><span class="string-literal">/auth/realms/</span><span class="substitution">${config.tenantId.get}</span><span class="string-literal">/protocol/openid-connect&quot;</span><span>,
+    </span><span class="string-literal">s&quot;</span><span class="substitution">$fssoBaseUrl</span><span class="string-literal">/realms/</span><span class="substitution">${config.tenantId.get}</span><span class="string-literal">/protocol/openid-connect&quot;</span><span>,
     </span><span class="type-name">Map</span><span>(
       </span><span class="string-literal">&quot;grant_type&quot;</span><span> -&gt; </span><span class="string-literal">&quot;password&quot;</span><span>,
       </span><span class="string-literal">&quot;client_id&quot;</span><span> -&gt; </span><span class="string-literal">&quot;bpf&quot;</span><span>,
@@ -195,7 +195,7 @@
       </span><span class="string-literal">&quot;scope&quot;</span><span> -&gt; </span><span class="string-literal">&quot;fcs&quot;</span><span>
     ))
   </span><span class="comment">//...
-</span><span>  </span><span class="keyword">private</span><span> </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">fssoBaseUrl</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;FSSO_BASE_URL&quot;</span><span>, </span><span class="string-literal">&quot;http://host.lima.internal:8090&quot;</span><span>)
+</span><span>  </span><span class="keyword">private</span><span> </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">fssoBaseUrl</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;FSSO_BASE_URL&quot;</span><span>, </span><span class="string-literal">&quot;http://host.lima.internal:8090/auth&quot;</span><span>)
   </span><span class="comment">//...</span></code></pre>
         <p>Here you have to provide the FSSO configuration.</p>
         <ul>

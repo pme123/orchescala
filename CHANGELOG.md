@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.7 - 2025-07-04
+### Changed 
+- Added /auth to default FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/b7e9e3f274c5a0d399f8021db7591cb1ec4e7610)
+- Adjusted Generators, to generate in-out Examples. - see [Commit](git@github.com:pme123/orchescala/commit/db947c58b8727127f0be41194a927dc890377265)
+
 ## 0.2.6 - 2025-07-03
 ### Changed 
 - Removed generation of Intellij/VSCode run configuration. - see [Commit](git@github.com:pme123/orchescala/commit/05a856e018b2254e490f3c9810f936c989f571c0)
