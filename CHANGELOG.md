@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.8 - 2025-07-07
+### Changed 
+- Adjusted FSSO_BASE_URL - as the path may be different on local and remote environments. - see [Commit](git@github.com:pme123/orchescala/commit/066f211af177d4a4bf37c7158aef3c13619780b5)
+- Fixed workerModule.srcPath in CompanyWrapperGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/544e744529fe542a509cdb06ab7ae9f978b8d143)
+
 ## 0.2.7 - 2025-07-04
 ### Changed 
 - Added /auth to default FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/b7e9e3f274c5a0d399f8021db7591cb1ec4e7610)
