@@ -26,7 +26,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val projectDmnPath = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
   private lazy val projectSimulationPath = ModuleConfig.simulationModule.srcPath / "CompanySimulation.scala"
   private lazy val projectWorkerOrchescalaPath = os.Path(ModuleConfig.workerModule.srcPath.toString.replace(s"/$companyName", ""))
-  private lazy val projectWorkerPath = projectWorkerOrchescalaPath / "CompanyWorker.scala"
+  private lazy val projectWorkerPath = ModuleConfig.workerModule.srcPath / "CompanyWorker.scala"
   private lazy val projectWorkerContextPath = ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
   private lazy val projectWorkerPasswordPath = ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
   private lazy val projectWorkerRestApiPath = ModuleConfig.workerModule.srcPath / "CompanyRestApiClient.scala"
@@ -86,12 +86,11 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val simulationWrapper =
     s"""package $companyName.orchescala.simulation
        |
-       |import orchescala.simulation.custom.*
        |
        |/**
        | * Add here company specific stuff, to run the Simulations.
        | */
-       |trait CompanySimulation extends BasicSimulationDsl:
+       |trait CompanySimulation extends SimulationRunner:
        |
        |  override def config =
        |    super.config //TODO Adjust config if needed
