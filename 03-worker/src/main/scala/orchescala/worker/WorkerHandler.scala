@@ -164,9 +164,7 @@ case class ServiceHandler[
             )
       optWithServiceMock <- withServiceMock(rRequest, inputObject)
       output             <- handleMocking(optWithServiceMock, rRequest).getOrElse(
-                              summon[EngineRunContext]
-                                .sendRequest[ServiceIn, ServiceOut](rRequest)
-                                .flatMap(out => ZIO.fromEither(outputMapper(out, inputObject)))
+                              runService(rRequest, inputObject)
                             )
     yield output
     end for
@@ -208,7 +206,7 @@ case class ServiceHandler[
         )
           .map(Some.apply)
       case _               =>
-        ZIO.succeed(None)
+        ZIO.none
 
   end withServiceMock
 
@@ -243,7 +241,13 @@ case class ServiceHandler[
   ): IO[ServiceError, Out] =
     mockedResponse match
       case MockedServiceResponse(_, Right(body), headers) =>
-        ZIO.fromEither(mapBodyOutput(body, headers, in))
+        ZIO
+          .attempt:
+            mapBodyOutput(body, headers, in)
+          .mapError: err =>
+            ServiceMappingError(s"Problem mapping mocked ServiceResponse to Out: $err")
+          .flatMap:
+            ZIO.fromEither
       case MockedServiceResponse(status, Left(body), _)   =>
         ZIO.fail(
           ServiceRequestError(
@@ -272,6 +276,23 @@ case class ServiceHandler[
       ),
       in
     )
+
+  private def runService(
+      runnableRequest: RunnableRequest[ServiceIn],
+      in: In
+  ): RunnerOutputZIO =
+
+    for
+      serviceOut <-
+        summon[EngineRunContext]
+          .sendRequest[ServiceIn, ServiceOut](runnableRequest)
+      eitherOut  <-
+        ZIO
+          .attempt(outputMapper(serviceOut, in))
+          .mapError(err => ServiceMappingError(s"Problem mapping ServiceResponse to Out: $err"))
+      out <- ZIO.fromEither(eitherOut)
+    yield out
+  end runService
 
 end ServiceHandler
 

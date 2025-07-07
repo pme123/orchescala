@@ -33,10 +33,12 @@ case class WorkerExecutor[
         else ZIO.succeed(mockedOutput.get)
       _                            <- logDebug(s"- output: $output")
       allOutputs: Map[String, Any]  = camundaOutputs(validatedInput, initializedOutput, output)
+      _                            <- logDebug(s"- allOutputs: $allOutputs")
       filteredOut: Map[String, Any] =
         filteredOutput(allOutputs, context.generalVariables.outputVariables)
+      _                            <- logDebug(s"- filteredOut: $filteredOut")
       // make MockedOutput as error if mocked
-      _                            <- if mockedOutput.isDefined then ZIO.fail(MockedOutput(filteredOut)) else ZIO.succeed(())
+      _                            <- ZIO.fail(MockedOutput(filteredOut)).when(mockedOutput.isDefined)
     yield filteredOut)
 
   object InputValidator:
