@@ -17,7 +17,7 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
 
     os.proc("sbt", "publishLocal").callOnConsole()
 
-    val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090").replace("/auth", "")
+    val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
     println(s"FSSO_BASE_URL = $fssoBaseUrl")
 
 

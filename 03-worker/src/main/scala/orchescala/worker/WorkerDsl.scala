@@ -219,7 +219,10 @@ private trait InitProcessDsl[
   protected def customInitZIO(
       inputObject: In
   ): EngineRunContext ?=> IO[InitProcessError, InitIn] =
-    ZIO.succeed(customInit(inputObject))
+    ZIO
+      .attempt(customInit(inputObject))
+      .mapError: err =>
+        InitProcessError(s"Error initializing InitIn ${inputObject}: $err")
 
   protected def customInit(in: In): InitIn = ??? // this must be implemented if customInitZIO isn't
 

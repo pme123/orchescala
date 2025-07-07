@@ -153,6 +153,8 @@ To reduce the variables you have two possibilities, that also can be combined:
 You can filter the Output with a list of variable names you are interested in.
 This list may include all variables from the output (`Out`).
 
+If you want no Output at all, you can set this variable to `Seq("NoOutput")` or any other name that is not in the output.
+
 #### 2. Manual Output Mapping
 
 - Variable: `manualOutMapping:  Boolean` - default: _false_

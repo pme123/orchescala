@@ -8,11 +8,10 @@ case class GenericFileGenerator()(using config: DevConfig):
     createOrUpdate(config.projectDir / "helper.scala", helperScala)
     os.proc("chmod", "+x", config.projectDir / "helper.scala").call()
     createIfNotExists(config.projectDir / "CHANGELOG.md", changeLog)
-    // not needed anymore TODO remove in the future
-    // os.makeDir.all(config.projectDir / ".run")
-    // os.makeDir.all(config.projectDir / ".vscode")
-    // not needed anymore createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
-    // createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
+    os.makeDir.all(config.projectDir / ".run")
+    os.makeDir.all(config.projectDir / ".vscode")
+    createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
+    createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
   end generate
 
   lazy val createScalaFmt  =
@@ -74,9 +73,10 @@ case class GenericFileGenerator()(using config: DevConfig):
        |/project/metals.sbt
        |/.bloop/
        |/.ammonite/
+       |/.run/
+       |/.vscode/
        |/.metals/
        |/.scala-build/
-       |/.vscode/settings.json
        |/.templUpdate/
        |/.camunda/element-templates/dependencies/
        |
@@ -86,7 +86,6 @@ case class GenericFileGenerator()(using config: DevConfig):
        |/**/build/
        |/**/gradle*
        |test.*
-       |
        |""".stripMargin
 
   private val helperScala = ScriptCreator()
@@ -112,14 +111,14 @@ case class GenericFileGenerator()(using config: DevConfig):
        |""".stripMargin
 
   private lazy val fssoBaseUrl =
-    sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090/auth")
+    sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
 
   private lazy val workerTestAppIntellij =
     s"""|<!-- DO NOT ADJUST. This file is replaced by `./helper.scala update` -->
         |<component name="ProjectRunConfigurationManager">
         |  <configuration default="false" name="WorkerTestApp" type="Application" factoryName="Application" nameIsGenerated="true">
         |    <envs>
-        |      <env name="FSSO_BASE_URL" value="$fssoBaseUrl" />
+        |      <env name="FSSO_BASE_URL" value="$fssoBaseUrl/auth" />
         |      <env name="WORKER_TEST_MODE" value="true" />
         |    </envs>
         |    <option name="MAIN_CLASS_NAME" value="${config.projectPackage}.worker.WorkerTestApp" />
@@ -149,7 +148,7 @@ case class GenericFileGenerator()(using config: DevConfig):
         |            "mainClass": "${config.projectPackage}.worker.WorkerTestApp",
         |            "args": [],
         |            "jvmOptions": [],
-        |            "env": { "FSSO_BASE_URL": "$fssoBaseUrl", "WORKER_TEST_MODE": "true"},
+        |            "env": { "FSSO_BASE_URL": "$fssoBaseUrl/auth", "WORKER_TEST_MODE": "true"},
         |        }
         |    ]
         |}

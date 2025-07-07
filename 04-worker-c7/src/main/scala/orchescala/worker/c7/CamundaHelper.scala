@@ -157,9 +157,17 @@ object CamundaHelper:
         typedValue.getValue match
           case vt: DmnValueSimple     =>
             import DmnValueSimple.given
-            ZIO.succeed(vt.asJson)
+            ZIO
+              .attempt(vt.asJson)
+              .mapError(ex =>
+                BadVariableError(s"Input is not valid: $ex")
+              )
           case en: scala.reflect.Enum =>
-            ZIO.succeed(Json.fromString(en.toString))
+            ZIO
+              .attempt(Json.fromString(en.toString))
+              .mapError(ex =>
+                BadVariableError(s"Input is not valid: $ex")
+              )
           case null                  =>
             ZIO.succeed(Json.Null)
           case other                  =>

@@ -71,13 +71,21 @@ trait RestApiClient:
       body: String
   ): IO[ServiceBadBodyError, ServiceOut] =
     if hasNoOutput[ServiceOut]()
-    then ZIO.succeed(NoOutput().asInstanceOf[ServiceOut])
+    then 
+      ZIO
+        .attempt(NoOutput().asInstanceOf[ServiceOut])
+        .mapError(err =>
+          ServiceBadBodyError(s"Problem creating body from response.\n$err\nBODY: $body")
+        )
     else
       if body.isBlank then
         val runtimeClass = implicitly[ClassTag[ServiceOut]].runtimeClass
         runtimeClass match
           case x if x == classOf[Option[?]] =>
-            ZIO.succeed(None.asInstanceOf[ServiceOut])
+            ZIO
+              .attempt(None.asInstanceOf[ServiceOut])
+              .mapError: err =>
+                ServiceBadBodyError(s"Problem creating body from response.\n$err\nBODY: $body")
           case other                        =>
             ZIO.fail(ServiceBadBodyError(
               s"There is no body in the response and the ServiceOut is neither NoOutput nor Option (Class is $other)."
