@@ -1,7 +1,6 @@
 package orchescala.helper.dev
 
 import orchescala.helper.dev.company.docs.DocCreator
-import orchescala.helper.dev.publish.PublishHelper
 import orchescala.helper.dev.publish.PublishHelper.*
 import orchescala.helper.util.{DevConfig, PublishConfig}
 

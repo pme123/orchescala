@@ -10,6 +10,7 @@ case class CompanySbtGenerator()(using
 
   lazy val sbtGenerator   = SbtGenerator()
   lazy val generate: Unit =
+    println("Generate Company Sbt")
     createIfNotExists(buildSbtDir, buildSbt)
     sbtGenerator.generateBuildProperties(helperCompanyDoNotAdjustText)
     createOrUpdate(config.sbtProjectDir / "plugins.sbt", pluginsSbt)
@@ -19,6 +20,7 @@ case class CompanySbtGenerator()(using
 
   private lazy val projectConf = config.apiProjectConfig
   private lazy val buildSbtDir = config.projectDir / "build.sbt"
+  private lazy val companyNameUpper = companyName.toUpperCase()
 
   private lazy val projectDev =
     s"""// $helperCompanyDoNotAdjustText
@@ -52,6 +54,7 @@ case class CompanySbtGenerator()(using
        |  val orchescalaV = "${BuildInfo.version}"
        |  val camundaV = "${BuildInfo.camundaVersion}"
        |  val mUnitVersion = "${BuildInfo.mUnitVersion}"
+       |  val zioVersion = "${BuildInfo.zioVersion}"
        |  // project
        |  val projectOrg = ProjectDef.org
        |  val projectV = ProjectDef.version
@@ -74,15 +77,16 @@ case class CompanySbtGenerator()(using
        |    scalacOptions ++= Seq(
        |      "-Xmax-inlines:200" // is declared as erased, but is in fact used
        |      // "-Vprofile",
-       |    )
+       |    ),
+       |    resolvers ++= Seq(releaseRepo),
+       |
        |  ) ++ module.map(m => name := s"$$projectName-$$m").toSeq
        |
        |  def autoImportSetting(module: Option[String] = None) =
        |    scalacOptions +=
        |      (module.toSeq.map(m => s"orchescala.$$m") ++
        |        Seq(
-       |          "java.lang", "java.time", "scala", "scala.Predef",
-       |          "orchescala.domain",
+       |          "java.lang", "java.time", "scala", "scala.Predef", "orchescala.domain",
        |          "io.circe",
        |          "io.circe.generic.semiauto", "io.circe.derivation", "io.circe.syntax", "sttp.tapir",
        |          "sttp.tapir.json.circe"
@@ -138,6 +142,9 @@ case class CompanySbtGenerator()(using
        |  lazy val domainDeps = Seq(
        |    "io.github.pme123" %% "orchescala-domain" % orchescalaV
        |  )
+       |  lazy val engineDeps = Seq(
+       |    "io.github.pme123" %% "orchescala-engine-c7" % orchescalaV,
+       |  )
        |  lazy val apiDeps = Seq(
        |    "io.github.pme123" %% "orchescala-api" % orchescalaV,
        |    typesafeConfigDep
@@ -146,12 +153,13 @@ case class CompanySbtGenerator()(using
        |    "io.github.pme123" %% "orchescala-dmn" % orchescalaV
        |  )
        |  lazy val simulationDeps = Seq(
-       |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV
+       |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV,
        |  )
        |  lazy val workerDeps = Seq(
        |    "io.github.pme123" %% "orchescala-worker-c7" % orchescalaV,
-       |    "io.github.pme123" %% "orchescala-worker-c8" % orchescalaV,
+       |    //"io.github.pme123" %% "orchescala-worker-c8" % orchescalaV,
        |  )
+       |
        |  lazy val helperDeps = apiDeps ++ Seq(
        |    "io.github.pme123" %% "orchescala-helper" % orchescalaV
        |  )
@@ -160,7 +168,58 @@ case class CompanySbtGenerator()(using
        |    libraryDependencies += "org.scalameta" %% "munit" % mUnitVersion % Test,
        |    testFrameworks += new TestFramework("munit.Framework")
        |  )
+       |
+       |  lazy val zioTestSettings = Seq(
+       |    libraryDependencies ++= zioTestDependencies,
+       |    Test / parallelExecution := true,
+       |    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+       |  )
+       |  lazy val zioTestDependencies =
+       |    Seq(
+       |      "dev.zio" %% "zio-test" % zioVersion % Test,
+       |      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
+       |    )
+       |
+       |  // REPOS
+       |  lazy val releaseRepoStr: String = sys.env.getOrElse(
+       |    "${companyNameUpper}_MVN_RELEASE_REPOSITORY",
+       |    throw new IllegalArgumentException(
+       |        "System Environment Variable ${companyNameUpper}_MVN_RELEASE_REPOSITORY is not set."
+       |      )
+       |  )
+       |  lazy val mavenRepoStr           = sys.env.getOrElse(
+       |    "${companyNameUpper}_MVN_DEPENDENCY_REPOSITORY",
+       |    throw new IllegalArgumentException(
+       |        "System Environment Variable ${companyNameUpper}_MVN_DEPENDENCY_REPOSITORY is not set."
+       |      )
+       |  )
+       |
+       |  lazy val artifactoryRealm             = "Artifactory Realm"
+       |  lazy val releaseRepo: MavenRepository = artifactoryRealm at releaseRepoStr
+       |  // not in use
+       |  // lazy val mavenRepo: MavenRepository   = artifactoryRealm at mavenRepoStr
+       |  lazy val repoCredentials: Credentials = (for {
+       |    user <- sys.env.get("${companyNameUpper}_MVN_REPOSITORY_USERNAME")
+       |    pwd  <- sys.env.get("${companyNameUpper}_MVN_REPOSITORY_PASSWORD")
+       |  } yield Credentials(artifactoryRealm, "bin.swisscom.com", user, pwd))
+       |    .getOrElse(
+       |      throw new IllegalArgumentException(
+       |        "System Environment Variables ${companyNameUpper}_MVN_REPOSITORY_USERNAME and/ or ${companyNameUpper}_MVN_REPOSITORY_PASSWORD are not set."
+       |      )
+       |    )
        |  // publish
+       |
+       |  lazy val publicationSettings = Seq(
+       |    credentials ++= Seq(repoCredentials),
+       |    isSnapshot                   := false,
+       |    publishTo                    := Some(releaseRepo),
+       |    // Enables publishing to maven repo
+       |    publishMavenStyle            := true,
+       |    packageDoc / publishArtifact := false,
+       |    // disable using the Scala version in output paths and artifacts
+       |    // crossPaths := false,
+       |    // logLevel := Level.Debug,
+       |  )
        |
        |  lazy val preventPublication = Seq(
        |    publish := {},
@@ -171,7 +230,7 @@ case class CompanySbtGenerator()(using
        |""".stripMargin
 
   private lazy val buildSbt =
-    s"""// $howToResetText
+    s"""// $helperCompanyHowToResetText
        |import sbt.*
        |import sbt.Keys.*
        |import Settings.*
@@ -185,6 +244,7 @@ case class CompanySbtGenerator()(using
        |  .settings(preventPublication)
        |  .aggregate(
        |    domain,
+       |    engine,
        |    api,
        |    dmn,
        |    simulation,
@@ -200,6 +260,13 @@ case class CompanySbtGenerator()(using
        |  .settings(libraryDependencies ++= domainDeps)
        |  .settings(buildInfoSettings())
        |  .enablePlugins(BuildInfoPlugin)
+       |
+       |lazy val engine = project
+       |  .in(file("./01-engine"))
+       |  .settings(generalSettings(Some("engine")))
+       |  .settings(publicationSettings)
+       |  .settings(libraryDependencies ++= engineDeps)
+       |  .dependsOn(domain)
        |
        |lazy val api = project
        |  .in(file("./03-api"))
@@ -221,7 +288,7 @@ case class CompanySbtGenerator()(using
        |  .settings(generalSettings(Some("simulation")))
        |  .settings(publicationSettings)
        |  .settings(libraryDependencies ++= simulationDeps)
-       |  .dependsOn(domain)
+       |  .dependsOn(engine)
        |
        |lazy val worker = project
        |  .in(file("./03-worker"))
@@ -229,7 +296,7 @@ case class CompanySbtGenerator()(using
        |  .settings(publicationSettings)
        |  .settings(unitTestSettings)
        |  .settings(libraryDependencies ++= workerDeps)
-       |  .dependsOn(domain)
+       |  .dependsOn(engine)
        |
        |lazy val helper = project
        |  .in(file("./04-helper"))
@@ -249,23 +316,7 @@ case class CompanySbtGenerator()(using
        |  .settings(laikaSettings)
        |  .enablePlugins(LaikaPlugin)
        |
-       |// Releasing
        |
-       |lazy val publicationSettings = Seq(
-       |  //TODO credentials ++= Seq(repoCredentials),
-       |  isSnapshot := false,
-       |  //TODO publishTo := Some(releaseRepo),
-       |  // Enables publishing to maven repo
-       |  publishMavenStyle := true,
-       |  packageDoc / publishArtifact := false,
-       |  // disable using the Scala version in output paths and artifacts
-       |  // crossPaths := false,
-       |  //TODO resolvers ++= Seq(releaseRepo),
-       |  // logLevel := Level.Debug,
-       |)
-       |
-       |//TODO lazy val repoCredentials: Credentials = ???
-       |//TODO lazy val releaseRepo = ???
        |""".stripMargin
   end buildSbt
 

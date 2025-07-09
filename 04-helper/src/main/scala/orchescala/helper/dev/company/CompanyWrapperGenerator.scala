@@ -6,11 +6,12 @@ import orchescala.helper.util.*
 case class CompanyWrapperGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
+    println("Generate Company Wrapper")
     createIfNotExists(projectDomainPath, domainWrapper)
+    createIfNotExists(projectEnginePath, engineWrapper)
     createIfNotExists(projectApiPath, apiWrapper)
     createIfNotExists(projectDmnPath, dmnWrapper)
     createIfNotExists(projectSimulationPath, simulationWrapper)
-    os.makeDir.all(projectWorkerOrchescalaPath)
     createIfNotExists(projectWorkerPath, workerWrapper)
     createIfNotExists(projectWorkerContextPath, workerContextWrapper)
     createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
@@ -22,10 +23,10 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val companyName = config.companyName
 
   private lazy val projectDomainPath = ModuleConfig.domainModule.srcPath / "CompanyBpmnDsl.scala"
+  private lazy val projectEnginePath = ModuleConfig.engineModule.srcPath / "CompanyEngineConfig.scala"
   private lazy val projectApiPath = ModuleConfig.apiModule.srcPath / "CompanyApiCreator.scala"
   private lazy val projectDmnPath = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
   private lazy val projectSimulationPath = ModuleConfig.simulationModule.srcPath / "CompanySimulation.scala"
-  private lazy val projectWorkerOrchescalaPath = os.Path(ModuleConfig.workerModule.srcPath.toString.replace(s"/$companyName", ""))
   private lazy val projectWorkerPath = ModuleConfig.workerModule.srcPath / "CompanyWorker.scala"
   private lazy val projectWorkerContextPath = ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
   private lazy val projectWorkerPasswordPath = ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
@@ -52,6 +53,35 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |trait CompanyBpmnMessageEventDsl extends BpmnMessageEventDsl, CompanyBpmnDsl
        |trait CompanyBpmnSignalEventDsl extends BpmnSignalEventDsl, CompanyBpmnDsl
        |trait CompanyBpmnTimerEventDsl extends BpmnTimerEventDsl, CompanyBpmnDsl
+       |""".stripMargin
+
+  private lazy val engineWrapper =
+    s"""package $companyName.orchescala
+       |package engine
+       |
+       |/**
+       | * Add here company specific stuff, to configure the Engine.
+       | */
+       |lazy val fssoClientName = sys.env.getOrElse("FSSO_CLIENT_NAME", "myClient")
+       |  lazy val fssoClientSecret =
+       |    sys.env.getOrElse("FSSO_CLIENT_SECRET", "mySecret")
+       |  lazy val fssoScope = sys.env.getOrElse("FSSO_SCOPE", "myScope")
+       |
+       |  lazy val fssoTechuserName = sys.env.getOrElse("FSSO_TECHUSER_NAME", "admin")
+       |  lazy val fssoTechuserPassword = sys.env.getOrElse("FSSO_TECHUSER_PASSWORD", "admin")
+       |
+       |
+       |  lazy val fssoRealm: String = sys.env.getOrElse("FSSO_REALM", "MY_REALM")
+       |  lazy val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+       |  lazy val camundaRestUrl = sys.env.getOrElse("CAMUNDA_BASE_URL", "http://localhost:8080/engine-rest")
+       |
+       |  lazy val client_id = fssoClientName
+       |  lazy val client_secret = fssoClientSecret
+       |  lazy val scope = fssoScope
+       |  lazy val username = fssoTechuserName
+       |  lazy val password = fssoTechuserPassword
+       |
+       |end CompanyEngineConfig
        |""".stripMargin
 
   private lazy val apiWrapper =
@@ -102,7 +132,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.worker.c7.{C7Context, C7Worker}
-       |import orchescala.worker.c8.{C8Context, C8Worker}
+       |//import orchescala.worker.c8.{C8Context, C8Worker}
        |import $companyName.orchescala.worker.*
        |
        |import scala.reflect.ClassTag
@@ -112,9 +142,9 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        | * You also define the implementation of the Worker here.
        | */
        |trait CompanyWorker[In <: Product : InOutCodec, Out <: Product : InOutCodec]
-       |  extends C7Worker[In, Out], C8Worker[In, Out]
+       |  extends C7Worker[In, Out]/*, C8Worker[In, Out]*/:
        |  protected def c7Context: C7Context = CompanyEngineContext(CompanyRestApiClient())
-       |  protected def c8Context: C8Context = CompanyEngineContext(CompanyRestApiClient())
+       |//  protected def c8Context: C8Context = CompanyEngineContext(CompanyRestApiClient())
        |
        |trait CompanyValidationWorkerDsl[
        |    In <: Product: InOutCodec
@@ -144,7 +174,6 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.worker.c7.C7Context
-       |import scala.compiletime.uninitialized
        |import scala.reflect.ClassTag
        |
        |class CompanyEngineContext(restApiClient: CompanyRestApiClient) extends C7Context:

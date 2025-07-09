@@ -77,7 +77,7 @@ case class SbtGenerator()(using
       }
        |}""".stripMargin
 
-  private lazy val sbtRoot =
+  lazy val sbtRoot =
     s"""
        |lazy val root = project
        |  .in(file("."))
@@ -87,7 +87,7 @@ case class SbtGenerator()(using
        |    publicationSettings, //Camunda artifacts
        |  ).aggregate(${config.modules.map(_.name).mkString(", ")})
        |""".stripMargin
-  private lazy val sbtModules =
+  lazy val sbtModules =
     config.modules
       .map: modC =>
         val name = modC.name

@@ -47,6 +47,7 @@ object DevCompanyHelper:
     println(s"Create Project: ${projectName.replace(s"-$companyName", "")} - Company: $companyName")
     val name = s"$companyName-${projectName.replace(s"$companyName-", "")}"
     val configPath = projectsPath / name / defaultProjectConfigPath
+    os.makeDir.all(configPath / os.up)
     createIfNotExists(configPath, apiProjectConfig(name))
     given config: DevConfig = DevConfig.init(configPath)
     CompanyGenerator().createProject

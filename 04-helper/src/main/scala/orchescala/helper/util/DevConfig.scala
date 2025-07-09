@@ -98,6 +98,7 @@ object DevConfig:
 
   lazy val modules: Seq[ModuleConfig] = Seq(
     domainModule,
+    engineModule,
     apiModule,
     dmnModule,
     simulationModule,
@@ -154,6 +155,11 @@ object ModuleConfig:
     testType = TestType.MUnit,
     generateSubModule = true,
     hasProjectDependencies = true
+  )
+  lazy val engineModule     = ModuleConfig(
+    "engine",
+    level = 2,
+    testType = TestType.MUnit
   )
   lazy val apiModule        = ModuleConfig(
     "api",

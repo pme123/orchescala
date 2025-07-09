@@ -57,7 +57,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |$sbtAutoImportSetting
        |}""".stripMargin
 
-  private lazy val projectSettings =
+  lazy val projectSettings =
     s"""  def projectSettings(
        |                       module: Option[String] = None,
        |                       postfix: Option[String] = None
@@ -90,7 +90,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |    )
        |  )
        |""".stripMargin
-  private lazy val sbtPublish      =
+  lazy val sbtPublish      =
     s"""  lazy val preventPublication = Seq(
        |    publish / skip := true,
        |    publish := {},
@@ -108,7 +108,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |    crossPaths := false
        |  )""".stripMargin
 
-  private lazy val sbtDependencies =
+  lazy val sbtDependencies =
     config.modules
       .map: moduleConfig =>
         val name         = moduleConfig.name
@@ -130,7 +130,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
            |""".stripMargin
       .mkString
 
-  private lazy val sbtRepos =
+  lazy val sbtRepos =
     s"""// Credentials
        |${
         repoConfig.credentials
@@ -146,12 +146,12 @@ case class SbtSettingsGenerator()(using config: DevConfig):
           .mkString
       }""".stripMargin
 
-  private lazy val sbtDocker =
+  lazy val sbtDocker =
     s"  lazy val dockerSettings = " +
       config.sbtConfig.dockerSettings
         .getOrElse("Seq()")
 
-  private lazy val testSettings =
+  lazy val testSettings =
     s"""  lazy val testSettings = Seq(
        |    libraryDependencies += mUnit,
        |    Test / parallelExecution := true,
@@ -174,7 +174,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |  
        |""".stripMargin
 
-  private lazy val sbtAutoImportSetting =
+  lazy val sbtAutoImportSetting =
     """  def autoImportSetting(customAutoSettings: Seq[String]) =
       |    scalacOptions +=
       |      (customAutoSettings ++
