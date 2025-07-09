@@ -232,7 +232,9 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     ): HelperContext[Int] =
       val doRetryMsgs = Seq(
         "Entity was updated by another transaction concurrently",
-        "An exception occurred in the persistence layer"
+        "An exception occurred in the persistence layer",
+        "Exception when sending request: GET", // sttp.client3.SttpClientException$ReadException
+        "Exception when sending request: PUT" // only GET and PUT to be safe a POST is not executed again
         //  "Service Unavailable",
         //  "Gateway Timeout"
       ).map(_.toLowerCase)

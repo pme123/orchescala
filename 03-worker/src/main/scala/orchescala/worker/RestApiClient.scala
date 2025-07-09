@@ -59,7 +59,7 @@ trait RestApiClient:
       req.send(backend)
         .mapError(ex =>
           val unexpectedError =
-            s"""Unexpected error while sending request: ${ex.getMessage} / ${ex.getClass}.
+            s"""Unexpected error while sending request: ${ex.getMessage} / ${ex.getCause.getMessage} / ${ex.getClass}.
                | -> ${req.toCurl(Set("Authorization"))}
                |""".stripMargin
           ServiceUnexpectedError(unexpectedError)
