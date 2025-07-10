@@ -17,12 +17,9 @@ case class ApiGenerator()(using config: DevConfig):
     s"""package ${config.projectPackage}
        |package api
        |
-       |//       |
        |object ApiProjectCreator extends CompanyApiCreator:
        |
-       |  lazy val projectName: String = "${config.projectName}"
-       |
-       |  val title = "${config.projectClassName}"
+       |  val title = "${config.projectName}"
        |
        |  lazy val projectDescr =
        |    "TODO Your Project description."

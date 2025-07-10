@@ -262,7 +262,7 @@ case class CompanySbtGenerator()(using
        |  .enablePlugins(BuildInfoPlugin)
        |
        |lazy val engine = project
-       |  .in(file("./01-engine"))
+       |  .in(file("./02-engine"))
        |  .settings(generalSettings(Some("engine")))
        |  .settings(publicationSettings)
        |  .settings(libraryDependencies ++= engineDeps)

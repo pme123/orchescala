@@ -49,16 +49,18 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
   end updateTemplates
 
   private def updateBpmnColors(): Unit =
-    println("Adjust Color for:")
-    projectsConfig.projectConfig(docProjectConfig.projectName)
-      .map: pc =>
-        os.walk(os.pwd / diagramPath)
-          .filter:
-            _.toString.endsWith(".bpmn")
-          .map: p =>
-            p -> os.read(p)
-          .map:
-            extractUsesRefs
+    if os.exists(os.pwd / diagramPath) then
+      println("Adjust Color for:")
+      projectsConfig.projectConfig(docProjectConfig.projectName)
+        .map: pc =>
+          os.walk(os.pwd / diagramPath)
+            .filter:
+              _.toString.endsWith(".bpmn")
+            .map: p =>
+              p -> os.read(p)
+            .map:
+              extractUsesRefs
+    else println("No BPMN Diagrams found")
   end updateBpmnColors
   
   private lazy val templConfig = apiConfig.modelerTemplateConfig
