@@ -39,10 +39,13 @@ case class VersionHelper(
     dependencyVersions
       .map:
         case name -> _ =>
-          s""""${projectConf.companyName}" % "$name-$moduleName" % ${variableName(name)}Version${
+          s""""${companyName(name)}" % "$name-$moduleName" % ${variableName(name)}Version${
               if testOnly then " % Test" else ""
             }"""
       .toSeq.sorted.mkString(",\n    ")
+
+  private def companyName(name: String) = // company-project -> companyProject
+    name.split("-").head
 
   private def variableName(name: String) = // company-project -> companyProject
     name.split("-").toList match

@@ -40,12 +40,17 @@ trait WorkerApp extends ZIOAppDefault:
         _ <- printJvmInfologInfo
         _ <- MemoryMonitor.start
         _ <- foreachParDiscard(workerRegistries): registry =>
-               registry.register((theDependencies :+ this).flatMap(_.theWorkers).toSet)
+               registry.register(workerApps(this).flatMap(_.theWorkers).toSet)
       yield ()
     .provideLayer(
       EngineRuntime.sharedExecutorLayer ++
         HttpClientProvider.live
     )
+  private[worker] def workerApps(workerApp: WorkerApp): Seq[WorkerApp] =
+    workerApp.theDependencies match
+      case Nil => Seq(workerApp)
+      case _   => workerApp +:
+        workerApp.theDependencies.flatMap(workerApps)
 
   private lazy val banner =
     s"""

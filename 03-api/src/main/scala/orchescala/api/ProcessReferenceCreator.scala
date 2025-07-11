@@ -88,7 +88,7 @@ trait ProcessReferenceCreator:
               !c.contains(s"id=\"$refId\"")
             }
             .map { pc =>
-              println(s"-> $processName ${pc._1} - ${pc._2}")
+              //println(s"-> $processName ${pc._1} - ${pc._2}")
               docuPath(processName, pc._1, pc._2)
             }
         }

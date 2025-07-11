@@ -1,8 +1,5 @@
 package orchescala.api
 
-import com.typesafe.config.ConfigFactory
-
-import scala.jdk.CollectionConverters.CollectionHasAsScala
 import scala.util.Try
 
 case class DocProjectConfig(
@@ -18,7 +15,7 @@ case class DocProjectConfig(
   lazy val version: String                    = projectVersion.toString
   lazy val versionAsInt: Int                  = projectVersion.versionAsInt
 
-  lazy val dependencies: Seq[DependencyConfig] = apiProjectConfig.dependencies
+  lazy val dependencies: Seq[DependencyConfig] = apiProjectConfig.dependencies ++ apiProjectConfig.workerDependencies
 
   lazy val isNew                =
     projectVersion.isMajor(versionPreviousConf) || projectVersion.isMinor(versionPreviousConf)

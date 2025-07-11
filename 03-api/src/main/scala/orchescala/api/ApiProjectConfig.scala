@@ -7,7 +7,9 @@ final case class ApiProjectConfig(
     projectName: String,
     projectVersion: VersionConfig,
     subProjects: Seq[String],
-    dependencies: Seq[DependencyConfig]
+    dependencies: Seq[DependencyConfig],
+    // additional dependencies for the worker module only
+    workerDependencies: Seq[DependencyConfig]
 ):
   lazy val companyName: String = projectName.split("-").head
 end ApiProjectConfig
@@ -32,6 +34,10 @@ object ApiProjectConfig:
            |  // example-helper
            |  // example-accounts
            |]
+           |// dependecies only for the worker module
+           |workerDependencies: [
+           |  // example-worker
+           |]
            |""".stripMargin
       )
     end if
@@ -45,12 +51,17 @@ object ApiProjectConfig:
     val subProjects    = projectConfig.getStringList("subProjects").asScala.toSeq
     val dependencies   =
       projectConfig.getStringList("dependencies").asScala.map(DependencyConfig.apply).toSeq
+    val workerDependencies =
+      if projectConfig.hasPath("workerDependencies") then
+        projectConfig.getStringList("workerDependencies").asScala.map(DependencyConfig.apply).toSeq
+      else Seq.empty
 
     ApiProjectConfig(
       projectName,
       VersionConfig(projectVersion),
       subProjects,
-      dependencies
+      dependencies,
+      workerDependencies
     )
   end apply
 
@@ -59,7 +70,8 @@ object ApiProjectConfig:
       projectName = projectName,
       projectVersion = VersionConfig(projectVersion),
       subProjects = Seq.empty,
-      dependencies = Seq.empty
+      dependencies = Seq.empty,
+      workerDependencies = Seq.empty
     )
 end ApiProjectConfig
 
