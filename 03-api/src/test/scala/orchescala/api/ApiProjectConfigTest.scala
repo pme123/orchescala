@@ -16,7 +16,8 @@ class ApiProjectConfigTest extends FunSuite:
         Seq(
           DependencyConfig("mastercompany-services"),
           DependencyConfig("mycompany-commons")
-        )
+        ),
+        Seq.empty
       )
     )
 

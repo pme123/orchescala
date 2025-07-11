@@ -136,7 +136,7 @@ open helperCompany.scala</span></code></pre>
             <pre class="keep-together pdf epub"><code class="nohighlight"><span>#!/</span><span class="identifier">usr</span><span>/</span><span class="identifier">bin</span><span>/</span><span class="identifier">env</span><span> -</span><span class="type-name">S</span><span> </span><span class="identifier">scala</span><span> </span><span class="identifier">shebang</span><span>
 </span><span class="comment">// DO NOT ADJUST. This file is replaced by `./helper.scala update`.
 </span><span>
-</span><span class="comment">//&gt; using dep io.github.pme123::orchescala-helper:0.2.8
+</span><span class="comment">//&gt; using dep io.github.pme123::orchescala-helper:0.2.9
 </span><span>
 </span><span class="keyword">import</span><span> </span><span class="identifier">orchescala</span><span>.</span><span class="identifier">helper</span><span>.</span><span class="identifier">dev</span><span>.</span><span class="type-name">DevCompanyHelper</span><span>
 
@@ -153,13 +153,20 @@ open helperCompany.scala</span></code></pre>
             <pre class="keep-together pdf epub"><code class="nohighlight"><span>./helperCompany.scala init</span></code></pre>
           </li>
           <li>
+            <p>Set the environment variables for the company:</p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">export</span><span> SWISSCOM_MVN_REPOSITORY_USERNAME=myUsername
+</span><span class="identifier">export</span><span> SWISSCOM_MVN_REPOSITORY_PASSWORD=myPassword
+</span><span class="identifier">export</span><span> SWISSCOM_MVN_RELEASE_REPOSITORY=</span><span class="string-literal">&quot;https://myArtifactory.com/myReleaseRepo&quot;</span><span>
+</span><span class="identifier">export</span><span> SWISSCOM_MVN_DEPENDENCY_REPOSITORY=</span><span class="string-literal">&quot;https://myArtifactory.com/myDependencyRepo&quot;</span></code></pre>
+          </li>
+          <li>
             <p>Open the <code>company-orchescala</code> directory with your IDE (I use Intellij).</p>
           </li>
           <li>
             <p>Import the sbt project. The project should compile without errors.</p>
           </li>
           <li>
-            <p>Update <code>build.sbt</code> with your repository settings.</p>
+            <p>Go to the generated Classes and make adjustments as needed.</p>
           </li>
           <li>
             <p>Add your project to your Version Source Control.</p>

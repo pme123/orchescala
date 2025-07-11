@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.9 - 2025-07-11
+### Changed 
+- Fixes for ApiCreator for other project / dependencies - new workerDependencies. - see [Commit](git@github.com:pme123/orchescala/commit/8f925cfd47c327109872e5cd2bbcb79cafdc195b)
+- Fixes for release other project. - see [Commit](git@github.com:pme123/orchescala/commit/5c16e053b510acff17e1a8b772861041f2724140)
+- Adjusted companyHelper init code generation. - see [Commit](git@github.com:pme123/orchescala/commit/e5bc057674198aec9a8357e57873bdcc41fe0b6d)
+- Added 'Unexpected error while sending request' to retry list / added cause to error message. - see [Commit](git@github.com:pme123/orchescala/commit/c11f77ea84029e4b41856721c17d179ba4eb0348)
+- Fixed hidden errors ZIO.fromEither in ServiceHandler. - see [Commit](git@github.com:pme123/orchescala/commit/931918aea35acdc9903cdffbda059abb8a1df5c4)
+
 ## 0.2.8 - 2025-07-07
 ### Changed 
 - Adjusted FSSO_BASE_URL - as the path may be different on local and remote environments. - see [Commit](git@github.com:pme123/orchescala/commit/066f211af177d4a4bf37c7158aef3c13619780b5)
