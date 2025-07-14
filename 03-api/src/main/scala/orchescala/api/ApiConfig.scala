@@ -3,6 +3,7 @@ package api
 
 import orchescala.domain.diagramPath
 import sttp.apispec.openapi.Contact
+import zio.{Runtime, Unsafe, ZIO}
 
 case class ApiConfig(
     // your company name like 'mycompany'
@@ -42,10 +43,15 @@ case class ApiConfig(
     .distinct
 
   lazy val init: Unit =
-    println(s"otherProjectsConfig: ${otherProjectsConfig.projectConfigs}")
-    projectsConfig.init(tempGitDir)
-    otherProjectsConfig.init(tempGitDir)
-  
+    Unsafe.unsafe:
+      implicit unsafe =>
+        Runtime.default.unsafe.run(
+          projectsConfig.init(tempGitDir) *>
+            otherProjectsConfig.init(tempGitDir)
+        ).getOrThrow()
+
+  end init
+
   def withTenantId(tenantId: String): ApiConfig =
     copy(tenantId = Some(tenantId))
 
@@ -102,10 +108,10 @@ object ApiConfig:
 end ApiConfig
 
 case class ProjectsConfig(
-                           // Path to your ApiProjectConf - default is os.pwd / PROJECT.conf
-                           projectConfPath: os.RelPath = defaultProjectConfigPath,
-                           // grouped configs per GitRepos - so it is possible to use projects from different Repos
-                           perGitRepoConfigs: Seq[ProjectsPerGitRepoConfig] = Seq.empty
+    // Path to your ApiProjectConf - default is os.pwd / PROJECT.conf
+    projectConfPath: os.RelPath = defaultProjectConfigPath,
+    // grouped configs per GitRepos - so it is possible to use projects from different Repos
+    perGitRepoConfigs: Seq[ProjectsPerGitRepoConfig] = Seq.empty
 ):
 
   lazy val isConfigured: Boolean = perGitRepoConfigs.nonEmpty
@@ -118,9 +124,9 @@ case class ProjectsConfig(
       .find(_.containsProject(projectName))
       .map(_.cloneBaseUrl)
 
-  def init(tempGitDir: os.Path): Unit =
-    println(s"Init Projects in $tempGitDir")
-    perGitRepoConfigs.foreach(_.init(tempGitDir))
+  def init(tempGitDir: os.Path) =
+    ZIO.logInfo(s"Init Projects in $tempGitDir") *>
+      ZIO.foreachPar(perGitRepoConfigs)(_.init(tempGitDir))
   end init
 
   def initProject(projectName: String, tempGitDir: os.Path): Unit =
@@ -135,10 +141,10 @@ case class ProjectsConfig(
   lazy val colors: Seq[(String, String)] = projectConfigs.map { project =>
     project.name -> project.color
   }
-  
-  def colorForId(refName:String, ownProjectName: String): Option[(String, String)] =
+
+  def colorForId(refName: String, ownProjectName: String): Option[(String, String)] =
     colors.find:
-      case (id, _) => refName.startsWith(id) && ! refName.startsWith(ownProjectName)
+      case (id, _) => refName.startsWith(id) && !refName.startsWith(ownProjectName)
 
   def hasProjectGroup(
       projectName: String,
@@ -155,7 +161,7 @@ case class ProjectsConfig(
       .replace(
         s"${projectName.replace(s"$companyId-", "")}-",
         ""
-      ) // myproject-myprocess -> myprocess
+      )                            // myproject-myprocess -> myprocess
   end refIdentShort
 
   // if projectName is not known
@@ -164,16 +170,18 @@ case class ProjectsConfig(
 
     projectNames.find(refIdent.startsWith)
       .map(pn =>
-        refIdent.replace(s"$pn-", "")  // case myCompany-myProject-myProcess
+        refIdent.replace(s"$pn-", "") // case myCompany-myProject-myProcess
           .replace(s"$companyId-", "") // case myCompany-myProject > where no myProcess
       )
-      .orElse(          // case myProject-myProcess
+      .orElse(     // case myProject-myProcess
         projectNames.map(_.replace(s"$companyId-", ""))
           .find(refIdent.startsWith)
           .map(pn =>
             refIdent.replace(s"$pn-", "")
-          )).getOrElse( // or any other process
-        refIdent)
+          )
+      ).getOrElse( // or any other process
+        refIdent
+      )
   end refIdentShort
 
   def projectNameForRef(processRef: String): String =
@@ -182,7 +190,7 @@ case class ProjectsConfig(
       .map(_.name)
       .getOrElse("NO PROJECT FOUND")
   end projectNameForRef
-  
+
 end ProjectsConfig
 
 case class ProjectsPerGitRepoConfig(
@@ -193,10 +201,12 @@ case class ProjectsPerGitRepoConfig(
     projects: Seq[ProjectConfig]
 ):
 
-  def init(gitDir: os.Path): Unit =
-    projects.foreach: project =>
-      val gitRepo = s"$cloneBaseUrl/${project.name}.git"
-      updateProject(project.absGitPath(gitDir), gitRepo)
+  def init(gitDir: os.Path) =
+    ZIO.foreachPar(projects): project =>
+      ZIO.attempt {
+        val gitRepo = s"$cloneBaseUrl/${project.name}.git"
+        updateProject(project.absGitPath(gitDir), gitRepo)
+      }
 
   def initProject(gitDir: os.Path, projectName: String): Unit =
     projects.find(_.name == projectName)

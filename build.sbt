@@ -103,6 +103,8 @@ lazy val api = project
     autoImportSetting,
     libraryDependencies ++=
       Seq(
+        zioDependency,
+        zioSlf4jDependency,
         "org.scala-lang.modules" %% "scala-xml" % scalaXmlVersion,
         "com.typesafe"            % "config"    % typesafeConfigVersion
       )
