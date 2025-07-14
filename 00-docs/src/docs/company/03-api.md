@@ -71,7 +71,7 @@ modelerTemplateConfig: ModelerTemplateConfig = ModelerTemplateConfig(),
 docBaseUrl: Option[String] = None,
 // Path, where the Git Projects are cloned - for dependency check.
 // the default is for the structure: dev-myCompany/projects/myProject
-tempGitDir: os.Path = os.pwd / os.up / os.up / "git-temp"
+tempGitDir: os.Path = os.pwd / os.up / os.up /  os.up / "git-temp"
 ```
 
 ## ProjectsConfig
@@ -217,7 +217,7 @@ Orchescala will clone or update all configured projects:
 
 for example:
 
-`https://github.com/mycompany/mycompany-myproject.git` -> `../../git-temp/mycompany-myproject`.
+`https://github.com/mycompany/mycompany-myproject.git` -> `../../../git-temp/mycompany-myproject`.
 
 It creates bullet lists grouped by projects:
 

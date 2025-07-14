@@ -91,7 +91,7 @@ case class GenericFileGenerator()(using config: DevConfig):
   private val helperScala = ScriptCreator()
     .projectHelper
 
-  private lazy val changeLog =
+  lazy val changeLog =
     s"""# Changelog
        |
        |All notable changes to this project will be documented in this file.

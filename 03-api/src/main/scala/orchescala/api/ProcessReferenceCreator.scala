@@ -23,7 +23,7 @@ trait ProcessReferenceCreator:
     apiConfig.docBaseUrl.map(u => s"$u/$project").getOrElse("NOT_SET")
 
   private lazy val projectConfigs: Seq[ProjectConfig] =
-    apiConfig.projectsConfig.projectConfigs
+    apiConfig.projectsConfig.projectConfigs ++ apiConfig.otherProjectsConfig.projectConfigs
 
   lazy val allBpmns: Seq[(String, Seq[(os.Path, String)])] =
     println(s"BPMN Reference Base Directory: $gitBasePath")
@@ -34,7 +34,7 @@ trait ProcessReferenceCreator:
           (if os.exists(absBpmnPath) then
              os.walk(absBpmnPath)
            else
-             println(s"THIS PATH DOES NOT EXIST: $projectName")
+             println(s"THIS PATH DOES NOT EXIST: $absBpmnPath")
              Seq.empty
           )
 

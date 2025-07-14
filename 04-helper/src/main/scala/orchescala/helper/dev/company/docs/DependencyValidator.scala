@@ -8,7 +8,7 @@ case class DependencyValidator()(using
 ) extends DependencyCreator:
 
   @throws[IllegalStateException]
-  lazy val validateDependencies: Unit =
+  lazy val validateDependencies: Unit = {
     configs
       .map { packageConf =>
         packageConf.fullName -> packageConf.dependencies
@@ -27,8 +27,9 @@ case class DependencyValidator()(using
       case failures =>
         throw new IllegalStateException(
           s"There are Package Config dependencies that are not in the VERSION.conf listed:\n${failures
-              .mkString("\n")}\n"
+              .mkString("\n")}\n${configs.map(c => c.fullName).mkString("\n")}"
         )
+  }
 
   // This harder to tell for sure, as the process can be used directly
   // So we issue only a Warning

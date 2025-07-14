@@ -1,12 +1,13 @@
 package orchescala.helper.dev.company
 
-import orchescala.helper.dev.update.{createIfNotExists, createOrUpdate, helperDoNotAdjustText}
+import orchescala.helper.dev.update.{GenericFileGenerator, createIfNotExists, createOrUpdate, helperDoNotAdjustText}
 import orchescala.helper.util.*
 
 case class CompanyWrapperGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
     println("Generate Company Wrapper")
+    createIfNotExists(config.projectDir / "CHANGELOG.md", GenericFileGenerator().changeLog)
     createIfNotExists(projectDomainPath, domainWrapper)
     createIfNotExists(projectEnginePath, engineWrapper)
     createIfNotExists(projectApiPath, apiWrapper)
@@ -312,7 +313,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
          |  lazy val apiConfig: ApiConfig = CompanyApiCreator.apiConfig
          |    .copy(
          |      basePath = os.pwd / "00-docs",
-         |      tempGitDir = os.pwd / os.up / "git-temp"
+         |      tempGitDir = os.pwd / os.up /  os.up / "git-temp"
          |    )
          |
          |  lazy val devConfig: DevConfig = CompanyDevConfig.companyConfig

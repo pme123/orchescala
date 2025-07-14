@@ -19,6 +19,8 @@ case class ApiConfig(
     jiraUrls: Map[String, String] = Map.empty,
     // Configure your project setup
     projectsConfig: ProjectsConfig = ProjectsConfig(),
+    // For generating references to other projects, your Workers/Processes are used in
+    otherProjectsConfig: ProjectsConfig = ProjectsConfig(),
     // Configure your template generation
     modelerTemplateConfig: ModelerTemplateConfig = ModelerTemplateConfig(),
     // The URL of your published documentations
@@ -26,7 +28,7 @@ case class ApiConfig(
     docBaseUrl: Option[String] = None,
     // Path, where the Git Projects are cloned - for dependency check.
     // the default is for the structure: dev-myCompany/projects/myProject
-    tempGitDir: os.Path = os.pwd / os.up / os.up / "git-temp"
+    tempGitDir: os.Path = os.pwd / os.up / os.up / os.up / "git-temp"
 ):
   val catalogPath: os.Path = basePath / catalogFileName
 
@@ -39,7 +41,10 @@ case class ApiConfig(
     .map(_.group)
     .distinct
 
-  lazy val init: Unit = projectsConfig.init(tempGitDir)
+  lazy val init: Unit =
+    println(s"otherProjectsConfig: ${otherProjectsConfig.projectConfigs}")
+    projectsConfig.init(tempGitDir)
+    otherProjectsConfig.init(tempGitDir)
   
   def withTenantId(tenantId: String): ApiConfig =
     copy(tenantId = Some(tenantId))
@@ -60,6 +65,9 @@ case class ApiConfig(
 
   def withProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
     copy(projectsConfig = gitConfigs)
+
+  def withOtherProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
+    copy(otherProjectsConfig = gitConfigs)
 
   def withModelerTemplateConfig(modelerTemplateConfig: ModelerTemplateConfig): ApiConfig =
     copy(modelerTemplateConfig = modelerTemplateConfig)
@@ -111,6 +119,7 @@ case class ProjectsConfig(
       .map(_.cloneBaseUrl)
 
   def init(tempGitDir: os.Path): Unit =
+    println(s"Init Projects in $tempGitDir")
     perGitRepoConfigs.foreach(_.init(tempGitDir))
   end init
 

@@ -56,6 +56,7 @@ case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path):
   end create
 
   private def lineCount(fileType: String, filter: Option[String] = None): FileTypeCount =
+    os.makeDir.all(gitBasePath)
     val projectCounts =
       os.list(gitBasePath)
         .filter(_.toIO.isDirectory)

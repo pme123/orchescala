@@ -21,11 +21,12 @@ trait DocCreator extends DependencyCreator, Helpers:
     ApiProjectConfig(projectConfigPath)
 
   lazy val projectConfigs: Seq[ProjectConfig] =
-    apiConfig.projectsConfig.projectConfigs
+    apiConfig.projectsConfig.projectConfigs ++ apiConfig.otherProjectsConfig.projectConfigs
 
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
     apiConfig.projectsConfig.init
+    apiConfig.otherProjectsConfig.init
     createCatalog()
     DevStatisticsCreator(gitBasePath, apiConfig.basePath).create()
     createDynamicConf()
@@ -150,18 +151,28 @@ trait DocCreator extends DependencyCreator, Helpers:
     val versions             = extractVersions(configsLines)
     val previousVersions     = extractVersions(previousConfigsLines)
 
-    versions
-      .toSeq.flatMap:
-        case projectName -> version =>
-          val previousVersion =
-            previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
-          fetchConf(
-            projectName.replace("-worker", ""),
-            version,
-            previousVersion,
-            projectName.endsWith("worker")
-          )
+    // Use ZIO to run fetchConf in parallel
+    import zio._
 
+    val configs = Unsafe.unsafe { implicit unsafe =>
+      Runtime.default.unsafe.run(
+        ZIO.foreachPar(versions.toSeq) { case (projectName, version) =>
+          ZIO.attempt {
+            val previousVersion =
+              previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
+            fetchConf(
+              projectName.replace("-worker", ""),
+              version,
+              previousVersion,
+              projectName.endsWith("worker")
+            )
+          }
+        }
+      ).getOrThrow()
+    }
+
+    // Flatten the results and filter out None values
+    configs.flatten
   end setupConfigs
 
   private def extractVersions(
@@ -189,8 +200,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     for
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
-      _           = println(s"Project Git Path $projectPath")
-      _           = os.makeDir.all(projectPath)
+      _           = println(s"Project Git Path $projectPath / $gitBasePath")
       _           = if !os.exists(projectPath) then
                       apiConfig.projectsConfig.initProject(project, gitBasePath)
       _           = os.proc("git", "fetch", "--tags").callOnConsole(projectPath)

@@ -86,7 +86,7 @@ object CompanyOrchescalaDevHelper
 lazy val apiConfig: ApiConfig = CompanyApiCreator.apiConfig
   .copy(
     basePath = os.pwd / "00-docs",
-    tempGitDir = os.pwd / os.up / "git-temp"
+    tempGitDir = os.pwd / os.up / os.up / "git-temp"
   )
 
 lazy val devConfig: DevConfig = CompanyDevConfig.companyConfig

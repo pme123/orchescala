@@ -68,7 +68,9 @@ object VersionHelper:
     val searchResult = os.proc(
       "cs",
       "complete-dep",
-      s"$org:$project:"
+      s"$org:$project:",
+      "--mode",
+      "force"
     ).call()
     val versionRegex = """(\d+\.\d+\.\d+)""".r
     val versionStr =
