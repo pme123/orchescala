@@ -197,7 +197,7 @@
 </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">apiConfig</span><span>: </span><span class="type-name">ApiConfig</span><span> = </span><span class="type-name">CompanyApiCreator</span><span>.</span><span class="identifier">apiConfig</span><span>
   .</span><span class="identifier">copy</span><span>(
     </span><span class="identifier">basePath</span><span> = </span><span class="identifier">os</span><span>.</span><span class="identifier">pwd</span><span> / </span><span class="string-literal">&quot;00-docs&quot;</span><span>,
-    </span><span class="identifier">tempGitDir</span><span> = </span><span class="identifier">os</span><span>.</span><span class="identifier">pwd</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="string-literal">&quot;git-temp&quot;</span><span>
+    </span><span class="identifier">tempGitDir</span><span> = </span><span class="identifier">os</span><span>.</span><span class="identifier">pwd</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="string-literal">&quot;git-temp&quot;</span><span>
   )
 
 </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">devConfig</span><span>: </span><span class="type-name">DevConfig</span><span> = </span><span class="type-name">CompanyDevConfig</span><span>.</span><span class="identifier">companyConfig</span><span>

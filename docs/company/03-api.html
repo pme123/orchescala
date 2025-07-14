@@ -182,7 +182,7 @@
 </span><span class="identifier">docBaseUrl</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">String</span><span>] = </span><span class="type-name">None</span><span>,
 </span><span class="comment">// Path, where the Git Projects are cloned - for dependency check.
 // the default is for the structure: dev-myCompany/projects/myProject
-</span><span class="identifier">tempGitDir</span><span>: </span><span class="identifier">os</span><span>.</span><span class="type-name">Path</span><span> = </span><span class="identifier">os</span><span>.</span><span class="identifier">pwd</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="string-literal">&quot;git-temp&quot;</span></code></pre>
+</span><span class="identifier">tempGitDir</span><span>: </span><span class="identifier">os</span><span>.</span><span class="type-name">Path</span><span> = </span><span class="identifier">os</span><span>.</span><span class="identifier">pwd</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> /  </span><span class="identifier">os</span><span>.</span><span class="identifier">up</span><span> / </span><span class="string-literal">&quot;git-temp&quot;</span></code></pre>
         
         <h2 id="projectsconfig" class="section"><a class="anchor-link left" href="#projectsconfig"><i class="icofont-laika link">&#xef71;</i></a>ProjectsConfig</h2>
         <p>You can configure your projects.</p>
@@ -306,7 +306,7 @@
         <p>Orchescala will clone or update all configured projects:</p>
         <p><code>ProjectsConfig.perGitRepoConfigs/$project.git</code> into <code>ApiConfig.tempGitDir</code></p>
         <p>for example:</p>
-        <p><code>https://github.com/mycompany/mycompany-myproject.git</code> -&gt; <code>../../git-temp/mycompany-myproject</code>.</p>
+        <p><code>https://github.com/mycompany/mycompany-myproject.git</code> -&gt; <code>../../../git-temp/mycompany-myproject</code>.</p>
         <p>It creates bullet lists grouped by projects:</p>
         <hr>
         <p>Used in 2 Project(s)</p>
