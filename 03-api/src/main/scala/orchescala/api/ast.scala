@@ -68,11 +68,13 @@ sealed trait InOutApi[
     case _: NoInput => None
     case _          => Some(inOut.out.asJson.deepDropNullValues)
 
-  lazy val variableNamesIn: List[String] =
-    inOut.in.productElementNames.toList
+  lazy val variableNamesIn: Seq[String] = {
+    inOut.inVariableNames
+  }
 
-  lazy val variableNamesOut: List[String] =
-    inOut.out.productElementNames.toList
+  lazy val variableNamesOut: Seq[String] =
+    println(s"inOut.outVariableNames: ${inOut.outVariableNames} - ${inOut.otherEnumOutExamples}")
+    inOut.outVariableNames
 
   def apiDescription(companyName: String): String =
     s"""$descr

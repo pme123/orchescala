@@ -20,6 +20,14 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     Server(apiConfig.endpoint).description("Local Developer Server")
   )
 
+  /**
+   * You can adjust the OpenApi for Postman, e.g. to replace some values with placeholders.
+   *
+   * @param api
+   * @return adjusted api
+   */
+  protected def adjustPostmanOpenApi(api: String): String = api
+
   protected def info(title: String, description: Option[String]) =
     Info(title, version, description, contact = apiConfig.contact)
 

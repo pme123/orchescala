@@ -8,8 +8,8 @@ trait BpmnExternalTaskDsl extends BpmnDsl:
 
 trait BpmnCustomTaskDsl extends BpmnExternalTaskDsl:
   def customTask[
-      In <: Product: InOutEncoder: InOutDecoder: Schema,
-      Out <: Product: InOutEncoder: InOutDecoder: Schema
+      In <: Product: {InOutEncoder, InOutDecoder, Schema},
+      Out <: Product: {InOutEncoder, InOutDecoder, Schema}
   ](
       in: In = NoInput(),
       out: Out = NoOutput()
@@ -26,10 +26,10 @@ trait BpmnServiceTaskDsl extends BpmnExternalTaskDsl:
   def serviceVersion: String
 
   def serviceTask[
-      In <: Product: InOutCodec: ApiSchema,
-      Out <: Product: InOutCodec: ApiSchema,
-      ServiceIn: InOutEncoder: InOutDecoder,
-      ServiceOut: InOutEncoder: InOutDecoder
+      In <: Product: {InOutCodec, ApiSchema},
+      Out <: Product: {InOutCodec, ApiSchema},
+      ServiceIn: {InOutEncoder, InOutDecoder},
+      ServiceOut: {InOutEncoder, InOutDecoder}
   ](
       in: In,
       out: Out,

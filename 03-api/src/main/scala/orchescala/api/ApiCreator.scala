@@ -339,11 +339,12 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
   private def writeOpenApi(
       path: os.Path,
       api: OpenAPI,
-      docPath: os.Path
+      docPath: os.Path,
+      adjustOpenApi: String => String = identity
   ): Unit =
     if os.exists(path) then
       os.remove(path)
-    val yaml = api.toYaml
+    val yaml = adjustOpenApi(api.toYaml)
     os.write(path, yaml)
     println(s"Created Open API $path")
     println(s"See Open API Html $docPath")
