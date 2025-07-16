@@ -14,11 +14,12 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
   end generate
 
   protected lazy val workerPath: os.Path = config.workerPath(superClass.versionPackage)
-  protected lazy val workerPackage: String = config.workerPackage(superClass.versionPackage)
+  protected lazy val workerPackageSplitted: (String, String) = config.workerPackageSplitted(superClass.versionPackage)
 
   private lazy val generateExports =
     val content =
-      s"""package $workerPackage
+      s"""package ${workerPackageSplitted._1}
+         |package ${workerPackageSplitted._2}
          |
          |def serviceBasePath: String =
          |  s"TODO: my Base Path, like https://mycomp.com/myservice"
@@ -47,10 +48,12 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
     val superClass = apiDefinition.superClass
 
     name ->
-      s"""package $workerPackage
+      s"""package ${workerPackageSplitted._1}
+         |package ${workerPackageSplitted._2}
          |
          |import WorkerError.*
          |
+         |import ${bpmnPackageSplitted._1}.*
          |import $bpmnPackage.*
          |import $bpmnPackage.schema.*
          |import $bpmnPackage.$name.*
@@ -106,10 +109,12 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
     val superClass = apiDefinition.superClass
 
     name ->
-      s"""package $workerPackage
+      s"""package ${workerPackageSplitted._1}
+         |package ${workerPackageSplitted._2}
          |
          |import WorkerError.*
          |
+         |import ${bpmnPackageSplitted._1}.*
          |import $bpmnPackage.*
          |import $bpmnPackage.schema.*
          |import $bpmnPackage.$name.*

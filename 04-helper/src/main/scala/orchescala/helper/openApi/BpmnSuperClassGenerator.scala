@@ -17,7 +17,8 @@ case class BpmnSuperClassGenerator()(using
   end generate
 
   private lazy val content =
-    s"""package $bpmnPackage
+    s"""package ${bpmnPackageSplitted._1}
+       |package ${bpmnPackageSplitted._2}
        |
        |object $name:
        |

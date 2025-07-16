@@ -14,13 +14,17 @@ case class BpmnClassesGenerator()(using
           os.write.over(bpmnPath / s"$key.scala", content)
   end generate
 
+  private def printInOut(field: Option[ConstrField], serviceObj: BpmnServiceObject): String =
+    field.map(printField(_, serviceObj.className, "    ")).mkString("", "", "  ")
+
   private def generateModel(serviceObj: BpmnServiceObject) =
-    val name = serviceObj.className
-    val topicName = s"${config.projectTopicName}${superClass.versionTag}"
-    val printInOut: Option[ConstrField] => String =
-      _.map(printField(_, serviceObj.className, "    ")).mkString("\n", "", "  ")
-    val content =
-      s"""package $bpmnPackage
+    val name                                             = serviceObj.className
+    val topicName                                        = s"${config.projectTopicName}${superClass.versionTag}"
+    val printInOutExample: Option[ConstrField] => String =
+      _.map(f => s"    ${f.name} = ${printFieldValue(f)}").mkString("", "", "  ")
+    val content                                          =
+      s"""package ${bpmnPackageSplitted._1}
+         |package ${bpmnPackageSplitted._2} 
          |
          |import $bpmnPackage.schema.*
          |
@@ -38,34 +42,110 @@ case class BpmnClassesGenerator()(using
           "Some(",
           "Option("
         )).getOrElse(
-          "NoInput()"
+          "    NoInput()"
         )}
          |  lazy val serviceMock = MockedServiceResponse.success${serviceObj.mockStatus}${
-          serviceObj.out.map(
-            printFieldValue(_)
-          ).map(v => s"(${v.replace("Some(", "Option(")})").getOrElse("")
+          serviceObj.out
+            .map:
+              printFieldValue(_)
+            .map(v => s"(${v.replace("Some(", "Option(")})").getOrElse("")
         }
          |
-         |  case class In(${
-          serviceObj.inputParams
-            .map:
-              _.map(printField(_, "In", "    "))
-                .mkString("\n", "", "")
-            .getOrElse("")
-        }${printInOut(serviceObj.in)})
-         |${generateObject("In", serviceObj.inputParams, "  ")}
+         |${if serviceObj.in.nonEmpty then printIn(serviceObj) else "  type In = NoInput"}
+         |${if serviceObj.out.nonEmpty then printOut(serviceObj) else "  type Out = NoOutput"}
          |
-         |  case class Out(${printInOut(serviceObj.out)})
-         |${generateObject("Out", None, "  ")}
+         |  lazy val inExample = ${
+          if serviceObj.in.nonEmpty then
+            s"  In(\n${
+                serviceObj.inputParams
+                  .toSeq.flatten
+                  .map: field =>
+                    s"    ${field.name} = ${printFieldValue(field)},"
+                  .mkString("\n")
+              }\n${printInOutExample(serviceObj.in)}\n  )"
+          else "NoInput()"
+        }
+         |  lazy val inMinimalExample = inExample${
+          if serviceObj.in.nonEmpty then
+            s".copy(${
+                (serviceObj.inputParams.toSeq.flatten ++ serviceObj.in.toSeq)
+                  .map:
+                    printMinimalFieldValue(_, "    ")
+                  .mkString("\n")
+              }\n  )"
+          else ""
+        }
+         |  lazy val outExample = ${
+          if serviceObj.out.nonEmpty then s"Out(\n${printInOutExample(serviceObj.out)}\n  )"
+          else "NoOutput()"
+        }
+         |  
+         |  lazy val outMinimalExample = outExample${
+          if serviceObj.in.nonEmpty then
+            s".copy(\n${
+                serviceObj.out
+                  .map:
+                    printMinimalFieldValue(_)
+                  .getOrElse("")
+              }\n  )"
+          else ""
+        }
+         |
+         |  lazy val serviceMinimalMock = MockedServiceResponse.success${serviceObj.mockStatus}${
+          serviceObj.out
+            .map:
+              printFieldValue(_)
+            .map: v =>
+              s"(${v.replaceAll("Some(.*)", "None")
+                  .replaceAll("Seq\\(.*\\)", "Seq.empty")
+                  .replaceAll("Set\\(.*\\)", "Set.empty")})"
+            .getOrElse("")
+        } 
+         |  lazy val serviceInMinimalExample = serviceInExample
+         |${serviceObj.in
+          .map: in =>
+            s"    .copy(${printMinimalFieldValue(in)})"
+          .getOrElse:
+            ""
+        }
+         |
          |  lazy val example =
          |    serviceTask(
-         |      in = In(),
-         |      out = Out(),
+         |      in = inExample,
+         |      out = outExample,
          |      serviceMock,
          |      serviceInExample
+         |    )
+         |  lazy val minimalExample =
+         |    serviceTask(
+         |      in = inMinimalExample,
+         |      out = outMinimalExample,
+         |      serviceMinimalMock,
+         |      serviceInMinimalExample
          |    )
          |end $name
          |""".stripMargin
     serviceObj.className -> content
   end generateModel
+
+  private def printIn(serviceObj: BpmnServiceObject) =
+    s"""  case class In(
+       |  ${
+        serviceObj
+          .inputParams
+          .toSeq
+          .flatten
+          .map:
+            printField(_, "In", "    ")
+          .mkString
+      }${printInOut(serviceObj.in, serviceObj)}
+       |  )
+       |${generateObject("In", serviceObj.inputParams, "  ")}
+       |""".stripMargin
+
+  private def printOut(serviceObj: BpmnServiceObject) =
+    s"""  case class Out(
+       |${printInOut(serviceObj.out, serviceObj)}
+       |  )
+       |${generateObject("Out", None, "  ")}""".stripMargin
 end BpmnClassesGenerator

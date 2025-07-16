@@ -26,10 +26,10 @@ case class BpmnClassesCreator(
 
   private def extractOperations(key: String, path: PathItem): Seq[((String, Method), Operation)] =
     Map(
-      Method.GET -> path.getGet,
-      Method.POST -> path.getPost,
-      Method.PUT -> path.getPut,
-      Method.PATCH -> path.getPatch,
+      Method.GET    -> path.getGet,
+      Method.POST   -> path.getPost,
+      Method.PUT    -> path.getPut,
+      Method.PATCH  -> path.getPatch,
       Method.DELETE -> path.getDelete
     ).toSeq.collect:
       case method -> (op: Operation) =>
@@ -37,9 +37,9 @@ case class BpmnClassesCreator(
   end extractOperations
 
   private def createModel(key: String, method: Method, operation: Operation) =
-    val name = generateServiceName(key, method)
-    val topicName = generateServiceName(key, method, forTopic = true)
-    val serviceIn = extractRequestBodyType(operation)
+    val name           = generateServiceName(key, method)
+    val topicName      = generateServiceName(key, method, forTopic = true)
+    val serviceIn      = extractRequestBodyType(operation)
     val serviceOutPair = extractResponseBodyType(operation)
 
     BpmnServiceObject(
@@ -57,27 +57,41 @@ case class BpmnClassesCreator(
   end createModel
 
   private def generateServiceName(key: String, method: Method, forTopic: Boolean = false) =
-    val mStr = method.toString
-    val methodStr = mStr.head + mStr.tail.toLowerCase
-    val name = key
+    val mStr              = method.toString
+    val methodStr         = mStr.head + mStr.tail.toLowerCase
+    val pathElems         = key
       .split("/")
       .filterNot(_.isBlank)
-      .filterNot: x =>
-        val f = (config.filterNames.contains(x))
-        f
-      .map:
-        case i if i.startsWith("{") =>
-          i.tail.init // {id} => id
-        case i => i
-      .map: i =>
-        i.split("-")
-          .filter:
-            _.trim.nonEmpty
-          .map: e =>
-            e.head.toUpper + e.tail
-          .mkString
-      .distinct
-      .mkString
+    val pathElemsFiltered =
+      pathElems
+        .filterNot(config.filterNames.contains)
+    val pathElements: Seq[String] =
+      if pathElemsFiltered.nonEmpty then
+        pathElemsFiltered
+      else
+        pathElems.lastOption
+          .toSeq
+          .flatMap:
+            case e if e.contains("{") =>
+              pathElems.takeRight(2).toSeq
+            case e =>
+              Seq(e)
+
+    val name =
+      pathElements
+        .map:
+          case i if i.startsWith("{") =>
+            i.tail.init // {id} => id
+          case i => i
+        .map: i =>
+          i.split("-")
+            .filter:
+              _.trim.nonEmpty
+            .map: e =>
+              e.head.toUpper + e.tail
+            .mkString
+        .distinct
+        .mkString
     methodStr + name
   end generateServiceName
 
@@ -85,9 +99,9 @@ case class BpmnClassesCreator(
     Option(operation.getRequestBody)
       .flatMap: b =>
         for
-          content <- Option(b.getContent)
+          content   <- Option(b.getContent)
           mediaType <- Option(content.get("application/json"))
-          schema <- Option(mediaType.getSchema)
+          schema    <- Option(mediaType.getSchema)
         yield schema.createField(
           optExample = Option(mediaType.getExample),
           optExamples = Option(mediaType.getExamples)
@@ -97,9 +111,9 @@ case class BpmnClassesCreator(
   private def extractResponseBodyType(operation: Operation): Option[(String, ConstrField)] =
     def extract(resp: ApiResponse) =
       for
-        content <- Option(resp.getContent)
+        content   <- Option(resp.getContent)
         mediaType <- Option(content.get("application/json"))
-        schema <- Option(mediaType.getSchema)
+        schema    <- Option(mediaType.getSchema)
       yield schema.createField(
         optExample = Option(mediaType.getExample),
         optExamples = Option(mediaType.getExamples)

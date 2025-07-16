@@ -20,11 +20,12 @@ case class OpenApiConfig(
 ):
   def bpmnPath(versionTag: String): os.Path = path(ModuleConfig.domainModule, versionTag)
   def bpmnPackage(versionTag: String): String = pckg(ModuleConfig.domainModule.name, versionTag)
+  def bpmnPackageSplitted(versionTag: String): (String, String) = pckgSplitted(ModuleConfig.domainModule.name, versionTag)
   def simulationPath(versionTag: String): os.Path = path(ModuleConfig.simulationModule, versionTag)
   def simulationPackage(versionTag: String): String =
     pckg(ModuleConfig.simulationModule.name, versionTag)
   def workerPath(versionTag: String): os.Path = path(ModuleConfig.workerModule, versionTag)
-  def workerPackage(versionTag: String): String = pckg(ModuleConfig.workerModule.name, versionTag)
+  def workerPackageSplitted(versionTag: String): (String, String) = pckgSplitted(ModuleConfig.workerModule.name, versionTag)
   lazy val projectTopicName: String =
     s"$projectName${subProjectName.map(n => s"-$n").getOrElse("")}"
   lazy val typeMapping =
@@ -46,8 +47,10 @@ case class OpenApiConfig(
     outputPath(moduleConfig.nameWithLevel) / projectName.split(
       '-'
     ).toSeq / moduleConfig.name / subProjectName.toSeq / versionTag
-  private def pckg(moduleName: String, versionTag: String) =
+  private def pckg(moduleName: String, versionTag: String): String =
     s"${projectName.replace('-', '.')}.$moduleName${subProjectName.map(n => s".$n").getOrElse("")}.$versionTag"
+  private def pckgSplitted(moduleName: String, versionTag: String): (String, String) =
+    s"${projectName.replace('-', '.')}.$moduleName" -> s"${subProjectName.getOrElse("")}.$versionTag"
 
 end OpenApiConfig
 

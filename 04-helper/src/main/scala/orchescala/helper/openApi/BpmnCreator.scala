@@ -96,7 +96,7 @@ case class BpmnCreator()(using config: OpenApiConfig):
                 val defaultValue = cursor.downField(field.name).focus
                   .map:
                     case j if j.isObject =>
-                      field.tpeName + "()"
+                      field.tpeName + ".example"
                     case j if j.isArray =>
                       j.asArray
                         .map:
@@ -104,11 +104,11 @@ case class BpmnCreator()(using config: OpenApiConfig):
                             case j2 if j2.isObject =>
                               field.tpeName + "()"
                             case j2 if j2.isArray =>
-                              s"Seq.empty[${field.tpeName}] // Seq(Seq()) should not happen"
+                              s"Seq(${field.tpeName}.example) // Seq(Seq()) should not happen"
                             case elem =>
                               elem.toString
                           .mkString(", ")
-                        .getOrElse(s"Seq.empty[${field.tpeName}]")
+                        .getOrElse(s"Seq(${field.tpeName}.example)")
                     case value =>
                       value.toString
                 field.withDefaultValueAsStr(defaultValue)
