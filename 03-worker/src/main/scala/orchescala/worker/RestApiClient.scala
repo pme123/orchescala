@@ -21,13 +21,21 @@ trait RestApiClient:
       runnableRequest: RunnableRequest[ServiceIn]
   ): SendRequestType[ServiceOut] =
     for
+      _              <- ZIO.logDebug(s"Sending Request: ${runnableRequest.apiUri}")
       reqWithOptBody <- requestWithOptBody(runnableRequest)
+      _              <- ZIO.logDebug(s"Request created: ${reqWithOptBody.toCurl}")
       req            <- auth(reqWithOptBody)
+      _              <- ZIO.logDebug(s"Request authenticated: ${req.toCurl}")
       response       <- ZIO.scoped(sendRequest(req))
+      _              <- ZIO.logDebug(s"Response received: $response")
       statusCode      = response.code
+      _              <- ZIO.logDebug(s"Status Code: $statusCode")
       body           <- readBody(statusCode, response, req)
+      _              <- ZIO.logDebug(s"Body read: $body")
       headers         = response.headers.map(h => h.name -> h.value).toMap
+      _              <- ZIO.logDebug(s"Headers: $headers")
       out            <- decodeResponse[ServiceOut](body)
+      _              <- ZIO.logDebug(s"Response decoded: $out")
     yield ServiceResponse(out, headers)
 
   end sendRequest
@@ -49,7 +57,9 @@ trait RestApiClient:
   // no auth per default
   protected def auth(
       request: Request[Either[String, String], Any]
-  )(using EngineRunContext): ZIO[SttpClientBackend, ServiceAuthError, Request[Either[String, String], Any]] =
+  )(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, ServiceAuthError, Request[Either[String, String], Any]] =
     ZIO.succeed(request)
 
   protected def sendRequest(
@@ -57,13 +67,12 @@ trait RestApiClient:
   ): ZIO[SttpClientBackend, ServiceUnexpectedError, Response[Either[String, String]]] =
     ZIO.serviceWithZIO[SttpClientBackend]: backend =>
       req.send(backend)
-        .mapError(ex =>
+        .mapError: ex =>
           val unexpectedError =
-            s"""Unexpected error while sending request: ${ex.getMessage} / ${ex.getCause.getMessage} / ${ex.getClass}.
+            s"""Unexpected error while sending request: ${ex.getMessage} / ${if ex.getCause != null then ex.getCause.getMessage else "no cause"} / ${ex.getClass}.
                | -> ${req.toCurl(Set("Authorization"))}
                |""".stripMargin
           ServiceUnexpectedError(unexpectedError)
-        )
 
   protected def decodeResponse[
       ServiceOut: {InOutDecoder, ClassTag} // output of service
@@ -71,7 +80,7 @@ trait RestApiClient:
       body: String
   ): IO[ServiceBadBodyError, ServiceOut] =
     if hasNoOutput[ServiceOut]()
-    then 
+    then
       ZIO
         .attempt(NoOutput().asInstanceOf[ServiceOut])
         .mapError(err =>

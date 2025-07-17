@@ -100,7 +100,7 @@ final case class EngineRunContext(engineContext: EngineContext, generalVariables
 
   def getLogger(clazz: Class[?]): OrchescalaLogger = engineContext.getLogger(clazz)
 
-  def sendRequest[ServiceIn: InOutEncoder, ServiceOut: InOutDecoder: ClassTag](
+  def sendRequest[ServiceIn: InOutEncoder, ServiceOut: {InOutDecoder, ClassTag}](
       request: RunnableRequest[ServiceIn]
   ): SendRequestType[ServiceOut] =
     engineContext.sendRequest(request)

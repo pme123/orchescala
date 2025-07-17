@@ -155,6 +155,7 @@ case class ServiceHandler[
       inputObject: In
   ): RunnerOutputZIO =
     for
+      _                  <- ZIO.logDebug(s"Running Service: ${niceClassName(this.getClass)}")
       rRequest           <-
         ZIO.attempt(runnableRequest(inputObject))
           .mapError: err =>
@@ -162,10 +163,13 @@ case class ServiceHandler[
             ServiceUnexpectedError(
               s"There was an unexpected Error creating runnable Request: ${err.getMessage}"
             )
+      _                  <- ZIO.logDebug(s"Request created: ${rRequest.apiUri}")
       optWithServiceMock <- withServiceMock(rRequest, inputObject)
+      _                  <- ZIO.logDebug(s"optWithServiceMock: $optWithServiceMock")
       output             <- handleMocking(optWithServiceMock, rRequest).getOrElse(
                               runService(rRequest, inputObject)
                             )
+      _                  <- ZIO.logDebug(s"Output ready: $output")
     yield output
     end for
   end runWorkZIO
@@ -283,14 +287,18 @@ case class ServiceHandler[
   ): RunnerOutputZIO =
 
     for
+      _          <- ZIO.logDebug(s"Sending Request: ${runnableRequest.apiUri}")
       serviceOut <-
         summon[EngineRunContext]
           .sendRequest[ServiceIn, ServiceOut](runnableRequest)
+      _          <- ZIO.logDebug(s"Service Response: $serviceOut")
       eitherOut  <-
         ZIO
           .attempt(outputMapper(serviceOut, in))
           .mapError(err => ServiceMappingError(s"Problem mapping ServiceResponse to Out: $err"))
-      out <- ZIO.fromEither(eitherOut)
+      _          <- ZIO.logDebug(s"Either Output: $eitherOut")
+      out        <- ZIO.fromEither(eitherOut)
+      _          <- ZIO.logDebug(s"Output: $out")
     yield out
   end runService
 
