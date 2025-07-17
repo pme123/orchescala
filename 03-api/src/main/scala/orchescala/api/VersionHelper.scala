@@ -9,7 +9,7 @@ case class VersionHelper(
 ):
 
   lazy val dependencyVersions: Map[String, String] =
-    val deps = projectConf.dependencies
+    val deps = (projectConf.dependencies ++ projectConf.workerDependencies).distinct
       .map:
         case dConf @ DependencyConfig(name, version) =>
           val lastVersion = VersionHelper.repoSearch(name, dConf.companyName)

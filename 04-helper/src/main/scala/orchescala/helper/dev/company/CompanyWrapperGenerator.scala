@@ -200,11 +200,12 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.worker.c7.OAuth2WorkerClient
+       |import $companyName.orchescala.engine.CompanyEngineConfig
        |
        |trait CompanyPasswordFlow extends OAuth2WorkerClient:
        |
-       |  def fssoRealm: String = ???
-       |  def fssoBaseUrl: String = ???
+       |  def fssoRealm: String = CompanyEngineConfig.fssoRealm
+       |  def fssoBaseUrl: String = CompanyEngineConfig.fssoBaseUrl
        |
        | // override the config if needed or change the WorkerClient
        |
