@@ -66,6 +66,14 @@ case class BpmnEnumCase(
     descr: Option[String]
 ) extends EnumCase
 
+
+case class BpmnArray(
+                      name: String,
+                      descr: Option[String],
+                      arrayType: String
+                    ) extends BpmnClassOrEnum, IsFieldType, EnumCase:
+  lazy val arrayClassName = arrayType.head.toUpper + arrayType.tail
+
 case class BpmnServiceObject(
     name: String,
     topicName: String,

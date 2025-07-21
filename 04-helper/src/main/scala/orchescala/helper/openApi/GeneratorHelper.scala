@@ -75,8 +75,7 @@ trait GeneratorHelper:
         val descrWithFormat = descr + format
         if descrWithFormat.contains("\n")
         then
-          // | .stripMargin does not work - eliminated by the real stripMargin of the generator
-          s"\"\"\"${descrWithFormat.replace("\n", s"\n    $intent")}\"\"\""
+          s"\"\"\"${descrWithFormat.replace("\n", s"\n    $intent||")}\"\"\".stripMargin"
         else
           s""""$descrWithFormat""""
         end if
@@ -125,6 +124,7 @@ trait GeneratorHelper:
                     s"$tpeName.${e.cases.head.name}()"
                   case _: BpmnClass =>
                     s"$tpeName()"
+                  case a: BpmnArray => s"Seq(${a.arrayClassName}())"
 
     val exampleValue: Option[String] =
       config.implMapping.get(field.tpeName)

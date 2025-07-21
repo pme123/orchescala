@@ -69,7 +69,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     (for
       _                     <- logDebug(s"Executing Worker: ${worker.topic}")
       generalVariables      <- ProcessVariablesExtractor.extractGeneral()
-      _                     <- logDebug(s"generalVariables: $generalVariables")
+      _                     <- logDebug(s"generalVariables: ${generalVariables.asJson}")
       given EngineRunContext = EngineRunContext(c7Context, generalVariables)
       filteredOut           <- WorkerExecutor(worker).execute(tryProcessVariables)
       _                     <- logDebug(s"filteredOut: $filteredOut")

@@ -20,7 +20,7 @@ trait CreatorHelper:
     ): ConstrField =
       val fromType = extractType(optKey.getOrElse("fieldKeyFromType"))
       val tpe = fromType.head.toUpper + fromType.tail
-      val key = optKey.getOrElse(tpe.head.toLower + tpe.tail)
+      val key = optKey.getOrElse(fromType)
       val isOptional: Boolean =
         (Option(schema.getNullable), optIsRequired) match
           case Some(opt) -> _ => opt
@@ -74,7 +74,7 @@ trait CreatorHelper:
 
     def extractType(key: String): String =
       schemaType match
-        case Some(value) if Seq("Seq", "Set").contains(value) =>
+        case Some(value) if Seq("seq", "set", "array").contains(value.toLowerCase) =>
           if schema.getItems == null then
             println(s"Items is null for $key")
             config.typeMapping("AnyType")

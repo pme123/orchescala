@@ -1,5 +1,6 @@
 package orchescala.helper.openApi
 
+import io.swagger.v3.oas.models.media.Schema
 import io.swagger.v3.oas.models.parameters.Parameter
 import io.swagger.v3.oas.models.responses.ApiResponse
 import io.swagger.v3.oas.models.{Operation, PathItem}
@@ -8,7 +9,8 @@ import sttp.model.Method
 import scala.jdk.CollectionConverters.*
 
 case class BpmnClassesCreator(
-    pathMap: Map[String, PathItem]
+    pathMap: Map[String, PathItem],
+    allSchemas: Map[String, Schema[?]]
 )(using
     val config: OpenApiConfig
 ) extends CreatorHelper:
@@ -114,7 +116,18 @@ case class BpmnClassesCreator(
         content   <- Option(resp.getContent)
         mediaType <- Option(content.get("application/json"))
         schema    <- Option(mediaType.getSchema)
-      yield schema.createField(
+      yield
+        val schm =
+          allSchemas
+            .find:
+              case k -> s =>
+                s.get$ref() == schema.get$ref()
+            .map:
+              case _ -> sch =>
+                sch
+            .getOrElse(schema)
+
+        schm.createField(
         optExample = Option(mediaType.getExample),
         optExamples = Option(mediaType.getExamples)
       )
@@ -136,12 +149,22 @@ case class BpmnClassesCreator(
         _.asScala.toSeq
           .flatMap: param =>
             Option(param.getSchema)
-              .map:
-                _.createField(
-                  Option(param.getName),
-                  Option(param.getDescription),
-                  Option(param.getRequired)
-                )
+              .map: schema =>
+                val schm =
+                  allSchemas
+                    .find:
+                      case k -> _ =>
+                        k == param.getName
+                    .map:
+                      case _ -> sch =>
+                        sch
+                    .getOrElse(schema)
+
+                schm.createField(
+                    Option(param.getName),
+                    Option(param.getDescription),
+                    Option(param.getRequired)
+                  )
               .toSeq
 
 end BpmnClassesCreator

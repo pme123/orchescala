@@ -21,9 +21,14 @@ case class ServiceClassesCreator(
       key: String,
       schema: Schema[?]
   ): IsFieldType =
+    println(s"createSchema $key")
     if schema.getAllOf == null
-    then createCaseClass(key, schema)
-    else createEnum(key, schema)
+    then {
+      if schema.getType.toLowerCase == "array" then
+        createArray(key, schema)
+      else
+        createCaseClass(key, schema)
+    } else createEnum(key, schema)
 
   private def createCaseClass(
       key: String,
@@ -35,7 +40,18 @@ case class ServiceClassesCreator(
       createProperties(schema.getProperties, schema.getRequired)
     )
 
+  private def createArray(
+      key: String,
+      schema: Schema[?]
+  ) =
+    BpmnArray(
+      key,
+      Option(schema.getDescription),
+      schema.extractType(schema.getItems.get$ref())
+    )
+
   private def createEnum(key: String, schema: Schema[?]): BpmnEnum =
+    println(s"createEnum $key")
     BpmnEnum(
       key,
       Option(schema.getDescription),
@@ -70,7 +86,18 @@ case class ServiceClassesCreator(
     Option(properties)
       .map: props =>
         props.asScala.toSeq.map:
-          case key -> schema => schema.createField(
+          case key -> schema =>
+            val schm =
+              allSchemas
+                .find:
+                  case k -> _ =>
+                    k == key
+                .map:
+                  case _ -> sch =>
+                    sch
+              .getOrElse(schema)
+
+            schm.createField(
               Some(key),
               optIsRequired = Option(required).map(_.asScala.toSeq.contains(key))
             )
@@ -80,7 +107,8 @@ case class ServiceClassesCreator(
     .filter:
       case key -> schema =>
         schema.getAllOf != null ||
+        schema.getType == "array" ||
         schema.getType == "object" ||
-        schema.getTypes() != null && schema.getTypes().asScala.contains("object")
+        schema.getTypes != null && schema.getTypes.asScala.contains("object")
 
 end ServiceClassesCreator

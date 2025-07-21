@@ -9,10 +9,11 @@ case class BpmnCreator()(using config: OpenApiConfig):
   def create(openAPI: OpenAPI): ApiDefinition =
     val superClass: BpmnSuperClass =
       BpmnSuperClassCreator(openAPI.getInfo, Option(openAPI.getExternalDocs)).create
+    val allSchemas = openAPI.getComponents.getSchemas.asScala.toMap
     val bpmnClasses =
-      BpmnClassesCreator(openAPI.getPaths.asScala.toMap).create
+      BpmnClassesCreator(openAPI.getPaths.asScala.toMap, allSchemas).create
     val serviceClasses =
-      ServiceClassesCreator(openAPI.getComponents.getSchemas.asScala.toMap).create
+      ServiceClassesCreator(allSchemas).create
     val examples = examplesFrom(bpmnClasses)
     val examplesAll = extractExamples(serviceClasses, examples)
     val updatedServiceClasses = setDefaultValues(serviceClasses, examplesAll)
@@ -73,6 +74,9 @@ case class BpmnCreator()(using config: OpenApiConfig):
                   extractExample(c, serviceClassMap, j)
                 case e: BpmnEnum => // not supported yet
                   println(s"Sub Example not supported for: ${e.name}")
+                  Map(field.tpeName -> j)
+                case a: BpmnArray =>
+                  println(s"Sub Example not supported for: ${a.name}")
                   Map(field.tpeName -> j)
       .collect:
         case Some(m) => m

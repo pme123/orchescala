@@ -35,5 +35,5 @@ case class BpmnSuperClassGenerator()(using
        |""".stripMargin
 
   private def optionalText(text: Option[String]): String =
-    text.map(d => s"""Some("$d")""").getOrElse("None")
+    text.map(d => s"Some(\"\"\"${d.split("\n").mkString("\n        ||")}\"\"\".stripMargin)").getOrElse("None")
 end BpmnSuperClassGenerator

@@ -12,9 +12,9 @@ case class BpmnSuperClassCreator(
     BpmnSuperClass(
       Option(info.getTitle).getOrElse("No Title in Open API"),
       Option(info.getVersion),
-      Some(info.getDescription),
-      Some(externalDoc.getDescription),
-      Some(externalDoc.getUrl)
+      Option(info.getDescription),
+      Option(externalDoc.getDescription),
+      Option(externalDoc.getUrl)
     )
   end create
 

@@ -127,24 +127,38 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
          |
          |  test("apiUri"):
          |    assertEquals(
-         |      worker.apiUri(In()).toString,
+         |      worker.apiUri(inExample).toString,
          |      s"NOT-SET/YourPath"
          |    )
          |
          |  test("inputMapper"):
          |    assertEquals(
-         |      worker.inputMapper(In()),
-         |      Some(ServiceIn())
+         |      worker.inputMapper(inExample),
+         |      Some(serviceInExample)
+         |    )
+         |  test("inputMapper minimal"):
+         |    assertEquals(
+         |      worker.inputMapper(inMinimalExample),
+         |      Some(serviceInMinimalExample)
          |    )
          |
          |  test("outputMapper"):
          |    assertEquals(
          |      worker.outputMapper(
-         |        ServiceResponse(ServiceOut()),
-         |        In()
+         |        serviceMock.toServiceResponse,
+         |        inExample
          |      ),
-         |      Right(Out())
+         |      Right(outExample)
          |    )
+         |  test("outputMapper minimal"):
+         |    assertEquals(
+         |      worker.outputMapper(
+         |        serviceMinimalMock.toServiceResponse,
+         |        inMinimalExample
+         |      ),
+         |      Right(outMinimalExample)
+         |    )
+         |
          |end ${name}WorkerTest
          |""".stripMargin
   end generateWorkerTest

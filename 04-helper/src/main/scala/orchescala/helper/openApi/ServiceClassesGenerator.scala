@@ -36,6 +36,7 @@ case class ServiceClassesGenerator()(using
               generateEnum(e) + generateObject(classOrEnum.className, Some(params), intent = "") + generateEnumExample(e, intent = "  ")
             case c: BpmnClass =>
               generateCaseClass(c) + generateObject(classOrEnum.className, Some(c.fields)) + generateCaseClassExample(c, intent = "  ")
+            case a: BpmnArray => s"type ${a.className} = Seq[${a.arrayClassName}]"
         }
          |""".stripMargin
 
@@ -104,7 +105,8 @@ case class ServiceClassesGenerator()(using
         .map: field =>
           s"$intent  ${field.name} = ${printFieldValue(field)},"
         .mkString("\n")
-    }${intent})
+    }
+    |${intent})
     |
     |${intent}lazy val ${exampleName}Minimal = $exampleName.copy(
     |${
