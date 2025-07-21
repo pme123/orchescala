@@ -315,7 +315,7 @@ object CustomHandler:
   def apply[
       In <: Product: InOutCodec,
       Out <: Product: InOutCodec
-  ](funct: In => EngineRunContext ?=> IO[CustomError, Out]): CustomHandler[In, Out] =
+  ](funct: In => RunWorkZIOOutput[Out]): CustomHandler[In, Out] =
     new CustomHandler[In, Out]:
       override def runWorkZIO(inputObject: In): RunnerOutputZIO =
         funct(inputObject)

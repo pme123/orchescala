@@ -302,14 +302,12 @@ private trait RunWorkDsl[
     In <: Product: InOutCodec,
     Out <: Product: InOutCodec
 ]:
-  type RunWorkZIOOutput =
-    EngineRunContext ?=> IO[CustomError, Out]
   type RunWorkOutput    =
     Either[CustomError, Out]
 
   protected def runWorkZIO(
       inputObject: In
-  ): EngineRunContext ?=> IO[CustomError, Out] =
+  ): RunWorkZIOOutput[Out] =
     ZIO.fromEither(runWork(inputObject))
 
   protected def runWork(

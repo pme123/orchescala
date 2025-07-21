@@ -99,7 +99,7 @@ case class WorkerExecutor[
             yield jsonObj.add("inConfig", newJsonConfig.asJson)
           toIn(newIn)
 
-        case x =>
+        case _ =>
           in
       result
     end validate

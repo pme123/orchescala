@@ -20,6 +20,9 @@ export zio.IO
 type SendRequestType[ServiceOut] =
   EngineRunContext ?=> ZIO[SttpClientBackend, ServiceError, ServiceResponse[ServiceOut]]
 
+type RunWorkZIOOutput[Out] =
+  EngineRunContext ?=> IO[CustomError, Out]
+
 def decodeTo[A: InOutDecoder](
     jsonStr: String
 ): IO[WorkerError.UnexpectedError, A] =
