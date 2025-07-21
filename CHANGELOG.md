@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.13 - 2025-07-21
+### Changed 
+- Adjustments in Open API generation. - see [Commit](git@github.com:pme123/orchescala/commit/6da6c3d8c2242d11b2abc9c6d80cad0ab4579f13)
+- Added type RunWorkZIOOutput in worker. - see [Commit](git@github.com:pme123/orchescala/commit/731e258441117c8088cdc33b30234d75188696c5)
+- Added also only workerDependencies to generate ProjectDef file. - see [Commit](git@github.com:pme123/orchescala/commit/446e9a8fce461208019f0d9403838f32cb9ec6f5)
+
 ## 0.2.12 - 2025-07-17
 ### Changed 
 - Fixed not handled nullpointer exception in RestApiClient. - see [Commit](git@github.com:pme123/orchescala/commit/0e394d206be74d52c271bbc4a4833f9fe99cfc9f)
