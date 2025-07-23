@@ -50,6 +50,28 @@ case class BpmnClassesGenerator()(using
               printFieldValue(_)
             .map(v => s"(${v.replace("Some(", "Option(")})").getOrElse("")
         }
+         |  lazy val serviceMinimalMock = MockedServiceResponse.success${
+          serviceObj.mockStatus
+        }${
+          serviceObj.out
+            .map:
+              printFieldValue(_)
+            .map: v =>
+              s"(${
+                  v.replaceAll("Some(.*)", "None")
+                    .replaceAll("Seq\\(.*\\)", "Seq.empty")
+                    .replaceAll("Set\\(.*\\)", "Set.empty")
+                })"
+            .getOrElse("")
+        }
+         |  lazy val serviceInMinimalExample = serviceInExample
+        ${serviceObj.in
+          .map: in =>
+            s"    .copy(${printMinimalFieldValue(in)})"
+          .getOrElse:
+            ""
+        }
+      }
          |
          |${if serviceObj.in.nonEmpty then printIn(serviceObj) else "  type In = NoInput"}
          |${if serviceObj.out.nonEmpty then printOut(serviceObj) else "  type Out = NoOutput"}
@@ -89,24 +111,6 @@ case class BpmnClassesGenerator()(using
                   .getOrElse("")
               }\n  )"
           else ""
-        }
-         |
-         |  lazy val serviceMinimalMock = MockedServiceResponse.success${serviceObj.mockStatus}${
-          serviceObj.out
-            .map:
-              printFieldValue(_)
-            .map: v =>
-              s"(${v.replaceAll("Some(.*)", "None")
-                  .replaceAll("Seq\\(.*\\)", "Seq.empty")
-                  .replaceAll("Set\\(.*\\)", "Set.empty")})"
-            .getOrElse("")
-        } 
-         |  lazy val serviceInMinimalExample = serviceInExample
-         |${serviceObj.in
-          .map: in =>
-            s"    .copy(${printMinimalFieldValue(in)})"
-          .getOrElse:
-            ""
         }
          |
          |  lazy val example =

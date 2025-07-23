@@ -167,9 +167,15 @@ case class WorkerGenerator()(using config: DevConfig):
     workerTest(setupElement):
       s"""
          |  test("validate"):
-         |    val in = In()
+         |    val in = inExample
          |    assertEquals(
          |      worker.validate(in), 
+         |      Right(in)
+         |    )
+         |  test("validate minimal"):
+         |    val in = inExampleMinimal
+         |    assertEquals(
+         |      worker.validate(in),
          |      Right(in)
          |    )
          |""".stripMargin
@@ -180,8 +186,15 @@ case class WorkerGenerator()(using config: DevConfig):
       then
         s"""
            |  test("runWork"):
-           |    val in = In()
-           |    val out = Right(Out())
+           |    val in = inExample
+           |    val out = Right(outExample)
+           |    assertEquals(
+           |      worker.runWork(in),
+           |      out
+           |    )
+           |  test("runWork minimal"):
+           |    val in = inExampleMinimal
+           |    val out = Right(outExampleMinimal)
            |    assertEquals(
            |      worker.runWork(in),
            |      out
@@ -191,24 +204,39 @@ case class WorkerGenerator()(using config: DevConfig):
         s"""
            |  test("apiUri"):
            |    assertEquals(
-           |      worker.apiUri(In()).toString,
+           |      worker.apiUri(inExample).toString,
            |      s"NOT-SET/YourPath"
            |    )
            |
            |  test("inputMapper"):
            |    assertEquals(
-           |      worker.inputMapper(In()),
-           |      Some(ServiceIn())
+           |      worker.inputMapper(inExample),
+           |      Some(serviceInExample)
+           |    )
+           |
+           |  test("inputMapper minimal"):
+           |    assertEquals(
+           |      worker.inputMapper(inExampleMinimal),
+           |      Some(serviceInMinimalExample)
            |    )
            |
            |  test("outputMapper"):
            |    assertEquals(
            |      worker.outputMapper(
-           |        ServiceResponse(ServiceOut()),
-           |        In()
+           |        serviceMock.toServiceResponse,
+           |        inExample
            |      ),
-           |      Right(Out())
+           |      Right(outExample)
            |    )
+           |  test("outputMapper minimal"):
+           |    assertEquals(
+           |      worker.outputMapper(
+           |        serviceMinimalMock.toServiceResponse,
+           |        inExampleMinimal
+           |      ),
+           |      Right(outExampleMinimal)
+           |    )
+           |
            |""".stripMargin
   end processElementTest
 

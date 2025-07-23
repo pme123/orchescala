@@ -81,6 +81,8 @@ case class BpmnGenerator()(using config: DevConfig):
              |  type ServiceOut = NoOutput
              |  lazy val serviceInExample = NoInput()
              |  lazy val serviceMock = MockedServiceResponse.success200(NoOutput())
+             |  lazy val serviceMinimalMock = MockedServiceResponse.success200(NoOutput())
+             |  lazy val serviceInMinimalExample = serviceInExample.copy()
              |  """.stripMargin
         else ""
       }
@@ -210,7 +212,8 @@ case class BpmnGenerator()(using config: DevConfig):
       |  object InitIn:
       |    given ApiSchema[InitIn] = deriveApiSchema
       |    given InOutCodec[InitIn] = deriveInOutCodec
-      |
+      |    lazy val example = InitIn()
+      |    lazy val exampleMinimal = example.copy()
       |""".stripMargin
 
   private def extraInVars(isProcess: Boolean) =
