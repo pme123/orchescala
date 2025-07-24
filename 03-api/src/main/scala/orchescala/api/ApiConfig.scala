@@ -1,7 +1,7 @@
 package orchescala
 package api
 
-import orchescala.domain.diagramPath
+import orchescala.domain.BpmnProcessType
 import sttp.apispec.openapi.Contact
 import zio.{Runtime, Unsafe, ZIO}
 
@@ -242,10 +242,12 @@ case class ProjectConfig(
     // you can group your projects - for better overview
     group: ProjectGroup,
     // the color of your project - for better overview and visualization in the BPMN diagrams
-    color: String = "#fff"
+    color: String = "#fff",
+    // processType to create new BPMN diagrams - default is Camunda 7
+    bpmnProcessType: BpmnProcessType = BpmnProcessType.C7()
 ):
   def absGitPath(gitDir: os.Path): os.Path  = gitDir / name
-  def absBpmnPath(gitDir: os.Path): os.Path = absGitPath(gitDir) / diagramPath
+  def absBpmnPath(gitDir: os.Path): os.Path = absGitPath(gitDir) / bpmnProcessType.diagramPath
 end ProjectConfig
 
 case class ProjectGroup(

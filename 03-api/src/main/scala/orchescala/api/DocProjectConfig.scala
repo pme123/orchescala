@@ -1,5 +1,7 @@
 package orchescala.api
 
+import orchescala.domain.BpmnProcessType
+
 import scala.util.Try
 
 case class DocProjectConfig(
@@ -8,7 +10,7 @@ case class DocProjectConfig(
     changelog: Seq[String] = Seq.empty,
     isWorker: Boolean = false
 ):
-  lazy val companyName: String                = apiProjectConfig.companyName
+  lazy val companyName: String                = apiProjectConfig.companyName 
   lazy val projectName: String                = apiProjectConfig.projectName
   lazy val projectVersion: VersionConfig      = apiProjectConfig.projectVersion
   lazy val versionPreviousConf: VersionConfig = versionFor(versionPrevious)

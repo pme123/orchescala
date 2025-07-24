@@ -1,8 +1,8 @@
 package orchescala.api
 
-import orchescala.domain.diagramPath
 import io.circe.parser
 import io.circe.syntax.*
+import orchescala.domain.BpmnProcessType
 
 import java.io.StringReader
 import scala.language.postfixOps
@@ -14,6 +14,7 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
   def update(): Unit =
     updateTemplates()
     updateBpmnColors()
+  end update
 
   private def updateTemplates(): Unit =
     docProjectConfig.dependencies
@@ -48,19 +49,21 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
         end if
   end updateTemplates
 
-  private def updateBpmnColors(): Unit =
-    if os.exists(os.pwd / diagramPath) then
-      println("Adjust Color for:")
-      projectsConfig.projectConfig(docProjectConfig.projectName)
-        .map: pc =>
-          os.walk(os.pwd / diagramPath)
-            .filter:
-              _.toString.endsWith(".bpmn")
-            .map: p =>
-              p -> os.read(p)
-            .map:
-              extractUsesRefs
-    else println("No BPMN Diagrams found")
+  private def updateBpmnColors(): Unit = {
+    BpmnProcessType.diagramPaths.foreach: diagramPath =>
+      if os.exists(os.pwd / diagramPath) then
+        println(s"Adjust Color for $diagramPath:")
+        projectsConfig.projectConfig(docProjectConfig.projectName)
+          .map: pc =>
+            os.walk(os.pwd / diagramPath)
+              .filter:
+                _.toString.endsWith(".bpmn")
+              .map: p =>
+                p -> os.read(p)
+              .map:
+                extractUsesRefs
+      else println(s"No BPMN Diagrams found for $diagramPath")
+  }
   end updateBpmnColors
   
   private lazy val templConfig = apiConfig.modelerTemplateConfig

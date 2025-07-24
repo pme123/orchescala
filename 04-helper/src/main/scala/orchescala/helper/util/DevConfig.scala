@@ -2,6 +2,7 @@ package orchescala.helper.util
 
 import orchescala.BuildInfo
 import orchescala.api.{ApiProjectConfig, DocProjectConfig, defaultProjectConfigPath}
+import orchescala.domain.BpmnProcessType
 import os.RelPath
 
 case class DevConfig(
@@ -18,7 +19,9 @@ case class DevConfig(
     // If you have a webdav server to publish the docs, add the config here (used in ./helper.scala publish..)
     publishConfig: Option[PublishConfig] = None,
     // general project structure -  do not change if possible -
-    modules: Seq[ModuleConfig] = DevConfig.modules
+    modules: Seq[ModuleConfig] = DevConfig.modules,
+    // processType to create new BPMN diagrams - default is Camunda 7
+    bpmnProcessType: BpmnProcessType = BpmnProcessType.C7()
 ):
   lazy val baseDir: os.Path               = os.pwd
   lazy val projectName: String            = apiProjectConfig.projectName

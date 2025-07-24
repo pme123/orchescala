@@ -1,6 +1,8 @@
 package orchescala.api
 
 import com.typesafe.config.ConfigFactory
+import orchescala.domain.BpmnProcessType
+
 import scala.jdk.CollectionConverters.*
 
 final case class ApiProjectConfig(
@@ -45,11 +47,11 @@ object ApiProjectConfig:
   end init
 
   def apply(projectConfigPath: os.Path = os.pwd / defaultProjectConfigPath): ApiProjectConfig =
-    val projectConfig  = ConfigFactory.parseFile(projectConfigPath.toIO)
-    val projectName    = projectConfig.getString("projectName")
-    val projectVersion = projectConfig.getString("projectVersion")
-    val subProjects    = projectConfig.getStringList("subProjects").asScala.toSeq
-    val dependencies   =
+    val projectConfig      = ConfigFactory.parseFile(projectConfigPath.toIO)
+    val projectName        = projectConfig.getString("projectName")
+    val projectVersion     = projectConfig.getString("projectVersion")
+    val subProjects        = projectConfig.getStringList("subProjects").asScala.toSeq
+    val dependencies       =
       projectConfig.getStringList("dependencies").asScala.map(DependencyConfig.apply).toSeq
     val workerDependencies =
       if projectConfig.hasPath("workerDependencies") then
@@ -89,7 +91,7 @@ case class VersionConfig(major: Int, minor: Int, patch: Int, isSnapshot: Boolean
   lazy val versionAsInt: Int    =
     major * 100000 + minor * 1000 + patch
 
-  override def toString: String = s"$minorVersion.$patch${if isSnapshot then "-SNAPSHOT" else ""}"
+  override def toString: String                    = s"$minorVersion.$patch${if isSnapshot then "-SNAPSHOT" else ""}"
   def isHigherThan(config: VersionConfig): Boolean =
     versionAsInt > config.versionAsInt
 end VersionConfig

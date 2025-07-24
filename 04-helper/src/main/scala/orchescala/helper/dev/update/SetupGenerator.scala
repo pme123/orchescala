@@ -20,7 +20,7 @@ case class SetupGenerator()(using config: DevConfig):
 
   def createProcess(setupElement: SetupElement): Unit =
     BpmnGenerator().createProcess(setupElement)
-    BpmnProcessGenerator().createBpmn(setupElement)
+    BpmnProcessGenerator(config.bpmnProcessType).createBpmn(setupElement)
     SimulationGenerator().createSimulation(setupElement)
     WorkerGenerator().createProcessWorker(setupElement)
   end createProcess

@@ -1,10 +1,10 @@
 package orchescala.helper.dev.publish
 
 import orchescala.api.ApiConfig
-import orchescala.domain.diagramPath
 import orchescala.helper.util.{Helpers, PublishConfig}
 import com.github.sardine.SardineFactory
 import com.github.sardine.impl.SardineException
+import orchescala.domain.BpmnProcessType
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -82,26 +82,26 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
         }
       end if
       // diagrams
-      val diagramDir = os.pwd / diagramPath
-      println(s"Diagram Directory: $diagramDir")
       sardine.createDirectory(s"$projectUrl/diagrams/")
-      if os.exists(diagramDir) then
-        val diagramFiles = os.list(diagramDir)
-        diagramFiles
-          .filter(p =>
-            p.toString().endsWith(".bpmn") || p.toString().endsWith(".dmn")
-          )
-          .foreach { f =>
-            println(s"Uploading $projectUrl/diagrams/${f.toIO.getName}")
-            sardine.put(
-              s"$projectUrl/diagrams/${f.toIO.getName}",
-              os.read.inputStream(f)
+      BpmnProcessType.diagramPaths.foreach: diagramPath =>
+        val diagramDir = os.pwd / diagramPath
+        if os.exists(diagramDir) then
+          val diagramFiles = os.list(diagramDir)
+          diagramFiles
+            .filter(p =>
+              p.toString().endsWith(".bpmn") || p.toString().endsWith(".dmn")
             )
-          }
+            .foreach { f =>
+              println(s"Uploading $projectUrl/diagrams/${f.toIO.getName}")
+              sardine.put(
+                s"$projectUrl/diagrams/${f.toIO.getName}",
+                os.read.inputStream(f)
+              )
+            }
 
-        println(s"Finished $projectName: upload Documentation")
-      else
-        println(s"No Diagrams in this project: $diagramDir")
+          println(s"Finished $projectName: upload Documentation")
+        else
+          println(s"No Diagrams in this project: $diagramDir")
 
     finally sardine.shutdown()
     end try

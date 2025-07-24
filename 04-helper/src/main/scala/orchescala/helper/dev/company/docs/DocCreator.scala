@@ -58,7 +58,7 @@ trait DocCreator extends DependencyCreator, Helpers:
                       |%}
                       |## Catalog
                       |${projectConfigs
-                       .map { case pc @ ProjectConfig(projectName, _, _) =>
+                       .map { case pc @ ProjectConfig(projectName, _, _, _) =>
                          val path = pc.absGitPath(gitBasePath) / catalogFileName
                          if os.exists(path) then
                            os.read(path)
