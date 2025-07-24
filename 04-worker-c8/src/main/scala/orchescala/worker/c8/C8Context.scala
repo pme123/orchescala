@@ -14,7 +14,7 @@ trait C8Context extends EngineContext:
   lazy val toEngineObject: Json => Any =
     json => json
 
-  def sendRequest[ServiceIn: InOutEncoder, ServiceOut: InOutDecoder: ClassTag](
+  def sendRequest[ServiceIn: InOutEncoder, ServiceOut: {InOutDecoder, ClassTag}](
       request: RunnableRequest[ServiceIn]
   ): SendRequestType[ServiceOut] =
     DefaultRestApiClient.sendRequest(request)

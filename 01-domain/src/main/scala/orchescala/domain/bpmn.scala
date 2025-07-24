@@ -235,4 +235,11 @@ def shortenName(name: String): String =
     case _               => // something else
       name
 
-lazy val diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda"
+enum BpmnProcessType:
+  def diagramPath: os.RelPath
+  case C7(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
+  case C8(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda8")
+
+object BpmnProcessType:
+  def diagramPaths: Seq[os.RelPath] = Seq(C7().diagramPath, C8().diagramPath)
+end BpmnProcessType

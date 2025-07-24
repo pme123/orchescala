@@ -60,6 +60,8 @@ object Dependencies {
   val springBootVersion     = "3.3.9"
   val nettyVersion          = "4.2.0.Final"
   val swaggerOpenAPIVersion = "2.1.26"
+  val zeebeVersion          = "8.6.0"
+  val testcontainersVersion = "1.20.4"
   // examples
   val h2Version             = "2.3.232"
   val twitter4jVersion      = "4.1.2"
@@ -143,5 +145,12 @@ object Dependencies {
   lazy val chimney        = "io.scalaland"        %% "chimney"        % chimneyVersion
   lazy val swaggerOpenAPI = "io.swagger.parser.v3" % "swagger-parser" % swaggerOpenAPIVersion
   lazy val sardineWebDav  = "com.github.lookfirst" % "sardine"        % sardineWebDavVersion
+
+  lazy val camunda8EngineDependencies = Seq(
+    zeebeJavaClientDependency,
+   // "io.camunda" % "zeebe-process-test-extension" % zeebeVersion % Test,
+   // "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
+   // "org.testcontainers" % "junit-jupiter" % testcontainersVersion % Test
+  )
 
 }
