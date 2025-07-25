@@ -12,7 +12,7 @@ import java.util.Date
 import scala.jdk.CollectionConverters.*
 
 trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
-    extends WorkerDsl[In, Out], camunda.ExternalTaskHandler:
+    extends WorkerDsl[In, Out], BaseWorker[In, Out], camunda.ExternalTaskHandler:
 
   protected def c7Context: C7Context
 
@@ -22,28 +22,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       externalTask: camunda.ExternalTask,
       externalTaskService: camunda.ExternalTaskService
   ): Unit =
-    Unsafe.unsafe:
-      implicit unsafe =>
-        EngineRuntime.zioRuntime.unsafe.fork:
-          ZIO.scoped:
-            for
-              // Fork the worker execution within the scope
-              fiber  <- run(externalTaskService)(using externalTask)
-                          .provideLayer(EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger)
-                          .fork
-              // Add a finalizer to ensure the fiber is interrupted if the scope closes
-              _      <- ZIO.addFinalizer:
-                          fiber.status.flatMap: status =>
-                            fiber.interrupt.when(!status.isDone)
-              // Join the fiber to wait for completion
-              result <- fiber.join
-            yield result
-          .ensuring:
-            ZIO.logDebug(
-              s"Worker execution for task ${externalTask.getId} completed and resources cleaned up"
-            )
-
-  end execute
+    executeWithScope(run(externalTaskService)(using externalTask), externalTask.getId)
 
   private[worker] def run(externalTaskService: camunda.ExternalTaskService)(using
       externalTask: camunda.ExternalTask
@@ -128,19 +107,12 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     private[worker] def isErrorHandled(
         error: WorkerError,
         handledErrors: Seq[String]
-    ): Boolean =
-      error.isMock || // if it is mocked, it is handled in the error, as it also could be a successful output
-        handledErrors.contains(error.errorCode.toString) ||
-        handledErrors.exists(err => error.causeError.map(_.errorCode.toString).contains(err)) ||
-        handledErrors.map(
-          _.toLowerCase
-        ).contains("catchall")
+    ): Boolean = errorHandled(error, handledErrors)
 
     private[worker] def checkError(
         error: WorkerError,
         generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, WorkerError]] =
-
       val errorMsg          = error.errorMsg.replace("\n", "")
       val errorHandled      = isErrorHandled(error, generalVariables.handledErrors)
       val errorRegexHandled =

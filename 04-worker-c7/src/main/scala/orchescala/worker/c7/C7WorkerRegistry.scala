@@ -19,7 +19,7 @@ class C7WorkerRegistry(client: C7WorkerClient)
           c7Workers: Set[C7Worker[?, ?]] = workers.collect { case w: C7Worker[?, ?] => w }
           _                             <- ZIO.scoped:
                                              foreachParDiscard(c7Workers)(w => registerWorker(w, client))
-          _                             <- logInfo(s"C7 Worker Client started - registered ${workers.size} workers")
+          _                             <- logInfo(s"C7 Worker Client started - registered ${c7Workers.size} workers")
           _                             <- ZIO.never // keep the worker running
         yield ()
   }

@@ -14,32 +14,12 @@ import java.util.Date
 import scala.jdk.CollectionConverters.*
 
 trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
-    extends WorkerDsl[In, Out],
+    extends WorkerDsl[In, Out], BaseWorker[In, Out],
       JobHandler:
   protected def c8Context: C8Context
 
   def handle(client: JobClient, job: ActivatedJob): Unit =
-    Unsafe.unsafe:
-      implicit unsafe =>
-        EngineRuntime.zioRuntime.unsafe.fork:
-          ZIO.scoped:
-            for
-              // Fork the worker execution within the scope
-              fiber <- run(client, job)
-                         .provideLayer(EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger)
-                         .fork
-              // Add a finalizer to ensure the fiber is interrupted if the scope closes
-              _     <- ZIO.addFinalizer:
-                         fiber.status.flatMap: status =>
-                           fiber.interrupt.when(!status.isDone)
-
-              // Join the fiber to wait for completion
-              result <- fiber.join
-            yield result
-          .ensuring:
-            ZIO.logDebug(
-              s"Worker execution for job ${job.getKey} completed and resources cleaned up"
-            )
+    executeWithScope(run(client, job), job.getKey.toString)
 
   def run(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
     (for
@@ -63,11 +43,19 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       .catchAll: ex =>
         handleError(client, job, ex)
 
+  private def extractJson(job: ActivatedJob) =
+    fromEither(io.circe.parser.parse(job.getVariables))
+      .mapError(ex =>
+        ValidatorError(
+          s"Problem Json Parsing process variables ${job.getVariables}\n" + ex.getMessage
+        )
+      )
+
   private def handleSuccess(
       client: JobClient,
       job: ActivatedJob,
       filteredOutput: Map[String, Any],
-      manualOutMapping: Boolean, // TODO no local variables?!
+      manualOutMapping: Boolean,
       businessKey: String
   ) =
     attempt(client.newCompleteCommand(job)
@@ -89,8 +77,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       json             <- extractJson(job)
       generalVariables <- extractGeneralVariables(json)
       isErrorHandled    = errorHandled(error, generalVariables.handledErrors)
-      errorRegexHandled =
-        regexMatchesAll(isErrorHandled, error, generalVariables.regexHandledErrors)
+      errorRegexHandled = regexMatchesAll(isErrorHandled, error, generalVariables.regexHandledErrors)
       _                <- attempt(client.newFailCommand(job)
                             .retries(job.getRetries - 1)
                             .retryBackoff(time.Duration.ofSeconds(60))
@@ -101,8 +88,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       .flatMap:
         case (true, true, generalVariables) =>
           val mockedOutput = error match
-            case error: ErrorWithOutput =>
-              error.output
+            case error: ErrorWithOutput => error.output
             case _                      => Map.empty
           val filtered     = filteredOutput(generalVariables.outputVariables, mockedOutput)
           ZIO.attempt(
@@ -129,42 +115,5 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           ZIO.fail(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrors))
         case _                              =>
           ZIO.fail(error)
-
-  private def extractGeneralVariables(json: Json) =
-    fromEither(
-      customDecodeAccumulating[GeneralVariables](json.hcursor)
-    ).mapError(ex =>
-      ValidatorError(
-        s"Problem extract general variables from $json\n" + ex.getMessage
-      )
-    )
-
-  private def extractBusinessKey(json: Json) =
-    fromEither(json.as[BusinessKey].map(_.businessKey.getOrElse("no businessKey")))
-      .mapError(ex =>
-        ValidatorError(
-          s"Problem extract business Key from $json\n" + ex.getMessage
-        )
-      )
-
-  private def extractJson(job: ActivatedJob) =
-    fromEither(io.circe.parser.parse(job.getVariables))
-      .mapError(ex =>
-        ValidatorError(
-          s"Problem Json Parsing process variables ${job.getVariables}\n" + ex.getMessage
-        )
-      )
-
-  private def processVariable(
-      key: String,
-      json: Json
-  ): IO[BadVariableError, (String, Option[Json])] =
-    json.hcursor.downField(key).as[Option[Json]] match
-      case Right(value) => ZIO.succeed(key -> value)
-      case Left(ex)     => ZIO.fail(BadVariableError(ex.getMessage))
-
-  case class BusinessKey(businessKey: Option[String])
-  object BusinessKey:
-    given InOutCodec[BusinessKey] = deriveInOutCodec
 
 end C8Worker

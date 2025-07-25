@@ -52,8 +52,11 @@ class TokenService(
 
   private lazy val backend: SttpBackend[Identity, Any] = HttpClientSyncBackend()
 
-  private def authAdminResponse                                  =
+  private def authAdminResponse                                  = {
+    println(s"authAdminResponse: ${identityUrl}")
     tokenRequest.body(adminTokenBody).response(asJson[TokenResponse]).send(backend)
+  }
+
   private def authClientCredentialsResponse                      =
     tokenRequest.body(clientCredentialsBody).response(asJson[TokenResponse]).send(backend)
   private def authImpersonateResponse(body: Map[String, String]) =
