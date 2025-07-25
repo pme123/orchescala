@@ -46,17 +46,18 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     val tryProcessVariables =
       ProcessVariablesExtractor.extract(worker.variableNames)
     (for
-      _                     <- logDebug(s"Executing Worker: ${worker.topic}")
-      generalVariables      <- ProcessVariablesExtractor.extractGeneral()
-      _                     <- logDebug(s"generalVariables: ${generalVariables.asJson}")
-      given EngineRunContext = EngineRunContext(c7Context, generalVariables)
-      filteredOut           <- WorkerExecutor(worker).execute(tryProcessVariables)
-      _                     <- logDebug(s"filteredOut: $filteredOut")
-      _                     <- externalTaskService.handleSuccess(
-                                 filteredOut,
-                                 generalVariables.manualOutMapping
-                               )
-      _                     <- logDebug(s"Worker: ${worker.topic} completed successfully")
+      _                      <- logDebug(s"Executing Worker: ${worker.topic}")
+      generalVariables       <- ProcessVariablesExtractor.extractGeneral()
+      _                      <- logDebug(s"generalVariables: ${generalVariables.asJson}")
+      given EngineRunContext <- createEngineRunContext(generalVariables)
+      executor               <- createExecutor
+      filteredOut            <- executor.execute(tryProcessVariables)
+      _                      <- logDebug(s"filteredOut: $filteredOut")
+      _                      <- externalTaskService.handleSuccess(
+                                  filteredOut,
+                                  generalVariables.manualOutMapping
+                                )
+      _                      <- logDebug(s"Worker: ${worker.topic} completed successfully")
     yield ())
       .catchAll: ex =>
         ProcessVariablesExtractor.extractGeneral(ex.generalVariables)
@@ -65,6 +66,20 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           )
       .unit
   end executeWorker
+
+  private def createEngineRunContext(generalVariables: GeneralVariables) =
+    attempt(EngineRunContext(c7Context, generalVariables)).mapError(ex =>
+      UnexpectedError(
+        s"Problem creating EngineRunContext: ${ex.getMessage}"
+      )
+    )
+
+  private def createExecutor(using EngineRunContext) =
+    attempt(WorkerExecutor(worker)).mapError(ex =>
+      UnexpectedError(
+        s"Problem creating WorkerExecutor: ${ex.getMessage}"
+      )
+    )
 
   extension (externalTaskService: camunda.ExternalTaskService)
 
@@ -114,11 +129,11 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, WorkerError]] =
       val errorMsg          = error.errorMsg.replace("\n", "")
-      val errorHandled      = isErrorHandled(error, generalVariables.handledErrors)
+      val errorHandled      = isErrorHandled(error, generalVariables.handledErrorSeq)
       val errorRegexHandled =
-        error.isMock ||(errorHandled && generalVariables.regexHandledErrors.forall(regex =>
-          errorMsg.matches(s".*$regex.*"))
-        )
+        error.isMock || (errorHandled && generalVariables.regexHandledErrorSeq.forall(regex =>
+          errorMsg.matches(s".*$regex.*")
+        ))
 
       (errorHandled, errorRegexHandled) match
         case (true, true)  =>
@@ -127,9 +142,9 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
               error.output
             case _                      => Map.empty
           val filtered: Map[String, Any] =
-            filteredOutput(generalVariables.outputVariables, mockedOutput)
+            filteredOutput(generalVariables.outputVariableSeq, mockedOutput)
           (if
-             error.isMock && !generalVariables.handledErrors.contains(
+             error.isMock && !generalVariables.handledErrorSeq.contains(
                error.errorCode.toString
              )
            then
@@ -138,7 +153,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
              handleBpmnError(error, filtered)
           ).as(AlreadyHandledError)
         case (true, false) =>
-          ZIO.succeed(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrors))
+          ZIO.succeed(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrorSeq))
         case _             =>
           ZIO.succeed(error)
       end match
@@ -206,7 +221,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         "Entity was updated by another transaction concurrently",
         "An exception occurred in the persistence layer",
         "Exception when sending request: GET", // sttp.client3.SttpClientException$ReadException
-        "Exception when sending request: PUT" // only GET and PUT to be safe a POST is not executed again
+        "Exception when sending request: PUT"  // only GET and PUT to be safe a POST is not executed again
         //  "Service Unavailable",
         //  "Gateway Timeout"
       ).map(_.toLowerCase)

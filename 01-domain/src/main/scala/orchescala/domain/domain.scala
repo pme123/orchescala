@@ -137,6 +137,21 @@ given InOutCodec[IntOrBoolean] = CirceCodec.from(
       case i: Int     => Json.fromInt(i)
 )
 
+given InOutCodec[StringOrSeq] = CirceCodec.from(
+  new Decoder[StringOrSeq]:
+    final def apply(c: HCursor): Decoder.Result[StringOrSeq] =
+      if c.value.isString
+      then c.as[String]
+      else c.as[Seq[String]]
+  ,
+  new Encoder[StringOrSeq]:
+    final def apply(a: StringOrSeq): Json = a match
+      case s: String => Json.fromString(s)
+      case seq: Seq[String] => Json.fromValues(seq.map(Json.fromString))
+)
+type StringOrSeq = String | Seq[String]
+given ApiSchema[StringOrSeq] = Schema.derivedUnion
+
 case class NoInput()
 object NoInput:
   given ApiSchema[NoInput]  = deriveApiSchema

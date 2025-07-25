@@ -202,7 +202,7 @@ trait DocCreator extends DependencyCreator, Helpers:
       projectPath = projConfig.absGitPath(gitBasePath)
       _           = println(s"Project Git Path $projectPath / $gitBasePath")
       _           = if !os.exists(projectPath) then
-                      apiConfig.projectsConfig.initProject(project, gitBasePath)
+                      apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
       _           = os.proc("git", "fetch", "--tags").callOnConsole(projectPath)
       _           = os
                       .proc("git", "checkout", s"tags/v$version")

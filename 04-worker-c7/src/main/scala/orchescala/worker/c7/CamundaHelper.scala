@@ -105,11 +105,10 @@ object CamundaHelper:
       .flatMap(maybeVar =>
         ZIO.fromOption(
           maybeVar
-        ).mapError(_ =>
+        ).orElseFail :
           BadVariableError(
             s"The Variable '$varKey' is required! But does  not exist in your Process"
           )
-        )
       )
   end variable
 

@@ -1,9 +1,9 @@
 package orchescala.worker.c8
 
-import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import io.camunda.zeebe.client.ZeebeClient
+import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import zio.ZIO.*
-import zio.{Console, *}
+import zio.*
 
 class C8WorkerRegistry(client: C8WorkerClient)
     extends WorkerRegistry:

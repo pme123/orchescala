@@ -94,36 +94,48 @@ object NoInConfig:
 case class GeneralVariables(
     // mocking
     servicesMocked: Boolean = false,             // Process only
-    mockedWorkers: Seq[String] = Seq.empty,      // Process only
+    mockedWorkers: StringOrSeq = Seq.empty,      // Process only
     outputMock: Option[Json] = None,
     outputServiceMock: Option[Json] = None,      // Service only
     // mapping
     manualOutMapping: Boolean = false,           // Service only
-    outputVariables: Seq[String] = Seq.empty,    // Service only
-    handledErrors: Seq[String] = Seq.empty,      // Service only
-    regexHandledErrors: Seq[String] = Seq.empty, // Service only
+    outputVariables: StringOrSeq = Seq.empty,    // Service only
+    handledErrors: StringOrSeq = Seq.empty,      // Service only
+    regexHandledErrors: StringOrSeq = Seq.empty, // Service only
     // authorization
     impersonateUserId: Option[String] = None
 ):
+  
+  lazy val mockedWorkerSeq: Seq[String] = asSeq(mockedWorkers)
+  lazy val outputVariableSeq: Seq[String] = asSeq(outputVariables)
+  lazy val handledErrorSeq: Seq[String] = asSeq(handledErrors)
+  lazy val regexHandledErrorSeq: Seq[String] = asSeq(regexHandledErrors)
+
+  def isMockedService: Boolean = servicesMocked
   def isMockedWorker(workerTopicName: String): Boolean =
-    mockedWorkers.contains(workerTopicName)
+    mockedWorkerSeq.contains(workerTopicName)
+
+  private def asSeq(value: StringOrSeq): Seq[String] =
+    value match
+      case s: String => s.split(",").toSeq
+      case seq: Seq[String] => seq  
 end GeneralVariables
 
 object GeneralVariables:
   given InOutCodec[GeneralVariables] = CirceCodec.from(decoder, deriveInOutEncoder)
   given ApiSchema[GeneralVariables]  = deriveApiSchema
-
+      
   lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables] :
     final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
       for
         servicesMocked <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
-        mockedWorkers <- c.downField("mockedWorkers").as[Option[Seq[String]]].map(_.getOrElse(Seq.empty))
+        mockedWorkers <- c.downField("mockedWorkers").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
         outputMock <- c.downField("outputMock").as[Option[Json]]
         outputServiceMock <- c.downField("outputServiceMock").as[Option[Json]]
         manualOutMapping <- c.downField("manualOutMapping").as[Option[Boolean]].map(_.getOrElse(false))
-        outputVariables <- c.downField("outputVariables").as[Option[Seq[String]]].map(_.getOrElse(Seq.empty))
-        handledErrors <- c.downField("handledErrors").as[Option[Seq[String]]].map(_.getOrElse(Seq.empty))
-        regexHandledErrors <- c.downField("regexHandledErrors").as[Option[Seq[String]]].map(_.getOrElse(Seq.empty))
+        outputVariables <- c.downField("outputVariables").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        handledErrors <- c.downField("handledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        regexHandledErrors <- c.downField("regexHandledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
         impersonateUserId <- c.downField("impersonateUserId").as[Option[String]]
       yield GeneralVariables(
         servicesMocked,
@@ -241,5 +253,5 @@ enum BpmnProcessType:
   case C8(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda8")
 
 object BpmnProcessType:
-  def diagramPaths: Seq[os.RelPath] = Seq(C7().diagramPath, C8().diagramPath)
+  def diagramPaths: Seq[os.RelPath] = Seq(C7().diagramPath)//TODO not supported yet: , C8().diagramPath)
 end BpmnProcessType

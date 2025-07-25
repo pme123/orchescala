@@ -46,8 +46,8 @@ case class ApiConfig(
     Unsafe.unsafe:
       implicit unsafe =>
         Runtime.default.unsafe.run(
-          projectsConfig.init(tempGitDir) *>
-            otherProjectsConfig.init(tempGitDir)
+          projectsConfig.init(tempGitDir, companyName) *>
+            otherProjectsConfig.init(tempGitDir, companyName)
         ).getOrThrow()
 
   end init
@@ -124,13 +124,13 @@ case class ProjectsConfig(
       .find(_.containsProject(projectName))
       .map(_.cloneBaseUrl)
 
-  def init(tempGitDir: os.Path) =
+  def init(tempGitDir: os.Path, companyName: String) =
     ZIO.logInfo(s"Init Projects in $tempGitDir") *>
-      ZIO.foreachPar(perGitRepoConfigs)(_.init(tempGitDir))
+      ZIO.foreachPar(perGitRepoConfigs)(_.init(tempGitDir, companyName))
   end init
 
-  def initProject(projectName: String, tempGitDir: os.Path): Unit =
-    perGitRepoConfigs.foreach(_.initProject(tempGitDir, projectName))
+  def initProject(projectName: String, tempGitDir: os.Path, companyName: String): Unit =
+    perGitRepoConfigs.foreach(_.initProject(tempGitDir, projectName, companyName))
   end initProject
 
   def projectConfig(projectName: String): Option[ProjectConfig] =
@@ -198,22 +198,32 @@ case class ProjectsPerGitRepoConfig(
     // The pattern must be $cloneBaseUrl/$projectName.git
     cloneBaseUrl: String,
     // Definition of the projects
-    projects: Seq[ProjectConfig]
+    projects: Seq[ProjectConfig],
+    // if all projects are in one repo (one repo for whole company)
+    singleRepo: Boolean = false
 ):
 
-  def init(gitDir: os.Path) =
-    ZIO.foreachPar(projects): project =>
-      ZIO.attempt {
-        val gitRepo = s"$cloneBaseUrl/${project.name}.git"
-        updateProject(project.absGitPath(gitDir), gitRepo)
-      }
+  def init(gitDir: os.Path, companyName: String) =
+    if singleRepo then
+      ZIO.attempt:
+        val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
+        updateProject(gitDir  / s"orchescala-$companyName", gitRepo)
+    else
+      ZIO.foreachPar(projects): project =>
+        ZIO.attempt:
+          val gitRepo = s"$cloneBaseUrl/${project.name}.git"
+          updateProject(project.absGitPath(gitDir), gitRepo)
 
-  def initProject(gitDir: os.Path, projectName: String): Unit =
-    projects.find(_.name == projectName)
-      .foreach { project =>
-        val gitRepo = s"$cloneBaseUrl/${project.name}.git"
-        updateProject(project.absGitPath(gitDir), gitRepo)
-      }
+  def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
+    if singleRepo then
+      ZIO.attempt:
+        val gitRepo = s"$cloneBaseUrl/$companyName.git"
+        updateProject(gitDir / companyName, gitRepo)
+    else
+      projects.find(_.name == projectName)
+        .foreach: project =>
+          val gitRepo = s"$cloneBaseUrl/${project.name}.git"
+          updateProject(project.absGitPath(gitDir), gitRepo)
   end initProject
 
   def containsProject(projectName: String): Boolean =

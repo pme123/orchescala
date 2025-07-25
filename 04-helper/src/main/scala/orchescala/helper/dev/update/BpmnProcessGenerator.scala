@@ -157,10 +157,9 @@ case class BpmnProcessGenerator(processType: BpmnProcessType)(using config: DevC
        |    </bpmn:intermediateThrowEvent>
        |    <bpmn:endEvent id="SucceededEndEvent" name="succeeded">
        |      <bpmn:extensionElements>
-       |        <conversion:message severity="TASK">Listener at 'start' with implementation '#{execution.setVariable("processStatus", "succeeded")}' can be transformed to a job worker. Please adjust the job type.</conversion:message>
-       |        <zeebe:executionListeners>
-       |          <zeebe:executionListener eventType="start" type="#{execution.setVariable(&quot;processStatus&quot;, &quot;succeeded&quot;)}"/>
-       |        </zeebe:executionListeners>
+       |        <zeebe:ioMapping>
+       |          <zeebe:output source="=&#34;succeeded&#34;" target="processStatus" />
+       |        </zeebe:ioMapping>
        |      </bpmn:extensionElements>
        |      <bpmn:incoming>Flow_151h2k5</bpmn:incoming>
        |    </bpmn:endEvent>

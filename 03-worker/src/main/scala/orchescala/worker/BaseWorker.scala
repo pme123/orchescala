@@ -1,5 +1,6 @@
 package orchescala.worker
 
+import io.circe.Decoder.Result
 import orchescala.domain.*
 import orchescala.engine.EngineRuntime
 import orchescala.worker.*
@@ -9,18 +10,24 @@ import zio.*
 trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends WorkerDsl[In, Out]:
 
-  protected def executeWithScope[T](execution: ZIO[SttpClientBackend, Throwable, T], jobId: String): Unit =
+  protected def executeWithScope[T](
+      execution: ZIO[SttpClientBackend, Throwable, T],
+      jobId: String
+  ): Unit =
     Unsafe.unsafe:
       implicit unsafe =>
         EngineRuntime.zioRuntime.unsafe.fork:
           ZIO.scoped:
             for
-              fiber <- execution
-                         .provideLayer(EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger)
-                         .fork
-              _     <- ZIO.addFinalizer:
-                         fiber.status.flatMap: status =>
-                           fiber.interrupt.when(!status.isDone)
+              fiber  <-
+                execution
+                  .provideLayer(
+                    EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger
+                  )
+                  .fork
+              _      <- ZIO.addFinalizer:
+                          fiber.status.flatMap: status =>
+                            fiber.interrupt.when(!status.isDone)
               result <- fiber.join
             yield result
           .ensuring:
@@ -44,16 +51,18 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       )
 
   protected def processVariable(
-                                 key: String,
-                                 json: Json
-                               ): IO[BadVariableError, (String, Option[Json])] =
+      key: String,
+      json: Json
+  ): IO[BadVariableError, (String, Option[Json])] =
     json.hcursor.downField(key).as[Option[Json]] match
-      case Right(value) => ZIO.succeed(key -> value)
-      case Left(ex) => ZIO.fail(BadVariableError(ex.getMessage))
-  
+      case Right(value) =>
+        ZIO.succeed(key -> value)
+      case Left(ex)     =>
+        ZIO.fail(BadVariableError(ex.getMessage))
+
   case class BusinessKey(businessKey: Option[String])
 
   object BusinessKey:
     given InOutCodec[BusinessKey] = deriveInOutCodec
-    
+
 end BaseWorker

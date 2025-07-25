@@ -23,25 +23,46 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   def run(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
     (for
-      startDate             <- succeed(new Date())
-      json                  <- extractJson(job)
-      businessKey           <- extractBusinessKey(json)
-      _                     <- logInfo(
-                                 s"Worker: ${job.getType} (${job.getBpmnProcessId}) started > $businessKey"
-                               )
-      processVariables       = worker.variableNames.map(k => processVariable(k, json))
-      generalVariables      <- extractGeneralVariables(json)
-      given EngineRunContext = EngineRunContext(c8Context, generalVariables)
-      filteredOut           <- WorkerExecutor(worker).execute(processVariables)
-      _                     <- logInfo(s"generalVariables: $generalVariables")
-      _                     <- handleSuccess(client, job, filteredOut, generalVariables.manualOutMapping, businessKey)
-      _                     <-
+      startDate              <- succeed(new Date())
+      json                   <- extractJson(job)
+      businessKey            <- extractBusinessKey(json)
+      _                      <- logDebug(
+                                  s"Worker: ${job.getType} (${job.getBpmnProcessId}) started > $businessKey"
+                                )
+      processVariables        = worker.variableNames.map(k => processVariable(k, json))
+      _                      <- logDebug(s"processVariables: ${processVariables.size}")
+      generalVariables       <- extractGeneralVariables(json)
+      _                      <- logDebug(s"generalVariables: ${generalVariables.asJson}")
+      given EngineRunContext <- createEngineRunContext(generalVariables)
+      _                      <- logDebug(s"EngineRunContext created")
+      executor               <- createExecutor
+      filteredOut            <- WorkerExecutor(worker).execute(processVariables)
+      _                      <- logDebug(s"filteredOut: $filteredOut")
+      _                      <- handleSuccess(client, job, filteredOut, generalVariables.manualOutMapping, businessKey)
+      _                      <-
         logInfo(
           s"Worker: ${job.getType} (${job.getBpmnProcessId}) ended ${printTimeOnConsole(startDate)} > $businessKey"
         )
     yield ())
       .catchAll: ex =>
         handleError(client, job, ex)
+
+  private def createExecutor(using EngineRunContext) = {
+    attempt(WorkerExecutor(worker)).mapError(ex =>
+      UnexpectedError(
+        s"Problem creating WorkerExecutor: ${ex.getMessage}"
+      )
+    )
+  }
+
+  private def createEngineRunContext(generalVariables: GeneralVariables) = {
+    ZIO.attempt(EngineRunContext(c8Context, generalVariables)).mapError(
+      ex =>
+        UnexpectedError(
+          s"Problem creating EngineRunContext: ${ex.getMessage}"
+        )
+    )
+  }
 
   private def extractJson(job: ActivatedJob) =
     fromEither(io.circe.parser.parse(job.getVariables))
@@ -76,8 +97,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       _                <- logError(s"Error: ${error.causeMsg}")
       json             <- extractJson(job)
       generalVariables <- extractGeneralVariables(json)
-      isErrorHandled    = errorHandled(error, generalVariables.handledErrors)
-      errorRegexHandled = regexMatchesAll(isErrorHandled, error, generalVariables.regexHandledErrors)
+      isErrorHandled    = errorHandled(error, generalVariables.handledErrorSeq)
+      errorRegexHandled =
+        regexMatchesAll(isErrorHandled, error, generalVariables.regexHandledErrorSeq)
       _                <- attempt(client.newFailCommand(job)
                             .retries(job.getRetries - 1)
                             .retryBackoff(time.Duration.ofSeconds(60))
@@ -86,14 +108,14 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                             .send().join())
     yield (isErrorHandled, errorRegexHandled, generalVariables))
       .flatMap:
-        case (true, true, generalVariables) =>
+        case (true, true, generalVariables)  =>
           val mockedOutput = error match
             case error: ErrorWithOutput => error.output
             case _                      => Map.empty
-          val filtered     = filteredOutput(generalVariables.outputVariables, mockedOutput)
+          val filtered     = filteredOutput(generalVariables.outputVariableSeq, mockedOutput)
           ZIO.attempt(
             if
-              error.isMock && !generalVariables.handledErrors.contains(
+              error.isMock && !generalVariables.handledErrorSeq.contains(
                 error.errorCode.toString
               )
             then
@@ -111,9 +133,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 .errorMessage(error.causeMsg)
                 .send().join()
           )
-        case (true, false, generalVariables)               =>
-          ZIO.fail(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrors))
-        case _                              =>
+        case (true, false, generalVariables) =>
+          ZIO.fail(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrorSeq))
+        case _                               =>
           ZIO.fail(error)
 
 end C8Worker
