@@ -35,12 +35,6 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
     runWorkFromWorker(in)
       .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
 
-  protected def errorHandled(error: WorkerError, handledErrors: Seq[String]): Boolean =
-    error.isMock || // if it is mocked, it is handled in the error, as it also could be a successful output
-      handledErrors.contains(error.errorCode.toString) || handledErrors.map(
-        _.toLowerCase
-      ).contains("catchall")
-
   protected def regexMatchesAll(
       errorHandled: Boolean,
       error: WorkerError,

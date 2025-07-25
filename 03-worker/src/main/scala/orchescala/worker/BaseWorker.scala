@@ -10,9 +10,8 @@ import zio.*
 trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends WorkerDsl[In, Out]:
 
-  protected def executeWithScope[T](
-      execution: ZIO[SttpClientBackend, Throwable, T],
-      jobId: String
+  protected def executeWithScope[T](jobId: String)(
+      execution: ZIO[SttpClientBackend, Throwable, T]
   ): Unit =
     Unsafe.unsafe:
       implicit unsafe =>
@@ -59,6 +58,12 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         ZIO.succeed(key -> value)
       case Left(ex)     =>
         ZIO.fail(BadVariableError(ex.getMessage))
+
+  protected def isErrorHandled(error: WorkerError, handledErrors: Seq[String]): Boolean =
+    error.isMock || // if it is mocked, it is handled in the error, as it also could be a successful output
+      handledErrors.contains(error.errorCode.toString) || handledErrors.map(
+      _.toLowerCase
+    ).contains("catchall")
 
   case class BusinessKey(businessKey: Option[String])
 

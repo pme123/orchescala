@@ -22,7 +22,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       externalTask: camunda.ExternalTask,
       externalTaskService: camunda.ExternalTaskService
   ): Unit =
-    executeWithScope(run(externalTaskService)(using externalTask), externalTask.getId)
+    executeWithScope(externalTask.getId):
+      run(externalTaskService)(using externalTask)
 
   private[worker] def run(externalTaskService: camunda.ExternalTaskService)(using
       externalTask: camunda.ExternalTask
@@ -118,11 +119,6 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             handleFailure(err, doRetry = true)
 
     end handleError
-
-    private[worker] def isErrorHandled(
-        error: WorkerError,
-        handledErrors: Seq[String]
-    ): Boolean = errorHandled(error, handledErrors)
 
     private[worker] def checkError(
         error: WorkerError,
