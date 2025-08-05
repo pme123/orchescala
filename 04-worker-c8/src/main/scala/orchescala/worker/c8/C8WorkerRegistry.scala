@@ -1,15 +1,16 @@
 package orchescala.worker.c8
 
-import io.camunda.zeebe.client.ZeebeClient
+import io.camunda.client.CamundaClient
+import orchescala.engine.c8.C8Client
 import orchescala.worker.{WorkerDsl, WorkerRegistry}
-import zio.ZIO.*
 import zio.*
+import zio.ZIO.*
 
-class C8WorkerRegistry(client: C8WorkerClient)
+class C8WorkerRegistry(c8Client: C8Client)
     extends WorkerRegistry:
 
   protected def registerWorkers(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any] =
-    acquireReleaseWith(client.client)(_.closeClient()): client =>
+    acquireReleaseWith(c8Client.client)(_.closeClient()): client =>
       for
         _        <- logInfo(s"Starting C8 Worker Client - ${workers.size} workers.")
         c8Workers = workers.collect { case w: C8Worker[?, ?] => w }
@@ -18,8 +19,8 @@ class C8WorkerRegistry(client: C8WorkerClient)
         _        <- ZIO.never // keep the worker running
       yield ()
 
-  private def registerWorker(worker: C8Worker[?, ?], client: ZeebeClient) =
-    logInfo(s"Registering C8 Worker: ${worker.topic}") *>
+  private def registerWorker(worker: C8Worker[?, ?], client: CamundaClient) =
+    logDebug(s"Registering C8 Worker: ${worker.topic}") *>
       attempt(client
         .newWorker()
         .jobType(worker.topic)
@@ -28,7 +29,7 @@ class C8WorkerRegistry(client: C8WorkerClient)
         .open()) *>
       logInfo("Registered C8 Worker: " + worker.topic)
 
-  extension (client: ZeebeClient)
+  extension (client: CamundaClient)
     private def closeClient(): UIO[Unit] =
       logInfo("Closing C8 Worker Client").as(if client != null then client.close() else ())
 

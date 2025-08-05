@@ -213,7 +213,7 @@ lazy val workerC8    = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= Seq(
-      zeebeJavaClientDependency
+      camunda8JavaClientDependency
     ) ++ zioTestDependencies
   )
-  .dependsOn(worker)
+  .dependsOn(worker, engineC8)

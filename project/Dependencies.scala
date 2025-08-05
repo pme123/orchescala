@@ -55,12 +55,10 @@ object Dependencies {
   // 04-c8-spring
   // -> bpmn
   val scalaJacksonVersion   = "2.18.3"
-  val camunda8Version       = "8.5.18"
-  val zeebeClientVersion    = "8.7.0"
+  val camunda8Version       = "8.8.0-alpha7-rc2"
   val springBootVersion     = "3.3.9"
   val nettyVersion          = "4.2.0.Final"
   val swaggerOpenAPIVersion = "2.1.26"
-  val zeebeVersion          = "8.6.0"
   val testcontainersVersion = "1.20.4"
   // examples
   val h2Version             = "2.3.232"
@@ -106,8 +104,9 @@ object Dependencies {
     "com.fasterxml.jackson.module" %% "jackson-module-scala"        % scalaJacksonVersion
   ) // .map(_.exclude("org.slf4j", "slf4j-api"))
 
-  val zeebeJavaClientDependency =
-    "io.camunda" % "zeebe-client-java" % zeebeClientVersion
+  val camunda8JavaClientDependency =
+    "io.camunda" % "camunda-client-java" % camunda8Version
+
   val zioDependency =
     "dev.zio" %% "zio" % zioVersion
   val zioTestDependencies =
@@ -147,7 +146,7 @@ object Dependencies {
   lazy val sardineWebDav  = "com.github.lookfirst" % "sardine"        % sardineWebDavVersion
 
   lazy val camunda8EngineDependencies = Seq(
-    zeebeJavaClientDependency,
+    camunda8JavaClientDependency,
    // "io.camunda" % "zeebe-process-test-extension" % zeebeVersion % Test,
    // "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
    // "org.testcontainers" % "junit-jupiter" % testcontainersVersion % Test

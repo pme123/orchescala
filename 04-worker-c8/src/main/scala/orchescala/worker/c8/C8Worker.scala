@@ -1,7 +1,7 @@
 package orchescala.worker.c8
 
-import io.camunda.zeebe.client.api.response.ActivatedJob
-import io.camunda.zeebe.client.api.worker.{JobClient, JobHandler}
+import io.camunda.client.api.response.ActivatedJob
+import io.camunda.client.api.worker.{JobClient, JobHandler}
 import orchescala.domain.*
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
@@ -13,8 +13,8 @@ import java.util.Date
 import scala.jdk.CollectionConverters.*
 
 trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
-    extends WorkerDsl[In, Out], BaseWorker[In, Out],
-      JobHandler:
+    extends WorkerDsl[In, Out], BaseWorker[In, Out], JobHandler:
+
   protected def c8Context: C8Context
 
   def handle(client: JobClient, job: ActivatedJob): Unit =
@@ -104,7 +104,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
              handleBpmnError(
                error,
                filtered
-             ) 
+             )
           ).as(AlreadyHandledError)
         case (true, false) =>
           ZIO.succeed(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrorSeq))

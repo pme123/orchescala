@@ -1,7 +1,7 @@
 package orchescala.engine.c8
 
-import io.camunda.zeebe.client.ZeebeClient
-import io.camunda.zeebe.client.api.response.PublishMessageResponse
+import io.camunda.client.CamundaClient
+import io.camunda.client.api.response.PublishMessageResponse
 import orchescala.domain.CamundaVariable
 import orchescala.engine.*
 import orchescala.engine.domain.MessageCorrelationResult
@@ -12,7 +12,7 @@ import zio.{IO, ZIO}
 import scala.jdk.CollectionConverters.*
 
 class C8MessageService(using
-    zeebeClientZIO: IO[EngineError, ZeebeClient],
+    camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
 ) extends MessageService with C8EventService:
 
@@ -25,7 +25,7 @@ class C8MessageService(using
       variables: Option[Map[String, CamundaVariable]] = None
   ): IO[EngineError, MessageCorrelationResult] =
     for
-      zeebeClient <- zeebeClientZIO
+      camundaClient <- camundaClientZIO
       _           <-
         logInfo(
           s"""Correlate Message:
@@ -39,7 +39,7 @@ class C8MessageService(using
       resp  <-
         ZIO
           .attempt {
-            val command = zeebeClient.newPublishMessageCommand()
+            val command = camundaClient.newPublishMessageCommand()
               .messageName(name)
               
             val withCorrelationKey = businessKey match

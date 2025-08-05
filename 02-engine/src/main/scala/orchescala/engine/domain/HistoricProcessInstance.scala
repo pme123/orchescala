@@ -9,8 +9,6 @@ case class HistoricProcessInstance(
     id: String,
     rootProcessInstanceId: String,
     superProcessInstanceId: Option[String],
-    superCaseInstanceId: Option[String],
-    caseInstanceId: Option[String],
     processDefinitionName: String,
     processDefinitionKey: String,
     processDefinitionVersion: Int,
@@ -19,19 +17,20 @@ case class HistoricProcessInstance(
     startTime: OffsetDateTime,
     endTime: Option[OffsetDateTime],
     removalTime: Option[OffsetDateTime],
-    durationInMillis: Option[Long],
     startUserId: Option[String],
-    startActivityId: Option[String],
     deleteReason: Option[String],
     tenantId: Option[String],
-    state: ProcessState,
-    restartedProcessInstanceId: Option[String]
-)
+    state: ProcessState
+):
+  lazy val durationInMillis: Option[Long] =
+    endTime.map(_.toInstant.toEpochMilli - startTime.toInstant.toEpochMilli)
+end HistoricProcessInstance
+
 object HistoricProcessInstance:
   given InOutCodec[HistoricProcessInstance] = deriveCodec
 
   enum ProcessState:
-    case ACTIVE, SUSPENDED, COMPLETED, TERMINATED
+    case ACTIVE, SUSPENDED, COMPLETED, TERMINATED, UNKNOWN
   object ProcessState:
     given InOutCodec[ProcessState] = deriveEnumInOutCodec
 end HistoricProcessInstance

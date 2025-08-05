@@ -1,6 +1,6 @@
 package orchescala.engine.c8
 
-import io.camunda.zeebe.client.ZeebeClient
+import io.camunda.client.CamundaClient
 import orchescala.domain.CamundaVariable
 import orchescala.engine.*
 import orchescala.engine.domain.UserTask
@@ -11,7 +11,7 @@ import zio.{IO, ZIO}
 import scala.jdk.CollectionConverters.*
 
 class C8UserTaskService(using
-    zeebeClientZIO: IO[EngineError, ZeebeClient],
+    camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
 ) extends UserTaskService with C8EventService:
 

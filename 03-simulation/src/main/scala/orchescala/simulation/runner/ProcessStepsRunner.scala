@@ -45,7 +45,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   def checkFinished: ResultType =
     import orchescala.engine.domain.HistoricProcessInstance.ProcessState
     val processInstanceId = summon[ScenarioData].context.processInstanceId
-    for
+    (for
       instance           <-
         historicProcessInstanceService
           .getProcessInstance(
@@ -67,7 +67,11 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
                                   )
                                 scenarioOrStepRunner.tryOrFail(checkFinished)
     yield summon[ScenarioData]
-    end for
+    ).catchAll:
+      case err if err.getMessage.contains(s"Problem getting Historic Process Instance '$processInstanceId'") =>
+        scenarioOrStepRunner.tryOrFail(checkFinished)
+      case err =>
+        ZIO.fail(err)
   end checkFinished
 
   private def checkVars: ResultType =

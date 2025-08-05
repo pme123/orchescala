@@ -37,8 +37,6 @@ class C7HistoricProcessInstanceService(using
           id = processInstanceDto.getId,
           rootProcessInstanceId = processInstanceDto.getRootProcessInstanceId,
           superProcessInstanceId = Option(processInstanceDto.getSuperProcessInstanceId),
-          superCaseInstanceId = Option(processInstanceDto.getSuperCaseInstanceId),
-          caseInstanceId = Option(processInstanceDto.getCaseInstanceId),
           processDefinitionName = processInstanceDto.getProcessDefinitionName,
           processDefinitionKey = processInstanceDto.getProcessDefinitionKey,
           processDefinitionVersion = processInstanceDto.getProcessDefinitionVersion,
@@ -47,13 +45,10 @@ class C7HistoricProcessInstanceService(using
           startTime = processInstanceDto.getStartTime,
           endTime = Option(processInstanceDto.getEndTime),
           removalTime = Option(processInstanceDto.getRemovalTime),
-          durationInMillis = Option(processInstanceDto.getDurationInMillis),
           startUserId = Option(processInstanceDto.getStartUserId),
-          startActivityId = Option(processInstanceDto.getStartActivityId),
           deleteReason = Option(processInstanceDto.getDeleteReason),
           tenantId = Option(processInstanceDto.getTenantId),
-          state = mapState(processInstanceDto.getState),
-          restartedProcessInstanceId = Option(processInstanceDto.getRestartedProcessInstanceId)
+          state = mapState(processInstanceDto.getState)
         )
       .mapError: err =>
         EngineError.MappingError(

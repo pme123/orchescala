@@ -1,7 +1,7 @@
 package orchescala.engine.c8
 
-import io.camunda.zeebe.client.ZeebeClient
-import io.camunda.zeebe.client.api.response.ProcessInstanceEvent
+
+import io.camunda.client.CamundaClient
 import orchescala.engine.*
 import orchescala.engine.inOut.*
 import orchescala.engine.json.JProcessInstanceService
@@ -9,7 +9,7 @@ import zio.*
 
 case class C8ProcessEngine()(
   using
-  IO[EngineError, ZeebeClient],
+  IO[EngineError, CamundaClient],
   EngineConfig
 ) extends ProcessEngine:
 

@@ -2,13 +2,12 @@ package orchescala.simulation
 
 import orchescala.engine.EngineRuntime
 import zio.ZIO.logInfo
-import zio.logging.backend.SLF4J
-import zio.{IO, Runtime, Unsafe, ZIO}
+import zio.{IO, Unsafe, ZIO}
 
 import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.*
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 final class SimulationTestFramework extends sbt.testing.Framework:
 
