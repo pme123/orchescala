@@ -75,11 +75,13 @@ class C8HistoricVariableService(using
       )
   end mapToHistoricVariables
 
-  private def mapToCamundaVariable(histVar: Variable) =
+  private def mapToCamundaVariable(histVar: Variable): Option[CamundaVariable] =
     histVar.getValue match
       case null => None
       case "null" => None
       case str if str.startsWith("\"") && str.endsWith("\"") =>
         Some(CamundaVariable.CString(str.drop(1).dropRight(1)))
+      case str if str.startsWith("{") || str.startsWith("[")   =>
+        Some(CamundaVariable.CJson(str))
       case _ =>
         Some(CamundaVariable.valueToCamunda(histVar.getValue))

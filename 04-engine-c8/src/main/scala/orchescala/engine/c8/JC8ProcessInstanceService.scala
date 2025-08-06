@@ -1,6 +1,7 @@
 package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
+import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
 import orchescala.domain.JsonProperty
 import orchescala.engine.*
@@ -10,6 +11,7 @@ import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
+import scala.util.Try
 
 class JC8ProcessInstanceService(using
     camundaClientZIO: IO[EngineError, CamundaClient],
@@ -36,17 +38,19 @@ class JC8ProcessInstanceService(using
       businessKey: Option[String],
       c8Client: CamundaClient,
       processVariables: Json
-  ) =
+  ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
     ZIO
       .attempt {
         val variables = processVariables.deepMerge(businessKey.map(bk =>
           Json.obj("businessKey" -> bk.asJson)
         ).getOrElse(Json.obj()))
-        val command   = c8Client
+
+        val variablesMap = jsonToVariablesMap(variables)
+        val command = c8Client
           .newCreateInstanceCommand()
           .bpmnProcessId(processDefId)
           .latestVersion()
-          .variables(processVariables.toString())
+          .variables(variablesMap.asJava)
 
         command.send().join()
       }

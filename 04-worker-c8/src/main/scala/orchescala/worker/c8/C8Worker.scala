@@ -2,6 +2,7 @@ package orchescala.worker.c8
 
 import io.camunda.client.api.response.ActivatedJob
 import io.camunda.client.api.worker.{JobClient, JobHandler}
+import orchescala.engine.c8.jsonToVariablesMap
 import orchescala.domain.*
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
@@ -130,18 +131,24 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     private def handleSuccess(
         filteredOutput: Map[String, Any]
     ): URIO[Any, Unit] =
-      logInfo(s"handleSuccess BEFORE complete: ${job.getType}") *>
-        attempt:
-          client.newCompleteCommand(job)
-            .variables(filteredOutput.asJava)
-            .send().join()
-        .catchAll: err =>
-          handleFailure(
-            UnexpectedError(
-              s"There is an unexpected Error from completing a successful Worker to C7: ${err.getMessage}."
-            ),
-            doRetry = true
-          )
+      ZIO
+        .attempt:
+          jsonToVariablesMap(filteredOutput)
+        .flatMap: variablesMap =>
+          logInfo(s"handleSuccess BEFORE complete: ${job.getType}") *>
+            attempt:
+              client.newCompleteCommand(job)
+                .variables(variablesMap)
+                .send().join()
+            .catchAll: err =>
+              handleFailure(
+                UnexpectedError(
+                  s"There is an unexpected Error from completing a successful Worker to C7: ${err.getMessage}."
+                ),
+                doRetry = true
+              )
+        .tapError: err =>
+          logError(s"Problem completing job: ${err.getMessage}.")
         .ignore
 
     private[worker] def handleBpmnError(

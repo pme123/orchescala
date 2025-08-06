@@ -129,7 +129,7 @@ lazy val simulation = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= Seq(
-      "org.scala-sbt" % "test-interface" % testInterfaceVersion,
+      "org.scala-sbt" % "test-interface" % testInterfaceVersion
     )
   )
   .dependsOn(engine)
@@ -166,7 +166,7 @@ lazy val engineC7 = project
   .settings(
     autoImportSetting,
     unitTestSettings,
-    libraryDependencies ++= camunda7EngineDependencies ++zioTestDependencies
+    libraryDependencies ++= camunda7EngineDependencies ++ zioTestDependencies
   )
   .dependsOn(engine)
 
@@ -192,7 +192,7 @@ lazy val workerC7 = project
       camunda7ZioWorkerDependencies ++ zioTestDependencies
   )
   .dependsOn(worker)
-lazy val workerC8    = project
+lazy val workerC8 = project
   .in(file("./04-worker-c8"))
   .configure(publicationSettings)
   .settings(projectSettings("worker-c8"))

@@ -682,6 +682,8 @@ def valueToJson(value: Any): Json =
       Json.fromString(ldt.toString)
     case zdt: ZonedDateTime =>
       Json.fromString(zdt.toString)
+    case j: Json            =>
+      j
     case v                  =>
       Json.fromString(v.toString)
 end valueToJson
