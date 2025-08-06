@@ -30,7 +30,6 @@ class C8HistoricProcessInstanceService(using
               .send()
               .join()
           .mapError: err =>
-            err.printStackTrace()
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': ${err.getMessage}"
             )

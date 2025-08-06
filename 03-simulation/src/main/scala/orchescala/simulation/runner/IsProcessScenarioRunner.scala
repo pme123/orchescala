@@ -37,7 +37,7 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
         .map: engineProcessInfo =>
           summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
             .info(
-              s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl}/#/process-instance/${engineProcessInfo.processInstanceId})"
+              s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(engineProcessInfo.processInstanceId)})"
             )
     yield summon[ScenarioData]
   end startProcess
@@ -59,7 +59,7 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
                                   summon[ScenarioData]
                                     .withProcessInstanceId(result.id)
                                     .info(
-                                      s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl}/#/process-instance/${result.id})"
+                                      s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(result.id)})"
                                     )
                                 .mapError: err =>
                                   SimulationError.ProcessError(

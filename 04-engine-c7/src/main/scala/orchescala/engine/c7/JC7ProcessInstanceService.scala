@@ -87,7 +87,6 @@ class JC7ProcessInstanceService(using
             case k -> dto =>
               toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
           .mapError: err =>
-            err.printStackTrace()
             EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: ${err.getMessage}"
             )

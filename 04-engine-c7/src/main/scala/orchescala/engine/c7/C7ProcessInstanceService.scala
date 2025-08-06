@@ -18,10 +18,10 @@ class C7ProcessInstanceService(jProcessService: JProcessInstanceService) extends
     jProcessService.startProcessAsync(processDefId, in.asJson, businessKey)
   end startProcessAsync
 
-  def getVariables[In <: Product : InOutDecoder](
+  def getVariables[Out <: Product : InOutDecoder](
                                                   processInstanceId: String,
-                                                  inOut: In
-                                                ): IO[EngineError, In] =
+                                                  inOut: Out
+                                                ): IO[EngineError, Out] =
     for
       variables <- jProcessService.getVariables(processInstanceId, inOut)
       json <- 
@@ -30,7 +30,7 @@ class C7ProcessInstanceService(jProcessService: JProcessInstanceService) extends
             case (jsonObj, jsonProp) =>
               ZIO.succeed(jsonObj.add(jsonProp.key, jsonProp.value))
           
-      in <- ZIO.fromEither(json.toJson.as[In])
+      in <- ZIO.fromEither(json.toJson.as[Out])
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem decoding variables for $processInstanceId ($variables): ${err.getMessage}"

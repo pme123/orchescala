@@ -28,7 +28,6 @@ class ScenarioRunner(scenario: SScenario)(using
             .fold(
               err =>
                 err.printStackTrace()
-                println(s"Error in Scenario: ${err}")
                 err.scenarioData
               ,
               sd => sd

@@ -13,9 +13,9 @@ trait ProcessInstanceService:
       businessKey: Option[String]
   ): IO[EngineError, ProcessInfo]
 
-  def getVariables[In <: Product: InOutDecoder](
+  def getVariables[Out <: Product: InOutDecoder](
       processInstanceId: String,
-      inOut: In // to filter all variables
-  ): IO[EngineError, In]
+      inOut: Out // to filter all variables
+  ): IO[EngineError, Out]
 
 end ProcessInstanceService

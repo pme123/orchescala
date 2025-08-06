@@ -1,8 +1,8 @@
 package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
-import orchescala.domain.CamundaVariable.*
-import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
+import io.camunda.client.api.search.response.Variable
+import orchescala.domain.JsonProperty
 import orchescala.engine.*
 import orchescala.engine.domain.ProcessInfo
 import orchescala.engine.json.JProcessInstanceService
@@ -23,8 +23,8 @@ class JC8ProcessInstanceService(using
   ): IO[EngineError, ProcessInfo] =
     for
       camundaClient <- camundaClientZIO
-      _           <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      instance    <- callStartProcessAsync(processDefId, businessKey, camundaClient, in)
+      _             <- logDebug(s"Starting Process '$processDefId' with variables: $in")
+      instance      <- callStartProcessAsync(processDefId, businessKey, camundaClient, in)
     yield ProcessInfo(
       processInstanceId = instance.getProcessInstanceKey.toString,
       businessKey = businessKey,
@@ -32,20 +32,22 @@ class JC8ProcessInstanceService(using
     )
 
   private def callStartProcessAsync(
-                                     processDefId: String,
-                                     businessKey: Option[String],
-                                     c8Client: CamundaClient,
-                                     processVariables: Json
+      processDefId: String,
+      businessKey: Option[String],
+      c8Client: CamundaClient,
+      processVariables: Json
   ) =
     ZIO
       .attempt {
-        val variables = processVariables.deepMerge( businessKey.map(bk => Json.obj("businessKey" -> bk.asJson)).getOrElse(Json.obj())) 
-        val command = c8Client
+        val variables = processVariables.deepMerge(businessKey.map(bk =>
+          Json.obj("businessKey" -> bk.asJson)
+        ).getOrElse(Json.obj()))
+        val command   = c8Client
           .newCreateInstanceCommand()
           .bpmnProcessId(processDefId)
           .latestVersion()
           .variables(processVariables.toString())
-        
+
         command.send().join()
       }
       .mapError { err =>
@@ -54,5 +56,56 @@ class JC8ProcessInstanceService(using
         )
       }
 
-  override def getVariables(processInstanceId: String, inOut: Product): IO[EngineError, Seq[JsonProperty]] =
-    ZIO.fail(EngineError.ProcessError("getVariables not yet implemented for Camunda 8"))
+  override def getVariables(
+      processInstanceId: String,
+      inOut: Product
+  ): IO[EngineError, Seq[JsonProperty]] =
+    for
+      camundaClient <- camundaClientZIO
+      variableDtos  <-
+        ZIO
+          .attempt:
+            camundaClient
+              .newVariableSearchRequest()
+              .filter(_.processInstanceKey(processInstanceId.toLong))
+              .send()
+              .join()
+              .items()
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem getting Variables for Process Instance '$processInstanceId': ${err.getMessage}"
+            )
+      variables     <-
+        ZIO
+          .foreach(filterVariables(inOut, variableDtos.asScala.toSeq)): dto =>
+            toVariableValue(dto)
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: ${err.getMessage}"
+            )
+      _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+    yield variables
+
+  private def filterVariables(inOut: Product, variableDtos: Seq[Variable]) =
+    variableDtos
+      .filter: v =>
+        v.getValue != null &&
+          inOut.productElementNames.toSeq.contains(v.getName)
+
+  private def toVariableValue(valueDto: Variable): IO[EngineError, JsonProperty] =
+    val value = valueDto.getValue
+    (value match
+      case "null" =>
+        ZIO.attempt(Json.Null)
+      case str    =>
+        ZIO.fromEither(parser.parse(str))
+    )
+      .map: v =>
+        JsonProperty(valueDto.getName, v)
+      .mapError: err =>
+        EngineError.ProcessError(
+          s"Problem converting VariableDto '${valueDto.getName} -> $value: ${err.getMessage}"
+        )
+
+  end toVariableValue
+end JC8ProcessInstanceService

@@ -18,7 +18,7 @@ class C7HistoricVariableService(using
   def getVariables(
       variableName: Option[String],
       processInstanceId: Option[String]
-  ): IO[EngineError, List[HistoricVariable]] =
+  ): IO[EngineError, Seq[HistoricVariable]] =
     for
       apiClient    <- apiClientZIO
       variableDtos <-
@@ -68,10 +68,10 @@ class C7HistoricVariableService(using
 
   private def mapToHistoricVariables(
       variableDtos: java.util.List[HistoricVariableInstanceDto]
-  ): List[HistoricVariable] =
+  ): Seq[HistoricVariable] =
     import scala.jdk.CollectionConverters.*
 
-    variableDtos.asScala.toList.map { dto =>
+    variableDtos.asScala.toSeq.map: dto =>
       HistoricVariable(
         id = dto.getId,
         name = dto.getName,
@@ -79,12 +79,7 @@ class C7HistoricVariableService(using
         processDefinitionKey = Option(dto.getProcessDefinitionKey),
         processDefinitionId = Option(dto.getProcessDefinitionId),
         processInstanceId = Option(dto.getProcessInstanceId),
-        executionId = Option(dto.getExecutionId),
         activityInstanceId = Option(dto.getActivityInstanceId),
-        caseDefinitionKey = Option(dto.getCaseDefinitionKey),
-        caseDefinitionId = Option(dto.getCaseDefinitionId),
-        caseInstanceId = Option(dto.getCaseInstanceId),
-        caseExecutionId = Option(dto.getCaseExecutionId),
         taskId = Option(dto.getTaskId),
         tenantId = Option(dto.getTenantId),
         errorMessage = Option(dto.getErrorMessage),
@@ -93,7 +88,6 @@ class C7HistoricVariableService(using
         removalTime = Option(dto.getRemovalTime),
         rootProcessInstanceId = Option(dto.getRootProcessInstanceId)
       )
-    }
   end mapToHistoricVariables
 
   private def mapToCamundaVariable(histVar: HistoricVariableInstanceDto) =

@@ -14,8 +14,16 @@ case class SimulationConfig(
     logLevel: LogLevel = LogLevel.INFO
 ):
 
-  lazy val cockpitUrl: String =
-    endpoint.replace("/engine-rest", "/camunda/app/cockpit/default")
+  def cockpitUrl(processInstanceId: String): String =
+    if endpoint.endsWith("/engine-rest") then
+      endpoint
+        .replace(
+          "/engine-rest",
+          s"/camunda/app/cockpit/default/#/process-instance/$processInstanceId"
+        )
+    else
+      endpoint.replace("https://bru-2.zeebe.camunda.io", "https://bru-2.operate.camunda.io") +
+        s"/operate/processes/$processInstanceId"
 
   def withTenantId(tenantId: String): SimulationConfig =
     copy(tenantId = Some(tenantId))

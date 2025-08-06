@@ -18,7 +18,8 @@ case class Incident(
     tenantId: Option[String] = None,
     incidentMessage: Option[String] = None,
     jobDefinitionId: Option[String] = None,
-    annotation: Option[String] = None
+    annotation: Option[String] = None,
+    state: Option[String] = None,
 )
 
 object Incident:

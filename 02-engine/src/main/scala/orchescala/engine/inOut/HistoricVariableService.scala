@@ -8,5 +8,5 @@ trait HistoricVariableService :
   def getVariables(
       variableName: Option[String] = None,
       processInstanceId: Option[String] = None,
-  ): IO[EngineError, List[HistoricVariable]]
+  ): IO[EngineError, Seq[HistoricVariable]]
 end HistoricVariableService

@@ -77,18 +77,17 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   private def checkVars: ResultType =
     val processInstanceId = summon[ScenarioData].context.processInstanceId
     for
-      _                  <- ZIO.logInfo(s"Fetching Variables for ${hasProcessSteps.name}")
+      _                  <- ZIO.logDebug(s"Fetching Variables for ${hasProcessSteps.name}")
       variableDtos       <-
         historicVariableService
           .getVariables(
             variableName = None,
             processInstanceId = Some(processInstanceId)
           ).mapError: err =>
-            err.printStackTrace()
             SimulationError.ProcessError(
               summon[ScenarioData].error(err.errorMsg)
             )
-      _                  <- ZIO.logInfo(s"Variables fetched for ${hasProcessSteps.name}: $variableDtos")
+      _                  <- ZIO.logDebug(s"Variables fetched for ${hasProcessSteps.name}: $variableDtos")
       given ScenarioData <-
         ResultChecker.checkProps(
           hasProcessSteps.asInstanceOf[WithTestOverrides[?]],
@@ -99,7 +98,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   end checkVars
 
   private def mapVariablesToJsonProperties(
-      variables: List[HistoricVariable],
+      variables: Seq[HistoricVariable],
       data: ScenarioData
   ): Seq[JsonProperty] =
     variables
