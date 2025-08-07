@@ -351,7 +351,7 @@ As we don't support _Throwing Signal events_ we can simplify this to _signalEven
 ```scala
 object MySignalEvent extends CompanyBpmnSignalEventDsl:
 
-  val messageName = "mycompany-myproject-mysignal-{processInstanceId}"
+  val messageName = s"mycompany-myproject-mysignal-$${SignalEvent.Dynamic_ProcessInstance}"
   val descr: String = "my signal..."
 
   case class In(...)
@@ -363,7 +363,7 @@ object MySignalEvent extends CompanyBpmnSignalEventDsl:
 end MySignalEvent
 ```
 - The `messageName` is the name of the signal you expect. 
-  To correlate the signal to a certain process instance, you can use the `{processInstanceId}` as a part in the signal name.
+  To correlate the signal to a certain process instance, you can use the `SignalEvent.Dynamic_ProcessInstance` constant (`{processInstanceId}`) as a part in the signal name.
   This will be replaced in the _Simulation_ with the actual _processInstanceId_.
 - You can send process variables with the `In` object.
 - A _SignalEvent_ extends _CompanyBpmnSignalEventDsl_.
