@@ -99,7 +99,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
              )
            then
              handleSuccess(
-               filtered
+               filtered + ("isMocked" -> true)
              )
            else
              handleBpmnError(
@@ -136,9 +136,11 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           jsonToVariablesMap(filteredOutput)
         .flatMap: variablesMap =>
           logInfo(s"handleSuccess BEFORE complete: ${job.getType}") *>
+          logDebug(s"handleSuccess BEFORE complete: $variablesMap") *>
             attempt:
               client.newCompleteCommand(job)
-                .variables(variablesMap)
+                .variables(variablesMap.asJava)
+               // .variables(Map("hello2" -> "world").asJava)
                 .send().join()
             .catchAll: err =>
               handleFailure(
