@@ -121,8 +121,8 @@ case class SbtSettingsGenerator()(using config: DevConfig):
             if dependencies.nonEmpty then dependencies.mkString("\n      ", ",\n      ", ",")
             else ""
           }
-           |      customer %% s"$$customer-orchescala-$name" % customerOrchescalaV
-           |      "io.github.pme123" %% "orchescala-$name" % orchescalaV"
+           |      customer %% s"$$customer-orchescala-$name" % customerOrchescalaV,
+           |      "io.github.pme123" %% "orchescala-$name" % orchescalaV
            |    )
            |""".stripMargin
       .mkString

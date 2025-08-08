@@ -76,29 +76,23 @@ case class BpmnGenerator()(using config: DevConfig):
        |
        |${
         if label == "ServiceTask" then
-          s"""  val path = "GET: my/path/TODO"
-             |  type ServiceIn = NoInput
-             |  type ServiceOut = NoOutput
-             |  lazy val serviceInExample = NoInput()
-             |  lazy val serviceMock = MockedServiceResponse.success200(NoOutput())
-             |  lazy val serviceMinimalMock = MockedServiceResponse.success200(NoOutput())
-             |  lazy val serviceInMinimalExample = serviceInExample.copy()
-             |  """.stripMargin
+          """  val path = "GET: my/path/TODO"
+          """.stripMargin
         else ""
       }
        |${inOutDefinitions(isProcess)}
        |
-       |  lazy val inExample = In()
-       |  lazy val outExample = Out()
-       |  lazy val inExampleMinimal = inExample
-       |  lazy val outExampleMinimal = outExample
-       |
+       |${
+        if label == "ServiceTask" then
+          serviceTaskDefinitions
+        else ""
+      }
        |  lazy val example = ${example(label, isProcess)}
        |    ${exampleServiceTask(label)}
        |  )
        |
        |  lazy val exampleMinimal = ${example(label, isProcess, isMinimal = true)}
-       |    ${exampleServiceTask(label)}
+       |    ${exampleServiceTask(label, isMinimal = true)}
        |  )
        |end $domainName""".stripMargin
   end objectDefinition
@@ -127,6 +121,21 @@ case class BpmnGenerator()(using config: DevConfig):
        |end $superTrait
        |""".stripMargin
 
+  private def serviceTaskDefinitions =
+    s"""  type ServiceIn = NoInput // if no input is needed
+       |  type ServiceOut = NoOutput // if no output is needed
+       |
+       ||  object ServiceIn:
+       |    lazy val example = NoInput() // or ...example
+       |     lazy val exampleMinimal = example//copy(..=None)
+       |
+       |  object ServiceOut:
+       |     lazy val example = NoOutput() // or ...example
+       |     lazy val exampleMinimal = example //.copy(..=None)
+       |     lazy val mock = MockedServiceResponse.success204 // or MockedServiceResponse.success200(example)
+       |     lazy val mockMinimal = MockedServiceResponse.success204 // or MockedServiceResponse.success200(exampleMinimal)
+       |""".stripMargin
+
   private def eventDefinition(
       setupObject: SetupElement
   ) =
@@ -143,12 +152,7 @@ case class BpmnGenerator()(using config: DevConfig):
        |  val descr: String = ""
        |${
         if label == "Timer" then ""
-        else """  case class In(
-              |  )
-              |  object In:
-              |    given ApiSchema[In] = deriveApiSchema
-              |    given InOutCodec[In] = deriveInOutCodec
-              |""".stripMargin
+        else inClass
       }
        |  lazy val example = ${label.head.toLower + label.tail}Event(${
         if label == "Timer" then ""
@@ -168,12 +172,7 @@ case class BpmnGenerator()(using config: DevConfig):
   end domainPath
 
   private def inOutDefinitions(isProcess: Boolean = false) =
-    s"""  case class In(
-       |     //TODO input variables
-       |  ${extraInVars(isProcess)}
-       |  object In:
-       |    given ApiSchema[In] = deriveApiSchema
-       |    given InOutCodec[In] = deriveInOutCodec
+    s"""${inClass}
        |${
         if isProcess then inConfig else ""
       }
@@ -186,7 +185,21 @@ case class BpmnGenerator()(using config: DevConfig):
        |  )
        |  object Out:
        |    given ApiSchema[Out] = deriveApiSchema
-       |    given InOutCodec[Out] = deriveInOutCodec""".stripMargin
+       |    given InOutCodec[Out] = deriveInOutCodec
+       |    lazy val example = Out()
+       |    lazy val exampleMinimal = example //.copy(..=None)
+       |""".stripMargin
+
+  private lazy val inClass =
+    """  case class In(
+      |    //TODO input variables
+      |  )
+      |  object In:
+      |    given ApiSchema[In] = deriveApiSchema
+      |    given InOutCodec[In] = deriveInOutCodec
+      |    lazy val example = In()
+      |    lazy val exampleMinimal = example //.copy(..=None)
+      |""".stripMargin
 
   private lazy val inConfig =
     """  case class InConfig(
@@ -195,7 +208,7 @@ case class BpmnGenerator()(using config: DevConfig):
       |    //  waitForCancel: Boolean = false,
       |    // Mocks
       |    // outputServiceMock
-      |    // @description(serviceOrProcessMockDescr(GetRelationship.serviceMock))
+      |    // @description(serviceOrProcessMockDescr(GetRelationship.ServiceOut.mock))
       |    // getRelationshipMock: Option[MockedServiceResponse[GetRelationship.ServiceOut]] = None,
       |    // outputMock
       |    // @description(serviceOrProcessMockDescr(GetContractContractKey.Out()))
@@ -234,19 +247,21 @@ case class BpmnGenerator()(using config: DevConfig):
     if label == "Decision"
     then
       """singleResult( // singleEntry or collectEntries or  or resultList
-        |    inExample,
-        |    outExample // Seq[Out] for collectEntries or  or resultList
+        |    In.example,
+        |    Out.example // Seq[Out] for collectEntries or  or resultList
         | """.stripMargin
     else
       s"""${label.head.toLower + label.tail}(
-         |    inExample${if isMinimal then "Minimal" else ""},
-         |    outExample${if isMinimal then "Minimal" else ""}${if isProcess then ",\n    InitIn()" else ""}""".stripMargin
+         |    In.example${if isMinimal then "Minimal" else ""},
+         |    Out.example${if isMinimal then "Minimal" else ""}${
+          if isProcess then ",\n    InitIn()" else ""
+        }""".stripMargin
   end example
 
-  private def exampleServiceTask(label: String) =
+  private def exampleServiceTask(label: String, isMinimal: Boolean = false) =
     if label == "ServiceTask" then
       s""",
-         |    serviceMock,
-         |    serviceInExample""".stripMargin
+         |    ServiceOut.mock${if isMinimal then "Minimal" else ""},
+         |    ServiceIn.example${if isMinimal then "Minimal" else ""}""".stripMargin
     else ""
 end BpmnGenerator

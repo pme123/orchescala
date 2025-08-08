@@ -149,14 +149,14 @@ case class WorkerGenerator()(using config: DevConfig):
     workerTest(setupElement):
       s"""
          |  test("customInit"):
-         |    val in = inExample
+         |    val in = In.example
          |    val out = InitIn()
          |    assertEquals(
          |      worker.customInit(in),
          |      out
          |    )
          |  test("customInit minimal"):
-         |    val in = inExampleMinimal
+         |    val in = In.exampleMinimal
          |    val out = InitIn()
          |    assertEquals(
          |      worker.customInit(in),
@@ -168,13 +168,13 @@ case class WorkerGenerator()(using config: DevConfig):
     workerTest(setupElement):
       s"""
          |  test("validate"):
-         |    val in = inExample
+         |    val in = In.example
          |    assertEquals(
          |      worker.validate(in), 
          |      Right(in)
          |    )
          |  test("validate minimal"):
-         |    val in = inExampleMinimal
+         |    val in = In.exampleMinimal
          |    assertEquals(
          |      worker.validate(in),
          |      Right(in)
@@ -187,15 +187,15 @@ case class WorkerGenerator()(using config: DevConfig):
       then
         s"""
            |  test("runWork"):
-           |    val in = inExample
-           |    val out = Right(outExample)
+           |    val in = In.example
+           |    val out = Right(Out.example)
            |    assertEquals(
            |      worker.runWork(in),
            |      out
            |    )
            |  test("runWork minimal"):
-           |    val in = inExampleMinimal
-           |    val out = Right(outExampleMinimal)
+           |    val in = In.exampleMinimal
+           |    val out = Right(Out.exampleMinimal)
            |    assertEquals(
            |      worker.runWork(in),
            |      out
@@ -205,37 +205,49 @@ case class WorkerGenerator()(using config: DevConfig):
         s"""
            |  test("apiUri"):
            |    assertEquals(
-           |      worker.apiUri(inExample).toString,
+           |      worker.apiUri(In.example).toString,
            |      s"NOT-SET/YourPath"
+           |    )
+           |    
+           |  test("querySegments"):
+           |    assertEquals(
+           |      worker.querySegments(In.example),
+           |      Seq(QuerySegmentOrParam.Key("inclInvalid"))
+           |    )
+           |    
+           |  test("inputHeaders"):
+           |    assertEquals(
+           |      worker.inputHeaders(In.example),
+           |      Map("Transaction-ID" -> "2343-2343")
            |    )
            |
            |  test("inputMapper"):
            |    assertEquals(
-           |      worker.inputMapper(inExample),
-           |      Some(serviceInExample)
+           |      worker.inputMapper(In.example),
+           |      Some(ServiceIn.example)
            |    )
            |
            |  test("inputMapper minimal"):
            |    assertEquals(
-           |      worker.inputMapper(inExampleMinimal),
-           |      Some(serviceInMinimalExample)
+           |      worker.inputMapper(In.exampleMinimal),
+           |      Some(ServiceIn.exampleMinimal)
            |    )
            |
            |  test("outputMapper"):
            |    assertEquals(
            |      worker.outputMapper(
-           |        serviceMock.toServiceResponse,
-           |        inExample
+           |        ServiceOut.mock.toServiceResponse,
+           |        In.example
            |      ),
-           |      Right(outExample)
+           |      Right(Out.example)
            |    )
            |  test("outputMapper minimal"):
            |    assertEquals(
            |      worker.outputMapper(
-           |        serviceMinimalMock.toServiceResponse,
-           |        inExampleMinimal
+           |        ServiceOut.mockMinimal.toServiceResponse,
+           |        In.exampleMinimal
            |      ),
-           |      Right(outExampleMinimal)
+           |      Right(Out.exampleMinimal)
            |    )
            |
            |""".stripMargin
