@@ -205,9 +205,19 @@ case class ProjectsPerGitRepoConfig(
 
   def init(gitDir: os.Path, companyName: String) =
     if singleRepo then
-      ZIO.attempt:
-        val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
-        updateProject(gitDir  / s"orchescala-$companyName", gitRepo)
+      ZIO
+        .attempt:
+          val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
+          updateProject(gitDir / s"orchescala-$companyName", gitRepo)
+        .*>
+      ZIO.foreachPar(projects): project =>
+        ZIO.attempt:
+          val gitTemp = gitDir / s"orchescala-$companyName" / "projects" / project.name
+          val projectGit = project.absGitPath(gitDir)
+          println(s"Copy $gitTemp to $projectGit")
+          if os.exists(projectGit) then
+            os.remove.all(projectGit)
+          os.copy(gitTemp, projectGit)
     else
       ZIO.foreachPar(projects): project =>
         ZIO.attempt:
@@ -216,9 +226,18 @@ case class ProjectsPerGitRepoConfig(
 
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
     if singleRepo then
-      ZIO.attempt:
-        val gitRepo = s"$cloneBaseUrl/$companyName.git"
-        updateProject(gitDir / companyName, gitRepo)
+      ZIO
+        .attempt:
+          val gitRepo = s"$cloneBaseUrl/$companyName.git"
+          updateProject(gitDir / companyName, gitRepo)
+        .*>
+        ZIO.attempt:
+          val gitTemp = gitDir / s"orchescala-$companyName" / "projects" / projectName
+          val projectGit = gitDir / projectName
+          println(s"Copy $gitTemp to $projectGit")
+          if os.exists(projectGit) then
+            os.remove.all(projectGit)
+          os.copy(gitTemp, projectGit)
     else
       projects.find(_.name == projectName)
         .foreach: project =>
@@ -276,4 +295,6 @@ case class ModelerTemplateConfig(
 
   lazy val schema =
     s"https://unpkg.com/@camunda/element-templates-json-schema@$schemaVersion/resources/schema.json"
+  lazy val schemaC8 =
+    "https://unpkg.com/@camunda/zeebe-element-templates-json-schema/resources/schema.json"
 end ModelerTemplateConfig

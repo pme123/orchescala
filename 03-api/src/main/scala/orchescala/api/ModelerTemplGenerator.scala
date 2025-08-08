@@ -13,19 +13,29 @@ final case class ModelerTemplGenerator(
 
   def generate(apis: List[InOutApi[?, ?]]): Unit =
     os.makeDir.all(config.templatePath)
-    println(s"Generate Modeler Templates for: $projectName: ${apis.map(_.id).mkString(", ")}")
+    println(s"Generate C7 Modeler Templates for: $projectName: ${apis.map(_.id).mkString(", ")}")
     apis.foreach:
       case api: ExternalTaskApi[?, ?] =>
-        println(s"ExternalTaskApi supported for Modeler Template: ${api.id}")
+        println(s"ExternalTaskApi supported for C7 Modeler Template: ${api.id}")
         generateTempl(api)
-      case api: ProcessApi[?, ?, ?] if !api.inOut.in.isInstanceOf[GenericServiceIn] =>
-        println(s"ProcessApi supported for Modeler Template: ${api.id} - ${api.name}")
-        generateTempl(api)
-      case api =>
+      case api                        =>
         println(
-          s"API NOT supported for Modeler Template: ${api.getClass.getSimpleName} - ${api.id}"
+          s"API NOT supported for C7 Modeler Template: ${api.getClass.getSimpleName} - ${api.id}"
         )
   end generate
+
+  def generateC8(apis: List[InOutApi[?, ?]]): Unit =
+    os.makeDir.all(config.templatePath / "c8")
+    println(s"Generate C8 Modeler Templates for: $projectName: ${apis.map(_.id).mkString(", ")}")
+    apis.foreach:
+      case api: ExternalTaskApi[?, ?] =>
+        println(s"ExternalTaskApi supported for C8 Modeler Template: ${api.id}")
+        generateTemplC8(api)
+      case api                        =>
+        println(
+          s"API NOT supported for C8 Modeler Template: ${api.getClass.getSimpleName} - ${api.id}"
+        )
+  end generateC8
 
   private def generateTempl(
       inOut: InOut[?, ?, ?],
@@ -44,7 +54,7 @@ final case class ModelerTemplGenerator(
         else PropType.`camunda:outputParameter`
       )
     val niceName = inOut.niceName.replace(s"${companyName.head.toUpper}${companyName.tail} ", "")
-    val templ = MTemplate(
+    val templ    = MTemplate(
       inOut.id,
       inOut.id,
       inOut.descr.getOrElse("").split("---").head,
@@ -59,6 +69,37 @@ final case class ModelerTemplGenerator(
       templ.asJson.deepDropNullValues.toString
     )
   end generateTempl
+
+  private def generateTemplC8(
+      inOut: InOut[?, ?, ?],
+      appliesTo: Seq[AppliesTo],
+      elementType: ElementType,
+      properties: Seq[TemplPropC8]
+  ): Unit =
+    val mapProps = mappingsC8(
+      inOut.inVariables,
+      PropTypeC8.`zeebe:input`
+    ) ++
+      mappingsC8(
+        inOut.outVariables,
+        PropTypeC8.`zeebe:output`
+      )
+    val niceName = inOut.niceName.replace(s"${companyName.head.toUpper}${companyName.tail} ", "")
+    val templ    = MTemplateC8(
+      inOut.id,
+      inOut.id,
+      inOut.descr.getOrElse("").split("---").head,
+      version,
+      appliesTo,
+      elementType,
+      mapProps ++ properties :+ TemplPropC8.name(niceName),
+      config.schemaC8
+    )
+    os.write.over(
+      config.templatePath / s"${inOut.id}.json",
+      templ.asJson.deepDropNullValues.toString
+    )
+  end generateTemplC8
 
   private def generateTempl(inOut: ProcessApi[?, ?, ?]): Unit =
     generateTempl(
@@ -78,7 +119,7 @@ final case class ModelerTemplGenerator(
   private def generateTempl(inOut: ExternalTaskApi[?, ?]): Unit =
     val vars = inOut match
       case _: ServiceWorkerApi[?, ?, ?, ?] => TemplMapperHelper.serviceWorkerVariables
-      case _ => TemplMapperHelper.customWorkerVariables
+      case _                               => TemplMapperHelper.customWorkerVariables
     generateTempl(
       inOut.inOut,
       AppliesTo.activity,
@@ -90,28 +131,46 @@ final case class ModelerTemplGenerator(
     )
   end generateTempl
 
-  private def mappings[T <: Product](variables: Seq[(String, Any)], propType: PropType): Seq[TemplProp] =
+  private def generateTemplC8(inOut: ExternalTaskApi[?, ?]): Unit =
+    val vars = inOut match
+      case _: ServiceWorkerApi[?, ?, ?, ?] => TemplMapperHelper.serviceWorkerVariables
+      case _                               => TemplMapperHelper.customWorkerVariables
+    generateTemplC8(
+      inOut.inOut,
+      AppliesTo.activity,
+      ElementType.serviceTask,
+      Seq(
+        TemplPropC8.serviceTaskTopic(inOut.id),
+        TemplPropC8.serviceTaskType
+      ) ++ generalVariablesC8(isCallActivity = false, vars, inOut)
+    )
+  end generateTemplC8
+
+  private def mappings[T <: Product](
+      variables: Seq[(String, Any)],
+      propType: PropType
+  ): Seq[TemplProp] =
     variables
       .filterNot:
         case name -> _ => name == "inConfig" // don't show configuration
       .map:
         case name -> value =>
           TemplProp(
-            `type` = TemplType.Hidden,
+            //   `type` = TemplType.Hidden,
             label = name,
             value = if PropType.`camunda:inputParameter` == propType then
               TemplMapperHelper.mapping(name, value)
             else name,
             binding = propType match
-              case PropType.`camunda:in` => PropBinding.`camunda:in`(
+              case PropType.`camunda:in`              => PropBinding.`camunda:in`(
                   `type` = propType,
                   target = name
                 )
-              case PropType.`camunda:out` => PropBinding.`camunda:out`(
+              case PropType.`camunda:out`             => PropBinding.`camunda:out`(
                   `type` = propType,
                   source = name
                 )
-              case PropType.`camunda:inputParameter` => PropBinding.`camunda:inputParameter`(
+              case PropType.`camunda:inputParameter`  => PropBinding.`camunda:inputParameter`(
                   `type` = propType,
                   name = name
                 )
@@ -119,11 +178,36 @@ final case class ModelerTemplGenerator(
                   `type` = propType,
                   source = TemplMapperHelper.mapping(name, value)
                 )
-              case _ =>
+              case _                                  =>
                 throw new IllegalArgumentException(s"PropType not expected for mappings: $propType")
           )
   end mappings
 
+  private def mappingsC8[T <: Product](
+      variables: Seq[(String, Any)],
+      propType: PropTypeC8
+  ): Seq[TemplPropC8] =
+    variables
+      .filterNot:
+        case name -> _ => name == "inConfig" // don't show configuration
+      .map:
+        case name -> value =>
+          TemplPropC8(
+            //   `type` = TemplType.Hidden,
+            label = name,
+            value = if PropTypeC8.`zeebe:input` == propType then
+              TemplMapperHelper.mapping(name, value)
+            else name,
+            binding = propType match
+              case PropTypeC8.`zeebe:input`  => PropBindingC8.`zeebe:input`(
+                  `type` = propType,
+                  target = name
+                )
+              case PropTypeC8.`zeebe:output` => PropBindingC8.`zeebe:output`(
+                  `type` = propType,
+                  source = name
+                )
+          )
   private def generalVariables(
       isCallActivity: Boolean,
       vars: Seq[InputParamForTempl],
@@ -134,7 +218,7 @@ final case class ModelerTemplGenerator(
         .map: in =>
           val k = in.inParam.toString
           TemplProp(
-            `type` = TemplType.Hidden,
+            //  `type` = TemplType.Hidden,
             label = k,
             value = if isCallActivity then k else in.defaultValue(inOutApi.inOut.out),
             binding = if isCallActivity then
@@ -149,6 +233,28 @@ final case class ModelerTemplGenerator(
     else
       Seq.empty
   end generalVariables
+  
+  private def generalVariablesC8(
+      isCallActivity: Boolean,
+      vars: Seq[InputParamForTempl],
+      inOutApi: InOutApi[?, ?]
+  ) =
+    if config.generateGeneralVariables then
+      vars
+        .map: in =>
+          val k = in.inParam.toString
+          TemplPropC8(
+            //  `type` = TemplType.Hidden,
+            label = k,
+            value = if isCallActivity then k else in.defaultValue(inOutApi.inOut.out),
+            binding = 
+              PropBindingC8.`zeebe:input`(
+                target = k
+              )
+          )
+    else
+      Seq.empty
+  end generalVariablesC8
 
 end ModelerTemplGenerator
 
@@ -167,7 +273,24 @@ final case class MTemplate(
 
 object MTemplate:
   given InOutCodec[MTemplate] = deriveInOutCodec
-  given ApiSchema[MTemplate] = deriveApiSchema
+  given ApiSchema[MTemplate]  = deriveApiSchema
+
+final case class MTemplateC8(
+    name: String,
+    id: String,
+    description: String,
+    version: Int,
+    appliesTo: Seq[AppliesTo],
+    elementType: ElementType,
+    properties: Seq[TemplPropC8],
+    $schema: String,
+    groups: Seq[PropGroup] = Seq.empty,
+    entriesVisible: Boolean = true
+)
+
+object MTemplateC8:
+  given InOutCodec[MTemplateC8] = deriveInOutCodec
+  given ApiSchema[MTemplateC8]  = deriveApiSchema
 
 final case class ElementType(
     value: AppliesTo
@@ -175,15 +298,15 @@ final case class ElementType(
 
 object ElementType:
   lazy val callActivity: ElementType = ElementType(AppliesTo.`bpmn:CallActivity`)
-  lazy val serviceTask: ElementType = ElementType(AppliesTo.`bpmn:ServiceTask`)
+  lazy val serviceTask: ElementType  = ElementType(AppliesTo.`bpmn:ServiceTask`)
 
   given InOutCodec[ElementType] = deriveInOutCodec
-  given ApiSchema[ElementType] = deriveApiSchema
+  given ApiSchema[ElementType]  = deriveApiSchema
 end ElementType
 
 final case class TemplProp(
     value: String,
-    `type`: TemplType,
+    // `type`: TemplType,
     binding: PropBinding,
     label: String = "",
     description: String = "",
@@ -191,39 +314,78 @@ final case class TemplProp(
 )
 
 object TemplProp:
-  lazy val businessKey = TemplProp(
-    `type` = TemplType.Hidden,
+  lazy val businessKey                = TemplProp(
+    //  `type` = TemplType.Hidden,
     value = "#{execution.processBusinessKey}",
     //  group = Some(PropGroup.callActivity.id),
     binding = PropBinding.`camunda:in:businessKey`()
   )
-  def name(value: String) = TemplProp(
-    `type` = TemplType.Hidden,
+  def name(value: String)             = TemplProp(
+    //  `type` = TemplType.Hidden,
     value = value,
     //  group = Some(PropGroup.callActivity.id),
     binding = PropBinding.property(name = "name")
   )
-  def calledElement(value: String) = TemplProp(
-    `type` = TemplType.Hidden,
+  def calledElement(value: String)    = TemplProp(
+    //   `type` = TemplType.Hidden,
     value = value,
     //  group = Some(PropGroup.callActivity.id),
     binding = PropBinding.property(name = "calledElement")
   )
   // Service Task
   def serviceTaskTopic(value: String) = TemplProp(
-    `type` = TemplType.Hidden,
+    //  `type` = TemplType.Hidden,
     value = value,
     binding = PropBinding.property(name = "camunda:topic")
   )
-  lazy val serviceTaskType = TemplProp(
-    `type` = TemplType.Hidden,
+  lazy val serviceTaskType            = TemplProp(
+    //  `type` = TemplType.Hidden,
     value = "external",
     binding = PropBinding.property(name = "camunda:type")
   )
 
   given InOutCodec[TemplProp] = deriveInOutCodec
-  given ApiSchema[TemplProp] = deriveApiSchema
+  given ApiSchema[TemplProp]  = deriveApiSchema
 end TemplProp
+
+final case class TemplPropC8(
+    value: String,
+    // `type`: TemplType,
+    binding: PropBindingC8,
+    label: String = "",
+    description: String = "",
+    group: Option[PropGroupId] = None
+)
+
+object TemplPropC8:
+
+  def name(value: String)             = TemplPropC8(
+    //  `type` = TemplType.Hidden,
+    value = value,
+    //  group = Some(PropGroup.callActivity.id),
+    binding = PropBindingC8.`zeebe:property`(name = "name")
+  )
+  def calledElement(value: String)    = TemplPropC8(
+    //   `type` = TemplType.Hidden,
+    value = value,
+    //  group = Some(PropGroup.callActivity.id),
+    binding = PropBindingC8.`zeebe:property`(name = "calledElement")
+  )
+  // Service Task
+  def serviceTaskTopic(value: String) = TemplPropC8(
+    //  `type` = TemplType.Hidden,
+    value = value,
+    binding = PropBindingC8.`zeebe:property`(name = "camunda:topic")
+  )
+  lazy val serviceTaskType            = TemplPropC8(
+    //  `type` = TemplType.Hidden,
+    value = "external",
+    binding = PropBindingC8.`zeebe:property`(name = "camunda:type")
+  )
+
+  given InOutCodec[TemplPropC8] = deriveInOutCodec
+  given ApiSchema[TemplPropC8]  = deriveApiSchema
+end TemplPropC8
 
 enum PropBinding:
   case property(
@@ -257,6 +419,32 @@ object PropBinding:
   given InOutCodec[PropBinding] = deriveInOutCodec
   given ApiSchema[PropBinding] = deriveApiSchema
 
+enum PropBindingC8:
+  case `zeebe:input`(
+      `type`: PropTypeC8 = PropTypeC8.`zeebe:input`,
+      target: String,
+      expression: Boolean = false
+  )
+  case `zeebe:output`(
+      `type`: PropTypeC8 = PropTypeC8.`zeebe:output`,
+      source: String,
+      expression: Boolean = false
+  )
+  case `zeebe:taskHeader`(
+      `type`: PropTypeC8 = PropTypeC8.`zeebe:taskHeader`,
+      name: String,
+      expression: Boolean = false
+  )
+  case `zeebe:property`(
+      `type`: PropTypeC8 = PropTypeC8.`zeebe:property`,
+      name: String,
+  )
+end PropBindingC8
+
+object PropBindingC8:
+  given InOutCodec[PropBindingC8] = deriveInOutCodec
+  given ApiSchema[PropBindingC8]  = deriveApiSchema
+
 final case class PropGroup(
     id: PropGroupId,
     label: String
@@ -267,55 +455,61 @@ object PropGroup:
     PropGroupId.calledProcess,
     "Called Process"
   )
-  val inMappings = PropGroup(
+  val inMappings   = PropGroup(
     PropGroupId.inMappings,
     "In Mappings"
   )
-  val outMapping = PropGroup(
+  val outMapping   = PropGroup(
     PropGroupId.outMappings,
     "Out Mappings"
   )
-  val inputs = PropGroup(
+  val inputs       = PropGroup(
     PropGroupId.inputs,
     "Inputs"
   )
-  val outputs = PropGroup(
+  val outputs      = PropGroup(
     PropGroupId.outputs,
     "Outputs"
   )
 
   given InOutCodec[PropGroup] = deriveInOutCodec
-  given ApiSchema[PropGroup] = deriveApiSchema
+  given ApiSchema[PropGroup]  = deriveApiSchema
 end PropGroup
 
 enum TemplType:
   case String, Text, Boolean, Dropdown, Hidden
 object TemplType:
   given InOutCodec[TemplType] = deriveEnumInOutCodec
-  given ApiSchema[TemplType] = deriveApiSchema
+  given ApiSchema[TemplType]  = deriveApiSchema
 enum PropType:
   case property, `camunda:in:businessKey`, `camunda:in`, `camunda:out`, `camunda:inputParameter`,
     `camunda:outputParameter`
 object PropType:
   given InOutCodec[PropType] = deriveEnumInOutCodec
-  given ApiSchema[PropType] = deriveApiSchema
+  given ApiSchema[PropType]  = deriveApiSchema
+
+enum PropTypeC8:
+  case property, `zeebe:input`, `zeebe:output`, `zeebe:taskHeader`, `zeebe:property`
+object PropTypeC8:
+  given InOutCodec[PropTypeC8] = deriveEnumInOutCodec
+  given ApiSchema[PropTypeC8]  = deriveApiSchema
 
 enum PropGroupId:
   case calledProcess, inMappings, outMappings, inputs, outputs
 object PropGroupId:
   given InOutCodec[PropGroupId] = deriveEnumInOutCodec
-  given ApiSchema[PropGroupId] = deriveApiSchema
+  given ApiSchema[PropGroupId]  = deriveApiSchema
 
 enum AppliesTo:
   case `bpmn:Activity`, `bpmn:CallActivity`, `bpmn:ServiceTask`
 
 object AppliesTo:
-  lazy val activity = Seq(AppliesTo.`bpmn:Activity`) // all
+  lazy val activity     = Seq(AppliesTo.`bpmn:Activity`) // all
   lazy val callActivity = Seq(AppliesTo.`bpmn:CallActivity`)
-  lazy val serviceTask = Seq(AppliesTo.`bpmn:ServiceTask`)
+  lazy val serviceTask  = Seq(AppliesTo.`bpmn:ServiceTask`)
 
   given InOutCodec[AppliesTo] = deriveEnumInOutCodec
-  given ApiSchema[AppliesTo] = deriveApiSchema
+  given ApiSchema[AppliesTo]  = deriveApiSchema
 end AppliesTo
 
 case class InputParamForTempl(
@@ -346,7 +540,7 @@ object TemplMapperHelper:
     InputParamForTempl(outputVariables, _.productElementNames.mkString(", ")),
     optionalMapping(outputMock),
     InputParamForTempl(handledErrors, "handledError1, handledError2"),
-    InputParamForTempl(regexHandledErrors, "errorRegex1, errorRegex2"),
+    InputParamForTempl(regexHandledErrors, "errorRegex1, errorRegex2")
   )
 
   def processVariables: Seq[InputParamForTempl] = Seq(
@@ -365,6 +559,6 @@ object TemplMapperHelper:
   def mapping(name: String, elem: Any): String =
     elem match
       case _: Option[?] => optionalMapping(name)
-      case _ => s"#{$name}"
+      case _            => s"#{$name}"
 
 end TemplMapperHelper
