@@ -42,7 +42,8 @@ trait ProcessReferenceCreator:
       .map { case projectName -> path =>
         println(s"Get BPMNs in $projectName")
         projectName -> path
-          .filterNot(_.toString.contains("/target"))
+          .filterNot(_.toString.contains("/target")) //TODO filter all Camunda 8 BPMNs - NOT SUPPORTED YET
+          .filterNot(_.toString.contains("/camunda8"))
           .filter(_.toString.endsWith(".bpmn"))
           .map(p =>
             println(s"- ${p.last}")

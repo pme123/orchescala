@@ -1,7 +1,7 @@
 package orchescala
 package api
 
-import orchescala.domain.BpmnProcessType
+import orchescala.domain.*
 import sttp.apispec.openapi.Contact
 import zio.{Runtime, Unsafe, ZIO}
 
@@ -23,7 +23,13 @@ case class ApiConfig(
     // For generating references to other projects, your Workers/Processes are used in
     otherProjectsConfig: ProjectsConfig = ProjectsConfig(),
     // Configure your template generation
-    modelerTemplateConfig: ModelerTemplateConfig = ModelerTemplateConfig(),
+    modelerTemplateConfigs: Seq[ModelerTemplateConfig] = Seq(
+      ModelerTemplateConfig(),
+      ModelerTemplateConfig(
+        supportedEngine = SupportedEngine.C8,
+        templateRelativePath = os.rel / ".camunda" / "element-templates" / "c8"
+      )
+    ),
     // The URL of your published documentations
     // s"http://myCompany/bpmnDocs"
     docBaseUrl: Option[String] = None,
@@ -76,7 +82,7 @@ case class ApiConfig(
     copy(otherProjectsConfig = gitConfigs)
 
   def withModelerTemplateConfig(modelerTemplateConfig: ModelerTemplateConfig): ApiConfig =
-    copy(modelerTemplateConfig = modelerTemplateConfig)
+    copy(modelerTemplateConfigs = modelerTemplateConfigs :+ modelerTemplateConfig)
 
   def addGitConfig(gitConfig: ProjectsPerGitRepoConfig): ApiConfig =
     copy(projectsConfig =
@@ -206,18 +212,18 @@ case class ProjectsPerGitRepoConfig(
   def init(gitDir: os.Path, companyName: String) =
     if singleRepo then
       ZIO
-        .attempt:
+        .attempt :
           val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
           updateProject(gitDir / s"orchescala-$companyName", gitRepo)
-        .*>
-      ZIO.foreachPar(projects): project =>
-        ZIO.attempt:
-          val gitTemp = gitDir / s"orchescala-$companyName" / "projects" / project.name
-          val projectGit = project.absGitPath(gitDir)
-          println(s"Copy $gitTemp to $projectGit")
-          if os.exists(projectGit) then
-            os.remove.all(projectGit)
-          os.copy(gitTemp, projectGit)
+        .flatMap: _ =>
+          ZIO.foreachPar(projects): project =>
+            ZIO.attempt:
+              val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / project.name
+              val projectGit = project.absGitPath(gitDir)
+              println(s"Copy init $gitTemp to $projectGit")
+              if os.exists(projectGit) then
+                os.remove.all(projectGit)
+              os.copy(gitTemp, projectGit)
     else
       ZIO.foreachPar(projects): project =>
         ZIO.attempt:
@@ -227,17 +233,17 @@ case class ProjectsPerGitRepoConfig(
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
     if singleRepo then
       ZIO
-        .attempt:
+        .attempt :
           val gitRepo = s"$cloneBaseUrl/$companyName.git"
           updateProject(gitDir / companyName, gitRepo)
-        .*>
-        ZIO.attempt:
-          val gitTemp = gitDir / s"orchescala-$companyName" / "projects" / projectName
-          val projectGit = gitDir / projectName
-          println(s"Copy $gitTemp to $projectGit")
-          if os.exists(projectGit) then
-            os.remove.all(projectGit)
-          os.copy(gitTemp, projectGit)
+        .flatMap: _ =>
+          ZIO.attempt:
+            val gitTemp = gitDir / s"orchescala-$companyName" / "projects" / projectName
+            val projectGit = gitDir / projectName
+            println(s"Copy initProject $gitTemp to $projectGit")
+            if os.exists(projectGit) then
+              os.remove.all(projectGit)
+            os.copy(gitTemp, projectGit)
     else
       projects.find(_.name == projectName)
         .foreach: project =>
@@ -285,16 +291,21 @@ case class ProjectGroup(
     color: String = "purple",
     fill: String = "#ddd"
 )
-
+enum SupportedEngine:
+  case C7, C8
+object SupportedEngine:
+  given InOutCodec[SupportedEngine] = deriveEnumInOutCodec
+  given ApiSchema[SupportedEngine]  = deriveApiSchema
+  
 case class ModelerTemplateConfig(
-    schemaVersion: String = "0.16.0",
+    supportedEngine: SupportedEngine = SupportedEngine.C7,
     templateRelativePath: os.RelPath = os.rel / ".camunda" / "element-templates",
     generateGeneralVariables: Boolean = true
 ):
   lazy val templatePath: os.Path = os.pwd / templateRelativePath
 
-  lazy val schema =
-    s"https://unpkg.com/@camunda/element-templates-json-schema@$schemaVersion/resources/schema.json"
+  lazy val schemaC7 =
+    s"https://unpkg.com/@camunda/element-templates-json-schema@0.16.0/resources/schema.json"
   lazy val schemaC8 =
     "https://unpkg.com/@camunda/zeebe-element-templates-json-schema/resources/schema.json"
 end ModelerTemplateConfig
