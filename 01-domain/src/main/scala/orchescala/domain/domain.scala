@@ -168,7 +168,7 @@ object NoOutput:
   given InOutCodec[NoOutput] = deriveCodec
 
 enum ProcessStatus:
-  case succeeded, `output-mocked`, failed, notValid, canceled
+  case succeeded, notSucceeded, `output-mocked`, failed, notValid, canceled
 object ProcessStatus:
   given ApiSchema[ProcessStatus]                       = deriveEnumApiSchema
   given ApiSchema[ProcessStatus.succeeded.type]        = deriveEnumApiSchema

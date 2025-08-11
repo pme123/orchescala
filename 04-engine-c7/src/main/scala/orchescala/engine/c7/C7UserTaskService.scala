@@ -157,31 +157,19 @@ class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineCo
         id = Option(taskDto.getId).getOrElse("taskId not set!"),
         name = Option(taskDto.getName),
         assignee = Option(taskDto.getAssignee),
-        owner = Option(taskDto.getOwner),
         created = Option(taskDto.getCreated),
-        lastUpdated = Option(taskDto.getLastUpdated),
         due = Option(taskDto.getDue),
         followUp = Option(taskDto.getFollowUp),
-        delegationState = Option(taskDto.getDelegationState).map(_.toString),
-        description = Option(taskDto.getDescription),
-        executionId = Option(taskDto.getExecutionId),
-        parentTaskId = Option(taskDto.getParentTaskId),
         priority = Option(taskDto.getPriority).map(_.toInt),
         processDefinitionId = Option(taskDto.getProcessDefinitionId),
         processInstanceId = Option(taskDto.getProcessInstanceId),
-        caseExecutionId = Option(taskDto.getCaseExecutionId),
-        caseDefinitionId = Option(taskDto.getCaseDefinitionId),
-        caseInstanceId = Option(taskDto.getCaseInstanceId),
         taskDefinitionKey = Option(taskDto.getTaskDefinitionKey),
-        suspended = Option(taskDto.getSuspended),
         formKey = Option(taskDto.getFormKey),
         camundaFormRef = None, // not mapped
         tenantId = Option(taskDto.getTenantId),
         // These fields might not be available in the basic TaskDto
         // and might require a different API call or DTO
         taskState = None,      // Not directly available in TaskDto
-        attachment = None,     // Not directly available in TaskDto
-        comment = None         // Not directly available in TaskDto
       )
 
   private[c7] def toC7Variables(camundaVariables: Map[String, CamundaVariable])
