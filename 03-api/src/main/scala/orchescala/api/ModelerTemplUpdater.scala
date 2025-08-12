@@ -28,7 +28,7 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
           val fromPath = apiConfig.tempGitDir / c.projectName / templConfig.templateRelativePath
           println(s"Fetch dependencies: ${c.projectName} > $fromPath")
           if os.exists(fromPath) then
-            os.walk(fromPath)
+            os.list(fromPath)
               .filter: p =>
                 p.last.startsWith(c.projectName)
               .map: p =>
@@ -52,7 +52,7 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
                       os.write.over(toPath / p.last, newTempl)
 
                     case t =>
-                      println(s" - Just copy Template: ${t.id}")
+                      println(s" - Just copy Template: ${t.id} - from $p to ${toPath / p.last}")
                       os.copy(p, toPath / p.last, replaceExisting = true)
                   .left.foreach: ex =>
                     println(s"Problem parsing Template: $ex")
