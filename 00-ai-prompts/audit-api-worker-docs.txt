@@ -1,0 +1,13 @@
+Please analyze my project and:
+
+1. Check `ApiProjectCreator.scala` in the `03-api` module and identify any missing domain objects that should be documented in the `document()` section
+2. Check `WorkerApp.scala` in the `03-worker` module and identify any missing workers that should be added to the `workers()` section
+3. Add any missing entries to both files
+4. Check if there are missing Simulations, like a UserTask is not used etc. Use `ApiProjectCreator.scala` as a reference what should be simulated.
+
+Look for:
+- Domain objects in `01-domain/src/main/scala/democompany/cards/domain/` that extend `CompanyBpmnProcessDsl` or `CompanyBpmnUserTaskDsl`
+- Worker classes in `03-worker/src/main/scala/democompany/cards/worker/` that extend worker DSL traits
+- Ensure the imports and references are correct for each module
+
+Please show me what's missing and provide the updated code for both files.
