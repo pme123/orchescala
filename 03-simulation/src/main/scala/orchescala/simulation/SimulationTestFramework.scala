@@ -85,9 +85,19 @@ final class SimulationTestRunner(
           ZIO
             .scoped:
               (for
+                // Create the simulation instance
+                sim             <- ZIO.attempt(
+                                     Class
+                                       .forName(taskDef.fullyQualifiedName())
+                                       .getDeclaredConstructor()
+                                       .newInstance()
+                                       .asInstanceOf[SimulationRunner]
+                                   )
+                // Add the client finalizer to the scope
+                _               <- sim.engineCleanupFinalizer
                 // Fork the worker execution within the scope
                 fiber           <-
-                  runSimulation(taskDef)
+                  runSimulation(taskDef, sim)
                     .provideLayer(EngineRuntime.sharedExecutorLayer ++ EngineRuntime.logger)
                     .fork
                 // Add a finalizer to ensure the fiber is interrupted if the scope closes
@@ -96,32 +106,26 @@ final class SimulationTestRunner(
                                        fiber.interrupt.when(!status.isDone)
                 // Join the fiber to wait for completion
                 logLevelAndTime <- fiber.join
-                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime").provideLayer(EngineRuntime.logger)
+                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime")
               yield logLevelAndTime)
 
             .catchAll: ex =>
               ZIO.logError(s"Error running Simulation: ${ex.getMessage}")
-                .as((LogLevel.ERROR, 0L)).provideLayer(EngineRuntime.logger)
+                .as((LogLevel.ERROR, 0L))
 
             .ensuring:
               ZIO.logInfo(
                 s"Simulation for task ${taskDef.fullyQualifiedName()} completed and resources cleaned up"
-              ).provideLayer(EngineRuntime.logger)
+              )
+            .provideLayer(EngineRuntime.logger)
 
 
-  private def runSimulation(taskDef: sbt.testing.TaskDef): IO[Throwable, (LogLevel, Long)] =
+  private def runSimulation(taskDef: sbt.testing.TaskDef, sim: SimulationRunner): IO[Throwable, (LogLevel, Long)] =
     val name = taskDef.fullyQualifiedName().split('.').last
     val line = "~" * (((maxLine - 5) - name.length) / 2)
     for
       clock     <- ZIO.clock
       startTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-      sim       <- ZIO.attempt(
-                     Class
-                       .forName(taskDef.fullyQualifiedName())
-                       .getDeclaredConstructor()
-                       .newInstance()
-                       .asInstanceOf[SimulationRunner]
-                   )
       results   <- sim.simulation
       endTime   <- clock.currentTime(TimeUnit.MILLISECONDS)
       logLevel   = results.head._1

@@ -20,16 +20,17 @@ trait C8SaasClient extends C8Client:
   protected def oAuthAPI: String
 
   lazy val client: IO[EngineError, CamundaClient] =
-    ZIO.logDebug("Creating Camunda Client") *>
-      ZIO
-        .attempt:
-          CamundaClient.newClientBuilder()
-            .grpcAddress(URI.create(zeebeGrpc))
-            .restAddress(URI.create(zeebeRest))
-            .credentialsProvider(credentialsProvider)
-            .build
-        .mapError: ex =>
-          EngineError.UnexpectedError(s"Problem creating API Client: $ex")
+    SharedC8ClientManager.getOrCreateClient:
+      ZIO.logDebug("Creating Camunda Client for simulation") *>
+        ZIO
+          .attempt:
+            CamundaClient.newClientBuilder()
+              .grpcAddress(URI.create(zeebeGrpc))
+              .restAddress(URI.create(zeebeRest))
+              .credentialsProvider(credentialsProvider)
+              .build
+          .mapError: ex =>
+            EngineError.UnexpectedError(s"Problem creating API Client: $ex")
 
   private lazy val credentialsProvider =
     new OAuthCredentialsProviderBuilder()

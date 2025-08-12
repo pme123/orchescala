@@ -3,7 +3,7 @@ package orchescala.simulation
 import orchescala.engine.ProcessEngine
 import orchescala.simulation.*
 import orchescala.simulation.runner.*
-import zio.{IO, ZIO}
+import zio.{IO, Scope, ZIO}
 
 import scala.compiletime.uninitialized
 
@@ -13,7 +13,9 @@ abstract class SimulationRunner
       Logging:
 
   def engine: ProcessEngine
-
+  
+  def engineCleanupFinalizer: ZIO[Scope, Nothing, Any]
+  
   def config: SimulationConfig =
     SimulationConfig()
 
