@@ -18,7 +18,7 @@ class C8UserTaskService(using
     engineConfig: EngineConfig
 ) extends UserTaskService:
 
-  def getUserTask(processInstanceId: String): IO[EngineError, Option[UserTask]] =
+  def getUserTask(processInstanceId: String, userTaskId: String): IO[EngineError, Option[UserTask]] =
     for
       camundaClient <- camundaClientZIO
       userTaskDtos  <-
@@ -28,6 +28,7 @@ class C8UserTaskService(using
               .newUserTaskSearchRequest()
               .filter(f =>
                 f.processInstanceKey(processInstanceId.toLong)
+                  .elementId(userTaskId)
               ).send()
               .join()
               .items()

@@ -34,7 +34,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
         taskDefinitionKey: String
     ): ResultType =
       userTaskService
-        .getUserTask(processInstanceId)
+        .getUserTask(processInstanceId, taskDefinitionKey)
         .mapError: err =>
           SimulationError.ProcessError(
             summon[ScenarioData].error(
