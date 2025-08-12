@@ -125,6 +125,9 @@ case class WorkerGenerator()(using val config: OpenApiConfig, val apiDefinition:
          |
          |  lazy val worker = ${name}Worker()
          |
+         |  test("method"):
+         |    assertEquals(worker.method, Method.???)
+         |
          |  test("apiUri"):
          |    assertEquals(
          |      worker.apiUri(inExample).toString,

@@ -203,6 +203,9 @@ case class WorkerGenerator()(using config: DevConfig):
            |""".stripMargin
       else
         s"""
+           |  test("method"):
+           |    assertEquals(worker.method, Method.???)
+           |
            |  test("apiUri"):
            |    assertEquals(
            |      worker.apiUri(In.example).toString,
