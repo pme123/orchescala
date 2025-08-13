@@ -1,0 +1,5 @@
+
+
+Migrate the MUnit Tests to ZIO Tests. 
+Rename it from ..Test to ..Spec.
+Provide an EngineRunContext with the general Variable servicesMocked=true

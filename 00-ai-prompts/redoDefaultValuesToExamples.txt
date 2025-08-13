@@ -1,0 +1,94 @@
+Can you do a rewrite for all classes and enums in the domain module:
+
+For simple Enums (enums with just case names, no parameters) like enum ClientType: case COMPANY, INDIVIDUAL:
+  object ClientType:
+     lazy val example = ClientType.COMPANY
+
+For other Enums provide for all an example using the actual case names:
+  object example:
+            lazy val CreatePrivateIndividual = EnumType.CreatePrivateIndividual
+            lazy val CreateSeveralPrivateIndividuals = EnumType.CreateSeveralPrivateIndividuals
+            lazy val CreateCompaniesAndOther = EnumType.CreateCompaniesAndOther
+
+For case classes:
+- create lazy val example with the default values in the companion object.
+- add an exampleMinimal, using example where all optional fields are None, use the pattern example.copy(..).
+- remove in-/outExample and in-/outExampleMinimal
+- If it is a case class only one lazy val
+- If it is an enum provide for all an example:
+    e.g. object example:
+            lazy val Standard = ...
+            lazy val Other = ...
+            
+Additionally, for objects that have an In and an Out:
+- adjust the example, using in-/ outExample if existing
+- add an exampleMinimal, using in-/ outExampleMinimal if existing
+- for the case   lazy val inExample = NoInput()
+                 lazy val inMinimalExample = inExample
+  use object In:
+     lazy val example = NoInput()
+     lazy val exampleMinimal = example
+- same for case lazy val outExample = NoOutput()
+                 lazy val outMinimalExample = outExample
+  use object Out:
+     lazy val example = NoOutput()
+     lazy val exampleMinimal = example
+
+- for type InService:
+  object InService:
+     lazy val example = ...example // or NoInput()
+     lazy val exampleMinimal = example.copy(..=None)
+  - remove
+    serviceInExample / serviceInMinimalExample
+- for type OutService:
+  object OutService:
+     lazy val example = ...example // or NoOutput()
+     lazy val exampleMinimal = example.copy(..=None)
+     lazy val mock = MockedServiceResponse.success..(example)
+     lazy val mockMinimal = MockedServiceResponse.success..(exampleMinimal)
+  - remove serviceMock / serviceMinimalMock
+- check and correct the order like:
+  In / Out / InitIn / InConfig / InService / OutService / example / exampleMinimal
+  always keep class and companion object together
+- Put all these at the end of the object
+- Add the same to the InitIn object for the InitIn class 
+- Do not touch the InConfig
+- If it is a case class only one lazy val
+- If it is an enum provide for all an example:
+    e.g. object example:
+            lazy val Standard = ...
+            lazy val Other = ...
+  And add .withEnumOutExamples(Out.example.Canceled) only to the example with all cases
+- if it has a serviceMock val:
+    - lazy val serviceMinimalMock      = ...
+    - lazy val serviceInMinimalExample = serviceInExample.copy(..) with the default values to None
+- if there are inExample and outExample / inExampleMinimal and outExampleMinimal:
+    - move them to the In- and Out-Object
+    - rename them to example and exampleMinimal
+
+For all:
+- remove the default values from the class / enum, exception: keep the discriminator of an enum
+- Note: The discriminator is the field that identifies which case of an enum it is (e.g., clientType in enum cases)
+- Example of keeping discriminator defaults:
+// Keep this default value (discriminator):
+case privateIndividual(
+    clientType: ClientType = ClientType.privateIndividual, // <- KEEP this default
+    master: MasterRead, // <- remove other defaults if any
+    person: PersonRead
+)
+
+- Put all these at the end of the class
+
+Additionally, update all usages throughout the whole project (src and test) (not just in the domain module):
+- Replace constructor calls with default values like `FilIsErrorElem()` with `FilIsErrorElem.example`
+- Replace constructor calls with some parameters like `FilIsErrorElem(errorType = "Custom")` with `FilIsErrorElem.example.copy(errorType = "Custom")`
+- Replace `NameValueField()` with `NameValueField.example`
+- Replace `ClientIdentificationReservation()` with `ClientIdentificationReservation.example`
+- Replace `inExample` with `In.example` / `outExample` with `Out.example` / `inExampleMinimal` with `In.exampleMinimal` / `outExampleMinimal` with `Out.exampleMinimal`
+- Replace `serviceInExample` with `InService.example` / `serviceOutExample` with `OutService.example` / `serviceInMinimalExample` with `InService.exampleMinimal` / `serviceOutMinimalExample` with `OutService.exampleMinimal`
+- Replace `serviceMock` with `OutService.mock` / `serviceMinimalMock` with `OutService.mockMinimal`
+- Update any other direct constructor calls that relied on default values to use the new example pattern
+- Update references to old inExample/outExample patterns to use the new In.example/Out.example structure
+- Ensure all enum usages that previously relied on default discriminator values are updated if needed
+
+Run scalafmt for the project afterwards.

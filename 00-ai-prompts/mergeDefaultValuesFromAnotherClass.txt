@@ -1,0 +1,4 @@
+
+
+Merge the default values from the following class into the selected one.
+<PASTE CLASS>

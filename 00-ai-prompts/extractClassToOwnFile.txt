@@ -1,0 +1,3 @@
+
+
+refactor selected class including companion object into its own file and move it in the schema package, if we are not already.

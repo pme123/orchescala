@@ -1,0 +1,8 @@
+
+
+
+Create ZIO Tests for selected method.
+Name if ..Spec.
+Use scala 3 syntax, as few brackets as possible.
+Add it to the according test file.
+Check if everything compiles.
