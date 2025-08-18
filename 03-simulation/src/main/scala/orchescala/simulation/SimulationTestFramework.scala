@@ -98,7 +98,7 @@ final class SimulationTestRunner(
                 // Fork the worker execution within the scope
                 fiber           <-
                   runSimulation(taskDef, sim)
-                    .provideLayer(EngineRuntime.sharedExecutorLayer ++ EngineRuntime.logger)
+                    .provideLayer(EngineRuntime.sharedExecutorLayer)
                     .fork
                 // Add a finalizer to ensure the fiber is interrupted if the scope closes
                 _               <- ZIO.addFinalizer:
@@ -106,7 +106,7 @@ final class SimulationTestRunner(
                                        fiber.interrupt.when(!status.isDone)
                 // Join the fiber to wait for completion
                 logLevelAndTime <- fiber.join
-                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime")
+                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime ${taskDef.fullyQualifiedName()}")
               yield logLevelAndTime)
 
             .catchAll: ex =>
