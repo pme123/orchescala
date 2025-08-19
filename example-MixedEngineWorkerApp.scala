@@ -20,9 +20,11 @@ class MixedEngineWorkerApp extends WorkerApp:
   )
 
   // The WorkerApp will automatically:
-  // 1. Detect that we have C8WorkerRegistry instances
-  // 2. Provide the SharedC8ClientManager.layer automatically
-  // 3. No need to extend C8WorkerApp or manually provide layers!
+  // 1. Detect that we have C7WorkerRegistry instances
+  // 2. Provide the SharedC7ExternalClientManager.layer automatically
+  // 3. Detect that we have C8WorkerRegistry instances
+  // 4. Provide the SharedC8ClientManager.layer automatically
+  // 5. No need to extend C7WorkerApp or C8WorkerApp or manually provide layers!
 
   // Define your workers
   workers(
@@ -73,6 +75,6 @@ class PureC7WorkerApp extends WorkerApp:
     MyC7PaymentWorker
   )
 
-  // No additional layers needed for C7
+  // SharedC7ExternalClientManager.layer is automatically provided!
 
 end PureC7WorkerApp

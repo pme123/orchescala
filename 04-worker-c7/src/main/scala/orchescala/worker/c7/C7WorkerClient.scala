@@ -16,20 +16,21 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 trait C7WorkerClient:
-  def client: ZIO[Any, Throwable, ExternalTaskClient]
+  def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient]
 
 object C7NoAuthWorkerClient extends C7WorkerClient:
 
-  def client =
-    ZIO.attempt:
-      ExternalTaskClient.create()
-        .baseUrl("http://localhost:8887/engine-rest")
-        .disableBackoffStrategy()
-        .customizeHttpClient: httpClientBuilder =>
-          httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
-            // .setResponseTimeout(Timeout.ofSeconds(15))
-            .build())
-        .build()
+  def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedC7ExternalClientManager.getOrCreateClient:
+      ZIO.attempt:
+        ExternalTaskClient.create()
+          .baseUrl("http://localhost:8887/engine-rest")
+          .disableBackoffStrategy()
+          .customizeHttpClient: httpClientBuilder =>
+            httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
+              // .setResponseTimeout(Timeout.ofSeconds(15))
+              .build())
+          .build()
 end C7NoAuthWorkerClient
 
 object C7BasicAuthWorkerClient extends C7WorkerClient:
@@ -68,27 +69,28 @@ trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
       val token = adminToken().toOption.getOrElse("NO TOKEN")
       request.addHeader("Authorization", token)
 
-  lazy val client =
-    ZIO
-      .attempt:
-        ExternalTaskClient.create()
-          .baseUrl(camundaRestUrl)
-          .maxTasks(maxTasks)
-          .asyncResponseTimeout(10.seconds.toMillis)
-          //  .disableBackoffStrategy()
-          .backoffStrategy(
-            new ExponentialBackoffStrategy(
-              100L, // Initial backoff time in milliseconds
-              2.0,  // Backoff factor
-              maxTimeForAcquireJob.toMillis
+  lazy val client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedC7ExternalClientManager.getOrCreateClient:
+      ZIO
+        .attempt:
+          ExternalTaskClient.create()
+            .baseUrl(camundaRestUrl)
+            .maxTasks(maxTasks)
+            .asyncResponseTimeout(10.seconds.toMillis)
+            //  .disableBackoffStrategy()
+            .backoffStrategy(
+              new ExponentialBackoffStrategy(
+                100L, // Initial backoff time in milliseconds
+                2.0,  // Backoff factor
+                maxTimeForAcquireJob.toMillis
+              )
             )
-          )
-          .lockDuration(lockDuration)
-          .customizeHttpClient: httpClientBuilder =>
-            httpClientBuilder
-              .addRequestInterceptorLast(addAccessToken)
-              .setConnectionManager(SharedHttpClientManager.connectionManager)
-              .build()
-          .build()
+            .lockDuration(lockDuration)
+            .customizeHttpClient: httpClientBuilder =>
+              httpClientBuilder
+                .addRequestInterceptorLast(addAccessToken)
+                .setConnectionManager(SharedHttpClientManager.connectionManager)
+                .build()
+            .build()
 
 end OAuth2WorkerClient

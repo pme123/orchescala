@@ -1,41 +1,30 @@
 package orchescala.worker.c7
 
-import orchescala.engine.EngineRuntime
 import org.camunda.bpm.client.ExternalTaskClient
-import zio.*
-import zio.Unsafe
+import orchescala.engine.SharedClientManager
+import zio.{ZIO, *}
 
-/** Provides a shared HTTP connection manager for Camunda C7 ExternalTaskClient to avoid creating new connections
-  * for each client
-  */
+/** Service trait for managing shared Camunda C7 ExternalTaskClient */
+type SharedC7ExternalClientManager = SharedClientManager[ExternalTaskClient, Throwable]
+
 object SharedC7ExternalClientManager:
-  
-  private lazy val clientRef: Ref[Option[ExternalTaskClient]] =
-    Unsafe.unsafe(implicit unsafe => EngineRuntime.zioRuntime.unsafe.run(Ref.make(None)).getOrThrowFiberFailure())
 
-  private lazy val semaphore: Semaphore =
-    Unsafe.unsafe(implicit unsafe => EngineRuntime.zioRuntime.unsafe.run(Semaphore.make(1)).getOrThrowFiberFailure())
-  
-  def getOrCreateClient(clientFactory: () => ZIO[Any, Throwable, ExternalTaskClient]): ZIO[Any, Throwable, ExternalTaskClient] =
-    semaphore.withPermit:
-      clientRef.get.flatMap:
-        case Some(client) =>
-          ZIO.logInfo("Reusing existing shared C7 ExternalTaskClient") *>
-          ZIO.succeed(client)
-        case None =>
-          ZIO.logInfo("Creating shared C7 ExternalTaskClient") *>
-          clientFactory().flatMap: client =>
-            clientRef.set(Some(client)).as(client)
+  /** ZLayer that provides SharedC7ExternalClientManager service */
+  val layer: ZLayer[Any, Nothing, SharedC7ExternalClientManager] =
+    SharedClientManager.createLayer[ExternalTaskClient, Throwable](
+      "C7 ExternalTask",
+      client =>
+        ZIO
+          .attempt(client.stop())
+          .tapBoth(
+            err => ZIO.logError(s"Error closing shared C7 client: ${err.getMessage}"),
+            _ => ZIO.logInfo("Shared C7 client closed successfully")
+          ).ignore
+    )
 
-  lazy val engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any] = ZIO
-    .addFinalizer:
-      semaphore.withPermit:
-        clientRef.get.flatMap:
-          case Some(client) =>
-            ZIO.attempt(client.stop()).catchAll: ex =>
-              ZIO.logError(s"Error closing shared C7 ExternalTaskClient: ${ex.getMessage}")
-            .zipLeft(clientRef.set(None))
-          case None => ZIO.unit
-      .zipLeft(ZIO.logInfo("Shared C7 ExternalTaskClient closed successfully"))
-    .uninterruptible
+  /** Convenience method to access the service */
+  def getOrCreateClient(clientFactory: ZIO[Any, Throwable, ExternalTaskClient])
+      : ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedClientManager.getOrCreateClient(clientFactory)
+
 end SharedC7ExternalClientManager
