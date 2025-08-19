@@ -93,8 +93,6 @@ final class SimulationTestRunner(
                                        .newInstance()
                                        .asInstanceOf[SimulationRunner]
                                    )
-                // Add the client finalizer to the scope
-                _               <- sim.engineCleanupFinalizer
                 // Fork the worker execution within the scope
                 fiber           <-
                   runSimulation(taskDef, sim)

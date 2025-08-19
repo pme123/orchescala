@@ -4,7 +4,7 @@ import orchescala.engine.*
 import orchescala.engine.inOut.*
 import orchescala.engine.json.*
 import org.camunda.community.rest.client.invoker.ApiClient
-import zio.IO
+import zio.{IO, ZIO}
 
 class C7ProcessEngine()(
     using
@@ -25,3 +25,12 @@ class C7ProcessEngine()(
 
   lazy val jProcessInstanceService: JProcessInstanceService = new JC7ProcessInstanceService()
 end C7ProcessEngine
+
+object C7ProcessEngine:
+
+  /** Creates a C7ProcessEngine with the proper client resolved from SharedC7ClientManager */
+  def withClient(c7Client: C7Client)(using engineConfig: EngineConfig): ZIO[SharedC7ClientManager, Nothing, C7ProcessEngine] =
+    C7Client.resolveClient(c7Client).map { resolvedClient =>
+      given IO[EngineError, ApiClient] = resolvedClient
+      C7ProcessEngine()
+    }

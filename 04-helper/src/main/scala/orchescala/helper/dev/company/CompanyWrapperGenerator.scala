@@ -15,6 +15,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     createIfNotExists(projectDmnPath, dmnWrapper)
     createIfNotExists(projectSimulationPath, simulationWrapper)
     createIfNotExists(projectC8SimulationPath, c8SimulationWrapper)
+    createIfNotExists(projectC7SimulationPath, c7SimulationWrapper)
     createIfNotExists(projectWorkerPath, workerWrapper)
     createIfNotExists(projectWorkerContextPath, workerContextWrapper)
     createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
@@ -37,6 +38,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val projectDmnPath = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
   private lazy val projectSimulationPath = ModuleConfig.simulationModule.srcPath / "CompanySimulation.scala"
   private lazy val projectC8SimulationPath = ModuleConfig.simulationModule.srcPath / "CompanyC8Simulation.scala"
+  private lazy val projectC7SimulationPath = ModuleConfig.simulationModule.srcPath / "CompanyC7Simulation.scala"
   private lazy val projectWorkerPath = ModuleConfig.workerModule.srcPath / "CompanyWorker.scala"
   private lazy val projectWorkerContextPath = ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
   private lazy val projectWorkerPasswordPath = ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
@@ -190,6 +192,10 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |  // Provide the client as a given for the engine services
        |  given ZIO[SharedC8ClientManager, EngineError, CamundaClient] = client
        |
+       |  // Override requiredLayers to provide the SharedC8ClientManager layer
+       |  override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
+       |    Seq(SharedC8ClientManager.layer)
+       |
        |  // Override engineZIO to create the engine within the SharedC8ClientManager environment
        |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
        |    C8ProcessEngine.withClient(this).provideLayer(SharedC8ClientManager.layer)
@@ -204,6 +210,40 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |    )
        |
        |end CompanyC8Simulation
+       |""".stripMargin
+
+  private lazy val c7SimulationWrapper =
+    s"""package $companyName.orchescala.simulation
+       |
+       |import org.camunda.community.rest.client.invoker.ApiClient
+       |import orchescala.engine.{EngineError, EngineConfig, ProcessEngine}
+       |import orchescala.engine.c7.{C7ProcessEngine, C7LocalClient, SharedC7ClientManager}
+       |import orchescala.simulation.{SimulationConfig, SimulationRunner, SimulationError, LogLevel, ScenarioResult}
+       |import zio.{ZIO, Scope, ZLayer}
+       |
+       |/**
+       | * Company-specific C7 Simulation trait that works with SharedC7ClientManager
+       | */
+       |trait CompanyC7Simulation extends SimulationRunner, CompanyEngineConfig, C7LocalClient:
+       |
+       |  // Override requiredLayers to provide the SharedC7ClientManager layer
+       |  override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
+       |    Seq(SharedC7ClientManager.layer)
+       |
+       |  // Override engineZIO to create the engine within the SharedC7ClientManager environment
+       |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+       |    C7ProcessEngine.withClient(this).provideLayer(SharedC7ClientManager.layer)
+       |
+       |  // No special cleanup needed - the SharedC7ClientManager layer handles it
+       |  def engineCleanupFinalizer: ZIO[Scope, Nothing, Any] =
+       |    ZIO.unit
+       |
+       |  override lazy val config: SimulationConfig =
+       |    SimulationConfig(
+       |      endpoint = camundaRestUrl
+       |    )
+       |
+       |end CompanyC7Simulation
        |""".stripMargin
 
   private lazy val workerWrapper =

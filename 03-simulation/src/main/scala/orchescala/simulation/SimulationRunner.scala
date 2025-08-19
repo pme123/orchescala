@@ -3,7 +3,7 @@ package orchescala.simulation
 import orchescala.engine.ProcessEngine
 import orchescala.simulation.*
 import orchescala.simulation.runner.*
-import zio.{IO, Scope, ZIO}
+import zio.{IO, Scope, ZIO, ZLayer}
 
 import scala.compiletime.uninitialized
 
@@ -16,20 +16,26 @@ abstract class SimulationRunner
   def engine: ProcessEngine =
     throw new RuntimeException("Either override 'engine' or 'engineZIO' method")
 
-  // For environment-based engines (C8 with SharedC8ClientManager)
+  // For environment-based engines (C8 with SharedC8ClientManager, C7 with SharedC7ClientManager)
   def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
     ZIO.succeed(engine)
 
-  def engineCleanupFinalizer: ZIO[Scope, Nothing, Any]
-
   def config: SimulationConfig =
     SimulationConfig()
+
+  // Override this to provide the ZIO layers required by this simulation
+  def requiredLayers: Seq[ZLayer[Any, Nothing, Any]]
+
+  // Automatically combine all required layers
+  private def allRequiredLayers: ZLayer[Any, Nothing, Any] =
+    val allLayers = requiredLayers
+    allLayers.foldLeft(ZLayer.empty: ZLayer[Any, Nothing, Any])(_ ++ _)
 
   // needed that it can be called from the Test Framework and check the result
   var simulation: IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] = uninitialized
 
   protected def run(sim: SSimulation): IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
-    simulation = for {
+    simulation = (for {
       engine <- engineZIO
       given ProcessEngine    = engine
       given SimulationConfig = config
@@ -53,9 +59,10 @@ abstract class SimulationRunner
             .groupBy(_.maxLevel)
             .toSeq
             .sortBy(_._1)
-    } yield results
+    } yield results).provideLayer(allRequiredLayers)
     simulation
   end run
+
 end SimulationRunner
 
 object SimulationRunner
