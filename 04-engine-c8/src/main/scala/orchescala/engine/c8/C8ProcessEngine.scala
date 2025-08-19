@@ -35,3 +35,12 @@ case class C8ProcessEngine()(
 
 end C8ProcessEngine
 
+object C8ProcessEngine:
+
+  /** Creates a C8ProcessEngine with the proper client resolved from SharedC8ClientManager */
+  def withClient(c8Client: C8Client)(using engineConfig: EngineConfig): ZIO[SharedC8ClientManager, Nothing, C8ProcessEngine] =
+    C8Client.resolveClient(c8Client).map { resolvedClient =>
+      given IO[EngineError, CamundaClient] = resolvedClient
+      C8ProcessEngine()
+    }
+

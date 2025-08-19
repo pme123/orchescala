@@ -1,16 +1,19 @@
 package orchescala.worker
 
-import zio.{Scope, ZIO}
+import zio.{Scope, ZIO, ZLayer}
 import zio.ZIO.*
 
 trait WorkerRegistry:
-
-  final def register(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any] =
+  
+  final def register[R](workers: Set[WorkerDsl[?, ?]]): ZIO[R, Any, Any] =
     logInfo(s"Registering Workers for ${getClass.getSimpleName}") *>
       registerWorkers(workers)
 
   def engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any]
 
-  protected def registerWorkers(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any]
+  protected def registerWorkers[R](workers: Set[WorkerDsl[?, ?]]): ZIO[R, Any, Any]
+
+  /** Override this to provide the ZIO layers required by this worker registry */
+  def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] = Seq.empty
 
 end WorkerRegistry

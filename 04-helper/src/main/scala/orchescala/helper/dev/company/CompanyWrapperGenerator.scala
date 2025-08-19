@@ -10,9 +10,11 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     createIfNotExists(config.projectDir / "CHANGELOG.md", GenericFileGenerator().changeLog)
     createIfNotExists(projectDomainPath, domainWrapper)
     createIfNotExists(projectEnginePath, engineWrapper)
+    createIfNotExists(projectEngineC8Path, engineC8Wrapper)
     createIfNotExists(projectApiPath, apiWrapper)
     createIfNotExists(projectDmnPath, dmnWrapper)
     createIfNotExists(projectSimulationPath, simulationWrapper)
+    createIfNotExists(projectC8SimulationPath, c8SimulationWrapper)
     createIfNotExists(projectWorkerPath, workerWrapper)
     createIfNotExists(projectWorkerContextPath, workerContextWrapper)
     createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
@@ -30,9 +32,11 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
 
   private lazy val projectDomainPath = ModuleConfig.domainModule.srcPath / "CompanyBpmnDsl.scala"
   private lazy val projectEnginePath = ModuleConfig.engineModule.srcPath / "CompanyEngineConfig.scala"
+  private lazy val projectEngineC8Path = ModuleConfig.engineModule.srcPath / "CompanyEngineC8Config.scala"
   private lazy val projectApiPath = ModuleConfig.apiModule.srcPath / "CompanyApiCreator.scala"
   private lazy val projectDmnPath = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
   private lazy val projectSimulationPath = ModuleConfig.simulationModule.srcPath / "CompanySimulation.scala"
+  private lazy val projectC8SimulationPath = ModuleConfig.simulationModule.srcPath / "CompanyC8Simulation.scala"
   private lazy val projectWorkerPath = ModuleConfig.workerModule.srcPath / "CompanyWorker.scala"
   private lazy val projectWorkerContextPath = ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
   private lazy val projectWorkerPasswordPath = ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
@@ -95,6 +99,36 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |end CompanyEngineConfig
        |""".stripMargin
 
+  private lazy val engineC8Wrapper =
+    s"""package $companyName.orchescala.engine
+       |
+       |import orchescala.engine.EngineConfig
+       |import orchescala.engine.c8.C8SaasClient
+       |
+       |/**
+       | * Company-specific C8 Engine Configuration that provides EngineConfig and C8 SaaS client settings
+       | */
+       |trait CompanyEngineC8Config extends C8SaasClient:
+       |
+       |  // Provide EngineConfig as a given instance
+       |  given EngineConfig = EngineConfig(
+       |    tenantId = None // TODO: Set your tenant ID if needed
+       |  )
+       |
+       |  // C8 SaaS Configuration - override these values in your implementation or use environment variables
+       |  protected def zeebeGrpc: String = sys.env.getOrElse("ZEEBE_GRPC_ADDRESS", "https://bru-2.zeebe.camunda.io:443")
+       |  protected def zeebeRest: String = sys.env.getOrElse("ZEEBE_REST_ADDRESS", "https://bru-2.zeebe.camunda.io")
+       |  protected def audience: String = sys.env.getOrElse("ZEEBE_AUDIENCE", "zeebe.camunda.io")
+       |  protected def clientId: String = sys.env.getOrElse("ZEEBE_CLIENT_ID", "your-client-id")
+       |  protected def clientSecret: String = sys.env.getOrElse("ZEEBE_CLIENT_SECRET", "your-client-secret")
+       |  protected def oAuthAPI: String = sys.env.getOrElse("ZEEBE_OAUTH_URL", "https://login.cloud.camunda.io/oauth/token")
+       |
+       |  // Convenience method to access the EngineConfig
+       |  def engineConfig: EngineConfig = summon[EngineConfig]
+       |
+       |end CompanyEngineC8Config
+       |""".stripMargin
+
   private lazy val apiWrapper =
     s"""package $companyName.orchescala
        |package api
@@ -137,6 +171,39 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |    super.config //TODO Adjust config if needed
        |
        |end CompanySimulation
+       |""".stripMargin
+
+  private lazy val c8SimulationWrapper =
+    s"""package $companyName.orchescala.simulation
+       |
+       |import io.camunda.client.CamundaClient
+       |import orchescala.engine.{EngineError, EngineConfig, ProcessEngine}
+       |import orchescala.engine.c8.{C8ProcessEngine, C8SaasClient, SharedC8ClientManager}
+       |import orchescala.simulation.{SimulationConfig, SimulationRunner, SimulationError, LogLevel, ScenarioResult}
+       |import zio.{ZIO, Scope, ZLayer}
+       |
+       |/**
+       | * Company-specific C8 Simulation trait that works with SharedC8ClientManager
+       | */
+       |trait CompanyC8Simulation extends SimulationRunner, CompanyEngineC8Config, C8SaasClient:
+       |
+       |  // Provide the client as a given for the engine services
+       |  given ZIO[SharedC8ClientManager, EngineError, CamundaClient] = client
+       |
+       |  // Override engineZIO to create the engine within the SharedC8ClientManager environment
+       |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+       |    C8ProcessEngine.withClient(this).provideLayer(SharedC8ClientManager.layer)
+       |
+       |  // No special cleanup needed - the SharedC8ClientManager layer handles it
+       |  def engineCleanupFinalizer: ZIO[Scope, Nothing, Any] =
+       |    ZIO.unit
+       |
+       |  override lazy val config: SimulationConfig =
+       |    SimulationConfig(
+       |      endpoint = zeebeRest
+       |    )
+       |
+       |end CompanyC8Simulation
        |""".stripMargin
 
   private lazy val workerWrapper =
@@ -237,11 +304,29 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.worker.c7.C7WorkerRegistry
+       |import orchescala.worker.c8.C8WorkerRegistry
+       |import orchescala.engine.c8.SharedC8ClientManager
+       |import zio.ZLayer
        |
        |trait CompanyWorkerApp extends WorkerApp:
        |
-       |  lazy val workerRegistries: Seq[WorkerRegistry] =
+       |  // For C7 only
+       |  lazy val workerRegistriesC7: Seq[WorkerRegistry] =
        |    Seq(C7WorkerRegistry(CompanyC7Client))
+       |
+       |  // For C8 only
+       |  lazy val workerRegistriesC8: Seq[WorkerRegistry] =
+       |    Seq(C8WorkerRegistry(CompanyC8Client))
+       |
+       |  // Override additionalLayers when using C8 workers
+       |  override def additionalLayers: ZLayer[Any, Nothing, Any] =
+       |    if workerRegistries.exists(_.isInstanceOf[C8WorkerRegistry]) then
+       |      SharedC8ClientManager.layer
+       |    else
+       |      ZLayer.empty
+       |
+       |  // Choose which registries to use based on your Camunda version
+       |  lazy val workerRegistries: Seq[WorkerRegistry] = workerRegistriesC7 // or workerRegistriesC8
        |""".stripMargin
 
   private lazy val workerCompanyC7ClientWrapper =

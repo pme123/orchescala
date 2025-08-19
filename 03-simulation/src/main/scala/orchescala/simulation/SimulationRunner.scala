@@ -12,10 +12,16 @@ abstract class SimulationRunner
       TestOverrideExtensions,
       Logging:
 
-  def engine: ProcessEngine
-  
+  // For traditional engines (C7, direct engines)
+  def engine: ProcessEngine =
+    throw new RuntimeException("Either override 'engine' or 'engineZIO' method")
+
+  // For environment-based engines (C8 with SharedC8ClientManager)
+  def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+    ZIO.succeed(engine)
+
   def engineCleanupFinalizer: ZIO[Scope, Nothing, Any]
-  
+
   def config: SimulationConfig =
     SimulationConfig()
 
@@ -23,28 +29,31 @@ abstract class SimulationRunner
   var simulation: IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] = uninitialized
 
   protected def run(sim: SSimulation): IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
-    given ProcessEngine    = engine
-    given SimulationConfig = config
-    simulation = ZIO
-      .foreachPar(sim.scenarios):
-        case scen: ProcessScenario  =>
-          ProcessScenarioRunner(scen).run
-        case scen: IncidentScenario => IncidentScenarioRunner(scen).run
-        case scen: BadScenario      => BadScenarioRunner(scen).run
-      
-      .map: results =>
-        results
-          .map { (resultData: ScenarioData) =>
-            val log =
-              resultData.logEntries
-                .filter(_.logLevel <= config.logLevel)
-                .map(_.toString)
-                .mkString("\n")
-            ScenarioResult(resultData.scenarioName, resultData.logEntries.maxLevel, log)
-          }
-          .groupBy(_.maxLevel)
-          .toSeq
-          .sortBy(_._1)
+    simulation = for {
+      engine <- engineZIO
+      given ProcessEngine    = engine
+      given SimulationConfig = config
+      results <- ZIO
+        .foreachPar(sim.scenarios):
+          case scen: ProcessScenario  =>
+            ProcessScenarioRunner(scen).run
+          case scen: IncidentScenario => IncidentScenarioRunner(scen).run
+          case scen: BadScenario      => BadScenarioRunner(scen).run
+
+        .map: results =>
+          results
+            .map { (resultData: ScenarioData) =>
+              val log =
+                resultData.logEntries
+                  .filter(_.logLevel <= config.logLevel)
+                  .map(_.toString)
+                  .mkString("\n")
+              ScenarioResult(resultData.scenarioName, resultData.logEntries.maxLevel, log)
+            }
+            .groupBy(_.maxLevel)
+            .toSeq
+            .sortBy(_._1)
+    } yield results
     simulation
   end run
 end SimulationRunner

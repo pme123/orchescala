@@ -7,8 +7,8 @@ import zio.ZIO.*
 
 class C7WorkerRegistry(client: C7WorkerClient)
     extends WorkerRegistry:
-
-  protected def registerWorkers(workers: Set[WorkerDsl[?, ?]]): ZIO[Any, Any, Any] = {
+  
+  protected def registerWorkers[R](workers: Set[WorkerDsl[?, ?]]): ZIO[R, Any, Any] = {
     ZIO.scoped:
       acquireReleaseWith(client.client)(_.closeClient()): client =>
         for

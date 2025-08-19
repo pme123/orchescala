@@ -13,6 +13,15 @@ trait WorkerApp extends ZIOAppDefault:
 
   // a list of registries for each worker implementation
   def workerRegistries: Seq[WorkerRegistry]
+
+  // Automatically detect and provide required engine layers
+  private def requiredEngineLayers: ZLayer[Any, Nothing, Any] =
+    // Collect all required layers from worker registries
+    val allLayers = workerRegistries.flatMap(_.requiredLayers)
+
+    // Combine all layers into one
+    allLayers.foldLeft(ZLayer.empty: ZLayer[Any, Nothing, Any])(_ ++ _)
+
   // list all the workers you want to register
   def workers(dWorkers: (WorkerDsl[?, ?] | Seq[WorkerDsl[?, ?]])*): Unit =
     theWorkers = dWorkers
@@ -44,7 +53,8 @@ trait WorkerApp extends ZIOAppDefault:
       yield ()
     .provideLayer(
       EngineRuntime.sharedExecutorLayer ++
-        HttpClientProvider.live
+        HttpClientProvider.live ++
+        requiredEngineLayers
     )
   private[worker] def workerApps(workerApp: WorkerApp): Seq[WorkerApp] =
     workerApp.theDependencies match
