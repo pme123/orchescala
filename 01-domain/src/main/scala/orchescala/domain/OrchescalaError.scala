@@ -10,5 +10,5 @@ trait OrchescalaError extends Throwable:
 
   def causeError: Option[OrchescalaError] = None
   
-  override def toString(): String = causeMsg + causeError.map(e => s"Caused by ${e.causeMsg}").getOrElse("")
+  override def toString(): String = causeMsg + causeError.map(e => s" - Caused by ${e.causeMsg}").getOrElse("")
 end OrchescalaError

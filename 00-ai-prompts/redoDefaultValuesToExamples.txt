@@ -79,7 +79,7 @@ case privateIndividual(
 
 - Put all these at the end of the class
 
-Additionally, update all usages throughout the whole project (src and test) (not just in the domain module):
+Additionally, update all usages throughout the whole project (src and test) (not just in the domain module but not in the worker/src/main folder - this is important):
 - Replace constructor calls with default values like `FilIsErrorElem()` with `FilIsErrorElem.example`
 - Replace constructor calls with some parameters like `FilIsErrorElem(errorType = "Custom")` with `FilIsErrorElem.example.copy(errorType = "Custom")`
 - Replace `NameValueField()` with `NameValueField.example`

@@ -187,11 +187,11 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val taskId            = summon[camunda.ExternalTask].getId
       val processInstanceId = summon[camunda.ExternalTask].getProcessInstanceId
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
-      val retries           = calcRetries(error)
+      val retries           = C7Worker.calcRetries(error)
 
       if retries == 0 then logger.error(error)
       logError(
-        s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | doRetry: $doRetry | retries: $retries | $error"
+        s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | doRetry: $doRetry x| retries: $retries | $error"
       ) *>
         ZIO
           .when(retries >= 0 || doRetry):
@@ -210,25 +210,6 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
     end handleFailure
 
-    private[worker] def calcRetries(
-        error: WorkerError
-    ): HelperContext[Int] =
-      val doRetryMsgs = Seq(
-        "Entity was updated by another transaction concurrently",
-        "An exception occurred in the persistence layer",
-        "Exception when sending request: GET", // sttp.client3.SttpClientException$ReadException
-        "Exception when sending request: PUT"  // only GET and PUT to be safe a POST is not executed again
-        //  "Service Unavailable",
-        //  "Gateway Timeout"
-      ).map(_.toLowerCase)
-      val doRetry     = doRetryMsgs.exists(error.errorMsg.toLowerCase.contains)
-
-      summon[camunda.ExternalTask].getRetries match
-        case r if r <= 0 && doRetry => 2
-        case r                      => r - 1
-
-    end calcRetries
-
     private[worker] def filteredOutput(
         outputVariables: Seq[String],
         allOutputs: Map[String, Any]
@@ -245,3 +226,24 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   end extension
 
 end C7Worker
+
+object C7Worker:
+  
+  private[worker] def calcRetries(
+                                   error: WorkerError
+                                 ): HelperContext[Int] =
+    val doRetryMsgs = Seq(
+      "Entity was updated by another transaction concurrently",
+      "An exception occurred in the persistence layer",
+      "Exception when sending request: GET", // sttp.client3.SttpClientException$ReadException
+      "Exception when sending request: PUT" // only GET and PUT to be safe a POST is not executed again
+      //  "Service Unavailable",
+      //  "Gateway Timeout"
+    ).map(_.toLowerCase)
+    val doRetry = doRetryMsgs.exists(error.toString.toLowerCase.contains)
+
+    summon[camunda.ExternalTask].getRetries match
+      case r if r <= 0 && doRetry => 2
+      case r => r - 1
+
+  end calcRetries
