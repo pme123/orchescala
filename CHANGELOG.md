@@ -15,6 +15,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.14 - 2025-08-21
+### Changed 
+- MAP-10799: Fixed missed retry because error message was in the cause. - see [Commit](git@github.com:pme123/orchescala/commit/caff99152fe889b2c3db6ae1ebe603ff68290263)
+- Changed Simulation to SharedClientManager. - see [Commit](git@github.com:pme123/orchescala/commit/e068b14dc6309cf55bb0a9da9d36c173b7fdc6d9)
+- SharedC7ClientManager provided as Environment. - see [Commit](git@github.com:pme123/orchescala/commit/42cb29ba51e122055a2fda0de36f1ff2174c0f95)
+- SharedC8ClientManager provided as Environment. - see [Commit](git@github.com:pme123/orchescala/commit/05fe2d33f9897ecdd9ebf872fb25b3d3a4c09dc8)
+- Removed unsafe from semaphore in SharedC8ClientManager. - see [Commit](git@github.com:pme123/orchescala/commit/c47e4efbd7aff2613e86f577aaca3401c14b6c7a)
+- Removed unsafe from clientRef in SharedC8ClientManager. - see [Commit](git@github.com:pme123/orchescala/commit/22c77900675fd639ac145f6bca79a5e22043f509)
+- Fixed double execution in simulations. - see [Commit](git@github.com:pme123/orchescala/commit/88093837cebad5eac2d79b4f47a2afc88bfc2e54)
+- Adding more AI prompts. - see [Commit](git@github.com:pme123/orchescala/commit/6b03fcd80016e56883f917d1a5b44fad9355ce83)
+- Fixed SharedC7ClientManager - see [Commit](git@github.com:pme123/orchescala/commit/d6795693c982889aa9903a10fb43a880e15c86ac)
+- Added SharedClientManagers - see [Commit](git@github.com:pme123/orchescala/commit/84a35cea844b601c06ade12bcce71d9e6a6262eb)
+- Added userTaskId to getUserTask in engine. - see [Commit](git@github.com:pme123/orchescala/commit/c8ad0d8fd62603f9aaacf57ba10e3cbde1b75c0c)
+- Added new directory for AI prompts - see [Commit](git@github.com:pme123/orchescala/commit/f1d7e7b3a533ca18555a8830c3a0f71b69e86dbd)
+- Added Test for method in WorkerGenerator for ServiceWorker. - see [Commit](git@github.com:pme123/orchescala/commit/59f1aebf50652544dbed890fac528ea5884d152b)
+- Fixed bad Path in ModelerTemplUpdater. - see [Commit](git@github.com:pme123/orchescala/commit/694282feee033690875613de5726f2c9f73ac593)
+- Added UserTask for c8 Simulation. - see [Commit](git@github.com:pme123/orchescala/commit/a460e41fce7c849a4a6814df594b28e81971dd3d)
+- First working Template generation for C8. - see [Commit](git@github.com:pme123/orchescala/commit/b046bdc1785b55f7d1062e57145acc888e79dc89)
+- First version for C8 TemplateGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/02f3157b8c351498af3ac485bd75a4fc8be6acb0)
+- Adjusted Generators for new example Pattern. - see [Commit](git@github.com:pme123/orchescala/commit/b933016a843b45de00546678a9c9f9ec2655a4d2)
+- Adjusted bpmnDsl.md documentation. - see [Commit](git@github.com:pme123/orchescala/commit/ec86c7f57a4679f58c664be18fc71b9f27de80a9)
+- Added mocking flag, if mocked and no mocked error handled. - see [Commit](git@github.com:pme123/orchescala/commit/7882e594c725e0e8f744245645b5ff355ef38015)
+- Working C8 empty process incl. variable handling. - see [Commit](git@github.com:pme123/orchescala/commit/7375865905f8aa3a9cd3b50770227da56c0eff1e)
+- Working C8 empty simulation. - see [Commit](git@github.com:pme123/orchescala/commit/bed330e7b8ca5d9aca37d167cdc9bc3a74c781a1)
+- Removed old simulation. - see [Commit](git@github.com:pme123/orchescala/commit/d0e281ef51ee1da9e772651442532b863018dcb3)
+- Adding C8Client to engine / added first services for C8 engine. - see [Commit](git@github.com:pme123/orchescala/commit/402baa503e3d0efb7fbd879eb67dc99be36560c0)
+- Working version for C8 Worker with mocking. - see [Commit](git@github.com:pme123/orchescala/commit/4ffb4d37895ebc17b46e873fa0db1f53929d8447)
+- Working version for C8 Worker and C7 Worker next to each other. - see [Commit](git@github.com:pme123/orchescala/commit/52e3e89f128e8794169c40bf10e1767d12d483a7)
+- Working version for C8 Worker implementation. - see [Commit](git@github.com:pme123/orchescala/commit/a798ac9868bb396f00aa5101f203e5ffe183ee24)
+- First stubs for C8 Engine implementation. - see [Commit](git@github.com:pme123/orchescala/commit/c7e7e46c1e6f4dd8468edc400dbfceafe0f42264)
+- Adjustments in Open API / Code generation. - see [Commit](git@github.com:pme123/orchescala/commit/76d14500050f4e5862e1dad492a6d7e19742a909)
+- Adjustments in Open API / Code generation. - see [Commit](git@github.com:pme123/orchescala/commit/616c34213cefdcdefbe19276befbe5a02f960467)
+
 ## 0.2.13 - 2025-07-21
 ### Changed 
 - Adjustments in Open API generation. - see [Commit](git@github.com:pme123/orchescala/commit/6da6c3d8c2242d11b2abc9c6d80cad0ab4579f13)

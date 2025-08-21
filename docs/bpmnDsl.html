@@ -441,7 +441,7 @@
         As we don&#39;t support <em>Throwing Signal events</em> we can simplify this to <em>signalEvent</em>:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">object</span><span> </span><span class="type-name">MySignalEvent</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">CompanyBpmnSignalEventDsl</span><span>:
 
-  </span><span class="keyword">val</span><span> </span><span class="identifier">messageName</span><span> = </span><span class="string-literal">&quot;mycompany-myproject-mysignal-{processInstanceId}&quot;</span><span>
+  </span><span class="keyword">val</span><span> </span><span class="identifier">messageName</span><span> = </span><span class="string-literal">s&quot;mycompany-myproject-mysignal-$</span><span class="substitution">${SignalEvent.Dynamic_ProcessInstance}</span><span class="string-literal">&quot;</span><span>
   </span><span class="keyword">val</span><span> </span><span class="identifier">descr</span><span>: </span><span class="type-name">String</span><span> = </span><span class="string-literal">&quot;my signal...&quot;</span><span>
 
   </span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">In</span><span>(...)
@@ -453,7 +453,7 @@
 </span><span class="identifier">end</span><span> </span><span class="type-name">MySignalEvent</span></code></pre>
         <ul>
           <li>The <code>messageName</code> is the name of the signal you expect. 
-          To correlate the signal to a certain process instance, you can use the <code>{processInstanceId}</code> as a part in the signal name.
+          To correlate the signal to a certain process instance, you can use the <code>SignalEvent.Dynamic_ProcessInstance</code> constant (<code>{processInstanceId}</code>) as a part in the signal name.
           This will be replaced in the <em>Simulation</em> with the actual <em>processInstanceId</em>.</li>
           <li>You can send process variables with the <code>In</code> object.</li>
           <li>A <em>SignalEvent</em> extends <em>CompanyBpmnSignalEventDsl</em>.</li>
