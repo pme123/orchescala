@@ -16,9 +16,9 @@ For case classes:
 - remove in-/outExample and in-/outExampleMinimal
 - If it is a case class only one lazy val
 - If it is an enum provide for all an example:
-    e.g. object example:
-            lazy val Standard = ...
-            lazy val Other = ...
+    e.g. object Standard:
+                lazy val example: In.Standard = ...
+                lazy val exampleMinimal In.Standard = ...
             
 Additionally, for objects that have an In and an Out:
 - adjust the example, using in-/ outExample if existing
@@ -34,31 +34,31 @@ Additionally, for objects that have an In and an Out:
      lazy val example = NoOutput()
      lazy val exampleMinimal = example
 
-- for type InService:
-  object InService:
+- for type ServiceIn:
+  object ServiceIn:
      lazy val example = ...example // or NoInput()
      lazy val exampleMinimal = example.copy(..=None)
   - remove
     serviceInExample / serviceInMinimalExample
-- for type OutService:
-  object OutService:
+- for type ServiceOut:
+  object ServiceOut:
      lazy val example = ...example // or NoOutput()
      lazy val exampleMinimal = example.copy(..=None)
      lazy val mock = MockedServiceResponse.success..(example)
      lazy val mockMinimal = MockedServiceResponse.success..(exampleMinimal)
   - remove serviceMock / serviceMinimalMock
 - check and correct the order like:
-  In / Out / InitIn / InConfig / InService / OutService / example / exampleMinimal
+  In / Out / InitIn / InConfig / ServiceIn / ServiceOut / example / exampleMinimal
   always keep class and companion object together
 - Put all these at the end of the object
 - Add the same to the InitIn object for the InitIn class 
 - Do not touch the InConfig
 - If it is a case class only one lazy val
 - If it is an enum provide for all an example:
-    e.g. object example:
-            lazy val Standard = ...
-            lazy val Other = ...
-  And add .withEnumOutExamples(Out.example.Canceled) only to the example with all cases
+    e.g. object Standard:
+            lazy val example = ...
+            lazy val exampleMinimal = ...
+  And add .withEnumOutExamples(Out.example.Canceled) only to the example with all cases - also it needs .asInstanceOf[Out] in the example
 - if it has a serviceMock val:
     - lazy val serviceMinimalMock      = ...
     - lazy val serviceInMinimalExample = serviceInExample.copy(..) with the default values to None
@@ -85,8 +85,8 @@ Additionally, update all usages throughout the whole project (src and test) (not
 - Replace `NameValueField()` with `NameValueField.example`
 - Replace `ClientIdentificationReservation()` with `ClientIdentificationReservation.example`
 - Replace `inExample` with `In.example` / `outExample` with `Out.example` / `inExampleMinimal` with `In.exampleMinimal` / `outExampleMinimal` with `Out.exampleMinimal`
-- Replace `serviceInExample` with `InService.example` / `serviceOutExample` with `OutService.example` / `serviceInMinimalExample` with `InService.exampleMinimal` / `serviceOutMinimalExample` with `OutService.exampleMinimal`
-- Replace `serviceMock` with `OutService.mock` / `serviceMinimalMock` with `OutService.mockMinimal`
+- Replace `serviceInExample` with `ServiceIn.example` / `serviceOutExample` with `ServiceOut.example` / `serviceInMinimalExample` with `ServiceIn.exampleMinimal` / `serviceOutMinimalExample` with `ServiceOut.exampleMinimal`
+- Replace `serviceMock` with `ServiceOut.mock` / `serviceMinimalMock` with `ServiceOut.mockMinimal`
 - Update any other direct constructor calls that relied on default values to use the new example pattern
 - Update references to old inExample/outExample patterns to use the new In.example/Out.example structure
 - Ensure all enum usages that previously relied on default discriminator values are updated if needed
