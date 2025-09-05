@@ -1,17 +1,17 @@
 package orchescala.helper.openApi
 
 case class BpmnClassesGenerator()(using
-    val apiDefinition: ApiDefinition,
-    val config: OpenApiConfig
+                                  val apiDefinition: ApiDefinition,
+                                  val config: OpenApiConfig
 ) extends GeneratorHelper:
 
   lazy val generate =
     apiDefinition.bpmnClasses
-      .map:
-        generateModel
-      .foreach:
+      .map(generateModel)
+      .foreach {
         case key -> content =>
           os.write.over(bpmnPath / s"$key.scala", content)
+      }
   end generate
 
   private lazy val arrayAliasesByName: Map[String, BpmnArray] =
@@ -23,6 +23,14 @@ case class BpmnClassesGenerator()(using
   private def outFieldArrayAlias(field: ConstrField): Option[(String, String)] =
     findArrayAlias(field.tpeName).map(alias => alias.name -> alias.arrayClassName)
 
+  private def isOutOptional(so: BpmnServiceObject): Boolean =
+    so.out.exists(_.isOptional)
+
+  private def serviceOutExampleRef(so: BpmnServiceObject): String =
+    so.out match
+      case Some(outField) => s"Out.example.${outField.name}"
+      case None => "NoOutput()"
+  
   private def typedNone(renderedType: String): String =
     val t = renderedType.trim
     if t.startsWith("Option[") then s"None: $t" else "None"
@@ -38,20 +46,34 @@ case class BpmnClassesGenerator()(using
       .map(f => s"      ${f.name} = ${printFieldValue(f)},")
       .mkString("\n")
 
-  private def minimalParamsList(so: BpmnServiceObject, pad: String = "      "): String =
-    (so.inputParams.toSeq.flatten ++ so.in.toSeq)
-      .map(printMinimalFieldValue(_, pad))
-      .mkString("\n")
+  private def primitiveMinimalValue(scalaTpe: String): Option[String] =
+    scalaTpe match
+      case "Int"        => Some("0")
+      case "Long"       => Some("0L")
+      case "Double"     => Some("0.0")
+      case "Float"      => Some("0.0f")
+      case "Short"      => Some("0")
+      case "Byte"       => Some("0")
+      case "Boolean"    => Some("false")
+      case "String"     => Some("\"\"")
+      case "BigDecimal" => Some("new java.math.BigDecimal(0)")
+      case _            => None
 
-  private def serviceOutExampleRef(so: BpmnServiceObject): String =
-    so.out match
-      case Some(outField) => s"Out.example.${outField.name}"
-      case None           => "NoOutput()"
+  private def minimalValueFor(field: ConstrField): String =
+    field.wrapperType match
+      case Some(WrapperType.Seq) => "Seq.empty"
+      case Some(WrapperType.Set) => "Set.empty"
+      case _ =>
+        apiDefinition.serviceClasses.find(_.name == field.tpeName) match
+          case Some(_: BpmnClass) => s"${field.tpeName}.exampleMinimal"
+          case Some(_: BpmnArray) => "Seq.empty"
+          case Some(_: BpmnEnum)  => printFieldValue(field) // first/default
+          case None               => primitiveMinimalValue(field.tpeName).getOrElse(printFieldValue(field))
 
-  private def serviceOutExampleMinimal(so: BpmnServiceObject): String =
-    so.out match
-      case Some(outField) => typedNone(printFieldType(outField))
-      case None           => "NoOutput()"
+  private def minimalFieldLine(field: ConstrField, intent: String = "      "): String =
+    val optOrCollection = printMinimalFieldValue(field, intent)
+    if optOrCollection.nonEmpty then optOrCollection
+    else s"$intent${field.name} = ${minimalValueFor(field)},"
 
   private def generateModel(serviceObj: BpmnServiceObject) =
     val name           = serviceObj.className
@@ -61,6 +83,12 @@ case class BpmnClassesGenerator()(using
 
     val serviceInType  = serviceObj.in.map(printFieldType(_)).getOrElse("NoInput")
     val serviceOutType = serviceObj.out.map(printFieldType(_)).getOrElse("NoOutput")
+
+    val serviceOutExampleMinimalCode =
+      (serviceObj.out, isOutOptional(serviceObj)) match
+        case (Some(outField), true)  => typedNone(printFieldType(outField))
+        case (Some(outField), false) => s"Out.exampleMinimal.${outField.name}"
+        case (None, _)               => "NoOutput()"
 
     val content =
       s"""package ${bpmnPackageSplitted._1}
@@ -81,22 +109,16 @@ case class BpmnClassesGenerator()(using
          |  type ServiceOut = $serviceOutType
          |
          |  object ServiceIn:
-         |    lazy val example        = ${serviceObj.in.map(_ => "In.example").getOrElse(
-          "NoInput()"
-        )}
-         |    lazy val exampleMinimal = ${serviceObj.in.map(_ => "In.exampleMinimal").getOrElse(
-          "example"
-        )}
+         |    lazy val example        = ${serviceObj.in.map(_ => "In.example").getOrElse("NoInput()")}
+         |    lazy val exampleMinimal = ${serviceObj.in.map(_ => "In.exampleMinimal").getOrElse("example")}
          |  end ServiceIn
          |
          |  object ServiceOut:
-         |    lazy val example                                 = ${serviceOutExampleRef(serviceObj)}
-         |    lazy val exampleMinimal                          = ${serviceOutExampleMinimal(
-          serviceObj
-        )}
+         |    lazy val example        = ${serviceOutExampleRef(serviceObj)}
+         |    lazy val exampleMinimal = $serviceOutExampleMinimalCode
          |    lazy val mock: MockedServiceResponse[ServiceOut] =
          |      MockedServiceResponse.success${serviceObj.mockStatus}(example)
-         |    lazy val mockMinimal                             =
+         |    lazy val mockMinimal =
          |      MockedServiceResponse.success${serviceObj.mockStatus}(exampleMinimal)
          |  end ServiceOut
          |
@@ -129,10 +151,18 @@ case class BpmnClassesGenerator()(using
     val caseClass =
       s"""  case class In(
          |${
-          serviceObj.inputParams.toSeq.flatten.map(printField(_, "In", "    ")).mkString
-        }${printInOut(serviceObj.in, serviceObj)}
+        serviceObj.inputParams.toSeq.flatten.map(printField(_, "In", "    ")).mkString
+      }${printInOut(serviceObj.in, serviceObj)}
          |  )
          |""".stripMargin
+
+    val inExampleAssignments =
+      (serviceObj.inputParams.toSeq.flatten.map(f => s"      ${f.name} = ${printFieldValue(f)},") ++
+        serviceObj.in.toSeq.map(f => s"      ${f.name} = ${printFieldValue(f)},")).mkString("\n")
+
+    val inMinimalAssignments =
+      (serviceObj.inputParams.toSeq.flatten.map(minimalFieldLine(_, "      ")) ++
+        serviceObj.in.toSeq.map(minimalFieldLine(_, "      "))).mkString("\n")
 
     val companion =
       s"""  object In:
@@ -140,17 +170,12 @@ case class BpmnClassesGenerator()(using
          |    given InOutCodec[In] = deriveInOutCodec
          |
          |    lazy val example = In(
-         |${inExampleArgs(serviceObj)}
-         |${printInOutExample(serviceObj.in)}
+         |$inExampleAssignments
          |    )
          |
-         |    lazy val exampleMinimal = ${
-          if serviceObj.in.nonEmpty || serviceObj.inputParams.exists(_.nonEmpty) then
-            s"""example.copy(
-               |${minimalParamsList(serviceObj)}
-               |    )""".stripMargin
-          else "example"
-        }
+         |    lazy val exampleMinimal = In(
+         |$inMinimalAssignments
+         |    )
          |  end In
          |""".stripMargin
 
@@ -171,7 +196,7 @@ case class BpmnClassesGenerator()(using
              |    given Encoder[$aliasName] = Encoder.encodeSeq[$elemClass]
              |    given Encoder[Option[$aliasName]] = Encoder.encodeOption[Seq[$elemClass]]
              |""".stripMargin
-        case None                         => ""
+        case None => ""
 
     val companion =
       s"""  object Out:
@@ -179,22 +204,26 @@ case class BpmnClassesGenerator()(using
          |    given InOutCodec[Out] = deriveInOutCodec
          |$encoderLines
          |    lazy val example = ${
-          serviceObj.out match
-            case Some(_) =>
-              s"""Out(
-                 |${printInOutExample(serviceObj.out)}
-                 |    )""".stripMargin
-            case None    => "NoOutput()"
-        }
+        serviceObj.out match
+          case Some(_) =>
+            s"""Out(
+               |${printInOutExample(serviceObj.out)}
+               |    )""".stripMargin
+          case None => "NoOutput()"
+      }
          |
          |    lazy val exampleMinimal = ${
-          serviceObj.out match
-            case Some(outF) =>
-              s"""Out(
-                 |${printMinimalFieldValue(outF, "      ")}
-                 |    )""".stripMargin
-            case None       => "NoOutput()"
-        }
+        serviceObj.out match
+          case Some(outF) if outF.isOptional =>
+            s"""Out(
+               |${printMinimalFieldValue(outF, "      ")}
+               |    )""".stripMargin
+          case Some(outF) =>
+            s"""Out(
+               |      ${outF.name} = ${minimalValueFor(outF)}
+               |    )"""
+          case None => "NoOutput()"
+      }
          |  end Out
          |""".stripMargin
 
