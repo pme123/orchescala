@@ -51,8 +51,7 @@ Additionally, for objects that have an In and an Out:
   In / Out / InitIn / InConfig / ServiceIn / ServiceOut / example / exampleMinimal
   always keep class and companion object together
 - Put all these at the end of the object
-- Add the same to the InitIn object for the InitIn class 
-- Do not touch the InConfig
+- Do not touch the InConfig and InitIn
 - If it is a case class only one lazy val
 - If it is an enum provide for all an example:
     e.g. object Standard:
@@ -67,6 +66,7 @@ Additionally, for objects that have an In and an Out:
     - rename them to example and exampleMinimal
 
 For all:
+- if there is already an object, like In or ServiceIn, use them.
 - remove the default values from the class / enum, exception: keep the discriminator of an enum
 - Note: The discriminator is the field that identifies which case of an enum it is (e.g., clientType in enum cases)
 - Example of keeping discriminator defaults:
@@ -92,3 +92,5 @@ Additionally, update all usages throughout the whole project (src and test) (not
 - Ensure all enum usages that previously relied on default discriminator values are updated if needed
 
 Run scalafmt for the project afterwards.
+
+Do this until everything is done and compiles. Go from class to class. start with the domain module. then adjust the other modules if needed.
