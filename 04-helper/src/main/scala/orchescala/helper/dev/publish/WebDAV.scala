@@ -12,9 +12,11 @@ import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 abstract class WebDAV:
   def publishConfig: PublishConfig
-  val publishBaseUrl = publishConfig.documentationUrl
+  def apiConfig: ApiConfig
+  val publishBaseUrl  = s"${publishConfig.documentationUrl}/${apiConfig.companyName}"
   val contentTypeHtml = "text/html"
   val contentTypeYaml = "text/yaml"
+  val contentTypeIcon = "image/x-icon"
 
   protected def startSession =
     val sardine = SardineFactory.begin
@@ -36,7 +38,29 @@ abstract class WebDAV:
   end startSession
 end WebDAV
 
-case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
+case class CatalogWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
+  def upload(): Unit =
+    println(s"Start: upload Home HTML to ${publishConfig.documentationUrl}")
+    publishConfig.homeHtmlPath
+      .map: homeHtmlPath =>
+        println(
+          s"Start $homeHtmlPath: upload Home HTML to ${publishConfig.documentationUrl}/index.html"
+        )
+        val sardine  = startSession
+        try {
+          sardine.delete(s"${publishConfig.documentationUrl}/favicon.ico")
+          sardine.delete(s"${publishConfig.documentationUrl}/index.html")
+          // create new
+          sardine.put(s"${publishConfig.documentationUrl}/favicon.ico", os.read.inputStream(os.resource / "favicon.ico"), contentTypeIcon)
+          sardine.put(s"${publishConfig.documentationUrl}/index.html", os.read.inputStream(homeHtmlPath), contentTypeHtml)
+        } finally sardine.shutdown()
+        end try
+      .getOrElse(println("No home page defined."))
+
+end CatalogWebDAV
+
+case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfig: PublishConfig)
+    extends WebDAV:
 
   val projectUrl = s"$publishBaseUrl/$projectName/"
 
@@ -102,14 +126,15 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
           println(s"Finished $projectName: upload Documentation")
         else
           println(s"No Diagrams in this project: $diagramDir")
+        end if
 
     finally sardine.shutdown()
     end try
   end upload
 
-  private lazy val openApiHtml =
+  private lazy val openApiHtml   =
     os.read.inputStream(publishConfig.openApiHtmlPath)
-  private lazy val openApiYml = os
+  private lazy val openApiYml    = os
     .read(apiConfig.openApiPath)
     .getBytes(StandardCharsets.UTF_8)
   private lazy val postmanApiYml =
@@ -125,7 +150,7 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
     with Helpers:
   def upload(releaseTag: String): Unit =
     val sardine = startSession
-    val docDir = apiConfig.basePath / "target" / "docs" / "site"
+    val docDir  = apiConfig.basePath / "target" / "docs" / "site"
     if docDir.toIO.exists() then
       try
         println(s"Delete $publishBaseUrl/$releaseTag/")
@@ -136,12 +161,12 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
           docFiles.foreach {
             case f if f.toIO.isDirectory && f.toIO.exists() =>
               println(s"Create Directory $url/${f.toIO.getName}")
-              //sardine.createDirectory(s"$url/${f.toIO.getName}")
+              // sardine.createDirectory(s"$url/${f.toIO.getName}")
               uploadFiles(s"$url/${f.toIO.getName}", os.list(f))
-            case f if f.toIO.exists() =>
+            case f if f.toIO.exists()                       =>
               println(s"Uploading $url/${f.toIO.getName}")
               sardine.put(s"$url/${f.toIO.getName}", os.read.inputStream(f))
-            case f =>
+            case f                                          =>
               println(s"Not supported file: $f")
           }
 
@@ -152,9 +177,9 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
               println(s"Create symbolic link $f")
               val symLink = docDir / f
               Files.createSymbolicLink(symLink.toNIO, (docDir / releaseTag / f).toNIO)
-            //  os.proc("ln", "-s", s"./$releaseTag/$f", docDir / f)
-            //    .callOnConsole()
-            //  sardine.put(s"$publishBaseUrl/${f.replace("dependencies", "dependencies/")}", os.read.inputStream(symLink))
+          //  os.proc("ln", "-s", s"./$releaseTag/$f", docDir / f)
+          //    .callOnConsole()
+          //  sardine.put(s"$publishBaseUrl/${f.replace("dependencies", "dependencies/")}", os.read.inputStream(symLink))
 
         addSymbolicLinks
         uploadFiles(publishBaseUrl, os.list(docDir))
@@ -173,6 +198,5 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
       )
     end if
   end upload
-
 
 end DocsWebDAV
