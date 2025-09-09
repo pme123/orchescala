@@ -61,9 +61,11 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   protected def isErrorHandled(error: WorkerError, handledErrors: Seq[String]): Boolean =
     error.isMock || // if it is mocked, it is handled in the error, as it also could be a successful output
-      handledErrors.contains(error.errorCode.toString) || handledErrors.map(
-      _.toLowerCase
-    ).contains("catchall")
+      handledErrors.contains(error.errorCode.toString) || // if the error code is in the handled errors
+      handledErrors.contains(error.causeError.map(_.errorCode.toString).getOrElse("NOT-HANDLED")) || // if the cause error code is in the handled errors
+      handledErrors.map(  // if there is a catchall
+        _.toLowerCase
+      ).contains("catchall")
 
   case class BusinessKey(businessKey: Option[String])
 
