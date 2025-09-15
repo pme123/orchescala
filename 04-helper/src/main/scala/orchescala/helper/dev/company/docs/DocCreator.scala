@@ -1,7 +1,7 @@
 package orchescala.helper.dev.company.docs
 
 import orchescala.api.{ApiProjectConfig, DocProjectConfig, ProjectConfig, catalogFileName}
-import orchescala.helper.dev.publish.DocsWebDAV
+import orchescala.helper.dev.publish.{CatalogWebDAV, DocsWebDAV}
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
 
@@ -47,6 +47,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     publishConfig
       .map: config =>
         DocsWebDAV(apiConfig, config).upload(releaseConfig.releaseTag)
+        CatalogWebDAV(apiConfig, config).upload()
       .getOrElse(println("No Publish Config found"))
   end publishDocs
 
@@ -103,6 +104,8 @@ trait DocCreator extends DependencyCreator, Helpers:
 
   private def createReleasePage(): Unit =
     given configs: Seq[DocProjectConfig] = setupConfigs()
+    val bpmnConfigs = configs.filter(!_.isWorker)
+    val workerConfigs = configs.filter(_.isWorker)
     given ReleaseConfig                  = releaseConfig
     DependencyValidator().validateDependencies
     val indexGraph                       = DependencyGraphCreator().createIndex
@@ -128,15 +131,11 @@ trait DocCreator extends DependencyCreator, Helpers:
          |
          |## Camunda Dependencies
          |
-         |${dependencyTable(configs, isWorker = false)}
-         |
-         |$tableFooter
+         |${if bpmnConfigs.size > 1 then dependencyTable(bpmnConfigs) + s"\n\n$tableFooter" else "No Dependencies"}
          |
          |## Worker Dependencies
          |
-         |${dependencyTable(configs, isWorker = true)}
-         |
-         |$tableFooter
+         |${if workerConfigs.size > 1 then dependencyTable(workerConfigs) + s"\n\n$tableFooter" else "No Dependencies"}
          |
          |$releaseNotes
          """.stripMargin
@@ -192,21 +191,33 @@ trait DocCreator extends DependencyCreator, Helpers:
       .toMap
 
   private def fetchConf(
-      project: String,
-      version: String,
-      versionPrevious: String,
-      isWorker: Boolean
-  ) =
+                         project: String,
+                         version: String,
+                         versionPrevious: String,
+                         isWorker: Boolean
+                       ) =
     for
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
-      _           = println(s"Project Git Path $projectPath / $gitBasePath")
-      _           = if !os.exists(projectPath) then
-                      apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
-      _           = os.proc("git", "fetch", "--tags").callOnConsole(projectPath)
-      _           = os
-                      .proc("git", "checkout", s"tags/v$version")
-                      .callOnConsole(projectPath)
+      _ = println(s"Project Git Path $projectPath / $gitBasePath")
+      _ =
+        if !os.exists(projectPath) then
+          apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
+
+      // ensure all tags are present locally
+      _ = os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
+
+      // resolve correct tag name (handles 'v' and non-'v')
+      tagRef = resolveTagRef(projectPath, version)
+      _ = println(s"Checkout $project to 'tags/$tagRef'")
+
+      // try checkout; if local changes block it, force the checkout
+      _ = try
+        os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
+      catch
+        case _: Throwable =>
+          println("Checkout failed, retrying with '-f' due to local changes")
+          os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
     yield DocProjectConfig(
       apiProjectConfig(projectPath / apiConfig.projectsConfig.projectConfPath),
       os.read.lines(projectPath / "CHANGELOG.md"),
@@ -214,11 +225,33 @@ trait DocCreator extends DependencyCreator, Helpers:
       isWorker
     )
 
-  private def dependencyTable(configs: Seq[DocProjectConfig], isWorker: Boolean) =
-    val selectedConfigs = configs
-      .filter(_.isWorker == isWorker)
+  // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
+  private def resolveTagRef(projectPath: os.Path, version: String): String =
+    val candidates = Seq(s"v$version", version)
+
+    // check local tags first
+    val localTags =
+      os.proc("git", "tag", "-l")
+        .call(cwd = projectPath, stdout = os.Pipe)
+        .out.text().linesIterator.map(_.trim).toSet
+
+    candidates.find(localTags.contains).getOrElse {
+      // fetch all tags and re-check against remote
+      os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
+
+      val remoteTags =
+        os.proc("git", "ls-remote", "--tags", "origin")
+          .call(cwd = projectPath, stdout = os.Pipe)
+          .out.text()
+
+      candidates.find(c => remoteTags.contains(s"refs/tags/$c"))
+        .getOrElse(throw new Exception(s"Tag not found: ${candidates.mkString(" or ")}"))
+    }
+
+  private def dependencyTable(configs: Seq[DocProjectConfig]) =
+
     val filteredConfigs =
-      selectedConfigs
+      configs
         .filter(c =>
           configs.exists(c2 =>
             c.projectName != c2.projectName && c2.dependencies.exists(d =>
@@ -235,7 +268,7 @@ trait DocCreator extends DependencyCreator, Helpers:
       "\n||----| :----:  | :----:  " + filteredConfigs
         .map(_ => s":----:")
         .mkString("| ", " | ", " |\n") +
-      selectedConfigs
+      configs
         .sortBy(_.projectName)
         .map { c =>
           val (name, version, versionPrevious) =

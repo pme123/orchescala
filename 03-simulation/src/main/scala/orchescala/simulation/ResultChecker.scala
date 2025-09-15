@@ -215,7 +215,7 @@ object ResultChecker:
               )
             else
               expJsonArray.foldLeft(scenarioData): (sd, expJson) =>
-                resJsonArray.find(_ == expJson) match
+                resJsonArray.find(_.deepDropNullValues == expJson.deepDropNullValues) match
                   case Some(_) => sd
                   case None    =>
                     sd.error(

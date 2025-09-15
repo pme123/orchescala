@@ -479,7 +479,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
         |<!DOCTYPE html>
         |<html>
         |<head>
-        |    <title>${companyNameNice} Documentation Home</title>
+        |    <title>$companyNameNice Documentation Home</title>
         |
         |    <!-- needed for adaptive design -->
         |    <meta charset="utf-8"/>
@@ -559,7 +559,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
         |        <a href="../index.html">
         |            <svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" width="24px" height="24px"
         |                 viewBox="0 0 391.08 391.08">
-        |                <title>${companyNameNice} Documentation Home</title>
+        |                <title>$companyNameNice Documentation Home</title>
         |                <defs>
         |                    <style>.cls-1 {
         |                        fill: #007c99;

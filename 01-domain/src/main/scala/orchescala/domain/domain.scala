@@ -156,16 +156,19 @@ case class NoInput()
 object NoInput:
   given ApiSchema[NoInput]  = deriveApiSchema
   given InOutCodec[NoInput] = deriveCodec
+  lazy val example: NoInput = NoInput()
 
 case class NoConfig()
 object NoConfig:
   given ApiSchema[NoConfig]  = deriveApiSchema
   given InOutCodec[NoConfig] = deriveCodec
+  lazy val example: NoConfig = NoConfig()
 
 case class NoOutput()
 object NoOutput:
   given ApiSchema[NoOutput]  = deriveApiSchema
   given InOutCodec[NoOutput] = deriveCodec
+  lazy val example: NoOutput = NoOutput()
 
 enum ProcessStatus:
   case succeeded, notSucceeded, `output-mocked`, failed, notValid, canceled

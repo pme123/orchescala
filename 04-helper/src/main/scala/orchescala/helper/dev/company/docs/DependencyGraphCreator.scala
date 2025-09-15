@@ -12,7 +12,7 @@ case class DependencyGraphCreator()(using
     create(
       configs,
       pack =>
-        s"""|   click ${pack.name} href "../${pack.name}/OpenApi.html" "${pack.name} API Documentation""""
+        s"""|   click ${pack.name} href "./${pack.name}/OpenApi.html" "${pack.name} API Documentation""""
     )
 
   def createDependencies(using configs: Seq[DocProjectConfig]): String =
@@ -131,7 +131,7 @@ case class DependencyGraphCreator()(using
        |# $packageName
        |${releaseConfig.releasedLabel}
        |
-       |_**[API Documentation](../../$packageName/OpenApi.html)**_
+       |_**[API Documentation](./../$packageName/OpenApi.html)**_
        |
        |${trees
         .sortBy(_._1.versionNumber)

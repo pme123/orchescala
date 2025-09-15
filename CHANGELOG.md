@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.15 - 2025-09-11
+### Changed 
+- Support handledErrors in causeError in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/3f0403ac24ea4157acdbd0b8adf36c06c230f636)
+- Added configurable doRetryList to EngineContext. - see [Commit](git@github.com:pme123/orchescala/commit/0cfd1ee2760d9daa10fb06357d7ace6d811cb680)
+- Fix in checking if element is in array. - see [Commit](git@github.com:pme123/orchescala/commit/c57fe9aacc3c659b4edb98fbfe11ca0d3e15c140)
+- Adjusted redoDefaultValuesToExamples.txt - see [Commit](git@github.com:pme123/orchescala/commit/ffaf2cdb6f31485205ac6f55818aefabe5140d87)
+- Working at multiple documentations for different companies. - see [Commit](git@github.com:pme123/orchescala/commit/15db8f8a126cb09c607b88df3e45195146bbf4b5)
+- Added 'Connection could not be established with message' to retry errors in C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/6b43ac20402377e0e5a6e2f9df158669dc5575ec)
+- Added examples for NoInput / NoOutput - see [Commit](git@github.com:pme123/orchescala/commit/7f2d2c6c72baae79589068f6b837f2b522a222aa)
+- Renamed to SInOutServiceStep (bad name before) - see [Commit](git@github.com:pme123/orchescala/commit/ebc694a428596700623d1183f59901fe025c9bed)
+
 ## 0.2.14 - 2025-08-21
 ### Changed 
 - MAP-10799: Fixed missed retry because error message was in the cause. - see [Commit](git@github.com:pme123/orchescala/commit/caff99152fe889b2c3db6ae1ebe603ff68290263)

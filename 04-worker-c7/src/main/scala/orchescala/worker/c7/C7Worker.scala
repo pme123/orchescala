@@ -187,7 +187,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val taskId            = summon[camunda.ExternalTask].getId
       val processInstanceId = summon[camunda.ExternalTask].getProcessInstanceId
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
-      val retries           = C7Worker.calcRetries(error)
+      val retries           = C7Worker.calcRetries(error, c7Context.workerConfig.doRetryList)
 
       if retries == 0 then logger.error(error)
       logError(
@@ -230,16 +230,9 @@ end C7Worker
 object C7Worker:
   
   private[worker] def calcRetries(
-                                   error: WorkerError
+                                   error: WorkerError,
+                                   doRetryMsgs: Seq[String]
                                  ): HelperContext[Int] =
-    val doRetryMsgs = Seq(
-      "Entity was updated by another transaction concurrently",
-      "An exception occurred in the persistence layer",
-      "Exception when sending request: GET", // sttp.client3.SttpClientException$ReadException
-      "Exception when sending request: PUT" // only GET and PUT to be safe a POST is not executed again
-      //  "Service Unavailable",
-      //  "Gateway Timeout"
-    ).map(_.toLowerCase)
     val doRetry = doRetryMsgs.exists(error.toString.toLowerCase.contains)
 
     summon[camunda.ExternalTask].getRetries match
