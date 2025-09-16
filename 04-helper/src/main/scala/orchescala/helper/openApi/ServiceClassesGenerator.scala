@@ -1,8 +1,8 @@
 package orchescala.helper.openApi
 
 case class ServiceClassesGenerator()(using
-                                     val apiDefinition: ApiDefinition,
-                                     val config: OpenApiConfig
+    val apiDefinition: ApiDefinition,
+    val config: OpenApiConfig
 ) extends GeneratorHelper:
 
   lazy val generate: Unit =
@@ -16,41 +16,41 @@ case class ServiceClassesGenerator()(using
   end generate
 
   private def generateSchema(
-                              classOrEnum: IsFieldType
-                            ): (String, String) =
+      classOrEnum: IsFieldType
+  ): (String, String) =
     classOrEnum.className ->
       s"""package ${bpmnPackageSplitted._1}
          |package ${bpmnPackageSplitted._2}.schema
          |
          |${printDescr(classOrEnum)}
          |${
-        classOrEnum match
-          case e: BpmnEnum  =>
-            val params = e.cases.collect { case c: BpmnClass => c.fields }.flatten
-            generateEnum(e) +
-              generateObject(classOrEnum.className, Some(params), intent = "") +
-              generateEnumExample(e, intent = "  ")
-          case c: BpmnClass =>
-            generateCaseClass(c) +
-              generateObject(classOrEnum.className, Some(c.fields)) +
-              generateCaseClassExample(c, intent = "  ")
-          case a: BpmnArray =>
-            s"type ${a.className} = Seq[${a.arrayClassName}]"
-      }
+          classOrEnum match
+            case e: BpmnEnum  =>
+              val params = e.cases.collect { case c: BpmnClass => c.fields }.flatten
+              generateEnum(e) +
+                generateObject(classOrEnum.className, Some(params), intent = "") +
+                generateEnumExample(e, intent = "  ")
+            case c: BpmnClass =>
+              generateCaseClass(c) +
+                generateObject(classOrEnum.className, Some(c.fields)) +
+                generateCaseClassExample(c, intent = "  ", None)
+            case a: BpmnArray =>
+              s"type ${a.className} = Seq[${a.arrayClassName}]"
+        }
          |""".stripMargin
 
   private def generateCaseClass(
-                                 bpmnClass: BpmnClass,
-                                 enumName: Option[String] = None,
-                                 intent: String = ""
-                               ) =
+      bpmnClass: BpmnClass,
+      enumName: Option[String] = None,
+      intent: String = ""
+  ) =
     val key = bpmnClass.className
     s"""${intent}case${enumName.map(_ => "").getOrElse(" class")} $key(
        |${
-      bpmnClass.fields
-        .map(printField(_, enumName.getOrElse(bpmnClass.className), s"  $intent"))
-        .mkString
-    }
+        bpmnClass.fields
+          .map(printField(_, enumName.getOrElse(bpmnClass.className), s"  $intent"))
+          .mkString
+      }
        |$intent)
        |""".stripMargin
   end generateCaseClass
@@ -60,38 +60,37 @@ case class ServiceClassesGenerator()(using
     s"""$intent${printDescr(bpmnEnum)}
        |${intent}enum $key:
        |${
-      bpmnEnum.cases
-        .map:
-          case e: BpmnEnum   => generateEnum(e, s"  $intent")
-          case c: BpmnClass  => generateCaseClass(c, Some(key), s"  $intent")
-          case ec: EnumCase  =>
-            s"""$intent  ${printDescr(ec)}
-               |$intent  case ${ec.className}""".stripMargin
-        .mkString
-    }
+        bpmnEnum.cases
+          .map:
+            case e: BpmnEnum  => generateEnum(e, s"  $intent")
+            case c: BpmnClass => generateCaseClass(c, Some(key), s"  $intent")
+            case ec: EnumCase =>
+              s"""$intent  ${printDescr(ec)}
+                 |$intent  case ${ec.className}""".stripMargin
+          .mkString
+      }
        |${intent}end $key
        |""".stripMargin
   end generateEnum
 
   private def generateEnumExample(
-                                   bpmnEnum: BpmnEnum,
-                                   exampleName: String = "example",
-                                   intent: String = "    "
-                                 ): String =
+      bpmnEnum: BpmnEnum,
+      exampleName: String = "example",
+      intent: String = "    "
+  ): String =
     s"""
        |${intent}object $exampleName:
        |${
-      bpmnEnum.cases
-        .map:
-          case e: BpmnEnum   => generateEnumExample(e, e.name, s"  $intent")
-          case c: BpmnClass  => generateCaseClassExample(c, s"  $intent", bpmnEnum.className)
-          case ec: EnumCase  =>
-            s"""$intent  lazy val ${ec.name} = ${bpmnEnum.name}.${ec.name}"""
-        .mkString("\n")
-    }
+        bpmnEnum.cases
+          .map:
+            case e: BpmnEnum      => generateEnumExample(e, e.name, s"  $intent")
+            case c: BpmnClass     => generateCaseClassExample(c, s"  $intent", Some(bpmnEnum.name))
+            case ec: BpmnEnumCase =>
+              s"""$intent  lazy val ${ec.name} = ${bpmnEnum.name}.${ec.name}"""
+          .mkString("\n")
+      }
        |${intent}end $exampleName
        |""".stripMargin
-
 
   private def primitiveMinimalValue(scalaTpe: String): Option[String] =
     scalaTpe match
@@ -110,7 +109,7 @@ case class ServiceClassesGenerator()(using
     field.wrapperType match
       case Some(WrapperType.Seq) => "Seq.empty"
       case Some(WrapperType.Set) => "Set.empty"
-      case _ =>
+      case _                     =>
         // type by name among service classes
         apiDefinition.serviceClasses.find(_.name == field.tpeName) match
           case Some(_: BpmnClass) =>
@@ -120,7 +119,7 @@ case class ServiceClassesGenerator()(using
           case Some(_: BpmnEnum)  =>
             // Use default enum (your printFieldValue already picks the first/default)
             printFieldValue(field)
-          case None =>
+          case None               =>
             primitiveMinimalValue(field.tpeName).getOrElse {
               // Fallback: normal example value
               printFieldValue(field)
@@ -130,30 +129,34 @@ case class ServiceClassesGenerator()(using
     // Reuse your existing helper for Options/collections:
     val optOrCollectionLine = printMinimalFieldValue(field, intent)
     if optOrCollectionLine.nonEmpty then optOrCollectionLine
-    else s"$intent${field.name} = ${minimalValueFor(field)},"
+    else s"$intent${fieldName(field.name)} = ${minimalValueFor(field)},"
+  end minimalFieldLine
 
   private def generateCaseClassExample(
-                                        bpmnClass: BpmnClass,
-                                        intent: String,
-                                        exampleName: String = "example"
-                                      ) =
+      bpmnClass: BpmnClass,
+      intent: String,
+      enumName: Option[String]
+  ) =
+    val enumIntent = if enumName.isEmpty then "" else "  "
+
     val exampleAssignments =
       bpmnClass.fields
-        .map(f => s"$intent  ${f.name} = ${printFieldValue(f)},")
+        .map(f => s"${intent + enumIntent}  ${fieldName(f.name)} = ${printFieldValue(f)},")
         .mkString("\n")
 
     val minimalAssignments =
       bpmnClass.fields
-        .map(f => minimalFieldLine(f, intent + "  "))
+        .map(f => minimalFieldLine(f, intent + enumIntent + "  "))
         .mkString("\n")
 
-    s"""${intent}lazy val $exampleName = ${bpmnClass.className}(
+    s"""${enumName.map(_ => s"${intent}object ${bpmnClass.className}:").getOrElse("")}
+       |${intent + enumIntent}lazy val example = ${enumName.map(n => s"$n.").getOrElse("")}${bpmnClass.className}(
        |$exampleAssignments
-       |$intent)
+       |${intent + enumIntent})
        |
-       |${intent}lazy val ${exampleName}Minimal = ${bpmnClass.className}(
+       |${intent + enumIntent}lazy val exampleMinimal = ${enumName.map(n => s"$n.").getOrElse("")}${bpmnClass.className}(
        |$minimalAssignments
-       |$intent)
+       |${intent + enumIntent})
        |""".stripMargin
   end generateCaseClassExample
 end ServiceClassesGenerator
