@@ -75,14 +75,14 @@ trait GeneratorHelper:
         val descrWithFormat = descr + format
         if descrWithFormat.contains("\n")
         then
-          s"\"\"\"${descrWithFormat.replace("\n", s"\n    $intent||")}\"\"\".stripMargin"
+          s"\"\"\"${descrWithFormat.replace("\n", s"\n    $intent||||")}\"\"\".stripMargin"
         else
           s""""$descrWithFormat""""
         end if
 
   end printDescrTextOpt
 
-  private def fieldName(key: String) =
+  protected def fieldName(key: String) =
     if key.matches("[$_a-zA-Z][a-zA-Z0-9_$]*") && !reservedWords.contains(key)
     then key
     else s"`$key`"
@@ -121,10 +121,10 @@ trait GeneratorHelper:
                   _.name == tpeName
                 .map:
                   case e: BpmnEnum  =>
-                    s"$tpeName.${e.cases.head.name}()"
+                    s"$tpeName.${e.cases.head.name}.example"
                   case _: BpmnClass =>
-                    s"$tpeName()"
-                  case a: BpmnArray => s"Seq(${a.arrayClassName}())"
+                    s"$tpeName.example"
+                  case a: BpmnArray => s"Seq(${a.arrayClassName}.example)"
 
     val exampleValue: Option[String] =
       config.implMapping.get(field.tpeName)
@@ -149,9 +149,9 @@ trait GeneratorHelper:
 
   protected def printMinimalFieldValue(field: ConstrField, intent: String = "    "): String =
     field match
-      case in if in.isOptional                            => s"$intent${field.name} = None,"
-      case in if in.wrapperType.contains(WrapperType.Seq) => s"$intent${field.name} = Seq.empty,"
-      case in if in.wrapperType.contains(WrapperType.Set) => s"$intent${field.name} = Set.empty,"
+      case in if in.isOptional                            => s"$intent${fieldName(field.name)} = None,"
+      case in if in.wrapperType.contains(WrapperType.Seq) => s"$intent${fieldName(field.name)} = Seq.empty,"
+      case in if in.wrapperType.contains(WrapperType.Set) => s"$intent${fieldName(field.name)} = Set.empty,"
       case in                                             => ""
 
   private lazy val reservedWords = Seq(

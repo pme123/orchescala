@@ -71,7 +71,7 @@ case class BpmnArray(
                       name: String,
                       descr: Option[String],
                       arrayType: String
-                    ) extends BpmnClassOrEnum, IsFieldType, EnumCase:
+                    ) extends BpmnClassOrEnum, IsFieldType:
   lazy val arrayClassName = arrayType.head.toUpper + arrayType.tail
 
 case class BpmnServiceObject(
@@ -84,7 +84,7 @@ case class BpmnServiceObject(
     in: Option[ConstrField],
     out: Option[ConstrField],
     inputParams: Option[Seq[ConstrField]]
-) extends BpmnClassOrEnum, EnumCase:
+) extends BpmnClassOrEnum:
 
   lazy val mockStatus: String = respStatus.getOrElse("204")
 end BpmnServiceObject
