@@ -1,17 +1,20 @@
 name: Release
 on:
   push:
-    tags: ["*"]
+    branches: [master]
+    tags: ["**"]
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Coursier Cache
         uses: coursier/cache-action@v6
       - name: Setup JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
