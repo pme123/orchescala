@@ -46,10 +46,7 @@ object Settings {
   
   lazy val githubUrl = "https://github.com/pme123/orchescala"
   lazy val publicationSettings = Seq(
-    // publishMavenStyle := true,
     organization := "io.github.pme123",
- //   publishTo := None,
- //   pomIncludeRepository := { _ => false },
     licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
     homepage := Some(url(githubUrl)),
     startYear := Some(2021),
@@ -71,12 +68,11 @@ object Settings {
     )
   )
   lazy val preventPublication = Seq(
-      publish := {},
-      publishTo := None,
-      publishArtifact := false,
-      publishLocal := {},
-      packagedArtifacts := Map.empty
-    ) // doesn't work - https://github.com/sbt/sbt-pgp/issues/42
+    publish / skip := true,
+    publish := {},
+    publishArtifact := false,
+    publishLocal := {}
+  )
 
   lazy val autoImportSetting =
     scalacOptions +=

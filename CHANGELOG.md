@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## 0.2.19 - 2025-09-17
+## 0.2.20 - 2025-09-17
 ### Changed 
 - Updated versions. - see [Commit](git@github.com:pme123/orchescala/commit/d2ed13629bccb25c3bf5e47a8f8b0ef394670015)
 - Fixed incident handling for error messages in root cause. - see [Commit](git@github.com:pme123/orchescala/commit/36089bae718e0caadd6c8fb9d999be438a6c3adb)
