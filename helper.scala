@@ -23,7 +23,7 @@ def release(version: String): Unit =
   runInConsole("sbt", "-J-Xmx3G", "docs/mdoc", "docs/laikaSite")
 
   if !isSnapshot then
-    runInConsole("sbt", "-J-Xmx3G", "publishSigned")
+ //   runInConsole("sbt", "-J-Xmx3G", "publishSigned")
     runInConsole("git", "fetch", "--all")
     runInConsole("git", "commit", "-a", "-m", s"Released Version $version")
     runInConsole("git", "tag", "-a", s"v$version", "-m", s"Version $version")

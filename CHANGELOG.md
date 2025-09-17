@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.16 - 2025-09-17
+### Changed 
+- Updated versions. - see [Commit](git@github.com:pme123/orchescala/commit/d2ed13629bccb25c3bf5e47a8f8b0ef394670015)
+- Fixed incident handling for error messages in root cause. - see [Commit](git@github.com:pme123/orchescala/commit/36089bae718e0caadd6c8fb9d999be438a6c3adb)
+- Merge pull request #2 from pme123/feature/AdjustDomainClassGeneration - see [Commit](git@github.com:pme123/orchescala/commit/0829d57c85462a57ab84051c07ab8585e292d7a7)
+- Some adjustments for OpenAPI generation. - see [Commit](git@github.com:pme123/orchescala/commit/4be950236d2db96dc40ce0a2d82ced03d41eee49)
+- Merge branch 'develop' into feature/AdjustDomainClassGeneration - see [Commit](git@github.com:pme123/orchescala/commit/29093fb290de809bb868ac16dd94e067931bca62)
+
 ## 0.2.15 - 2025-09-11
 ### Changed 
 - Support handledErrors in causeError in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/3f0403ac24ea4157acdbd0b8adf36c06c230f636)

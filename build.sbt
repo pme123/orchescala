@@ -9,7 +9,7 @@ ThisBuild / evictionErrorLevel     := Level.Warn
 
 lazy val root = project
   .in(file("."))
-  .configure(preventPublication)
+  .settings(preventPublication)
   .settings(
     name          := "orchescala",
     organization  := org,
@@ -33,7 +33,7 @@ lazy val root = project
 // general independent
 lazy val docs =
   (project in file("./00-docs"))
-    .configure(preventPublication)
+    .settings(preventPublication)
     .settings(
       projectSettings("docs"),
       autoImportSetting,
@@ -46,7 +46,7 @@ lazy val docs =
 // layer 01
 lazy val domain = project
   .in(file("./01-domain"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("domain"))
   .settings(unitTestSettings)
   .settings(
@@ -75,7 +75,7 @@ lazy val domain = project
 // layer 02
 lazy val engine = project
   .in(file("./02-engine"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("engine"))
   .settings(unitTestSettings)
   .settings(
@@ -90,7 +90,7 @@ lazy val engine = project
 // layer 03
 lazy val api = project
   .in(file("./03-api"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("api"))
   .settings(unitTestSettings)
   .settings(
@@ -107,7 +107,7 @@ lazy val api = project
 
 lazy val dmn = project
   .in(file("./03-dmn"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("dmn"))
   .settings(unitTestSettings)
   .settings(
@@ -118,7 +118,7 @@ lazy val dmn = project
 
 lazy val simulation = project
   .in(file("./03-simulation"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("simulation"))
   .settings(
     autoImportSetting,
@@ -130,7 +130,7 @@ lazy val simulation = project
 
 lazy val worker = project
   .in(file("./03-worker"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(
     projectSettings("worker"),
     unitTestSettings,
@@ -145,7 +145,7 @@ lazy val worker = project
 // layer 04
 lazy val helper = project
   .in(file("./04-helper"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("helper"))
   .settings(unitTestSettings)
   .settings(
@@ -155,7 +155,7 @@ lazy val helper = project
 
 lazy val engineC7 = project
   .in(file("./04-engine-c7"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("engine-c7"))
   .settings(
     autoImportSetting,
@@ -166,7 +166,7 @@ lazy val engineC7 = project
 
 lazy val engineC8 = project
   .in(file("./04-engine-c8"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("engine-c8"))
   .settings(
     autoImportSetting,
@@ -177,7 +177,7 @@ lazy val engineC8 = project
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("worker-c7"))
   .settings(unitTestSettings)
   .settings(
@@ -188,7 +188,7 @@ lazy val workerC7 = project
   .dependsOn(worker)
 lazy val workerC8 = project
   .in(file("./04-worker-c8"))
-  .configure(publicationSettings)
+  .settings(publicationSettings)
   .settings(projectSettings("worker-c8"))
   .settings(unitTestSettings)
   .settings(

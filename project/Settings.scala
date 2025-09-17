@@ -45,8 +45,10 @@ object Settings {
   )
   
   lazy val githubUrl = "https://github.com/pme123/orchescala"
-  lazy val publicationSettings: Project => Project = _.settings(
+  lazy val publicationSettings = Seq(
     // publishMavenStyle := true,
+    organization := "io.github.pme123",
+    publishTo := None,
     pomIncludeRepository := { _ => false },
     licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
     homepage := Some(url(githubUrl)),
@@ -68,13 +70,9 @@ object Settings {
       url = url("https://github.com/pme123")
     )
   )
-  lazy val preventPublication: Project => Project =
-    _.settings(
+  lazy val preventPublication = Seq(
       publish := {},
-      publishTo := Some(
-        Resolver
-          .file("Unused transient repository", target.value / "fakepublish")
-      ),
+      publishTo := None,
       publishArtifact := false,
       publishLocal := {},
       packagedArtifacts := Map.empty
