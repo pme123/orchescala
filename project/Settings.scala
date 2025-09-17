@@ -48,8 +48,8 @@ object Settings {
   lazy val publicationSettings = Seq(
     // publishMavenStyle := true,
     organization := "io.github.pme123",
-    publishTo := None,
-    pomIncludeRepository := { _ => false },
+ //   publishTo := None,
+ //   pomIncludeRepository := { _ => false },
     licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
     homepage := Some(url(githubUrl)),
     startYear := Some(2021),
