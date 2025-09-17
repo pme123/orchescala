@@ -9,9 +9,9 @@ object Dependencies {
   // 04-helper
   val osLibVersion          = "0.11.4"
   // 01-domain
-  val openapiCirceVersion   = "0.11.8"
-  val tapirVersion          = "1.11.23"
-  val ironCirceVersion      = "2.6.0"
+  val openapiCirceVersion   = "0.11.10"
+  val tapirVersion          = "1.11.44"
+  val ironCirceVersion      = "3.2.0"
   val mUnitVersion          = "1.1.0"
   val scala3MockVersion     = "0.6.6"
   // 02-bpmn
@@ -19,12 +19,12 @@ object Dependencies {
   // - osLib
   // 03-api
   // -> bpmn
-  val typesafeConfigVersion = "1.4.3"
-  val scalaXmlVersion       = "2.3.0"
+  val typesafeConfigVersion = "1.4.5"
+  val scalaXmlVersion       = "2.4.0"
   // - mUnitVersion
   // 03-dmn
   // -> bpmn
-  val sttpClient3Version    = "3.10.3"
+  val sttpClient3Version    = "3.11.0"
   val dmnTesterVersion      = "0.17.9"
   // - mUnitVersion
   // 03-simulation
@@ -34,7 +34,7 @@ object Dependencies {
   // 03-worker
   // -> bpmn
   // -mUnitVersion
-  val chimneyVersion        = "1.7.3"
+  val chimneyVersion        = "1.8.2"
   // --- Implementations
   // 04-helper
   val sardineWebDavVersion  = "5.13"
@@ -50,20 +50,20 @@ object Dependencies {
   // --- Experiments
   // 04-c7-spring
   // -> bpmn
-  val camundaSpinVersion    = "7.22.0"
+  val camundaSpinVersion    = "7.23.0"
   // camunda // server spring-boot
   // 04-c8-spring
   // -> bpmn
-  val scalaJacksonVersion   = "2.18.3"
-  val camunda8Version       = "8.8.0-alpha7-rc2"
+  val scalaJacksonVersion   = "2.20.0"
+  val camunda8Version       = "8.8.0-alpha8-rc3"
   val springBootVersion     = "3.3.9"
   val nettyVersion          = "4.2.0.Final"
-  val swaggerOpenAPIVersion = "2.1.26"
+  val swaggerOpenAPIVersion = "2.1.34"
   val testcontainersVersion = "1.20.4"
   // examples
   val h2Version             = "2.3.232"
   val twitter4jVersion      = "4.1.2"
-  val groovyVersion         = "3.0.24"
+  val groovyVersion         = "3.0.25"
 
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
   lazy val scaffeineDependency = // token caching

@@ -57,7 +57,7 @@ class C8UserTaskService(using
         ZIO
           .attempt:
             camundaClient
-              .newUserTaskCompleteCommand(taskId.toLong)
+              .newCompleteUserTaskCommand(taskId.toLong)
               .variables(mapToC8Variables(Some(out)))
               .send()
               .join()

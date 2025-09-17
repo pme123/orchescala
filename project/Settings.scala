@@ -15,7 +15,7 @@ object Settings {
 
   lazy val projectVersion =
     Using(scala.io.Source.fromFile("version"))(_.mkString.trim).get
-  val scalaV = "3.7.1"
+  val scalaV = "3.7.2"
   val org = "io.github.pme123"
 
   def projectSettings(projName: String) = Seq(
