@@ -81,8 +81,7 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
   )(
       handleBody: Seq[Incident] => ResultType
   ): ResultType =
-    val processInstanceId =
-      rootIncidentId.orElse(Some(summon[ScenarioData].context.processInstanceId))
+    val processInstanceId = if rootIncidentId.isEmpty then Some(summon[ScenarioData].context.processInstanceId) else None
     incidentService
       .getIncidents(
         processInstanceId = processInstanceId,
