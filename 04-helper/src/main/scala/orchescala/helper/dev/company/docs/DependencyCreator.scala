@@ -9,15 +9,16 @@ trait DependencyCreator:
   protected def releaseConfig: ReleaseConfig = readReleaseConfig
   given ApiConfig = apiConfig
   
-  case class Package(name: String, minorVersion: String):
+  case class Package(name: String, minorVersion: String, hasDependencies: Boolean):
     lazy val show = s"$name:$minorVersion"
     lazy val showRect = s"$name:$minorVersion($name:$minorVersion)"
     lazy val versionNumber: Int = minorVersion.replace(".", "").toInt
+    lazy val companyName: String = name.split("-").head
   end Package
 
   object Package:
     def apply(conf: DocProjectConfig): Package =
-      Package(conf.projectName, conf.minorVersion)
+      Package(conf.projectName, conf.minorVersion, conf.dependencies.nonEmpty)
 
   lazy val colors: Seq[(String, String)] = apiConfig.projectsConfig.colors
   lazy val colorMap: Map[String, String] = colors.toMap

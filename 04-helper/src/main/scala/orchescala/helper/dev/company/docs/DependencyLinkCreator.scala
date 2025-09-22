@@ -33,7 +33,7 @@ case class DependencyLinkCreator()(using
          |${packages
           .filter(p => apiConfig.projectsConfig.hasProjectGroup(p.name, projectGroup))
           .map { co =>
-            s"""- **${co.name}:** [API Doc](./${apiConfig.companyName}/${co.name}/OpenApi.html "${co.name} API Documentation") - [Dependencies](./${apiConfig.companyName}/${releaseConfig.releaseTag}/dependencies/${co.name}.html "${co.name} Dependencies")"""
+            s"""- **${co.name}:** [API Doc](${ if co.name.startsWith(apiConfig.companyName) then s".." else s"../../${co.companyName}"}/${co.name}/OpenApi.html "${co.name} API Documentation") ${if co.name.startsWith(apiConfig.companyName) && co.hasDependencies then s"- [Dependencies](../${releaseConfig.releaseTag}/dependencies/${co.name}.html \"${co.name} Dependencies\")" else ""}"""
           }
           .mkString("\n")}
          |""".stripMargin

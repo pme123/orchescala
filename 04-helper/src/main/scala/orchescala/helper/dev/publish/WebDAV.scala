@@ -170,18 +170,33 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
               println(s"Not supported file: $f")
           }
 
-        def addSymbolicLinks =
-          // create top level links for versioned root pages / directories
-          Seq("index.html", "release.html", "overviewDependencies.html")
+        def addBaseFiles =
+          // create top level files for versioned root pages / directories
+          Seq("index.html")//, "release.html", "overviewDependencies.html")
             .foreach: f =>
-              println(s"Create symbolic link $f")
-              val symLink = docDir / f
-              Files.createSymbolicLink(symLink.toNIO, (docDir / releaseTag / f).toNIO)
-          //  os.proc("ln", "-s", s"./$releaseTag/$f", docDir / f)
-          //    .callOnConsole()
-          //  sardine.put(s"$publishBaseUrl/${f.replace("dependencies", "dependencies/")}", os.read.inputStream(symLink))
+              println(s"Create copy of versioned: $f")
+              val content = 
+                os
+                  .read(docDir / releaseTag / f)
+                  .replace(
+                    """"../""",
+                    """"./""",
+                  )
+                  .replace(
+                    """"dependencies""",
+                    s""""$releaseTag/dependencies""",
+                  )
+                  .replace(
+                    """"release.html""",
+                    s""""$releaseTag/release.html""",
+                  )
+                  .replace(
+                    """"overviewDependencies.html""",
+                    s""""$releaseTag/overviewDependencies.html""",
+                  )
+              os.write.over((docDir / f), content)
 
-        addSymbolicLinks
+        addBaseFiles
         uploadFiles(publishBaseUrl, os.list(docDir))
         println(s"Finished upload Documentation")
 

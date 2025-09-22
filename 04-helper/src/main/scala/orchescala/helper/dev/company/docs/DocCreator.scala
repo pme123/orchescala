@@ -324,7 +324,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     val projectChangelogs = mergeConfigs
       .sortBy(_.projectName)
       .map(c => s"""
-                   |## [${c.projectName}](s"${apiConfig.docBaseUrl}/${c.projectName}/OpenApi.html")
+                   |## [${c.projectName}](${if c.companyName == apiConfig.companyName then s".." else s"../../${c.companyName}"}/${c.projectName}/OpenApi.html")
                    |${extractChangelog(c)}
                    |""".stripMargin)
       .mkString("\n")

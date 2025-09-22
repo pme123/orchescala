@@ -75,8 +75,7 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): SMessageEvent =
       SMessageEvent(event.name, event.inOut, Some(readyVariable), readyValue)
-    def start: SMessageEvent =
-      SMessageEvent(event.name, event.inOut).start
+
   end extension
 
   extension (event: SSignalEvent)

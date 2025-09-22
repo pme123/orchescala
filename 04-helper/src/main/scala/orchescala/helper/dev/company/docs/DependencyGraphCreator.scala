@@ -12,29 +12,32 @@ case class DependencyGraphCreator()(using
     create(
       configs,
       pack =>
-        s"""|   click ${pack.name} href "./${pack.name}/OpenApi.html" "${pack.name} API Documentation""""
+        s"""|   click ${pack.name} href "../../${pack.companyName}/${pack.name}/OpenApi.html" "${pack.name} API Documentation""""
     )
 
   def createDependencies(using configs: Seq[DocProjectConfig]): String =
     create(
       configs,
       pack =>
-        s"""|   click ${pack.name} href "./dependencies/${pack.name}.html" "${pack.name} Dependencies""""
+        if pack.name.startsWith(apiConfig.companyName) && pack.hasDependencies then
+          s"""|   click ${pack.name} href "./dependencies/${pack.name}.html" "${pack.name} Dependencies""""
+        else ""
     )
 
   def createProjectDependencies(using configs: Seq[DocProjectConfig]): Unit =
     val graphsForProjects = treeForEachProjects(configs)
-    graphsForProjects.foreach(g =>
-      write.over(
-        apiConfig.basePath / "src" / "docs" / "dependencies" / s"${g.name}.md",
-        g.graph
+    graphsForProjects
+      .foreach(g =>
+        write.over(
+          apiConfig.basePath / "src" / "docs" / "dependencies" / s"${g.name}.md",
+          g.graph
+        )
       )
-    )
   end createProjectDependencies
 
   private def create(
-                      versionedConfigs: Seq[DocProjectConfig],
-                      link: Package => String
+      versionedConfigs: Seq[DocProjectConfig],
+      link: Package => String
   ): String =
     val configs = versionedConfigs
       .groupBy(_.projectName)
@@ -57,9 +60,9 @@ case class DependencyGraphCreator()(using
        |flowchart TB
        |${configs
         .map { config =>
-          val color = colorMap.getOrElse(config.projectName, "#fff")
+          val color     = colorMap.getOrElse(config.projectName, "#fff")
           val depConfig = getUniqueDependencies(config, configs)
-          val tree =
+          val tree      =
             if depConfig.nonEmpty then
               s"${config.projectName} --> ${depConfig
                   .map(d => d.projectName)
@@ -67,7 +70,11 @@ case class DependencyGraphCreator()(using
             else config.projectName
           s"""
              |   $tree
-             |   ${link(Package(config.projectName, config.minorVersion))}
+             |   ${link(Package(
+              config.projectName,
+              config.minorVersion,
+              config.dependencies.nonEmpty
+            ))}
              |   style ${config.projectName} fill:$color
              |""".stripMargin
         }
@@ -84,7 +91,10 @@ case class DependencyGraphCreator()(using
   private def treeForEachProjects(
       configs: Seq[DocProjectConfig]
   ): Seq[ProjectTree] =
-    val groupedConfigs = configs.filter(!_.isWorker).groupBy(_.projectName)
+    val groupedConfigs = configs
+      .filterNot(_.isWorker)
+      .filterNot(_.dependencies.isEmpty)
+      .groupBy(_.projectName)
     groupedConfigs.map { case name -> gConfigs =>
       val trees = toPackageTree(gConfigs, configs)
       ProjectTree(name, treeForEachProject(trees))
@@ -103,20 +113,21 @@ case class DependencyGraphCreator()(using
   case class ProjectTree(name: String, graph: String)
 
   private def toPackageTree(
-                             configs: Seq[DocProjectConfig],
-                             allConfigs: Seq[DocProjectConfig]
+      configs: Seq[DocProjectConfig],
+      allConfigs: Seq[DocProjectConfig]
   ): Seq[PackageTree] =
     configs.map { c =>
-      val mainPackage = Package(c.projectName, c.minorVersion)
+      val mainPackage  = Package(c.projectName, c.minorVersion, c.dependencies.nonEmpty)
       val fromPackages = allConfigs
         .filter { aC =>
           aC.dependencies.exists(aD =>
             aD.projectName == mainPackage.name && aD.minorVersion == mainPackage.minorVersion
           )
         }
-        .map { aC => Package(aC.projectName, aC.minorVersion) }
-      val toPackages = c.dependencies.map { cd =>
-        Package(cd.projectName, cd.minorVersion)
+        .map { aC => Package(aC.projectName, aC.minorVersion, aC.dependencies.nonEmpty) }
+        .distinct
+      val toPackages   = c.dependencies.map { cd =>
+        Package(cd.projectName, cd.minorVersion, hasDependencies = false)
       }.toSeq
       println(s"mainPackage: $mainPackage")
       println(s"fromPackages: $fromPackages")
@@ -126,12 +137,12 @@ case class DependencyGraphCreator()(using
 
   private def treeForEachProject(packageTrees: Seq[PackageTree]) =
     val packageName = packageTrees.head.mainPackage.name
-    val trees = packageTrees.map(treeForEachVersion)
+    val trees       = packageTrees.map(treeForEachVersion)
     s"""
        |# $packageName
        |${releaseConfig.releasedLabel}
        |
-       |_**[API Documentation](./../$packageName/OpenApi.html)**_
+       |_**[API Documentation](../../$packageName/OpenApi.html)**_
        |
        |${trees
         .sortBy(_._1.versionNumber)
@@ -188,8 +199,10 @@ case class DependencyGraphCreator()(using
          |
          |${packageTree.allTrees.map { pT =>
           val color = colorMap.getOrElse(pT.name, "#fff")
-          s"""
-             |    click ${pT.show} href "./${pT.name}.html#${pT.show}" "${pT.name} Dependencies"
+          val click = if pT.name.startsWith(apiConfig.companyName) && pT.hasDependencies then
+            s"""click ${pT.show} href "../../${pT.name}/OpenApi.html" "${pT.name} API Documentation"""".stripMargin
+          else ""
+          s"""    $click
              |    style ${pT.show} fill:$color
              |""".stripMargin
         }.mkString}
@@ -198,10 +211,10 @@ case class DependencyGraphCreator()(using
   end treeForEachVersion
 
   private def getUniqueDependencies(
-                                     toCheckConfig: DocProjectConfig,
-                                     configs: Seq[DocProjectConfig]
+      toCheckConfig: DocProjectConfig,
+      configs: Seq[DocProjectConfig]
   ) =
-    val configsToCheck = configs.filter { c =>
+    val configsToCheck  = configs.filter { c =>
       toCheckConfig.dependencies.exists(_.projectName == c.projectName)
 
     }

@@ -106,7 +106,11 @@ case class CompanySbtGenerator()(using
        |    laikaExtensions := Seq(GitHubFlavor, SyntaxHighlighting),
        |    laikaTheme := Helium.defaults.site
        |      .topNavigationBar(
-       |        homeLink = IconLink.internal(Root / "index.md", HeliumIcon.home)
+       |        homeLink = IconLink.internal(Root / "index.md", HeliumIcon.home),
+       |        navLinks = Seq(
+       |          TextLink.external("../../index.html", "Catalogs"),
+       |          TextLink.external("https://pme123.github.io/orchescala", "Orchescala")
+       |        )
        |      )
        |      .site
        |      .favIcons(

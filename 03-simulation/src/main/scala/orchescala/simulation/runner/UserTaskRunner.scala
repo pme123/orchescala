@@ -47,10 +47,10 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
               .as(
                 summon[ScenarioData]
                   .withTaskId(userTask.id)
-                  .info(
+                  .debug(
                     s"UserTask '${userTask.name.mkString}' ready"
                   )
-                  .info(s"- taskId: ${userTask.id}")
+                  .debug(s"- taskId: ${userTask.id}")
                   .debug(s"- body: $userTask")
               )
           case None           =>
