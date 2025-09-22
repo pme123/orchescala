@@ -70,32 +70,32 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     inline def apply(event: TimerEvent): STimerEvent =
       STimerEvent(nameOfVariable(event), event)
 
-  extension (event: MessageEvent[?])
+  extension (event: SMessageEvent)
     def waitFor(readyVariable: String): SMessageEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): SMessageEvent =
-      SMessageEvent(event.name, event, Some(readyVariable), readyValue)
+      SMessageEvent(event.name, event.inOut, Some(readyVariable), readyValue)
     def start: SMessageEvent =
-      SMessageEvent(event.name, event).start
+      SMessageEvent(event.name, event.inOut).start
   end extension
 
-  extension (event: SignalEvent[?])
+  extension (event: SSignalEvent)
     def waitFor(readyVariable: String): SSignalEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any = true): SSignalEvent =
-      SSignalEvent(event.scenarioName, event, readyVariable, readyValue)
+      SSignalEvent(event.scenarioName, event.inOut, readyVariable, readyValue)
   end extension
 
-  extension (event: TimerEvent)
+  extension (event: STimerEvent)
     def waitFor(readyVariable: String): STimerEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): STimerEvent =
-      STimerEvent(event.scenarioName, event, Some(readyVariable), readyValue)
+      STimerEvent(event.scenarioName, event.inOut, Some(readyVariable), readyValue)
   end extension
 
-  extension (ut: UserTask[?, ?])
+  extension (ut: SUserTask)
     def waitForSec(sec: Int): SUserTask =
-      SUserTask(ut.scenarioName, ut, waitForSec = Some(sec))
+      SUserTask(ut.scenarioName, ut.inOut, waitForSec = Some(sec))
 
   end extension
 

@@ -75,7 +75,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
                 s"Problem getting Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
               )
             )
-      _                  <- logDebug(s"Variables fetched for ${userTaskScenario.scenarioName}: $variables")
+      _                  <- logDebug(s"Variables fetched for '${userTaskScenario.scenarioName}': $variables")
       given ScenarioData <- ZIO.succeed(summon[ScenarioData].info(s"UserTask '${userTaskScenario.scenarioName}' Form ready to check."))
       given ScenarioData <-
         ResultChecker.checkProps(
@@ -97,7 +97,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
                    s"Problem completing Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
                  )
                )
-    yield summon[ScenarioData].info(s"Successful completed UserTask ${userTaskScenario.scenarioName}.")
+    yield summon[ScenarioData].info(s"Successful completed UserTask '${userTaskScenario.scenarioName}'.")
     end for
   end completeTask
 

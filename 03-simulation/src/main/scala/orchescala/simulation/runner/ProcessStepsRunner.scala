@@ -58,7 +58,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
                               case ProcessState.COMPLETED | ProcessState.TERMINATED =>
                                 ZIO.succeed(
                                   summon[ScenarioData]
-                                    .info(s"Process ${hasProcessSteps.name} has finished.")
+                                    .info(s"Process '${hasProcessSteps.name}' has finished.")
                                 )
                               case state                                            =>
                                 given ScenarioData =
