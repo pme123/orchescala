@@ -59,16 +59,17 @@ trait DocCreator extends DependencyCreator, Helpers:
                       |%}
                       |## Catalog
                       |${projectConfigs
-                       .map { case pc @ ProjectConfig(projectName, _, _, _) =>
-                         val path = pc.absGitPath(gitBasePath) / catalogFileName
-                         if os.exists(path) then
-                           os.read(path)
-                         else
-                           s"""### $projectName
-                              |Sorry there is no $path.
-                              |""".stripMargin
-                         end if
-                       }
+                       .collect :
+                         case pc @ ProjectConfig(projectName, _, _, _) if projectName.startsWith(apiConfig.companyName) =>
+                           val path = pc.absGitPath(gitBasePath) / catalogFileName
+                           if os.exists(path) then
+                             os.read(path)
+                           else
+                             s"""### $projectName
+                                |Sorry there is no $path.
+                                |""".stripMargin
+                           end if
+                       
                        .mkString("\n")}""".stripMargin
     val catalogPath = apiConfig.basePath / "src" / "docs" / catalogFileName
     println(s"Catalog Path: $catalogPath")

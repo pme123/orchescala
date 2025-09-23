@@ -159,6 +159,9 @@ case class SMessageEvent(
   // If you send a Message to start a process, there is no processInstanceId
   def start: SMessageEvent =
     copy(processInstanceId = false)
+
+  def withBusinessKey(businessKey: String): SMessageEvent =
+    copy(businessKey = Some(businessKey))
 end SMessageEvent
 
 case class SSignalEvent(
@@ -191,6 +194,6 @@ end STimerEvent
 case class SWaitTime(seconds: Int = 5) extends SStep:
 
   lazy val scenarioName: String = s"Wait for $seconds seconds"
-  lazy val inOutId: String = scenarioName
+  lazy val inOutId: String      = scenarioName
 
 lazy val notSet = "NotSet"
