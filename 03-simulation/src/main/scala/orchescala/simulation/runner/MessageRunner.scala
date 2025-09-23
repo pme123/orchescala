@@ -52,7 +52,7 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
                                 .as:
                                   summon[ScenarioData]
                                     .info(
-                                      s"Message '$msgName' sent successfully."
+                                      s"Message '$msgName'  (${messageScenario.scenarioName}) sent successfully."
                                     )
                                 .catchAll: err =>
                                   scenarioOrStepRunner.tryOrFail(correlate)

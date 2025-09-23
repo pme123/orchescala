@@ -20,22 +20,22 @@ class SignalRunner(val signalScenario: SSignalEvent)(using
       given ScenarioData <- sndSgnl
     yield summon[ScenarioData]
 
-  private def sndSgnl: ResultType =
-
+  private def sndSgnl: ResultType = {
+    val messageName = signalScenario.inOut.messageName.replace(
+      SignalEvent.Dynamic_ProcessInstance,
+      summon[ScenarioData].context.processInstanceId
+    )
     for
       given ScenarioData <- signalService
                               .sendSignal(
-                                name = signalScenario.inOut.messageName.replace(
-                                  SignalEvent.Dynamic_ProcessInstance,
-                                  summon[ScenarioData].context.processInstanceId
-                                ),
+                                name = messageName,
                                 tenantId = config.tenantId,
                                 variables = Some(signalScenario.inOut.camundaInMap)
                               )
                               .as:
                                 summon[ScenarioData]
                                   .info(
-                                    s"Signal '${signalScenario.scenarioName}' sent successfully."
+                                    s"Signal '$messageName' (${signalScenario.scenarioName}) sent successfully."
                                   )
                               .mapError: err =>
                                 SimulationError.ProcessError(
@@ -45,6 +45,7 @@ class SignalRunner(val signalScenario: SSignalEvent)(using
                                 )
       _                  <- logInfo(s"Signal ${summon[ScenarioData].context.taskId} sent")
     yield summon[ScenarioData]
+  }
   end sndSgnl
 
 end SignalRunner

@@ -136,11 +136,10 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           jsonToVariablesMap(filteredOutput)
         .flatMap: variablesMap =>
           logInfo(s"handleSuccess BEFORE complete: ${job.getType}") *>
-          logDebug(s"handleSuccess BEFORE complete: $variablesMap") *>
+            logDebug(s"handleSuccess BEFORE complete: $variablesMap") *>
             attempt:
               client.newCompleteCommand(job)
-                .variables(variablesMap.asJava)
-               // .variables(Map("hello2" -> "world").asJava)
+                .variables((variablesMap + ("processInstanceKey" -> job.getProcessInstanceKey)).asJava)
                 .send().join()
             .catchAll: err =>
               handleFailure(
@@ -162,7 +161,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         "errorMsg"  -> error.errorMsg
       )
       val variables =
-        (filteredGeneralVariables ++ errorVars + ("businessKey" -> businessKey)).asJava
+        (filteredGeneralVariables ++
+          errorVars +
+          ("businessKey" -> businessKey)).asJava
       attempt:
         client.newThrowErrorCommand(job)
           .errorCode(error.errorCode.toString)
@@ -170,7 +171,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           .variables(variables)
           .send()
           .exceptionally(t =>
-            throw new RuntimeException("Could not throw BPMN error: " + t.getMessage(), t);
+            throw new RuntimeException("Could not throw BPMN error: " + t.getMessage, t);
           )
       .catchAll: err =>
         handleFailure(
@@ -187,18 +188,19 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       (for
         _                <- logInfo(s"Start handleError: ${error.errorCode}")
         errorHandled      = isErrorHandled(error, generalVariables.handledErrorSeq)
-        _                <- logInfo(s"Handled errorHandled: ${errorHandled}")
+        _                <- logInfo(s"Handled errorHandled: $errorHandled")
         errorRegexHandled =
           regexMatchesAll(errorHandled, error, generalVariables.regexHandledErrorSeq)
-        _                <- logInfo(s"Handled errorRegexHandled: ${errorRegexHandled}")
+        _                <- logInfo(s"Handled errorRegexHandled: $errorRegexHandled")
         _                <- attempt:
                               client.newFailCommand(job)
                                 .retries(job.getRetries - 1)
                                 .retryBackoff(time.Duration.ofSeconds(60))
                                 .variables(Map(
-                                  "errorCode"   -> error.errorCode,
-                                  "errorMsg"    -> error.errorMsg,
-                                  "businessKey" -> businessKey
+                                  "errorCode"          -> error.errorCode,
+                                  "errorMsg"           -> error.errorMsg,
+                                  "businessKey"        -> businessKey,
+                                  "processInstanceKey" -> job.getProcessInstanceKey
                                 ).asJava)
                                 .errorMessage(error.causeMsg)
                                 .send().join()

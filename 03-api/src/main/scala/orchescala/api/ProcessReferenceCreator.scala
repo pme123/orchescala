@@ -9,8 +9,8 @@ import orchescala.domain.{InOutType, shortenName}
   */
 trait ProcessReferenceCreator:
 
-  protected def companyName: String = getClass.getName.split('.').head
-  protected def projectName: String = getClass.getName.split('.').take(2).mkString("-")
+  println(s"ProcessReferenceCreator: ${getClass.getName}")
+  protected def projectName: String = getClass.getName.split('.').takeWhile(_ != "api").mkString("-")
 
   protected def apiConfig: ApiConfig
 

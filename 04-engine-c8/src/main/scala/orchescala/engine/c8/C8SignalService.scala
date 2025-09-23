@@ -28,12 +28,9 @@ class C8SignalService(using
       _           <-
         ZIO
           .attempt {
-            // Note: Zeebe handles signals differently than Camunda 7
-            // This is a simplified implementation
             camundaClient
-              .newPublishMessageCommand()
-              .messageName(s"signal-$name")
-              .correlationKey("signal-correlation")
+              .newBroadcastSignalCommand()
+              .signalName(name)
               .variables(variablesMap)
               .send()
               .join()

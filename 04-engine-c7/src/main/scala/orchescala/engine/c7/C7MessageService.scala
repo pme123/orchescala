@@ -29,6 +29,9 @@ class C7MessageService(using
       processInstanceId: Option[String] = None,
       variables: Option[Map[String, CamundaVariable]] = None
   ): IO[EngineError, MessageCorrelationResult] =
+    val theBusinessKey       = if processInstanceId.isDefined then None else businessKey
+    val theTenantId          = if processInstanceId.isDefined then None else tenantId
+
     for
       apiClient <- apiClientZIO
       _         <-
@@ -36,8 +39,8 @@ class C7MessageService(using
           s"""Correlate Message:
              |- msgName: $name
              |- processInstanceId: ${processInstanceId.getOrElse("-")}
-             |- businessKey: ${businessKey.getOrElse("-")}
-             |- tenantId: ${tenantId.getOrElse("-")}
+             |- businessKey: ${theBusinessKey.getOrElse("-")}
+             |- tenantId: ${theTenantId.getOrElse("-")}
              |""".stripMargin
         )
       response  <-
@@ -46,15 +49,15 @@ class C7MessageService(using
             new MessageApi(apiClient)
               .deliverMessage(CorrelationMessageDto()
                 .messageName(name)
-                .tenantId(tenantId.orNull)
+                .tenantId(theTenantId.orNull)
                 .withoutTenantId(withoutTenantId.getOrElse(false))
-                .businessKey(businessKey.orNull)
+                .businessKey(theBusinessKey.orNull)
                 .processInstanceId(processInstanceId.orNull)
                 .processVariables(mapToC7Variables(variables))
                 .resultEnabled(true))
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${businessKey.getOrElse("-")}): ${err.getMessage}"
+              s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${theBusinessKey.getOrElse("-")}): ${err.getMessage}"
             )
       _         <- logInfo(s"Message '$name' sent successfully: $response.")
       result    <- mapToMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)

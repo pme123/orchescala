@@ -9,6 +9,7 @@ import orchescala.engine.inOut.MessageService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 
+import java.util.UUID
 import scala.jdk.CollectionConverters.*
 
 class C8MessageService(using
@@ -24,6 +25,7 @@ class C8MessageService(using
       processInstanceId: Option[String] = None,
       variables: Option[Map[String, CamundaVariable]] = None
   ): IO[EngineError, MessageCorrelationResult] =
+    
     for
       camundaClient <- camundaClientZIO
       _           <-
@@ -42,14 +44,13 @@ class C8MessageService(using
             val command = camundaClient.newPublishMessageCommand()
               .messageName(name)
               
-            val withCorrelationKey = businessKey match
-              case Some(bk) => command.withoutCorrelationKey() //TODO business key is not supported in Zeebe??
+            val withCorrelationKey = businessKey.orElse(processInstanceId) match // if set take the businessKey or processInstanceId if not set
+              case Some(pid) => command.correlationKey(pid) 
               case None => 
-                processInstanceId match
-                  case Some(pid) => command.correlationKey(pid)
-                  case None => command.withoutCorrelationKey()
+                 command.withoutCorrelationKey()
 
             withCorrelationKey
+              .messageId(UUID.randomUUID().toString)
               .variables(variablesMap)
               .send().join()
           }
