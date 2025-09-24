@@ -13,7 +13,7 @@ class ProcessScenarioRunner(processScenario: ProcessScenario)(using
                                                               val engine: ProcessEngine,
                                                               val config: SimulationConfig
 ):
-  private lazy val processInstanceService = engine.jProcessInstanceService
+  private lazy val processInstanceService = engine.processInstanceService
   private lazy val scenarioRunner       = ScenarioRunner(processScenario)
   private lazy val isProcessScenarioRunner = IsProcessScenarioRunner(processScenario)
 

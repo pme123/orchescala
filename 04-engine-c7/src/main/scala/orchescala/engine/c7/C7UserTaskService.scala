@@ -6,7 +6,7 @@ import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder}
 import orchescala.engine.*
 import orchescala.engine.EngineError.MappingError
 import orchescala.engine.domain.UserTask
-import orchescala.engine.inOut.UserTaskService
+import orchescala.engine.services.UserTaskService
 import org.camunda.community.rest.client.api.TaskApi
 import org.camunda.community.rest.client.dto.{
   CompleteTaskDto,

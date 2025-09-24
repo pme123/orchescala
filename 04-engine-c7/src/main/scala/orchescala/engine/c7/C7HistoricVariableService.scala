@@ -4,7 +4,7 @@ package c7
 import orchescala.domain.CamundaVariable
 import orchescala.domain.CamundaVariable.*
 import orchescala.engine.domain.HistoricVariable
-import orchescala.engine.inOut.HistoricVariableService
+import orchescala.engine.services.HistoricVariableService
 import org.camunda.community.rest.client.api.HistoricVariableInstanceApi
 import org.camunda.community.rest.client.dto.HistoricVariableInstanceDto
 import org.camunda.community.rest.client.invoker.ApiClient

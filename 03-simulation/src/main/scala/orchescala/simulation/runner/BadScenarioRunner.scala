@@ -8,7 +8,7 @@ class BadScenarioRunner(badScenario: BadScenario)(using
                                                             val engine: ProcessEngine,
                                                             val config: SimulationConfig
 ):
-  private lazy val processInstanceService = engine.jProcessInstanceService
+  private lazy val processInstanceService = engine.processInstanceService
   private lazy val scenarioRunner       = ScenarioRunner(badScenario)
   private lazy val isProcessScenarioRunner = IsProcessScenarioRunner(badScenario)
   private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(badScenario)

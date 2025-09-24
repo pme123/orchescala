@@ -6,7 +6,7 @@ import orchescala.domain.CamundaVariable
 import orchescala.domain.CamundaVariable.{CJson, CString}
 import orchescala.engine.*
 import orchescala.engine.domain.HistoricVariable
-import orchescala.engine.inOut.HistoricVariableService
+import orchescala.engine.services.HistoricVariableService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 

@@ -3,7 +3,7 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import orchescala.domain.CamundaVariable
 import orchescala.engine.*
-import orchescala.engine.inOut.SignalService
+import orchescala.engine.services.SignalService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 

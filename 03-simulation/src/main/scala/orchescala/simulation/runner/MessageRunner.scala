@@ -11,7 +11,7 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
     val config: SimulationConfig
 ):
   lazy val messageService         = engine.messageService
-  lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val processInstanceService = engine.processInstanceService
   lazy val scenarioOrStepRunner   = ScenarioOrStepRunner(messageScenario)
 
   def sendMessage: ResultType =

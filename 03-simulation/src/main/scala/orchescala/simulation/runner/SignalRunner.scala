@@ -12,7 +12,7 @@ class SignalRunner(val signalScenario: SSignalEvent)(using
 ):
   lazy val scenarioOrStep                   = signalScenario
   lazy val signalService          = engine.signalService
-  lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val processInstanceService = engine.processInstanceService
 
   def sendSignal: ResultType =
     for

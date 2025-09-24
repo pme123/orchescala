@@ -1,8 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.engine.*
-import orchescala.engine.inOut.*
-import orchescala.engine.json.*
+import orchescala.engine.services.*
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.{IO, ZIO}
 
@@ -13,17 +12,15 @@ class C7ProcessEngine()(
 ) extends ProcessEngine:
 
   lazy val processInstanceService: ProcessInstanceService                 =
-    new C7ProcessInstanceService(jProcessInstanceService)
+     C7ProcessInstanceService()
   lazy val historicProcessInstanceService: HistoricProcessInstanceService =
-    new C7HistoricProcessInstanceService()
-  lazy val historicVariableService: HistoricVariableService               = new C7HistoricVariableService()
-  lazy val incidentService: IncidentService = new C7IncidentService()    
-  lazy val jobService: JobService = new C7JobService()    
-  lazy val messageService: MessageService = new C7MessageService()
-  lazy val signalService: SignalService = new C7SignalService()
-  lazy val userTaskService: UserTaskService = new C7UserTaskService()
-
-  lazy val jProcessInstanceService: JProcessInstanceService = new JC7ProcessInstanceService()
+    C7HistoricProcessInstanceService()
+  lazy val historicVariableService: HistoricVariableService               = C7HistoricVariableService()
+  lazy val incidentService: IncidentService = C7IncidentService()    
+  lazy val jobService: JobService = C7JobService()    
+  lazy val messageService: MessageService = C7MessageService()
+  lazy val signalService: SignalService = C7SignalService()
+  lazy val userTaskService: UserTaskService = C7UserTaskService()
 end C7ProcessEngine
 
 object C7ProcessEngine:

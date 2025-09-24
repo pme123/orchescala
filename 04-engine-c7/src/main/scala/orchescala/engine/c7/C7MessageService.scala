@@ -2,7 +2,7 @@ package orchescala.engine.c7
 
 import orchescala.domain.CamundaVariable
 import orchescala.engine.domain.MessageCorrelationResult
-import orchescala.engine.inOut.MessageService
+import orchescala.engine.services.MessageService
 import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.MessageApi
 import org.camunda.community.rest.client.dto.{

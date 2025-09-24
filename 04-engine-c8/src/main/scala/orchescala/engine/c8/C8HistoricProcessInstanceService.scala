@@ -7,7 +7,7 @@ import io.camunda.client.api.search.response.ProcessInstance
 import io.camunda.client.impl.search.filter.ProcessInstanceFilterImpl
 import orchescala.engine.*
 import orchescala.engine.domain.HistoricProcessInstance
-import orchescala.engine.inOut.HistoricProcessInstanceService
+import orchescala.engine.services.HistoricProcessInstanceService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 

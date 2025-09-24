@@ -2,7 +2,7 @@ package orchescala.engine
 package c7
 
 import orchescala.engine.domain.Incident
-import orchescala.engine.inOut.IncidentService
+import orchescala.engine.services.IncidentService
 import org.camunda.community.rest.client.api.IncidentApi
 import org.camunda.community.rest.client.dto.IncidentDto
 import org.camunda.community.rest.client.invoker.ApiClient

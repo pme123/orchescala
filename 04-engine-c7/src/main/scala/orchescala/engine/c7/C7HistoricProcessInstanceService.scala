@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.engine.domain.HistoricProcessInstance
-import orchescala.engine.inOut.HistoricProcessInstanceService
+import orchescala.engine.services.HistoricProcessInstanceService
 import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.HistoricProcessInstanceApi
 import org.camunda.community.rest.client.dto.HistoricProcessInstanceDto

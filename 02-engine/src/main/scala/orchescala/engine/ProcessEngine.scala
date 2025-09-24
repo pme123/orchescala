@@ -1,7 +1,6 @@
 package orchescala.engine
 
-import orchescala.engine.inOut.*
-import orchescala.engine.json.*
+import orchescala.engine.services.*
 
 trait ProcessEngine:
   def processInstanceService: ProcessInstanceService
@@ -13,6 +12,4 @@ trait ProcessEngine:
   def signalService: SignalService
   def userTaskService: UserTaskService
   
-  def jProcessInstanceService: JProcessInstanceService
-
 end ProcessEngine

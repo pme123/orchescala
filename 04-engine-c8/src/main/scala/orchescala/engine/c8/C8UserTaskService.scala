@@ -7,7 +7,7 @@ import java.time.OffsetDateTime
 import orchescala.domain.CamundaVariable
 import orchescala.engine.*
 import orchescala.engine.domain.UserTask
-import orchescala.engine.inOut.UserTaskService
+import orchescala.engine.services.UserTaskService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 

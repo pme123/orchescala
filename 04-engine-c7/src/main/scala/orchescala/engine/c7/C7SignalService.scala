@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.domain.CamundaVariable
-import orchescala.engine.inOut.SignalService
+import orchescala.engine.services.SignalService
 import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.SignalApi
 import org.camunda.community.rest.client.dto.{SignalDto, VariableValueDto}

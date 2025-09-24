@@ -3,8 +3,7 @@ package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
 import orchescala.engine.*
-import orchescala.engine.inOut.*
-import orchescala.engine.json.JProcessInstanceService
+import orchescala.engine.services.*
 import zio.*
 
 case class C8ProcessEngine()(
@@ -14,7 +13,7 @@ case class C8ProcessEngine()(
 ) extends ProcessEngine:
 
   lazy val processInstanceService: ProcessInstanceService =
-    new C8ProcessInstanceService(jProcessInstanceService)
+    new C8ProcessInstanceService()
   lazy val historicProcessInstanceService: HistoricProcessInstanceService =
     new C8HistoricProcessInstanceService()
   lazy val historicVariableService: HistoricVariableService =
@@ -29,9 +28,6 @@ case class C8ProcessEngine()(
     new C8SignalService()
   lazy val userTaskService: UserTaskService =
     new C8UserTaskService()
-
-  lazy val jProcessInstanceService: JProcessInstanceService =
-    new JC8ProcessInstanceService()
 
 end C8ProcessEngine
 

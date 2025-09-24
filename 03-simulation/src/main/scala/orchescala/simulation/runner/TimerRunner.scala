@@ -12,7 +12,7 @@ class TimerRunner(val timerScenario: STimerEvent)(using
 ):
   lazy val scenarioOrStep                   = timerScenario
   lazy val jobService             = engine.jobService
-  lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val processInstanceService = engine.processInstanceService
   lazy val scenarioOrStepRunner = ScenarioOrStepRunner(timerScenario)
 
   def getAndExecute: ResultType =

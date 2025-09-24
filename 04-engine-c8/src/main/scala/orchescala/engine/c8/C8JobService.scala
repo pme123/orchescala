@@ -4,7 +4,7 @@ import io.camunda.client.CamundaClient
 import orchescala.engine.*
 import orchescala.engine.EngineError.ServiceError
 import orchescala.engine.domain.Job
-import orchescala.engine.inOut.JobService
+import orchescala.engine.services.JobService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 

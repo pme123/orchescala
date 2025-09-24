@@ -11,7 +11,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
 ) :
   lazy val scenarioOrStep                   = userTaskScenario
   lazy val userTaskService        = engine.userTaskService
-  lazy val processInstanceService = engine.jProcessInstanceService
+  lazy val processInstanceService = engine.processInstanceService
   lazy val scenarioOrStepRunner = ScenarioOrStepRunner(userTaskScenario)
 
   def getAndComplete: ResultType =

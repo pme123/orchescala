@@ -19,12 +19,10 @@ final case class SharedClientManagerLive[Client, Error](
       for
         client <- clientRef.get.flatMap:
           case Some(client) =>
-            ZIO.logDebug(s"Reusing existing shared $clientTypeName client") *>
-              ZIO.succeed(client)
+            ZIO.logDebug(s"Reusing existing shared $clientTypeName client").as(client)
           case None =>
             ZIO.logInfo(s"Creating shared $clientTypeName client") *>
-              clientFactory.flatMap: client =>
-                clientRef.set(Some(client)).as(client)
+              clientFactory.tap(client => clientRef.set(Some(client)))
       yield client
 
 object SharedClientManager:

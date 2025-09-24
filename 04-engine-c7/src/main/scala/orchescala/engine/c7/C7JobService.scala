@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.engine.domain.Job
-import orchescala.engine.inOut.JobService
+import orchescala.engine.services.JobService
 import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.JobApi
 import org.camunda.community.rest.client.dto.JobDto

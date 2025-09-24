@@ -4,7 +4,7 @@ import io.camunda.client.CamundaClient
 import io.camunda.client.api.search.response as camunda
 import orchescala.engine.*
 import orchescala.engine.domain.Incident
-import orchescala.engine.inOut.IncidentService
+import orchescala.engine.services.IncidentService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 
