@@ -4,19 +4,20 @@ package c7
 import orchescala.domain.CamundaVariable.*
 import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
 import orchescala.engine.*
-import orchescala.engine.domain.ProcessInfo
+import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import org.camunda.community.rest.client.api.{ProcessDefinitionApi, ProcessInstanceApi}
 import org.camunda.community.rest.client.dto.{StartProcessInstanceDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
+
 import scala.jdk.CollectionConverters.*
 
 class C7ProcessInstanceService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends ProcessInstanceService:
+) extends ProcessInstanceService, C7Service:
 
   override def startProcessAsync(
       processDefId: String,

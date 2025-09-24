@@ -1,20 +1,13 @@
 package orchescala.engine.gateway
 
 import orchescala.domain.CamundaVariable
-import orchescala.engine.domain.MessageCorrelationResult
+import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
-import orchescala.engine.{EngineConfig, EngineError}
-import org.camunda.community.rest.client.api.MessageApi
-import org.camunda.community.rest.client.dto.{CorrelationMessageDto, MessageCorrelationResultWithVariableDto, VariableValueDto}
-import org.camunda.community.rest.client.invoker.ApiClient
-import zio.ZIO.logInfo
-import zio.{IO, ZIO}
-
-import scala.jdk.CollectionConverters.*
+import zio.IO
 
 class GMessageService(using
     services: Seq[MessageService]
-) extends MessageService:
+) extends MessageService, GEventService:
 
   def sendMessage(
                    name: String,
@@ -26,6 +19,8 @@ class GMessageService(using
                  ): IO[EngineError, MessageCorrelationResult] =
     tryServicesWithErrorCollection[MessageService, MessageCorrelationResult](
       _.sendMessage(name, tenantId, withoutTenantId, businessKey, processInstanceId, variables),
-      "correlateMessage"
+      "correlateMessage",
+      processInstanceId.orElse(businessKey),
+      Some((result: MessageCorrelationResult) => result.id)
     )
 end GMessageService

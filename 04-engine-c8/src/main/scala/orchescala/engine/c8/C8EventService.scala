@@ -4,5 +4,5 @@ import orchescala.domain.CamundaVariable
 
 import scala.jdk.CollectionConverters.*
 
-trait C8EventService
+trait C8EventService extends C8Service
  

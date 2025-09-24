@@ -3,6 +3,7 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import orchescala.domain.CamundaVariable
 import orchescala.engine.*
+import orchescala.engine.domain.EngineError
 import orchescala.engine.services.SignalService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -18,7 +19,6 @@ class C8SignalService(using
       name: String,
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
-      executionId: Option[String] = None,
       variables: Option[Map[String, CamundaVariable]] = None
   ): IO[EngineError, Unit] =
     for

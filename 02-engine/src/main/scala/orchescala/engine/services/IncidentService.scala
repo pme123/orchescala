@@ -1,10 +1,9 @@
 package orchescala.engine.services
 
-import orchescala.engine.EngineError
-import orchescala.engine.domain.Incident
+import orchescala.engine.domain.*
 import zio.IO
 
-trait IncidentService:
+trait IncidentService extends EngineService:
   def getIncidents(
       incidentId: Option[String] = None,
       processInstanceId: Option[String] = None

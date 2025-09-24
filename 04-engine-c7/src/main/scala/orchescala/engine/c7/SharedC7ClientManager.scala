@@ -1,7 +1,8 @@
 package orchescala.engine.c7
 
+import orchescala.engine.SharedClientManager
+import orchescala.engine.domain.EngineError
 import org.camunda.community.rest.client.invoker.ApiClient
-import orchescala.engine.{EngineError, SharedClientManager}
 import zio.*
 
 /** Service trait for managing shared Camunda C7 API Client for simulations */

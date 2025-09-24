@@ -1,10 +1,9 @@
 package orchescala.engine.services
 
-import orchescala.engine.EngineError
-import orchescala.engine.domain.Job
+import orchescala.engine.domain.*
 import zio.IO
 
-trait JobService :
+trait JobService  extends EngineService:
   def getJobs(
                     processInstanceId: Option[String] = None
                   ): IO[EngineError, List[Job]]

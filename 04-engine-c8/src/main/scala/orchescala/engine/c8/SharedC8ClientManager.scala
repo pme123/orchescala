@@ -1,7 +1,8 @@
 package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
-import orchescala.engine.{EngineError, SharedClientManager}
+import orchescala.engine.SharedClientManager
+import orchescala.engine.domain.EngineError
 import zio.*
 
 /** Service trait for managing shared Camunda C8 client */

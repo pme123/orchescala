@@ -5,7 +5,7 @@ import org.camunda.community.rest.client.dto.VariableValueDto
 
 import scala.jdk.CollectionConverters.*
 
-trait C7EventService :
+trait C7EventService extends C7Service:
   protected def mapToC7Variables(
                                 variables: Option[Map[String, CamundaVariable]]
                               ): java.util.Map[String, VariableValueDto] =

@@ -5,7 +5,7 @@ import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
 import orchescala.domain.JsonProperty
 import orchescala.engine.*
-import orchescala.engine.domain.ProcessInfo
+import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -15,7 +15,7 @@ import scala.jdk.CollectionConverters.*
 class C8ProcessInstanceService(using
                                camundaClientZIO: IO[EngineError, CamundaClient],
                                engineConfig: EngineConfig
-                              ) extends ProcessInstanceService:
+                              ) extends ProcessInstanceService, C8Service:
 
   override def startProcessAsync(
                                   processDefId: String,

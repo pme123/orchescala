@@ -3,6 +3,7 @@ package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
 import orchescala.engine.*
+import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
 import zio.*
 

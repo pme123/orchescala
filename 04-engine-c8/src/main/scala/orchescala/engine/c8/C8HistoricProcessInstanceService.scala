@@ -6,7 +6,7 @@ import io.camunda.client.api.search.filter.ProcessInstanceFilter
 import io.camunda.client.api.search.response.ProcessInstance
 import io.camunda.client.impl.search.filter.ProcessInstanceFilterImpl
 import orchescala.engine.*
-import orchescala.engine.domain.HistoricProcessInstance
+import orchescala.engine.domain.{EngineError, HistoricProcessInstance}
 import orchescala.engine.services.HistoricProcessInstanceService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -17,7 +17,7 @@ import scala.jdk.CollectionConverters.*
 class C8HistoricProcessInstanceService(using
     c8ClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
-) extends HistoricProcessInstanceService:
+) extends HistoricProcessInstanceService, C8Service:
 
   def getProcessInstance(processInstanceId: String): IO[EngineError, HistoricProcessInstance] =
     for

@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
 import org.camunda.community.rest.client.invoker.ApiClient
-import orchescala.engine.EngineError
+import orchescala.engine.domain.EngineError
 import zio.*
 
 /** Base trait for C7 clients that provide ApiClient instances */

@@ -1,10 +1,10 @@
 package orchescala.engine.services
 
-import orchescala.engine.EngineError
-import orchescala.engine.domain.HistoricProcessInstance
+import orchescala.engine.domain.*
 import zio.IO
 
-trait HistoricProcessInstanceService :
+trait HistoricProcessInstanceService extends EngineService:
+  def engineType: EngineType
   
   def getProcessInstance(
                           processInstanceId: String

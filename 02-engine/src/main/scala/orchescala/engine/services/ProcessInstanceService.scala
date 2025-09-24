@@ -1,11 +1,10 @@
 package orchescala.engine.services
 
 import orchescala.domain.*
-import orchescala.engine.EngineError
-import orchescala.engine.domain.ProcessInfo
+import orchescala.engine.domain.*
 import zio.*
 
-trait ProcessInstanceService:
+trait ProcessInstanceService extends EngineService:
 
   def startProcessAsync(
                          processDefId: String,

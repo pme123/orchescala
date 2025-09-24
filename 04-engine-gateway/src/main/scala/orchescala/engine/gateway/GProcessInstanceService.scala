@@ -3,7 +3,7 @@ package orchescala.engine.gateway
 import orchescala.domain.CamundaVariable.*
 import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
 import orchescala.engine.*
-import orchescala.engine.domain.ProcessInfo
+import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import org.camunda.community.rest.client.api.{ProcessDefinitionApi, ProcessInstanceApi}
 import org.camunda.community.rest.client.dto.{StartProcessInstanceDto, VariableValueDto}
@@ -15,7 +15,7 @@ import scala.jdk.CollectionConverters.*
 
 class GProcessInstanceService( using
     services: Seq[ProcessInstanceService]
-) extends ProcessInstanceService:
+) extends ProcessInstanceService, GService:
   
   override def startProcessAsync(
       processDefId: String,
@@ -24,13 +24,15 @@ class GProcessInstanceService( using
   ): IO[EngineError, ProcessInfo] =
     tryServicesWithErrorCollection[ProcessInstanceService, ProcessInfo](
       _.startProcessAsync(processDefId, in, businessKey),
-      "startProcessAsync"
+      "startProcessAsync",
+      cacheUpdateKey = Some((processInfo: ProcessInfo) => processInfo.processInstanceId)
     )
 
   def getVariables(processInstanceId: String, inOut: Product): IO[EngineError, Seq[JsonProperty]] =
     tryServicesWithErrorCollection[ProcessInstanceService, Seq[JsonProperty]](
       _.getVariables(processInstanceId, inOut),
-      "getVariables"
+      "getVariables",
+      Some(processInstanceId)
     )
 
 end GProcessInstanceService

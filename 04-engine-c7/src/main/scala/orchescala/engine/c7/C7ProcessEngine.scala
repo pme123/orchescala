@@ -1,6 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.engine.*
+import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.{IO, ZIO}

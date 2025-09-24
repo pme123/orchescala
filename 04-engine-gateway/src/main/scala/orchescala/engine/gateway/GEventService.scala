@@ -5,4 +5,4 @@ import org.camunda.community.rest.client.dto.VariableValueDto
 
 import scala.jdk.CollectionConverters.*
 
-trait GEventService 
+trait GEventService extends GService

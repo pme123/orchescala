@@ -183,7 +183,7 @@ lazy val engineGateway = project
   .settings(
     autoImportSetting,
     unitTestSettings,
-    libraryDependencies ++= zioTestDependencies
+    libraryDependencies ++= zioTestDependencies :+ scaffeineDependency
   )
   .dependsOn(engineC7, engineC8)
 

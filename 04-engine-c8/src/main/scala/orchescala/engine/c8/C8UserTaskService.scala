@@ -2,6 +2,7 @@ package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.search.response => camunda
+import orchescala.engine.domain.EngineError
 
 import java.time.OffsetDateTime
 import orchescala.domain.CamundaVariable
@@ -16,7 +17,7 @@ import scala.jdk.CollectionConverters.*
 class C8UserTaskService(using
     camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
-) extends UserTaskService:
+) extends UserTaskService, C8Service:
 
   def getUserTask(processInstanceId: String, userTaskId: String): IO[EngineError, Option[UserTask]] =
     for

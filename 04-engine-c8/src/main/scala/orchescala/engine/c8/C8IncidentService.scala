@@ -3,7 +3,7 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.search.response as camunda
 import orchescala.engine.*
-import orchescala.engine.domain.Incident
+import orchescala.engine.domain.{EngineError, Incident}
 import orchescala.engine.services.IncidentService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -14,7 +14,7 @@ import scala.jdk.CollectionConverters.*
 class C8IncidentService(using
     camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
-) extends IncidentService:
+) extends IncidentService, C8Service:
 
   def getIncidents(
       incidentId: Option[String] = None,

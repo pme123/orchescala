@@ -1,8 +1,9 @@
 package orchescala.engine.c7
 
 import orchescala.domain.CamundaVariable
+import orchescala.engine.EngineConfig
+import orchescala.engine.domain.EngineError
 import orchescala.engine.services.SignalService
-import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.SignalApi
 import org.camunda.community.rest.client.dto.{SignalDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
@@ -18,7 +19,6 @@ class C7SignalService(using
       name: String,
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
-      executionId: Option[String] = None,
       variables: Option[Map[String, CamundaVariable]] = None
   ): IO[EngineError, Unit] =
     for
@@ -32,7 +32,6 @@ class C7SignalService(using
                 .name(name)
                 .tenantId(tenantId.orNull)
                 .withoutTenantId(withoutTenantId.getOrElse(false))
-                .executionId(executionId.orNull)
                 .variables(mapToC7Variables(variables)))
           .mapError: err =>
             EngineError.ProcessError(

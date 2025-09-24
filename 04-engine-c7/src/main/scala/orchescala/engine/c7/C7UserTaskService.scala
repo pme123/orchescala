@@ -4,15 +4,11 @@ package c7
 import orchescala.domain.CamundaVariable.CNull
 import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder}
 import orchescala.engine.*
-import orchescala.engine.EngineError.MappingError
-import orchescala.engine.domain.UserTask
+import orchescala.engine.domain.EngineError.MappingError
+import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
 import org.camunda.community.rest.client.api.TaskApi
-import org.camunda.community.rest.client.dto.{
-  CompleteTaskDto,
-  TaskWithAttachmentAndCommentDto,
-  VariableValueDto
-}
+import org.camunda.community.rest.client.dto.{CompleteTaskDto, TaskWithAttachmentAndCommentDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -20,7 +16,7 @@ import zio.{IO, ZIO}
 import scala.jdk.CollectionConverters.*
 
 class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineConfig: EngineConfig)
-    extends UserTaskService:
+    extends UserTaskService, C7Service:
 
   def getUserTask(
       processInstanceId: String,

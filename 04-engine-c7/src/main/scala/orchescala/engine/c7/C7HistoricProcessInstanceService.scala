@@ -1,8 +1,8 @@
 package orchescala.engine.c7
 
-import orchescala.engine.domain.HistoricProcessInstance
+import orchescala.engine.EngineConfig
+import orchescala.engine.domain.{EngineError, HistoricProcessInstance}
 import orchescala.engine.services.HistoricProcessInstanceService
-import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.HistoricProcessInstanceApi
 import org.camunda.community.rest.client.dto.HistoricProcessInstanceDto
 import org.camunda.community.rest.client.invoker.ApiClient
@@ -11,7 +11,7 @@ import zio.{IO, ZIO}
 class C7HistoricProcessInstanceService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends HistoricProcessInstanceService:
+) extends HistoricProcessInstanceService, C7Service:
 
   def getProcessInstance(processInstanceId: String): IO[EngineError, HistoricProcessInstance] =
     for
@@ -56,8 +56,9 @@ class C7HistoricProcessInstanceService(using
         )
   private def mapState(state: HistoricProcessInstanceDto.StateEnum)
       : HistoricProcessInstance.ProcessState =
-    import HistoricProcessInstanceDto.StateEnum
     import HistoricProcessInstance.ProcessState
+    import HistoricProcessInstanceDto.StateEnum
+    
     state match
       case StateEnum.ACTIVE                => ProcessState.ACTIVE
       case StateEnum.COMPLETED             => ProcessState.COMPLETED

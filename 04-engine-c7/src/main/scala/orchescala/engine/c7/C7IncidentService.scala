@@ -1,18 +1,19 @@
 package orchescala.engine
 package c7
 
-import orchescala.engine.domain.Incident
+import orchescala.engine.domain.{EngineError, Incident}
 import orchescala.engine.services.IncidentService
 import org.camunda.community.rest.client.api.IncidentApi
 import org.camunda.community.rest.client.dto.IncidentDto
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.{IO, ZIO}
+
 import scala.jdk.CollectionConverters.*
 
 class C7IncidentService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends IncidentService:
+) extends IncidentService, C7Service:
 
   def getIncidents(
       incidentId: Option[String] = None,

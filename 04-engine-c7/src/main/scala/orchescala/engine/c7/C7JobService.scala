@@ -1,8 +1,8 @@
 package orchescala.engine.c7
 
-import orchescala.engine.domain.Job
+import orchescala.engine.EngineConfig
+import orchescala.engine.domain.{EngineError, Job}
 import orchescala.engine.services.JobService
-import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.JobApi
 import org.camunda.community.rest.client.dto.JobDto
 import org.camunda.community.rest.client.invoker.ApiClient
@@ -14,7 +14,7 @@ import scala.jdk.CollectionConverters.*
 class C7JobService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends JobService:
+) extends JobService, C7Service:
 
   def getJobs(
       processInstanceId: Option[String] = None

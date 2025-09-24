@@ -5,7 +5,7 @@ import io.camunda.client.api.search.response.Variable
 import orchescala.domain.CamundaVariable
 import orchescala.domain.CamundaVariable.{CJson, CString}
 import orchescala.engine.*
-import orchescala.engine.domain.HistoricVariable
+import orchescala.engine.domain.{EngineError, HistoricVariable}
 import orchescala.engine.services.HistoricVariableService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -15,7 +15,7 @@ import scala.jdk.CollectionConverters.*
 class C8HistoricVariableService(using
     camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
-) extends HistoricVariableService:
+) extends HistoricVariableService, C8Service:
 
   def getVariables(
       variableName: Option[String],

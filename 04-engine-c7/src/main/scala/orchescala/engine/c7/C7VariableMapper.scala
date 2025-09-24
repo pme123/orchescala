@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.domain.*
-import orchescala.engine.EngineError.MappingError
+import orchescala.engine.domain.EngineError.MappingError
 import org.camunda.community.rest.client.dto.VariableValueDto
 import zio.{IO, ZIO}
 

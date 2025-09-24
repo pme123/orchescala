@@ -1,10 +1,10 @@
 package orchescala.engine.services
 
 import orchescala.domain.*
-import orchescala.engine.EngineError
+import orchescala.engine.domain.*
 import zio.IO
 
-trait SignalService:
+trait SignalService extends EngineService:
 
   def sendSignal(
       @description("The name of the signal to deliver.")
@@ -18,14 +18,6 @@ trait SignalService:
       )
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
-      @description(
-        """
-          |Optionally specifies a single execution which is notified by the signal.
-          |
-          |Note: If no execution id is defined the signal is broadcasted to all subscribed handlers.
-          |""".stripMargin
-      )
-      executionId: Option[String] = None,
       @description(
         """A JSON object containing variable key-value pairs. Each key is a variable name and each value a JSON variable value object."""
       )

@@ -1,15 +1,11 @@
 package orchescala.engine.c7
 
 import orchescala.domain.CamundaVariable
-import orchescala.engine.domain.MessageCorrelationResult
+import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
-import orchescala.engine.{EngineConfig, EngineError}
+import orchescala.engine.EngineConfig
 import org.camunda.community.rest.client.api.MessageApi
-import org.camunda.community.rest.client.dto.{
-  CorrelationMessageDto,
-  MessageCorrelationResultWithVariableDto,
-  VariableValueDto
-}
+import org.camunda.community.rest.client.dto.{CorrelationMessageDto, MessageCorrelationResultWithVariableDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.logInfo
 import zio.{IO, ZIO}

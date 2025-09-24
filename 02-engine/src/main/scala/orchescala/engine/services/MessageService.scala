@@ -1,11 +1,10 @@
 package orchescala.engine.services
 
 import orchescala.domain.*
-import orchescala.engine.EngineError
-import orchescala.engine.domain.MessageCorrelationResult
+import orchescala.engine.domain.*
 import zio.IO
 
-trait MessageService:
+trait MessageService extends EngineService:
 
   def sendMessage(
                    name: String,

@@ -1,14 +1,14 @@
-package orchescala
-package engine
+package orchescala.engine.domain
 
 import orchescala.domain.ErrorCodes
 
 sealed trait EngineError extends Throwable:
   def errorCode: ErrorCodes
   def errorMsg: String
+  
+  def causeMsg: String = s"$errorCode: $errorMsg"
 
-  def causeMsg                    = s"$errorCode: $errorMsg"
-  override def toString(): String = causeMsg
+  override def toString: String = causeMsg
 end EngineError
 
 object EngineError:

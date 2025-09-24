@@ -3,6 +3,7 @@ package c8
 
 import io.camunda.client.CamundaClient
 import io.camunda.client.impl.oauth.OAuthCredentialsProviderBuilder
+import orchescala.engine.domain.EngineError
 import zio.{IO, ZIO}
 
 import java.net.URI

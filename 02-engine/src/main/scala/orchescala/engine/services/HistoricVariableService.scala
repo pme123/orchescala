@@ -1,10 +1,9 @@
 package orchescala.engine.services
 
-import orchescala.engine.EngineError
-import orchescala.engine.domain.HistoricVariable
+import orchescala.engine.domain.*
 import zio.IO
 
-trait HistoricVariableService :
+trait HistoricVariableService  extends EngineService:
   def getVariables(
       variableName: Option[String] = None,
       processInstanceId: Option[String] = None,

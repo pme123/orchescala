@@ -1,27 +1,22 @@
 package orchescala.engine.gateway
 
 import orchescala.domain.CamundaVariable
+import orchescala.engine.domain.EngineError
 import orchescala.engine.services.SignalService
-import orchescala.engine.{EngineConfig, EngineError}
-import org.camunda.community.rest.client.api.SignalApi
-import org.camunda.community.rest.client.dto.{SignalDto, VariableValueDto}
-import org.camunda.community.rest.client.invoker.ApiClient
-import zio.ZIO.logInfo
-import zio.{IO, ZIO}
+import zio.IO
 
 class GSignalService(using
     services: Seq[SignalService]
-) extends SignalService:
+) extends SignalService, GEventService:
 
   def sendSignal(
       name: String,
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
-      executionId: Option[String] = None,
       variables: Option[Map[String, CamundaVariable]] = None
-  ): IO[EngineError, Unit] =
+  ): IO[EngineError, Unit] = //TODO special send it to all engines
     tryServicesWithErrorCollection[SignalService, Unit](
-      _.sendSignal(name, tenantId, withoutTenantId, executionId, variables),
-      "sendSignal"
+      _.sendSignal(name, tenantId, withoutTenantId, variables),
+      "sendSignal",
     )
 end GSignalService

@@ -3,7 +3,7 @@ package c7
 
 import orchescala.domain.CamundaVariable
 import orchescala.domain.CamundaVariable.*
-import orchescala.engine.domain.HistoricVariable
+import orchescala.engine.domain.{EngineError, HistoricVariable}
 import orchescala.engine.services.HistoricVariableService
 import org.camunda.community.rest.client.api.HistoricVariableInstanceApi
 import org.camunda.community.rest.client.dto.HistoricVariableInstanceDto
@@ -13,7 +13,7 @@ import zio.{IO, ZIO}
 class C7HistoricVariableService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends HistoricVariableService:
+) extends HistoricVariableService, C7Service:
 
   def getVariables(
       variableName: Option[String],

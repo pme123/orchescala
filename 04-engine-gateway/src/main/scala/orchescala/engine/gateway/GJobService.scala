@@ -1,8 +1,8 @@
 package orchescala.engine.gateway
 
-import orchescala.engine.domain.Job
+import orchescala.engine.EngineConfig
+import orchescala.engine.domain.{EngineError, Job}
 import orchescala.engine.services.JobService
-import orchescala.engine.{EngineConfig, EngineError}
 import org.camunda.community.rest.client.api.JobApi
 import org.camunda.community.rest.client.dto.JobDto
 import org.camunda.community.rest.client.invoker.ApiClient
@@ -13,14 +13,16 @@ import scala.jdk.CollectionConverters.*
 
 class GJobService(using
     services: Seq[JobService]
-) extends JobService:
+) extends JobService, GService:
 
   def getJobs(
       processInstanceId: Option[String] = None
   ): IO[EngineError, List[Job]] =
     tryServicesWithErrorCollection[JobService, List[Job]](
       _.getJobs(processInstanceId),
-      "getJobs"
+      "getJobs",
+      processInstanceId,
+      Some((jobs: List[Job]) => jobs.headOption.flatMap(_.id).getOrElse("NOT-SET"))
     )
 
   def execute(jobId: String): IO[EngineError, Unit] =

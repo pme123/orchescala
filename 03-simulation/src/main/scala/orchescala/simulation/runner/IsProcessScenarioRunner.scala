@@ -2,7 +2,7 @@ package orchescala.simulation
 package runner
 
 import orchescala.domain.{InOutDecoder, InOutEncoder}
-import orchescala.engine.{EngineError, ProcessEngine}
+import orchescala.engine.ProcessEngine
 import zio.ZIO.*
 import zio.{IO, ZIO}
 
