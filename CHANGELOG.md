@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.21 - 2025-09-24
+### Changed 
+- Added Timer-, Message- and SignalEvent support to the simulations. - see [Commit](git@github.com:pme123/orchescala/commit/4bf79cdbbaa9c66a305ed7171f465db20960f150)
+- Fixed links in Catalogs. - see [Commit](git@github.com:pme123/orchescala/commit/738a74b1c5aae86eec7a0d58713e00ea2e379ce0)
+- Fixed bad links in catalog. - see [Commit](git@github.com:pme123/orchescala/commit/dc2d04ec35e879eb8c20b6e6149e3392acd4f6e2)
+- Updated to new Links supporting multiple companies in the company documentation. - see [Commit](git@github.com:pme123/orchescala/commit/27b52f246a92e1b37ab8816143ea273a739f785c)
+- Improved naming in simulations. - see [Commit](git@github.com:pme123/orchescala/commit/65c1bb8b25ed0de3f209159afa70875e085c4e15)
+
 ## 0.2.20 - 2025-09-17
 ### Changed 
 - Updated versions. - see [Commit](git@github.com:pme123/orchescala/commit/d2ed13629bccb25c3bf5e47a8f8b0ef394670015)
