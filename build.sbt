@@ -26,6 +26,7 @@ lazy val root = project
     helper,
     engineC7,
     engineC8,
+    engineGateway,
     workerC7,
     workerC8
   )
@@ -174,6 +175,17 @@ lazy val engineC8 = project
     libraryDependencies ++= camunda8EngineDependencies ++ zioTestDependencies
   )
   .dependsOn(engine)
+
+lazy val engineGateway = project
+  .in(file("./04-engine-gateway"))
+  .settings(publicationSettings)
+  .settings(projectSettings("engine-gateway"))
+  .settings(
+    autoImportSetting,
+    unitTestSettings,
+    libraryDependencies ++= zioTestDependencies
+  )
+  .dependsOn(engineC7, engineC8)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))
