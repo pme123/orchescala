@@ -10,11 +10,13 @@ case class ProcessInfo(
     processInstanceId: String,
     
     @description("Optional business key associated with the process")
-    businessKey: Option[String] = None,
+    businessKey: Option[String],
     
     @description("Current status of the process")
-    status: ProcessStatus = ProcessStatus.Active
-)
+    status: ProcessStatus,
+    @description("Type of the engine")
+    engineType: EngineType
+) extends ProcessResult
 
 object ProcessInfo:
   given InOutCodec[ProcessInfo] = deriveInOutCodec

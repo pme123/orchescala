@@ -5,6 +5,7 @@ import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
 import orchescala.domain.JsonProperty
 import orchescala.engine.*
+import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo}
@@ -29,7 +30,8 @@ class C8ProcessInstanceService(using
     yield ProcessInfo(
       processInstanceId = instance.getProcessInstanceKey.toString,
       businessKey = businessKey,
-      status = ProcessInfo.ProcessStatus.Active
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = C8
     )
 
   private def callStartProcessAsync(

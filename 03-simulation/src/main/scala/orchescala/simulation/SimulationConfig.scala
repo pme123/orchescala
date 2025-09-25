@@ -1,5 +1,8 @@
 package orchescala.simulation
 
+import orchescala.engine.ProcessEngine
+import orchescala.engine.domain.{EngineType, ProcessInfo, ProcessResult}
+
 case class SimulationConfig(
     // define tenant if you have one
     tenantId: Option[String] = None,
@@ -9,21 +12,21 @@ case class SimulationConfig(
     // so with a timeout of 10 sec it will try 10 times (retryDuration = 1.second)
     maxCount: Int = 10,
     // REST endpoint of Camunda
-    endpoint: String = "http://localhost:8080/engine-rest",
+    endpoint: String = ProcessEngine.c7Endpoint,
+
+    cockpitUrl: String | Map[EngineType, String] = ProcessEngine.c7CockpitUrl,
     // the maximum LogLevel you want to print the LogEntries.
     logLevel: LogLevel = LogLevel.INFO
 ):
 
-  def cockpitUrl(processInstanceId: String): String =
-    if endpoint.endsWith("/engine-rest") then
-      endpoint
-        .replace(
-          "/engine-rest",
-          s"/camunda/app/cockpit/default/#/process-instance/$processInstanceId"
-        )
-    else
-      endpoint.replace("https://bru-2.zeebe.camunda.io", "https://bru-2.operate.camunda.io") +
-        s"/operate/processes/$processInstanceId"
+  def cockpitUrl(processResult: ProcessResult): String = {
+    println(s"cockpitUrl (${processResult.engineType}): $cockpitUrl")
+    cockpitUrl match
+      case url: String =>
+        url + processResult.processInstanceId
+      case urls: Map[EngineType, String] =>
+        urls.getOrElse(processResult.engineType, "NOT-SET") + processResult.processInstanceId
+  }
 
   def withTenantId(tenantId: String): SimulationConfig =
     copy(tenantId = Some(tenantId))

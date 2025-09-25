@@ -3,6 +3,7 @@ package runner
 
 import orchescala.domain.{InOutDecoder, InOutEncoder}
 import orchescala.engine.ProcessEngine
+import orchescala.engine.domain.MessageCorrelationResult
 import zio.ZIO.*
 import zio.{IO, ZIO}
 
@@ -37,7 +38,7 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
         .map: engineProcessInfo =>
           summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
             .info(
-              s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(engineProcessInfo.processInstanceId)})"
+              s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(engineProcessInfo)})"
             )
     yield summon[ScenarioData]
   end startProcess
@@ -59,7 +60,7 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
                                   summon[ScenarioData]
                                     .withProcessInstanceId(result.id)
                                     .info(
-                                      s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(result.id)})"
+                                      s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(result)})"
                                     )
                                 .mapError: err =>
                                   SimulationError.ProcessError(

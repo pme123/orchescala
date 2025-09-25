@@ -1,11 +1,9 @@
 package orchescala.engine.gateway
 
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.collection.*
 import orchescala.engine.*
-import orchescala.engine.c7.{C7ProcessEngine, C7ProcessInstanceService}
-import orchescala.engine.c8.C8ProcessInstanceService
 import orchescala.engine.services.*
-import org.camunda.community.rest.client.invoker.ApiClient
-import zio.{IO, ZIO}
 
 class GProcessEngine()(
     using

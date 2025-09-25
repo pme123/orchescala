@@ -4,6 +4,7 @@ package c7
 import orchescala.domain.CamundaVariable.*
 import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
 import orchescala.engine.*
+import orchescala.engine.domain.EngineType.C7
 import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import org.camunda.community.rest.client.api.{ProcessDefinitionApi, ProcessInstanceApi}
@@ -34,7 +35,8 @@ class C7ProcessInstanceService(using
     yield ProcessInfo(
       processInstanceId = instance.getId,
       businessKey = Option(instance.getBusinessKey),
-      status = ProcessInfo.ProcessStatus.Active
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = C7
     )
   end startProcessAsync
 

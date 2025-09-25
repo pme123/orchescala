@@ -177,7 +177,7 @@ lazy val engineC8 = project
   .dependsOn(engine)
 
 lazy val engineGateway = project
-  .in(file("./04-engine-gateway"))
+  .in(file("./05-engine-gateway"))
   .settings(publicationSettings)
   .settings(projectSettings("engine-gateway"))
   .settings(

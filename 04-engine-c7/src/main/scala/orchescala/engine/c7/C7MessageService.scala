@@ -1,11 +1,15 @@
 package orchescala.engine.c7
 
 import orchescala.domain.CamundaVariable
-import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
+import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
 import orchescala.engine.EngineConfig
 import org.camunda.community.rest.client.api.MessageApi
-import org.camunda.community.rest.client.dto.{CorrelationMessageDto, MessageCorrelationResultWithVariableDto, VariableValueDto}
+import org.camunda.community.rest.client.dto.{
+  CorrelationMessageDto,
+  MessageCorrelationResultWithVariableDto,
+  VariableValueDto
+}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.logInfo
 import zio.{IO, ZIO}
@@ -21,12 +25,13 @@ class C7MessageService(using
       name: String,
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
+      timeToLiveInSec: Option[Int] = None,
       businessKey: Option[String] = None,
       processInstanceId: Option[String] = None,
       variables: Option[Map[String, CamundaVariable]] = None
   ): IO[EngineError, MessageCorrelationResult] =
-    val theBusinessKey       = if processInstanceId.isDefined then None else businessKey
-    val theTenantId          = if processInstanceId.isDefined then None else tenantId
+    val theBusinessKey = if processInstanceId.isDefined then None else businessKey
+    val theTenantId    = if processInstanceId.isDefined then None else tenantId
 
     for
       apiClient <- apiClientZIO
@@ -58,6 +63,8 @@ class C7MessageService(using
       _         <- logInfo(s"Message '$name' sent successfully: $response.")
       result    <- mapToMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
     yield result
+    end for
+  end sendMessage
 
   private def mapToMessageCorrelationResult(
       response: Seq[MessageCorrelationResultWithVariableDto]
@@ -66,12 +73,17 @@ class C7MessageService(using
       .flatMap:
         case result if result.getResultType.getValue == "Execution"         =>
           Some:
-            MessageCorrelationResult.Execution(result.getExecution.getId)
+            MessageCorrelationResult.Execution(
+              result.getExecution.getId,
+              result.getExecution.getProcessInstanceId,
+              EngineType.C7
+            )
         case result if result.getResultType.getValue == "ProcessDefinition" =>
           Some:
             MessageCorrelationResult.ProcessInstance(
               result.getProcessInstance.getId,
-              MessageCorrelationResult.ResultType.ProcessInstance
+              result.getProcessInstance.getId,
+              EngineType.C7
             )
         case _                                                              =>
           None

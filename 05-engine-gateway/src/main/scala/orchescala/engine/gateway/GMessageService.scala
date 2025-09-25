@@ -13,12 +13,13 @@ class GMessageService(using
                    name: String,
                    tenantId: Option[String] = None,
                    withoutTenantId: Option[Boolean] = None,
+                   timeToLiveInSec: Option[Int] = None,
                    businessKey: Option[String] = None,
                    processInstanceId: Option[String] = None,
                    variables: Option[Map[String, CamundaVariable]] = None
                  ): IO[EngineError, MessageCorrelationResult] =
     tryServicesWithErrorCollection[MessageService, MessageCorrelationResult](
-      _.sendMessage(name, tenantId, withoutTenantId, businessKey, processInstanceId, variables),
+      _.sendMessage(name, tenantId, withoutTenantId, timeToLiveInSec, businessKey, processInstanceId, variables),
       "correlateMessage",
       processInstanceId.orElse(businessKey),
       Some((result: MessageCorrelationResult) => result.id)

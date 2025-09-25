@@ -43,7 +43,7 @@ class BadScenarioRunner(badScenario: BadScenario)(using
                 ZIO.succeed:
                   summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
                     .info(
-                      s"Process '${badScenario.process.processName}' started (check ${config.cockpitUrl(engineProcessInfo.processInstanceId)})"
+                      s"Process '${badScenario.process.processName}' started (check ${config.cockpitUrl(engineProcessInfo)})"
                     )
           )
       yield summon[ScenarioData]

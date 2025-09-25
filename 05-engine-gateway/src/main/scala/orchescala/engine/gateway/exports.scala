@@ -64,10 +64,7 @@ extension [S <: EngineService](services: Seq[S])
             .map(_._2)
         else
           val engineType = // only works as long we have ids that we can separate
-            key match
-              case uuidRegex()                       => Some(EngineType.C8)
-              case str if str.toLongOption.isDefined => Some(EngineType.C7)
-              case _                                 => None
+            engineTypeForKey(key)
           services
             .sortBy: s =>
               !engineType.contains(s.engineType)
@@ -75,3 +72,9 @@ extension [S <: EngineService](services: Seq[S])
       .getOrElse(services)
 
 end extension
+
+def engineTypeForKey(key: String) =
+  key match
+    case uuidRegex() => Some(EngineType.C8)
+    case str if str.toLongOption.isDefined => Some(EngineType.C7)
+    case _ => None

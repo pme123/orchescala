@@ -2,7 +2,7 @@ package orchescala.engine.domain
 
 import orchescala.domain.*
 
-enum MessageCorrelationResult:
+enum MessageCorrelationResult extends ProcessResult:
   def id: String
   def isProcessInstance: Boolean = this match
     case _: MessageCorrelationResult.ProcessInstance => true
@@ -10,11 +10,15 @@ enum MessageCorrelationResult:
 
   case Execution(
       id: String,
+      processInstanceId: String,
+      engineType: EngineType,
       resultType: MessageCorrelationResult.ResultType =
         MessageCorrelationResult.ResultType.Execution
   )
   case ProcessInstance(
       id: String,
+      processInstanceId: String, // same as id
+      engineType: EngineType,
       resultType: MessageCorrelationResult.ResultType =
         MessageCorrelationResult.ResultType.ProcessInstance
   )
