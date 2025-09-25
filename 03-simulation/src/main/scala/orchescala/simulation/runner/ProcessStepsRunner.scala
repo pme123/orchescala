@@ -38,6 +38,7 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
     for
       given ScenarioData <- ZIO.succeed(summon[ScenarioData].info(s"Checking Process: ${hasProcessSteps.name}"))
       given ScenarioData <- checkFinished(using summon[ScenarioData].withRequestCount(0))
+      _                  <- ZIO.sleep(250.millis) // Wait for eventual consistency
       given ScenarioData <- checkVars
     yield summon[ScenarioData]
   end check

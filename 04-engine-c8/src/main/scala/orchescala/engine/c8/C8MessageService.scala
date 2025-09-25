@@ -42,24 +42,22 @@ class C8MessageService(using
       variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
       resp          <-
         ZIO
-          .attempt {
-            val command = camundaClient.newPublishMessageCommand()
+          .attempt :
+            val command = camundaClient.newCorrelateMessageCommand()
               .messageName(name)
 
             val withCorrelationKey = businessKey.orElse(
               processInstanceId
             ) match // if set take the businessKey or processInstanceId if not set
-              case Some(pid) => command.correlationKey(pid)
+              case Some(pid) =>
+                command.correlationKey(pid)
               case None      =>
                 command.withoutCorrelationKey()
 
             withCorrelationKey
-              .messageId(UUID.randomUUID().toString)
               .tenantId(tenantId.orNull)
-              .timeToLive(java.time.Duration.ofSeconds(timeToLiveInSec.getOrElse(0)))
               .variables(variablesMap)
               .send().join()
-          }
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${businessKey.getOrElse("-")}): ${err.getMessage}"
