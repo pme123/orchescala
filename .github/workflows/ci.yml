@@ -40,5 +40,5 @@ jobs:
       - name: Docs
         run: sbt -v "docs/mdoc; docs/laikaSite"
         env:
-          JAVA_OPTS: "-J-Xmx3G"
+          JAVA_OPTS: "-Xmx3G"
 
