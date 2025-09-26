@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en-CH">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>Migration C7 > C8</title>
+  
+  
+  <meta name="description" content="orchescala-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="../helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="../helium/site/laika-helium.css" />
+  <script src="../helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="../"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/pme123/orchescala"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/pme123/orchescala"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="../">Intro</a></li>
+    <li class="level1 nav-leaf"><a href="../specification.html">Process &amp; Domain Specification</a></li>
+    <li class="level1 nav-leaf"><a href="../bpmnDsl.html">BPMN DSL</a></li>
+    <li class="level1 nav-leaf"><a href="../technologies.html">Technologies</a></li>
+    <li class="level1 nav-leaf"><a href="../generalConcerns.html">General Concerns</a></li>
+    <li class="level1 nav-header">Functional DSLs</li>
+    <li class="level2 nav-leaf"><a href="../functionalityDsls/apiDoc.html">API Documentation</a></li>
+    <li class="level2 nav-leaf"><a href="../functionalityDsls/simulation.html">Simulations</a></li>
+    <li class="level2 nav-leaf"><a href="../functionalityDsls/worker.html">Workers</a></li>
+    <li class="level2 nav-leaf"><a href="../functionalityDsls/dmnTester.html">DMN Tester</a></li>
+    <li class="level2 nav-leaf"><a href="../functionalityDsls/workers_advanced.html">Advanced Custom Workers</a></li>
+    <li class="level1 nav-header">development</li>
+    <li class="level2 nav-leaf"><a href="intro.html">Introduction</a></li>
+    <li class="level2 nav-leaf"><a href="initCompany.html">Init Company</a></li>
+    <li class="level2 nav-leaf"><a href="createProject.html">Create Project</a></li>
+    <li class="level2 nav-leaf"><a href="projectDev.html">Project Development</a></li>
+    <li class="level2 active nav-leaf"><a href="#">Migration C7 &gt; C8</a></li>
+    <li class="level1 nav-header">company</li>
+    <li class="level2 nav-leaf"><a href="../company/intro.html">Introduction</a></li>
+    <li class="level2 nav-leaf"><a href="../company/sbt.html">sbt</a></li>
+    <li class="level2 nav-leaf"><a href="../company/00-docs.html">00-docs</a></li>
+    <li class="level2 nav-leaf"><a href="../company/02-bpmn.html">02-bpmn</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-api.html">03-api</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-dmn.html">03-dmn</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-simulation.html">03-simulation</a></li>
+    <li class="level2 nav-leaf"><a href="../company/03-worker.html">03-worker</a></li>
+    <li class="level2 nav-leaf"><a href="../company/04-helper.html">04-helper</a></li>
+    <li class="level2 nav-leaf"><a href="../company/development.html">Development</a></li>
+    <li class="level2 nav-leaf"><a href="../company/postman.html">Postman</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">Migration C7 &gt; C8</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#overview">Overview</a></li>
+    <li class="level1 nav-node"><a href="#migration-checklist">Migration Checklist</a></li>
+    <li class="level2 nav-leaf"><a href="#each-project">Each Project</a></li>
+    <li class="level2 nav-leaf"><a href="#company-project">Company Project</a></li>
+    <li class="level2 nav-leaf"><a href="#what-works-out-of-the-box">What works out of the box</a></li>
+    <li class="level2 nav-leaf"><a href="#preparation">Preparation</a></li>
+    <li class="level2 nav-leaf"><a href="#future-work">Future Work</a></li>
+    <li class="level1 nav-node"><a href="#_1-bpmns">1. BPMNs</a></li>
+    <li class="level2 nav-leaf"><a href="#key-differences">Key Differences</a></li>
+    <li class="level2 nav-leaf"><a href="#migration-steps-1">Migration Steps</a></li>
+    <li class="level1 nav-node"><a href="#_2-engine-configuration">2. Engine Configuration</a></li>
+    <li class="level2 nav-leaf"><a href="#migration-steps-2">Migration Steps</a></li>
+    <li class="level1 nav-node"><a href="#_3-worker-configuration">3. Worker Configuration</a></li>
+    <li class="level2 nav-leaf"><a href="#migration-steps-3">Migration Steps</a></li>
+    <li class="level1 nav-node"><a href="#_4-simulation-configuration">4. Simulation Configuration</a></li>
+    <li class="level2 nav-leaf"><a href="#migration-steps-4">Migration Steps</a></li>
+    <li class="level1 nav-node"><a href="#_5-testing-and-validation">5. Testing and Validation</a></li>
+    <li class="level2 nav-leaf"><a href="#testing-strategy">Testing Strategy</a></li>
+    <li class="level1 nav-leaf"><a href="#_6-resources">6. Resources</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="migration-c7-c8" class="title">Migration C7 &gt; C8</h1>
+        <p>This guide provides step-by-step instructions for migrating your Orchescala application from Camunda 7 to Camunda 8.
+        The migration involves changes to BPMNs/ DMNs, Engine-, Worker- and Simulation configuration.</p>
+        <div class="callout info">
+          <i class="icofont-laika info">&#xef4e;</i>
+          <p>This is a work in progress. I will add more details as I go along.</p>
+          <p>For now, it describes running C7 and C8 next to each other.</p>
+          <p>The documentation is based on the <a href="https://github.com/pme123/orchescala-democompany">Demo Company</a>. 
+          Check it out for the whole context.</p>
+        </div>
+        
+        <h2 id="overview" class="section"><a class="anchor-link left" href="#overview"><i class="icofont-laika link">&#xef71;</i></a>Overview</h2>
+        <p>Camunda 8 introduces significant architectural changes compared to Camunda 7:</p>
+        <ul>
+          <li><strong>Architecture</strong>: Camunda 8 uses Zeebe as the process engine (cloud-native, distributed)</li>
+          <li><strong>Variables</strong>: JSON-only variable handling (no Java objects)</li>
+          <li><strong>Deployment</strong>: Different deployment mechanisms and APIs</li>
+        </ul>
+        
+        <h2 id="migration-checklist" class="section"><a class="anchor-link left" href="#migration-checklist"><i class="icofont-laika link">&#xef71;</i></a>Migration Checklist</h2>
+        
+        <h3 id="each-project" class="section"><a class="anchor-link left" href="#each-project"><i class="icofont-laika link">&#xef71;</i></a>Each Project</h3>
+        <ul>
+          <li>
+            Update BPMNs/ DMNs for Camunda 8 compatibility
+            <ul>
+              <li>Replace Scripts with FEEL or Workers</li>
+              <li>Convert JUEL expressions to FEEL</li>
+            </ul>
+          </li>
+        </ul>
+        
+        <h3 id="company-project" class="section"><a class="anchor-link left" href="#company-project"><i class="icofont-laika link">&#xef71;</i></a>Company Project</h3>
+        <ul>
+          <li>
+            Configure for Camunda 8:
+            <ul>
+              <li>Engine settings</li>
+              <li>Worker settings</li>
+              <li>Simulation settings</li>
+            </ul>
+          </li>
+        </ul>
+        
+        <h3 id="what-works-out-of-the-box" class="section"><a class="anchor-link left" href="#what-works-out-of-the-box"><i class="icofont-laika link">&#xef71;</i></a>What works out of the box</h3>
+        <p>In your projects you don&#39;t need to change anything in:</p>
+        <ul>
+          <li>Domain Models</li>
+          <li>API Documentation</li>
+          <li>Workers</li>
+          <li>Simulations</li>
+          <li>Helper</li>
+        </ul>
+        
+        <h3 id="preparation" class="section"><a class="anchor-link left" href="#preparation"><i class="icofont-laika link">&#xef71;</i></a>Preparation</h3>
+        <p>Before you migrate a process, make sure you have:</p>
+        <ul>
+          <li>migrated every logic to workers.</li>
+          <li>that all your subprocesses are migrated.</li>
+        </ul>
+        
+        <h3 id="future-work" class="section"><a class="anchor-link left" href="#future-work"><i class="icofont-laika link">&#xef71;</i></a>Future Work</h3>
+        <ul>
+          <li>Postman Open API</li>
+          <li>DMN Tester</li>
+          <li>Deploy to C8 by Simulation</li>
+        </ul>
+        <hr>
+        
+        <h2 id="_1-bpmns" class="section"><a class="anchor-link left" href="#_1-bpmns"><i class="icofont-laika link">&#xef71;</i></a>1. BPMNs</h2>
+        
+        <h3 id="key-differences" class="section"><a class="anchor-link left" href="#key-differences"><i class="icofont-laika link">&#xef71;</i></a>Key Differences</h3>
+        <p><strong>Camunda 7 vs Camunda 8 BPMN Changes:</strong></p>
+        <table>
+          <thead>
+            <tr>
+              <th>Aspect</th>
+              <th>Camunda 7</th>
+              <th>Camunda 8</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Task Types</strong></td>
+              <td>External Tasks with topics</td>
+              <td>Job Types</td>
+            </tr>
+            <tr>
+              <td><strong>Variables</strong></td>
+              <td>Java objects + JSON</td>
+              <td>JSON only</td>
+            </tr>
+            <tr>
+              <td><strong>Forms</strong></td>
+              <td>Embedded/Generated Forms</td>
+              <td>Tasklist Forms</td>
+            </tr>
+            <tr>
+              <td><strong>Expressions</strong></td>
+              <td>JUEL expressions</td>
+              <td>FEEL expressions</td>
+            </tr>
+            <tr>
+              <td><strong>Scripts</strong></td>
+              <td>Inline/External Scripts</td>
+              <td>FEEL expressions or Workers</td>
+            </tr>
+            <tr>
+              <td><strong>Listeners</strong></td>
+              <td>Execution/Task Listeners</td>
+              <td>Workers</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <h3 id="migration-steps-1" class="section"><a class="anchor-link left" href="#migration-steps-1"><i class="icofont-laika link">&#xef71;</i></a>Migration Steps</h3>
+        <p>Use the <a href="https://docs.camunda.io/docs/next/guides/migrating-from-camunda-7">Migration Guide</a> to update your BPMNs</p>
+        <ol class="arabic">
+          <li>
+            <p>Create a Camunda 8 directory in your project:</p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span>mkdir src/main/resources/camunda</span><span class="number-literal">8</span></code></pre>
+          </li>
+          <li>
+            <p>Use the <a href="https://migration-analyzer.consulting-sandbox.camunda.cloud">Migration Analyzer</a></p>
+            <ul>
+              <li>This creates a Camunda 8 compatible BPMN.</li>
+              <li>And a report with stuff you need to adjust manually.</li>
+            </ul>
+          </li>
+          <li>
+            <p>Adjust the BPMN manually.</p>
+            <ul>
+              <li>Use the report from the Migration Analyzer.</li>
+              <li>Or just go through the BPMN.</li>
+              <li>Replace Scripts with FEEL or Workers.</li>
+              <li>Convert JUEL expressions to FEEL.</li>
+            </ul>
+          </li>
+          <li>
+            <p>Deploy the BPMN to Camunda 8. (manually for now)</p>
+          </li>
+          <li>
+            <p>Run the Simulation.</p>
+          </li>
+        </ol>
+        <hr>
+        
+        <h2 id="_2-engine-configuration" class="section"><a class="anchor-link left" href="#_2-engine-configuration"><i class="icofont-laika link">&#xef71;</i></a>2. Engine Configuration</h2>
+        <p>This depends on your Camunda 8 setup.</p>
+        
+        <h3 id="migration-steps-2" class="section"><a class="anchor-link left" href="#migration-steps-2"><i class="icofont-laika link">&#xef71;</i></a>Migration Steps</h3>
+        <ol class="arabic">
+          <li>
+            <p><strong>Create C8 Engine Configuration</strong></p>
+            <p>Create a new engine configuration class for Camunda 8:</p>
+            <pre><code class="nohighlight"><span class="keyword">package</span><span> </span><span class="identifier">mycompany</span><span>.</span><span class="identifier">orchescala</span><span>.</span><span class="identifier">engine</span><span>
+
+</span><span class="keyword">import</span><span> </span><span class="identifier">orchescala</span><span>.</span><span class="identifier">engine</span><span>.</span><span class="type-name">EngineConfig</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">orchescala</span><span>.</span><span class="identifier">engine</span><span>.</span><span class="identifier">c8</span><span>.</span><span class="type-name">C8SaasClient</span><span>
+
+</span><span class="keyword">trait</span><span> </span><span class="type-name">CompanyEngineC8Config</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">C8SaasClient</span><span>:
+
+ </span><span class="comment">// Provide EngineConfig as a given instance
+</span><span> </span><span class="identifier">given</span><span> </span><span class="type-name">EngineConfig</span><span> = </span><span class="type-name">EngineConfig</span><span>(
+   </span><span class="identifier">tenantId</span><span> = </span><span class="type-name">None</span><span> </span><span class="comment">// Set your tenant ID if needed
+</span><span> )
+
+ </span><span class="comment">// C8 SaaS Configuration
+</span><span> </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">zeebeGrpc</span><span>: </span><span class="type-name">String</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;ZEEBE_GRPC_ADDRESS&quot;</span><span>, </span><span class="string-literal">&quot;https://bru-2.zeebe.camunda.io:443&quot;</span><span>)
+ </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">zeebeRest</span><span>: </span><span class="type-name">String</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;ZEEBE_REST_ADDRESS&quot;</span><span>, </span><span class="string-literal">&quot;https://bru-2.zeebe.camunda.io/v1&quot;</span><span>)
+ </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">audience</span><span>: </span><span class="type-name">String</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;ZEEBE_AUDIENCE&quot;</span><span>, </span><span class="string-literal">&quot;zeebe.camunda.io&quot;</span><span>)
+ </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">clientId</span><span>: </span><span class="type-name">String</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;ZEEBE_CLIENT_ID&quot;</span><span>, </span><span class="string-literal">&quot;your-client-id&quot;</span><span>)
+ </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">clientSecret</span><span>: </span><span class="type-name">String</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;ZEEBE_CLIENT_SECRET&quot;</span><span>, </span><span class="string-literal">&quot;your-client-secret&quot;</span><span>)
+ </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">oAuthAPI</span><span>: </span><span class="type-name">String</span><span> = </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>.</span><span class="identifier">getOrElse</span><span>(</span><span class="string-literal">&quot;ZEEBE_OAUTH_URL&quot;</span><span>, </span><span class="string-literal">&quot;https://login.cloud.camunda.io/oauth/token&quot;</span><span>)</span></code></pre>
+          </li>
+          <li>
+            <p><strong>Environment Variables</strong></p>
+            <p>Set up the following environment variables for Camunda 8:</p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment"># Camunda 8 SaaS Configuration
+</span><span class="identifier">export</span><span> ZEEBE_GRPC_ADDRESS=</span><span class="string-literal">&quot;https://your-cluster.zeebe.camunda.io:443&quot;</span><span>
+</span><span class="identifier">export</span><span> ZEEBE_REST_ADDRESS=</span><span class="string-literal">&quot;https://your-cluster.zeebe.camunda.io/v1&quot;</span><span>
+</span><span class="identifier">export</span><span> ZEEBE_AUDIENCE=</span><span class="string-literal">&quot;zeebe.camunda.io&quot;</span><span>
+</span><span class="identifier">export</span><span> ZEEBE_CLIENT_ID=</span><span class="string-literal">&quot;your-client-id&quot;</span><span>
+</span><span class="identifier">export</span><span> ZEEBE_CLIENT_SECRET=</span><span class="string-literal">&quot;your-client-secret&quot;</span><span>
+</span><span class="identifier">export</span><span> ZEEBE_OAUTH_URL=</span><span class="string-literal">&quot;https://login.cloud.camunda.io/oauth/token&quot;</span></code></pre>
+          </li>
+          <li>
+            <p><strong>Update Dependencies</strong></p>
+            <p>Add Camunda 8 dependencies to your <code>project/Settings.scala</code>:</p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">engineDeps</span><span> = </span><span class="type-name">Seq</span><span>(
+  </span><span class="string-literal">&quot;io.github.pme123&quot;</span><span> %% </span><span class="string-literal">&quot;orchescala-engine-gateway&quot;</span><span> % </span><span class="identifier">orchescalaV</span><span>
+)</span></code></pre>
+            <p>With the <code>engine-gateway</code> we can abstract our engines, and we can use both engines at the same time.</p>
+          </li>
+        </ol>
+        <hr>
+        
+        <h2 id="_3-worker-configuration" class="section"><a class="anchor-link left" href="#_3-worker-configuration"><i class="icofont-laika link">&#xef71;</i></a>3. Worker Configuration</h2>
+        <p>Workers are independent of the engine. So you can use the same workers for both engines.</p>
+        
+        <h3 id="migration-steps-3" class="section"><a class="anchor-link left" href="#migration-steps-3"><i class="icofont-laika link">&#xef71;</i></a>Migration Steps</h3>
+        <ol class="arabic">
+          <li>
+            <p><strong>Update Worker Base Class</strong></p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">trait</span><span> </span><span class="type-name">CompanyWorker</span><span>[</span><span class="type-name">In</span><span> &lt;: </span><span class="type-name">Product</span><span> : </span><span class="type-name">InOutCodec</span><span>, </span><span class="type-name">Out</span><span> &lt;: </span><span class="type-name">Product</span><span> : </span><span class="type-name">InOutCodec</span><span>]
+  </span><span class="keyword">extends</span><span> </span><span class="type-name">C7Worker</span><span>[</span><span class="type-name">In</span><span>, </span><span class="type-name">Out</span><span>], </span><span class="type-name">C8Worker</span><span>[</span><span class="type-name">In</span><span>, </span><span class="type-name">Out</span><span>]:
+    </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">c7Context</span><span>: </span><span class="type-name">C7Context</span><span> = </span><span class="type-name">CompanyEngineC7Context</span><span>(</span><span class="type-name">CompanyRestApiC7Client</span><span>())
+    </span><span class="keyword">protected</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">c8Context</span><span>: </span><span class="type-name">C8Context</span><span> = </span><span class="type-name">CompanyEngineC8Context</span><span>(</span><span class="type-name">CompanyRestApiC7Client</span><span>())</span></code></pre>
+          </li>
+          <li>
+            <p><strong>Update Worker Registry</strong></p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">trait</span><span> </span><span class="type-name">CompanyWorkerApp</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">WorkerApp</span><span>:
+ </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">workerRegistries</span><span>: </span><span class="type-name">Seq</span><span>[</span><span class="type-name">WorkerRegistry</span><span>] =
+   </span><span class="type-name">Seq</span><span>(
+     </span><span class="type-name">C7WorkerRegistry</span><span>(</span><span class="type-name">CompanyC7Client</span><span>),
+     </span><span class="type-name">C8WorkerRegistry</span><span>(</span><span class="type-name">CompanyC8Client</span><span>)
+   )</span></code></pre>
+          </li>
+          <li>
+            <p><strong>Update Context Implementation</strong></p>
+            <p>Create a C8-compatible context (just extend the <code>C8Context</code>):</p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">package</span><span> </span><span class="identifier">mycompany</span><span>.</span><span class="identifier">orchescala</span><span>.</span><span class="identifier">worker</span><span>
+
+</span><span class="keyword">import</span><span> </span><span class="identifier">orchescala</span><span>.</span><span class="identifier">worker</span><span>.</span><span class="identifier">c8</span><span>.</span><span class="type-name">C8Context</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">scala</span><span>.</span><span class="identifier">reflect</span><span>.</span><span class="type-name">ClassTag</span><span>
+
+</span><span class="keyword">class</span><span> </span><span class="type-name">CompanyEngineContext</span><span>(</span><span class="identifier">restApiClient</span><span>: </span><span class="type-name">CompanyRestApiClient</span><span>) </span><span class="keyword">extends</span><span> </span><span class="type-name">C8Context</span><span>:
+
+ </span><span class="keyword">override</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">sendRequest</span><span>[</span><span class="type-name">ServiceIn</span><span>: </span><span class="type-name">InOutEncoder</span><span>, </span><span class="type-name">ServiceOut</span><span>: {</span><span class="type-name">InOutDecoder</span><span>, </span><span class="type-name">ClassTag</span><span>}](
+   </span><span class="identifier">request</span><span>: </span><span class="type-name">RunnableRequest</span><span>[</span><span class="type-name">ServiceIn</span><span>]
+ ): </span><span class="type-name">SendRequestType</span><span>[</span><span class="type-name">ServiceOut</span><span>] =
+   </span><span class="identifier">restApiClient</span><span>.</span><span class="identifier">sendRequest</span><span>(</span><span class="identifier">request</span><span>)</span></code></pre>
+          </li>
+        </ol>
+        <hr>
+        
+        <h2 id="_4-simulation-configuration" class="section"><a class="anchor-link left" href="#_4-simulation-configuration"><i class="icofont-laika link">&#xef71;</i></a>4. Simulation Configuration</h2>
+        <p>This is a bit more involved;).</p>
+        
+        <h3 id="migration-steps-4" class="section"><a class="anchor-link left" href="#migration-steps-4"><i class="icofont-laika link">&#xef71;</i></a>Migration Steps</h3>
+        <ol class="arabic">
+          <li>
+            <strong>Update Simulation Configuration</strong>
+            <pre><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">SimulationConfig</span><span>(
+</span><span class="annotation">@description</span><span>(</span><span class="string-literal">&quot;define tenant if you have one&quot;</span><span>)
+</span><span class="identifier">tenantId</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">String</span><span>] = </span><span class="type-name">None</span><span>,
+</span><span class="annotation">@description</span><span>(
+  </span><span class="string-literal">&quot;&quot;&quot;there are Requests that wait until the process is ready - like getTask.
+    |the Simulation waits 1 second between the Requests.
+    |so with a timeout of 10 sec it will try 10 times (retryDuration = 1.second)&quot;&quot;&quot;</span><span>.</span><span class="identifier">stripMargin</span><span>)
+</span><span class="identifier">maxCount</span><span>: </span><span class="type-name">Int</span><span> = </span><span class="number-literal">10</span><span>,
+</span><span class="annotation">@description</span><span>(</span><span class="string-literal">&quot;Cockpit URL - to provide a link to the process instance. you can provide a different URL for each engine type with a Map&quot;</span><span>)
+</span><span class="identifier">cockpitUrl</span><span>: </span><span class="type-name">String</span><span> | </span><span class="type-name">Map</span><span>[</span><span class="type-name">EngineType</span><span>, </span><span class="type-name">String</span><span>] = </span><span class="type-name">ProcessEngine</span><span>.</span><span class="identifier">c7CockpitUrl</span><span>,
+</span><span class="annotation">@description</span><span>(</span><span class="string-literal">&quot;the maximum LogLevel you want to print the LogEntries&quot;</span><span>)
+</span><span class="identifier">logLevel</span><span>: </span><span class="type-name">LogLevel</span><span> = </span><span class="type-name">LogLevel</span><span>.</span><span class="type-name">INFO</span><span>
+)</span></code></pre>
+            <p>Example for the <code>CompanySimulation</code>:</p>
+            <pre><code class="nohighlight"><span class="keyword">trait</span><span> </span><span class="type-name">CompanySimulation</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">SimulationRunner</span><span>, </span><span class="type-name">C8SaasClient</span><span>, </span><span class="type-name">CompanyEngineC7Config</span><span>,
+  </span><span class="type-name">CompanyEngineC8Config</span><span>:
+
+</span><span class="identifier">given</span><span> </span><span class="type-name">EngineConfig</span><span> = </span><span class="type-name">EngineConfig</span><span>(</span><span class="identifier">tenantId</span><span> = </span><span class="identifier">config</span><span>.</span><span class="identifier">tenantId</span><span>)
+
+</span><span class="comment">// Override this to provide the ZIO layers required by this simulation
+</span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">requiredLayers</span><span>: </span><span class="type-name">Seq</span><span>[</span><span class="type-name">ZLayer</span><span>[</span><span class="type-name">Any</span><span>, </span><span class="type-name">Nothing</span><span>, </span><span class="type-name">Any</span><span>]]  = </span><span class="type-name">Seq</span><span>(
+</span><span class="type-name">SharedC8ClientManager</span><span>.</span><span class="identifier">layer</span><span>,
+</span><span class="type-name">SharedC7ClientManager</span><span>.</span><span class="identifier">layer</span><span>
+)
+</span><span class="comment">// Override engineZIO to create the engine within the SharedC8ClientManager environment
+</span><span class="keyword">override</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">engineZIO</span><span>: </span><span class="type-name">ZIO</span><span>[</span><span class="type-name">Any</span><span>, </span><span class="type-name">Nothing</span><span>, </span><span class="type-name">ProcessEngine</span><span>] =
+(</span><span class="keyword">for</span><span>
+  </span><span class="identifier">c8Engine</span><span>: </span><span class="type-name">ProcessEngine</span><span> &lt;- </span><span class="type-name">C8ProcessEngine</span><span>.</span><span class="identifier">withClient</span><span>(</span><span class="keyword">this</span><span>)
+  </span><span class="identifier">c7Engine</span><span>: </span><span class="type-name">ProcessEngine</span><span> &lt;- </span><span class="type-name">CompanyC7Simulation</span><span>.</span><span class="identifier">engineZIO</span><span>
+  </span><span class="identifier">given</span><span> </span><span class="type-name">Seq</span><span>[</span><span class="type-name">ProcessEngine</span><span>] = </span><span class="type-name">Seq</span><span>(</span><span class="identifier">c8Engine</span><span>,</span><span class="identifier">c7Engine</span><span>)
+</span><span class="keyword">yield</span><span> </span><span class="type-name">GProcessEngine</span><span>())
+  .</span><span class="identifier">provideLayer</span><span>(</span><span class="type-name">SharedC8ClientManager</span><span>.</span><span class="identifier">layer</span><span>)
+  .</span><span class="identifier">provideLayer</span><span>(</span><span class="type-name">SharedC7ClientManager</span><span>.</span><span class="identifier">layer</span><span>)
+
+</span><span class="keyword">override</span><span> </span><span class="keyword">lazy</span><span> </span><span class="keyword">val</span><span> </span><span class="identifier">config</span><span>: </span><span class="type-name">SimulationConfig</span><span> =
+</span><span class="type-name">SimulationConfig</span><span>(
+  </span><span class="identifier">cockpitUrl</span><span> = </span><span class="type-name">Map</span><span>(
+    </span><span class="type-name">EngineType</span><span>.</span><span class="type-name">C7</span><span> -&gt; </span><span class="identifier">camundaCockpitUrl</span><span>,
+    </span><span class="type-name">EngineType</span><span>.</span><span class="type-name">C8</span><span> -&gt; </span><span class="identifier">zeebeOperateUrl</span><span>
+  )
+)
+</span><span class="identifier">end</span><span> </span><span class="type-name">CompanySimulation</span></code></pre>
+            <p>What you need to do is:</p>
+            <ul>
+              <li>add the ZIO layers for both engines.</li>
+              <li>create the engines.</li>
+              <li>provide the <code>cockpitUrl</code> in the <code>SimulationConfig</code> for both engines.</li>
+            </ul>
+          </li>
+        </ol>
+        
+        <h2 id="_5-testing-and-validation" class="section"><a class="anchor-link left" href="#_5-testing-and-validation"><i class="icofont-laika link">&#xef71;</i></a>5. Testing and Validation</h2>
+        
+        <h3 id="testing-strategy" class="section"><a class="anchor-link left" href="#testing-strategy"><i class="icofont-laika link">&#xef71;</i></a>Testing Strategy</h3>
+        <p>Just run both C7 and C8 <strong>Simulations</strong> side by side.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span>  </span><span class="keyword">override</span><span> </span><span class="keyword">def</span><span> </span><span class="declaration-name">engineZIO</span><span>: </span><span class="type-name">ZIO</span><span>[</span><span class="type-name">Any</span><span>, </span><span class="type-name">Nothing</span><span>, </span><span class="type-name">ProcessEngine</span><span>] =
+  (</span><span class="keyword">for</span><span>
+    </span><span class="identifier">c8Engine</span><span>: </span><span class="type-name">ProcessEngine</span><span> &lt;- </span><span class="type-name">C8ProcessEngine</span><span>.</span><span class="identifier">withClient</span><span>(</span><span class="keyword">this</span><span>)
+    </span><span class="identifier">c7Engine</span><span>: </span><span class="type-name">ProcessEngine</span><span> &lt;- </span><span class="type-name">CompanyC7Simulation</span><span>.</span><span class="identifier">engineZIO</span><span>
+    </span><span class="identifier">given</span><span> </span><span class="type-name">Seq</span><span>[</span><span class="type-name">ProcessEngine</span><span>] = </span><span class="type-name">Seq</span><span>(</span><span class="identifier">c8Engine</span><span>,</span><span class="identifier">c7Engine</span><span>) </span><span class="comment">// -&gt; change order to change default engine
+</span><span>  </span><span class="keyword">yield</span><span> </span><span class="type-name">GProcessEngine</span><span>())
+    ...</span></code></pre>
+        <p>You can just change the order in your <code>CompanySimulation</code> to change the default engine.
+        Or you provide separate <em>Simulations</em> for both engines (examples from <code>democompany-cards</code>).</p>
+        <p>C7:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">class</span><span> </span><span class="type-name">OrderCreditcardC7Simulation</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">OrderCreditcardSimulation</span><span>, </span><span class="type-name">CompanyC7Simulation</span></code></pre>
+        <p>C8:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">class</span><span> </span><span class="type-name">OrderCreditcardC8Simulation</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">OrderCreditcardSimulation</span><span>, </span><span class="type-name">CompanyC8Simulation</span></code></pre>
+        <p>Both (gateway):</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">class</span><span> </span><span class="type-name">OrderCreditcardGSimulation</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">OrderCreditcardSimulation</span><span>, </span><span class="type-name">CompanyGSimulation</span></code></pre>
+        <p>Using the same <em>Simulation</em>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">abstract</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">OrderCreditcardSimulation</span><span> </span><span class="keyword">extends</span><span> </span><span class="type-name">CompanySimulation</span><span>:
+
+</span><span class="identifier">simulate</span><span>(
+  </span><span class="identifier">scenario</span><span>(</span><span class="identifier">`OrderCreditcard`</span><span>)(
+    </span><span class="identifier">`Check Order approved UT`</span><span>
+  ),
+  ...</span></code></pre>
+        <hr>
+        
+        <h2 id="_6-resources" class="section"><a class="anchor-link left" href="#_6-resources"><i class="icofont-laika link">&#xef71;</i></a>6. Resources</h2>
+        <ul>
+          <li><a href="https://docs.camunda.io/docs/next/guides/migrating-from-camunda-7">Camunda 8 Migration Guide</a></li>
+          <li><a href="https://github.com/pme123/orchescala-democompany">Demo Company Repository</a></li>
+          <li>Create issues in the <a href="https://github.com/pme123/orchescala/issues">Orchescala GitHub repository</a></li>
+        </ul>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>
