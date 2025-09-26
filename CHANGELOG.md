@@ -14,6 +14,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.22 - 2025-09-26
+### Changed 
+- Create static.yml - see [Commit](git@github.com:pme123/orchescala/commit/5b3983cd916e398f78a3b622699771943c384798)
+- Added documentation creation to ci. - see [Commit](git@github.com:pme123/orchescala/commit/fe5a05da8fe9a0c5965658bd43a538eaa5894aba)
+- Added documentation creation to ci. - see [Commit](git@github.com:pme123/orchescala/commit/7123d4b350b4ffcb58eefb542a0015d169d448d6)
+- Added documentation for C7 - C8 migration. - see [Commit](git@github.com:pme123/orchescala/commit/03d8028d6d6d3a2967c6ead5ebe20db76f09041a)
+- Fixed DevStatisticsCreator filter only company code. - see [Commit](git@github.com:pme123/orchescala/commit/7e533c3556a532dfe586bf19e227fded2851deb4)
+- Fix Signal and Message Services. - see [Commit](git@github.com:pme123/orchescala/commit/e44b0c2fcee6a29dd1a90ab7b27913780fc67941)
+- Added correct cockpit url - diverse fixes in simulation/engine. - see [Commit](git@github.com:pme123/orchescala/commit/56b76922ab87b35f34720179956cd59d1fea2e24)
+- Added sorted running of services - using cache to match processInstances. - see [Commit](git@github.com:pme123/orchescala/commit/8c90c822df95a965bca24338ab5af7302c65ddaf)
+- Added first version of gateway services for the engine. - see [Commit](git@github.com:pme123/orchescala/commit/c0df2a88c671e68b78f7b3c856905e7fb7cd4ff2)
+- Cleanup Services. - see [Commit](git@github.com:pme123/orchescala/commit/afe4d70a4125885d4f74e656cc2960acdbe07318)
 
 ## 0.2.21 - 2025-09-24
 ### Changed 
