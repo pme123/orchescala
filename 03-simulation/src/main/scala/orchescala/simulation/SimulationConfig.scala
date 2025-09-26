@@ -1,21 +1,20 @@
 package orchescala.simulation
 
 import orchescala.engine.ProcessEngine
-import orchescala.engine.domain.{EngineType, ProcessInfo, ProcessResult}
+import orchescala.engine.domain.{EngineType, ProcessResult}
+import sttp.tapir.Schema.annotations.description
 
 case class SimulationConfig(
-    // define tenant if you have one
+    @description("define tenant if you have one")
     tenantId: Option[String] = None,
-    // the Camunda Port
-    // there are Requests that wait until the process is ready - like getTask.
-    // the Simulation waits 1 second between the Requests.
-    // so with a timeout of 10 sec it will try 10 times (retryDuration = 1.second)
+    @description(
+      """there are Requests that wait until the process is ready - like getTask.
+        |the Simulation waits 1 second between the Requests.
+        |so with a timeout of 10 sec it will try 10 times (retryDuration = 1.second)""".stripMargin)
     maxCount: Int = 10,
-    // REST endpoint of Camunda
-    endpoint: String = ProcessEngine.c7Endpoint,
-
+    @description("Cockpit URL - to provide a link to the process instance. you can provide a different URL for each engine type with a Map")
     cockpitUrl: String | Map[EngineType, String] = ProcessEngine.c7CockpitUrl,
-    // the maximum LogLevel you want to print the LogEntries.
+    @description("the maximum LogLevel you want to print the LogEntries")
     logLevel: LogLevel = LogLevel.INFO
 ):
 
@@ -33,9 +32,7 @@ case class SimulationConfig(
 
   def withMaxCount(maxCount: Int): SimulationConfig =
     copy(maxCount = maxCount)
-
-  def withPort(port: Int): SimulationConfig =
-    copy(endpoint = s"http://localhost:$port/engine-rest")
+  
 
   def withLogLevel(logLevel: LogLevel): SimulationConfig =
     copy(logLevel = logLevel)
