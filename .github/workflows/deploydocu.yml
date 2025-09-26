@@ -11,22 +11,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up JDK
+      - name: Coursier Cache
+        uses: coursier/cache-action@v6
+      - name: Setup JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Cache SBT
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.ivy2/cache
-            ~/.sbt
-            ~/.coursier
-          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
-
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
       - name: Run SBT docs/mdoc and docs/laikaSite
         run: sbt -v "docs/mdoc; docs/laikaSite"
 
