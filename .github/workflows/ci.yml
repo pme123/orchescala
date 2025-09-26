@@ -37,4 +37,8 @@ jobs:
           name: Test Report            # Name of the check run which will be created
           path: "**/target/test-reports/*.xml"    # Path to test results
           reporter: java-junit        # Format of test results
+      - name: Docs
+        run: sbt -v "docs/mdoc; docs/laikaSite"
+        env:
+          JAVA_OPTS: "-J-Xmx3G"
 
