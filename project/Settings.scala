@@ -111,7 +111,7 @@ object Settings {
     ,
     Laika / sourceDirectories := Seq(mdocOut.value),
 
-    laikaSite / target := baseDirectory.value / ".." / "docs",
+  //  laikaSite / target := baseDirectory.value / ".." / "docs",
     laikaExtensions := Seq(GitHubFlavor, SyntaxHighlighting),
     laikaTheme := Helium.defaults.site
       .topNavigationBar(
