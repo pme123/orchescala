@@ -28,7 +28,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     apiConfig.projectsConfig.init
     apiConfig.otherProjectsConfig.init
     createCatalog()
-    DevStatisticsCreator(gitBasePath, apiConfig.basePath).create()
+    DevStatisticsCreator(gitBasePath, apiConfig.basePath, apiConfig.companyName).create()
     createDynamicConf()
     // println(s"Preparing Docs Started")
     createReleasePage()

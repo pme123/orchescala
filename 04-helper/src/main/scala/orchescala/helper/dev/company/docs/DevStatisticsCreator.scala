@@ -1,6 +1,6 @@
 package orchescala.helper.dev.company.docs
 
-case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path):
+case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path, companyName: String):
 
   def create(): Unit =
     val statistics =
@@ -61,6 +61,7 @@ case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path):
       os.list(gitBasePath)
         .filter(_.toIO.isDirectory)
         .filter(!_.toIO.isHidden)
+        .filter(_.baseName.startsWith(companyName))
         .map(_.baseName)
         .map(lineCountProject(fileType, _, filter))
     FileTypeCount(fileType, projectCounts, filter)
