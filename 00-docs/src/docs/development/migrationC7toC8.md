@@ -301,7 +301,34 @@ simulate(
   ...
 ```
 
+@:callout(warning)
+
+Throwing an error in an end event is treated in:
+- C8: is an unhandled BPMN error, which can interrupt the process and propagate the error.
+- C7: is ignored if there is no boundary error event to catch it. 
+
+So in this case, you have to have different Scenarios.
+@:@
 ---
+Here an example:
+
+```scala
+abstract class OrderCreditcardSimulation extends CompanySimulation:
+  // only needed for an end event that throws an error. see documentation
+  protected def engineType: EngineType = EngineType.C8
+
+  simulate(
+    ...,
+    // because handled differently
+    if engineType == EngineType.C8 then
+      incidentScenario( // thrown in the end event
+        `OrderCreditcard handled error`,
+        "Expected to throw an error event with the code 'client-not-found', but it was not caught."
+      )
+    else
+      scenario(`OrderCreditcard handled error`)
+  )
+```
 
 ## 6. Resources
 
