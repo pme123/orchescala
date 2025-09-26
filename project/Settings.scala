@@ -110,8 +110,6 @@ object Settings {
     //  .renderMessages(MessageFilter.None)
     ,
     Laika / sourceDirectories := Seq(mdocOut.value),
-
-  //  laikaSite / target := baseDirectory.value / ".." / "docs",
     laikaExtensions := Seq(GitHubFlavor, SyntaxHighlighting),
     laikaTheme := Helium.defaults.site
       .topNavigationBar(
