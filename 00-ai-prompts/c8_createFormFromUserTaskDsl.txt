@@ -1,0 +1,59 @@
+Create a Camunda 8 form JSON file for this UserTaskDsl with the following requirements:
+
+### **Form Structure Requirements:**
+1. **Input Fields (In case class)**: All fields should be READ-ONLY for display purposes
+2. **Output Fields (Out case class)**: All fields should be EDITABLE for user input
+3. **Organization**: Use sections with subtitles (## Section Name) for logical grouping
+4. **Sub-objects**: Create separate sections with appropriate subtitles for nested objects
+
+### **Form Element Selection:**
+- Use the most appropriate form elements for each data type:
+  - `textfield` for strings
+  - `number` for numeric values (Long, Int, Double)
+  - `checkbox` for boolean values
+  - `select` for enums with predefined options
+  - `textarea` for longer text content
+  - `dynamiclist` for arrays/lists
+  - `text` with templating for arrays in older versions
+
+### **Advanced Features:**
+- **Conditional Display**: Hide optional sections when data is null using `conditional.hide`
+- **Validation**: Add `validate.required` for mandatory output fields
+- **Layout**: Use responsive row/column layout for proper field arrangement
+
+### **File Requirements:**
+- **Location**: Save to `./src/main/resources/camunda8/[TaskName].form`
+- **Form ID**: Must match the external reference in BPMN (usually the TaskName)
+- **Schema Version**: Use version 16 for Camunda 8.4+, version 13 for older versions
+- **Execution Platform**: "Camunda Cloud" with appropriate version
+
+### **Data Binding:**
+- Input fields: Use dot notation to access nested properties (e.g., `client.firstName`)
+- Output fields: Use simple property names (e.g., `approved`, `comment`)
+- Array elements: Use array indexing or dynamic list path binding
+
+### **Example Structure:**
+```json
+{
+  "components": [
+    {
+      "text": "# [Task Title]\n\nBrief description of the task.",
+      "type": "text"
+    },
+    {
+      "text": "## Input Section Name",
+      "type": "text"
+    },
+    // Read-only input fields here
+    {
+      "text": "## Output Section Name", 
+      "type": "text"
+    },
+    // Editable output fields here
+  ],
+  "type": "default",
+  "id": "[TaskName]",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.6.0",
+  "schemaVersion": 16
+}
