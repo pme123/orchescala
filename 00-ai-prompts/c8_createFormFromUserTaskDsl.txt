@@ -1,4 +1,4 @@
-Create a Camunda 8 form JSON file for this UserTaskDsl with the following requirements:
+Create a Camunda 8 form JSON file for the [TaskName] UserTaskDsl with the following requirements:
 
 ### **Form Structure Requirements:**
 1. **Input Fields (In case class)**: All fields should be READ-ONLY for display purposes
@@ -13,18 +13,28 @@ Create a Camunda 8 form JSON file for this UserTaskDsl with the following requir
   - `checkbox` for boolean values
   - `select` for enums with predefined options
   - `textarea` for longer text content
-  - `dynamiclist` for arrays/lists
+  - `datetime` for date/time fields (see datetime configuration below)
+  - `dynamiclist` for arrays/lists (Camunda 8.4+)
   - `text` with templating for arrays in older versions
 
-### **Advanced Features:**
+### **DateTime Field Configuration:**
+- **Use `dateLabel` instead of `label`** for datetime fields
+- **For LocalDate fields**: Use `subtype: "date"`
+- **For LocalDateTime fields**: Use `subtype: "datetime"`
+- **Do NOT use `timeLabel`** - avoid time labels entirely
+
+### **Layout Requirements:**
+- **All fields**: Use `columns: null` instead of specific column numbers
+- **Responsive Design**: Use row-based layout for proper field arrangement
 - **Conditional Display**: Hide optional sections when data is null using `conditional.hide`
+
+### **Advanced Features:**
 - **Validation**: Add `validate.required` for mandatory output fields
-- **Layout**: Use responsive row/column layout for proper field arrangement
 
 ### **File Requirements:**
 - **Location**: Save to `./src/main/resources/camunda8/[TaskName].form`
 - **Form ID**: Must match the external reference in BPMN (usually the TaskName)
-- **Schema Version**: Use version 16 for Camunda 8.4+, version 13 for older versions
+- **Schema Version**: Use version 16
 - **Execution Platform**: "Camunda Cloud" with appropriate version
 
 ### **Data Binding:**
@@ -32,28 +42,38 @@ Create a Camunda 8 form JSON file for this UserTaskDsl with the following requir
 - Output fields: Use simple property names (e.g., `approved`, `comment`)
 - Array elements: Use array indexing or dynamic list path binding
 
-### **Example Structure:**
+### **Example DateTime Field Structure:**
 ```json
+// LocalDate field (date only)
 {
-  "components": [
-    {
-      "text": "# [Task Title]\n\nBrief description of the task.",
-      "type": "text"
-    },
-    {
-      "text": "## Input Section Name",
-      "type": "text"
-    },
-    // Read-only input fields here
-    {
-      "text": "## Output Section Name", 
-      "type": "text"
-    },
-    // Editable output fields here
-  ],
-  "type": "default",
-  "id": "[TaskName]",
-  "executionPlatform": "Camunda Cloud",
-  "executionPlatformVersion": "8.6.0",
-  "schemaVersion": 16
+  "dateLabel": "Date of Birth",
+  "type": "datetime",
+  "subtype": "date",
+  "id": "Field_dateOfBirth",
+  "key": "client.dateOfBirth",
+  "readonly": true,
+  "layout": {
+    "row": "Row_dates",
+    "columns": null
+  },
+  "conditional": {
+    "hide": "=client.dateOfBirth = null"
+  }
+}
+
+// LocalDateTime field (date + time)
+{
+  "dateLabel": "Created At",
+  "type": "datetime",
+  "subtype": "datetime",
+  "id": "Field_createdAt",
+  "key": "client.createdAt",
+  "readonly": true,
+  "layout": {
+    "row": "Row_dates",
+    "columns": null
+  },
+  "conditional": {
+    "hide": "=client.createdAt = null"
+  }
 }
