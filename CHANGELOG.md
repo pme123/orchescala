@@ -14,6 +14,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## 0.2.23 - 2025-10-03
+### Changed 
+- Fixed Links in References - added company. - see [Commit](git@github.com:pme123/orchescala/commit/9202c9b73326788f59adf2bcf8600616ebbf8236)
+- Added C8 support for Simulation in simulation.md - see [Commit](git@github.com:pme123/orchescala/commit/e78b04bc2402832609468d90f571243743d87fa2)
+- Adjustments in c8_createFormFromUserTaskDsl. - see [Commit](git@github.com:pme123/orchescala/commit/a094cb8965e9bd6c0c971fe989dc2faccdcf7555)
+- Added prompt c8_createFormFromUserTaskDsl. - see [Commit](git@github.com:pme123/orchescala/commit/5fb9810782c1c61883a74c960c25b92ca8c4b07c)
+- Added exception for end event. - see [Commit](git@github.com:pme123/orchescala/commit/faee28ed4559d601a76611cee68bd372cb3450b5)
+- Adjusted branches. - see [Commit](git@github.com:pme123/orchescala/commit/223397229b22c8157ca1971cdf8fa45f1ca9540b)
+- Removed docs as it is now done by github action. - see [Commit](git@github.com:pme123/orchescala/commit/f6ef0543f85399855dad51d580891b18152ab044)
+- Adjusted path to 00-docs/ in deploydocu. - see [Commit](git@github.com:pme123/orchescala/commit/7a2995c92f003e55f78cb1f1cf69b540a57f1a9e)
+- Added setup and upload artifacts. - see [Commit](git@github.com:pme123/orchescala/commit/fe216bbef95f83b72e2d6dcf40cea9145099fc7e)
+- Added rights for pages deploy. - see [Commit](git@github.com:pme123/orchescala/commit/df488c69004ba58c15523a30c4ca73a949924e12)
+- Added sbt install. - see [Commit](git@github.com:pme123/orchescala/commit/6ceabab63631c1f5a57de9d036898b86b053aa3d)
+- Try to run documentation without local files. - see [Commit](git@github.com:pme123/orchescala/commit/1725f5f7f7a214f19d9e11dfd1c2878d4fc6f6ae)
+- Added migrationC7toC8.html. - see [Commit](git@github.com:pme123/orchescala/commit/d1e875f557f5dbcda233201df19801d759dd0606)
+
+
 ## 0.2.22 - 2025-09-26
 ### Changed 
 - Create static.yml - see [Commit](git@github.com:pme123/orchescala/commit/5b3983cd916e398f78a3b622699771943c384798)
