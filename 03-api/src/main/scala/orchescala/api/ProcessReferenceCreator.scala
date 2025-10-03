@@ -10,7 +10,8 @@ import orchescala.domain.{InOutType, shortenName}
 trait ProcessReferenceCreator:
 
   println(s"ProcessReferenceCreator: ${getClass.getName}")
-  protected def projectName: String = getClass.getName.split('.').takeWhile(_ != "api").mkString("-")
+  protected def projectName: String =
+    getClass.getName.split('.').takeWhile(_ != "api").mkString("-")
 
   protected def apiConfig: ApiConfig
 
@@ -21,7 +22,8 @@ trait ProcessReferenceCreator:
 
   protected def gitBasePath: os.Path                   = apiConfig.tempGitDir
   protected def docProjectUrl(project: String): String =
-    apiConfig.docBaseUrl.map(u => s"$u/$project").getOrElse("NOT_SET")
+    val companyName = project.split("-").head
+    apiConfig.docBaseUrl.map(u => s"$u/$companyName/$project").getOrElse("NOT_SET")
 
   private lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs ++ apiConfig.otherProjectsConfig.projectConfigs
@@ -36,14 +38,15 @@ trait ProcessReferenceCreator:
              os.walk(absBpmnPath)
            else
              println(s"THIS PATH DOES NOT EXIST: $absBpmnPath")
-             Seq.empty
-          )
+             Seq.empty)
 
       }
       .map { case projectName -> path =>
         println(s"Get BPMNs in $projectName")
         projectName -> path
-          .filterNot(_.toString.contains("/target")) //TODO filter all Camunda 8 BPMNs - NOT SUPPORTED YET
+          .filterNot(
+            _.toString.contains("/target")
+          ) // TODO filter all Camunda 8 BPMNs - NOT SUPPORTED YET
           .filterNot(_.toString.contains("/camunda8"))
           .filter(_.toString.endsWith(".bpmn"))
           .map(p =>
@@ -90,7 +93,7 @@ trait ProcessReferenceCreator:
               !c.contains(s"id=\"$refId\"")
             }
             .map { pc =>
-              //println(s"-> $processName ${pc._1} - ${pc._2}")
+              // println(s"-> $processName ${pc._1} - ${pc._2}")
               docuPath(processName, pc._1, pc._2)
             }
         }
