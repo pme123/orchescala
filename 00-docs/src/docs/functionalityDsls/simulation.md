@@ -1,12 +1,6 @@
 # Simulations
 
-@:callout(warning)
-This expects that your variables are simple values or JSON-objects/ -arrays.
-
-For now this only works for **_Camunda 7_**.
-@:@
-
-Simulations let you run BPMNs automatically on an installed Camunda 7 Platform.
+Simulations let you run BPMNs automatically on an installed Camunda 7 or 8 Platform.
 The diagrams must be deployed.
 
 @:callout(info)
