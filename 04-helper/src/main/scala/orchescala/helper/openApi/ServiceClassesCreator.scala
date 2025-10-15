@@ -24,7 +24,7 @@ case class ServiceClassesCreator(
     println(s"createSchema $key")
     if schema.getAllOf == null
     then {
-      if schema.getType.toLowerCase == "array" then
+      if schema.getType != null && schema.getType.toLowerCase == "array" then
         createArray(key, schema)
       else
         createCaseClass(key, schema)

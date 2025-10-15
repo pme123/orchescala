@@ -51,7 +51,7 @@ class TimerRunner(val timerScenario: STimerEvent)(using
                 ZIO.succeed:
                   summon[ScenarioData]
                     .withJobId(jobId)
-                    .info(s"TimerEvent '${timerScenario.inOut.id}' ready")
+                    .info(s"TimerEvent '${timerScenario.inOut.id}' ready ($jobId).")
               .getOrElse:
                 ZIO.fail:
                   SimulationError.ProcessError(
