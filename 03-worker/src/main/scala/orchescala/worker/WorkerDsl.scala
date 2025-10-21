@@ -212,7 +212,7 @@ private trait InitProcessDsl[
 
   protected def customInitZIO(
       inputObject: In
-  ): EngineRunContext ?=> IO[InitProcessError, InitIn] =
+  ): InitProcessZIOOutput[InitIn] =
     ZIO
       .attempt(customInit(inputObject))
       .mapError: err =>

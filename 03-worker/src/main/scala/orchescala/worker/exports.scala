@@ -23,6 +23,9 @@ type SendRequestType[ServiceOut] =
 type RunWorkZIOOutput[Out] =
   EngineRunContext ?=> IO[CustomError, Out]
 
+type InitProcessZIOOutput[InitIn] =
+  EngineRunContext ?=> IO[InitProcessError, InitIn]
+
 def decodeTo[A: InOutDecoder](
     jsonStr: String
 ): IO[WorkerError.UnexpectedError, A] =
