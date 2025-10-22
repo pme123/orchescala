@@ -1,6 +1,6 @@
 package orchescala.simulation
 
-import orchescala.engine.ProcessEngine
+import orchescala.engine.{EngineApp, ProcessEngine}
 import orchescala.simulation.*
 import orchescala.simulation.runner.*
 import zio.{IO, Scope, ZIO, ZLayer}
@@ -9,16 +9,9 @@ import scala.compiletime.uninitialized
 
 abstract class SimulationRunner
     extends SimulationDsl[IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]]],
+      EngineApp,
       TestOverrideExtensions,
       Logging:
-
-  // For traditional engines (C7, direct engines)
-  def engine: ProcessEngine =
-    throw new RuntimeException("Either override 'engine' or 'engineZIO' method")
-
-  // For environment-based engines (C8 with SharedC8ClientManager, C7 with SharedC7ClientManager)
-  def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
-    ZIO.succeed(engine)
 
   def config: SimulationConfig =
     SimulationConfig()

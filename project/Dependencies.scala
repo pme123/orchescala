@@ -10,7 +10,7 @@ object Dependencies {
   val osLibVersion          = "0.11.4"
   // 01-domain
   val openapiCirceVersion   = "0.11.10"
-  val tapirVersion          = "1.11.44"
+  val tapirVersion          = "1.11.50"
   val ironCirceVersion      = "3.2.0"
   val mUnitVersion          = "1.1.0"
   val scala3MockVersion     = "0.6.6"
@@ -43,7 +43,9 @@ object Dependencies {
   val camundaVersion        = "7.23.0" // external task client
   val jaxbApiVersion        = "4.0.2"  // needed by the camunda client 7.21?!
   val scaffeineV            = "5.3.0"  // caching
-  val zioVersion            = "2.1.17" // zio
+  val zioVersion            = "2.1.22" // zio
+  val zioHttpVersion        = "3.5.1"  // zio http
+  val zioLoggingVersion     = "2.5.1" // logging
   val logbackVersion        = "1.4.14" // logging
   // - sttpClient3
 
@@ -77,6 +79,11 @@ object Dependencies {
     // "io.circe" %% "circe-generic" % circeVersion,
     "io.github.iltotore"            %% "iron-circe"         % ironCirceVersion,
     "com.softwaremill.sttp.tapir"   %% "tapir-iron"         % tapirVersion
+  )
+
+  lazy val zioHttpDependencies = Seq(
+    "dev.zio"                       %% "zio-http"              % zioHttpVersion,
+    "com.softwaremill.sttp.tapir"   %% "tapir-zio-http-server" % tapirVersion
   )
 
   lazy val camunda7workerDependencies    = Seq(
@@ -115,7 +122,7 @@ object Dependencies {
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     )
 
-  val zioSlf4jDependency = "dev.zio"       %% "zio-logging-slf4j" % zioVersion
+  val zioSlf4jDependency = "dev.zio"       %% "zio-logging-slf4j" % zioLoggingVersion
   val logbackDependency  = "ch.qos.logback" % "logback-classic"   % logbackVersion % Runtime
 
   // examples

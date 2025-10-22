@@ -20,10 +20,12 @@ case class ProcessInfo(
 
 object ProcessInfo:
   given InOutCodec[ProcessInfo] = deriveInOutCodec
+  given ApiSchema[ProcessInfo] = deriveApiSchema
 
   @description("Status of a process instance")
   enum ProcessStatus:
     case Active, Completed, Failed
   object ProcessStatus:
     given InOutCodec[ProcessStatus] = deriveInOutCodec
-end ProcessInfo 
+    given ApiSchema[ProcessStatus] = deriveEnumApiSchema
+end ProcessInfo
