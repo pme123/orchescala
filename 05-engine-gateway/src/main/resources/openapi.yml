@@ -1,0 +1,144 @@
+openapi: 3.1.0
+info:
+  title: Engine Gateway API
+  version: 1.0.0
+  description: |
+    REST API for the Orchescala Engine Gateway.
+
+    The Gateway automatically routes requests to the appropriate Camunda engine (C7 or C8)
+    based on the process definition and configured engines.
+
+    ## Features
+    - Automatic engine detection and routing
+    - Support for both Camunda 7 and Camunda 8
+    - Unified API across different engine versions
+paths:
+  /process/{processDefId}/async:
+    post:
+      tags:
+      - Process Instance
+      summary: Start a process instance asynchronously
+      description: |
+        Starts a new process instance asynchronously using the Gateway.
+
+        The Gateway will automatically route the request to the appropriate engine (C7 or C8)
+        based on the process definition and configured engines.
+
+        **Request Body:**
+        - `variables`: JSON object containing process variables
+        - `businessKey`: Optional business key to identify the process instance
+
+        **Response:**
+        Returns information about the started process instance including:
+        - Process instance ID
+        - Business key (if provided)
+        - Process status
+        - Engine type that executed the process (C7, C8, or Gateway)
+
+        **Error Responses:**
+        - `400 Bad Request`: Invalid request parameters or process definition not found
+        - `500 Internal Server Error`: Error occurred while starting the process
+      operationId: Start Process Async
+      parameters:
+      - name: processDefId
+        in: path
+        description: Process definition ID or key
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: Request body with variables and optional business key
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartProcessRequest'
+        required: true
+      responses:
+        '200':
+          description: Information about the started process instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartProcessResponse'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    C7:
+      title: C7
+      type: object
+    C8:
+      title: C8
+      type: object
+    EngineType:
+      title: EngineType
+      description: Type of the engine that executed the process
+      oneOf:
+      - $ref: '#/components/schemas/C7'
+      - $ref: '#/components/schemas/C8'
+      - $ref: '#/components/schemas/Gateway'
+    ErrorResponse:
+      title: ErrorResponse
+      description: Error response
+      type: object
+      required:
+      - message
+      properties:
+        message:
+          description: Error message
+          type: string
+        code:
+          description: Optional error code
+          type: string
+    Gateway:
+      title: Gateway
+      type: object
+    ProcessStatus:
+      title: ProcessStatus
+      description: Current status of the process
+      type: string
+      enum:
+      - Active
+      - Completed
+      - Failed
+    StartProcessRequest:
+      title: StartProcessRequest
+      description: Request to start a process instance asynchronously
+      type: object
+      required:
+      - variables
+      properties:
+        variables:
+          description: Process variables as JSON object
+        businessKey:
+          description: Optional business key for the process instance
+          type: string
+    StartProcessResponse:
+      title: StartProcessResponse
+      description: Response containing information about the started process instance
+      type: object
+      required:
+      - processInstanceId
+      - status
+      - engineType
+      properties:
+        processInstanceId:
+          description: ID of the process instance
+          type: string
+        businessKey:
+          description: Optional business key associated with the process
+          type: string
+        status:
+          $ref: '#/components/schemas/ProcessStatus'
+        engineType:
+          $ref: '#/components/schemas/EngineType'

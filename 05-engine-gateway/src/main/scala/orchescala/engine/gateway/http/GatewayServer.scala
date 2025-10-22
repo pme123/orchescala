@@ -1,7 +1,7 @@
 package orchescala.engine.gateway.http
 
 import orchescala.engine.gateway.GProcessEngine
-import orchescala.engine.{EngineApp, EngineConfig, EngineRuntime, ProcessEngine}
+import orchescala.engine.*
 import orchescala.engine.c7.{C7Client, C7ProcessEngine, SharedC7ClientManager}
 import orchescala.engine.c8.{C8Client, C8ProcessEngine, SharedC8ClientManager}
 import zio.*
@@ -36,18 +36,16 @@ abstract class GatewayServer extends EngineApp:
 
     val program =
       for
-        _             <- ZIO.logInfo(s"Starting Engine Gateway Server on port $port")
-
-        // Generate OpenAPI specification
-        _             <- generateOpenApiSpec()
+        _ <- ZIO.logInfo(banner("Engine Gateway Server"))
+        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port $port")
 
         // Create gateway engine
         gatewayEngine <- engineZIO
 
         // Create routes
-        apiRoutes = GatewayRoutes.routes(gatewayEngine.processInstanceService)
+        apiRoutes  = GatewayRoutes.routes(gatewayEngine.processInstanceService)
         docsRoutes = OpenApiRoutes.routes
-        allRoutes = apiRoutes ++ docsRoutes
+        allRoutes  = apiRoutes ++ docsRoutes
 
         // Start server
         _ <- ZIO.logInfo(s"Server ready at http://localhost:$port")
@@ -60,28 +58,5 @@ abstract class GatewayServer extends EngineApp:
       EngineRuntime.logger
     ).unit
   end start
-
-  /** Generates the OpenAPI specification YAML file.
-    */
-  private def generateOpenApiSpec(): ZIO[Any, Throwable, Unit] =
-    ZIO.attempt {
-      import java.nio.file.{Files, Paths, StandardOpenOption}
-
-      val yaml = OpenApiGenerator.generateYaml
-      val outputPath = Paths.get("05-engine-gateway/src/main/resources/openapi.yml")
-
-      // Ensure parent directory exists
-      Files.createDirectories(outputPath.getParent)
-
-      // Write the YAML file
-      Files.writeString(
-        outputPath,
-        yaml,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.TRUNCATE_EXISTING
-      )
-
-      ZIO.logInfo(s"✓ OpenAPI specification generated at: $outputPath")
-    }.flatten
 
 end GatewayServer

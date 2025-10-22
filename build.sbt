@@ -176,6 +176,9 @@ lazy val engineC8 = project
   )
   .dependsOn(engine)
 
+// Task to generate OpenAPI YAML file
+lazy val generateOpenApi = taskKey[Unit]("Generate OpenAPI specification YAML file")
+
 lazy val engineGateway = project
   .in(file("./05-engine-gateway"))
   .settings(publicationSettings)
@@ -186,7 +189,13 @@ lazy val engineGateway = project
     libraryDependencies ++= zioTestDependencies ++ zioHttpDependencies ++ tapirDependencies ++ Seq(
       scaffeineDependency,
       logbackDependency
-    )
+    ),
+    // Task to generate OpenAPI specification (run manually with: sbt "project engineGateway" generateOpenApi)
+    generateOpenApi := {
+      val log = streams.value.log
+      log.info("Generating OpenAPI specification...")
+      (Compile / runMain).toTask(" orchescala.engine.gateway.http.GenerateOpenApiYaml").value
+    }
   )
   .dependsOn(engineC7, engineC8)
 

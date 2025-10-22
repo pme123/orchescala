@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.BuildInfo
-import orchescala.engine.EngineRuntime
+import orchescala.engine.{EngineRuntime, banner}
 import zio.ZIO.*
 import zio.{Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
 
@@ -45,7 +45,7 @@ trait WorkerApp extends ZIOAppDefault:
         _ <- HttpClientProvider.threadPoolFinalizer
         _ <- foreachParDiscard(workerRegistries): registry =>
                registry.engineConnectionManagerFinalizer
-        _ <- logInfo(banner)
+        _ <- logInfo(banner(applicationName))
         _ <- printJvmInfologInfo
         _ <- MemoryMonitor.start
         _ <- foreachParDiscard(workerRegistries): registry =>
@@ -61,24 +61,7 @@ trait WorkerApp extends ZIOAppDefault:
       case Nil => Seq(workerApp)
       case _   => workerApp +:
         workerApp.theDependencies.flatMap(workerApps)
-
-  private lazy val banner =
-    s"""
-       |
-       |..#######..########...######..##.....##.########..######...######.....###....##..........###...
-       |.##.....##.##.....##.##....##.##.....##.##.......##....##.##....##...##.##...##.........##.##..
-       |.##.....##.##.....##.##.......##.....##.##.......##.......##........##...##..##........##...##.
-       |.##.....##.########..##.......#########.######....######..##.......##.....##.##.......##.....##
-       |.##.....##.##...##...##.......##.....##.##.............##.##.......#########.##.......#########
-       |.##.....##.##....##..##....##.##.....##.##.......##....##.##....##.##.....##.##.......##.....##
-       |..#######..##.....##..######..##.....##.########..######...######..##.....##.########.##.....##
-       |
-       |                                                        >>> DOMAIN DRIVEN PROCESS ORCHESTRATION
-       |  $applicationName
-       |
-       |  Orchescala: ${BuildInfo.version}
-       |  Scala: ${BuildInfo.scalaVersion}
-       |""".stripMargin
+  
 
   private def printJvmInfologInfo(using Trace): ZIO[Any, Nothing, Unit] =
     // Print JVM arguments at startup

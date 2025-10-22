@@ -28,6 +28,8 @@ jobs:
         uses: sbt/setup-sbt@v1
       - name: Compile
         run: sbt compile
+      - name: Compile and Generate OpenAPI
+        run: sbt "compile; project engineGateway; generateOpenApi"
       - name: Test
         run: sbt -v "test:compile; domain/test; api/test"
         env:
