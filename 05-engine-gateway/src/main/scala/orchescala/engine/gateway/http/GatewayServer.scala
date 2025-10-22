@@ -37,15 +37,22 @@ abstract class GatewayServer extends EngineApp:
     val program =
       for
         _             <- ZIO.logInfo(s"Starting Engine Gateway Server on port $port")
+
+        // Generate OpenAPI specification
+        _             <- generateOpenApiSpec()
+
         // Create gateway engine
         gatewayEngine <- engineZIO
 
         // Create routes
-        routes = GatewayRoutes.routes(gatewayEngine.processInstanceService)
+        apiRoutes = GatewayRoutes.routes(gatewayEngine.processInstanceService)
+        docsRoutes = OpenApiRoutes.routes
+        allRoutes = apiRoutes ++ docsRoutes
 
         // Start server
         _ <- ZIO.logInfo(s"Server ready at http://localhost:$port")
-        _ <- Server.serve(routes).forever
+        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs")
+        _ <- Server.serve(allRoutes).forever
       yield ()
 
     program.provide(
@@ -53,5 +60,28 @@ abstract class GatewayServer extends EngineApp:
       EngineRuntime.logger
     ).unit
   end start
+
+  /** Generates the OpenAPI specification YAML file.
+    */
+  private def generateOpenApiSpec(): ZIO[Any, Throwable, Unit] =
+    ZIO.attempt {
+      import java.nio.file.{Files, Paths, StandardOpenOption}
+
+      val yaml = OpenApiGenerator.generateYaml
+      val outputPath = Paths.get("05-engine-gateway/src/main/resources/openapi.yml")
+
+      // Ensure parent directory exists
+      Files.createDirectories(outputPath.getParent)
+
+      // Write the YAML file
+      Files.writeString(
+        outputPath,
+        yaml,
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING
+      )
+
+      ZIO.logInfo(s"✓ OpenAPI specification generated at: $outputPath")
+    }.flatten
 
 end GatewayServer
