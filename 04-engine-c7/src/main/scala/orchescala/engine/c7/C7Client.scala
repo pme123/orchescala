@@ -10,9 +10,9 @@ trait C7Client:
 
 /** C7 client for local/direct connections */
 trait C7LocalClient extends C7Client:
-  
+
   protected def camundaRestUrl: String = "http://localhost:8080/engine-rest"
-  
+
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
     SharedC7ClientManager.getOrCreateClient:
       ZIO.attempt:
@@ -26,11 +26,11 @@ end C7LocalClient
 
 /** C7 client with basic authentication */
 trait C7BasicAuthClient extends C7Client:
-  
+
   protected def camundaRestUrl: String
   protected def username: String
   protected def password: String
-  
+
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
     SharedC7ClientManager.getOrCreateClient:
       ZIO.attempt:
@@ -44,8 +44,37 @@ trait C7BasicAuthClient extends C7Client:
 
 end C7BasicAuthClient
 
+/** C7 client with Bearer token authentication (token provided per request) */
+trait C7BearerTokenClient extends C7Client:
+
+  protected def camundaRestUrl: String
+
+  /** Creates a client with the provided Bearer token.
+    * Note: This creates a new client for each token, so it should not be cached in SharedC7ClientManager.
+    */
+  def clientWithToken(token: String): ZIO[Any, EngineError, ApiClient] =
+    ZIO.attempt:
+      val apiClient = new ApiClient()
+      apiClient.setBasePath(camundaRestUrl)
+      apiClient.addDefaultHeader("Authorization", s"Bearer $token")
+      apiClient
+    .mapError: ex =>
+      EngineError.UnexpectedError(s"Problem creating C7 API Client with token: $ex")
+
+  // Default client without token (for compatibility)
+  lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
+    SharedC7ClientManager.getOrCreateClient:
+      ZIO.attempt:
+        val apiClient = new ApiClient()
+        apiClient.setBasePath(camundaRestUrl)
+        apiClient
+      .mapError: ex =>
+        EngineError.UnexpectedError(s"Problem creating C7 API Client: $ex")
+
+end C7BearerTokenClient
+
 object C7Client:
-  
+
   /** Helper to create an IO[EngineError, ApiClient] from a C7Client that can be used in engine services */
   def resolveClient(c7Client: C7Client): ZIO[SharedC7ClientManager, Nothing, IO[EngineError, ApiClient]] =
     ZIO.environmentWith[SharedC7ClientManager] { env =>

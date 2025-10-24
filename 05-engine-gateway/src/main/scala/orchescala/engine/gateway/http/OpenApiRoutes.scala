@@ -33,7 +33,7 @@ object OpenApiRoutes:
       Method.GET / "favicon.ico" -> handler {
         ZIO.attempt {
           val faviconBytes = scala.io.Source
-            .fromResource("favicon.ico")(scala.io.Codec.ISO8859)
+            .fromResource("favicon.ico")(using scala.io.Codec.ISO8859)
             .map(_.toByte)
             .toArray
           Response(
