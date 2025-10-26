@@ -6,5 +6,5 @@ enum EngineType:
   case C7, C8, Gateway
 object EngineType:
   given InOutCodec[EngineType] = deriveEnumInOutCodec
-  given ApiSchema[EngineType]  = deriveApiSchema
+  given ApiSchema[EngineType]  = deriveEnumApiSchema
 end EngineType

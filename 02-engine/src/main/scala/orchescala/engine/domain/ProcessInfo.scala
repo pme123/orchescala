@@ -22,10 +22,16 @@ object ProcessInfo:
   given InOutCodec[ProcessInfo] = deriveInOutCodec
   given ApiSchema[ProcessInfo] = deriveApiSchema
 
+  lazy val example = ProcessInfo(
+    processInstanceId = "f150c3f1-13f5-11ec-936e-0242ac1d0007",
+    businessKey = Some("ORDER-2025-12345"),
+    status = ProcessStatus.Active,
+    engineType = EngineType.C7
+  )
   @description("Status of a process instance")
   enum ProcessStatus:
     case Active, Completed, Failed
   object ProcessStatus:
-    given InOutCodec[ProcessStatus] = deriveInOutCodec
+    given InOutCodec[ProcessStatus] = deriveEnumInOutCodec
     given ApiSchema[ProcessStatus] = deriveEnumApiSchema
 end ProcessInfo

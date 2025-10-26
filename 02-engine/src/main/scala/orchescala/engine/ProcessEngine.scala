@@ -1,6 +1,5 @@
 package orchescala.engine
 
-import orchescala.engine.domain.EngineType
 import orchescala.engine.services.*
 
 trait ProcessEngine:
