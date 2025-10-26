@@ -2,31 +2,36 @@ package orchescala.engine
 package c7
 
 import orchescala.domain.CamundaVariable.CNull
-import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder}
+import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder, Json, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineError.MappingError
 import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
-import org.camunda.community.rest.client.api.TaskApi
-import org.camunda.community.rest.client.dto.{CompleteTaskDto, TaskWithAttachmentAndCommentDto, VariableValueDto}
+import org.camunda.community.rest.client.api.{ProcessInstanceApi, TaskApi}
+import org.camunda.community.rest.client.dto.{
+  CompleteTaskDto,
+  TaskWithAttachmentAndCommentDto,
+  VariableValueDto
+}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
+import io.circe.parser
 
 import scala.jdk.CollectionConverters.*
 
-class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineConfig: EngineConfig)
+class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(using apiClientZIO: IO[EngineError, ApiClient], engineConfig: EngineConfig)
     extends UserTaskService, C7Service:
 
   def getUserTask(
       processInstanceId: String,
-      userTaskId: String
+      userTaskDefId: String
   ): IO[EngineError, Option[UserTask]] =
     for
       apiClient <- apiClientZIO
       _         <-
         logInfo(
-          s"Getting UserTask for processInstanceId: $processInstanceId - taskDefinitionKey: $userTaskId"
+          s"Getting UserTask for processInstanceId: $processInstanceId - userTaskDefId: $userTaskDefId"
         )
       taskDtos  <- ZIO
                      .attempt:
@@ -76,7 +81,7 @@ class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineCo
                            null,              // involvedUserExpression,
                            null,              // assigned,
                            null,              // unassigned,
-                           userTaskId,        // taskDefinitionKey,
+                           userTaskDefId,     // taskDefinitionKey,
                            null,              // taskDefinitionKeyIn,
                            null,              // taskDefinitionKeyLike,
                            null,              // name,
@@ -193,4 +198,7 @@ class C7UserTaskService(using apiClientZIO: IO[EngineError, ApiClient], engineCo
         MappingError(
           s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: ${err.getMessage}"
         )
+  
+
+
 end C7UserTaskService

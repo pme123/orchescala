@@ -1,25 +1,30 @@
 package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
-import io.camunda.client.api.search.response => camunda
+import io.camunda.client.api.search.response as camunda
+import io.camunda.client.api.search.response.Variable
 import orchescala.engine.domain.EngineError
 
 import java.time.OffsetDateTime
-import orchescala.domain.CamundaVariable
+import orchescala.domain.{CamundaVariable, Json, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.UserTask
 import orchescala.engine.services.UserTaskService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
+import io.circe.parser
 
 import scala.jdk.CollectionConverters.*
 
-class C8UserTaskService(using
+class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(using
     camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
 ) extends UserTaskService, C8Service:
 
-  def getUserTask(processInstanceId: String, userTaskId: String): IO[EngineError, Option[UserTask]] =
+  def getUserTask(
+      processInstanceId: String,
+      userTaskDefId: String
+  ): IO[EngineError, Option[UserTask]] =
     for
       camundaClient <- camundaClientZIO
       userTaskDtos  <-
@@ -29,7 +34,7 @@ class C8UserTaskService(using
               .newUserTaskSearchRequest()
               .filter(f =>
                 f.processInstanceKey(processInstanceId.toLong)
-                  .elementId(userTaskId)
+                  .elementId(userTaskDefId)
               ).send()
               .join()
               .items()
@@ -37,7 +42,7 @@ class C8UserTaskService(using
             EngineError.ProcessError(
               s"Problem getting UserTask for Process Instance '$processInstanceId': ${err.getMessage}"
             )
-      userTask     <-
+      userTask      <-
         ZIO
           .attempt:
             mapToUserTask(userTaskDtos.asScala.toSeq.headOption)
@@ -47,14 +52,15 @@ class C8UserTaskService(using
             )
     yield userTask
 
-  def complete(taskId: String, out: Map[String, CamundaVariable]): IO[EngineError, Unit] = 
+  def complete(taskId: String, out: Map[String, CamundaVariable]): IO[EngineError, Unit] =
     for
       camundaClient <- camundaClientZIO
-      taskKey <- ZIO.attempt(taskId.toLong).mapError: err =>
-        EngineError.ProcessError(
-          s"Problem completingUserTask converting taskId '$taskId' to Long: ${err.getMessage}"
-        )
-      userTaskDtos <-
+      taskKey       <-
+        ZIO.attempt(taskId.toLong).mapError: err =>
+          EngineError.ProcessError(
+            s"Problem completingUserTask converting taskId '$taskId' to Long: ${err.getMessage}"
+          )
+      userTaskDtos  <-
         ZIO
           .attempt:
             camundaClient
@@ -69,7 +75,7 @@ class C8UserTaskService(using
     yield ()
 
   private def mapToUserTask(
-                             c8UserTask: Option[camunda.UserTask]
+      c8UserTask: Option[camunda.UserTask]
   ): Option[UserTask] =
 
     c8UserTask.map: taskDto =>
@@ -90,5 +96,5 @@ class C8UserTaskService(using
         taskState = Option(taskDto.getState).map(_.toString)
       )
   end mapToUserTask
-  
+
 end C8UserTaskService

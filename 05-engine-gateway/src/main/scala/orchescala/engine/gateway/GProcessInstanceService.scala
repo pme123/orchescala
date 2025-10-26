@@ -28,9 +28,9 @@ class GProcessInstanceService( using
       cacheUpdateKey = Some((processInfo: ProcessInfo) => processInfo.processInstanceId)
     )
 
-  def getVariables(processInstanceId: String, inOut: Product): IO[EngineError, Seq[JsonProperty]] =
+  def getVariablesInternal(processInstanceId: String, variableFilter: Option[Seq[String]]): IO[EngineError, Seq[JsonProperty]] =
     tryServicesWithErrorCollection[ProcessInstanceService, Seq[JsonProperty]](
-      _.getVariables(processInstanceId, inOut),
+      _.getVariablesInternal(processInstanceId, variableFilter),
       "getVariables",
       Some(processInstanceId)
     )

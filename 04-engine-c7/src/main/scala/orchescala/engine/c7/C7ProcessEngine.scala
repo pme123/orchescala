@@ -21,7 +21,7 @@ class C7ProcessEngine()(
   lazy val jobService: JobService                                         = C7JobService()
   lazy val messageService: MessageService                                 = C7MessageService()
   lazy val signalService: SignalService                                   = C7SignalService()
-  lazy val userTaskService: UserTaskService                               = C7UserTaskService()
+  lazy val userTaskService: UserTaskService                               = C7UserTaskService(C7ProcessInstanceService())
 end C7ProcessEngine
 
 object C7ProcessEngine:

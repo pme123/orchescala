@@ -11,7 +11,7 @@ class GProcessEngine()(
     supportedEngines: Seq[ProcessEngine]
 ) extends ProcessEngine:
 
-  lazy val processInstanceService: ProcessInstanceService                 =
+  lazy val processInstanceService: GProcessInstanceService                 =
     GProcessInstanceService(using supportedEngines.map(_.processInstanceService))
   lazy val historicProcessInstanceService: HistoricProcessInstanceService =
     GHistoricProcessInstanceService(using supportedEngines.map(_.historicProcessInstanceService))
@@ -26,5 +26,5 @@ class GProcessEngine()(
   lazy val signalService: SignalService                                   =
     GSignalService(using supportedEngines.map(_.signalService))
   lazy val userTaskService: UserTaskService                               =
-    GUserTaskService(using supportedEngines.map(_.userTaskService))
+    GUserTaskService(processInstanceService)(using supportedEngines.map(_.userTaskService))
 end GProcessEngine

@@ -43,7 +43,10 @@ abstract class GatewayServer extends EngineApp:
         gatewayEngine <- engineZIO
 
         // Create routes
-        apiRoutes  = GatewayRoutes.routes(gatewayEngine.processInstanceService)
+        apiRoutes  = GatewayRoutes.routes(
+                       gatewayEngine.processInstanceService,
+                       gatewayEngine.userTaskService
+                     )
         docsRoutes = OpenApiRoutes.routes
         allRoutes  = apiRoutes ++ docsRoutes
 

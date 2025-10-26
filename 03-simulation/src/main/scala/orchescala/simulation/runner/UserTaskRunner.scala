@@ -68,7 +68,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
     for
       variables          <-
         processInstanceService
-          .getVariables(processInstanceId, userTaskScenario.inOut.in)
+          .getVariables(processInstanceId, Some(userTaskScenario.inOut.in))
           .mapError: err =>
             SimulationError.ProcessError(
               summon[ScenarioData].error(

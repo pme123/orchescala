@@ -14,19 +14,19 @@ import zio.{IO, ZIO}
 import scala.jdk.CollectionConverters.*
 
 class C8ProcessInstanceService(using
-                               camundaClientZIO: IO[EngineError, CamundaClient],
-                               engineConfig: EngineConfig
-                              ) extends ProcessInstanceService, C8Service:
+    camundaClientZIO: IO[EngineError, CamundaClient],
+    engineConfig: EngineConfig
+) extends ProcessInstanceService, C8Service:
 
-  override def startProcessAsync(
-                                  processDefId: String,
-                                  in: Json,
-                                  businessKey: Option[String] = None
-                                ): IO[EngineError, ProcessInfo] =
+  def startProcessAsync(
+      processDefId: String,
+      in: Json,
+      businessKey: Option[String] = None
+  ): IO[EngineError, ProcessInfo] =
     for
       camundaClient <- camundaClientZIO
-      _ <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      instance <- callStartProcessAsync(processDefId, businessKey, camundaClient, in)
+      _             <- logDebug(s"Starting Process '$processDefId' with variables: $in")
+      instance      <- callStartProcessAsync(processDefId, businessKey, camundaClient, in)
     yield ProcessInfo(
       processInstanceId = instance.getProcessInstanceKey.toString,
       businessKey = businessKey,
@@ -35,11 +35,11 @@ class C8ProcessInstanceService(using
     )
 
   private def callStartProcessAsync(
-                                     processDefId: String,
-                                     businessKey: Option[String],
-                                     c8Client: CamundaClient,
-                                     processVariables: Json
-                                   ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
+      processDefId: String,
+      businessKey: Option[String],
+      c8Client: CamundaClient,
+      processVariables: Json
+  ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
     ZIO
       .attempt {
         val variables = processVariables.deepMerge(businessKey.map(bk =>
@@ -47,7 +47,7 @@ class C8ProcessInstanceService(using
         ).getOrElse(Json.obj()))
 
         val variablesMap = jsonToVariablesMap(variables)
-        val command = c8Client
+        val command      = c8Client
           .newCreateInstanceCommand()
           .bpmnProcessId(processDefId)
           .latestVersion()
@@ -61,13 +61,13 @@ class C8ProcessInstanceService(using
         )
       }
 
-  override def getVariables(
-                             processInstanceId: String,
-                             inOut: Product
-                           ): IO[EngineError, Seq[JsonProperty]] =
+  def getVariablesInternal(
+      processInstanceId: String,
+      variableFilter: Option[Seq[String]]
+  ): IO[EngineError, Seq[JsonProperty]] =
     for
       camundaClient <- camundaClientZIO
-      variableDtos <-
+      variableDtos  <-
         ZIO
           .attempt:
             camundaClient
@@ -80,31 +80,33 @@ class C8ProcessInstanceService(using
             EngineError.ProcessError(
               s"Problem getting Variables for Process Instance '$processInstanceId': ${err.getMessage}"
             )
-      variables <-
+      variables     <-
         ZIO
-          .foreach(filterVariables(inOut, variableDtos.asScala.toSeq)): dto =>
+          .foreach(filterVariables(variableFilter, variableDtos.asScala.toSeq)): dto =>
             toVariableValue(dto)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: ${err.getMessage}"
             )
-      _ <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+      _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
 
-  private def filterVariables(inOut: Product, variableDtos: Seq[Variable]) =
-    variableDtos
-      .filter: v =>
-        v.getValue != null &&
-          inOut.productElementNames.toSeq.contains(v.getName)
+  private def filterVariables(variableFilter: Option[Seq[String]], variableDtos: Seq[Variable]) =
+    if variableFilter.isEmpty then variableDtos
+    else
+      variableDtos
+        .filter: v =>
+          v.getValue != null &&
+            variableFilter.toSeq.flatten.contains(v.getName)
 
   private def toVariableValue(valueDto: Variable): IO[EngineError, JsonProperty] =
     val value = valueDto.getValue
     (value match
       case "null" =>
         ZIO.attempt(Json.Null)
-      case str =>
+      case str    =>
         ZIO.fromEither(parser.parse(str))
-      )
+    )
       .map: v =>
         JsonProperty(valueDto.getName, v)
       .mapError: err =>

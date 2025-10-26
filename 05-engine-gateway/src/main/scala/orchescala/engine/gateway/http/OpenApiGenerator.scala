@@ -22,7 +22,8 @@ object OpenApiGenerator:
     */
   def generate: OpenAPI =
     val endpoints = List(
-      GatewayEndpoints.startProcessAsync
+      GatewayEndpoints.startProcessAsync,
+      GatewayEndpoints.getUserTaskVariables
     )
 
     OpenAPIDocsInterpreter()

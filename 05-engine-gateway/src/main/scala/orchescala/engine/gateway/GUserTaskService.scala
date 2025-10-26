@@ -1,29 +1,20 @@
 package orchescala.engine.gateway
 
-import orchescala.domain.CamundaVariable.CNull
-import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder}
-import orchescala.engine.*
-import orchescala.engine.domain.EngineError.MappingError
+import orchescala.domain.{CamundaVariable, JsonProperty}
 import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
-import org.camunda.community.rest.client.api.TaskApi
-import org.camunda.community.rest.client.dto.{CompleteTaskDto, TaskWithAttachmentAndCommentDto, VariableValueDto}
-import org.camunda.community.rest.client.invoker.ApiClient
-import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 
-import scala.jdk.CollectionConverters.*
-
-class GUserTaskService(using
+class GUserTaskService(val processInstanceService: GProcessInstanceService)(using
     services: Seq[UserTaskService]
 ) extends UserTaskService, GService:
 
   def getUserTask(
-      processInstanceId: String,
-      userTaskId: String
+                   processInstanceId: String,
+                   userTaskDefId: String
   ): IO[EngineError, Option[UserTask]] =
     tryServicesWithErrorCollection[UserTaskService, Option[UserTask]](
-      _.getUserTask(processInstanceId, userTaskId),
+      _.getUserTask(processInstanceId, userTaskDefId),
       "getUserTask",
       Some(processInstanceId),
       Some((userTask: Option[UserTask]) => userTask.map(_.id).getOrElse("NOT-SET"))

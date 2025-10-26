@@ -28,7 +28,7 @@ case class C8ProcessEngine()(
   lazy val signalService: SignalService =
     new C8SignalService()
   lazy val userTaskService: UserTaskService =
-    new C8UserTaskService()
+    new C8UserTaskService(C8ProcessInstanceService())
 
 end C8ProcessEngine
 

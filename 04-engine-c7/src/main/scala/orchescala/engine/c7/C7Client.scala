@@ -75,10 +75,32 @@ end C7BearerTokenClient
 
 object C7Client:
 
-  /** Helper to create an IO[EngineError, ApiClient] from a C7Client that can be used in engine services */
+  /** Helper to create an IO[EngineError, ApiClient] from a C7Client that can be used in engine services.
+    *
+    * For C7BearerTokenClient, this will check AuthContext on every request and create a fresh client
+    * with the token if present. This ensures that pass-through authentication works correctly even
+    * when tokens change between requests.
+    */
   def resolveClient(c7Client: C7Client): ZIO[SharedC7ClientManager, Nothing, IO[EngineError, ApiClient]] =
-    ZIO.environmentWith[SharedC7ClientManager] { env =>
-      c7Client.client.provideEnvironment(env)
-    }
+    c7Client match
+      case bearerClient: C7BearerTokenClient =>
+        // For bearer token clients, check AuthContext on every request
+        ZIO.environmentWith[SharedC7ClientManager] { env =>
+          import orchescala.engine.AuthContext
+          AuthContext.get.flatMap { authContext =>
+            authContext.bearerToken match
+              case Some(token) =>
+                // Use fresh client with token from AuthContext (pass-through authentication)
+                bearerClient.clientWithToken(token)
+              case None =>
+                // No token in context, use default client (may be cached)
+                bearerClient.client.provideEnvironment(env)
+          }
+        }
+      case _ =>
+        // For other client types, use the standard cached client
+        ZIO.environmentWith[SharedC7ClientManager] { env =>
+          c7Client.client.provideEnvironment(env)
+        }
 
 end C7Client

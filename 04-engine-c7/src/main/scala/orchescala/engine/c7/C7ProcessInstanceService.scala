@@ -71,7 +71,10 @@ class C7ProcessInstanceService(using
           s"Problem starting Process '$processDefId': ${err.getMessage}"
         )
 
-  def getVariables(processInstanceId: String, inOut: Product): IO[EngineError, Seq[JsonProperty]] =
+  def getVariablesInternal(
+      processInstanceId: String,
+      variableFilter: Option[Seq[String]]
+  ): IO[EngineError, Seq[JsonProperty]] =
     for
       apiClient    <- apiClientZIO
       variableDtos <-
@@ -85,7 +88,7 @@ class C7ProcessInstanceService(using
             )
       variables    <-
         ZIO
-          .foreach(filterVariables(inOut, variableDtos)):
+          .foreach(filterVariables(variableFilter, variableDtos)):
             case k -> dto =>
               toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
           .mapError: err =>
@@ -95,12 +98,17 @@ class C7ProcessInstanceService(using
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
 
-  private def filterVariables(inOut: Product, variableDtos: java.util.Map[String, VariableValueDto]) =
-    variableDtos
-      .asScala
-      .filter: p =>
-        p._2.getValue != null &&
-          inOut.productElementNames.toSeq.contains(p._1)
+  private def filterVariables(
+      variableFilter: Option[Seq[String]],
+      variableDtos: java.util.Map[String, VariableValueDto]
+  ) =
+    if variableFilter.isEmpty then variableDtos.asScala
+    else
+      variableDtos
+        .asScala
+        .filter: p =>
+          p._2.getValue != null &&
+            variableFilter.toSeq.flatten.contains(p._1)
 
   private def toVariableValue(valueDto: VariableValueDto): IO[EngineError, CamundaVariable] =
     val value = valueDto.getValue
