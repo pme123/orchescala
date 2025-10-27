@@ -109,6 +109,19 @@ object GatewayEndpoints:
     code = Some("TASK_NOT_FOUND")
   )
 
+  // Example JSON for complete user task request body
+  private val completeUserTaskRequestExample = parse("""{
+    "approved": true,
+    "approverComment": "Order approved - customer has good credit rating",
+    "approvalDate": "2025-10-26T14:30:00Z",
+    "nextStep": "shipping"
+  }""").getOrElse(io.circe.Json.Null)
+
+  private val errorResponseTaskComplete = ErrorResponse(
+    message = "Failed to complete user task: Task not found or already completed",
+    code = Some("TASK_COMPLETE_ERROR")
+  )
+
   val getUserTaskVariables: Endpoint[String, (String, String, Option[String], Option[Int]), ErrorResponse, (String, Json), Any] =
     securedBaseEndpoint
       .get
@@ -138,6 +151,32 @@ object GatewayEndpoints:
       .description(
         """Returns the variables for the current user task in a process instance.
           |**At the moment only tested if there is only one active user task in the process instance.**
+          |""".stripMargin
+      )
+      .tag("User Task")
+
+  val completeUserTask: Endpoint[String, (String, String, String, Json), ErrorResponse, Unit, Any] =
+    securedBaseEndpoint
+      .post
+      .in(path[String]("processInstanceId")
+        .description("Process instance ID")
+        .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
+      .in("userTask")
+      .in(path[String]("userTaskDefId")
+        .description("User task definition ID (task definition key in the BPMN)")
+        .example("approve-order"))
+      .in(path[String]("userTaskId")
+        .description("User task instance ID (obtained from getUserTaskVariables)")
+        .example("task-abc123-def456"))
+      .in("complete")
+      .in(jsonBody[Json]
+        .description("Variables to set when completing the task as a JSON object")
+        .example(completeUserTaskRequestExample))
+      .out(statusCode(StatusCode.NoContent))
+      .name("Complete User Task")
+      .summary("Complete a user task with variables")
+      .description(
+        """Completes a user task in a process instance with the provided variables.
           |""".stripMargin
       )
       .tag("User Task")

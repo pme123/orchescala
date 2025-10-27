@@ -1,5 +1,6 @@
 package orchescala.engine.gateway.http
 
+import orchescala.domain.CamundaVariable
 import orchescala.engine.AuthContext
 import orchescala.engine.domain.EngineError
 import orchescala.engine.services.{ProcessInstanceService, UserTaskService}
@@ -59,8 +60,24 @@ object GatewayRoutes:
               .getUserTaskVariables(processInstanceId, userTaskDefId, variableFilter, timeoutInSec)
               .mapError(engineErrorToErrorResponse)
 
+    val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      GatewayEndpoints.completeUserTask.zServerSecurityLogic: token =>
+        validateToken(token)
+      .serverLogic: validatedToken =>
+        (processInstanceId, userTaskDefId, userTaskId, variables) =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            // Convert JSON to Map[String, CamundaVariable]
+            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
+              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
+              case _ => Map.empty[String, CamundaVariable]
+
+            userTaskService
+              .complete(userTaskId, camundaVariables)
+              .mapError(engineErrorToErrorResponse)
+
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      List(startProcessEndpoint, getUserTaskVariablesEndpoint)
+      List(startProcessEndpoint, getUserTaskVariablesEndpoint, completeUserTaskEndpoint)
     )
   end routes
 
