@@ -8,35 +8,23 @@ import sttp.tapir.json.circe.*
 
 object MessageEndpoints:
 
-  // Example error responses
-  private val errorResponseUnauthorized = ErrorResponse(
-    message = "Invalid or missing authentication token",
-    code = Some("UNAUTHORIZED")
-  )
-
-  private val errorResponseBadRequest = ErrorResponse(
-    message = "Message correlation failed: Invalid parameters",
-    code = Some("INVALID_PARAMETERS")
-  )
-
-  private val errorResponseMessageError = ErrorResponse(
-    message = "Failed to send message: Message not found or engine error",
-    code = Some("MESSAGE_ERROR")
-  )
-
   private val baseEndpoint = endpoint
     .in("message")
     .errorOut(
       oneOf[ErrorResponse](
-        oneOfVariant(statusCode(StatusCode.Unauthorized)
+        oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
           .and(jsonBody[ErrorResponse]
-            .example(errorResponseUnauthorized))),
-        oneOfVariant(statusCode(StatusCode.BadRequest)
+            .example(ErrorResponse.unauthorized))) { case e: ErrorResponse if e.httpStatus == 401 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
           .and(jsonBody[ErrorResponse]
-            .example(errorResponseBadRequest))),
-        oneOfVariant(statusCode(StatusCode.InternalServerError)
+            .example(ErrorResponse.badRequest))) { case e: ErrorResponse if e.httpStatus == 400 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
           .and(jsonBody[ErrorResponse]
-            .example(errorResponseMessageError)))
+            .example(ErrorResponse.notFound))) { case e: ErrorResponse if e.httpStatus == 404 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
+          .and(jsonBody[ErrorResponse]
+            .example(ErrorResponse.internalError))) { case e: ErrorResponse if e.httpStatus >= 500 => true },
+        oneOfDefaultVariant(jsonBody[ErrorResponse])
       )
     )
 
@@ -63,7 +51,8 @@ object MessageEndpoints:
         .description("If you have a multi tenant setup, you must specify the Tenant ID.")
         .example(Some("tenant1")))
       .in(query[Option[Int]]("timeToLiveInSec")
-        .description("The time in seconds the message is buffered, waiting for correlation. The default value is 0 seconds (no buffering). Only supported in C8.")
+        .description("The time in seconds the message is buffered, waiting for correlation. The default value is 0 seconds (no buffering). " +
+          "Only supported in C8 - BE AWARE that if set, it is fire and forget: Camunda will just try to correlate for the configured time.")
         .example(Some(60)))
       .in(query[Option[String]]("businessKey")
         .description("Business key to correlate the message to a specific process instance.")

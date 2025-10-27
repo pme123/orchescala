@@ -140,26 +140,41 @@ object GatewayRoutes:
     else
       ZIO.fail(ErrorResponse(
         message = "Invalid or missing authentication token",
-        code = Some("UNAUTHORIZED")
+        code = Some("UNAUTHORIZED"),
+        httpStatus = 401
       ))
 
   private def engineErrorToErrorResponse(error: EngineError): ErrorResponse =
+    val httpStatus = extractHttpStatusFromError(error.errorMsg)
     error match
       case EngineError.ProcessError(msg, code)    =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = httpStatus)
       case EngineError.ServiceError(msg, code)    =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = httpStatus)
       case EngineError.MappingError(msg, code)    =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 400)
       case EngineError.DecodingError(msg, code)   =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 400)
       case EngineError.EncodingError(msg, code)   =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 500)
       case EngineError.DmnError(msg, code)        =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = httpStatus)
       case EngineError.WorkerError(msg, code)     =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 500)
       case EngineError.UnexpectedError(msg, code) =>
-        ErrorResponse(message = msg, code = Some(code.toString))
+        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 500)
+
+  /** Extracts HTTP status code from Camunda error messages.
+    * Looks for patterns like "Failed with code 404:" or "status: 404"
+    */
+  private def extractHttpStatusFromError(errorMsg: String): Int =
+    // Try to extract from "Failed with code XXX:" pattern
+    val codePattern = """Failed with code (\d+):""".r
+    val statusPattern = """status:\s*(\d+)""".r
+
+    codePattern.findFirstMatchIn(errorMsg)
+      .orElse(statusPattern.findFirstMatchIn(errorMsg))
+      .flatMap(m => scala.util.Try(m.group(1).toInt).toOption)
+      .getOrElse(500) // Default to 500 if no status code found
 
 end GatewayRoutes

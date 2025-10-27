@@ -7,45 +7,23 @@ import sttp.tapir.json.circe.*
 
 object UserTaskEndpoints:
 
-  // Example error responses
-  private val errorResponseUnauthorized = ErrorResponse(
-    message = "Invalid or missing authentication token",
-    code = Some("UNAUTHORIZED")
-  )
-
-  private val errorResponseBadRequest = ErrorResponse(
-    message = "Process definition 'invalid-process' not found",
-    code = Some("PROCESS_NOT_FOUND")
-  )
-
-  private val errorResponseInternalError = ErrorResponse(
-    message = "Failed to start process instance: Connection timeout",
-    code = Some("ENGINE_ERROR")
-  )
-
-  private val errorResponseTaskNotFound = ErrorResponse(
-    message = "User task 'approve-order' not found or not yet active in process instance",
-    code = Some("TASK_NOT_FOUND")
-  )
-
-  private val errorResponseTaskComplete = ErrorResponse(
-    message = "Failed to complete user task: Task not found or already completed",
-    code = Some("TASK_COMPLETE_ERROR")
-  )
-
   private val baseEndpoint = endpoint
     .in("process")
     .errorOut(
       oneOf[ErrorResponse](
-        oneOfVariant(statusCode(StatusCode.Unauthorized)
+        oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
           .and(jsonBody[ErrorResponse]
-            .example(errorResponseUnauthorized))),
-        oneOfVariant(statusCode(StatusCode.BadRequest)
+            .example(ErrorResponse.unauthorized))) { case e: ErrorResponse if e.httpStatus == 401 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
           .and(jsonBody[ErrorResponse]
-            .example(errorResponseBadRequest))),
-        oneOfVariant(statusCode(StatusCode.InternalServerError)
+            .example(ErrorResponse.badRequest))) { case e: ErrorResponse if e.httpStatus == 400 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
           .and(jsonBody[ErrorResponse]
-            .example(errorResponseInternalError)))
+            .example(ErrorResponse.notFound))) { case e: ErrorResponse if e.httpStatus == 404 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
+          .and(jsonBody[ErrorResponse]
+            .example(ErrorResponse.internalError))) { case e: ErrorResponse if e.httpStatus >= 500 => true },
+        oneOfDefaultVariant(jsonBody[ErrorResponse])
       )
     )
 
