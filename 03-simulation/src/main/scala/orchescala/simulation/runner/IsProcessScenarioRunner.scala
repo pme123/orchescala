@@ -28,7 +28,8 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
         processInstanceService.startProcessAsync(
           scenario.process.processName,
           scenario.process.camundaInBody,
-          Some(scenario.name)
+          Some(scenario.name),
+          config.tenantId
         ).mapError: err =>
           SimulationError.ProcessError(
             summon[ScenarioData].error(

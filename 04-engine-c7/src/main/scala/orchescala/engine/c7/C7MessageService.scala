@@ -23,12 +23,11 @@ class C7MessageService(using
 
   def sendMessage(
       name: String,
-      tenantId: Option[String] = None,
-      withoutTenantId: Option[Boolean] = None,
-      timeToLiveInSec: Option[Int] = None,
-      businessKey: Option[String] = None,
-      processInstanceId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None
+      tenantId: Option[String],
+      timeToLiveInSec: Option[Int],
+      businessKey: Option[String],
+      processInstanceId: Option[String],
+      variables: Option[Map[String, CamundaVariable]]
   ): IO[EngineError, MessageCorrelationResult] =
     val theBusinessKey = if processInstanceId.isDefined then None else businessKey
     val theTenantId    = if processInstanceId.isDefined then None else tenantId
@@ -51,7 +50,6 @@ class C7MessageService(using
               .deliverMessage(CorrelationMessageDto()
                 .messageName(name)
                 .tenantId(theTenantId.orNull)
-                .withoutTenantId(withoutTenantId.getOrElse(false))
                 .businessKey(theBusinessKey.orNull)
                 .processInstanceId(processInstanceId.orNull)
                 .processVariables(mapToC7Variables(variables))

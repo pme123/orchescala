@@ -23,7 +23,8 @@ class BadScenarioRunner(badScenario: BadScenario)(using
           processInstanceService.startProcessAsync(
             badScenario.process.processName,
             badScenario.process.camundaInBody,
-            Some(badScenario.scenarioName)
+            Some(badScenario.scenarioName),
+            config.tenantId
           ).foldZIO (
               err =>
                 if err.errorMsg.contains(badScenario.errorMsg) then

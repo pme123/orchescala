@@ -1,7 +1,7 @@
 package orchescala.engine.c8
 
 import io.camunda.client.CamundaClient
-import io.camunda.client.api.response.PublishMessageResponse
+import io.camunda.client.api.response.{CorrelateMessageResponse, PublishMessageResponse}
 import orchescala.domain.CamundaVariable
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
@@ -19,12 +19,11 @@ class C8MessageService(using
 
   def sendMessage(
       name: String,
-      tenantId: Option[String] = None,
-      withoutTenantId: Option[Boolean] = None,
-      timeToLiveInSec: Option[Int] = None,
-      businessKey: Option[String] = None,
-      processInstanceId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None
+      tenantId: Option[String],
+      timeToLiveInSec: Option[Int],
+      businessKey: Option[String],
+      processInstanceId: Option[String],
+      variables: Option[Map[String, CamundaVariable]]
   ): IO[EngineError, MessageCorrelationResult] =
 
     for
@@ -40,38 +39,105 @@ class C8MessageService(using
              |""".stripMargin
         )
       variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
-      resp          <-
+      correlationKey = businessKey.orElse(processInstanceId)
+      result        <- timeToLiveInSec
+                         .map: ttl =>
+                           publishMessage(
+                             camundaClient,
+                             name,
+                             tenantId,
+                             correlationKey,
+                             ttl,
+                             variablesMap
+                           )
+                         .getOrElse:
+                           correlateMessage(
+                             camundaClient,
+                             name,
+                             tenantId,
+                             correlationKey,
+                             variablesMap
+                           )
+      _             <- logInfo(s"Message '$name' sent successfully.")
+    yield result
+
+  private def correlateMessage(
+      camundaClient: CamundaClient,
+      name: String,
+      tenantId: Option[String],
+      correlationKey: Option[String],
+      variablesMap: java.util.Map[String, Any]
+  ): IO[EngineError, MessageCorrelationResult] =
+    ZIO
+      .attempt:
+        val command = camundaClient.newCorrelateMessageCommand()
+          .messageName(name)
+
+        val withCorrelationKey = correlationKey match // if set take the businessKey or processInstanceId if not set
+          case Some(pid) =>
+            command.correlationKey(pid)
+          case None      =>
+            command.withoutCorrelationKey()
+
+        withCorrelationKey
+          .tenantId(tenantId.orNull)
+          .variables(variablesMap)
+          .send().join()
+      .mapError: err =>
+        EngineError.ProcessError(
+          s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): ${err.getMessage}"
+        )
+      .flatMap: resp =>
         ZIO
-          .attempt :
-            val command = camundaClient.newCorrelateMessageCommand()
-              .messageName(name)
-
-            val withCorrelationKey = businessKey.orElse(
-              processInstanceId
-            ) match // if set take the businessKey or processInstanceId if not set
-              case Some(pid) =>
-                command.correlationKey(pid)
-              case None      =>
-                command.withoutCorrelationKey()
-
-            withCorrelationKey
-              .tenantId(tenantId.orNull)
-              .variables(variablesMap)
-              .send().join()
+          .attempt:
+            MessageCorrelationResult.ProcessInstance(
+              resp.getMessageKey.toString,
+              resp.getMessageKey.toString,
+              EngineType.C8
+            )
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${businessKey.getOrElse("-")}): ${err.getMessage}"
+              s"Problem mapping MessageCorrelationResult: ${err.getMessage}"
             )
-      _             <- logInfo(s"Message '$name' sent successfully.")
-      // TODO Zeebe doesn't return correlation results directly
-      result        <- ZIO.attempt(MessageCorrelationResult.ProcessInstance(
-                         resp.getMessageKey.toString,
-                         resp.getMessageKey.toString,
-                         EngineType.C8
-                       ))
-                         .mapError: err =>
-                           EngineError.ProcessError(
-                             s"Problem mapping MessageCorrelationResult: ${err.getMessage}"
-                           )
-    yield result
+
+  private def publishMessage(
+      camundaClient: CamundaClient,
+      name: String,
+      tenantId: Option[String],
+      correlationKey: Option[String],
+      timeToLiveInSec: Int,
+      variablesMap: java.util.Map[String, Any]
+  ): IO[EngineError, MessageCorrelationResult] =
+    ZIO
+      .attempt:
+        val command = camundaClient.newPublishMessageCommand()
+          .messageName(name)
+
+        val withCorrelationKey = correlationKey match
+          case Some(key) =>
+            command.correlationKey(key)
+          case None      =>
+            command.correlationKey("") // empty string for no correlation key
+
+        withCorrelationKey
+          .timeToLive(java.time.Duration.ofSeconds(timeToLiveInSec))
+          .tenantId(tenantId.orNull)
+          .variables(variablesMap)
+          .send().join()
+      .mapError: err =>
+        EngineError.ProcessError(
+          s"Problem publishing Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): ${err.getMessage}"
+        )
+      .flatMap: resp =>
+        ZIO
+          .attempt:
+            MessageCorrelationResult.ProcessInstance(
+              resp.getMessageKey.toString,
+              resp.getMessageKey.toString,
+              EngineType.C8
+            )
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem mapping MessageCorrelationResult: ${err.getMessage}"
+            )
 end C8MessageService

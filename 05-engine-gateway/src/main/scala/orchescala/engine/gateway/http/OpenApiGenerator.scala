@@ -10,7 +10,8 @@ object OpenApiGenerator:
 
   /** Generates the OpenAPI specification as a YAML string.
     *
-    * @return OpenAPI specification in YAML format
+    * @return
+    *   OpenAPI specification in YAML format
     */
   def generateYaml: String =
     val openApi = generate
@@ -18,14 +19,16 @@ object OpenApiGenerator:
 
   /** Generates the OpenAPI specification.
     *
-    * @return OpenAPI specification object
+    * @return
+    *   OpenAPI specification object
     */
   def generate: OpenAPI =
     val endpoints = List(
+      MessageEndpoints.sendMessage,
       ProcessInstanceEndpoints.startProcessAsync,
+      SignalEndpoints.sendSignal,
       UserTaskEndpoints.getUserTaskVariables,
-      UserTaskEndpoints.completeUserTask,
-      SignalEndpoints.sendSignal
+      UserTaskEndpoints.completeUserTask
     )
 
     OpenAPIDocsInterpreter()
@@ -48,6 +51,6 @@ object OpenApiGenerator:
           )
         )
       )
+  end generate
 
 end OpenApiGenerator
-
