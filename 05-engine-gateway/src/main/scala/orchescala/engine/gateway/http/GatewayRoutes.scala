@@ -36,7 +36,7 @@ object GatewayRoutes:
       validateToken: String => IO[ErrorResponse, String] = defaultTokenValidator
   ): Routes[Any, Response] =
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      GatewayEndpoints.startProcessAsync.zServerSecurityLogic { token =>
+      ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
         validateToken(token)
       }.serverLogic {
         validatedToken => // validatedToken is the String token returned from security logic
@@ -54,7 +54,7 @@ object GatewayRoutes:
       }
 
     val getUserTaskVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      GatewayEndpoints.getUserTaskVariables.zServerSecurityLogic: token =>
+      UserTaskEndpoints.getUserTaskVariables.zServerSecurityLogic: token =>
         validateToken(token)
       .serverLogic: validatedToken =>
         (processInstanceId, userTaskDefId, variableFilter, timeoutInSec) =>
@@ -65,7 +65,7 @@ object GatewayRoutes:
               .mapError(engineErrorToErrorResponse)
 
     val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      GatewayEndpoints.completeUserTask.zServerSecurityLogic: token =>
+      UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
         validateToken(token)
       .serverLogic: validatedToken =>
         (processInstanceId, userTaskDefId, userTaskId, variables) =>
@@ -81,7 +81,7 @@ object GatewayRoutes:
               .mapError(engineErrorToErrorResponse)
 
     val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      GatewayEndpoints.sendSignal.zServerSecurityLogic: token =>
+      SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
         validateToken(token)
       .serverLogic: validatedToken =>
         (signalName, tenantId, variables) =>
