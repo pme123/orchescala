@@ -26,6 +26,11 @@ object GatewayEndpoints:
     code = Some("ENGINE_ERROR")
   )
 
+  private val errorResponseSignalError = ErrorResponse(
+    message = "Failed to send signal: Signal not found or engine error",
+    code = Some("SIGNAL_ERROR")
+  )
+
   private val baseEndpoint = endpoint
     .in("process")
     .errorOut(
@@ -180,6 +185,51 @@ object GatewayEndpoints:
           |""".stripMargin
       )
       .tag("User Task")
+
+  // Example JSON for send signal request body
+  private val sendSignalRequestExample = parse("""{
+    "orderStatus": "canceled",
+    "cancelReason": "No response from the customer."
+  }""").getOrElse(io.circe.Json.Null)
+
+  private val signalBaseEndpoint = endpoint
+    .in("signal")
+    .errorOut(
+      oneOf[ErrorResponse](
+        oneOfVariant(statusCode(StatusCode.Unauthorized)
+          .and(jsonBody[ErrorResponse]
+            .example(errorResponseUnauthorized))),
+        oneOfVariant(statusCode(StatusCode.BadRequest)
+          .and(jsonBody[ErrorResponse]
+            .example(errorResponseBadRequest))),
+        oneOfVariant(statusCode(StatusCode.InternalServerError)
+          .and(jsonBody[ErrorResponse]
+            .example(errorResponseSignalError)))
+      )
+    )
+
+  private val securedSignalBaseEndpoint = signalBaseEndpoint
+    .securityIn(auth.bearer[String]())
+
+  val sendSignal: Endpoint[String, (String, Json), ErrorResponse, Unit, Any] =
+    securedSignalBaseEndpoint
+      .post
+      .in(path[String]("signalName")
+        .description("Signal name")
+        .example("order-completed-signal"))
+      .in(jsonBody[Json]
+        .description("Variables to send with the signal as a JSON object")
+        .example(sendSignalRequestExample))
+      .out(statusCode(StatusCode.NoContent))
+      .name("Send Signal")
+      .summary("Send a signal to process instances")
+      .description(
+        """Sends a signal that can be received by process instances subscribed to this signal.
+          |The signal is broadcasted to all subscribed handlers across all engines (C7/C8).
+          |It is fire and forget.
+          |""".stripMargin
+      )
+      .tag("Signal")
 
 end GatewayEndpoints
 

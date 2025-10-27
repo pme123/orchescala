@@ -3,7 +3,7 @@ package orchescala.engine.gateway.http
 import orchescala.domain.CamundaVariable
 import orchescala.engine.AuthContext
 import orchescala.engine.domain.EngineError
-import orchescala.engine.services.{ProcessInstanceService, UserTaskService}
+import orchescala.engine.services.{ProcessInstanceService, SignalService, UserTaskService}
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.WebSockets
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
@@ -21,6 +21,8 @@ object GatewayRoutes:
     *   The service to handle process instance operations
     * @param userTaskService
     *   The service to handle user task operations
+    * @param signalService
+    *   The service to handle signal operations
     * @param validateToken
     *   Function to validate the bearer token. Returns Right(token) if valid, Left(ErrorResponse) if
     *   invalid.
@@ -30,6 +32,7 @@ object GatewayRoutes:
   def routes(
       processInstanceService: ProcessInstanceService,
       userTaskService: UserTaskService,
+      signalService: SignalService,
       validateToken: String => IO[ErrorResponse, String] = defaultTokenValidator
   ): Routes[Any, Response] =
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
@@ -76,8 +79,27 @@ object GatewayRoutes:
               .complete(userTaskId, camundaVariables)
               .mapError(engineErrorToErrorResponse)
 
+    val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      GatewayEndpoints.sendSignal.zServerSecurityLogic: token =>
+        validateToken(token)
+      .serverLogic: validatedToken =>
+        (signalName, variables) =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            // Convert JSON to Map[String, CamundaVariable]
+            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
+              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
+              case _ => Map.empty[String, CamundaVariable]
+
+            signalService
+              .sendSignal(
+                name = signalName,
+                variables = Some(camundaVariables)
+              )
+              .mapError(engineErrorToErrorResponse)
+
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      List(startProcessEndpoint, getUserTaskVariablesEndpoint, completeUserTaskEndpoint)
+      List(startProcessEndpoint, getUserTaskVariablesEndpoint, completeUserTaskEndpoint, sendSignalEndpoint)
     )
   end routes
 

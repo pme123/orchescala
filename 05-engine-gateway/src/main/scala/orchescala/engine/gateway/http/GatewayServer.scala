@@ -45,7 +45,8 @@ abstract class GatewayServer extends EngineApp:
         // Create routes
         apiRoutes  = GatewayRoutes.routes(
                        gatewayEngine.processInstanceService,
-                       gatewayEngine.userTaskService
+                       gatewayEngine.userTaskService,
+                       gatewayEngine.signalService
                      )
         docsRoutes = OpenApiRoutes.routes
         allRoutes  = apiRoutes ++ docsRoutes

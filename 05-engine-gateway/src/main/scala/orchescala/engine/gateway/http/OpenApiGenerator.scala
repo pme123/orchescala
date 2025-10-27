@@ -24,7 +24,8 @@ object OpenApiGenerator:
     val endpoints = List(
       GatewayEndpoints.startProcessAsync,
       GatewayEndpoints.getUserTaskVariables,
-      GatewayEndpoints.completeUserTask
+      GatewayEndpoints.completeUserTask,
+      GatewayEndpoints.sendSignal
     )
 
     OpenAPIDocsInterpreter()
