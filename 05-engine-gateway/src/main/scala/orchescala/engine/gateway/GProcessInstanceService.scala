@@ -20,10 +20,11 @@ class GProcessInstanceService( using
   override def startProcessAsync(
       processDefId: String,
       in: Json,
-      businessKey: Option[String] = None
+      businessKey: Option[String],
+      tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
     tryServicesWithErrorCollection[ProcessInstanceService, ProcessInfo](
-      _.startProcessAsync(processDefId, in, businessKey),
+      _.startProcessAsync(processDefId, in, businessKey, tenantId),
       "startProcessAsync",
       cacheUpdateKey = Some((processInfo: ProcessInfo) => processInfo.processInstanceId)
     )

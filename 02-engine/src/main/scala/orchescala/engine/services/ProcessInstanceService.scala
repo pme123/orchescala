@@ -9,7 +9,8 @@ trait ProcessInstanceService extends EngineService:
   def startProcessAsync(
       processDefId: String,
       in: Json,
-      businessKey: Option[String]
+      businessKey: Option[String],
+      tenantId: Option[String]
   ): IO[EngineError, ProcessInfo]
 
   def getVariablesInternal(

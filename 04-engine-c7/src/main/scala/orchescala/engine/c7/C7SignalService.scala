@@ -30,7 +30,7 @@ class C7SignalService(using
             new SignalApi(apiClient)
               .throwSignal(SignalDto()
                 .name(name)
-                .tenantId(tenantId.orNull)
+                .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
                 .withoutTenantId(withoutTenantId.getOrElse(false))
                 .variables(mapToC7Variables(variables)))
           .mapError: err =>

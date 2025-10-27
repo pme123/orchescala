@@ -1,12 +1,10 @@
 package orchescala.engine.gateway.http
 
+import io.circe.parser.*
 import orchescala.domain.*
-import orchescala.engine.domain.{EngineType, ProcessInfo}
+import orchescala.engine.domain.ProcessInfo
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
-import sttp.tapir.generic.auto.*
-import io.circe.syntax.*
-import io.circe.parser.*
 
 object GatewayEndpoints:
 
@@ -64,7 +62,7 @@ object GatewayEndpoints:
   }""").getOrElse(io.circe.Json.Null)
 
 
-  val startProcessAsync: Endpoint[String, (String, Option[String], Json), ErrorResponse, ProcessInfo, Any] =
+  val startProcessAsync: Endpoint[String, (String, Option[String], Option[String], Json), ErrorResponse, ProcessInfo, Any] =
     securedBaseEndpoint
       .post
       .in(path[String]("processDefId")
@@ -74,6 +72,9 @@ object GatewayEndpoints:
       .in(query[Option[String]]("businessKey")
         .description("Business Key, be aware that this is not supported in Camunda 8.")
         .example(Some("ORDER-2025-12345")))
+      .in(query[Option[String]]("tenantId")
+        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
+        .example(Some("tenant1")))
       .in(jsonBody[Json]
         .description("Request body with process variables as a JSON object")
         .example(startProcessRequestExample))
@@ -211,12 +212,15 @@ object GatewayEndpoints:
   private val securedSignalBaseEndpoint = signalBaseEndpoint
     .securityIn(auth.bearer[String]())
 
-  val sendSignal: Endpoint[String, (String, Json), ErrorResponse, Unit, Any] =
+  val sendSignal: Endpoint[String, (String, Option[String], Json), ErrorResponse, Unit, Any] =
     securedSignalBaseEndpoint
       .post
       .in(path[String]("signalName")
         .description("Signal name")
         .example("order-completed-signal"))
+      .in(query[Option[String]]("tenantId")
+        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
+        .example(Some("tenant1")))
       .in(jsonBody[Json]
         .description("Variables to send with the signal as a JSON object")
         .example(sendSignalRequestExample))

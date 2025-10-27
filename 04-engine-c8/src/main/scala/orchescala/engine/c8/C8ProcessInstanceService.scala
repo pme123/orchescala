@@ -21,12 +21,13 @@ class C8ProcessInstanceService(using
   def startProcessAsync(
       processDefId: String,
       in: Json,
-      businessKey: Option[String] = None
+      businessKey: Option[String],
+      tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
     for
       camundaClient <- camundaClientZIO
       _             <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      instance      <- callStartProcessAsync(processDefId, businessKey, camundaClient, in)
+      instance      <- callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, in)
     yield ProcessInfo(
       processInstanceId = instance.getProcessInstanceKey.toString,
       businessKey = businessKey,
@@ -37,6 +38,7 @@ class C8ProcessInstanceService(using
   private def callStartProcessAsync(
       processDefId: String,
       businessKey: Option[String],
+      tenantId: Option[String],
       c8Client: CamundaClient,
       processVariables: Json
   ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
@@ -51,6 +53,7 @@ class C8ProcessInstanceService(using
           .newCreateInstanceCommand()
           .bpmnProcessId(processDefId)
           .latestVersion()
+          .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
           .variables(variablesMap.asJava)
 
         command.send().join()

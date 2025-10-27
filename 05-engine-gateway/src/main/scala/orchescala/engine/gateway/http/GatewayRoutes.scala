@@ -40,14 +40,15 @@ object GatewayRoutes:
         validateToken(token)
       }.serverLogic {
         validatedToken => // validatedToken is the String token returned from security logic
-          (processDefId, businessKeyQuery, request) =>
+          (processDefId, businessKeyQuery, tenantIdQuery, request) =>
             // Set the bearer token in AuthContext so it can be used by the engine services
             AuthContext.withBearerToken(validatedToken):
               processInstanceService
                 .startProcessAsync(
                   processDefId = processDefId,
                   in = request,
-                  businessKey = businessKeyQuery
+                  businessKey = businessKeyQuery,
+                  tenantId = tenantIdQuery
                 )
                 .mapError(engineErrorToErrorResponse)
       }
@@ -83,7 +84,7 @@ object GatewayRoutes:
       GatewayEndpoints.sendSignal.zServerSecurityLogic: token =>
         validateToken(token)
       .serverLogic: validatedToken =>
-        (signalName, variables) =>
+        (signalName, tenantId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
             // Convert JSON to Map[String, CamundaVariable]
@@ -94,6 +95,7 @@ object GatewayRoutes:
             signalService
               .sendSignal(
                 name = signalName,
+                tenantId = tenantId,
                 variables = Some(camundaVariables)
               )
               .mapError(engineErrorToErrorResponse)

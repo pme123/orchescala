@@ -23,7 +23,8 @@ class C7ProcessInstanceService(using
   override def startProcessAsync(
       processDefId: String,
       in: Json,
-      businessKey: Option[String] = None
+      businessKey: Option[String],
+      tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
 
     for
@@ -31,7 +32,7 @@ class C7ProcessInstanceService(using
       _                <- logDebug(s"Starting Process '$processDefId' with variables: $in")
       processVariables <- C7VariableMapper.toC7Variables(in)
       _                <- logDebug(s"Starting Process '$processDefId' with variables: $processVariables")
-      instance         <- callStartProcessAsync(processDefId, businessKey, apiClient, processVariables)
+      instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
     yield ProcessInfo(
       processInstanceId = instance.getId,
       businessKey = Option(instance.getBusinessKey),
@@ -43,12 +44,13 @@ class C7ProcessInstanceService(using
   private def callStartProcessAsync(
       processDefId: String,
       businessKey: Option[String],
+      tenantId: Option[String],
       apiClient: ApiClient,
       processVariables: Map[String, VariableValueDto]
   ) =
     ZIO
       .attempt:
-        engineConfig.tenantId
+        tenantId.orElse(engineConfig.tenantId)
           .map: tenantId =>
             new ProcessDefinitionApi(apiClient)
               .startProcessInstanceByKeyAndTenantId(
