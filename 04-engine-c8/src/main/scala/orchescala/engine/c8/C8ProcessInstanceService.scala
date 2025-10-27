@@ -43,26 +43,29 @@ class C8ProcessInstanceService(using
       processVariables: Json
   ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
     ZIO
-      .attempt {
+      .attempt:
         val variables = processVariables.deepMerge(businessKey.map(bk =>
           Json.obj("businessKey" -> bk.asJson)
         ).getOrElse(Json.obj()))
 
-        val variablesMap = jsonToVariablesMap(variables)
-        val command      = c8Client
+        val variablesMap      = jsonToVariablesMap(variables)
+        val command           = c8Client
           .newCreateInstanceCommand()
           .bpmnProcessId(processDefId)
           .latestVersion()
-          .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
           .variables(variablesMap.asJava)
+        val commandWithTenant =
+          tenantId
+            .orElse(engineConfig.tenantId)
+            .map: tenantId =>
+              command.tenantId(tenantId)
+            .getOrElse(command)
 
-        command.send().join()
-      }
-      .mapError { err =>
+        commandWithTenant.send().join()
+      .mapError: err =>
         EngineError.ProcessError(
-          s"Problem starting Process '$processDefId': ${err.getMessage}"
+          s"Problem starting Process '$processDefId': $err"
         )
-      }
 
   def getVariablesInternal(
       processInstanceId: String,
@@ -81,7 +84,7 @@ class C8ProcessInstanceService(using
               .items()
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Variables for Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem getting Variables for Process Instance '$processInstanceId': $err"
             )
       variables     <-
         ZIO
@@ -89,7 +92,7 @@ class C8ProcessInstanceService(using
             toVariableValue(dto)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: ${err.getMessage}"
+              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             )
       _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
@@ -114,7 +117,7 @@ class C8ProcessInstanceService(using
         JsonProperty(valueDto.getName, v)
       .mapError: err =>
         EngineError.ProcessError(
-          s"Problem converting VariableDto '${valueDto.getName} -> $value: ${err.getMessage}"
+          s"Problem converting VariableDto '${valueDto.getName} -> $value: $err"
         )
 
   end toVariableValue

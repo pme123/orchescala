@@ -138,7 +138,7 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
                            null               // maxResults) throws ApiException {
                          )
                      .mapError(err =>
-                       EngineError.ProcessError(s"Problem getting tasks: ${err.getMessage}")
+                       EngineError.ProcessError(s"Problem getting tasks: $err")
                      )
       _         <- logDebug(s"TaskDtos found: $taskDtos")
     yield mapToUserTasks(taskDtos)
@@ -157,7 +157,7 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
                                 .variables(variableDtos.asJava)
                             )
                         .mapError(err =>
-                          EngineError.ProcessError(s"Problem completing task: ${err.getMessage}")
+                          EngineError.ProcessError(s"Problem completing task: $err")
                         )
     yield ()
 
@@ -196,7 +196,7 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
           .`type`(cValue.`type`)
       .mapError: err =>
         MappingError(
-          s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: ${err.getMessage}"
+          s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: $err"
         )
   
 

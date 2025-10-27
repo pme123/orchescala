@@ -54,7 +54,7 @@ class C7HistoricVariableService(using
               )
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Historic Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem getting Historic Process Instance '$processInstanceId': $err"
             )
       variables    <-
         ZIO
@@ -62,7 +62,7 @@ class C7HistoricVariableService(using
             mapToHistoricVariables(variableDtos)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': $err"
             )
     yield variables
 

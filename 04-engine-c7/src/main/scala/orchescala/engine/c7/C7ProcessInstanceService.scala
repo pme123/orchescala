@@ -70,7 +70,7 @@ class C7ProcessInstanceService(using
               )
       .mapError: err =>
         EngineError.ProcessError(
-          s"Problem starting Process '$processDefId': ${err.getMessage}"
+          s"Problem starting Process '$processDefId': $err"
         )
 
   def getVariablesInternal(
@@ -86,7 +86,7 @@ class C7ProcessInstanceService(using
               .getProcessInstanceVariables(processInstanceId, false)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Variables for Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem getting Variables for Process Instance '$processInstanceId': $err"
             )
       variables    <-
         ZIO
@@ -95,7 +95,7 @@ class C7ProcessInstanceService(using
               toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: ${err.getMessage}"
+              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             )
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
@@ -126,7 +126,7 @@ class C7ProcessInstanceService(using
       case _                 => ZIO.attempt(CString(value.toString))
     ).mapError: err =>
       EngineError.ProcessError(
-        s"Problem converting VariableDto '${valueDto.getType} -> $value: ${err.getMessage}"
+        s"Problem converting VariableDto '${valueDto.getType} -> $value: $err"
       )
   end toVariableValue
 

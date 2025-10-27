@@ -31,7 +31,7 @@ class C8HistoricProcessInstanceService(using
               .join()
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Historic Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem getting Historic Process Instance '$processInstanceId': $err"
             )
       processInstance <- mapToHistoricProcessInstance(searchResponse)
     yield processInstance
@@ -60,7 +60,7 @@ class C8HistoricProcessInstanceService(using
         )
       .mapError: err =>
         EngineError.MappingError(
-          s"Problem mapping HistoricProcessInstanceDto to HistoricProcessInstance: ${err.getMessage}"
+          s"Problem mapping HistoricProcessInstanceDto to HistoricProcessInstance: $err"
         )
 
   private def mapState(state: ProcessInstanceState)

@@ -18,7 +18,7 @@ object SharedC8ClientManager:
         ZIO
           .attempt(client.close())
           .tapBoth(
-            err => ZIO.logError(s"Error closing shared C8 client: ${err.getMessage}"),
+            err => ZIO.logError(s"Error closing shared C8 client: $err"),
             _ => ZIO.logInfo("Shared C8 client closed successfully")
           ).ignore
     )

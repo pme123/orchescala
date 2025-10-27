@@ -161,7 +161,7 @@ case class ServiceHandler[
           .mapError: err =>
             err.printStackTrace()
             ServiceUnexpectedError(
-              s"There was an unexpected Error creating runnable Request: ${err.getMessage}"
+              s"There was an unexpected Error creating runnable Request: $err"
             )
       _                  <- ZIO.logDebug(s"Request created: ${rRequest.apiUri}")
       optWithServiceMock <- withServiceMock(rRequest, inputObject)

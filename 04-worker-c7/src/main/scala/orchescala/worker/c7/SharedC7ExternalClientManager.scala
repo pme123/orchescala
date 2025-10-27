@@ -17,7 +17,7 @@ object SharedC7ExternalClientManager:
         ZIO
           .attempt(client.stop())
           .tapBoth(
-            err => ZIO.logError(s"Error closing shared C7 client: ${err.getMessage}"),
+            err => ZIO.logError(s"Error closing shared C7 client: $err"),
             _ => ZIO.logInfo("Shared C7 client closed successfully")
           ).ignore
     )

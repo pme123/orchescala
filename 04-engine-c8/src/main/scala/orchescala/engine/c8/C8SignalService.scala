@@ -37,7 +37,7 @@ class C8SignalService(using
           }
           .mapError { err =>
             EngineError.ProcessError(
-              s"Problem sending Signal '$name': ${err.getMessage}"
+              s"Problem sending Signal '$name': $err"
             )
           }
     yield ()

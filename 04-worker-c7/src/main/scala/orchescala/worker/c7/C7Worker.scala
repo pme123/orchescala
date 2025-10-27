@@ -101,7 +101,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     }.catchAll: err =>
       handleFailure(
         UnexpectedError(
-          s"There is an unexpected Error from completing a successful Worker to C7: ${err.getMessage}."
+          s"There is an unexpected Error from completing a successful Worker to C7: $err."
         ),
         doRetry = true
       )
@@ -174,7 +174,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       )
         .catchAll: err =>
           handleFailure(
-            UnexpectedError(s"Problem handling BpmnError to C7: ${err.getMessage}."),
+            UnexpectedError(s"Problem handling BpmnError to C7: $err."),
             doRetry = true
           ).ignore
         .ignore

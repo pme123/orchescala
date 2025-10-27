@@ -42,7 +42,7 @@ class C8HistoricVariableService(using
               .items()
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Historic Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem getting Historic Process Instance '$processInstanceId': $err"
             )
       _             <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.asScala.toList.map(v =>
                            s"${v.getName} -> ${v.getValue}"
@@ -53,7 +53,7 @@ class C8HistoricVariableService(using
             mapToHistoricVariables(variableDtos.asScala.toSeq)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': $err"
             )
     yield variables
 

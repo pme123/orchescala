@@ -42,7 +42,7 @@ class C8IncidentService(using
               .items()
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Incidents: ${err.getMessage}"
+              s"Problem getting Incidents: $err"
             )
     yield mapToIncidents(incidentDtos)
 

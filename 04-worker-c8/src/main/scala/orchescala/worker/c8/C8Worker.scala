@@ -144,12 +144,12 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             .catchAll: err =>
               handleFailure(
                 UnexpectedError(
-                  s"There is an unexpected Error from completing a successful Worker to C7: ${err.getMessage}."
+                  s"There is an unexpected Error from completing a successful Worker to C7: $err."
                 ),
                 doRetry = true
               )
         .tapError: err =>
-          logError(s"Problem completing job: ${err.getMessage}.")
+          logError(s"Problem completing job: $err.")
         .ignore
 
     private[worker] def handleBpmnError(
@@ -175,7 +175,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           )
       .catchAll: err =>
         handleFailure(
-          UnexpectedError(s"Problem handling BpmnError to C7: ${err.getMessage}."),
+          UnexpectedError(s"Problem handling BpmnError to C7: $err."),
           doRetry = true
         )
       .ignore

@@ -59,7 +59,7 @@ class C7JobService(using
               )
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting Jobs: ${err.getMessage}"
+              s"Problem getting Jobs: $err"
             )
     yield mapToJobs(jobDtos)
 
@@ -74,7 +74,7 @@ class C7JobService(using
               .executeJob(jobId)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem executing Job '$jobId': ${err.getMessage}"
+              s"Problem executing Job '$jobId': $err"
             )
     yield ()
 

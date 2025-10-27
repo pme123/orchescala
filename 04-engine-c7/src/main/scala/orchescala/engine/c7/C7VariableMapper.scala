@@ -16,7 +16,7 @@ object C7VariableMapper:
               case m: Map[?, ?]        => m.asInstanceOf[Map[String, CamundaVariable]]
               case other               => throw new Exception(s"Expected a Map, but got $other")
           .mapError: err =>
-            MappingError(s"Problem mapping In to C7 Variables: ${err.getMessage}")
+            MappingError(s"Problem mapping In to C7 Variables: $err")
 
       dtos <- ZIO.foreach(camundaVariables): (k, v) =>
         toC7VariableValue(v).map(k -> _)
@@ -29,6 +29,6 @@ object C7VariableMapper:
           .value(cValue.value)
           .`type`(cValue.`type`)
       .mapError: err =>
-        MappingError(s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: ${err.getMessage}")
+        MappingError(s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: $err")
   }
 end C7VariableMapper

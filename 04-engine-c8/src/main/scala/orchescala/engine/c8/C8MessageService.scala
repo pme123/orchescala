@@ -73,11 +73,12 @@ class C8MessageService(using
         val command = camundaClient.newCorrelateMessageCommand()
           .messageName(name)
 
-        val withCorrelationKey = correlationKey match // if set take the businessKey or processInstanceId if not set
-          case Some(pid) =>
-            command.correlationKey(pid)
-          case None      =>
-            command.withoutCorrelationKey()
+        val withCorrelationKey =
+          correlationKey match // if set take the businessKey or processInstanceId if not set
+            case Some(pid) =>
+              command.correlationKey(pid)
+            case None      =>
+              command.withoutCorrelationKey()
 
         withCorrelationKey
           .tenantId(tenantId.orNull)
@@ -85,7 +86,7 @@ class C8MessageService(using
           .send().join()
       .mapError: err =>
         EngineError.ProcessError(
-          s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): ${err.getMessage}"
+          s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): $err"
         )
       .flatMap: resp =>
         ZIO
@@ -97,7 +98,7 @@ class C8MessageService(using
             )
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping MessageCorrelationResult: ${err.getMessage}"
+              s"Problem mapping MessageCorrelationResult: $err"
             )
 
   private def publishMessage(
@@ -113,20 +114,26 @@ class C8MessageService(using
         val command = camundaClient.newPublishMessageCommand()
           .messageName(name)
 
-        val withCorrelationKey = correlationKey match
-          case Some(key) =>
-            command.correlationKey(key)
-          case None      =>
-            command.correlationKey("") // empty string for no correlation key
+        val withCorrelationKey =
+          correlationKey
+            .map: key =>
+              command.correlationKey(key)
+            .getOrElse:
+              command.correlationKey("") // empty string for no correlation key
 
-        withCorrelationKey
+        val withTenantId =
+          tenantId
+            .map: tenantId =>
+              withCorrelationKey.tenantId(tenantId)
+            .getOrElse(withCorrelationKey)
+
+        withTenantId
           .timeToLive(java.time.Duration.ofSeconds(timeToLiveInSec))
-          .tenantId(tenantId.orNull)
           .variables(variablesMap)
           .send().join()
       .mapError: err =>
         EngineError.ProcessError(
-          s"Problem publishing Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): ${err.getMessage}"
+          s"Problem publishing Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): $err"
         )
       .flatMap: resp =>
         ZIO
@@ -138,6 +145,6 @@ class C8MessageService(using
             )
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping MessageCorrelationResult: ${err.getMessage}"
+              s"Problem mapping MessageCorrelationResult: $err"
             )
 end C8MessageService

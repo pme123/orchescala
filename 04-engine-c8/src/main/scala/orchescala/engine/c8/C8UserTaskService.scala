@@ -40,7 +40,7 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
               .items()
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem getting UserTask for Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem getting UserTask for Process Instance '$processInstanceId': $err"
             )
       userTask      <-
         ZIO
@@ -48,7 +48,7 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
             mapToUserTask(userTaskDtos.asScala.toSeq.headOption)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping UserTask for Process Instance '$processInstanceId': ${err.getMessage}"
+              s"Problem mapping UserTask for Process Instance '$processInstanceId': $err"
             )
     yield userTask
 
@@ -58,19 +58,19 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
       taskKey       <-
         ZIO.attempt(taskId.toLong).mapError: err =>
           EngineError.ProcessError(
-            s"Problem completingUserTask converting taskId '$taskId' to Long: ${err.getMessage}"
+            s"Problem completingUserTask converting taskId '$taskId' to Long: $err"
           )
       userTaskDtos  <-
         ZIO
           .attempt:
             camundaClient
-              .newCompleteUserTaskCommand(taskId.toLong)
+              .newCompleteUserTaskCommand(taskKey)
               .variables(mapToC8Variables(Some(out)))
               .send()
               .join()
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem completing UserTask '$taskId': ${err.getMessage}"
+              s"Problem completing UserTask '$taskKey': $err"
             )
     yield ()
 

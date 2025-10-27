@@ -35,7 +35,7 @@ class C7SignalService(using
                 .variables(mapToC7Variables(variables)))
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem sending Signal '$name': ${err.getMessage}"
+              s"Problem sending Signal '$name': $err"
             )
     yield ()
 end C7SignalService

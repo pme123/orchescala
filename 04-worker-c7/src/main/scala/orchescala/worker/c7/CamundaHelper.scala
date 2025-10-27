@@ -32,7 +32,7 @@ object CamundaHelper:
                        .left
                        .map(err =>
                          BadVariableError(
-                           s"Problem decoding Json to ${nameOfType[A]}: ${err.getMessage}"
+                           s"Problem decoding Json to ${nameOfType[A]}: $err"
                          )
                        )
                    )
@@ -45,7 +45,7 @@ object CamundaHelper:
       variableTypedOpt(varKey)
     )
       .mapError: err =>
-        BadVariableError(s"Problem get variable for $varKey: ${err.getMessage}")
+        BadVariableError(s"Problem get variable for $varKey: $err")
       .flatMap:
         case Some(typedValue) if typedValue.getType == ValueType.NULL =>
           ZIO.succeed(None) // k -> null as Camunda Expressions need them
