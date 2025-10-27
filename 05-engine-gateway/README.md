@@ -71,6 +71,8 @@ object MyApp extends ZIOAppDefault:
 
 ## API Endpoints
 
+All endpoints require Bearer token authentication via the `Authorization` header.
+
 ### POST /process/{processDefId}/async
 
 Starts a new process instance asynchronously.
@@ -78,14 +80,15 @@ Starts a new process instance asynchronously.
 **Path Parameters:**
 - `processDefId` (string): Process definition ID or key
 
+**Query Parameters:**
+- `businessKey` (optional string): Business Key (not supported in Camunda 8)
+- `tenantId` (optional string): Tenant ID for multi-tenant setups
+
 **Request Body:**
 ```json
 {
-  "variables": {
-    "myVar": "myValue",
-    "anotherVar": 123
-  },
-  "businessKey": "optional-business-key"
+  "customerName": "John Doe",
+  "orderAmount": 1500
 }
 ```
 
@@ -93,32 +96,181 @@ Starts a new process instance asynchronously.
 ```json
 {
   "processInstanceId": "f150c3f1-13f5-11ec-936e-0242ac1d0007",
-  "businessKey": "optional-business-key",
+  "businessKey": "order-12345",
   "status": "Active",
   "engineType": "C7"
 }
 ```
 
-**Error Response (400/500):**
+**Example cURL Request:**
+```bash
+curl -X POST "http://localhost:8080/process/my-process-id/async?businessKey=order-12345" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "John Doe",
+    "orderAmount": 1500
+  }'
+```
+
+### GET /process/{processInstanceId}/userTask/{userTaskDefId}/variables
+
+Gets variables for a user task, waiting for it to become active if needed.
+
+**Path Parameters:**
+- `processInstanceId` (string): Process instance ID
+- `userTaskDefId` (string): User task definition ID (task definition key in BPMN)
+
+**Query Parameters:**
+- `variableFilter` (optional string): Comma-separated variable names (e.g., "name,firstName")
+- `timeoutInSec` (optional int): Timeout in seconds to wait for the task to become active
+
+**Response (200 OK):**
 ```json
 {
-  "message": "Error description",
-  "code": "ERROR_CODE"
+  "userTaskId": "task-abc123-def456",
+  "variables": {
+    "customerName": "John Doe",
+    "orderAmount": 1500
+  }
 }
 ```
 
-### Example cURL Request
-
+**Example cURL Request:**
 ```bash
-curl -X POST http://localhost:8080/process/my-process-id/async \
+curl -X GET "http://localhost:8080/process/f150c3f1-13f5-11ec-936e-0242ac1d0007/userTask/approve-order/variables?timeoutInSec=30" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### POST /process/{processInstanceId}/userTask/{userTaskDefId}/{userTaskId}/complete
+
+Completes a user task with the provided variables.
+
+**Path Parameters:**
+- `processInstanceId` (string): Process instance ID
+- `userTaskDefId` (string): User task definition ID
+- `userTaskId` (string): User task instance ID (obtained from getUserTaskVariables)
+
+**Request Body:**
+```json
+{
+  "approved": true,
+  "comment": "Order approved"
+}
+```
+
+**Response:** 204 No Content
+
+**Example cURL Request:**
+```bash
+curl -X POST "http://localhost:8080/process/f150c3f1-13f5-11ec-936e-0242ac1d0007/userTask/approve-order/task-abc123-def456/complete" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "variables": {
-      "customerName": "John Doe",
-      "orderAmount": 1500
-    },
-    "businessKey": "order-12345"
+    "approved": true,
+    "comment": "Order approved"
   }'
+```
+
+### POST /signal/{signalName}
+
+Sends a signal that can be received by process instances subscribed to this signal.
+
+**Path Parameters:**
+- `signalName` (string): Signal name
+
+**Query Parameters:**
+- `tenantId` (optional string): Tenant ID for multi-tenant setups
+
+**Request Body:**
+```json
+{
+  "orderId": "ORDER-2025-12345",
+  "status": "completed"
+}
+```
+
+**Response:** 204 No Content
+
+**Example cURL Request:**
+```bash
+curl -X POST "http://localhost:8080/signal/order-completed-signal?tenantId=tenant1" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORDER-2025-12345",
+    "status": "completed"
+  }'
+```
+
+### POST /message/{messageName}
+
+Sends a message to correlate with process instances waiting for this message.
+
+**Path Parameters:**
+- `messageName` (string): Message name
+
+**Query Parameters:**
+- `tenantId` (optional string): Tenant ID for multi-tenant setups
+- `timeToLiveInSec` (optional int): Time in seconds the message is buffered (C8 only, default: 0)
+- `businessKey` (optional string): Business key to correlate the message
+- `processInstanceId` (optional string): Process instance ID to correlate the message
+
+**Request Body:**
+```json
+{
+  "orderId": "ORDER-2025-12345",
+  "amount": 1500
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "resultType": "ProcessInstance",
+  "processInstanceId": "f150c3f1-13f5-11ec-936e-0242ac1d0007",
+  "processDefinitionId": "order-process",
+  "engineType": "C8"
+}
+```
+
+**Example cURL Request:**
+```bash
+curl -X POST "http://localhost:8080/message/order-received?businessKey=ORDER-2025-12345&timeToLiveInSec=60" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORDER-2025-12345",
+    "amount": 1500
+  }'
+```
+
+### Error Responses
+
+All endpoints return error responses in the following format:
+
+**401 Unauthorized:**
+```json
+{
+  "message": "Invalid or missing authentication token",
+  "code": "UNAUTHORIZED"
+}
+```
+
+**400 Bad Request:**
+```json
+{
+  "message": "Process definition 'invalid-process' not found",
+  "code": "PROCESS_NOT_FOUND"
+}
+```
+
+**500 Internal Server Error:**
+```json
+{
+  "message": "Failed to start process instance: Connection timeout",
+  "code": "ENGINE_ERROR"
+}
 ```
 
 ## Architecture
@@ -127,43 +279,90 @@ The HTTP API is structured as follows:
 
 ```
 05-engine-gateway/src/main/scala/orchescala/engine/gateway/http/
-├── GatewayDtos.scala          # Request/Response DTOs
-├── GatewayEndpoints.scala     # Tapir endpoint definitions
-├── GatewayRoutes.scala        # ZIO HTTP route implementations
-├── GatewayServer.scala        # HTTP server setup
-└── GatewayServerApp.scala     # Example application
+├── GatewayDtos.scala              # Request/Response DTOs
+├── GatewayRoutes.scala            # ZIO HTTP route implementations
+├── GatewayServer.scala            # HTTP server setup
+├── ProcessInstanceEndpoints.scala # Process instance endpoints
+├── UserTaskEndpoints.scala        # User task endpoints
+├── MessageEndpoints.scala         # Message correlation endpoints
+├── SignalEndpoints.scala          # Signal endpoints
+├── OpenApiGenerator.scala         # OpenAPI specification generator
+├── OpenApiRoutes.scala            # Documentation routes
+└── GenerateOpenApiYaml.scala      # CLI tool to generate OpenAPI YAML
 ```
 
 ### Components
 
 1. **GatewayDtos**: Type-safe data transfer objects with JSON codecs and API schemas
-2. **GatewayEndpoints**: Tapir endpoint definitions with OpenAPI documentation
-3. **GatewayRoutes**: ZIO HTTP routes that implement the endpoints
-4. **GatewayServer**: Server configuration and startup logic
-5. **GatewayServerApp**: Example application demonstrating usage
+2. **ProcessInstanceEndpoints**: Tapir endpoint definitions for process instance operations
+3. **UserTaskEndpoints**: Tapir endpoint definitions for user task operations
+4. **MessageEndpoints**: Tapir endpoint definitions for message correlation
+5. **SignalEndpoints**: Tapir endpoint definitions for signal broadcasting
+6. **GatewayRoutes**: ZIO HTTP routes that implement all endpoints with authentication
+7. **GatewayServer**: Server configuration and startup logic
+8. **OpenApiGenerator**: Generates OpenAPI specification from Tapir endpoints
+9. **OpenApiRoutes**: Serves OpenAPI documentation at `/docs`
+
+## Authentication
+
+All API endpoints require Bearer token authentication. By default, the server uses a simple token validator that accepts any non-empty token. You can provide a custom token validator:
+
+```scala
+import orchescala.engine.gateway.http.GatewayRoutes
+import zio.*
+
+val customValidator: String => IO[ErrorResponse, String] = token =>
+  if token == "valid-token" then
+    ZIO.succeed(token)
+  else
+    ZIO.fail(ErrorResponse("Invalid token", Some("UNAUTHORIZED")))
+
+val routes = GatewayRoutes.routes(
+  processInstanceService,
+  userTaskService,
+  signalService,
+  messageService,
+  validateToken = customValidator
+)
+```
+
+The validated token is stored in `AuthContext` and can be accessed by engine services for downstream authentication.
 
 ## Integration with Existing Code
 
 The HTTP API integrates seamlessly with the existing Gateway infrastructure:
 
 - Uses `GProcessEngine` for engine orchestration
-- Leverages `GProcessInstanceService` for process operations
+- Leverages service interfaces (`ProcessInstanceService`, `UserTaskService`, `MessageService`, `SignalService`)
 - Supports both C7 and C8 engines through the Gateway pattern
 - Maintains the same error handling and caching mechanisms
+- Bearer token is propagated via `AuthContext` for downstream service calls
+
+## OpenAPI Documentation
+
+The server automatically generates and serves OpenAPI documentation:
+
+- **HTML Documentation**: Available at `http://localhost:8080/docs`
+- **OpenAPI YAML**: Available at `http://localhost:8080/docs/openapi.yml`
+
+You can also generate the OpenAPI YAML file using the CLI tool:
+
+```bash
+scala-cli run 05-engine-gateway/src/main/scala/orchescala/engine/gateway/http/GenerateOpenApiYaml.scala
+```
 
 ## Future Enhancements
 
 Potential additions to the API:
 
 - Additional endpoints for:
-  - Getting process variables
   - Querying process instances
   - Handling incidents
-  - Managing user tasks
-  - Sending messages and signals
+  - Getting process variables
+  - Canceling process instances
 - WebSocket support for real-time updates
 - GraphQL API alternative
-- Rate limiting and authentication
+- Advanced rate limiting
 - Metrics and monitoring endpoints
 
 ## Testing
@@ -174,12 +373,35 @@ To test the API:
 2. Run the Gateway server
 3. Use curl, Postman, or any HTTP client to interact with the endpoints
 
-Example test:
+Example test workflow:
 ```bash
-# Start a process
-curl -X POST http://localhost:8080/process/test-process/async \
+# 1. Start a process
+curl -X POST "http://localhost:8080/process/test-process/async?businessKey=test-123" \
+  -H "Authorization: Bearer test-token" \
   -H "Content-Type: application/json" \
-  -d '{"variables": {"test": true}}'
+  -d '{"customerName": "Test User", "amount": 1000}'
+
+# 2. Get user task variables (wait up to 30 seconds for task to become active)
+curl -X GET "http://localhost:8080/process/PROCESS_INSTANCE_ID/userTask/approve-task/variables?timeoutInSec=30" \
+  -H "Authorization: Bearer test-token"
+
+# 3. Complete the user task
+curl -X POST "http://localhost:8080/process/PROCESS_INSTANCE_ID/userTask/approve-task/TASK_ID/complete" \
+  -H "Authorization: Bearer test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"approved": true}'
+
+# 4. Send a message
+curl -X POST "http://localhost:8080/message/order-received?businessKey=test-123" \
+  -H "Authorization: Bearer test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"orderId": "ORDER-123"}'
+
+# 5. Send a signal
+curl -X POST "http://localhost:8080/signal/order-completed" \
+  -H "Authorization: Bearer test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "completed"}'
 ```
 
 ## See Also

@@ -39,28 +39,7 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
     yield GProcessEngine())
       .provideLayer(SharedC7ClientManager.layer)
 
-  override def run: ZIO[Any, Any, Any] =
-    Console.printLine("""
-      |╔════════════════════════════════════════════════════════════════════════════╗
-      |║  Bearer Token Gateway Example Server                                       ║
-      |╚════════════════════════════════════════════════════════════════════════════╝
-      |
-      |Starting Gateway with Bearer Token Pass-Through Authentication...
-      |
-      |Configuration:
-      |  - Port: 8888
-      |  - Camunda 7 URL: http://localhost:8080/engine-rest
-      |  - Authentication: Bearer Token (pass-through)
-      |
-      |Test with:
-      |  curl -X POST http://localhost:8888/process/test-process/async \
-      |    -H "Authorization: Bearer YOUR_TOKEN" \
-      |    -H "Content-Type: application/json" \
-      |    -d '{"variables": {"test": true}}'
-      |
-      |Press Ctrl+C to stop the server.
-      |
-      """.stripMargin) *> start()
+  override def run: ZIO[Any, Any, Any] = start()
 
 end ExampleGatewayServer
 
