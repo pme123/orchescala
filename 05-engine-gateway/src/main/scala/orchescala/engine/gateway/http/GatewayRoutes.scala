@@ -26,7 +26,7 @@ object GatewayRoutes:
     * @param messageService
     *   The service to handle message operations
     * @param validateToken
-    *   Function to validate the bearer token. Returns Right(token) if valid, Left(ErrorResponse) if
+    *   Function to validate the bearer token. Returns Right(token) if valid, Left(EngineError) if
     *   invalid.
     * @return
     *   ZIO HTTP routes
@@ -36,11 +36,11 @@ object GatewayRoutes:
       userTaskService: UserTaskService,
       signalService: SignalService,
       messageService: MessageService,
-      validateToken: String => IO[ErrorResponse, String] = defaultTokenValidator
+      validateToken: String => IO[EngineError, String] = defaultTokenValidator
   ): Routes[Any, Response] =
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
-        validateToken(token)
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
       }.serverLogic {
         validatedToken => // validatedToken is the String token returned from security logic
           (processDefId, businessKeyQuery, tenantIdQuery, request) =>
@@ -53,23 +53,23 @@ object GatewayRoutes:
                   businessKey = businessKeyQuery,
                   tenantId = tenantIdQuery
                 )
-                .mapError(engineErrorToErrorResponse)
+                .mapError(ErrorResponse.fromEngineError)
       }
 
     val getUserTaskVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.getUserTaskVariables.zServerSecurityLogic: token =>
-        validateToken(token)
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
         (processInstanceId, userTaskDefId, variableFilter, timeoutInSec) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
             userTaskService
               .getUserTaskVariables(processInstanceId, userTaskDefId, variableFilter, timeoutInSec)
-              .mapError(engineErrorToErrorResponse)
+              .mapError(ErrorResponse.fromEngineError)
 
     val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
-        validateToken(token)
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
         (processInstanceId, userTaskDefId, userTaskId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -81,11 +81,11 @@ object GatewayRoutes:
 
             userTaskService
               .complete(userTaskId, camundaVariables)
-              .mapError(engineErrorToErrorResponse)
+              .mapError(ErrorResponse.fromEngineError)
 
     val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
-        validateToken(token)
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
         (signalName, tenantId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -101,11 +101,11 @@ object GatewayRoutes:
                 tenantId = tenantId,
                 variables = Some(camundaVariables)
               )
-              .mapError(engineErrorToErrorResponse)
+              .mapError(ErrorResponse.fromEngineError)
 
     val sendMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       MessageEndpoints.sendMessage.zServerSecurityLogic: token =>
-        validateToken(token)
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
         (messageName, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -124,7 +124,7 @@ object GatewayRoutes:
                 processInstanceId = processInstanceId,
                 variables = Some(camundaVariables)
               )
-              .mapError(engineErrorToErrorResponse)
+              .mapError(ErrorResponse.fromEngineError)
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(startProcessEndpoint, getUserTaskVariablesEndpoint, completeUserTaskEndpoint, sendSignalEndpoint, sendMessageEndpoint)
@@ -134,47 +134,12 @@ object GatewayRoutes:
   /** Default token validator - validates that token is not empty and returns the token. Override
     * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
     */
-  private def defaultTokenValidator(token: String): IO[ErrorResponse, String] =
+  private def defaultTokenValidator(token: String): IO[EngineError, String] =
     if token.nonEmpty then
       ZIO.succeed(token)
     else
-      ZIO.fail(ErrorResponse(
-        message = "Invalid or missing authentication token",
-        code = Some("UNAUTHORIZED"),
-        httpStatus = 401
+      ZIO.fail(EngineError.UnexpectedError(
+        errorMsg = "Invalid or missing authentication token"
       ))
-
-  private def engineErrorToErrorResponse(error: EngineError): ErrorResponse =
-    val httpStatus = extractHttpStatusFromError(error.errorMsg)
-    error match
-      case EngineError.ProcessError(msg, code)    =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = httpStatus)
-      case EngineError.ServiceError(msg, code)    =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = httpStatus)
-      case EngineError.MappingError(msg, code)    =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 400)
-      case EngineError.DecodingError(msg, code)   =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 400)
-      case EngineError.EncodingError(msg, code)   =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 500)
-      case EngineError.DmnError(msg, code)        =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = httpStatus)
-      case EngineError.WorkerError(msg, code)     =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 500)
-      case EngineError.UnexpectedError(msg, code) =>
-        ErrorResponse(message = msg, code = Some(code.toString), httpStatus = 500)
-
-  /** Extracts HTTP status code from Camunda error messages.
-    * Looks for patterns like "Failed with code 404:" or "status: 404"
-    */
-  private def extractHttpStatusFromError(errorMsg: String): Int =
-    // Try to extract from "Failed with code XXX:" pattern
-    val codePattern = """Failed with code (\d+):""".r
-    val statusPattern = """status:\s*(\d+)""".r
-
-    codePattern.findFirstMatchIn(errorMsg)
-      .orElse(statusPattern.findFirstMatchIn(errorMsg))
-      .flatMap(m => scala.util.Try(m.group(1).toInt).toOption)
-      .getOrElse(500) // Default to 500 if no status code found
 
 end GatewayRoutes
