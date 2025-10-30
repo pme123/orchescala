@@ -92,7 +92,7 @@ object UserTaskEndpoints:
       )
       .tag("User Task")
 
-  val completeUserTask: Endpoint[String, (String, String, String, Json), ErrorResponse, Unit, Any] =
+  val completeUserTaskForApi: Endpoint[String, (String, String, String, Json), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post
       .in(path[String]("processInstanceId")
@@ -100,8 +100,36 @@ object UserTaskEndpoints:
         .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
       .in("userTask")
       .in(path[String]("userTaskDefId")
-        .description("User task definition ID (task definition key in the BPMN)")
+        .description(
+          """User task definition ID (task definition key in the BPMN)
+            |- This is used for API path differentiation in OpenAPI.
+            |- We use this that you can have multiple UserTasks in one Project.
+            |""".stripMargin)
         .example("approve-order"))
+      .in(path[String]("userTaskId")
+        .description("User task instance ID (obtained from getUserTaskVariables)")
+        .example("task-abc123-def456"))
+      .in("complete")
+      .in(jsonBody[Json]
+        .description("Variables to set when completing the task as a JSON object")
+        .example(completeUserTaskRequestExample))
+      .out(statusCode(StatusCode.NoContent))
+      .name("Complete User Task")
+      .summary("Complete a user task for API documentation")
+      .description(
+        """Completes a user task in a process instance with the provided variables.
+          |- Has additional path element `userTaskDefId` to differentiate between multiple user tasks in the same process instance.
+          |""".stripMargin
+      )
+      .tag("User Task")
+      
+  val completeUserTask: Endpoint[String, (String, String, Json), ErrorResponse, Unit, Any] =
+    securedBaseEndpoint
+      .post
+      .in(path[String]("processInstanceId")
+        .description("Process instance ID")
+        .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
+      .in("userTask")
       .in(path[String]("userTaskId")
         .description("User task instance ID (obtained from getUserTaskVariables)")
         .example("task-abc123-def456"))

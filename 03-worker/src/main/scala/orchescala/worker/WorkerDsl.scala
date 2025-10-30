@@ -15,6 +15,17 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   def topic: String     = worker.topic
   def timeout: Duration = 10.seconds
 
+  def runWorkFromWorker(json: Json)(using
+                                EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+    ZIO.fromEither(json.as[In])
+      .mapError: err =>
+        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
+      .flatMap(runWorkFromWorker)
+      .map :
+        case NoOutput() => None
+        case out: Out => Some(out.asJson.deepDropNullValues)
+
   def runWorkFromWorker(in: In)(using
       EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, Out | NoOutput] =

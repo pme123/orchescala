@@ -197,7 +197,7 @@ lazy val engineGateway = project
       (Compile / runMain).toTask(" orchescala.engine.gateway.http.GenerateOpenApiYaml").value
     }
   )
-  .dependsOn(engineC7, engineC8)
+  .dependsOn(engineC7, engineC8, worker)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))

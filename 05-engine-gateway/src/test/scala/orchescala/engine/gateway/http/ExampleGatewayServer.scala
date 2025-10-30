@@ -56,5 +56,8 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
 
   override def run: ZIO[Any, Any, Any] = start()
 
+
+  lazy val supportedWorkers = Seq(
+  )
 end ExampleGatewayServer
 

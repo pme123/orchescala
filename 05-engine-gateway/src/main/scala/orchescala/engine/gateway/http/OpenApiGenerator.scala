@@ -28,7 +28,9 @@ object OpenApiGenerator:
       ProcessInstanceEndpoints.startProcessAsync,
       SignalEndpoints.sendSignal,
       UserTaskEndpoints.getUserTaskVariables,
-      UserTaskEndpoints.completeUserTask
+      UserTaskEndpoints.completeUserTask,
+      UserTaskEndpoints.completeUserTaskForApi,
+      WorkerEndpoints.triggerWorker
     )
 
     OpenAPIDocsInterpreter()

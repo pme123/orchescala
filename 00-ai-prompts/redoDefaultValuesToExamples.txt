@@ -51,7 +51,7 @@ Additionally, for objects that have an In and an Out:
   In / Out / InitIn / InConfig / ServiceIn / ServiceOut / example / exampleMinimal
   always keep class and companion object together
 - Put all these at the end of the object
-- Do not touch the InConfig and InitIn
+- Do NOT touch the InConfig and InitIn
 - If it is a case class only one lazy val
 - If it is an enum provide for all an example:
     e.g. object Standard:

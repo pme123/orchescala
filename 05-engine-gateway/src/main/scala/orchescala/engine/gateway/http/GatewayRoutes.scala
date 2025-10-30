@@ -3,7 +3,7 @@ package orchescala.engine.gateway.http
 import orchescala.domain.CamundaVariable
 import orchescala.engine.AuthContext
 import orchescala.engine.domain.EngineError
-import orchescala.engine.services.{MessageService, ProcessInstanceService, SignalService, UserTaskService}
+import orchescala.engine.services.*
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.WebSockets
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
@@ -36,7 +36,7 @@ object GatewayRoutes:
       userTaskService: UserTaskService,
       signalService: SignalService,
       messageService: MessageService,
-      validateToken: String => IO[EngineError, String] = defaultTokenValidator
+      validateToken: String => IO[EngineError, String]
   ): Routes[Any, Response] =
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
@@ -57,18 +57,40 @@ object GatewayRoutes:
       }
 
     val getUserTaskVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      UserTaskEndpoints.getUserTaskVariables.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
-      .serverLogic: validatedToken =>
-        (processInstanceId, userTaskDefId, variableFilter, timeoutInSec) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            userTaskService
-              .getUserTaskVariables(processInstanceId, userTaskDefId, variableFilter, timeoutInSec)
-              .mapError(ErrorResponse.fromEngineError)
+      UserTaskEndpoints
+        .getUserTaskVariables.zServerSecurityLogic: token =>
+          validateToken(token).mapError(ErrorResponse.fromEngineError)
+        .serverLogic: validatedToken =>
+          (processInstanceId, userTaskDefId, variableFilter, timeoutInSec) =>
+            // Set the bearer token in AuthContext so it can be used by the engine services
+            AuthContext.withBearerToken(validatedToken):
+              userTaskService
+                .getUserTaskVariables(
+                  processInstanceId,
+                  userTaskDefId,
+                  variableFilter,
+                  timeoutInSec
+                )
+                .mapError(ErrorResponse.fromEngineError)
 
     val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
+      .serverLogic: validatedToken =>
+        (processInstanceId, userTaskId, variables) =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            // Convert JSON to Map[String, CamundaVariable]
+            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
+              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
+              case _            => Map.empty[String, CamundaVariable]
+
+            userTaskService
+              .complete(userTaskId, camundaVariables)
+              .mapError(ErrorResponse.fromEngineError)
+              
+    val completeUserTaskEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      UserTaskEndpoints.completeUserTaskForApi.zServerSecurityLogic: token =>
         validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
         (processInstanceId, userTaskDefId, userTaskId, variables) =>
@@ -77,7 +99,7 @@ object GatewayRoutes:
             // Convert JSON to Map[String, CamundaVariable]
             val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
               case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _ => Map.empty[String, CamundaVariable]
+              case _            => Map.empty[String, CamundaVariable]
 
             userTaskService
               .complete(userTaskId, camundaVariables)
@@ -93,7 +115,7 @@ object GatewayRoutes:
             // Convert JSON to Map[String, CamundaVariable]
             val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
               case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _ => Map.empty[String, CamundaVariable]
+              case _            => Map.empty[String, CamundaVariable]
 
             signalService
               .sendSignal(
@@ -113,7 +135,7 @@ object GatewayRoutes:
             // Convert JSON to Map[String, CamundaVariable]
             val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
               case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _ => Map.empty[String, CamundaVariable]
+              case _            => Map.empty[String, CamundaVariable]
 
             messageService
               .sendMessage(
@@ -127,14 +149,21 @@ object GatewayRoutes:
               .mapError(ErrorResponse.fromEngineError)
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      List(startProcessEndpoint, getUserTaskVariablesEndpoint, completeUserTaskEndpoint, sendSignalEndpoint, sendMessageEndpoint)
+      List(
+        startProcessEndpoint,
+        getUserTaskVariablesEndpoint,
+        completeUserTaskEndpoint,
+        completeUserTaskEndpointForApi,
+        sendSignalEndpoint,
+        sendMessageEndpoint
+      )
     )
   end routes
 
   /** Default token validator - validates that token is not empty and returns the token. Override
     * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
     */
-  private def defaultTokenValidator(token: String): IO[EngineError, String] =
+  def defaultTokenValidator(token: String): IO[EngineError, String] =
     if token.nonEmpty then
       ZIO.succeed(token)
     else
