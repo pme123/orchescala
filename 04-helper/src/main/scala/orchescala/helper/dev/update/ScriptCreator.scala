@@ -13,6 +13,15 @@ case class ScriptCreator()(using config: DevConfig):
        |  CompanyDevHelper.run(command, arguments*)
        |""".stripMargin
   end projectHelper
+  
+  lazy val projectHelperForGateway =
+    s"""$helperHeader
+       |
+       |@main
+       |def run(command: String, arguments: String*): Unit =
+       |  CompanyDevHelper.runForGateway(command, arguments*)
+       |""".stripMargin
+  end projectHelperForGateway
 
   private lazy val companyName = config.companyName
   private lazy val versionHelper = CompanyVersionHelper(companyName)

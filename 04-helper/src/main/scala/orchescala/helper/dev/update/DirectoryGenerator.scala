@@ -7,6 +7,10 @@ case class DirectoryGenerator()(using config: DevConfig):
     os.makeDir.all(config.sbtProjectDir)
     config.modules.map:
       generateModule
+      
+  lazy val generateForGateway =
+    os.makeDir.all(config.sbtProjectDir)
+    generateModule(ModuleConfig.gatewayModule)
 
   private def generateModule(moduleConfig: ModuleConfig): Unit =
 

@@ -10,6 +10,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
 
   private lazy val versionConfig = config.versionConfig
   private lazy val repoConfig    = config.sbtConfig.reposConfig
+
   private lazy val settingsSbt   =
     s"""$helperDoNotAdjustText
        |
@@ -52,7 +53,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
        |  - org: $${ProjectDef.org}
        |  - name: $${ProjectDef.name}
        |  - version: $${ProjectDef.version}
-       |  - dependencies: $${ProjectDef.domainDependencies.map(_.toString()).sorted.mkString("\\n    - ", "\\n    - ", "")}
+       |  - dependencies: $${ProjectDef.${config.modules.head.name}Dependencies.map(_.toString()).sorted.mkString("\\n    - ", "\\n    - ", "")}
        |  \"\"\"
        |$sbtAutoImportSetting
        |}""".stripMargin

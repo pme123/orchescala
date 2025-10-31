@@ -1,17 +1,17 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
+import io.circe.Json as CirceJson
+import io.circe.syntax.*
 import orchescala.domain.CamundaVariable
 import orchescala.engine.AuthContext
 import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
-import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.*
 import zio.http.*
-import io.circe.syntax.*
-import io.circe.Json as CirceJson
 
 object GatewayRoutes:
 
@@ -88,7 +88,7 @@ object GatewayRoutes:
             userTaskService
               .complete(userTaskId, camundaVariables)
               .mapError(ErrorResponse.fromEngineError)
-              
+
     val completeUserTaskEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTaskForApi.zServerSecurityLogic: token =>
         validateToken(token).mapError(ErrorResponse.fromEngineError)

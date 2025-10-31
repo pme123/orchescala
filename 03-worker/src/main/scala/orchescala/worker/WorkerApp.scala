@@ -33,7 +33,7 @@ trait WorkerApp extends ZIOAppDefault:
   def dependencies(workerApps: WorkerApp*): Unit =
     theDependencies = workerApps
 
-  var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
+  private[orchescala] var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
   protected var theDependencies: Seq[WorkerApp]  = Seq.empty
 
   override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = EngineRuntime.logger

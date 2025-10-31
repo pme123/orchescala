@@ -1,4 +1,4 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
 import io.circe.parser.*
 import orchescala.domain.*

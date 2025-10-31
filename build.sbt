@@ -27,6 +27,7 @@ lazy val root = project
     engineC7,
     engineC8,
     engineGateway,
+    gateway,
     workerC7,
     workerC8
   )
@@ -186,18 +187,33 @@ lazy val engineGateway = project
   .settings(
     autoImportSetting,
     unitTestSettings,
+    libraryDependencies ++= zioTestDependencies ++ Seq(
+      scaffeineDependency,
+      logbackDependency
+    )
+  )
+  .dependsOn(engineC7, engineC8, worker)
+
+// layer 06
+lazy val gateway = project
+  .in(file("./06-gateway"))
+  .settings(publicationSettings)
+  .settings(projectSettings("gateway"))
+  .settings(
+    autoImportSetting,
+    unitTestSettings,
     libraryDependencies ++= zioTestDependencies ++ zioHttpDependencies ++ tapirDependencies ++ Seq(
       scaffeineDependency,
       logbackDependency
     ),
-    // Task to generate OpenAPI specification (run manually with: sbt "project engineGateway" generateOpenApi)
+    // Task to generate OpenAPI specification (run manually with: sbt "project gateway" generateOpenApi)
     generateOpenApi := {
       val log = streams.value.log
       log.info("Generating OpenAPI specification...")
-      (Compile / runMain).toTask(" orchescala.engine.gateway.http.GenerateOpenApiYaml").value
+      (Compile / runMain).toTask(" orchescala.gateway.GenerateOpenApiYaml").value
     }
   )
-  .dependsOn(engineC7, engineC8, worker)
+  .dependsOn(engineGateway)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))

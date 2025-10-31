@@ -1,4 +1,4 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
 import orchescala.domain.*
 import orchescala.engine.domain.{EngineError, EngineType, ProcessInfo}

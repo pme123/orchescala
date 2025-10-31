@@ -1,7 +1,7 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
-import sttp.apispec.openapi.{Info, OpenAPI}
 import sttp.apispec.openapi.circe.yaml.*
+import sttp.apispec.openapi.{Info, OpenAPI}
 import sttp.tapir.docs.openapi.OpenAPIDocsInterpreter
 
 /** Generates OpenAPI specification from Tapir endpoints.

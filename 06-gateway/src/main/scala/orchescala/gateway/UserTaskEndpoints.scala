@@ -1,4 +1,4 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
 import io.circe.parser.*
 import orchescala.domain.*
@@ -122,7 +122,7 @@ object UserTaskEndpoints:
           |""".stripMargin
       )
       .tag("User Task")
-      
+
   val completeUserTask: Endpoint[String, (String, String, Json), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post

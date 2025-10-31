@@ -13,6 +13,122 @@ info:
     - Support for both Camunda 7 and Camunda 8
     - Unified API across different engine versions
 paths:
+  /message/{messageName}:
+    post:
+      tags:
+      - Message
+      summary: Send a message to correlate with process instances
+      description: |
+        Sends a message that can be received by process instances waiting for this message.
+
+        The message will be correlated to:
+        1. the `businessKey` if set (in C8 you can use this for any variable you specified the correlationKey in the bpmn)
+        2. `processInstanceId` if set
+        3. Nothing - only for start events.
+      operationId: Send Message
+      parameters:
+      - name: messageName
+        in: path
+        description: Message name
+        required: true
+        schema:
+          type: string
+        example: order-received
+      - name: tenantId
+        in: query
+        description: If you have a multi tenant setup, you must specify the Tenant
+          ID.
+        required: false
+        schema:
+          type: string
+        example: tenant1
+      - name: timeToLiveInSec
+        in: query
+        description: 'The time in seconds the message is buffered, waiting for correlation.
+          The default value is 0 seconds (no buffering). Only supported in C8 - BE
+          AWARE that if set, it is fire and forget: Camunda will just try to correlate
+          for the configured time.'
+        required: false
+        schema:
+          type: integer
+          format: int32
+        example: 60
+      - name: businessKey
+        in: query
+        description: Business key to correlate the message to a specific process instance.
+        required: false
+        schema:
+          type: string
+        example: ORDER-2025-12345
+      - name: processInstanceId
+        in: query
+        description: Process instance ID to correlate the message to a specific process
+          instance.
+        required: false
+        schema:
+          type: string
+        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
+      requestBody:
+        description: Variables to send with the message as a JSON object
+        content:
+          application/json:
+            schema: {}
+            example:
+              orderId: '12345'
+              amount: 99.99
+              approved: true
+        required: true
+      responses:
+        '200':
+          description: Message correlation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageCorrelationResult'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
   /process/{processDefId}/async:
     post:
       tags:
@@ -20,24 +136,6 @@ paths:
       summary: Start a process instance asynchronously
       description: |
         Starts a new process instance asynchronously using the Gateway.
-
-        The Gateway will automatically route the request to the appropriate engine (C7 or C8)
-        based on the process definition and configured engines.
-
-        **Request Body:**
-        - `variables`: JSON object containing process variables
-        - `businessKey`: Optional business key to identify the process instance
-
-        **Response:**
-        Returns information about the started process instance including:
-        - Process instance ID
-        - Business key (if provided)
-        - Process status
-        - Engine type that executed the process (C7, C8, or Gateway)
-
-        **Error Responses:**
-        - `400 Bad Request`: Invalid request parameters or process definition not found
-        - `500 Internal Server Error`: Error occurred while starting the process
       operationId: Start Process Async
       parameters:
       - name: processDefId
@@ -46,12 +144,38 @@ paths:
         required: true
         schema:
           type: string
+        example: order-process
+      - name: businessKey
+        in: query
+        description: Business Key, be aware that this is not supported in Camunda
+          8.
+        required: false
+        schema:
+          type: string
+        example: ORDER-2025-12345
+      - name: tenantId
+        in: query
+        description: If you have a multi tenant setup, you must specify the Tenant
+          ID.
+        required: false
+        schema:
+          type: string
+        example: tenant1
       requestBody:
-        description: Request body with variables and optional business key
+        description: Request body with process variables as a JSON object
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/StartProcessRequest'
+            schema: {}
+            example:
+              customerName: John Doe
+              orderAmount: 1250.50
+              orderDate: '2025-10-26'
+              priority: high
+              items:
+              - productId: PROD-001
+                quantity: 2
+              - productId: PROD-042
+                quantity: 1
         required: true
       responses:
         '200':
@@ -59,34 +183,518 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StartProcessResponse'
+                $ref: '#/components/schemas/ProcessInfo'
+              example:
+                processInstanceId: f150c3f1-13f5-11ec-936e-0242ac1d0007
+                businessKey: ORDER-2025-12345
+                status: Active
+                engineType: C7
         '400':
           description: ''
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
         '500':
           description: ''
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
+  /signal/{signalName}:
+    post:
+      tags:
+      - Signal
+      summary: Send a signal to process instances
+      description: |
+        Sends a signal that can be received by process instances subscribed to this signal.
+        The signal is broadcasted to all subscribed handlers across all engines (C7/C8).
+        It is fire and forget.
+      operationId: Send Signal
+      parameters:
+      - name: signalName
+        in: path
+        description: Signal name
+        required: true
+        schema:
+          type: string
+        example: order-completed-signal
+      - name: tenantId
+        in: query
+        description: If you have a multi tenant setup, you must specify the Tenant
+          ID.
+        required: false
+        schema:
+          type: string
+        example: tenant1
+      requestBody:
+        description: Variables to send with the signal as a JSON object
+        content:
+          application/json:
+            schema: {}
+            example:
+              orderStatus: canceled
+              cancelReason: No response from the customer.
+        required: true
+      responses:
+        '204':
+          description: ''
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
+  /process/{processInstanceId}/userTask/{userTaskDefId}/variables:
+    get:
+      tags:
+      - User Task
+      summary: Get variables for a user task
+      description: |
+        Returns the variables for the current user task in a process instance.
+        **At the moment only tested if there is only one active user task in the process instance.**
+      operationId: Get User Task Variables
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: Process instance ID
+        required: true
+        schema:
+          type: string
+        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
+      - name: userTaskDefId
+        in: path
+        description: User task definition ID (task definition key in the BPMN)
+        required: true
+        schema:
+          type: string
+        example: approve-order
+      - name: variableFilter
+        in: query
+        description: A comma-separated String of variable names. E.g. `name,firstName`
+        required: false
+        schema:
+          type: string
+        example: customerName,orderAmount
+      - name: timeoutInSec
+        in: query
+        description: Maximum number of seconds to wait for the user task to become
+          active. If not provided, it will wait 10 seconds.
+        required: false
+        schema:
+          type: integer
+          format: int32
+        example: 30
+      responses:
+        '200':
+          description: Variables for the current user task as JSON object
+          headers:
+            userTaskId:
+              description: The ID of the user task
+              required: true
+              schema:
+                type: string
+              example: task-abc123-def456
+          content:
+            application/json:
+              schema: {}
+              example:
+                customerName: John Doe
+                orderAmount: 1250.50
+                orderDate: '2025-10-26'
+                priority: high
+                approvalRequired: true
+                assignedTo: manager@example.com
+                items:
+                - productId: PROD-001
+                  quantity: 2
+                  price: 500.25
+                - productId: PROD-042
+                  quantity: 1
+                  price: 250.00
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
+  /process/{processInstanceId}/userTask/{userTaskId}/complete:
+    post:
+      tags:
+      - User Task
+      summary: Complete a user task with variables
+      description: |
+        Completes a user task in a process instance with the provided variables.
+      operationId: Complete User Task
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: Process instance ID
+        required: true
+        schema:
+          type: string
+        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
+      - name: userTaskId
+        in: path
+        description: User task instance ID (obtained from getUserTaskVariables)
+        required: true
+        schema:
+          type: string
+        example: task-abc123-def456
+      requestBody:
+        description: Variables to set when completing the task as a JSON object
+        content:
+          application/json:
+            schema: {}
+            example:
+              approved: true
+              approverComment: Order approved - customer has good credit rating
+              approvalDate: '2025-10-26T14:30:00Z'
+              nextStep: shipping
+        required: true
+      responses:
+        '204':
+          description: ''
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
+  /process/{processInstanceId}/userTask/{userTaskDefId}/{userTaskId}/complete:
+    post:
+      tags:
+      - User Task
+      summary: Complete a user task for API documentation
+      description: |
+        Completes a user task in a process instance with the provided variables.
+        - Has additional path element `userTaskDefId` to differentiate between multiple user tasks in the same process instance.
+      operationId: Complete User Task
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: Process instance ID
+        required: true
+        schema:
+          type: string
+        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
+      - name: userTaskDefId
+        in: path
+        description: |
+          User task definition ID (task definition key in the BPMN)
+          - This is used for API path differentiation in OpenAPI.
+          - We use this that you can have multiple UserTasks in one Project.
+        required: true
+        schema:
+          type: string
+        example: approve-order
+      - name: userTaskId
+        in: path
+        description: User task instance ID (obtained from getUserTaskVariables)
+        required: true
+        schema:
+          type: string
+        example: task-abc123-def456
+      requestBody:
+        description: Variables to set when completing the task as a JSON object
+        content:
+          application/json:
+            schema: {}
+            example:
+              approved: true
+              approverComment: Order approved - customer has good credit rating
+              approvalDate: '2025-10-26T14:30:00Z'
+              nextStep: shipping
+        required: true
+      responses:
+        '204':
+          description: ''
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
+  /worker/{workerDefId}:
+    post:
+      tags:
+      - Worker
+      summary: Trigger a worker execution
+      description: |
+        Triggers a worker to execute with the provided variables.
+
+        This endpoint allows you to manually trigger a worker execution, which can be useful for:
+        - Testing worker implementations
+        - Debugging worker behavior
+        - Manually processing tasks outside of normal process flow
+
+        The worker will receive the provided variables as input and execute its logic accordingly.
+        If the worker returns output variables, they will be returned with status 200 OK.
+        If the worker returns no output (NoOutput), status 204 No Content will be returned.
+      operationId: Trigger Worker
+      parameters:
+      - name: workerDefId
+        in: path
+        description: Worker definition ID (worker topic name)
+        required: true
+        schema:
+          type: string
+        example: process-order-worker
+      requestBody:
+        description: Variables to send to the worker as a JSON object
+        content:
+          application/json:
+            schema: {}
+            example:
+              orderId: '12345'
+              customerId: CUST-789
+              amount: 150.00
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '204':
+          description: ''
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
 components:
   schemas:
-    C7:
-      title: C7
-      type: object
-    C8:
-      title: C8
-      type: object
     EngineType:
       title: EngineType
-      description: Type of the engine that executed the process
-      oneOf:
-      - $ref: '#/components/schemas/C7'
-      - $ref: '#/components/schemas/C8'
-      - $ref: '#/components/schemas/Gateway'
+      type: string
+      enum:
+      - C7
+      - C8
+      - Gateway
     ErrorResponse:
       title: ErrorResponse
       description: Error response
@@ -100,32 +708,31 @@ components:
         code:
           description: Optional error code
           type: string
-    Gateway:
-      title: Gateway
-      type: object
-    ProcessStatus:
-      title: ProcessStatus
-      description: Current status of the process
-      type: string
-      enum:
-      - Active
-      - Completed
-      - Failed
-    StartProcessRequest:
-      title: StartProcessRequest
-      description: Request to start a process instance asynchronously
+    Execution:
+      title: Execution
       type: object
       required:
-      - variables
+      - id
+      - processInstanceId
+      - engineType
+      - resultType
       properties:
-        variables:
-          description: Process variables as JSON object
-        businessKey:
-          description: Optional business key for the process instance
+        id:
           type: string
-    StartProcessResponse:
-      title: StartProcessResponse
-      description: Response containing information about the started process instance
+        processInstanceId:
+          type: string
+        engineType:
+          $ref: '#/components/schemas/EngineType'
+        resultType:
+          $ref: '#/components/schemas/ResultType'
+    MessageCorrelationResult:
+      title: MessageCorrelationResult
+      oneOf:
+      - $ref: '#/components/schemas/Execution'
+      - $ref: '#/components/schemas/ProcessInstance'
+    ProcessInfo:
+      title: ProcessInfo
+      description: Contains information about a process instance or execution
       type: object
       required:
       - processInstanceId
@@ -142,3 +749,39 @@ components:
           $ref: '#/components/schemas/ProcessStatus'
         engineType:
           $ref: '#/components/schemas/EngineType'
+          description: Type of the engine
+    ProcessInstance:
+      title: ProcessInstance
+      type: object
+      required:
+      - id
+      - processInstanceId
+      - engineType
+      - resultType
+      properties:
+        id:
+          type: string
+        processInstanceId:
+          type: string
+        engineType:
+          $ref: '#/components/schemas/EngineType'
+        resultType:
+          $ref: '#/components/schemas/ResultType'
+    ProcessStatus:
+      title: ProcessStatus
+      description: Current status of the process
+      type: string
+      enum:
+      - Active
+      - Completed
+      - Failed
+    ResultType:
+      title: ResultType
+      type: string
+      enum:
+      - Execution
+      - ProcessInstance
+  securitySchemes:
+    httpAuth:
+      type: http
+      scheme: bearer

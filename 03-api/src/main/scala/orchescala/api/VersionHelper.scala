@@ -92,7 +92,7 @@ object VersionHelper:
         s"${Console.YELLOW_B}NOT FOUND!${Console.RESET} - Result from Maven Central:\n ${searchResult.out.text()}" +
           s"Check: cs complete-dep $org:$project:"
       )
-      s"0.0.0"
+      s"0.1.0-SNAPSHOT"
 
     println(s"- Last Version of $org:$project: $version")
     version

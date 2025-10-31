@@ -1,11 +1,11 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
-import orchescala.engine.gateway.GProcessEngine
 import orchescala.engine.*
 import orchescala.engine.c7.{C7Client, C7ProcessEngine, SharedC7ClientManager}
 import orchescala.engine.c8.{C8Client, C8ProcessEngine, SharedC8ClientManager}
 import orchescala.engine.domain.EngineError
-import orchescala.worker.WorkerDsl
+import orchescala.engine.gateway.GProcessEngine
+import orchescala.worker.{WorkerApp, WorkerDsl}
 import zio.*
 import zio.http.*
 
@@ -28,7 +28,22 @@ import zio.http.*
 abstract class GatewayServer extends EngineApp:
 
   def port: Int = 8080
-  def supportedWorkers: Seq[Set[WorkerDsl[?, ?]]]
+
+  var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
+
+  /** Add all the workers you want to support.
+    *
+    * You can add single workers, lists of workers or even complete WorkerApps. And a mix of all of
+    * the above.
+    */
+  def supportedWorkers(dWorkers: (WorkerDsl[?, ?] | Seq[WorkerDsl[?, ?]] | WorkerApp)*): Unit =
+    theWorkers = dWorkers
+      .flatMap:
+        case d: WorkerDsl[?, ?] => Seq(d)
+        case s: Seq[?]          => s.collect { case d: WorkerDsl[?, ?] => d }
+        case app: WorkerApp     => app.theWorkers
+      .toSet
+
   /** Starts the Gateway HTTP server with the specified configuration.
     *
     * @return
@@ -45,16 +60,16 @@ abstract class GatewayServer extends EngineApp:
         gatewayEngine <- engineZIO
 
         // Create routes
-        apiRoutes  = GatewayRoutes.routes(
-                       gatewayEngine.processInstanceService,
-                       gatewayEngine.userTaskService,
-                       gatewayEngine.signalService,
-                       gatewayEngine.messageService,
-          validateToken
-                     )
-        workerRoutes = WorkerRoutes.routes(supportedWorkers.flatten.toSet, validateToken)
-        docsRoutes = OpenApiRoutes.routes
-        allRoutes  = apiRoutes ++ workerRoutes ++ docsRoutes
+        apiRoutes    = GatewayRoutes.routes(
+                         gatewayEngine.processInstanceService,
+                         gatewayEngine.userTaskService,
+                         gatewayEngine.signalService,
+                         gatewayEngine.messageService,
+                         validateToken
+                       )
+        workerRoutes = WorkerRoutes.routes(theWorkers, validateToken)
+        docsRoutes   = OpenApiRoutes.routes
+        allRoutes    = apiRoutes ++ workerRoutes ++ docsRoutes
 
         // Start server
         _ <- ZIO.logInfo(s"Server ready at http://localhost:$port")
@@ -68,5 +83,6 @@ abstract class GatewayServer extends EngineApp:
     ).unit
   end start
 
-  protected lazy val validateToken: String => IO[EngineError, String] = GatewayRoutes.defaultTokenValidator
+  protected lazy val validateToken: String => IO[EngineError, String] =
+    GatewayRoutes.defaultTokenValidator
 end GatewayServer

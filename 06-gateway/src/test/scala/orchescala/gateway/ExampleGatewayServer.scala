@@ -1,4 +1,4 @@
-package orchescala.engine.gateway.http
+package orchescala.gateway
 
 import orchescala.engine.*
 import orchescala.engine.c7.{C7BearerTokenClient, C7ProcessEngine, SharedC7ClientManager}

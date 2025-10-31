@@ -5,7 +5,7 @@ case class GenericFileGenerator()(using config: DevConfig):
   lazy val generate: Unit =
     createScalaFmt
     createGitIgnore
-    createOrUpdate(config.projectDir / "helper.scala", helperScala)
+    createOrUpdate(config.projectDir / "helper.scala", ScriptCreator().projectHelper)
     os.proc("chmod", "+x", config.projectDir / "helper.scala").call()
     createIfNotExists(config.projectDir / "CHANGELOG.md", changeLog)
     os.makeDir.all(config.projectDir / ".run")
@@ -13,6 +13,14 @@ case class GenericFileGenerator()(using config: DevConfig):
     createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
     createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
   end generate
+
+  lazy val generateForGateway: Unit =
+    createScalaFmt
+    createGitIgnore
+    createOrUpdate(config.projectDir / "helper.scala", ScriptCreator().projectHelperForGateway)
+    os.proc("chmod", "+x", config.projectDir / "helper.scala").call()
+    createIfNotExists(config.projectDir / "CHANGELOG.md", changeLog)
+  end generateForGateway
 
   lazy val createScalaFmt  =
     createOrUpdate(config.projectDir / ".scalafmt.conf", scalafmt)
@@ -88,9 +96,6 @@ case class GenericFileGenerator()(using config: DevConfig):
        |/**/gradle*
        |test.*
        |""".stripMargin
-
-  private val helperScala = ScriptCreator()
-    .projectHelper
 
   lazy val changeLog =
     s"""# Changelog

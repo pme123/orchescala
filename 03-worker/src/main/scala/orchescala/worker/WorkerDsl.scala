@@ -24,7 +24,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
       .flatMap(runWorkFromWorker)
       .map :
         case NoOutput() => None
-        case out: Out => Some(out.asJson.deepDropNullValues)
+        case out => Some(out.asInstanceOf[Out].asJson.deepDropNullValues)
 
   def runWorkFromWorker(in: In)(using
       EngineRunContext

@@ -1,14 +1,13 @@
-package orchescala.engine
-package gateway.http
+package orchescala.gateway
 
-import orchescala.domain.{GeneralVariables, InOutDecoder, InOutEncoder, Json, OrchescalaLogger}
+import orchescala.domain.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.domain.EngineError.ProcessError
-import orchescala.worker.{DefaultRestApiClient, EngineContext, EngineRunContext, HttpClientProvider, RunnableRequest, SendRequestType, WorkerDsl}
+import orchescala.engine.{AuthContext, Slf4JLogger}
+import orchescala.worker.*
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
-import sttp.tapir.ztapir.ZServerEndpoint
 import sttp.tapir.ztapir.*
 import zio.http.{Response, Routes}
 import zio.{IO, ZIO}

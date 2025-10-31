@@ -198,6 +198,19 @@ object ModuleConfig:
     "helper",
     level = 4
   )
+  // only used for gateway project
+  lazy val gatewayModule = ModuleConfig(
+    "gateway",
+    level = 4,
+    testType = TestType.ZIO,
+    sbtSettings = Seq("dockerSettings"),
+    sbtPlugins = Seq("DockerPlugin", "JavaAppPackaging"),
+    sbtDependencies = Seq(
+      """"ch.qos.logback" % "logback-classic" % logbackVersion % Runtime""",
+      """"jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion"""
+    ),
+    hasProjectDependencies = true
+  )
 
 end ModuleConfig
 
