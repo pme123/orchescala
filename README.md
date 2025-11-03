@@ -7,6 +7,8 @@
 ## Description
 See [Documentation](https://pme123.github.io/orchescala/)
 
+For details on Bearer token authentication, see the [Gateway README](06-gateway/README.md#authentication).
+
 # Development
 
 ## Update Dependencies

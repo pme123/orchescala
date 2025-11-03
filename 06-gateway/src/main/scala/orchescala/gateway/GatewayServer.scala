@@ -55,6 +55,7 @@ abstract class GatewayServer extends EngineApp:
       for
         _ <- ZIO.logInfo(banner("Engine Gateway Server"))
         _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port $port")
+        _ <- ZIO.logInfo(s"\n${theWorkers.size} supported Workers: \n- ${theWorkers.map(_.topic).mkString("\n- ")}")
 
         // Create gateway engine
         gatewayEngine <- engineZIO

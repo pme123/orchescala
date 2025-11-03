@@ -147,7 +147,11 @@ The HTTP API is structured as follows:
 
 ## Authentication
 
-All API endpoints require Bearer token authentication. By default, the server uses a simple token validator that accepts any non-empty token. You can provide a custom token validator:
+All API endpoints require Bearer token authentication via the `Authorization: Bearer <token>` header.
+
+### Token Validation
+
+By default, the server uses a simple token validator that accepts any non-empty token. You can provide a custom token validator:
 
 ```scala
 import orchescala.gateway.http.GatewayRoutes
@@ -168,7 +172,54 @@ val routes = GatewayRoutes.routes(
 )
 ```
 
-The validated token is stored in `AuthContext` and can be accessed by engine services for downstream authentication.
+### Bearer Token Pass-Through Flow
+
+Orchescala uses a **fiber-local context pattern** to pass authentication tokens from HTTP requests down to Camunda API calls without modifying service method signatures:
+
+1. **Token Extraction**: The gateway extracts the Bearer token from the HTTP `Authorization` header and validates it
+2. **Context Storage**: The validated token is stored in `AuthContext` (a ZIO FiberRef) for the duration of the request
+3. **Automatic Propagation**: When engine services need a Camunda client, they automatically retrieve the token from `AuthContext`
+4. **Token Injection**: The token is added as an `Authorization: Bearer <token>` header to all Camunda API calls
+
+**Example Flow:**
+```scala
+// 1. Gateway endpoint receives request with token
+val startProcessEndpoint =
+  ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
+    validateToken(token)  // Validate the token
+  }.serverLogic { validatedToken =>
+    (processDefId, businessKey, tenantId, request) =>
+      // 2. Set token in AuthContext for this request's fiber
+      AuthContext.withBearerToken(validatedToken):
+        // 3. Service automatically uses token when calling Camunda
+        processInstanceService.startProcessAsync(...)
+  }
+```
+
+**Key Benefits:**
+- ✅ **No signature pollution** - service methods don't need token parameters
+- ✅ **Fiber-safe** - each request's token is isolated in its own fiber
+- ✅ **Flexible** - supports both pass-through tokens and static credentials
+- ✅ **Transparent** - services don't need to know about authentication details
+
+### Client Configuration
+
+To enable Bearer token pass-through authentication, use the appropriate client trait:
+
+**For Camunda 8:**
+```scala
+object MyC8Client extends C8BearerTokenClient:
+  override protected def zeebeGrpc: String = "http://localhost:26500"
+  override protected def zeebeRest: String = "http://localhost:8080"
+```
+
+**For Camunda 7:**
+```scala
+object MyC7Client extends C7BearerTokenClient:
+  override protected def camundaRestUrl: String = "http://localhost:8080/engine-rest"
+```
+
+The token from `AuthContext` will automatically be included in all requests to Camunda.
 
 ## Integration with Existing Code
 

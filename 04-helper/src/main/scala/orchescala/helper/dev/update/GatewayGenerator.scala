@@ -12,7 +12,7 @@ case class GatewayGenerator()(using config: DevConfig):
   private lazy val companyName = config.companyName
   private lazy val gatewayApp  =
     val objName      = "GatewayServerApp"
-    val dependencies = config.apiProjectConfig.dependencies
+    val dependencies = (config.apiProjectConfig.dependencies ++ config.apiProjectConfig.workerDependencies).toSet
 
     s"""$helperDoNotAdjustText
        |package ${config.projectPackage}.gateway

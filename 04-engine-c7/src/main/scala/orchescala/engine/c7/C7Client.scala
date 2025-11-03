@@ -11,7 +11,7 @@ trait C7Client:
 /** C7 client for local/direct connections */
 trait C7LocalClient extends C7Client:
 
-  protected def camundaRestUrl: String = "http://localhost:8080/engine-rest"
+  protected def camundaRestUrl: String
 
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
     SharedC7ClientManager.getOrCreateClient:
@@ -63,13 +63,7 @@ trait C7BearerTokenClient extends C7Client:
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
-    SharedC7ClientManager.getOrCreateClient:
-      ZIO.attempt:
-        val apiClient = new ApiClient()
-        apiClient.setBasePath(camundaRestUrl)
-        apiClient
-      .mapError: ex =>
-        EngineError.UnexpectedError(s"Problem creating C7 API Client: $ex")
+    ZIO.fail(EngineError.UnexpectedError("C7BearerTokenClient must provide a token."))
 
 end C7BearerTokenClient
 
@@ -85,9 +79,9 @@ object C7Client:
     c7Client match
       case bearerClient: C7BearerTokenClient =>
         // For bearer token clients, check AuthContext on every request
-        ZIO.environmentWith[SharedC7ClientManager] { env =>
+        ZIO.environmentWith[SharedC7ClientManager] : env =>
           import orchescala.engine.AuthContext
-          AuthContext.get.flatMap { authContext =>
+          AuthContext.get.flatMap : authContext =>
             authContext.bearerToken match
               case Some(token) =>
                 // Use fresh client with token from AuthContext (pass-through authentication)
@@ -95,8 +89,7 @@ object C7Client:
               case None =>
                 // No token in context, use default client (may be cached)
                 bearerClient.client.provideEnvironment(env)
-          }
-        }
+
       case _ =>
         // For other client types, use the standard cached client
         ZIO.environmentWith[SharedC7ClientManager] { env =>

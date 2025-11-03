@@ -59,7 +59,7 @@ end C7BasicAuthWorkerClient
 
 trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
   given OrchescalaLogger   = Slf4JLogger.logger(getClass.getName)
-  def camundaRestUrl       = "http://localhost:8080/engine-rest"
+  def camundaRestUrl: String
   def maxTimeForAcquireJob = 500.millis
   def lockDuration: Long   = 30.seconds.toMillis
   def maxTasks: Int        = 10

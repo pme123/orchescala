@@ -8,19 +8,20 @@ import sttp.client3.*
 trait OAuthPasswordFlow:
   def fssoRealm: String
   def fssoBaseUrl: String
-  
+
   def identityUrl =
     uri"$fssoBaseUrl/realms/$fssoRealm/protocol/openid-connect/token"
 
-  def grant_type_password           = "password"
-  def grant_type_client_credentials = "client_credentials"
-  def grant_type_impersonate        = "urn:ietf:params:oauth:grant-type:token-exchange"
-  def client_id                     = "myClientId"
-  def client_secret                 = "myClientSecret"
-  def scope                         = "openid"
+  final lazy val grant_type_client_credentials = "client_credentials"
+  final lazy val grant_type_impersonate        = "impersonate"
+  final lazy val grant_type_password           = "password"
+
+  def client_id: String
+  def client_secret: String
+  def scope: String
   // Grant Type password
-  def username                      = "admin"
-  def password                      = "admin"
+  def username: String
+  def password: String
 
   def tokenService = TokenService(
     identityUrl,
