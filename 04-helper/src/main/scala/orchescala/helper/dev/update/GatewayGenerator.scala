@@ -15,7 +15,9 @@ case class GatewayGenerator()(using config: DevConfig):
     val dependencies = (config.apiProjectConfig.dependencies ++ config.apiProjectConfig.workerDependencies).toSet
 
     s"""$helperDoNotAdjustText
-       |package ${config.projectPackage}.gateway
+       |package ${config.projectPackage}
+       |
+       |import ${companyName}.orchescala.gateway.CompanyGatewayServerApp
        |
        |// sbt gateway/run
        |object $objName extends CompanyGatewayServerApp:
@@ -50,8 +52,7 @@ case class GatewayGenerator()(using config: DevConfig):
        |""".stripMargin
 
   private lazy val gatewayPath =
-    config.projectDir /
-      ModuleConfig.gatewayModule.packagePath(config.projectPath)
+    config.projectDir / "04-gateway" / "src" / "main" / "scala" / config.projectPath
 
   private lazy val gatewayConfigPath =
     val dir = config.projectDir / ModuleConfig.gatewayModule.packagePath(

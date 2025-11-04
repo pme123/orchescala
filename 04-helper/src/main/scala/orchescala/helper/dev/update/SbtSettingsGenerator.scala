@@ -2,7 +2,7 @@ package orchescala.helper.dev.update
 
 import orchescala.BuildInfo
 
-case class SbtSettingsGenerator()(using config: DevConfig):
+case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
 
   lazy val generate: Unit =
     createOrUpdate(config.sbtProjectDir / "Settings.scala", settingsSbt)
@@ -11,7 +11,7 @@ case class SbtSettingsGenerator()(using config: DevConfig):
   private lazy val versionConfig = config.versionConfig
   private lazy val repoConfig    = config.sbtConfig.reposConfig
 
-  private lazy val settingsSbt   =
+  private lazy val settingsSbt =
     s"""$helperDoNotAdjustText
        |
        |import com.typesafe.sbt.SbtNativePackager.Docker
@@ -145,9 +145,14 @@ case class SbtSettingsGenerator()(using config: DevConfig):
       }""".stripMargin
 
   lazy val sbtDocker =
-    s"  lazy val dockerSettings = " +
-      config.sbtConfig.dockerSettings
-        .getOrElse("Seq()")
+    "  lazy val dockerSettings = " + (
+      if isGateway then
+        config.sbtConfig.dockerGatewaySettings
+          .getOrElse("Seq()")
+      else
+        config.sbtConfig.dockerSettings
+          .getOrElse("Seq()")
+    )
 
   lazy val testSettings =
     s"""  lazy val testSettings = Seq(

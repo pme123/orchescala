@@ -20,9 +20,8 @@ trait DevHelper:
     run(command, arguments.toSeq, runCommand)
   end run
 
-  def runForGateway(command: String, arguments: String*): Unit = {
+  def runForGateway(command: String, arguments: String*): Unit =
     run(command, arguments.toSeq, runCommandForGateway, Seq(Command.update, Command.publish))
-  }
   end runForGateway
 
   private def run(
@@ -146,7 +145,13 @@ trait DevHelper:
       case Command.update  =>
         updateGateway()
       case Command.publish =>
-        runCommand(command, args)
+        args match
+          case Seq(version) =>
+            PublishHelper().publishGateway(version)
+          case other        =>
+            println(s"Invalid arguments for command $command: $other")
+            println(s"Usage: $command <version>")
+            println(s"Example: $command 1.23.3")
       case other           =>
         println(s"Command not supported for gateway: $other")
 
@@ -167,9 +172,15 @@ trait DevHelper:
 
   def updateGateway(): Unit =
     println(s"Update Gateway Project: ${devConfig.projectName}")
-    SetupGenerator()(using devConfig.copy(
-      modules = Seq(ModuleConfig.gatewayModule)
-    )).generateGateway
+    SetupGenerator()(using
+      devConfig.copy(
+        modules = Seq(ModuleConfig.gatewayModule),
+        sbtConfig = devConfig.sbtConfig.copy(
+          dockerSettings = Some("dockerSettings"),
+        )
+      )
+    ).generateGateway
+  end updateGateway
 
   def createProcess(processName: String, version: Option[Int]): Unit =
     SetupGenerator().createProcess(SetupElement(

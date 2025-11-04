@@ -4,5 +4,6 @@ case class SbtConfig(
     // sbt settings for publishing
     reposConfig: ReposConfig = ReposConfig.dummyRepos,
     // sbt settings for docker
-    dockerSettings: Option[String] = None
+    dockerSettings: Option[String] = None,
+    dockerGatewaySettings: Option[String] = None
 )

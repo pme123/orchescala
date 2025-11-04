@@ -9,7 +9,7 @@ case class SetupGenerator()(using config: DevConfig):
     )
     DirectoryGenerator().generate
     SbtGenerator().generate
-    SbtSettingsGenerator().generate
+    SbtSettingsGenerator(isGateway = false).generate
     GenericFileGenerator().generate
     WorkerGenerator().generate
     SimulationGenerator().generate
@@ -25,7 +25,7 @@ case class SetupGenerator()(using config: DevConfig):
     DirectoryGenerator().generateForGateway
     GatewayGenerator().generate
     SbtGenerator().generateForGateway
-    SbtSettingsGenerator().generate
+    SbtSettingsGenerator(isGateway = true).generate
 
     GenericFileGenerator().generateForGateway
 
