@@ -66,7 +66,7 @@ object UserTaskEndpoints:
         .description("Process instance ID")
         .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
       .in("userTask")
-      .in(path[String]("userTaskDefId")
+      .in(path[String]("taskDefinitionKey")
         .description("User task definition ID (task definition key in the BPMN)")
         .example("approve-order"))
       .in("variables")
@@ -99,7 +99,7 @@ object UserTaskEndpoints:
         .description("Process instance ID")
         .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
       .in("userTask")
-      .in(path[String]("userTaskDefId")
+      .in(path[String]("taskDefinitionKey")
         .description(
           """User task definition ID (task definition key in the BPMN)
             |- This is used for API path differentiation in OpenAPI.
@@ -118,7 +118,7 @@ object UserTaskEndpoints:
       .summary("Complete a user task for API documentation")
       .description(
         """Completes a user task in a process instance with the provided variables.
-          |- Has additional path element `userTaskDefId` to differentiate between multiple user tasks in the same process instance.
+          |- Has additional path element `taskDefinitionKey` to differentiate between multiple user tasks in the same process instance.
           |""".stripMargin
       )
       .tag("User Task")

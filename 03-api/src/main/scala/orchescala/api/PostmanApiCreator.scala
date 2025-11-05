@@ -116,11 +116,11 @@ trait PostmanApiCreator extends AbstractApiCreator:
       Some(
         endpoint
           .tag(tag)
-          .summary(api.endpointName)
+          .summary(api.endpointName(InOutDocu.BOTH))
           .description(
             s"""${descr.getOrElse(api.descr)}
                |
-               |See API Doc: ${createLink(api.endpointName, Some(api.name))}
+               |See API Doc: ${createLink(api.endpointName(InOutDocu.BOTH), Some(api.name))}
                |""".stripMargin
           )
           // .securityIn(auth.bearer()(sttp.tapir.Codec.cookies)) could not be imported to Postman:(

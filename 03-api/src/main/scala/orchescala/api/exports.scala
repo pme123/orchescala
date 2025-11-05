@@ -9,10 +9,15 @@ lazy val projectsPath = os.pwd / "projects"
 
 def shortenTag(refIdentShort: String) =
   val tag = shortenName(refIdentShort)
-  tag.head.toUpper + tag.tail.map {
-      case c: Char if c.isUpper => s" $c"
-      case c => s"$c"
-    }.mkString.replace(".", " ").replace("-", " ").replace("_", " ").replace("  ", " ")
+  tag.replace(".", " ").replace("-", " ").replace("_", " ").replace("  ", " ")
+    .split(" ")
+    .map: n =>
+      n.head.toUpper + n.tail
+        .map :
+          case c: Char if c.isUpper => s" $c"
+          case c => s"$c"
+        .mkString
+    .mkString(" ")  
 end shortenTag
 
 extension (proc: os.proc)

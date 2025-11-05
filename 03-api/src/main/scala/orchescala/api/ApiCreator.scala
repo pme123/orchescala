@@ -391,7 +391,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
     apis
       .map:
         case api -> anchor =>
-          s"- ${createLink(api.endpointName, Some(anchor))}"
+          s"- ${createLink(api.endpointName(InOutDocu.BOTH), Some(anchor))}"
       .sorted
       .mkString("\n")
   end toCatalog

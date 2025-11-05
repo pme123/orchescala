@@ -37,7 +37,10 @@ trait TapirApiCreator extends AbstractApiCreator:
       cApi match
         case da @ DecisionDmnApi(_, _, _, _) =>
           da.createEndpoint(tag, tagIsFix, da.additionalDescr)
-        case aa @ ActivityApi(_, _, _)       =>
+        case aa @ ActivityApi(_, _, _)  if aa.inOutType == InOutType.UserTask     =>
+          aa. createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.OUT) ++
+            aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.IN) 
+        case aa @ ActivityApi(_, _, _)     =>
           aa.createEndpoint(tag, tagIsFix)
         case pa @ ProcessApi(name, _, _, apis, _)
             if apis.isEmpty =>
@@ -66,7 +69,7 @@ trait TapirApiCreator extends AbstractApiCreator:
             .description(
               s"""|${processApi.inOut.initInDescr.mkString}
                   |<details>
-                  |<summary><b>Init Worker Details</b></summary>
+                  |<summary><b>General Information</b></summary>
                   |
                   |The Init Worker has the following responsibilities:
                   |
@@ -113,49 +116,136 @@ trait TapirApiCreator extends AbstractApiCreator:
   extension (inOutApi: InOutApi[?, ?])
 
     def createEndpoint(
-        tagFull: String,
-        tagIsFix: Boolean,
-        additionalDescr: Option[String] = None,
+                        tagFull: String,
+                        tagIsFix: Boolean,
+                        additionalDescr: Option[String] = None,
+                        inOutDocu: InOutDocu = InOutDocu.BOTH
     ): Seq[PublicEndpoint[?, Unit, ?, Any]] =
       val eTag         = if tagIsFix then tagFull else shortenTag(tagFull)
       println(s"createEndpoint: $tagIsFix $tagFull >> $eTag")
-      val endpointName = if inOutApi.name == tagFull then "Process" else inOutApi.endpointName
+      val endpointName = (if inOutApi.name == tagFull then "Process" else inOutApi.endpointName(inOutDocu))
       println(s"Endpoint: $endpointName")
       Seq(
         endpoint
           .name(endpointName)
           .tag(eTag)
-          .in(endpointPath)
+          .in(endpointPath(inOutDocu))
           .summary(endpointName)
           .description(
             inOutApi.apiDescription(apiConfig.companyName) +
-              additionalDescr.getOrElse("")
+              additionalDescr.getOrElse("") +
+              generalInformation(inOutDocu)
           )
           .post
-      ).map(ep => inOutApi.toInput.map(ep.in).getOrElse(ep))
-        .map(ep => inOutApi.toOutput.map(ep.out).getOrElse(ep))
+      ).map(ep => if inOutDocu != InOutDocu.OUT then inOutApi.toInput.map(ep.in).getOrElse(ep) else ep)
+        .map(ep => if inOutDocu != InOutDocu.IN then inOutApi.toOutput.map(ep.out).getOrElse(ep) else ep)
     end createEndpoint
 
-    def endpointPath =
-      val refId = refIdentShort(inOutApi.id, projectName)
-      val id    = inOutApi.id
+    def endpointPath(inOutDoc: InOutDocu) =
+      val id = inOutApi.id
       inOutApi.inOutType match
-        case InOutType.Bpmn     =>
+        case InOutType.Bpmn                                          =>
           "process" / id / "async"
-        case InOutType.Worker   =>
+        case InOutType.Worker                                        =>
           "worker" / id
-        case InOutType.UserTask =>
-          "process" / path[String]("processInstanceId") / "userTask" / id / path[String]("userTaskInstanceId") / "complete"
-        case InOutType.Signal   =>
+        case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
+          "process" / path[String]("processInstanceId") / "userTask" / id / path[String](
+            "userTaskInstanceId"
+          ) / "complete"
+        case InOutType.UserTask                                      => // variables
+          "process" / path[String]("processInstanceId") / "userTask" / id / "variables"
+        case InOutType.Signal                                        =>
           "signal" / id
-        case InOutType.Message  =>
+        case InOutType.Message                                       =>
           "message" / id
-        case InOutType.Timer    =>
+        case InOutType.Timer                                         =>
           "timer" / id / "NOT_IMPLEMENTED"
-        case InOutType.Dmn      =>
+        case InOutType.Dmn                                           =>
           "dmn" / id / "NOT_IMPLEMENTED"
       end match
     end endpointPath
+
+    def generalInformation(inOutDoc: InOutDocu) =
+      val info =
+        inOutApi.inOutType match
+          case InOutType.Bpmn                                          =>
+            """
+              |This describes the <b>Input</b> and the <b>Output</b> of the Process.
+              |
+              |Be aware that running this request with Postman,
+              |you will not get the <b>Output</b> but the <i>processInstanceId</i>, as starting a process is asynchronous.
+              |
+              |Example Output:
+              |```json
+              |{
+              |"processInstanceId": "f150c3f1-13f5-11ec-936e-0242ac1d0007",
+              |"businessKey": "ORDER-2025-12345",
+              |"status": "Active",
+              |"engineType": "C7"
+              |}
+              |```
+              |""".stripMargin
+          case InOutType.Worker                                        =>
+            """
+              |This describes the <b>Input</b> and the <b>Output</b> of the Worker.
+              |
+              |Running this request with Postman, it will run the Worker directly, no Process will be started.
+              |""".stripMargin
+          case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
+            """
+              |A <b>UserTask</b> consists of two steps (variables and complete).
+              |This is the <b>second step</b>:
+              |
+              |2. Complete the UserTask
+              |
+              |The <b>Input</b> are the Variables you want to set when completing the task.
+              |
+              |""".stripMargin
+          case InOutType.UserTask                                      => // variables
+            """
+              |A <b>UserTask</b> consists of two steps (variables and complete).
+              |This is the <b>first step</b>:
+              |
+              |1. Wait for the UserTask and get then the Variables.
+              |
+              |The <b>Output</b> are the Variables you want for your UserTask Form.
+              |
+              |""".stripMargin
+          case InOutType.Signal                                        =>
+            """Send a Signal to the Process.
+              |Process is waiting at a Signal Event, or has the possibility to interact with a Signal,
+              |e.g. in a Boundary Event.""".stripMargin
+          case InOutType.Message                                       =>
+            """Send a Message to the Process.
+              |Process is waiting at a Message Event, or has the possibility to interact with a Message,
+              |e.g. in a Boundary Event.
+              |""".stripMargin
+          case InOutType.Timer                                         =>
+            """You can execute an intermediate timer event immediately.
+              |
+              |<b>NOT IMPLEMENTED in Gateway API!</b>
+              |
+              |This is done via the Job Execution API which is not part of Camunda 8!.""".stripMargin
+          case InOutType.Dmn                                           =>
+            """You can emulate a DMN.
+              |
+              |<b>NOT IMPLEMENTED in Gateway API!</b>
+              |
+              |You can use the DMN Tester to test your DMNs.
+              |
+              |This is done via the DMN API which is not part of Camunda 8!
+              |""".stripMargin
+        end match
+      end info
+
+      s"""<p/>
+         |<details>
+         |<summary><b><i>General Information</i></b></summary>
+         |<p>
+         |$info
+         |</p>
+         |</details>""".stripMargin
+    end generalInformation
 
     private def toInput: Option[EndpointInput[?]] =
       inOutApi.inOut.in match

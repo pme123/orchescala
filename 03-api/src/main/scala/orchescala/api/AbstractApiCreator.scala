@@ -20,12 +20,12 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     Server(apiConfig.endpoint).description("Local Developer Server")
   )
 
-  /**
-   * You can adjust the OpenApi for Postman, e.g. to replace some values with placeholders.
-   *
-   * @param api
-   * @return adjusted api
-   */
+  /** You can adjust the OpenApi for Postman, e.g. to replace some values with placeholders.
+    *
+    * @param api
+    * @return
+    *   adjusted api
+    */
   protected def adjustPostmanOpenApi(api: String): String = api
 
   protected def info(title: String, description: Option[String]) =
@@ -36,7 +36,7 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
       groupAnchor: Option[String] = None
   ): String =
     val projName = s"${apiConfig.docBaseUrl.mkString}/${apiConfig.companyName}/$projectName"
-    val anchor = groupAnchor
+    val anchor   = groupAnchor
       .map(_ =>
         s"operation/${name.replace(" ", "%20")}"
       )
@@ -44,13 +44,20 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     s"[$name]($projName/OpenApi.html#$anchor)"
   end createLink
 
+  enum InOutDocu:
+    case IN, OUT, BOTH
+
   extension (inOutApi: InOutApi[?, ?])
-    def endpointName: String =
-      val name = (inOutApi, inOutApi.inOut.in) match
+    def endpointName(inOutDocu: InOutDocu): String =
+      val name        = (inOutApi, inOutApi.inOut.in) match
         case (_: ServiceWorkerApi[?, ?, ?, ?], _) => inOutApi.inOutDescr.shortName
-        case (_, gs: GenericServiceIn) => gs.shortServiceName
-        case _ => inOutApi.inOutDescr.shortName
-      s"${inOutApi.inOutType}: $name"
+        case (_, gs: GenericServiceIn)            => gs.shortServiceName
+        case _                                    => inOutApi.inOutDescr.shortName
+      val typePostfix = (inOutDocu, inOutApi.inOutType) match
+        case (InOutDocu.IN, InOutType.UserTask) => " complete"
+        case (_, InOutType.UserTask)            => " variables"
+        case _                                  => ""
+      s"${inOutApi.inOutType}$typePostfix: $name"
   end extension
 
 end AbstractApiCreator

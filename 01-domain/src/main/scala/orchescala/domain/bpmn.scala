@@ -49,7 +49,7 @@ enum ErrorCodes:
   case `engine-dmn-error`
   case `engine-worker-error`
   case `engine-service-error`
-  
+
   // worker errors
   case `output-mocked` // mocking successful - but the mock is sent as BpmnError to handle in the diagram correctly
   case `mocking-failed`
@@ -105,38 +105,43 @@ case class GeneralVariables(
     // authorization
     impersonateUserId: Option[String] = None
 ):
-  
-  lazy val mockedWorkerSeq: Seq[String] = asSeq(mockedWorkers)
-  lazy val outputVariableSeq: Seq[String] = asSeq(outputVariables)
-  lazy val handledErrorSeq: Seq[String] = asSeq(handledErrors)
+
+  lazy val mockedWorkerSeq: Seq[String]      = asSeq(mockedWorkers)
+  lazy val outputVariableSeq: Seq[String]    = asSeq(outputVariables)
+  lazy val handledErrorSeq: Seq[String]      = asSeq(handledErrors)
   lazy val regexHandledErrorSeq: Seq[String] = asSeq(regexHandledErrors)
 
-  def isMockedService: Boolean = servicesMocked
+  def isMockedService: Boolean                         = servicesMocked
   def isMockedWorker(workerTopicName: String): Boolean =
     mockedWorkerSeq.contains(workerTopicName)
 
   private def asSeq(value: StringOrSeq): Seq[String] =
     value match
-      case s: String => s.split(",").toSeq
-      case seq: Seq[String] => seq  
+      case s: String        => s.split(",").toSeq
+      case seq: Seq[String] => seq
 end GeneralVariables
 
 object GeneralVariables:
   given InOutCodec[GeneralVariables] = CirceCodec.from(decoder, deriveInOutEncoder)
   given ApiSchema[GeneralVariables]  = deriveApiSchema
-      
-  lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables] :
+
+  lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables]:
     final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
       for
-        servicesMocked <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
-        mockedWorkers <- c.downField("mockedWorkers").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        outputMock <- c.downField("outputMock").as[Option[Json]]
-        outputServiceMock <- c.downField("outputServiceMock").as[Option[Json]]
-        manualOutMapping <- c.downField("manualOutMapping").as[Option[Boolean]].map(_.getOrElse(false))
-        outputVariables <- c.downField("outputVariables").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        handledErrors <- c.downField("handledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        regexHandledErrors <- c.downField("regexHandledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        impersonateUserId <- c.downField("impersonateUserId").as[Option[String]]
+        servicesMocked     <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
+        mockedWorkers      <-
+          c.downField("mockedWorkers").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        outputMock         <- c.downField("outputMock").as[Option[Json]]
+        outputServiceMock  <- c.downField("outputServiceMock").as[Option[Json]]
+        manualOutMapping   <-
+          c.downField("manualOutMapping").as[Option[Boolean]].map(_.getOrElse(false))
+        outputVariables    <-
+          c.downField("outputVariables").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        handledErrors      <-
+          c.downField("handledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        regexHandledErrors <-
+          c.downField("regexHandledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        impersonateUserId  <- c.downField("impersonateUserId").as[Option[String]]
       yield GeneralVariables(
         servicesMocked,
         mockedWorkers,
@@ -218,33 +223,33 @@ lazy val NewName   = """^.+\-(.+V.+\-(.+))$""".r // mycompany-myproject-myproces
 lazy val OldName1  =
   """^.+\-(.+\.(post|get|patch|put|delete))$""".r // mycompany-myproject-myprocessV1.MyWorker.get or mycompany-myproject-MyWorker.get - use NewName for the new naming convention
 lazy val OldName2  =
-  """^.+\-(.+V.+\.(.+))$""".r                     // mycompany-myproject-myprocessV1.MyWorker - use NewName for the new naming convention
+  """^.+\-(.+V.+\.(.+))$""".r // mycompany-myproject-myprocessV1.MyWorker - use NewName for the new naming convention
 lazy val OldName31 =
-  """^.+\-.+(\-(.+\-..+\-.+))$""".r               // mycompany-myproject-myprocess-other-MyWorker - use NewName for the new naming convention
+  """^.+\-.+(\-(.+\-..+\-.+))$""".r // mycompany-myproject-myprocess-other-MyWorker - use NewName for the new naming convention
 lazy val OldName32 =
-  """^.+\-.+(\-(.+\-.+))$""".r                    // mycompany-myproject-myprocess-MyWorker - use NewName for the new naming convention
+  """^.+\-.+(\-(.+\-.+))$""".r // mycompany-myproject-myprocess-MyWorker - use NewName for the new naming convention
 lazy val OldName4  =
-  """^.+\-.+\-(.+)$""".r                          // mycompany-myproject-myprocess.MyWorker - use NewName for the new naming convention
+  """^.+\-.+\-(.+)$""".r // mycompany-myproject-myprocess.MyWorker - use NewName for the new naming convention
 
 def shortenName(name: String): String =
   name match
-    case OldName1(n, _)  if n.count(_ == '.') == 1 =>
+    case OldName1(n, _) if n.count(_ == '.') == 1 =>
       n
-    case OldName1(n, _)  =>
+    case OldName1(n, _)                           =>
       println("OldName1+: " + n)
       n.split("\\.").drop(1).mkString(".")
-    case NewName(_, n)   =>
+    case NewName(_, n)                            =>
       println("NewName: " + n)
       n
-    case OldName2(_, n)  =>
+    case OldName2(_, n)                           =>
       n
-    case OldName31(_, n) =>
+    case OldName31(_, n)                          =>
       n
-    case OldName32(_, n) =>
+    case OldName32(_, n)                          =>
       n
-    case OldName4(n)     =>
+    case OldName4(n)                              =>
       n
-    case _               => // something else
+    case _                                        => // something else
       name
 
 enum BpmnProcessType:
@@ -253,5 +258,6 @@ enum BpmnProcessType:
   case C8(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda8")
 
 object BpmnProcessType:
-  def diagramPaths: Seq[os.RelPath] = Seq(C7().diagramPath)//TODO not supported yet: , C8().diagramPath)
+  def diagramPaths: Seq[os.RelPath] =
+    Seq(C7().diagramPath) // TODO not supported yet: , C8().diagramPath)
 end BpmnProcessType
