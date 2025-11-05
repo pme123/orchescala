@@ -5,7 +5,7 @@ class exportsTest extends munit.FunSuite:
   test("orchescala.api.DefaultApiCreator UNDEFINED") :
     assertEquals(
       shortenTag("orchescala.api.DefaultApiCreator"),
-      "Orchescala api Default Api Creator"
+      "Orchescala Api Default Api Creator"
     )
   test("mycompany-myproject-myprocess.MyWorker") :
     assertEquals(
@@ -15,7 +15,7 @@ class exportsTest extends munit.FunSuite:
   test("mycompany-myproject-myprocess.MyWorker.get") :
     assertEquals(
       shortenTag("mycompany-myproject-myprocess.MyWorker.get"),
-      "My Worker get"
+      "My Worker Get"
     )
   test("mycompany-myproject-myprocessV2-GetMyWorker") :
     assertEquals(
