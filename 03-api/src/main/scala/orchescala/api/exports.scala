@@ -20,6 +20,9 @@ def shortenTag(refIdentShort: String) =
     .mkString(" ")  
 end shortenTag
 
+enum InOutDocu:
+  case IN, OUT, BOTH
+  
 extension (proc: os.proc)
   def callOnConsole(path: os.Path = os.pwd): CommandResult =
     proc.call(cwd = path, stdout = os.Inherit)

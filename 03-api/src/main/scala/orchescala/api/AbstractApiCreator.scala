@@ -44,9 +44,6 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     s"[$name]($projName/OpenApi.html#$anchor)"
   end createLink
 
-  enum InOutDocu:
-    case IN, OUT, BOTH
-
   extension (inOutApi: InOutApi[?, ?])
     def endpointName(inOutDocu: InOutDocu): String =
       val name        = (inOutApi, inOutApi.inOut.in) match
@@ -55,7 +52,7 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
         case _                                    => inOutApi.inOutDescr.shortName
       val typePostfix = (inOutDocu, inOutApi.inOutType) match
         case (InOutDocu.IN, InOutType.UserTask) => " complete"
-        case (_, InOutType.UserTask)            => " variables"
+        case (_, InOutType.UserTask)            => s" variables"
         case _                                  => ""
       s"${inOutApi.inOutType}$typePostfix: $name"
   end extension
