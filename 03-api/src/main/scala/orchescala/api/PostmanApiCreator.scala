@@ -4,6 +4,7 @@ package api
 import orchescala.domain.*
 import sttp.tapir.*
 
+@deprecated("Use TapirApiCreator instead - as soon you have the gateway operational.")
 trait PostmanApiCreator extends AbstractApiCreator:
 
   protected def createPostman(

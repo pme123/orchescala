@@ -280,6 +280,93 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
          |""".stripMargin
     else ""
 
+  protected def postmanInstructions =
+      s"""<details>
+         |<summary><b><i>Postman Instructions</i></b></summary>
+         |<p>
+         |You can directly import this OpenApi YAML to [Postman](https://www.postman.com/).
+         |
+         |Only thing you need to adjust is in the Collection.
+         |- **Authorization**: `Bearer Token` with the `{{access_token}}` from the `GetToken` request.
+         |- **Variables**: `tenantId`: `{{bank}}`
+         |- **Scripts - Pre-Request**:
+         |
+         |```javascript
+         |// Refresh the OAuth token if necessary
+         |let tokenDate = new Date(2010, 1, 1);
+         |const tokenTimestamp = pm.environment.get("OAuth_Timestamp");
+         |if (tokenTimestamp) {
+         |  tokenDate = Date.parse(tokenTimestamp);
+         |}
+         |let expiresInTime = pm.environment.get("ExpiresInTime");
+         |if (!expiresInTime) {
+         |  expiresInTime = 300000; // Set default expiration time to 5 minutes
+         |}
+         |if (new Date() - tokenDate >= expiresInTime) {
+         |pm.sendRequest(
+         |{
+         |  url: `$${pm.environment.get(
+         |      "tokenService"
+         |    )}/auth/realms/$${pm.environment.get(
+         |      "bank"
+         |    )}/protocol/openid-connect/token`,
+         |  method: "POST",
+         |  header: {
+         |    "Content-Type": "application/x-www-form-urlencoded",
+         |  },
+         |  body: {
+         |    mode: "urlencoded",
+         |    urlencoded: [
+         |      { key: "grant_type", value: "password" },
+         |      { key: "client_id", value: pm.environment.get("clientId")},
+         |      { key: "client_secret", value: pm.environment.get("clientSecret")},
+         |      { key: "username", value: pm.environment.get("username")},
+         |      { key: "password", value: pm.environment.get("pwd") },
+         |      { key: "scope", value: pm.environment.get("scope") },
+         |    ],
+         |  },
+         |},
+         |  (_, res) => {
+         |    pm.environment.set("access_token", res.json().access_token);
+         |    pm.environment.set("OAuth_Timestamp", new Date());
+         |    // Set the ExpiresInTime variable to the time given in the response if it exists
+         |    if (res.json().expires_in) {
+         |      expiresInTime = res.json().expires_in * 1000;
+         |    }
+         |    pm.environment.set("ExpiresInTime", expiresInTime);
+         |  });
+         |}
+         |  ```
+         |
+         |- **Scripts - Post-Response**:
+         |
+         |```javascript
+         |  // Collection-level test script
+         |  pm.test("Auto-set variables", function () {
+         |    const response = pm.response.json();
+         |
+         |    // Set processInstanceId if present
+         |    if (response.processInstanceId) {
+         |        const id = response.processInstanceId;
+         |        pm.collectionVariables.set("processInstanceId", id);
+         |        console.log("Set processInstanceId: " + id);
+         |    }
+         |
+         |    // Set taskId for array responses
+         |    if (pm.response.headers.get("userTaskId")) {
+         |        const id = pm.response.headers.get("userTaskId")
+         |        pm.collectionVariables.set("userTaskInstanceId", id);
+         |        console.log("userTaskInstanceId: " + id)
+         |
+         |    }
+         |
+         |});
+         |  ```
+         |
+         |</p>
+         |</details>
+         |""".stripMargin
+
   protected def dependencies: String =
 
     def docPortal(projectName: String) =  s"${apiConfig.docBaseUrl.getOrElse("NOT_SET")}/$projectName/OpenApi.html"
@@ -315,6 +402,8 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
        |Created at ${SimpleDateFormat().format(new Date())}
        |
        |**See the [Orchescala Documentation](https://pme123.github.io/orchescala/)**
+       |
+       |$postmanInstructions
        |
        |$packageConf
        |
