@@ -179,11 +179,11 @@ trait TapirApiCreator extends AbstractApiCreator:
             "processInstanceId"
           ).default(
             "{{processInstanceId}}"
-          ) / "userTask" / id / "variables" / variableFilterQuery / timeoutInSecQuery
+          ) / "userTask" / id / "variables" / variableFilterQuery(inOutApi.inOut.in) / timeoutInSecQuery
         case InOutType.Signal                               =>
-          "signal" / id / tenantIdQuery
+          "signal" / path[String](id.replace(SignalEvent.Dynamic_ProcessInstance, "processInstanceId")).example(id.replace(SignalEvent.Dynamic_ProcessInstance, s"{${SignalEvent.Dynamic_ProcessInstance}}")) / tenantIdQuery
         case InOutType.Message                              =>
-          "message" / id
+          "message" / path[String](id.replace(SignalEvent.Dynamic_ProcessInstance, "processInstanceId")).example(id.replace(SignalEvent.Dynamic_ProcessInstance, s"{${SignalEvent.Dynamic_ProcessInstance}}"))
         case InOutType.Timer                                =>
           "timer" / id / "NOT_IMPLEMENTED"
         case InOutType.Dmn                                  =>
@@ -335,9 +335,10 @@ trait TapirApiCreator extends AbstractApiCreator:
   private lazy val businessKeyQuery    = query[String]("businessKey").default(
     "From Test Client"
   ).description("Business Key, be aware that in Camunda 8 this is an additional process variable.")
-  private lazy val variableFilterQuery = query[String](
+  private def variableFilterQuery(out: Product) = query[String](
     "variableFilter"
-  ).description("A comma-separated String of variable names. E.g. `name,firstName`")
+  ).example(out.productElementNames.mkString(","))
+    .description("A comma-separated String of variable names. E.g. `name,firstName`")
   private lazy val timeoutInSecQuery   = query[Int]("timeoutInSec").example(10).description(
     "The maximum number of seconds to wait for the user task to become active. If not provided, it will wait 10 seconds."
   )
