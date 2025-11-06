@@ -3,6 +3,7 @@ package orchescala.gateway
 import io.circe.Json as CirceJson
 import io.circe.syntax.*
 import orchescala.domain.CamundaVariable
+import orchescala.domain.CamundaVariable.*
 import orchescala.engine.AuthContext
 import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
@@ -25,6 +26,8 @@ object GatewayRoutes:
     *   The service to handle signal operations
     * @param messageService
     *   The service to handle message operations
+    * @param historicVariableService
+    *   The service to handle historic variable operations
     * @param validateToken
     *   Function to validate the bearer token. Returns Right(token) if valid, Left(EngineError) if
     *   invalid.
@@ -36,6 +39,7 @@ object GatewayRoutes:
       userTaskService: UserTaskService,
       signalService: SignalService,
       messageService: MessageService,
+      historicVariableService: HistoricVariableService,
       validateToken: String => IO[EngineError, String]
   ): Routes[Any, Response] =
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
@@ -155,13 +159,14 @@ object GatewayRoutes:
         (processInstanceId, variableFilter) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
-            processInstanceService
-              .getVariablesInternal(
-                processInstanceId,
-                variableFilter.map(_.split(",").map(_.trim).toSeq)
+            historicVariableService
+              .getVariables(
+                variableName = None,
+                processInstanceId = Some(processInstanceId),
+                variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
               )
               .map: variables =>
-                CirceJson.obj(variables.map(prop => prop.key -> prop.value)*)
+                CirceJson.obj(variables.map(v => v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null))*)
               .mapError(ErrorResponse.fromEngineError)
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(

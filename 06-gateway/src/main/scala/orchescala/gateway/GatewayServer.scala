@@ -66,6 +66,7 @@ abstract class GatewayServer extends EngineApp:
                          gatewayEngine.userTaskService,
                          gatewayEngine.signalService,
                          gatewayEngine.messageService,
+                         gatewayEngine.historicVariableService,
                          validateToken
                        )
         workerRoutes = WorkerRoutes.routes(theWorkers, validateToken)

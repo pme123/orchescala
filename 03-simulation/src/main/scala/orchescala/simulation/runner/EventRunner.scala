@@ -23,7 +23,7 @@ class EventRunner(sEvent: SEvent)(using
           .getVariables(
             variableName = Some(variableName),
             processInstanceId = Some(processInstanceId),
-            variableFilter = Some(variableName)
+            variableFilter = Some(Seq(variableName))
           ).mapError: err =>
             SimulationError.ProcessError(
               summon[ScenarioData].error(err.errorMsg)
