@@ -105,7 +105,7 @@ lazy val api = project
         "com.typesafe"            % "config"    % typesafeConfigVersion
       )
   )
-  .dependsOn(domain)
+  .dependsOn(engine)
 
 lazy val dmn = project
   .in(file("./03-dmn"))

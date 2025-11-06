@@ -4,6 +4,7 @@ package api
 import orchescala.api.InOutDocu.IN
 import orchescala.domain.*
 import orchescala.domain.InOutType.Bpmn
+import orchescala.engine.domain.ProcessInfo
 import sttp.tapir.EndpointIO.Example
 
 trait TapirApiCreator extends AbstractApiCreator:
@@ -23,7 +24,8 @@ trait TapirApiCreator extends AbstractApiCreator:
       println(s"Start Grouped API: ${groupedApi.name}")
       groupedApi match
         case pa: ProcessApi[?, ?, ?] =>
-          pa.createEndpoint(pa.id, false, pa.additionalDescr) ++
+          pa.createEndpoint(pa.id, false, pa.additionalDescr, InOutDocu.IN) ++
+            pa.createEndpoint(pa.id, false, inOutDocu = InOutDocu.OUT) ++
             pa.createInitEndpoint(pa.id) ++
             pa.apis.flatMap(_.create(pa.id, false))
         case _: CApiGroup            =>
@@ -133,9 +135,16 @@ trait TapirApiCreator extends AbstractApiCreator:
       val eTag         = if tagIsFix then tagFull else shortenTag(tagFull)
       println(s"createEndpoint: $tagIsFix $tagFull >> $eTag")
       val endpointName =
-        (if inOutApi.name == tagFull then "Process" else inOutApi.endpointName(inOutDocu))
+        (inOutApi.name, inOutDocu) match
+          case (n, InOutDocu.IN) if n == tagFull  =>
+            "Process start"
+          case (n, InOutDocu.OUT) if n == tagFull =>
+            "Process variables"
+          case _                                  =>
+            inOutApi.endpointName(inOutDocu)
+
       println(s"Endpoint: $endpointName")
-      val description  = inOutApi.apiDescription(apiConfig.companyName) +
+      val description = inOutApi.apiDescription(apiConfig.companyName) +
         additionalDescr.getOrElse("") +
         generalInformation(inOutDocu)
       Seq(
@@ -146,16 +155,21 @@ trait TapirApiCreator extends AbstractApiCreator:
           .summary(endpointName)
           .description(description)
       ).map: ep =>
-        if inOutDocu == InOutDocu.OUT && inOutApi.inOutType == InOutType.UserTask
-        then ep.get // UserTask variables
+        if inOutDocu == InOutDocu.OUT
+        then ep.get // Process / UserTask variables
         else ep.post
       .map: ep =>
         inOutDocu match
-          case InOutDocu.IN   => // UserTask complete
+          case InOutDocu.IN if inOutApi.inOutType == InOutType.UserTask => // UserTask complete
             inOutApi.toInputForUserTask.map(ep.in).getOrElse(ep)
-          case InOutDocu.OUT  => // UserTask variables
+          case _ if inOutApi.inOutType == InOutType.UserTask            => // UserTask variables
             inOutApi.toOutputForUserTask.map(ep.out).getOrElse(ep)
-          case InOutDocu.BOTH =>
+          case InOutDocu.IN if inOutApi.inOutType == InOutType.Bpmn     => // Process start
+            val inEp = inOutApi.toInput.map(ep.in).getOrElse(ep)
+            inEp.out(outputStartProcessEndpoint)
+          case _ if inOutApi.inOutType == InOutType.Bpmn                => // Process variables
+            inOutApi.toOutput.map(ep.out).getOrElse(ep)
+          case _                                                        =>
             val inEp = inOutApi.toInput.map(ep.in).getOrElse(ep)
             inOutApi.toOutput.map(inEp.out).getOrElse(inEp)
 
@@ -164,26 +178,35 @@ trait TapirApiCreator extends AbstractApiCreator:
     def endpointPath(inOutDoc: InOutDocu) =
       val id = inOutApi.id
       inOutApi.inOutType match
+        case InOutType.Bpmn if inOutDoc == InOutDocu.IN     =>
+          "process" / processDefinitionKeyPath(id) / "async" / tenantIdQuery / businessKeyQuery
         case InOutType.Bpmn                                 =>
-          "process" / id / "async" / tenantIdQuery / businessKeyQuery
+          "process" / processInstanceIdPath / "variables" / variableFilterQuery(inOutApi.inOut.out)
         case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
-          "process" / path[String](
-            "processInstanceId"
-          ).default("{{processInstanceId}}") / "userTask" / id / path[String](
+          "process" / processInstanceIdPath / "userTask" / id / path[String](
             "userTaskInstanceId"
           ).default("{{userTaskInstanceId}}") / "complete"
         case InOutType.UserTask                             => // variables
-          "process" / path[String](
-            "processInstanceId"
-          ).default(
-            "{{processInstanceId}}"
-          ) / "userTask" / id / "variables" / variableFilterQuery(inOutApi.inOut.in) / timeoutInSecQuery
+          "process" / processInstanceIdPath / "userTask" / id / "variables" /
+            variableFilterQuery(inOutApi.inOut.in) / timeoutInSecQuery
         case InOutType.Signal                               =>
-          "signal" / path[String](id.replace(SignalEvent.Dynamic_ProcessInstance, "processInstanceId")).example(id.replace(SignalEvent.Dynamic_ProcessInstance, s"{${SignalEvent.Dynamic_ProcessInstance}}")) / tenantIdQuery
+          "signal" / path[String](id.replace(
+            SignalEvent.Dynamic_ProcessInstance,
+            "processInstanceId"
+          )).example(id.replace(
+            SignalEvent.Dynamic_ProcessInstance,
+            s"{${SignalEvent.Dynamic_ProcessInstance}}"
+          )) / tenantIdQuery
         case InOutType.Message                              =>
-          "message" / path[String](id.replace(SignalEvent.Dynamic_ProcessInstance, "processInstanceId")).example(id.replace(SignalEvent.Dynamic_ProcessInstance, s"{${SignalEvent.Dynamic_ProcessInstance}}"))
+          "message" / path[String](id.replace(
+            SignalEvent.Dynamic_ProcessInstance,
+            "processInstanceId"
+          )).example(id.replace(
+            SignalEvent.Dynamic_ProcessInstance,
+            s"{${SignalEvent.Dynamic_ProcessInstance}}"
+          ))
         case InOutType.Timer                                =>
           "timer" / id / "NOT_IMPLEMENTED"
         case InOutType.Dmn                                  =>
@@ -194,23 +217,20 @@ trait TapirApiCreator extends AbstractApiCreator:
     def generalInformation(inOutDoc: InOutDocu) =
       val info =
         inOutApi.inOutType match
-          case InOutType.Bpmn                                 =>
+          case InOutType.Bpmn if inOutDoc == InOutDocu.IN     =>
             """
-              |This describes the <b>Input</b> and the <b>Output</b> of the Process.
+              |This describes the <b>Input</b> to start the Process with.
               |
               |Be aware that running this request with Postman,
               |you will not get the <b>Output</b> but the <i>processInstanceId</i>, as starting a process is asynchronous.
               |
-              |Example Output:
-              |```json
-              |{
-              |"processInstanceId": "f150c3f1-13f5-11ec-936e-0242ac1d0007",
-              |"businessKey": "ORDER-2025-12345",
-              |"status": "Active",
-              |"engineType": "C7"
-              |}
-              |```
+              |To get the <b>Output</b> you need to use the `Process variables` request.
               |""".stripMargin
+          case InOutType.Bpmn                                 =>
+            """
+              |This describes the <b>Output</b> of the Process you get. Be aware this does not check if the process is finished (TODO).
+              |
+              |  """.stripMargin
           case InOutType.Worker                               =>
             """
               |This describes the <b>Input</b> and the <b>Output</b> of the Worker.
@@ -329,17 +349,39 @@ trait TapirApiCreator extends AbstractApiCreator:
         }.toList)
     )
 
-  private lazy val tenantIdQuery       = query[String]("tenantId").default(
+  private lazy val outputStartProcessEndpoint =
+    jsonBody[ProcessInfo]
+      .example(ProcessInfo.example)
+
+  private def processDefinitionKeyPath(processDefinitionKey: String) =
+    path[String](
+      "processDefinitionKey"
+    ).description("Process definition ID or key")
+      .default("{{processDefinitionKey}}")
+      .example(processDefinitionKey)
+
+  private lazy val processInstanceIdPath =
+    path[String]("processInstanceId")
+      .description(
+        """The processInstanceId of the Process.
+          |
+          |> This is the result id of the `StartProcess`. And should automatically be set in Postman - see _Postman Instructions_.
+          |
+          |""".stripMargin
+      )
+      .default("{{processInstanceId}}")
+
+  private lazy val tenantIdQuery                = query[String]("tenantId").default(
     "{{tenantId}}"
   ).description("If you have a multi tenant setup, you must specify the Tenant ID.")
-  private lazy val businessKeyQuery    = query[String]("businessKey").default(
+  private lazy val businessKeyQuery             = query[String]("businessKey").default(
     "From Test Client"
   ).description("Business Key, be aware that in Camunda 8 this is an additional process variable.")
   private def variableFilterQuery(out: Product) = query[String](
     "variableFilter"
   ).example(out.productElementNames.mkString(","))
     .description("A comma-separated String of variable names. E.g. `name,firstName`")
-  private lazy val timeoutInSecQuery   = query[Int]("timeoutInSec").example(10).description(
+  private lazy val timeoutInSecQuery            = query[Int]("timeoutInSec").example(10).description(
     "The maximum number of seconds to wait for the user task to become active. If not provided, it will wait 10 seconds."
   )
 
