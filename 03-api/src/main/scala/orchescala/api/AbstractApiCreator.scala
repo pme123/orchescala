@@ -52,7 +52,7 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
         case _                                    => inOutApi.inOutDescr.shortName
       val typePostfix = (inOutDocu, inOutApi.inOutType) match
         case (InOutDocu.IN, InOutType.UserTask) => " complete"
-        case (_, InOutType.UserTask)            => s" variables"
+        case (_, InOutType.UserTask)            => " variables"
         case _                                  => ""
       s"${inOutApi.inOutType}$typePostfix: $name"
   end extension

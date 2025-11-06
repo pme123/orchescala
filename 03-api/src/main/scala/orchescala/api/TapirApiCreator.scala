@@ -22,11 +22,9 @@ trait TapirApiCreator extends AbstractApiCreator:
       println(s"Start Grouped API: ${groupedApi.name}")
       groupedApi match
         case pa: ProcessApi[?, ?, ?] =>
-          val e = pa.createEndpoint(pa.id, false, pa.additionalDescr) ++
+          pa.createEndpoint(pa.id, false, pa.additionalDescr) ++
             pa.createInitEndpoint(pa.id) ++
             pa.apis.flatMap(_.create(pa.id, false))
-          println(s"Endpointsss: ${e.map(_.showShort).mkString("\n- ")}")
-          e
         case _: CApiGroup            =>
           groupedApi.apis.flatMap(_.create(groupedApi.name, true))
       end match

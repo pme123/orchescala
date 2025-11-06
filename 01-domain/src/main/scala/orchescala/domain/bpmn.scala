@@ -242,14 +242,19 @@ def shortenName(name: String): String =
       println("NewName: " + n)
       n
     case OldName2(_, n)                           =>
+      println("OldName2: " + n)
       n
     case OldName31(_, n)                          =>
+      println("OldName31: " + n)
       n
     case OldName32(_, n)                          =>
+      println("OldName32: " + n)
       n
     case OldName4(n)                              =>
+      println("OldName4: " + n)
       n
     case _                                        => // something else
+      println("OtherName: " + name)
       name
 
 enum BpmnProcessType:
