@@ -64,7 +64,7 @@ object UserTaskEndpoints:
       .get
       .in(path[String]("processInstanceId")
         .description("Process instance ID")
-        .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
+        .example("{{processInstanceId}}"))
       .in("userTask")
       .in(path[String]("taskDefinitionKey")
         .description("User task definition ID (task definition key in the BPMN)")
@@ -97,18 +97,18 @@ object UserTaskEndpoints:
       .post
       .in(path[String]("processInstanceId")
         .description("Process instance ID")
-        .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
+        .example("{{processInstanceId}}"))
       .in("userTask")
-      .in(path[String]("taskDefinitionKey")
+      .in(path[String]("userTaskDefinitionKey")
         .description(
           """User task definition ID (task definition key in the BPMN)
             |- This is used for API path differentiation in OpenAPI.
             |- We use this that you can have multiple UserTasks in one Project.
             |""".stripMargin)
         .example("approve-order"))
-      .in(path[String]("userTaskId")
+      .in(path[String]("userTaskInstanceId")
         .description("User task instance ID (obtained from getUserTaskVariables)")
-        .example("task-abc123-def456"))
+        .example("{{userTaskInstanceId}}"))
       .in("complete")
       .in(jsonBody[Json]
         .description("Variables to set when completing the task as a JSON object")
@@ -128,11 +128,11 @@ object UserTaskEndpoints:
       .post
       .in(path[String]("processInstanceId")
         .description("Process instance ID")
-        .example("f150c3f1-13f5-11ec-936e-0242ac1d0007"))
+        .example("{{processInstanceId}}"))
       .in("userTask")
-      .in(path[String]("userTaskId")
+      .in(path[String]("userTaskInstanceId")
         .description("User task instance ID (obtained from getUserTaskVariables)")
-        .example("task-abc123-def456"))
+        .example("{{userTaskInstanceId}}"))
       .in("complete")
       .in(jsonBody[Json]
         .description("Variables to set when completing the task as a JSON object")

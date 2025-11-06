@@ -45,7 +45,7 @@ object SignalEndpoints:
         .example("order-completed-signal"))
       .in(query[Option[String]]("tenantId")
         .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("tenant1")))
+        .example(Some("{{tenantId}}")))
       .in(jsonBody[Json]
         .description("Variables to send with the signal as a JSON object")
         .example(sendSignalRequestExample))

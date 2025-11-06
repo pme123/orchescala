@@ -148,6 +148,22 @@ object GatewayRoutes:
               )
               .mapError(ErrorResponse.fromEngineError)
 
+    val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
+      .serverLogic: validatedToken =>
+        (processInstanceId, variableFilter) =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            processInstanceService
+              .getVariablesInternal(
+                processInstanceId,
+                variableFilter.map(_.split(",").map(_.trim).toSeq)
+              )
+              .map: variables =>
+                CirceJson.obj(variables.map(prop => prop.key -> prop.value)*)
+              .mapError(ErrorResponse.fromEngineError)
+
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(
         startProcessEndpoint,
@@ -155,7 +171,8 @@ object GatewayRoutes:
         completeUserTaskEndpoint,
         completeUserTaskEndpointForApi,
         sendSignalEndpoint,
-        sendMessageEndpoint
+        sendMessageEndpoint,
+        getProcessVariablesEndpoint
       )
     )
   end routes

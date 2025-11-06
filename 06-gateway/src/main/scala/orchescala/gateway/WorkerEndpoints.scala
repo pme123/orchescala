@@ -44,7 +44,7 @@ object WorkerEndpoints:
   val triggerWorker: Endpoint[String, (String, Json), ErrorResponse, Option[Json], Any] =
     securedBaseEndpoint
       .post
-      .in(path[String]("workerDefId")
+      .in(path[String]("topicName")
         .description("Worker definition ID (worker topic name)")
         .example("process-order-worker"))
       .in(jsonBody[Json]

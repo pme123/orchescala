@@ -39,3 +39,4 @@ meta.json
 /**/.generated/
 
 /.scala-build/
+/test.js
