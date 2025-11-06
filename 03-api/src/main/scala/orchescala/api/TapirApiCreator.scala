@@ -162,11 +162,11 @@ trait TapirApiCreator extends AbstractApiCreator:
         case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
-          "process" / path[String]("processInstanceId") / "userTask" / id / path[String](
+          "process" / path[String]("processInstanceId").default("{{processInstanceId}}") / "userTask" / id / path[String](
             "userTaskInstanceId"
-          ) / "complete"
+          ).default("{{userTaskInstanceId}}") / "complete"
         case InOutType.UserTask                             => // variables
-          "process" / path[String]("processInstanceId") / "userTask" / id / "variables"
+          "process" / path[String]("processInstanceId").default("{{processInstanceId}}") / "userTask" / id / "variables"
         case InOutType.Signal                               =>
           "signal" / id
         case InOutType.Message                              =>
