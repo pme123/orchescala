@@ -1,6 +1,7 @@
 package orchescala
 package api
 
+import orchescala.api.InOutDocu.IN
 import orchescala.domain.*
 import orchescala.domain.InOutType.Bpmn
 import sttp.tapir.EndpointIO.Example
@@ -35,19 +36,19 @@ trait TapirApiCreator extends AbstractApiCreator:
   extension (cApi: CApi)
     def create(tag: String, tagIsFix: Boolean): Seq[PublicEndpoint[?, Unit, ?, Any]] =
       cApi match
-        case da @ DecisionDmnApi(_, _, _, _) =>
+        case da @ DecisionDmnApi(_, _, _, _)                                 =>
           da.createEndpoint(tag, tagIsFix, da.additionalDescr)
-        case aa @ ActivityApi(_, _, _)  if aa.inOutType == InOutType.UserTask     =>
-          aa. createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.OUT) ++
-            aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.IN) 
-        case aa @ ActivityApi(_, _, _)     =>
+        case aa @ ActivityApi(_, _, _) if aa.inOutType == InOutType.UserTask =>
+          aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.OUT) ++
+            aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.IN)
+        case aa @ ActivityApi(_, _, _)                                       =>
           aa.createEndpoint(tag, tagIsFix)
         case pa @ ProcessApi(name, _, _, apis, _)
             if apis.isEmpty =>
           pa.createEndpoint(tag, tagIsFix, pa.additionalDescr)
-        case spa: ExternalTaskApi[?, ?]      =>
+        case spa: ExternalTaskApi[?, ?]                                      =>
           spa.createEndpoint(tag, tagIsFix, spa.additionalDescr)
-        case ga                              =>
+        case ga                                                              =>
           throw IllegalArgumentException(
             s"Sorry, only one level of GroupedApi is allowed!\n - $ga"
           )
@@ -116,14 +117,15 @@ trait TapirApiCreator extends AbstractApiCreator:
   extension (inOutApi: InOutApi[?, ?])
 
     def createEndpoint(
-                        tagFull: String,
-                        tagIsFix: Boolean,
-                        additionalDescr: Option[String] = None,
-                        inOutDocu: InOutDocu = InOutDocu.BOTH
+        tagFull: String,
+        tagIsFix: Boolean,
+        additionalDescr: Option[String] = None,
+        inOutDocu: InOutDocu = InOutDocu.BOTH
     ): Seq[PublicEndpoint[?, Unit, ?, Any]] =
       val eTag         = if tagIsFix then tagFull else shortenTag(tagFull)
       println(s"createEndpoint: $tagIsFix $tagFull >> $eTag")
-      val endpointName = (if inOutApi.name == tagFull then "Process" else inOutApi.endpointName(inOutDocu))
+      val endpointName =
+        (if inOutApi.name == tagFull then "Process" else inOutApi.endpointName(inOutDocu))
       println(s"Endpoint: $endpointName")
       Seq(
         endpoint
@@ -136,31 +138,42 @@ trait TapirApiCreator extends AbstractApiCreator:
               additionalDescr.getOrElse("") +
               generalInformation(inOutDocu)
           )
-          .post
-      ).map(ep => if inOutDocu != InOutDocu.OUT then inOutApi.toInput.map(ep.in).getOrElse(ep) else ep)
-        .map(ep => if inOutDocu != InOutDocu.IN then inOutApi.toOutput.map(ep.out).getOrElse(ep) else ep)
+      ).map: ep =>
+        if inOutDocu == InOutDocu.OUT && inOutApi.inOutType == InOutType.UserTask
+        then ep.get // UserTask variables
+        else ep.post
+      .map: ep =>
+        inOutDocu match
+          case InOutDocu.IN   => // UserTask complete
+            inOutApi.toInputForUserTask.map(ep.in).getOrElse(ep)
+          case InOutDocu.OUT  => // UserTask variables
+            inOutApi.toOutputForUserTask.map(ep.out).getOrElse(ep)
+          case InOutDocu.BOTH =>
+            val inEp = inOutApi.toInput.map(ep.in).getOrElse(ep)
+            inOutApi.toOutput.map(inEp.out).getOrElse(inEp)
+
     end createEndpoint
 
     def endpointPath(inOutDoc: InOutDocu) =
       val id = inOutApi.id
       inOutApi.inOutType match
-        case InOutType.Bpmn                                          =>
+        case InOutType.Bpmn                                 =>
           "process" / id / "async"
-        case InOutType.Worker                                        =>
+        case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
           "process" / path[String]("processInstanceId") / "userTask" / id / path[String](
             "userTaskInstanceId"
           ) / "complete"
-        case InOutType.UserTask                                      => // variables
+        case InOutType.UserTask                             => // variables
           "process" / path[String]("processInstanceId") / "userTask" / id / "variables"
-        case InOutType.Signal                                        =>
+        case InOutType.Signal                               =>
           "signal" / id
-        case InOutType.Message                                       =>
+        case InOutType.Message                              =>
           "message" / id
-        case InOutType.Timer                                         =>
+        case InOutType.Timer                                =>
           "timer" / id / "NOT_IMPLEMENTED"
-        case InOutType.Dmn                                           =>
+        case InOutType.Dmn                                  =>
           "dmn" / id / "NOT_IMPLEMENTED"
       end match
     end endpointPath
@@ -168,7 +181,7 @@ trait TapirApiCreator extends AbstractApiCreator:
     def generalInformation(inOutDoc: InOutDocu) =
       val info =
         inOutApi.inOutType match
-          case InOutType.Bpmn                                          =>
+          case InOutType.Bpmn                                 =>
             """
               |This describes the <b>Input</b> and the <b>Output</b> of the Process.
               |
@@ -185,7 +198,7 @@ trait TapirApiCreator extends AbstractApiCreator:
               |}
               |```
               |""".stripMargin
-          case InOutType.Worker                                        =>
+          case InOutType.Worker                               =>
             """
               |This describes the <b>Input</b> and the <b>Output</b> of the Worker.
               |
@@ -201,7 +214,7 @@ trait TapirApiCreator extends AbstractApiCreator:
               |The <b>Input</b> are the Variables you want to set when completing the task.
               |
               |""".stripMargin
-          case InOutType.UserTask                                      => // variables
+          case InOutType.UserTask                             => // variables
             """
               |A <b>UserTask</b> consists of two steps (variables and complete).
               |This is the <b>first step</b>:
@@ -211,22 +224,22 @@ trait TapirApiCreator extends AbstractApiCreator:
               |The <b>Output</b> are the Variables you want for your UserTask Form.
               |
               |""".stripMargin
-          case InOutType.Signal                                        =>
+          case InOutType.Signal                               =>
             """Send a Signal to the Process.
               |Process is waiting at a Signal Event, or has the possibility to interact with a Signal,
               |e.g. in a Boundary Event.""".stripMargin
-          case InOutType.Message                                       =>
+          case InOutType.Message                              =>
             """Send a Message to the Process.
               |Process is waiting at a Message Event, or has the possibility to interact with a Message,
               |e.g. in a Boundary Event.
               |""".stripMargin
-          case InOutType.Timer                                         =>
+          case InOutType.Timer                                =>
             """You can execute an intermediate timer event immediately.
               |
               |<b>NOT IMPLEMENTED in Gateway API!</b>
               |
               |This is done via the Job Execution API which is not part of Camunda 8!.""".stripMargin
-          case InOutType.Dmn                                           =>
+          case InOutType.Dmn                                  =>
             """You can emulate a DMN.
               |
               |<b>NOT IMPLEMENTED in Gateway API!</b>
@@ -252,36 +265,58 @@ trait TapirApiCreator extends AbstractApiCreator:
         case _: NoInput =>
           None
         case _          =>
-          Some(
-            inOutApi.inMapper
-              .examples(inOutApi.apiExamples.inputExamples.fetchExamples.map {
-                case InOutExample(label, ex) =>
-                  Example(
-                    ex,
-                    Some(label),
-                    None
-                  )
-              }.toList)
-          )
+          inputEndpoint(inOutApi)
+
+    private def toInputForUserTask: Option[EndpointInput[?]] =
+      inOutApi.inOut.out match
+        case _: NoOutput =>
+          None
+        case _          =>
+          outputEndpoint(inOutApi)
 
     private def toOutput: Option[EndpointOutput[?]] =
       inOutApi.inOut.out match
         case _: NoOutput =>
           None
         case _           =>
-          Some(
-            inOutApi.outMapper
-              .examples(inOutApi.apiExamples.outputExamples.fetchExamples.map {
-                case InOutExample(name, ex) =>
-                  Example(
-                    ex,
-                    Some(name),
-                    None
-                  )
-              }.toList)
-          )
+          outputEndpoint(inOutApi)
+
+    private def toOutputForUserTask: Option[EndpointOutput[?]] =
+      inOutApi.inOut.in match
+        case _: NoInput =>
+          None
+        case _           =>
+          inputEndpoint(inOutApi)
 
   end extension
+
+  private def inputEndpoint(inOutApi: InOutApi[?, ?]) = {
+    Some(
+      inOutApi.inMapper
+        .examples(inOutApi.apiExamples.inputExamples.fetchExamples.map {
+          case InOutExample(label, ex) =>
+            Example(
+              ex,
+              Some(label),
+              None
+            )
+        }.toList)
+    )
+  }
+
+  private def outputEndpoint(inOutApi: InOutApi[?, ?]) = {
+    Some(
+      inOutApi.outMapper
+        .examples(inOutApi.apiExamples.outputExamples.fetchExamples.map {
+          case InOutExample(label, ex) =>
+            Example(
+              ex,
+              Some(label),
+              None
+            )
+        }.toList)
+    )
+  }
 
   extension (pa: ProcessApi[?, ?, ?] | ExternalTaskApi[?, ?])
     def processName: String =

@@ -32,7 +32,8 @@ class C7ProcessInstanceService(using
       _                <- logDebug(s"Starting Process '$processDefId' with variables: $in")
       processVariables <- C7VariableMapper.toC7Variables(in)
       _                <- logDebug(s"Starting Process '$processDefId' with variables: $processVariables")
-      instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
+      instance         <-
+        callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
     yield ProcessInfo(
       processInstanceId = instance.getId,
       businessKey = Option(instance.getBusinessKey),
@@ -114,20 +115,23 @@ class C7ProcessInstanceService(using
 
   private def toVariableValue(valueDto: VariableValueDto): IO[EngineError, CamundaVariable] =
     val value = valueDto.getValue
-    (valueDto.getType.toLowerCase match
-      case "null"            => ZIO.attempt(CNull)
-      case "string"          => ZIO.attempt(CString(value.toString))
-      case "integer" | "int" => ZIO.attempt(CInteger(value.toString.toInt))
-      case "long"            => ZIO.attempt(CLong(value.toString.toLong))
-      case "double"          => ZIO.attempt(CDouble(value.toString.toDouble))
-      case "boolean"         => ZIO.attempt(CBoolean(value.toString.toBoolean))
-      case "json"            => ZIO.attempt(CJson(value.toString))
-      case "file"            => ZIO.attempt(CFile(value.toString, CFileValueInfo("not_set", None)))
-      case _                 => ZIO.attempt(CString(value.toString))
-    ).mapError: err =>
-      EngineError.ProcessError(
-        s"Problem converting VariableDto '${valueDto.getType} -> $value: $err"
-      )
+    if value == null then ZIO.succeed(CNull)
+    else
+      (valueDto.getType.toLowerCase match
+        case "null"            => ZIO.succeed(CNull)
+        case "string"          => ZIO.attempt(CString(value.toString))
+        case "integer" | "int" => ZIO.attempt(CInteger(value.toString.toInt))
+        case "long"            => ZIO.attempt(CLong(value.toString.toLong))
+        case "double"          => ZIO.attempt(CDouble(value.toString.toDouble))
+        case "boolean"         => ZIO.attempt(CBoolean(value.toString.toBoolean))
+        case "json"            => ZIO.attempt(CJson(value.toString))
+        case "file"            => ZIO.attempt(CFile(value.toString, CFileValueInfo("not_set", None)))
+        case _                 => ZIO.attempt(CString(value.toString))
+      ).mapError: err =>
+        EngineError.ProcessError(
+          s"Problem converting VariableDto '${valueDto.getType} -> $value: $err"
+        )
+    end if
   end toVariableValue
 
 end C7ProcessInstanceService

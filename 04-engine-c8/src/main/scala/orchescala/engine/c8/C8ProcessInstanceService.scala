@@ -108,7 +108,7 @@ class C8ProcessInstanceService(using
   private def toVariableValue(valueDto: Variable): IO[EngineError, JsonProperty] =
     val value = valueDto.getValue
     (value match
-      case "null" =>
+      case null | "null" =>
         ZIO.attempt(Json.Null)
       case str    =>
         ZIO.fromEither(parser.parse(str))
