@@ -13,7 +13,7 @@ object OpenApiGenerationSpec extends ZIOSpecDefault:
         yaml.nonEmpty,
         yaml.contains("openapi:"),
         yaml.contains("Engine Gateway API"),
-        yaml.contains("/process/{processDefId}/async")
+        yaml.contains("/process/{processDefinitionKey}/async")
       )
     },
     test("should generate OpenAPI file on server start") {

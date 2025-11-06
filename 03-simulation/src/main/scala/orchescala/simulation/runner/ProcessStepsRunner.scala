@@ -83,7 +83,8 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
         historicVariableService
           .getVariables(
             variableName = None,
-            processInstanceId = Some(processInstanceId)
+            processInstanceId = Some(processInstanceId),
+            variableFilter = None
           ).mapError: err =>
             SimulationError.ProcessError(
               summon[ScenarioData].error(err.errorMsg)

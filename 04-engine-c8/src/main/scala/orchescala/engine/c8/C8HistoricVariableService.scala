@@ -19,7 +19,8 @@ class C8HistoricVariableService(using
 
   def getVariables(
       variableName: Option[String],
-      processInstanceId: Option[String]
+      processInstanceId: Option[String],
+      variableFilter: Option[Seq[String]]
   ): IO[EngineError, Seq[HistoricVariable]] =
     for
       camundaClient <- camundaClientZIO
@@ -50,7 +51,7 @@ class C8HistoricVariableService(using
       variables     <-
         ZIO
           .attempt:
-            mapToHistoricVariables(variableDtos.asScala.toSeq)
+            mapToHistoricVariables(variableFilter, variableDtos.asScala.toSeq)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem mapping Historic Variables for Process Instance '$processInstanceId': $err"
@@ -58,26 +59,32 @@ class C8HistoricVariableService(using
     yield variables
 
   private def mapToHistoricVariables(
+      variableFilter: Option[Seq[String]],
       variableDtos: Seq[Variable]
   ): Seq[HistoricVariable] =
 
-    variableDtos.map: dto =>
-      HistoricVariable(
-        id = dto.getVariableKey.toString,
-        name = dto.getName,
-        value = mapToCamundaVariable(dto),
-        processDefinitionKey = None, // not supported
-        processDefinitionId = None,  // not supported
-        processInstanceId = Option(dto.getProcessInstanceKey).map(_.toString),
-        activityInstanceId = None,   // not supported
-        taskId = None,               // not supported
-        tenantId = Option(dto.getTenantId),
-        errorMessage = None,         // not supported
-        state = None,                // not supported
-        createTime = None,           // not supported
-        removalTime = None,          // not supported
-        rootProcessInstanceId = None // not supported
-      )
+    variableDtos
+      .filter: dto =>
+        variableFilter.isEmpty ||
+          (dto.getValue != null &&
+            variableFilter.toSeq.flatten.contains(dto.getName))
+      .map: dto =>
+        HistoricVariable(
+          id = dto.getVariableKey.toString,
+          name = dto.getName,
+          value = mapToCamundaVariable(dto),
+          processDefinitionKey = None, // not supported
+          processDefinitionId = None,  // not supported
+          processInstanceId = Option(dto.getProcessInstanceKey).map(_.toString),
+          activityInstanceId = None,   // not supported
+          taskId = None,               // not supported
+          tenantId = Option(dto.getTenantId),
+          errorMessage = None,         // not supported
+          state = None,                // not supported
+          createTime = None,           // not supported
+          removalTime = None,          // not supported
+          rootProcessInstanceId = None // not supported
+        )
   end mapToHistoricVariables
 
   private def mapToCamundaVariable(histVar: Variable): Option[CamundaVariable] =

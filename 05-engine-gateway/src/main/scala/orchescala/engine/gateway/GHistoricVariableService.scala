@@ -15,10 +15,11 @@ class GHistoricVariableService(using
 
   def getVariables(
       variableName: Option[String],
-      processInstanceId: Option[String]
+      processInstanceId: Option[String],
+      variableFilter: Option[Seq[String]]
   ): IO[EngineError, Seq[HistoricVariable]] =
     tryServicesWithErrorCollection[HistoricVariableService, Seq[HistoricVariable]](
-      _.getVariables(variableName, processInstanceId),
+      _.getVariables(variableName, processInstanceId, variableFilter),
       "getVariables",
       processInstanceId
     )

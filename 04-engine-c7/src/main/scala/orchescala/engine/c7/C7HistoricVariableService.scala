@@ -17,7 +17,8 @@ class C7HistoricVariableService(using
 
   def getVariables(
       variableName: Option[String],
-      processInstanceId: Option[String]
+      processInstanceId: Option[String],
+      variableFilter: Option[Seq[String]]
   ): IO[EngineError, Seq[HistoricVariable]] =
     for
       apiClient    <- apiClientZIO
@@ -59,7 +60,7 @@ class C7HistoricVariableService(using
       variables    <-
         ZIO
           .attempt:
-            mapToHistoricVariables(variableDtos)
+            mapToHistoricVariables(variableFilter, variableDtos)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem mapping Historic Variables for Process Instance '$processInstanceId': $err"
@@ -67,27 +68,33 @@ class C7HistoricVariableService(using
     yield variables
 
   private def mapToHistoricVariables(
+      variableFilter: Option[Seq[String]],
       variableDtos: java.util.List[HistoricVariableInstanceDto]
   ): Seq[HistoricVariable] =
     import scala.jdk.CollectionConverters.*
 
-    variableDtos.asScala.toSeq.map: dto =>
-      HistoricVariable(
-        id = dto.getId,
-        name = dto.getName,
-        value = mapToCamundaVariable(dto),
-        processDefinitionKey = Option(dto.getProcessDefinitionKey),
-        processDefinitionId = Option(dto.getProcessDefinitionId),
-        processInstanceId = Option(dto.getProcessInstanceId),
-        activityInstanceId = Option(dto.getActivityInstanceId),
-        taskId = Option(dto.getTaskId),
-        tenantId = Option(dto.getTenantId),
-        errorMessage = Option(dto.getErrorMessage),
-        state = Option(dto.getState),
-        createTime = Option(dto.getCreateTime),
-        removalTime = Option(dto.getRemovalTime),
-        rootProcessInstanceId = Option(dto.getRootProcessInstanceId)
-      )
+    variableDtos.asScala.toSeq
+      .filter: dto =>
+        variableFilter.isEmpty ||
+          (dto.getValue != null &&
+            variableFilter.toSeq.flatten.contains(dto.getName))
+      .map: dto =>
+        HistoricVariable(
+          id = dto.getId,
+          name = dto.getName,
+          value = mapToCamundaVariable(dto),
+          processDefinitionKey = Option(dto.getProcessDefinitionKey),
+          processDefinitionId = Option(dto.getProcessDefinitionId),
+          processInstanceId = Option(dto.getProcessInstanceId),
+          activityInstanceId = Option(dto.getActivityInstanceId),
+          taskId = Option(dto.getTaskId),
+          tenantId = Option(dto.getTenantId),
+          errorMessage = Option(dto.getErrorMessage),
+          state = Option(dto.getState),
+          createTime = Option(dto.getCreateTime),
+          removalTime = Option(dto.getRemovalTime),
+          rootProcessInstanceId = Option(dto.getRootProcessInstanceId)
+        )
   end mapToHistoricVariables
 
   private def mapToCamundaVariable(histVar: HistoricVariableInstanceDto) =

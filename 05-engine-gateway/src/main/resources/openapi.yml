@@ -41,7 +41,7 @@ paths:
         required: false
         schema:
           type: string
-        example: tenant1
+        example: '{{tenantId}}'
       - name: timeToLiveInSec
         in: query
         description: 'The time in seconds the message is buffered, waiting for correlation.
@@ -59,7 +59,7 @@ paths:
         required: false
         schema:
           type: string
-        example: ORDER-2025-12345
+        example: Started by Test Client
       - name: processInstanceId
         in: query
         description: Process instance ID to correlate the message to a specific process
@@ -129,7 +129,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /process/{processDefId}/async:
+  /process/{processDefinitionKey}/async:
     post:
       tags:
       - Process Instance
@@ -138,7 +138,7 @@ paths:
         Starts a new process instance asynchronously using the Gateway.
       operationId: Start Process Async
       parameters:
-      - name: processDefId
+      - name: processDefinitionKey
         in: path
         description: Process definition ID or key
         required: true
@@ -152,7 +152,7 @@ paths:
         required: false
         schema:
           type: string
-        example: ORDER-2025-12345
+        example: Started by Test Client
       - name: tenantId
         in: query
         description: If you have a multi tenant setup, you must specify the Tenant
@@ -160,7 +160,7 @@ paths:
         required: false
         schema:
           type: string
-        example: tenant1
+        example: '{{tenantId}}'
       requestBody:
         description: Request body with process variables as a JSON object
         content:
@@ -233,6 +233,90 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
+  /process/{processInstanceId}/variables:
+    get:
+      tags:
+      - Process Instance
+      summary: Get variables of a process instance
+      description: |
+        Retrieves all variables or a filtered set of variables for a specific process instance.
+      operationId: Get Process Variables
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: Process instance ID
+        required: true
+        schema:
+          type: string
+        example: '{{processInstanceId}}'
+      - name: variableFilter
+        in: query
+        description: Comma-separated list of variable names to filter. If not provided,
+          all variables are returned.
+        required: false
+        schema:
+          type: string
+        example: customerName,orderAmount
+      responses:
+        '200':
+          description: Process instance variables as a JSON object
+          content:
+            application/json:
+              schema: {}
+              example:
+                customerName: John Doe
+                orderAmount: 1250.50
+                orderDate: '2025-10-26'
+                priority: high
+                items:
+                - productId: PROD-001
+                  quantity: 2
+                - productId: PROD-042
+                  quantity: 1
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
   /signal/{signalName}:
     post:
       tags:
@@ -258,7 +342,7 @@ paths:
         required: false
         schema:
           type: string
-        example: tenant1
+        example: '{{tenantId}}'
       requestBody:
         description: Variables to send with the signal as a JSON object
         content:
@@ -315,7 +399,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /process/{processInstanceId}/userTask/{userTaskDefId}/variables:
+  /process/{processInstanceId}/userTask/{taskDefinitionKey}/variables:
     get:
       tags:
       - User Task
@@ -331,8 +415,8 @@ paths:
         required: true
         schema:
           type: string
-        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
-      - name: userTaskDefId
+        example: '{{processInstanceId}}'
+      - name: taskDefinitionKey
         in: path
         description: User task definition ID (task definition key in the BPMN)
         required: true
@@ -426,7 +510,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /process/{processInstanceId}/userTask/{userTaskId}/complete:
+  /process/{processInstanceId}/userTask/{userTaskInstanceId}/complete:
     post:
       tags:
       - User Task
@@ -441,14 +525,14 @@ paths:
         required: true
         schema:
           type: string
-        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
-      - name: userTaskId
+        example: '{{processInstanceId}}'
+      - name: userTaskInstanceId
         in: path
         description: User task instance ID (obtained from getUserTaskVariables)
         required: true
         schema:
           type: string
-        example: task-abc123-def456
+        example: '{{userTaskInstanceId}}'
       requestBody:
         description: Variables to set when completing the task as a JSON object
         content:
@@ -507,14 +591,14 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /process/{processInstanceId}/userTask/{userTaskDefId}/{userTaskId}/complete:
+  /process/{processInstanceId}/userTask/{userTaskDefinitionKey}/{userTaskInstanceId}/complete:
     post:
       tags:
       - User Task
       summary: Complete a user task for API documentation
       description: |
         Completes a user task in a process instance with the provided variables.
-        - Has additional path element `userTaskDefId` to differentiate between multiple user tasks in the same process instance.
+        - Has additional path element `taskDefinitionKey` to differentiate between multiple user tasks in the same process instance.
       operationId: Complete User Task
       parameters:
       - name: processInstanceId
@@ -523,8 +607,8 @@ paths:
         required: true
         schema:
           type: string
-        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
-      - name: userTaskDefId
+        example: '{{processInstanceId}}'
+      - name: userTaskDefinitionKey
         in: path
         description: |
           User task definition ID (task definition key in the BPMN)
@@ -534,13 +618,13 @@ paths:
         schema:
           type: string
         example: approve-order
-      - name: userTaskId
+      - name: userTaskInstanceId
         in: path
         description: User task instance ID (obtained from getUserTaskVariables)
         required: true
         schema:
           type: string
-        example: task-abc123-def456
+        example: '{{userTaskInstanceId}}'
       requestBody:
         description: Variables to set when completing the task as a JSON object
         content:
@@ -599,7 +683,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /worker/{workerDefId}:
+  /worker/{topicName}:
     post:
       tags:
       - Worker
@@ -617,7 +701,7 @@ paths:
         If the worker returns no output (NoOutput), status 204 No Content will be returned.
       operationId: Trigger Worker
       parameters:
-      - name: workerDefId
+      - name: topicName
         in: path
         description: Worker definition ID (worker topic name)
         required: true
