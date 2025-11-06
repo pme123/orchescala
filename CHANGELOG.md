@@ -15,6 +15,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.24 - 2025-11-06
+### Changed 
+- Switched  in getVariables to HistoricVariableService in GatewayRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/243aaee618a2212c533f848fa978b022cdf64478)
+- Added variableFilter in HistoricVariableService.getVariables. - see [Commit](git@github.com:pme123/orchescala/commit/518a1b8134cc6a4b67cb0cb2883a8fcf2527f00d)
+- Adjusted the process endpoints descriptions. - see [Commit](git@github.com:pme123/orchescala/commit/26312462f21270cd979fc822f43f48aacb9fac39)
+- Added get variables endpoint in ProcessInstanceEndpoints. - see [Commit](git@github.com:pme123/orchescala/commit/deb6c92edd2d301adec1c87333d7790cb67f7720)
+- Added Postman Instructions in ApiCreator. Deprecated PostmanApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/771eec9b8be07d1d6d1ab20ec54c225d97c54f8e)
+- Fixed all query parameters. - see [Commit](git@github.com:pme123/orchescala/commit/e9a1883e3f1b4094ee281eb3db58de0acbd4f0b1)
+- Added query parameters incl. descr. in TapirApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/53e57c271798a15a8c97267c17d11d7b8712e16c)
+- Added default values for path variables in TapirApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/b20a5105b65d9b847f4a702c7a11b3a0a8c67990)
+- Fixed mixup with In/Out in UserTasks in TapirApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/f7f2a2cd65c4ae2e200a6e582d57f9a28e0f6fbb)
+- Clean up new api generation. - see [Commit](git@github.com:pme123/orchescala/commit/6be7cb71d1acfa9ba3e122d3f28155cd9702fd7c)
+- Fixed bad tests. - see [Commit](git@github.com:pme123/orchescala/commit/caf2eee6216f037a9a940d7b2cdb349f797fd404)
+- Fixed bad UserTask endpoint generation. - see [Commit](git@github.com:pme123/orchescala/commit/4ed5feaa2abab67d3ec830c13ee97723c5743bba)
+- Adjustments for description of elements and tag adjustments. - see [Commit](git@github.com:pme123/orchescala/commit/99fb4c775595cbe328af0ed75bc5fef967ef74e5)
+- Removed run: sbt "compile; project engineGateway; generateOpenApi" in github pipelines. - see [Commit](git@github.com:pme123/orchescala/commit/900fce10f7681b1448d4cf91d79821e5a38f8e9c)
+- Adjusted paths for gateway. - see [Commit](git@github.com:pme123/orchescala/commit/aa1b5ccade00caa5b5737b574a74a6df89493680)
+- Update for dockerGateway in local docker-compose. - see [Commit](git@github.com:pme123/orchescala/commit/114d06388a7b2f7a2c942906b2ca6a82f79135f5)
+- Working version with gateway project. - see [Commit](git@github.com:pme123/orchescala/commit/c5600918ce36048e65743ff2c114f22fd970b79c)
+- Working version with gateway project. - see [Commit](git@github.com:pme123/orchescala/commit/87d49fadf3d50308ae668bf8c25110ebf99a7472)
+- Added Worker Endpoint to run Worker in a generic Way without starting a Process. - see [Commit](git@github.com:pme123/orchescala/commit/87b06c594eff63a945f99dbff1ed27e805b68716)
+- Using EngineError in Gateway. - see [Commit](git@github.com:pme123/orchescala/commit/4c1719c1358f2221627326af01c71761d4a64ef5)
+- Reusing error examples. - see [Commit](git@github.com:pme123/orchescala/commit/fbeb926790a5c753c46a865f16b8bbf2a11f4c5a)
+- Adjusted GatewayServer, to work also for C8. - see [Commit](git@github.com:pme123/orchescala/commit/5dfaa8decb88b42eb5e9723d1fba01008a98a667)
+- Cleanup ExampleGatewayServer. - see [Commit](git@github.com:pme123/orchescala/commit/8fef1c9ee2082758637c0f38e843fe288046cb59)
+- Added sendMessage. - see [Commit](git@github.com:pme123/orchescala/commit/0529d5f55978945509d5eeb571b8d7bfbdbf201a)
+- Refactoring splitted endpoints. - see [Commit](git@github.com:pme123/orchescala/commit/2ec774a68b4a0a2a74a1679fb53b2735cff41e8d)
+- Added tenantId if needed. - see [Commit](git@github.com:pme123/orchescala/commit/13d93bb240adb20c676c3b291b55ea9d49d7a531)
+- Added sendSignal. - see [Commit](git@github.com:pme123/orchescala/commit/c628c218fc24d6872adabb0eee118cb9ab7966fb)
+- Added completeUserTask. - see [Commit](git@github.com:pme123/orchescala/commit/b9a6acd7a2babced02686b4da014fc1bf1e4f7e3)
+- Fixes and cleanup in GatewayEndpoints. - see [Commit](git@github.com:pme123/orchescala/commit/b48097ed6e4f31879febb90752d6b4c5887583b7)
+- Added example ExampleGatewayServer. - see [Commit](git@github.com:pme123/orchescala/commit/aad795be71a23ccbbe22ba94e8801a316bd24c55)
+- Added getUserTaskVariable of current Process Instance. - see [Commit](git@github.com:pme123/orchescala/commit/6b70beee921745b13ac505bc14e693033cda664d)
+- Working Gateway Version with C7 without authentication. - see [Commit](git@github.com:pme123/orchescala/commit/3a1c4e12397af9cf3260829632ec4e6902d28332)
+- Working documentation is shown on Gateway Server. - see [Commit](git@github.com:pme123/orchescala/commit/7cec12826d78b9b64c5f336e399e4ab3f30409a6)
+- Added automatic generation of OpenApi specification in github actions. - see [Commit](git@github.com:pme123/orchescala/commit/69018580162975ee5d4bafc4954d975ea795a033)
+- Added OpenApi documentation for the server. - see [Commit](git@github.com:pme123/orchescala/commit/a763ae6d0decc58267cc8671d8007f4d8a7b47e9)
+- First version of a gateway http server. - see [Commit](git@github.com:pme123/orchescala/commit/2ac75cc52096ba305e6f02335531ddb485808e78)
+- Added Alias for InitProcess Return Type. - see [Commit](git@github.com:pme123/orchescala/commit/17f4ab3e134c77363bd20a7007ed7e53b8df5f9a)
+- Fix in ServiceClassesCreator / added debug info to TimerRunner. - see [Commit](git@github.com:pme123/orchescala/commit/a96c4727b5197e939f5dcd05c6a6cb6bd05fde3a)
+
 ## 0.2.23 - 2025-10-03
 ### Changed 
 - Fixed Links in References - added company. - see [Commit](git@github.com:pme123/orchescala/commit/9202c9b73326788f59adf2bcf8600616ebbf8236)
