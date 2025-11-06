@@ -39,13 +39,21 @@ trait TapirApiCreator extends AbstractApiCreator:
         case da @ DecisionDmnApi(_, _, _, _)                                 =>
           da.createEndpoint(tag, tagIsFix, da.additionalDescr)
         case aa @ ActivityApi(_, _, _) if aa.inOutType == InOutType.UserTask =>
-          aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.OUT) ++
+          aa.createEndpoint(
+            tag,
+            tagIsFix,
+            inOutDocu = InOutDocu.OUT
+          ) ++
             aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.IN)
         case aa @ ActivityApi(_, _, _)                                       =>
           aa.createEndpoint(tag, tagIsFix)
         case pa @ ProcessApi(name, _, _, apis, _)
             if apis.isEmpty =>
-          pa.createEndpoint(tag, tagIsFix, pa.additionalDescr)
+          pa.createEndpoint(
+            tag,
+            tagIsFix,
+            pa.additionalDescr
+          )
         case spa: ExternalTaskApi[?, ?]                                      =>
           spa.createEndpoint(tag, tagIsFix, spa.additionalDescr)
         case ga                                                              =>
@@ -127,17 +135,16 @@ trait TapirApiCreator extends AbstractApiCreator:
       val endpointName =
         (if inOutApi.name == tagFull then "Process" else inOutApi.endpointName(inOutDocu))
       println(s"Endpoint: $endpointName")
+      val description  = inOutApi.apiDescription(apiConfig.companyName) +
+        additionalDescr.getOrElse("") +
+        generalInformation(inOutDocu)
       Seq(
         endpoint
           .name(endpointName)
           .tag(eTag)
           .in(endpointPath(inOutDocu))
           .summary(endpointName)
-          .description(
-            inOutApi.apiDescription(apiConfig.companyName) +
-              additionalDescr.getOrElse("") +
-              generalInformation(inOutDocu)
-          )
+          .description(description)
       ).map: ep =>
         if inOutDocu == InOutDocu.OUT && inOutApi.inOutType == InOutType.UserTask
         then ep.get // UserTask variables
@@ -158,17 +165,23 @@ trait TapirApiCreator extends AbstractApiCreator:
       val id = inOutApi.id
       inOutApi.inOutType match
         case InOutType.Bpmn                                 =>
-          "process" / id / "async"
+          "process" / id / "async" / tenantIdQuery / businessKeyQuery
         case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
-          "process" / path[String]("processInstanceId").default("{{processInstanceId}}") / "userTask" / id / path[String](
+          "process" / path[String](
+            "processInstanceId"
+          ).default("{{processInstanceId}}") / "userTask" / id / path[String](
             "userTaskInstanceId"
           ).default("{{userTaskInstanceId}}") / "complete"
         case InOutType.UserTask                             => // variables
-          "process" / path[String]("processInstanceId").default("{{processInstanceId}}") / "userTask" / id / "variables"
+          "process" / path[String](
+            "processInstanceId"
+          ).default(
+            "{{processInstanceId}}"
+          ) / "userTask" / id / "variables" / variableFilterQuery / timeoutInSecQuery
         case InOutType.Signal                               =>
-          "signal" / id
+          "signal" / id / tenantIdQuery
         case InOutType.Message                              =>
           "message" / id
         case InOutType.Timer                                =>
@@ -271,7 +284,7 @@ trait TapirApiCreator extends AbstractApiCreator:
       inOutApi.inOut.out match
         case _: NoOutput =>
           None
-        case _          =>
+        case _           =>
           outputEndpoint(inOutApi)
 
     private def toOutput: Option[EndpointOutput[?]] =
@@ -285,12 +298,12 @@ trait TapirApiCreator extends AbstractApiCreator:
       inOutApi.inOut.in match
         case _: NoInput =>
           None
-        case _           =>
+        case _          =>
           inputEndpoint(inOutApi)
 
   end extension
 
-  private def inputEndpoint(inOutApi: InOutApi[?, ?]) = {
+  private def inputEndpoint(inOutApi: InOutApi[?, ?]) =
     Some(
       inOutApi.inMapper
         .examples(inOutApi.apiExamples.inputExamples.fetchExamples.map {
@@ -302,9 +315,8 @@ trait TapirApiCreator extends AbstractApiCreator:
             )
         }.toList)
     )
-  }
 
-  private def outputEndpoint(inOutApi: InOutApi[?, ?]) = {
+  private def outputEndpoint(inOutApi: InOutApi[?, ?]) =
     Some(
       inOutApi.outMapper
         .examples(inOutApi.apiExamples.outputExamples.fetchExamples.map {
@@ -316,7 +328,19 @@ trait TapirApiCreator extends AbstractApiCreator:
             )
         }.toList)
     )
-  }
+
+  private lazy val tenantIdQuery       = query[String]("tenantId").default(
+    "{{tenantId}}"
+  ).description("If you have a multi tenant setup, you must specify the Tenant ID.")
+  private lazy val businessKeyQuery    = query[String]("businessKey").default(
+    "From Test Client"
+  ).description("Business Key, be aware that in Camunda 8 this is an additional process variable.")
+  private lazy val variableFilterQuery = query[String](
+    "variableFilter"
+  ).description("A comma-separated String of variable names. E.g. `name,firstName`")
+  private lazy val timeoutInSecQuery   = query[Int]("timeoutInSec").example(10).description(
+    "The maximum number of seconds to wait for the user task to become active. If not provided, it will wait 10 seconds."
+  )
 
   extension (pa: ProcessApi[?, ?, ?] | ExternalTaskApi[?, ?])
     def processName: String =
