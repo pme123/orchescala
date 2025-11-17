@@ -13,7 +13,7 @@ trait OAuthPasswordFlow:
     uri"$fssoBaseUrl/realms/$fssoRealm/protocol/openid-connect/token"
 
   final lazy val grant_type_client_credentials = "client_credentials"
-  final lazy val grant_type_impersonate        = "impersonate"
+  final lazy val grant_type_impersonate        = "urn:ietf:params:oauth:grant-type:token-exchange"
   final lazy val grant_type_password           = "password"
 
   def client_id: String
