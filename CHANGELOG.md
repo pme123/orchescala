@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.25 - 2025-11-17
+### Changed 
+- Fixed bad grant_type_impersonate. - see [Commit](git@github.com:pme123/orchescala/commit/06b5302f06cfbf4b4efe1ce07ba325e1487e493f)
+
 ## 0.2.24 - 2025-11-06
 ### Changed 
 - Switched  in getVariables to HistoricVariableService in GatewayRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/243aaee618a2212c533f848fa978b022cdf64478)
