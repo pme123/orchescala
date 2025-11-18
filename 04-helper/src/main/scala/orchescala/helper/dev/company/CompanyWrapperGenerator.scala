@@ -634,7 +634,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
         |    }
         |</script>
         |<redoc class="content" spec-url='./OpenApi.yml'></redoc>
-        |<script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"></script>
+        |<script src="https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js"></script>
         |</body>
         |</html>
         |""".stripMargin
