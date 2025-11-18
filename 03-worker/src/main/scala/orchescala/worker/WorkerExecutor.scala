@@ -46,7 +46,7 @@ case class WorkerExecutor[
     lazy val validationHandler = worker.validationHandler
 
     def validate(
-        inputParamsAsJson: Seq[IO[Any, (String, Option[Json])]]
+        inputParamsAsJson: Seq[IO[OrchescalaError, (String, Option[Json])]]
     ): IO[ValidatorError, In] =
 
       val jsonResult: IO[ValidatorError, Seq[(String, Option[Json])]] =
@@ -59,7 +59,7 @@ case class WorkerExecutor[
               ZIO.fail(
                 ValidatorError(
                   failures
-                    .collect { case Left(value) => value }
+                    .map(_.toString())
                     .mkString("Validator Error(s):\n - ", " - ", "\n")
                 )
               )
