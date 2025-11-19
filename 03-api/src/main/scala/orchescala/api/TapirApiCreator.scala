@@ -185,7 +185,7 @@ trait TapirApiCreator extends AbstractApiCreator:
         case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
-          "process" / processInstanceIdPath / "userTask" / id / path[String](
+          "userTask" / id / path[String](
             "userTaskInstanceId"
           ).default("{{userTaskInstanceId}}") / "complete"
         case InOutType.UserTask                             => // variables
