@@ -42,10 +42,11 @@ object GatewayRoutes:
       historicVariableService: HistoricVariableService,
       validateToken: String => IO[EngineError, String]
   ): Routes[Any, Response] =
+
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
         validateToken(token).mapError(ErrorResponse.fromEngineError)
-      }.serverLogic {
+      }.serverLogic:
         validatedToken => // validatedToken is the String token returned from security logic
           (processDefId, businessKeyQuery, tenantIdQuery, request) =>
             // Set the bearer token in AuthContext so it can be used by the engine services
@@ -58,7 +59,49 @@ object GatewayRoutes:
                   tenantId = tenantIdQuery
                 )
                 .mapError(ErrorResponse.fromEngineError)
-      }
+
+    val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
+      .serverLogic: validatedToken =>
+        (processInstanceId, variableFilter) =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            historicVariableService
+              .getVariables(
+                variableName = None,
+                processInstanceId = Some(processInstanceId),
+                variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
+              )
+              .map: variables =>
+                CirceJson.obj(variables.map(v =>
+                  v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null)
+                )*)
+              .mapError(ErrorResponse.fromEngineError)
+
+    // same as getProcessVariablesEndpoint, but with processDefinitionKey as path parameter for API documentation
+    val getProcessVariablesEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      ProcessInstanceEndpoints.getProcessVariablesForApi.zServerSecurityLogic: token =>
+        validateToken(token).mapError(ErrorResponse.fromEngineError)
+      .serverLogic: validatedToken =>
+        (
+            processDefinitionKey,
+            processInstanceId,
+            variableFilter
+        ) => // processDefinitionKey is not used
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            historicVariableService
+              .getVariables(
+                variableName = None,
+                processInstanceId = Some(processInstanceId),
+                variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
+              )
+              .map: variables =>
+                CirceJson.obj(variables.map(v =>
+                  v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null)
+                )*)
+              .mapError(ErrorResponse.fromEngineError)
 
     val getUserTaskVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints
@@ -152,32 +195,16 @@ object GatewayRoutes:
               )
               .mapError(ErrorResponse.fromEngineError)
 
-    val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
-      .serverLogic: validatedToken =>
-        (processInstanceId, variableFilter) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            historicVariableService
-              .getVariables(
-                variableName = None,
-                processInstanceId = Some(processInstanceId),
-                variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
-              )
-              .map: variables =>
-                CirceJson.obj(variables.map(v => v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null))*)
-              .mapError(ErrorResponse.fromEngineError)
-
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(
         startProcessEndpoint,
+        getProcessVariablesEndpoint,
+        getProcessVariablesEndpointForApi,
         getUserTaskVariablesEndpoint,
         completeUserTaskEndpoint,
         completeUserTaskEndpointForApi,
         sendSignalEndpoint,
-        sendMessageEndpoint,
-        getProcessVariablesEndpoint
+        sendMessageEndpoint
       )
     )
   end routes

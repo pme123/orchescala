@@ -14,16 +14,24 @@ object ProcessInstanceEndpoints:
       oneOf[ErrorResponse](
         oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
           .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.unauthorized))) { case e: ErrorResponse if e.httpStatus == 401 => true },
+            .example(ErrorResponse.unauthorized))) {
+          case e: ErrorResponse if e.httpStatus == 401 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
           .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.badRequest))) { case e: ErrorResponse if e.httpStatus == 400 => true },
+            .example(ErrorResponse.badRequest))) {
+          case e: ErrorResponse if e.httpStatus == 400 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
           .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.notFound))) { case e: ErrorResponse if e.httpStatus == 404 => true },
+            .example(ErrorResponse.notFound))) {
+          case e: ErrorResponse if e.httpStatus == 404 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
           .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.internalError))) { case e: ErrorResponse if e.httpStatus >= 500 => true },
+            .example(ErrorResponse.internalError))) {
+          case e: ErrorResponse if e.httpStatus >= 500 => true
+        },
         oneOfDefaultVariant(jsonBody[ErrorResponse])
       )
     )
@@ -44,7 +52,13 @@ object ProcessInstanceEndpoints:
     ]
   }""").getOrElse(io.circe.Json.Null)
 
-  lazy val startProcessAsync: Endpoint[String, (String, Option[String], Option[String], Json), ErrorResponse, ProcessInfo, Any] =
+  lazy val startProcessAsync: Endpoint[
+    String,
+    (String, Option[String], Option[String], Json),
+    ErrorResponse,
+    ProcessInfo,
+    Any
+  ] =
     securedBaseEndpoint
       .post
       .in(path[String]("processDefinitionKey")
@@ -84,27 +98,48 @@ object ProcessInstanceEndpoints:
     ]
   }""").getOrElse(io.circe.Json.Null)
 
-  lazy val getProcessVariables: Endpoint[String, (String, Option[String]), ErrorResponse, Json, Any] =
+  lazy val getProcessVariables
+      : Endpoint[String, (String, Option[String]), ErrorResponse, Json, Any] =
     securedBaseEndpoint
       .get
-      .in(path[String]("processInstanceId")
-        .description("Process instance ID")
-        .example("{{processInstanceId}}"))
-      .in("variables")
-      .in(query[Option[String]]("variableFilter")
-        .description("Comma-separated list of variable names to filter. If not provided, all variables are returned.")
-        .example(Some("customerName,orderAmount")))
-      .out(statusCode(StatusCode.Ok))
-      .out(jsonBody[Json]
-        .description("Process instance variables as a JSON object")
-        .example(processVariablesExample))
       .name("Get Process Variables")
       .summary("Get variables of a process instance")
-      .description(
-        """Retrieves all variables or a filtered set of variables for a specific process instance.
-          |""".stripMargin
-      )
-      .tag("Process Instance")
+      .withProcessVariablesConfig[(String, Option[String])]
 
+  lazy val getProcessVariablesForApi
+      : Endpoint[String, (String, String, Option[String]), ErrorResponse, Json, Any] =
+    securedBaseEndpoint
+      .get
+      .name("Get Process Variables for API")
+      .summary("Get variables of a process instance for API Documentation")
+      .in(path[String]("processDefinitionKey")
+        .description("Process definition ID or key")
+        .example("order-process"))
+      .withProcessVariablesConfig[(String, String, Option[String])]
+
+  // Extension method for process variables endpoint configuration
+  extension [In](endpoint: Endpoint[String, In, ErrorResponse, Unit, Any])
+    private def withProcessVariablesConfig[Out]
+        : Endpoint[String, Out, ErrorResponse, Json, Any] =
+      endpoint
+        .in(path[String]("processInstanceId")
+          .description("Process instance ID")
+          .example("{{processInstanceId}}"))
+        .in("variables")
+        .in(query[Option[String]]("variableFilter")
+          .description(
+            "Comma-separated list of variable names to filter. If not provided, all variables are returned."
+          )
+          .example(Some("customerName,orderAmount")))
+        .out(statusCode(StatusCode.Ok))
+        .out(jsonBody[Json]
+          .description("Process instance variables as a JSON object")
+          .example(processVariablesExample))
+        .description(
+          """Retrieves all variables or a filtered set of variables for a specific process instance.
+            |""".stripMargin
+        )
+        .tag("Process Instance")
+        .asInstanceOf[Endpoint[String, Out, ErrorResponse, Json, Any]]
+  end extension
 end ProcessInstanceEndpoints
-

@@ -27,6 +27,7 @@ object OpenApiGenerator:
       MessageEndpoints.sendMessage,
       ProcessInstanceEndpoints.startProcessAsync,
       ProcessInstanceEndpoints.getProcessVariables,
+      ProcessInstanceEndpoints.getProcessVariablesForApi,
       SignalEndpoints.sendSignal,
       UserTaskEndpoints.getUserTaskVariables,
       UserTaskEndpoints.completeUserTask,
