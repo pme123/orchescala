@@ -179,9 +179,9 @@ trait TapirApiCreator extends AbstractApiCreator:
       val id = inOutApi.id
       inOutApi.inOutType match
         case InOutType.Bpmn if inOutDoc == InOutDocu.IN     =>
-          "process" / processDefinitionKeyPath(id) / "async" / tenantIdQuery / businessKeyQuery
+          "process" / id / "async" / tenantIdQuery / businessKeyQuery // process start
         case InOutType.Bpmn                                 =>
-          "process" / processInstanceIdPath / "variables" / variableFilterQuery(inOutApi.inOut.out)
+          "process" / id / processInstanceIdPath / "variables" / variableFilterQuery(inOutApi.inOut.out) // variables
         case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete

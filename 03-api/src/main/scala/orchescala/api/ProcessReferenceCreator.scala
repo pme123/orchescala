@@ -121,7 +121,7 @@ trait ProcessReferenceCreator:
 
       val refId                  = refIdentShort(extractId, projectName)
       lazy val identShortProcess = shortenTag(extractId)
-      val anchor                 = s"#tag/${identShortProcess}"
+      val anchor                 = s"#tag/${identShortProcess.replace(" ", "-")}"
       projectName -> s"[${InOutType.Bpmn}: $refId](${docProjectUrl(projectName)}/OpenApi.html$anchor)"
     end docuPath
 
