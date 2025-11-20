@@ -102,20 +102,54 @@ object ProcessInstanceEndpoints:
       : Endpoint[String, (String, Option[String]), ErrorResponse, Json, Any] =
     securedBaseEndpoint
       .get
+      .in(path[String]("processInstanceId")
+        .description("Process instance ID")
+        .example("{{processInstanceId}}"))
+      .in("variables")
+      .in(query[Option[String]]("variableFilter")
+        .description(
+          "Comma-separated list of variable names to filter. If not provided, all variables are returned."
+        )
+        .example(Some("customerName,orderAmount")))
+      .out(statusCode(StatusCode.Ok))
+      .out(jsonBody[Json]
+        .description("Process instance variables as a JSON object")
+        .example(processVariablesExample))
       .name("Get Process Variables")
       .summary("Get variables of a process instance")
-      .withProcessVariablesConfig[(String, Option[String])]
+      .description(
+        """Retrieves all variables or a filtered set of variables for a specific process instance.
+          |""".stripMargin
+      )
+      .tag("Process Instance")
 
   lazy val getProcessVariablesForApi
       : Endpoint[String, (String, String, Option[String]), ErrorResponse, Json, Any] =
     securedBaseEndpoint
       .get
-      .name("Get Process Variables for API")
-      .summary("Get variables of a process instance for API Documentation")
       .in(path[String]("processDefinitionKey")
         .description("Process definition ID or key")
         .example("order-process"))
-      .withProcessVariablesConfig[(String, String, Option[String])]
+      .in(path[String]("processInstanceId")
+        .description("Process instance ID")
+        .example("{{processInstanceId}}"))
+      .in("variables")
+      .in(query[Option[String]]("variableFilter")
+        .description(
+          "Comma-separated list of variable names to filter. If not provided, all variables are returned."
+        )
+        .example(Some("customerName,orderAmount")))
+      .out(statusCode(StatusCode.Ok))
+      .out(jsonBody[Json]
+        .description("Process instance variables as a JSON object")
+        .example(processVariablesExample))
+      .name("Get Process Variables for API")
+      .summary("Get variables of a process instance for API Documentation")
+      .description(
+        """Retrieves all variables or a filtered set of variables for a specific process instance.
+          |""".stripMargin
+      )
+      .tag("Process Instance")
 
   // Extension method for process variables endpoint configuration
   extension [In](endpoint: Endpoint[String, In, ErrorResponse, Unit, Any])

@@ -124,7 +124,7 @@ object GatewayRoutes:
       UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
         validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
-        (processInstanceId, userTaskId, variables) =>
+        (userTaskId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
             // Convert JSON to Map[String, CamundaVariable]
@@ -140,7 +140,7 @@ object GatewayRoutes:
       UserTaskEndpoints.completeUserTaskForApi.zServerSecurityLogic: token =>
         validateToken(token).mapError(ErrorResponse.fromEngineError)
       .serverLogic: validatedToken =>
-        (processInstanceId, taskDefinitionKey, userTaskId, variables) =>
+        (taskDefinitionKey, userTaskId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
             // Convert JSON to Map[String, CamundaVariable]

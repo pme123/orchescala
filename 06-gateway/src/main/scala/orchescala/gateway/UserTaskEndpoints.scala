@@ -92,19 +92,29 @@ object UserTaskEndpoints:
       )
       .tag("User Task")
 
-  val completeUserTask: Endpoint[String, (String, String, Json), ErrorResponse, Unit, Any] =
+  val completeUserTask: Endpoint[String, (String, Json), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post
+      .in("userTask")
+      .in(path[String]("userTaskInstanceId")
+        .description("User task instance ID (obtained from getUserTaskVariables)")
+        .example("{{userTaskInstanceId}}"))
+      .in("complete")
+      .in(jsonBody[Json]
+        .description("Variables to set when completing the task as a JSON object")
+        .example(completeUserTaskRequestExample))
+      .out(statusCode(StatusCode.NoContent))
       .name("Complete User Task")
       .summary("Complete a user task with variables")
-      .in("userTask")
-      .withCompleteUserTaskConfig[(String, String, Json)]
+      .description(
+        """Completes a user task in a process instance with the provided variables.
+          |""".stripMargin
+      )
+      .tag("User Task")
 
-  val completeUserTaskForApi: Endpoint[String, (String, String, String, Json), ErrorResponse, Unit, Any] =
+  val completeUserTaskForApi: Endpoint[String, (String, String, Json), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post
-      .name("Complete User Task for API")
-      .summary("Complete a user task for API documentation")
       .in("userTask")
       .in(path[String]("userTaskDefinitionKey")
         .description(
@@ -113,28 +123,21 @@ object UserTaskEndpoints:
             |- We use this that you can have multiple UserTasks in one Project.
             |""".stripMargin)
         .example("ApproveOrderUT"))
-      .withCompleteUserTaskConfig[(String, String, String, Json)]
-
-  // Extension method for process variables endpoint configuration
-  extension [In](endpoint: Endpoint[String, In, ErrorResponse, Unit, Any])
-    private def withCompleteUserTaskConfig[Out]
-    : Endpoint[String, Out, ErrorResponse, Unit, Any] =
-      endpoint
-        .in(path[String]("userTaskInstanceId")
-          .description("User task instance ID (obtained from getUserTaskVariables)")
-          .example("{{userTaskInstanceId}}"))
-        .in("complete")
-        .in(jsonBody[Json]
-          .description("Variables to set when completing the task as a JSON object")
-          .example(completeUserTaskRequestExample))
-        .out(statusCode(StatusCode.NoContent))
-        .description(
-          """Completes a user task in a process instance with the provided variables.
-            |""".stripMargin
-        )
-        .tag("User Task")
-        .asInstanceOf[Endpoint[String, Out, ErrorResponse, Unit, Any]]
-  end extension
+      .in(path[String]("userTaskInstanceId")
+        .description("User task instance ID (obtained from getUserTaskVariables)")
+        .example("{{userTaskInstanceId}}"))
+      .in("complete")
+      .in(jsonBody[Json]
+        .description("Variables to set when completing the task as a JSON object")
+        .example(completeUserTaskRequestExample))
+      .out(statusCode(StatusCode.NoContent))
+      .name("Complete User Task for API")
+      .summary("Complete a user task for API documentation")
+      .description(
+        """Completes a user task in a process instance with the provided variables.
+          |""".stripMargin
+      )
+      .tag("User Task")
 
 end UserTaskEndpoints
 
