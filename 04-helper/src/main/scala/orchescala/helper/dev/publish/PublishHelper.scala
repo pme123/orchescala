@@ -90,7 +90,7 @@ case class PublishHelper()(using
     if apiFile.toIO.exists() then
       val apiFileStr = os.read(apiFile)
 
-      val pattern     = """ version = "(\d+\..*\d+(-.+)?)""""
+      val pattern     = """ version\s*=\s*"(\d+\..*\d+(-.+)?)""""
       val updatedFile =
         apiFileStr.replaceFirst(pattern, s""" version = "$newVersion"""")
 
