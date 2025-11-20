@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.28 - 2025-11-20
+### Changed 
+- Fixed classcastexception in GatewayRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/0c6f62b81d92db9662c0b9ea3da81ba956694ceb)
+
 ## 0.2.27 - 2025-11-19
 ### Changed 
 - Adjusted UserTask complete endpoint for Api Documentation - removed process. - see [Commit](git@github.com:pme123/orchescala/commit/3ad6cb56072a75333b96ec476b48de1bfc106752)
