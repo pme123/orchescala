@@ -29,16 +29,27 @@ class C7WorkerRegistry(client: C7WorkerClient)
     }.mapError(_.asInstanceOf[Any])
 
   private def registerWorker(worker: C7Worker[?, ?], client: ExternalTaskClient) =
-    attempt(client
-      .subscribe(worker.topic)
-      .handler(worker)
-      .open()) *>
-      logInfo("Registered C7 Worker: " + worker.topic)
+    logDebug(s"""Registering C7 Worker subscription for topic: '${worker.topic}'
+                | - Worker class: ${worker.getClass.getName}
+                | - Timeout: ${worker.timeout}""".stripMargin) *>
+      attempt(client
+        .subscribe(worker.topic)
+        .handler(worker)
+        .open())
+        .tap(_ => logDebug(s"Subscription opened successfully for topic: '${worker.topic}'"))
+        .tapError(err =>
+          logError(s"Failed to open subscription for topic '${worker.topic}': $err")
+        )
+
 
   extension (client: ExternalTaskClient)
     private def closeClient(): UIO[Unit] =
-      logInfo("Closing C7 Worker Client")
-        .as(if client != null then client.stop() else ())
+      logDebug("Closing C7 Worker Client and all subscriptions") *>
+        ZIO.attempt(if client != null then client.stop() else ())
+          .tap(_ => logInfo("C7 Worker Client closed successfully"))
+          .tapError(err => logError(s"Error closing C7 Worker Client: $err"))
+          .ignore
+  end extension
 
   lazy val engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any] = ZIO.unit
 end C7WorkerRegistry

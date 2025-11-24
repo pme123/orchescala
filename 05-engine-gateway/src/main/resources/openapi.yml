@@ -317,6 +317,97 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
+  /process/{processDefinitionKey}/{processInstanceId}/variables:
+    get:
+      tags:
+      - Process Instance
+      summary: Get variables of a process instance for API Documentation
+      description: |
+        Retrieves all variables or a filtered set of variables for a specific process instance.
+      operationId: Get Process Variables for API
+      parameters:
+      - name: processDefinitionKey
+        in: path
+        description: Process definition ID or key
+        required: true
+        schema:
+          type: string
+        example: order-process
+      - name: processInstanceId
+        in: path
+        description: Process instance ID
+        required: true
+        schema:
+          type: string
+        example: '{{processInstanceId}}'
+      - name: variableFilter
+        in: query
+        description: Comma-separated list of variable names to filter. If not provided,
+          all variables are returned.
+        required: false
+        schema:
+          type: string
+        example: customerName,orderAmount
+      responses:
+        '200':
+          description: Process instance variables as a JSON object
+          content:
+            application/json:
+              schema: {}
+              example:
+                customerName: John Doe
+                orderAmount: 1250.50
+                orderDate: '2025-10-26'
+                priority: high
+                items:
+                - productId: PROD-001
+                  quantity: 2
+                - productId: PROD-042
+                  quantity: 1
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
   /signal/{signalName}:
     post:
       tags:
@@ -422,7 +513,7 @@ paths:
         required: true
         schema:
           type: string
-        example: approve-order
+        example: ApproveOrderUT
       - name: variableFilter
         in: query
         description: A comma-separated String of variable names. E.g. `name,firstName`
@@ -510,7 +601,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /process/{processInstanceId}/userTask/{userTaskInstanceId}/complete:
+  /userTask/{userTaskInstanceId}/complete:
     post:
       tags:
       - User Task
@@ -519,13 +610,6 @@ paths:
         Completes a user task in a process instance with the provided variables.
       operationId: Complete User Task
       parameters:
-      - name: processInstanceId
-        in: path
-        description: Process instance ID
-        required: true
-        schema:
-          type: string
-        example: '{{processInstanceId}}'
       - name: userTaskInstanceId
         in: path
         description: User task instance ID (obtained from getUserTaskVariables)
@@ -591,23 +675,15 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
-  /process/{processInstanceId}/userTask/{userTaskDefinitionKey}/{userTaskInstanceId}/complete:
+  /userTask/{userTaskDefinitionKey}/{userTaskInstanceId}/complete:
     post:
       tags:
       - User Task
       summary: Complete a user task for API documentation
       description: |
         Completes a user task in a process instance with the provided variables.
-        - Has additional path element `taskDefinitionKey` to differentiate between multiple user tasks in the same process instance.
-      operationId: Complete User Task
+      operationId: Complete User Task for API
       parameters:
-      - name: processInstanceId
-        in: path
-        description: Process instance ID
-        required: true
-        schema:
-          type: string
-        example: '{{processInstanceId}}'
       - name: userTaskDefinitionKey
         in: path
         description: |
@@ -617,7 +693,7 @@ paths:
         required: true
         schema:
           type: string
-        example: approve-order
+        example: ApproveOrderUT
       - name: userTaskInstanceId
         in: path
         description: User task instance ID (obtained from getUserTaskVariables)

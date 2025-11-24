@@ -12,7 +12,7 @@ import java.util.Date
 import scala.jdk.CollectionConverters.*
 
 trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
-    extends WorkerDsl[In, Out], BaseWorker[In, Out], camunda.ExternalTaskHandler:
+    extends BaseWorker[In, Out], camunda.ExternalTaskHandler:
 
   protected def c7Context: C7Context
 
