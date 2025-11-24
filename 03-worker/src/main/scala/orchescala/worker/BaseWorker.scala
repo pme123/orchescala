@@ -22,28 +22,18 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     Unsafe.unsafe:
       implicit unsafe =>
         EngineRuntime.zioRuntime.unsafe.fork:
-          ZIO.scoped:
-            for
-              fiber  <-
-                execution
-                  .provideLayer(
-                    EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger
-                  )
-                  .fork
-              _      <- ZIO.addFinalizer:
-                          fiber.status.flatMap: status =>
-                            fiber.interrupt.when(!status.isDone)
-              result <- fiber.join.timeout(workerTimeout).flatMap:
-                          case Some(value) => ZIO.succeed(value)
-                          case None =>
-                            ZIO.logError(s"Worker execution for job $jobId timed out after $workerTimeout - interrupting fiber") *>
-                              fiber.interrupt *>
-                              ZIO.fail(new RuntimeException(s"Worker execution timed out after $workerTimeout"))
-            yield result
-          .ensuring:
-            ZIO.logDebug(s"Worker execution for job $jobId completed and resources cleaned up")
-          .catchAll: err =>
-            ZIO.logError(s"Worker execution for job $jobId failed: ${err.getMessage}")
+          execution
+            .provideLayer(
+              EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger
+            )
+            .timeout(workerTimeout)
+            .flatMap:
+              case Some(value) =>
+                ZIO.logDebug(s"Worker execution for job $jobId completed successfully").as(value)
+              case None =>
+                ZIO.logError(s"Worker execution for job $jobId timed out after $workerTimeout") *>
+                  ZIO.fail(new RuntimeException(s"Worker execution timed out after $workerTimeout"))
+                    .tapError(err => ZIO.logError(s"Worker execution for job $jobId failed: ${err.getMessage}"))
 
   protected def extractGeneralVariables(json: Json) =
     ZIO.fromEither(
