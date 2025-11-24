@@ -10,6 +10,12 @@ import zio.*
 trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends WorkerDsl[In, Out]:
 
+  /** Maximum time a worker is allowed to execute before being interrupted.
+    * Override this in your worker if you need a different timeout.
+    * Default is 5 minutes.
+    */
+  protected def workerTimeout: Duration = 5.minutes
+
   protected def executeWithScope[T](jobId: String)(
       execution: ZIO[SttpClientBackend, Throwable, T]
   ): Unit =
@@ -27,10 +33,17 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
               _      <- ZIO.addFinalizer:
                           fiber.status.flatMap: status =>
                             fiber.interrupt.when(!status.isDone)
-              result <- fiber.join
+              result <- fiber.join.timeout(workerTimeout).flatMap:
+                          case Some(value) => ZIO.succeed(value)
+                          case None =>
+                            ZIO.logError(s"Worker execution for job $jobId timed out after $workerTimeout - interrupting fiber") *>
+                              fiber.interrupt *>
+                              ZIO.fail(new RuntimeException(s"Worker execution timed out after $workerTimeout"))
             yield result
           .ensuring:
             ZIO.logDebug(s"Worker execution for job $jobId completed and resources cleaned up")
+          .catchAll: err =>
+            ZIO.logError(s"Worker execution for job $jobId failed: ${err.getMessage}")
 
   protected def extractGeneralVariables(json: Json) =
     ZIO.fromEither(
