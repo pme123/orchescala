@@ -4,6 +4,7 @@ import orchescala.domain.{InOutDecoder, OrchescalaLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.ServiceAuthError
 import sttp.client3.*
+import zio.ZIO
 
 trait OAuthPasswordFlow:
   def fssoRealm: String
@@ -46,37 +47,38 @@ trait OAuthPasswordFlow:
             TokenCache.cache.put(username, token)
             token
 
-  def clientCredentialsToken()(using
+  def adminTokenZio(tokenKey: String = username)(using
       logger: OrchescalaLogger
-  ): Either[ServiceAuthError, String] =
-    TokenCache.cache.getIfPresent("clientCredentials")
-      .map: token =>
-        logger.info(s"Token from Cache: clientCredentials")
-        Right(token)
-      .getOrElse:
-        tokenService.clientCredentialsToken()
-          .map: token =>
-            logger.info(
-              s"Added Token to Cache self acquired: $client_id - ${token.take(20)}...${token.takeRight(10)}"
-            )
-            TokenCache.cache.put("clientCredentials", token)
-            token
+  ): ZIO[SttpClientBackend, ServiceAuthError, String] =
+    ZIO.fromOption(TokenCache.cache.getIfPresent(tokenKey))
+      .zipLeft(ZIO.logDebug(s"Admin Token from Cache: $tokenKey"))
+      .orElse:
+        tokenService.adminTokenZio()
+          .tap: token =>
+            ZIO.logInfo(
+              s"Added Admin Token to Cache: $username - ${token.take(20)}...${token.takeRight(10)}"
+            ).as(TokenCache.cache.put(username, token))
 
-  def impersonateToken(username: String, adminToken: String)(using
-      logger: OrchescalaLogger
-  ): IO[ServiceAuthError, String] =
-    TokenCache.cache.getIfPresent(username)
-      .map: token =>
-        logger.info(s"Token from Cache: $username")
-        ZIO.succeed(token)
-      .getOrElse:
+  def clientCredentialsTokenZio(): ZIO[SttpClientBackend, ServiceAuthError, String] =
+    ZIO.fromOption(TokenCache.cache.getIfPresent("clientCredentialsToken"))
+      .zipLeft(ZIO.logDebug(s"Admin Token from Cache: clientCredentialsToken"))
+      .orElse:
+        tokenService.clientCredentialsTokenZio()
+          .tap: token =>
+            ZIO.logInfo(
+              s"Added Admin Token to Cacheself acquired: $client_id - ${token.take(20)}...${token.takeRight(10)}"
+            ).as(TokenCache.cache.put("clientCredentials", token))
+
+  def impersonateToken(username: String, adminToken: String): IO[ServiceAuthError, String] =
+    ZIO.fromOption(TokenCache.cache.getIfPresent(username))
+      .zipLeft(ZIO.logInfo(s"Token from Cache: $username"))
+      .orElse:
         tokenService.impersonateToken(username, adminToken)
-          .map: token =>
-            logger.info(
-              s"Added Token to Cache self acquired: $username - ${token.take(20)}...${token.takeRight(10)}"
-            )
-            TokenCache.cache.put(username, token)
-            token
+          .tap: token =>
+            ZIO.succeed(TokenCache.cache.put(username, token)) *>
+              ZIO.logInfo(
+                s"Added Token to Cache self acquired: $username - ${token.take(20)}...${token.takeRight(10)}"
+              )
 
   lazy val tokenRequestBody = Map(
     "grant_type"    -> grant_type_password,
