@@ -15,6 +15,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.29 - 2025-11-26
+### Changed 
+- Added catchall to handle unexpected errors in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/7b976b4a2f724a3a7022167993ec93596aaeaf49)
+- Added ZIO versions to get tokens. - see [Commit](git@github.com:pme123/orchescala/commit/17b969f2338a35a62de2bd60a6b6a9baf9a1df4a)
+- Removed second fork in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/4855e48e48606614601b456e3a022c9ee3ff8bb7)
+- Added more logging for worker registry. - see [Commit](git@github.com:pme123/orchescala/commit/2138435deb6b17142d63d595548cf76d62551adf)
+- Added timeout for running the worker. - see [Commit](git@github.com:pme123/orchescala/commit/2dc7a73ea352a4ac59386da5d44c153dd914d6ec)
+- Made regex to match version easier in PublishHelper. - see [Commit](git@github.com:pme123/orchescala/commit/309fdf6814b8a60c62adab4a381b3a82691813d6)
+
 ## 0.2.28 - 2025-11-20
 ### Changed 
 - Fixed classcastexception in GatewayRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/0c6f62b81d92db9662c0b9ea3da81ba956694ceb)
