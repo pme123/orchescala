@@ -34,6 +34,10 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 ZIO.logError(s"Worker execution for job $jobId timed out after $workerTimeout") *>
                   ZIO.fail(new RuntimeException(s"Worker execution timed out after $workerTimeout"))
                     .tapError(err => ZIO.logError(s"Worker execution for job $jobId failed: ${err.getMessage}"))
+            .catchAll: ex =>
+              ZIO.logError(s"Worker execution for job $jobId failed: ${ex.getMessage}\n${ex.getStackTrace.mkString("\n")}")
+                .unit // Return unit instead of failing
+        
 
   protected def extractGeneralVariables(json: Json) =
     ZIO.fromEither(
