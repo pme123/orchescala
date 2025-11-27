@@ -25,9 +25,9 @@ import zio.http.*
   *     )
   * }}}
   */
-abstract class GatewayServer extends EngineApp:
+abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
-  def port: Int = 8080
+  def port: Int = 8888
 
   var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
 
@@ -43,6 +43,8 @@ abstract class GatewayServer extends EngineApp:
         case s: Seq[?]          => s.collect { case d: WorkerDsl[?, ?] => d }
         case app: WorkerApp     => app.theWorkers
       .toSet
+
+  def run: ZIO[Any, Any, Any] = start()
 
   /** Starts the Gateway HTTP server with the specified configuration.
     *
