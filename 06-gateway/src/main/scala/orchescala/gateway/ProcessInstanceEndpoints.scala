@@ -41,7 +41,7 @@ object ProcessInstanceEndpoints:
     .securityIn(auth.bearer[String]())
 
   // Example JSON for request body
-  private lazy val startProcessRequestExample = parse("""{
+  private lazy val startProcessRequestExample: JsonObject = parse("""{
     "customerName": "John Doe",
     "orderAmount": 1250.50,
     "orderDate": "2025-10-26",
@@ -50,11 +50,11 @@ object ProcessInstanceEndpoints:
       {"productId": "PROD-001", "quantity": 2},
       {"productId": "PROD-042", "quantity": 1}
     ]
-  }""").getOrElse(io.circe.Json.Null)
+  }""").map(_.asObject.get).getOrElse(JsonObject())
 
   lazy val startProcessAsync: Endpoint[
     String,
-    (String, Option[String], Option[String], Json),
+    (String, Option[String], Option[String], JsonObject),
     ErrorResponse,
     ProcessInfo,
     Any
@@ -71,7 +71,7 @@ object ProcessInstanceEndpoints:
       .in(query[Option[String]]("tenantId")
         .description("If you have a multi tenant setup, you must specify the Tenant ID.")
         .example(Some("{{tenantId}}")))
-      .in(jsonBody[Json]
+      .in(jsonBody[JsonObject]
         .description("Request body with process variables as a JSON object")
         .example(startProcessRequestExample))
       .out(statusCode(StatusCode.Ok))

@@ -43,9 +43,7 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
   given EngineConfig = EngineConfig(
     tenantId = None  // Set to Some("your-tenant") if needed
   )
-
-  override def port: Int = 8888
-
+  
   override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
     (for
       c7Engine <- C7ProcessEngine.withClient(ExampleC7Client)

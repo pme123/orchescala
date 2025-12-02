@@ -1,15 +1,8 @@
 package orchescala.engine.domain
 
-import orchescala.domain.ErrorCodes
+import orchescala.domain.{ErrorCodes, OrchescalaError}
 
-sealed trait EngineError extends Throwable:
-  def errorCode: ErrorCodes
-  def errorMsg: String
-  
-  def causeMsg: String = s"$errorCode: $errorMsg"
-
-  override def toString: String = causeMsg
-end EngineError
+sealed trait EngineError extends OrchescalaError
 
 object EngineError:
   case class MappingError(
@@ -51,4 +44,5 @@ object EngineError:
       errorMsg: String,
       errorCode: ErrorCodes = ErrorCodes.`engine-service-error`
   ) extends EngineError
+  
 end EngineError

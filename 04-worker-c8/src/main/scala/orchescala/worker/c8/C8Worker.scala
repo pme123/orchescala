@@ -2,8 +2,9 @@ package orchescala.worker.c8
 
 import io.camunda.client.api.response.ActivatedJob
 import io.camunda.client.api.worker.{JobClient, JobHandler}
-import orchescala.engine.c8.jsonToVariablesMap
 import orchescala.domain.*
+import orchescala.engine.c8.jsonToVariablesMap
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
 import zio.*

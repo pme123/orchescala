@@ -1,14 +1,15 @@
 package orchescala.worker
 
+import io.circe.parser
 import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
-import io.circe.parser
 import sttp.client3.*
 import sttp.client3.circe.*
 import sttp.model.Uri.QuerySegment
 import sttp.model.{Header, Uri}
-import zio.{Scope, Task, ZIO}
+import zio.ZIO
 
 import scala.reflect.ClassTag
 
@@ -33,7 +34,7 @@ trait RestApiClient:
       body           <- readBody(statusCode, response, req)
       _              <- ZIO.logDebug(s"Body read: $body")
       headers         = response.headers.map(h => h.name -> h.value).toMap
-      _              <- ZIO.logDebug(s"Headers: $headers")
+      _              <- ZIO.logDebug(s"Headers: ${headers.filter{ case k -> _ => k.toLowerCase().startsWith("auth")}}")
       out            <- decodeResponse[ServiceOut](body)
       _              <- ZIO.logDebug(s"Response decoded: $out")
     yield ServiceResponse(out, headers)
@@ -145,8 +146,7 @@ trait RestApiClient:
   extension (request: Request[Either[String, String], Any])
 
     def addToken(token: String): RequestT[Identity, Either[String, String], Any] =
-      val tokenHeader = if token.startsWith("Bearer") then token else s"Bearer $token"
-      request.header("Authorization", tokenHeader)
+      request.header("Authorization", s"Bearer $token")
 
   end extension
 end RestApiClient

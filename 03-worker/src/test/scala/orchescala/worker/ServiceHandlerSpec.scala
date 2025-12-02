@@ -2,6 +2,7 @@ package orchescala.worker
 
 import orchescala.domain.*
 import orchescala.engine.Slf4JLogger
+import orchescala.engine.rest.HttpClientProvider
 import orchescala.worker.WorkerError.ServiceRequestError
 import sttp.client3.*
 import sttp.client3.testing.SttpBackendStub

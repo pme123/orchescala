@@ -21,7 +21,7 @@ object ErrorResponse:
   given ApiSchema[ErrorResponse] = deriveApiSchema
   given InOutCodec[ErrorResponse] = deriveInOutCodec
 
-  def fromEngineError(error: EngineError): ErrorResponse =
+  def fromOrchescalaError(error: OrchescalaError): ErrorResponse =
     ErrorResponse(
       message = error.errorMsg,
       code = Some(error.errorCode.toString)

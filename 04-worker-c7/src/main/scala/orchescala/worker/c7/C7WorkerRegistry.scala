@@ -36,7 +36,7 @@ class C7WorkerRegistry(client: C7WorkerClient)
         .subscribe(worker.topic)
         .handler(worker)
         .open())
-        .tap(_ => logDebug(s"Subscription opened successfully for topic: '${worker.topic}'"))
+        .tap(_ => logInfo(s"Subscription opened successfully for topic: '${worker.topic}'"))
         .tapError(err =>
           logError(s"Failed to open subscription for topic '${worker.topic}': $err")
         )

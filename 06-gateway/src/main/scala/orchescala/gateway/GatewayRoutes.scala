@@ -1,5 +1,7 @@
 package orchescala.gateway
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.interfaces.DecodedJWT
 import io.circe.Json as CirceJson
 import io.circe.syntax.*
 import orchescala.domain.CamundaVariable
@@ -7,6 +9,7 @@ import orchescala.domain.CamundaVariable.*
 import orchescala.engine.AuthContext
 import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
+import orchescala.worker.IdentityCorrelation
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
@@ -14,55 +17,42 @@ import sttp.tapir.ztapir.*
 import zio.*
 import zio.http.*
 
-object GatewayRoutes:
+import scala.jdk.CollectionConverters.*
 
-  /** Creates HTTP routes from the tapir endpoints using the provided services.
-    *
-    * @param processInstanceService
-    *   The service to handle process instance operations
-    * @param userTaskService
-    *   The service to handle user task operations
-    * @param signalService
-    *   The service to handle signal operations
-    * @param messageService
-    *   The service to handle message operations
-    * @param historicVariableService
-    *   The service to handle historic variable operations
-    * @param validateToken
-    *   Function to validate the bearer token. Returns Right(token) if valid, Left(EngineError) if
-    *   invalid.
-    * @return
-    *   ZIO HTTP routes
-    */
+object GatewayRoutes:
+  
   def routes(
       processInstanceService: ProcessInstanceService,
       userTaskService: UserTaskService,
       signalService: SignalService,
       messageService: MessageService,
       historicVariableService: HistoricVariableService,
-      validateToken: String => IO[EngineError, String]
+      config: GatewayConfig
   ): Routes[Any, Response] =
 
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       }.serverLogic:
         validatedToken => // validatedToken is the String token returned from security logic
           (processDefId, businessKeyQuery, tenantIdQuery, request) =>
-            // Set the bearer token in AuthContext so it can be used by the engine services
-            AuthContext.withBearerToken(validatedToken):
-              processInstanceService
-                .startProcessAsync(
-                  processDefId = processDefId,
-                  in = request,
-                  businessKey = businessKeyQuery,
-                  tenantId = tenantIdQuery
-                )
-                .mapError(ErrorResponse.fromEngineError)
+            
+            config.extractCorrelation(validatedToken)
+              .flatMap: identityCorrelation =>
+                // Set the bearer token in AuthContext so it can be used by the engine services
+                AuthContext.withBearerToken(validatedToken):
+                  processInstanceService
+                    .startProcessAsync(
+                      processDefId = processDefId,
+                      in = request.add("identityCorrelation", identityCorrelation.asJson.deepDropNullValues).toJson,
+                      businessKey = businessKeyQuery,
+                      tenantId = tenantIdQuery
+                    )
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
         (processInstanceId, variableFilter) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -77,12 +67,12 @@ object GatewayRoutes:
                 CirceJson.obj(variables.map(v =>
                   v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null)
                 )*)
-              .mapError(ErrorResponse.fromEngineError)
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     // same as getProcessVariablesEndpoint, but with processDefinitionKey as path parameter for API documentation
     val getProcessVariablesEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariablesForApi.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
         (
             processDefinitionKey,
@@ -101,12 +91,12 @@ object GatewayRoutes:
                 CirceJson.obj(variables.map(v =>
                   v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null)
                 )*)
-              .mapError(ErrorResponse.fromEngineError)
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     val getUserTaskVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints
         .getUserTaskVariables.zServerSecurityLogic: token =>
-          validateToken(token).mapError(ErrorResponse.fromEngineError)
+          config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
         .serverLogic: validatedToken =>
           (processInstanceId, taskDefinitionKey, variableFilter, timeoutInSec) =>
             // Set the bearer token in AuthContext so it can be used by the engine services
@@ -118,11 +108,11 @@ object GatewayRoutes:
                   variableFilter,
                   timeoutInSec
                 )
-                .mapError(ErrorResponse.fromEngineError)
+                .mapError(ErrorResponse.fromOrchescalaError)
 
     val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
         (userTaskId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -134,11 +124,11 @@ object GatewayRoutes:
 
             userTaskService
               .complete(userTaskId, camundaVariables)
-              .mapError(ErrorResponse.fromEngineError)
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     val completeUserTaskEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTaskForApi.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
         (taskDefinitionKey, userTaskId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -150,11 +140,11 @@ object GatewayRoutes:
 
             userTaskService
               .complete(userTaskId, camundaVariables)
-              .mapError(ErrorResponse.fromEngineError)
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
         (signalName, tenantId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -170,11 +160,11 @@ object GatewayRoutes:
                 tenantId = tenantId,
                 variables = Some(camundaVariables)
               )
-              .mapError(ErrorResponse.fromEngineError)
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     val sendMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       MessageEndpoints.sendMessage.zServerSecurityLogic: token =>
-        validateToken(token).mapError(ErrorResponse.fromEngineError)
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
         (messageName, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -193,7 +183,7 @@ object GatewayRoutes:
                 processInstanceId = processInstanceId,
                 variables = Some(camundaVariables)
               )
-              .mapError(ErrorResponse.fromEngineError)
+              .mapError(ErrorResponse.fromOrchescalaError)
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(
@@ -208,16 +198,5 @@ object GatewayRoutes:
       )
     )
   end routes
-
-  /** Default token validator - validates that token is not empty and returns the token. Override
-    * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
-    */
-  def defaultTokenValidator(token: String): IO[EngineError, String] =
-    if token.nonEmpty then
-      ZIO.succeed(token)
-    else
-      ZIO.fail(EngineError.UnexpectedError(
-        errorMsg = "Invalid or missing authentication token"
-      ))
-
+  
 end GatewayRoutes

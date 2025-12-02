@@ -33,7 +33,7 @@ trait C8SaasClient extends C8Client:
               .credentialsProvider(credentialsProvider)
               .build
           .mapError: ex =>
-            EngineError.UnexpectedError(s"Problem creating API Client: $ex")
+            EngineError.UnexpectedError(s"Problem creating Engine Client: $ex")
 
   private lazy val credentialsProvider =
     new OAuthCredentialsProviderBuilder()

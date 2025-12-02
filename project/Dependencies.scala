@@ -62,6 +62,9 @@ object Dependencies {
   val nettyVersion          = "4.2.0.Final"
   val swaggerOpenAPIVersion = "2.1.34"
   val testcontainersVersion = "1.20.4"
+  // 06-gateway
+  val oauth2Version = "4.5.0"
+
   // examples
   val h2Version             = "2.3.232"
   val twitter4jVersion      = "4.1.2"
@@ -124,6 +127,7 @@ object Dependencies {
 
   val zioSlf4jDependency = "dev.zio"       %% "zio-logging-slf4j" % zioLoggingVersion
   val logbackDependency  = "ch.qos.logback" % "logback-classic"   % logbackVersion % Runtime
+  val oauth2Dependency   = "com.auth0" % "java-jwt" % oauth2Version
 
   // examples
   val camundaDependencies = Seq(

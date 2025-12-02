@@ -101,30 +101,38 @@ final class SimulationTestRunner(
                 // Add a finalizer to ensure the fiber is interrupted if the scope closes
                 _               <- ZIO.addFinalizer:
                                      fiber.status.flatMap: status =>
-                                       fiber.interrupt.when(!status.isDone)
+                                       ZIO.logInfo(
+                                         s"Interrupting Simulation: $status ${taskDef.fullyQualifiedName()}"
+                                       ) *>
+                                         fiber.interrupt.when(!status.isDone)
                 // Join the fiber to wait for completion
                 logLevelAndTime <- fiber.join
-                _               <- ZIO.logInfo(s"Finished Simulation: $logLevelAndTime ${taskDef.fullyQualifiedName()}")
+                _               <- ZIO.logInfo(
+                                     s"Finished Simulation: $logLevelAndTime ${taskDef.fullyQualifiedName()}"
+                                   )
               yield logLevelAndTime)
-
             .catchAll: ex =>
               ZIO.logError(s"Error running Simulation: ${ex.getMessage}")
                 .as((LogLevel.ERROR, 0L))
-
             .ensuring:
               ZIO.logInfo(
                 s"Simulation for task ${taskDef.fullyQualifiedName()} completed and resources cleaned up"
               )
             .provideLayer(EngineRuntime.logger)
 
-
-  private def runSimulation(taskDef: sbt.testing.TaskDef, sim: SimulationRunner): IO[Throwable, (LogLevel, Long)] =
-    val name = taskDef.fullyQualifiedName().split('.').last
-    val line = "~" * (((maxLine - 5) - name.length) / 2)
+  private def runSimulation(
+      taskDef: sbt.testing.TaskDef,
+      sim: SimulationRunner
+  ): IO[Throwable, (LogLevel, Long)] =
     for
+      name      <- ZIO.attempt(taskDef.fullyQualifiedName().split('.').last)
+      line      <- ZIO.succeed("~" * (((maxLine - 5) - name.length) / 2))
+      _         <- ZIO.logInfo(s"Starting Simulation: $name")
       clock     <- ZIO.clock
       startTime <- clock.currentTime(TimeUnit.MILLISECONDS)
+      _         <- ZIO.logInfo(s"Starting Simulation2: $name")
       results   <- sim.simulation
+      _         <- ZIO.logInfo(s"Finished Simulation: $name")
       endTime   <- clock.currentTime(TimeUnit.MILLISECONDS)
       logLevel   = results.head._1
       _         <- logInfo(

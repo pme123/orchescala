@@ -1,4 +1,4 @@
-package orchescala.worker
+package orchescala.engine.rest
 
 import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import org.asynchttpclient.{AsyncHttpClient, DefaultAsyncHttpClient, DefaultAsyncHttpClientConfig}

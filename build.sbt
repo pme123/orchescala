@@ -82,7 +82,8 @@ lazy val engine = project
   .settings(unitTestSettings)
   .settings(
     autoImportSetting,
-    libraryDependencies ++= Seq(
+    libraryDependencies ++= sttpDependencies ++ Seq(
+      scaffeineDependency,
       zioDependency,
       zioSlf4jDependency
     )
@@ -137,7 +138,7 @@ lazy val worker = project
     projectSettings("worker"),
     unitTestSettings,
     autoImportSetting,
-    libraryDependencies ++= sttpDependencies ++ Seq(
+    libraryDependencies ++= Seq(
       scaffeineDependency,
       logbackDependency
     ) ++ zioTestDependencies
@@ -202,9 +203,8 @@ lazy val gateway = project
   .settings(
     autoImportSetting,
     unitTestSettings,
-    libraryDependencies ++= zioTestDependencies ++ zioHttpDependencies ++ tapirDependencies ++ Seq(
-      scaffeineDependency,
-      logbackDependency
+    libraryDependencies ++= zioTestDependencies ++ zioHttpDependencies ++ Seq(
+      oauth2Dependency
     ),
     // Task to generate OpenAPI specification (run manually with: sbt "project gateway" generateOpenApi)
     generateOpenApi := {

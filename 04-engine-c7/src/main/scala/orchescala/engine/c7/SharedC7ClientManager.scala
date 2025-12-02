@@ -2,6 +2,7 @@ package orchescala.engine.c7
 
 import orchescala.engine.SharedClientManager
 import orchescala.engine.domain.EngineError
+import orchescala.engine.rest.SttpClientBackend
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.*
 

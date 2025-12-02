@@ -2,6 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.WorkerError.*
 import zio.*
 

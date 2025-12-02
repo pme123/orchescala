@@ -1,13 +1,16 @@
 package orchescala.gateway
 
+import com.auth0.jwt.JWT
 import orchescala.engine.*
 import orchescala.engine.c7.{C7Client, C7ProcessEngine, SharedC7ClientManager}
 import orchescala.engine.c8.{C8Client, C8ProcessEngine, SharedC8ClientManager}
 import orchescala.engine.domain.EngineError
 import orchescala.engine.gateway.GProcessEngine
-import orchescala.worker.{WorkerApp, WorkerDsl}
+import orchescala.worker.{IdentityCorrelation, WorkerApp, WorkerDsl}
 import zio.*
 import zio.http.*
+
+import scala.jdk.CollectionConverters.*
 
 /** HTTP Server for the Engine Gateway.
   *
@@ -27,8 +30,8 @@ import zio.http.*
   */
 abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
-  def port: Int = 8888
-
+  def config: GatewayConfig = GatewayConfig.default
+  
   var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
 
   /** Add all the workers you want to support.
@@ -56,7 +59,7 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     val program =
       for
         _ <- ZIO.logInfo(banner("Engine Gateway Server"))
-        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port $port")
+        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.port}")
         _ <- ZIO.logInfo(s"\n${theWorkers.size} supported Workers: \n- ${theWorkers.map(_.topic).mkString("\n- ")}")
 
         // Create gateway engine
@@ -69,24 +72,22 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                          gatewayEngine.signalService,
                          gatewayEngine.messageService,
                          gatewayEngine.historicVariableService,
-                         validateToken
+          config
                        )
-        workerRoutes = WorkerRoutes.routes(theWorkers, validateToken)
+        workerRoutes = WorkerRoutes.routes(theWorkers, config.validateToken)
         docsRoutes   = OpenApiRoutes.routes
         allRoutes    = apiRoutes ++ workerRoutes ++ docsRoutes
 
         // Start server
-        _ <- ZIO.logInfo(s"Server ready at http://localhost:$port")
-        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs")
+        _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.port}")
+        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:${config.port}/docs")
         _ <- Server.serve(allRoutes).forever
       yield ()
 
     program.provide(
-      Server.defaultWithPort(port),
+      Server.defaultWithPort(config.port),
       EngineRuntime.logger
     ).unit
   end start
 
-  protected lazy val validateToken: String => IO[EngineError, String] =
-    GatewayRoutes.defaultTokenValidator
 end GatewayServer

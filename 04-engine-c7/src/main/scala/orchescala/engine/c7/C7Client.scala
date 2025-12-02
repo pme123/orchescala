@@ -2,6 +2,7 @@ package orchescala.engine.c7
 
 import org.camunda.community.rest.client.invoker.ApiClient
 import orchescala.engine.domain.EngineError
+import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
 import zio.*
 
 /** Base trait for C7 clients that provide ApiClient instances */
@@ -44,6 +45,25 @@ trait C7BasicAuthClient extends C7Client:
 
 end C7BasicAuthClient
 
+class C7OAuth2Client(camundaRestUrl: String, oAuthConfig: OAuthConfig.ClientCredentials) extends C7Client:
+  lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
+  
+  lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
+    SharedC7ClientManager.getOrCreateClient:
+      (for
+        _ <- ZIO.logDebug(s"Creating Engine Client: ${oAuthConfig.fssoBaseUrl}")
+        client <- ZIO.attempt(ApiClient())
+        _ <- ZIO.attempt:
+          client.setBasePath(camundaRestUrl)
+        token <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
+        _ <- ZIO.attempt:
+          client.addDefaultHeader("Authorization", s"Bearer $token")
+      yield client)
+        .mapError: ex =>
+          EngineError.UnexpectedError(s"Problem creating Engine Client: $ex")
+        
+  
+      
 /** C7 client with Bearer token authentication (token provided per request) */
 trait C7BearerTokenClient extends C7Client:
 
@@ -84,9 +104,11 @@ object C7Client:
           AuthContext.get.flatMap : authContext =>
             authContext.bearerToken match
               case Some(token) =>
+                ZIO.logDebug(s"Using token from AuthContext: ${token.take(20)}...${token.takeRight(10)}") *>
                 // Use fresh client with token from AuthContext (pass-through authentication)
                 bearerClient.clientWithToken(token)
               case None =>
+                ZIO.logDebug("No token in AuthContext, using default client") *>
                 // No token in context, use default client (may be cached)
                 bearerClient.client.provideEnvironment(env)
 

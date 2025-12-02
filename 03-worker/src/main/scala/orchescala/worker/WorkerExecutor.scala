@@ -4,6 +4,7 @@ package worker
 import orchescala.domain.*
 import orchescala.worker.WorkerError.*
 import io.circe.syntax.*
+import orchescala.engine.rest.SttpClientBackend
 import zio.*
 import zio.ZIO.*
 

@@ -165,7 +165,8 @@ paths:
         description: Request body with process variables as a JSON object
         content:
           application/json:
-            schema: {}
+            schema:
+              $ref: '#/components/schemas/JsonObject'
             example:
               customerName: John Doe
               orderAmount: 1250.50
@@ -885,6 +886,9 @@ components:
           $ref: '#/components/schemas/EngineType'
         resultType:
           $ref: '#/components/schemas/ResultType'
+    JsonObject:
+      title: JsonObject
+      type: object
     MessageCorrelationResult:
       title: MessageCorrelationResult
       oneOf:

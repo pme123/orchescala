@@ -1,6 +1,7 @@
 package orchescala.worker.c7
 
 import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*

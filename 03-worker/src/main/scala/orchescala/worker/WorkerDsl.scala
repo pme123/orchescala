@@ -2,6 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.WorkerError.{RunWorkError, *}
 import zio.{IO, UIO, ZIO}
 
@@ -45,7 +46,11 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[WorkerError, Out] =
     runWorkFromWorker(in)
       .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
-
+      .catchAllDefect: defect =>
+        ZIO.logError(s"DEFECT runWorkFromWorkerUnsafe: ${defect.toString}") *>
+          ZIO.fail(UnexpectedRunError(
+            s"Unexpected error runWorkFromWorkerUnsafe. Defect: ${defect.getMessage}"
+          ))
   protected def regexMatchesAll(
       errorHandled: Boolean,
       error: WorkerError,

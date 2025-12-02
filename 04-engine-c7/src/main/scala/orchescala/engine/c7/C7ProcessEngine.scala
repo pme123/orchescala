@@ -30,8 +30,7 @@ object C7ProcessEngine:
   def withClient(c7Client: C7Client)(using
                                      engineConfig: EngineConfig
   ): ZIO[SharedC7ClientManager, Nothing, C7ProcessEngine] =
-    C7Client.resolveClient(c7Client).map { resolvedClient =>
+    C7Client.resolveClient(c7Client).map : resolvedClient =>
       given IO[EngineError, ApiClient] = resolvedClient
 
       C7ProcessEngine()
-    }

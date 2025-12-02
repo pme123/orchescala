@@ -1,4 +1,4 @@
-package orchescala.worker.oauth
+package orchescala.engine.rest
 
 import com.github.blemale.scaffeine.{Cache, Scaffeine}
 

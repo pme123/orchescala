@@ -3,6 +3,7 @@ package worker
 
 import io.circe
 import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.WorkerError.*
 import sttp.model.{Method, Uri}
 import zio.{IO, ZIO}

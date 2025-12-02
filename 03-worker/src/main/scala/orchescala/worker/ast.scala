@@ -62,6 +62,7 @@ case class InitWorker[
 ) extends Worker[In, Out, InitWorker[In, Out, InitIn]]:
   lazy val topic: String = inOutExample.id
   
+  
   def initProcess(
       init: InitProcessHandler[In]
   ): InitWorker[In, Out, InitIn] =

@@ -19,7 +19,7 @@ case class SimulationConfig(
 ):
 
   def cockpitUrl(processResult: ProcessResult): String = {
-    println(s"cockpitUrl (${processResult.engineType}): $cockpitUrl")
+    println(s"cockpitUrl (${processResult.engineType}): $cockpitUrl${processResult.processInstanceId}")
     cockpitUrl match
       case url: String =>
         url + processResult.processInstanceId

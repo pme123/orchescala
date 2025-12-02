@@ -1,5 +1,6 @@
 package orchescala.simulation
 
+import orchescala.engine.domain.EngineError
 import orchescala.engine.{EngineApp, ProcessEngine}
 import orchescala.simulation.*
 import orchescala.simulation.runner.*
@@ -28,17 +29,27 @@ abstract class SimulationRunner
   var simulation: IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] = uninitialized
 
   protected def run(sim: SSimulation): IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
-    simulation = (for {
+    simulation = runZIO(sim)
+    simulation
+  end run
+
+  private def runZIO(sim: SSimulation)
+  : IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
+    (for
+      _ <- ZIO.logInfo(s"Starting Simulation ....")
       engine <- engineZIO
-      given ProcessEngine    = engine
+        .mapError: err =>
+          SimulationError.EngineError(err.toString)
+      _ <- ZIO.logInfo(s"Engine loaded")
+      given ProcessEngine = engine
       given SimulationConfig = config
       results <- ZIO
-        .foreachPar(sim.scenarios):
-          case scen: ProcessScenario  =>
+        .logInfo(s"Starting Simulation ....") *>
+        ZIO.foreachPar(sim.scenarios):
+          case scen: ProcessScenario =>
             ProcessScenarioRunner(scen).run
           case scen: IncidentScenario => IncidentScenarioRunner(scen).run
-          case scen: BadScenario      => BadScenarioRunner(scen).run
-
+          case scen: BadScenario => BadScenarioRunner(scen).run
         .map: results =>
           results
             .map { (resultData: ScenarioData) =>
@@ -47,14 +58,18 @@ abstract class SimulationRunner
                   .filter(_.logLevel <= config.logLevel)
                   .map(_.toString)
                   .mkString("\n")
-              ScenarioResult(resultData.scenarioName, resultData.logEntries.maxLevel, log)
+              ScenarioResult(
+                resultData.scenarioName,
+                resultData.logEntries.maxLevel,
+                log
+              )
             }
             .groupBy(_.maxLevel)
             .toSeq
             .sortBy(_._1)
-    } yield results).provideLayer(allRequiredLayers)
-    simulation
-  end run
+    yield results).provideLayer(allRequiredLayers)
+  end runZIO
+  
 
 end SimulationRunner
 

@@ -3,6 +3,7 @@ package orchescala.gateway
 import orchescala.domain.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.domain.EngineError.ProcessError
+import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.{AuthContext, Slf4JLogger}
 import orchescala.worker.*
 import sttp.capabilities.WebSockets
@@ -32,7 +33,7 @@ object WorkerRoutes:
 
   def routes(
       supportedWorkers: Set[WorkerDsl[?, ?]],
-      validateToken: String => IO[EngineError, String]
+      validateToken: String => IO[GatewayError, String]
   ): Routes[Any, Response] =
     val workers: Map[String, WorkerDsl[?, ?]] = supportedWorkers
       .map: w =>
@@ -43,7 +44,7 @@ object WorkerRoutes:
       WorkerEndpoints
         .triggerWorker.zServerSecurityLogic: token =>
           validateToken(token)
-            .mapError(ErrorResponse.fromEngineError)
+            .mapError(ErrorResponse.fromOrchescalaError)
         .serverLogic: validatedToken =>
           (topicName, variables) =>
             AuthContext.withBearerToken(validatedToken):
@@ -63,7 +64,7 @@ object WorkerRoutes:
                             ZIO.logDebug(s"Worker '$topicName' response: $r")
                           .provideLayer(HttpClientProvider.live)
                     .mapError: err =>
-                      ErrorResponse.fromEngineError(ProcessError(s"Running Worker failed: $err"))
+                      ErrorResponse.fromOrchescalaError(ProcessError(s"Running Worker failed: $err"))
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(triggerWorkerEndpoint)

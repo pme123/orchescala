@@ -3,6 +3,7 @@ package orchescala.worker
 import io.circe.Decoder.Result
 import orchescala.domain.*
 import orchescala.engine.EngineRuntime
+import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.{BadVariableError, ValidatorError}
 import zio.*

@@ -1,6 +1,6 @@
 package orchescala.worker
 
-import orchescala.BuildInfo
+import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.{EngineRuntime, banner}
 import zio.ZIO.*
 import zio.{Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
