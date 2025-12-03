@@ -5,7 +5,11 @@ import sttp.client3.*
 import sttp.client3.circe.asJson
 import zio.ZIO
 
-class ClientCredentialsFlow(config: OAuthConfig.ClientCredentials) extends OAuth2Flow:
+trait ClientCredentialsFlowable extends OAuth2Flow:
+  def config: OAuthConfig.ClientCredentials
+  def clientCredentialsToken(): ZIO[SttpClientBackend, ServiceError, String]
+
+class ClientCredentialsFlow(val config: OAuthConfig.ClientCredentials) extends ClientCredentialsFlowable:
 
   def clientCredentialsToken(): ZIO[SttpClientBackend, ServiceError, String] =
     ZIO.fromOption(TokenCache.cache.getIfPresent("clientCredentialsToken"))

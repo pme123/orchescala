@@ -6,7 +6,12 @@ import sttp.client3.*
 import sttp.client3.circe.asJson
 import zio.ZIO
 
-class PasswordGrantFlow(config: OAuthConfig.PasswordGrant) extends OAuth2Flow:
+trait PasswordGrantFlowable extends OAuth2Flow:
+  def config: OAuthConfig.PasswordGrant
+  def retrieveTokenSync()(using logger: OrchescalaLogger): Either[ServiceError, String]
+  def retrieveToken(): ZIO[SttpClientBackend, ServiceError, String]
+  
+class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordGrantFlowable:
 
   def retrieveTokenSync()(using logger: OrchescalaLogger): Either[ServiceError, String] =
     TokenCache.cache.getIfPresent(username)
@@ -20,7 +25,7 @@ class PasswordGrantFlow(config: OAuthConfig.PasswordGrant) extends OAuth2Flow:
           .left
           .map(err =>
             ServiceError(
-              s"Could not get a token for '$username'!\n$err\n\n$identityUrl"
+              s"Could not get a token for '$username'!\n$err\n> $identityUrl"
             )
           )
           .map: token =>
@@ -43,7 +48,7 @@ class PasswordGrantFlow(config: OAuthConfig.PasswordGrant) extends OAuth2Flow:
               .flatMap(ZIO.fromEither)
               .mapError(err =>
                 ServiceError(
-                  s"Could not get a token for '$username'!\n$err\n\n$identityUrl"
+                  s"Could not get a token for '$username'!\n$err\n> $identityUrl"
                 )
               )
               .tap: token =>

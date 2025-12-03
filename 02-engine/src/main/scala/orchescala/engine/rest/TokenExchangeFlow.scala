@@ -4,9 +4,13 @@ import orchescala.engine.domain.EngineError.ServiceError
 import sttp.client3.circe.asJson
 import zio.{IO, ZIO}
 
+trait TokenExchangeFlowable extends OAuth2Flow:
+  def clientCredConfig: OAuthConfig.ClientCredentials
+  def retrieveToken(username: String): ZIO[SttpClientBackend, ServiceError, String]
+
 class TokenExchangeFlow(
-    clientCredConfig: OAuthConfig.ClientCredentials
-) extends OAuth2Flow:
+    val clientCredConfig: OAuthConfig.ClientCredentials
+) extends TokenExchangeFlowable:
 
   def retrieveToken(username: String): ZIO[SttpClientBackend, ServiceError, String] =
     clientCredFlow
@@ -19,7 +23,9 @@ class TokenExchangeFlow(
   private def exchangeToken(username: String, clientCredToken: String): IO[ServiceError, String] =
     val config = OAuthConfig.TokenExchange(clientCredConfig)
     val body   = config.asMap(username, clientCredToken)
-    ZIO.logDebug(s"TokenExchangeFlow: Requesting Token for: ${config.toString(username, clientCredToken)}") *>
+    ZIO.logDebug(
+      s"TokenExchangeFlow: Requesting Token for: ${config.toString(username, clientCredToken)}"
+    ) *>
       ZIO.fromEither(
         authResponse(body)
           .body
