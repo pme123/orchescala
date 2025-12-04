@@ -32,6 +32,7 @@ enum InputParams:
   case handledErrors
   case regexHandledErrors
   // authorization
+  case identityCorrelation
   case impersonateUserId
   // special cases
   case topicName
@@ -103,6 +104,8 @@ case class GeneralVariables(
     handledErrors: StringOrSeq = Seq.empty,      // Service only
     regexHandledErrors: StringOrSeq = Seq.empty, // Service only
     // authorization
+    identityCorrelation: Option[IdentityCorrelation] = None,
+    @deprecated("Use `identityCorrelation`")
     impersonateUserId: Option[String] = None
 ):
 
@@ -128,20 +131,21 @@ object GeneralVariables:
   lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables]:
     final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
       for
-        servicesMocked     <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
-        mockedWorkers      <-
+        servicesMocked      <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
+        mockedWorkers       <-
           c.downField("mockedWorkers").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        outputMock         <- c.downField("outputMock").as[Option[Json]]
-        outputServiceMock  <- c.downField("outputServiceMock").as[Option[Json]]
-        manualOutMapping   <-
+        outputMock          <- c.downField("outputMock").as[Option[Json]]
+        outputServiceMock   <- c.downField("outputServiceMock").as[Option[Json]]
+        manualOutMapping    <-
           c.downField("manualOutMapping").as[Option[Boolean]].map(_.getOrElse(false))
-        outputVariables    <-
+        outputVariables     <-
           c.downField("outputVariables").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        handledErrors      <-
+        handledErrors       <-
           c.downField("handledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        regexHandledErrors <-
+        regexHandledErrors  <-
           c.downField("regexHandledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        impersonateUserId  <- c.downField("impersonateUserId").as[Option[String]]
+        identityCorrelation <- c.downField("identityCorrelation").as[Option[IdentityCorrelation]]
+        impersonateUserId   <- c.downField("impersonateUserId").as[Option[String]]
       yield GeneralVariables(
         servicesMocked,
         mockedWorkers,
@@ -151,6 +155,7 @@ object GeneralVariables:
         outputVariables,
         handledErrors,
         regexHandledErrors,
+        identityCorrelation,
         impersonateUserId
       )
 end GeneralVariables

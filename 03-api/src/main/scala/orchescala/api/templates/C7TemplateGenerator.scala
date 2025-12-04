@@ -172,7 +172,8 @@ class C7TemplateGenerator(
     optionalMapping(servicesMocked),
     optionalMapping(mockedWorkers),
     optionalMapping(outputMock),
-    optionalMapping(impersonateUserId)
+    optionalMapping(impersonateUserId),
+    optionalMapping(identityCorrelation)
   )
 
   private def optionalMapping(name: InputParams): InputParamForTempl =

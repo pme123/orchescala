@@ -3,7 +3,7 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
-import orchescala.domain.JsonProperty
+import orchescala.domain.{IdentityCorrelation, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, ProcessInfo}
@@ -20,14 +20,20 @@ class C8ProcessInstanceService(using
 
   def startProcessAsync(
       processDefId: String,
-      in: Json,
+      in: JsonObject,
       businessKey: Option[String],
-      tenantId: Option[String]
+      tenantId: Option[String],
+      identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, ProcessInfo] =
     for
       camundaClient <- camundaClientZIO
+      inVariables      <- ZIO.succeed(
+        if identityCorrelation.isEmpty then in
+        else
+          in.add("identityCorrelation", identityCorrelation.asJson.deepDropNullValues)
+      )
       _             <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      instance      <- callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, in)
+      instance      <- callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, inVariables.asJson)
     yield ProcessInfo(
       processInstanceId = instance.getProcessInstanceKey.toString,
       businessKey = businessKey,

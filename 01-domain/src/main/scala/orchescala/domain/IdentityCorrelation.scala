@@ -1,4 +1,4 @@
-package orchescala.worker
+package orchescala.domain
 
 import orchescala.domain.*
 import sttp.tapir.Schema.annotations.description

@@ -1,5 +1,6 @@
 package orchescala.simulation.runner
 
+import orchescala.domain.IdentityCorrelation
 import orchescala.engine.ProcessEngine
 import orchescala.simulation.*
 import zio.{IO, ZIO}
@@ -12,7 +13,7 @@ class BadScenarioRunner(badScenario: BadScenario)(using
   private lazy val scenarioRunner       = ScenarioRunner(badScenario)
   private lazy val isProcessScenarioRunner = IsProcessScenarioRunner(badScenario)
   private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(badScenario)
-
+  
   def run: IO[SimulationError, ScenarioData] =
     given ScenarioData = ScenarioData(badScenario.scenarioName)
     scenarioRunner.logScenario: (data: ScenarioData) =>
@@ -24,7 +25,8 @@ class BadScenarioRunner(badScenario: BadScenario)(using
             badScenario.process.processName,
             badScenario.process.camundaInBody,
             Some(badScenario.scenarioName),
-            config.tenantId
+            config.tenantId,
+            identityCorrelation = Some(testIdentityCorrelation)
           ).foldZIO (
               err =>
                 if err.errorMsg.contains(badScenario.errorMsg) then

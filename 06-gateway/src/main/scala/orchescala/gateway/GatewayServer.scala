@@ -1,16 +1,9 @@
 package orchescala.gateway
 
-import com.auth0.jwt.JWT
 import orchescala.engine.*
-import orchescala.engine.c7.{C7Client, C7ProcessEngine, SharedC7ClientManager}
-import orchescala.engine.c8.{C8Client, C8ProcessEngine, SharedC8ClientManager}
-import orchescala.engine.domain.EngineError
-import orchescala.engine.gateway.GProcessEngine
-import orchescala.worker.{IdentityCorrelation, WorkerApp, WorkerDsl}
+import orchescala.worker.{WorkerApp, WorkerDsl}
 import zio.*
 import zio.http.*
-
-import scala.jdk.CollectionConverters.*
 
 /** HTTP Server for the Engine Gateway.
   *

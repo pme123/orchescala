@@ -47,6 +47,7 @@ object ProcessVariablesExtractor:
           handledErrors <- extractSeqFromArrayOrString(InputParams.handledErrors, Seq.empty)
           regexHandledErrors <- extractSeqFromArrayOrString(InputParams.regexHandledErrors, Seq.empty)
           // authorization
+          identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams.identityCorrelation)
           impersonateUserIdOpt <- variableOpt[String](InputParams.impersonateUserId)
         yield GeneralVariables(
           servicesMocked = servicesMocked,
@@ -57,6 +58,7 @@ object ProcessVariablesExtractor:
           manualOutMapping = manualOutMapping,
           handledErrors = handledErrors,
           regexHandledErrors = regexHandledErrors,
+          identityCorrelation = identityCorrelationOpt,
           impersonateUserId = impersonateUserIdOpt
         )
   end extractGeneral

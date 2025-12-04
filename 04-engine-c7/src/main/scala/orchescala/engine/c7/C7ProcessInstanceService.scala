@@ -2,7 +2,7 @@ package orchescala.engine
 package c7
 
 import orchescala.domain.CamundaVariable.*
-import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
+import orchescala.domain.{CamundaProperty, CamundaVariable, IdentityCorrelation, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C7
 import orchescala.engine.domain.{EngineError, ProcessInfo}
@@ -22,15 +22,21 @@ class C7ProcessInstanceService(using
 
   override def startProcessAsync(
       processDefId: String,
-      in: Json,
+      in: JsonObject,
       businessKey: Option[String],
-      tenantId: Option[String]
+      tenantId: Option[String],
+      identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, ProcessInfo] =
 
     for
       apiClient        <- apiClientZIO
+      inVariables      <- ZIO.succeed(
+        if identityCorrelation.isEmpty then in
+        else
+          in.add("identityCorrelation", identityCorrelation.asJson.deepDropNullValues)
+      )
       _                <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      processVariables <- C7VariableMapper.toC7Variables(in)
+      processVariables <- C7VariableMapper.toC7Variables(inVariables.asJson)
       _                <- logDebug(s"Starting Process '$processDefId' with variables: $processVariables")
       instance         <-
         callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)

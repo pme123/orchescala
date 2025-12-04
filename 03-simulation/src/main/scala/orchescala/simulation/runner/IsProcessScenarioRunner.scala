@@ -29,7 +29,8 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
           scenario.process.processName,
           scenario.process.camundaInBody,
           Some(scenario.name),
-          config.tenantId
+          config.tenantId,
+          identityCorrelation = Some(testIdentityCorrelation)
         ).mapError: err =>
           SimulationError.ProcessError(
             summon[ScenarioData].error(

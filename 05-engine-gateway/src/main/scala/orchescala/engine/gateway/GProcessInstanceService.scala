@@ -1,7 +1,7 @@
 package orchescala.engine.gateway
 
 import orchescala.domain.CamundaVariable.*
-import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
+import orchescala.domain.{CamundaProperty, CamundaVariable, IdentityCorrelation, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
@@ -19,12 +19,13 @@ class GProcessInstanceService( using
   
   override def startProcessAsync(
       processDefId: String,
-      in: Json,
+      in: JsonObject,
       businessKey: Option[String],
-      tenantId: Option[String]
+      tenantId: Option[String],
+      identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, ProcessInfo] =
     tryServicesWithErrorCollection[ProcessInstanceService, ProcessInfo](
-      _.startProcessAsync(processDefId, in, businessKey, tenantId),
+      _.startProcessAsync(processDefId, in, businessKey, tenantId, identityCorrelation),
       "startProcessAsync",
       cacheUpdateKey = Some((processInfo: ProcessInfo) => processInfo.processInstanceId)
     )

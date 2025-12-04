@@ -142,7 +142,9 @@ sealed trait ProcessOrExternalTask[
   protected def mockedWorkers: Seq[String]
   protected def servicesMocked: Boolean
   protected def outputMock: Option[Out]
+  @deprecated("Use `identityCorrelation`")
   protected def impersonateUserId: Option[String]
+  protected def identityCorrelation: Option[IdentityCorrelation]
 
   override def camundaInMap: Map[String, CamundaVariable] =
     val camundaOutputMock: Map[String, CamundaVariable] = outputMock
@@ -157,20 +159,34 @@ sealed trait ProcessOrExternalTask[
       InputParams.servicesMocked.toString -> CamundaVariable.valueToCamunda(
         servicesMocked
       )
-    val camundaImpersonateUserId = impersonateUserId.toSeq.map { uiId =>
+    val camundaImpersonateUserId                                 = impersonateUserId.toSeq.map { uiId =>
       InputParams.impersonateUserId.toString -> CamundaVariable.valueToCamunda(uiId)
     }.toMap
-    super.camundaInMap ++ camundaImpersonateUserId ++ camundaOutputMock + camundaServicesMocked
+    val camundaIdentityCorrelation: Map[String, CamundaVariable] = identityCorrelation.map { ic =>
+      InputParams.identityCorrelation.toString -> CamundaVariable.valueToCamunda(
+        ic.asJson.deepDropNullValues
+      )
+    }.toMap
+
+    super.camundaInMap ++ camundaImpersonateUserId ++ camundaOutputMock ++ camundaIdentityCorrelation + camundaServicesMocked
   end camundaInMap
 
-  def camundaInBody: Json =
+  def camundaInBody: JsonObject =
     Json.obj(
       (InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null)),
       (InputParams.servicesMocked.toString, servicesMocked.asJson),
       (InputParams.mockedWorkers.toString, mockedWorkers.asJson.deepDropNullValues),
-      (InputParams.impersonateUserId.toString, impersonateUserId.map(_.asJson).getOrElse(Json.Null))
+      (
+        InputParams.impersonateUserId.toString,
+        impersonateUserId.map(_.asJson).getOrElse(Json.Null)
+      ),
+      (
+        InputParams.identityCorrelation.toString,
+        identityCorrelation.map(_.asJson).getOrElse(Json.Null)
+      )
     ).deepMerge(inAsJson)
       .deepDropNullValues
+      .asObject.get // this is safe as it is a JsonObject
   end camundaInBody
 
 end ProcessOrExternalTask
@@ -192,7 +208,8 @@ case class Process[
     protected val servicesMocked: Boolean = false,
     protected val mockedWorkers: Seq[String] = Seq.empty,
     protected val outputMock: Option[Out] = None,
-    protected val impersonateUserId: Option[String] = None
+    protected val impersonateUserId: Option[String] = None,
+    protected val identityCorrelation: Option[IdentityCorrelation] = None
 ) extends ProcessOrExternalTask[In, Out, Process[In, Out, InitIn]]:
   lazy val inOutType: InOutType = InOutType.Bpmn
 
@@ -210,6 +227,9 @@ case class Process[
 
   def withImpersonateUserId(impersonateUserId: String): Process[In, Out, InitIn] =
     copy(impersonateUserId = Some(impersonateUserId))
+
+  def withIdentityCorrelation(identityCorrelation: IdentityCorrelation): Process[In, Out, InitIn] =
+    copy(identityCorrelation = Some(identityCorrelation))
 
   def withStartEventType(startEventType: StartEventType): Process[In, Out, InitIn] =
     copy(startEventType = startEventType)
@@ -333,7 +353,8 @@ case class ServiceTask[
     protected val manualOutMapping: Boolean = false,
     protected val handledErrors: Seq[ErrorCodeType] = Seq.empty,
     protected val regexHandledErrors: Seq[String] = Seq.empty,
-    protected val impersonateUserId: Option[String] = None
+    protected val impersonateUserId: Option[String] = None,
+    protected val identityCorrelation: Option[IdentityCorrelation] = None
 ) extends ExternalTask[In, Out, ServiceTask[In, Out, ServiceIn, ServiceOut]]:
   lazy val dynamicOutMock: Option[In => Out] = None
   @deprecated("Use _topicName_")
@@ -401,6 +422,11 @@ case class ServiceTask[
   ): ServiceTask[In, Out, ServiceIn, ServiceOut] =
     copy(impersonateUserId = Some(impersonateUserId))
 
+  def withIdentityCorrelation(
+      identityCorrelation: IdentityCorrelation
+  ): ServiceTask[In, Out, ServiceIn, ServiceOut] =
+    copy(identityCorrelation = Some(identityCorrelation))
+
   def withEnumInExample(
       enumInExample: In
   ): ServiceTask[In, Out, ServiceIn, ServiceOut] =
@@ -454,6 +480,7 @@ case class CustomTask[
     protected val servicesMocked: Boolean = false,
     protected val manualOutMapping: Boolean = false,
     protected val impersonateUserId: Option[String] = None,
+    protected val identityCorrelation: Option[IdentityCorrelation] = None,
     protected val handledErrors: Seq[ErrorCodeType] = Seq.empty,
     protected val regexHandledErrors: Seq[String] = Seq.empty
 ) extends ExternalTask[In, Out, CustomTask[In, Out]]:
@@ -463,6 +490,11 @@ case class CustomTask[
 
   def withImpersonateUserId(impersonateUserId: String): CustomTask[In, Out] =
     copy(impersonateUserId = Some(impersonateUserId))
+
+  def withIdentityCorrelation(
+      identityCorrelation: IdentityCorrelation
+  ): CustomTask[In, Out] =
+    copy(identityCorrelation = Some(identityCorrelation))
 
   def mockServices: CustomTask[In, Out] =
     copy(servicesMocked = true)

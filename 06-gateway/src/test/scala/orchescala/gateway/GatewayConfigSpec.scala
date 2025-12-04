@@ -8,19 +8,19 @@ import java.util.Base64
 import scala.jdk.CollectionConverters.*
 
 object GatewayConfigSpec extends ZIOSpecDefault:
-  private lazy val config = GatewayConfig()
+  private lazy val config = DefaultGatewayConfig(impersonateProcessKey = Some("customerId"))
 
   def spec = suite("GatewayConfig")(
     suite("defaultTokenValidator")(
       test("should succeed with non-empty token") {
         val token = "valid-token"
         for
-          result <- GatewayConfig.defaultTokenValidator(token)
+          result <- config.validateToken(token)
         yield assertTrue(result == token)
       },
       test("should fail with empty token") {
         for
-          result <- GatewayConfig.defaultTokenValidator("").exit
+          result <- config.validateToken("").exit
         yield assertTrue(result.isFailure)
       }
     ),
@@ -30,9 +30,24 @@ object GatewayConfigSpec extends ZIOSpecDefault:
         val token   = JWT.create()
           .withPayload(payload)
           .sign(Algorithm.none())
-
+        val in = Json.obj("customerId" -> Json.fromLong(123L)).asObject.get
         for
-          result <- config.extractCorrelation(token)
+          result <- config.extractCorrelation(token, in)
+        yield assertTrue(
+          result.username == "user123",
+          result.email.contains("pme@master.ch"),
+          result.secret == "",
+          result.impersonateProcessValue.contains("123")
+        )
+      },
+    test("should extract payload from valid JWT no impersonateProcessKey") {
+        val payload = Map("preferred_username" -> "user123", "email" -> "pme@master.ch").asJava
+        val token   = JWT.create()
+          .withPayload(payload)
+          .sign(Algorithm.none())
+        val in = Json.obj("clientKey" -> Json.fromString("123")).asObject.get
+        for
+          result <- config.extractCorrelation(token, in)
         yield assertTrue(
           result.username == "user123",
           result.email.contains("pme@master.ch"),
@@ -42,7 +57,7 @@ object GatewayConfigSpec extends ZIOSpecDefault:
       },
       test("should fail with invalid JWT") {
         for
-          result <- config.extractCorrelation("invalid-token").exit
+          result <- config.extractCorrelation("invalid-token", Json.obj().asObject.get).exit
         yield assertTrue(result.isFailure)
       }
     )

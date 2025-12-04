@@ -1,23 +1,16 @@
 package orchescala.gateway
 
-import com.auth0.jwt.JWT
-import com.auth0.jwt.interfaces.DecodedJWT
 import io.circe.Json as CirceJson
 import io.circe.syntax.*
-import orchescala.domain.CamundaVariable
-import orchescala.domain.CamundaVariable.*
+import orchescala.domain.{CamundaVariable, IdentityCorrelation}
 import orchescala.engine.AuthContext
-import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
-import orchescala.worker.IdentityCorrelation
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.*
 import zio.http.*
-
-import scala.jdk.CollectionConverters.*
 
 object GatewayRoutes:
   
@@ -35,18 +28,19 @@ object GatewayRoutes:
         config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       }.serverLogic:
         validatedToken => // validatedToken is the String token returned from security logic
-          (processDefId, businessKeyQuery, tenantIdQuery, request) =>
+          (processDefId, businessKeyQuery, tenantIdQuery, in) =>
             
-            config.extractCorrelation(validatedToken)
+            config.extractCorrelation(validatedToken, in)
               .flatMap: identityCorrelation =>
                 // Set the bearer token in AuthContext so it can be used by the engine services
                 AuthContext.withBearerToken(validatedToken):
                   processInstanceService
                     .startProcessAsync(
                       processDefId = processDefId,
-                      in = request.add("identityCorrelation", identityCorrelation.asJson.deepDropNullValues).toJson,
+                      in = in,
                       businessKey = businessKeyQuery,
-                      tenantId = tenantIdQuery
+                      tenantId = tenantIdQuery,
+                      identityCorrelation = Some(identityCorrelation)
                     )
               .mapError(ErrorResponse.fromOrchescalaError)
 

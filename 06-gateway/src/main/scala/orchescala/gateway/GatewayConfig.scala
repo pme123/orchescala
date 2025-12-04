@@ -1,25 +1,30 @@
 package orchescala.gateway
 
 import com.auth0.jwt.JWT
-import orchescala.worker.IdentityCorrelation
+import orchescala.domain.*
 import zio.{IO, ZIO}
+
 import scala.jdk.CollectionConverters.*
 
-case class GatewayConfig(
-    port: Int = 8888,
-    impersonateProcessKey: Option[String] = None,
-    validateToken: String => IO[GatewayError, String] = GatewayConfig.defaultTokenValidator,
-    extractCorrelation: String => IO[GatewayError, IdentityCorrelation] =
-      GatewayConfig.defaultExtractCorrelation
-)
+trait GatewayConfig:
+  def port: Int
+  def impersonateProcessKey: Option[String]
+  def validateToken(token: String): IO[GatewayError, String]
+  def extractCorrelation(
+      token: String,
+      in: JsonObject,
+  ): IO[GatewayError, IdentityCorrelation]
+end GatewayConfig
 
-object GatewayConfig:
-  def default = GatewayConfig()
+case class DefaultGatewayConfig(
+    port: Int = 8888,
+    impersonateProcessKey: Option[String] = None
+) extends GatewayConfig:
 
   /** Default token validator - validates that token is not empty and returns the token. Override
     * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
     */
-  def defaultTokenValidator(token: String): IO[GatewayError, String] =
+  def validateToken(token: String): IO[GatewayError, String] =
     if token.nonEmpty then
       ZIO.succeed(token)
     else
@@ -27,7 +32,10 @@ object GatewayConfig:
         errorMsg = "Invalid or missing authentication token"
       ))
 
-  def defaultExtractCorrelation(token: String) =
+  def extractCorrelation(
+      token: String,
+      in: JsonObject,
+  ): ZIO[Any, GatewayError.TokenExtractionError, IdentityCorrelation] =
     (for
       decoded <- ZIO.attempt(JWT.decode(token))
       claims  <- ZIO.attempt(decoded.getClaims.asScala)
@@ -38,12 +46,20 @@ object GatewayConfig:
       username = claims.get("preferred_username").map(_.asString()).mkString,
       secret = claims.get("secret").map(_.asString()).mkString,
       email = claims.get("email").map(_.asString()),
-      impersonateProcessValue = None
+      impersonateProcessValue = impersonateProcessKey
+        .flatMap(in.toMap.get)
+        .flatMap: v =>
+          v.asString
+            .orElse(v.asNumber.map(_.toString))
     ))
       .mapError(ex =>
         GatewayError.TokenExtractionError(
           s"Problem extracting correlation from Token: ${ex.getMessage}"
         )
       )
+end DefaultGatewayConfig
+
+object GatewayConfig:
+  def default = DefaultGatewayConfig()
 
 end GatewayConfig
