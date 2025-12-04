@@ -36,7 +36,7 @@ object GatewayConfigSpec extends ZIOSpecDefault:
         yield assertTrue(
           result.username == "user123",
           result.email.contains("pme@master.ch"),
-          result.secret == "",
+          result.secret.isEmpty,
           result.impersonateProcessValue.contains("123")
         )
       },
@@ -51,7 +51,7 @@ object GatewayConfigSpec extends ZIOSpecDefault:
         yield assertTrue(
           result.username == "user123",
           result.email.contains("pme@master.ch"),
-          result.secret == "",
+          result.secret.isEmpty,
           result.impersonateProcessValue.isEmpty
         )
       },

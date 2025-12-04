@@ -44,7 +44,7 @@ case class DefaultGatewayConfig(
       _       <- ZIO.logInfo(s"Claims: ${claims}")
     yield IdentityCorrelation(
       username = claims.get("preferred_username").map(_.asString()).mkString,
-      secret = claims.get("secret").map(_.asString()).mkString,
+      secret = claims.get("secret").map(_.asString()),
       email = claims.get("email").map(_.asString()),
       impersonateProcessValue = impersonateProcessKey
         .flatMap(in.toMap.get)
