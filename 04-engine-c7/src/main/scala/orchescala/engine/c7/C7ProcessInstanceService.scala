@@ -119,25 +119,4 @@ class C7ProcessInstanceService(using
           p._2.getValue != null &&
             variableFilter.toSeq.flatten.contains(p._1)
 
-  private def toVariableValue(valueDto: VariableValueDto): IO[EngineError, CamundaVariable] =
-    val value = valueDto.getValue
-    if value == null then ZIO.succeed(CNull)
-    else
-      (valueDto.getType.toLowerCase match
-        case "null"            => ZIO.succeed(CNull)
-        case "string"          => ZIO.attempt(CString(value.toString))
-        case "integer" | "int" => ZIO.attempt(CInteger(value.toString.toInt))
-        case "long"            => ZIO.attempt(CLong(value.toString.toLong))
-        case "double"          => ZIO.attempt(CDouble(value.toString.toDouble))
-        case "boolean"         => ZIO.attempt(CBoolean(value.toString.toBoolean))
-        case "json"            => ZIO.attempt(CJson(value.toString))
-        case "file"            => ZIO.attempt(CFile(value.toString, CFileValueInfo("not_set", None)))
-        case _                 => ZIO.attempt(CString(value.toString))
-      ).mapError: err =>
-        EngineError.ProcessError(
-          s"Problem converting VariableDto '${valueDto.getType} -> $value: $err"
-        )
-    end if
-  end toVariableValue
-
 end C7ProcessInstanceService

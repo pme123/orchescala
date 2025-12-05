@@ -131,21 +131,21 @@ object GeneralVariables:
   lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables]:
     final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
       for
-        servicesMocked      <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
+        servicesMocked      <- c.downField(InputParams.servicesMocked.toString).as[Option[Boolean]].map(_.getOrElse(false))
         mockedWorkers       <-
-          c.downField("mockedWorkers").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        outputMock          <- c.downField("outputMock").as[Option[Json]]
-        outputServiceMock   <- c.downField("outputServiceMock").as[Option[Json]]
+          c.downField(InputParams.mockedWorkers.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        outputMock          <- c.downField(InputParams.outputMock.toString).as[Option[Json]]
+        outputServiceMock   <- c.downField(InputParams.outputServiceMock.toString).as[Option[Json]]
         manualOutMapping    <-
-          c.downField("manualOutMapping").as[Option[Boolean]].map(_.getOrElse(false))
+          c.downField(InputParams.manualOutMapping.toString).as[Option[Boolean]].map(_.getOrElse(false))
         outputVariables     <-
-          c.downField("outputVariables").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+          c.downField(InputParams.outputVariables.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
         handledErrors       <-
-          c.downField("handledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+          c.downField(InputParams.handledErrors.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
         regexHandledErrors  <-
-          c.downField("regexHandledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        identityCorrelation <- c.downField("identityCorrelation").as[Option[IdentityCorrelation]]
-        impersonateUserId   <- c.downField("impersonateUserId").as[Option[String]]
+          c.downField(InputParams.regexHandledErrors.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
+        identityCorrelation <- c.downField(InputParams.identityCorrelation.toString).as[Option[IdentityCorrelation]]
+        impersonateUserId   <- c.downField(InputParams.impersonateUserId.toString).as[Option[String]]
       yield GeneralVariables(
         servicesMocked,
         mockedWorkers,

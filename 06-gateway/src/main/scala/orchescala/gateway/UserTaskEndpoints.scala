@@ -56,7 +56,7 @@ object UserTaskEndpoints:
     "approverComment": "Order approved - customer has good credit rating",
     "approvalDate": "2025-10-26T14:30:00Z",
     "nextStep": "shipping"
-  }""").getOrElse(io.circe.Json.Null)
+  }""").map(_.asObject.get).getOrElse(JsonObject())
 
   val getUserTaskVariables: Endpoint[String, (String, String, Option[String], Option[Int]), ErrorResponse, (String, Json), Any] =
     securedBaseEndpoint
@@ -92,7 +92,7 @@ object UserTaskEndpoints:
       )
       .tag("User Task")
 
-  val completeUserTask: Endpoint[String, (String, Json), ErrorResponse, Unit, Any] =
+  val completeUserTask: Endpoint[String, (String, JsonObject), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post
       .in("userTask")
@@ -100,7 +100,7 @@ object UserTaskEndpoints:
         .description("User task instance ID (obtained from getUserTaskVariables)")
         .example("{{userTaskInstanceId}}"))
       .in("complete")
-      .in(jsonBody[Json]
+      .in(jsonBody[JsonObject]
         .description("Variables to set when completing the task as a JSON object")
         .example(completeUserTaskRequestExample))
       .out(statusCode(StatusCode.NoContent))
@@ -112,7 +112,7 @@ object UserTaskEndpoints:
       )
       .tag("User Task")
 
-  val completeUserTaskForApi: Endpoint[String, (String, String, Json), ErrorResponse, Unit, Any] =
+  val completeUserTaskForApi: Endpoint[String, (String, String, JsonObject), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post
       .in("userTask")
@@ -127,7 +127,7 @@ object UserTaskEndpoints:
         .description("User task instance ID (obtained from getUserTaskVariables)")
         .example("{{userTaskInstanceId}}"))
       .in("complete")
-      .in(jsonBody[Json]
+      .in(jsonBody[JsonObject]
         .description("Variables to set when completing the task as a JSON object")
         .example(completeUserTaskRequestExample))
       .out(statusCode(StatusCode.NoContent))

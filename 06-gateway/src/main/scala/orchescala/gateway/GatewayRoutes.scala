@@ -2,7 +2,7 @@ package orchescala.gateway
 
 import io.circe.Json as CirceJson
 import io.circe.syntax.*
-import orchescala.domain.{CamundaVariable, IdentityCorrelation}
+import orchescala.domain.{CamundaVariable, GeneralVariables, IdentityCorrelation, InputParams}
 import orchescala.engine.AuthContext
 import orchescala.engine.services.*
 import sttp.capabilities.WebSockets
@@ -104,37 +104,29 @@ object GatewayRoutes:
                 )
                 .mapError(ErrorResponse.fromOrchescalaError)
 
+    def completeTask(validatedToken: String, userTaskId: String, in: JsonObject) =
+      config
+        .extractCorrelation(validatedToken, in)
+        .flatMap: identityCorrelation =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            userTaskService
+              .complete(userTaskId, in, Some(identityCorrelation))
+        .mapError(ErrorResponse.fromOrchescalaError)
+
     val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
         config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
-        (userTaskId, variables) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            // Convert JSON to Map[String, CamundaVariable]
-            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
-              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _            => Map.empty[String, CamundaVariable]
-
-            userTaskService
-              .complete(userTaskId, camundaVariables)
-              .mapError(ErrorResponse.fromOrchescalaError)
+        (userTaskId, in) =>
+          completeTask(validatedToken, userTaskId, in)
 
     val completeUserTaskEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       UserTaskEndpoints.completeUserTaskForApi.zServerSecurityLogic: token =>
         config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
       .serverLogic: validatedToken =>
-        (taskDefinitionKey, userTaskId, variables) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            // Convert JSON to Map[String, CamundaVariable]
-            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
-              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _            => Map.empty[String, CamundaVariable]
-
-            userTaskService
-              .complete(userTaskId, camundaVariables)
-              .mapError(ErrorResponse.fromOrchescalaError)
+        (_, userTaskId, variables) => // taskDefinitionKey is not used - just for API documentation
+          completeTask(validatedToken, userTaskId, variables)
 
     val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
@@ -191,6 +183,9 @@ object GatewayRoutes:
         sendMessageEndpoint
       )
     )
+
+
   end routes
-  
+
+
 end GatewayRoutes

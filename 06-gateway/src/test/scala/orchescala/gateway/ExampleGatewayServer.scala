@@ -41,7 +41,8 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
 
   /** Example Gateway configuration */
   given EngineConfig = EngineConfig(
-    tenantId = None  // Set to Some("your-tenant") if needed
+    tenantId = None,  // Set to Some("your-tenant") if needed
+    impersonateProcessKey = None
   )
   
   override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =

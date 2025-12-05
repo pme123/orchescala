@@ -6,7 +6,7 @@ import io.camunda.client.api.search.response.Variable
 import orchescala.engine.domain.EngineError
 
 import java.time.OffsetDateTime
-import orchescala.domain.{CamundaVariable, Json, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, Json, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.UserTask
 import orchescala.engine.services.UserTaskService
@@ -52,7 +52,11 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
             )
     yield userTask
 
-  def complete(taskId: String, out: Map[String, CamundaVariable]): IO[EngineError, Unit] =
+  def complete(
+                taskId: String,
+                processVariables: JsonObject,
+                identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Unit] =
     for
       camundaClient <- camundaClientZIO
       taskKey       <-
@@ -60,12 +64,17 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
           EngineError.ProcessError(
             s"Problem completingUserTask converting taskId '$taskId' to Long: $err"
           )
+      variableMap  <- CamundaVariable.jsonToCamundaValue(processVariables.toJson) match
+        case m: Map[?, ?] =>
+          ZIO.succeed(m.asInstanceOf[Map[String, CamundaVariable]])
+        case other        =>
+          ZIO.fail(EngineError.MappingError(s"Expected a Map, but got $other"))    
       userTaskDtos  <-
         ZIO
           .attempt:
             camundaClient
               .newCompleteUserTaskCommand(taskKey)
-              .variables(mapToC8Variables(Some(out)))
+              .variables(mapToC8Variables(Some(variableMap)))
               .send()
               .join()
           .mapError: err =>

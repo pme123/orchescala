@@ -1,6 +1,6 @@
 package orchescala.engine.services
 
-import orchescala.domain.{CamundaVariable, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, JsonProperty}
 import orchescala.engine.domain.*
 import sttp.tapir.Schema.annotations.description
 import zio.{IO, ZIO}
@@ -21,7 +21,11 @@ trait UserTaskService extends EngineService:
       userTaskDefId: String
   ): IO[EngineError, Option[UserTask]]
 
-  def complete(taskId: String, out: Map[String, CamundaVariable]): IO[EngineError, Unit]
+  def complete(
+                taskId: String,
+                processVariables: JsonObject,
+                identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Unit]
 
   @description(
     """

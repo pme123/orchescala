@@ -2,12 +2,12 @@ package orchescala.engine
 package c7
 
 import orchescala.domain.CamundaVariable.CNull
-import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder, Json, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineError.MappingError
 import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
-import org.camunda.community.rest.client.api.{ProcessInstanceApi, TaskApi}
+import org.camunda.community.rest.client.api.TaskApi
 import org.camunda.community.rest.client.dto.{
   CompleteTaskDto,
   TaskWithAttachmentAndCommentDto,
@@ -16,12 +16,14 @@ import org.camunda.community.rest.client.dto.{
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
-import io.circe.parser
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
 
-class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(using apiClientZIO: IO[EngineError, ApiClient], engineConfig: EngineConfig)
-    extends UserTaskService, C7Service:
+class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(using
+    apiClientZIO: IO[EngineError, ApiClient],
+    engineConfig: EngineConfig
+) extends UserTaskService, C7Service:
 
   def getUserTask(
       processInstanceId: String,
@@ -143,11 +145,34 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
       _         <- logDebug(s"TaskDtos found: $taskDtos")
     yield mapToUserTasks(taskDtos)
 
-  def complete(taskId: String, variables: Map[String, CamundaVariable]): IO[EngineError, Unit] =
+  def complete(
+      taskId: String,
+      processVariables: JsonObject,
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Unit] =
     for
-      apiClient    <- apiClientZIO
-      _            <- logDebug(s"Completing UserTask: $taskId - $variables")
-      variableDtos <- toC7Variables(variables)
+      apiClient   <- apiClientZIO
+      inVariables <-
+        identityCorrelation match
+          case None     => ZIO.succeed(processVariables)
+          case Some(ic) =>
+            ZIO.succeed:
+              processVariables.add(
+                "identityCorrelation",
+                identityCorrelation.asJson.deepDropNullValues
+              )
+
+      _            <- logDebug(s"Completing UserTask: $taskId - $inVariables")
+      corr         <- getOrUpdateCorrelation(taskId, identityCorrelation)
+      variableMap  <- CamundaVariable.jsonToCamundaValue(inVariables.add(
+                        InputParams.identityCorrelation.toString,
+                        corr.asJson.deepDropNullValues
+                      ).toJson) match
+                        case m: Map[?, ?] =>
+                          ZIO.succeed(m.asInstanceOf[Map[String, CamundaVariable]])
+                        case other        =>
+                          ZIO.fail(EngineError.MappingError(s"Expected a Map, but got $other"))
+      variableDtos <- toC7Variables(variableMap)
       _            <- ZIO
                         .attempt:
                           new TaskApi(apiClient)
@@ -198,7 +223,70 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
         MappingError(
           s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: $err"
         )
-  
 
+  private def getOrUpdateCorrelation(
+      taskId: String,
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Option[IdentityCorrelation]] =
+    for
+      apiClient                        <- apiClientZIO
+      variables                        <-
+        ZIO
+          .attempt:
+            new TaskApi(apiClient)
+              .getFormVariables(
+                taskId,
+                s"identityCorrelation,doOverrideImpersonation,$impersonateProcessKeyLabel",
+                false
+              ).asScala
+          .mapError: err =>
+            EngineError.ProcessError(s"Problem getting form variables: $err")
+
+      doOverrideImpersonation <- checkOverride(variables)
+      impersonateProcessValue  <- impersonateProcessValue(variables)
+      idCorrelation                    <-
+        if doOverrideImpersonation then {
+          // impersonateProcessValue is not set in the identityCorrelation, but maybe in the existing Correlation
+          ZIO.succeed(identityCorrelation.map(_.copy(impersonateProcessValue = impersonateProcessValue)))
+        } else
+          variables
+            .get(InputParams.identityCorrelation.toString)
+            .map: dto =>
+              toVariableValue(dto)
+                .map: v =>
+                  val json = v.toJson
+                  Some(
+                    IdentityCorrelation(
+                      username =
+                        json.hcursor.downField("username").as[String].getOrElse("BAD_USERNAME"),
+                      secret = json.hcursor.downField("secret").as[Option[String]].getOrElse(None),
+                      email = json.hcursor.downField("email").as[Option[String]].getOrElse(None),
+                      impersonateProcessValue = json.hcursor.downField(
+                        "impersonateProcessValue"
+                      ).as[Option[String]].getOrElse(None)
+                    )
+                  )
+            .getOrElse(ZIO.none)
+    yield idCorrelation
+
+  private def checkOverride(variables: mutable.Map[String, VariableValueDto])
+      : ZIO[Any, Nothing, Boolean] =
+    ZIO
+      .attempt:
+        variables.get("doOverrideImpersonation").forall(v => Boolean.unbox(v.getValue))
+      .catchAll: err =>
+        ZIO.logError(s"Problem getting doOverrideImpersonation: $err")
+          .as(true)
+
+  private def impersonateProcessValue(variables: mutable.Map[String, VariableValueDto])
+      : ZIO[Any, Nothing, Option[String]] =
+    ZIO
+      .attempt:
+        variables.get(impersonateProcessKeyLabel).map(v => String.valueOf(v.getValue))
+      .catchAll: err =>
+        ZIO.logError(s"Problem getting impersonateProcessValue: $err")
+          .as(None)
+
+  private lazy val impersonateProcessKeyLabel = engineConfig.impersonateProcessKey.getOrElse("NONE")
 
 end C7UserTaskService

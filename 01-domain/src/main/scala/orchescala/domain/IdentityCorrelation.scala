@@ -11,7 +11,10 @@ case class IdentityCorrelation(
     secret: Option[String] = None,
     @description("The email of the user that started or interacted with the process")
     email: Option[String] = None,
-    @description("An optional value that you need to verify the identity. E.g. the id of the customer.")
+    @description(
+      """An optional value that you need to verify the identity.
+        |E.g. the id of the customer.
+        |Be aware that the value needs to be in the input body of starting the process or completing a user task.""".stripMargin)
     impersonateProcessValue: Option[String] = None
 ):
 
