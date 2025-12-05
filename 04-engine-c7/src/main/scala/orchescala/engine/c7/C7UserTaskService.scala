@@ -151,39 +151,44 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Unit] =
     for
-      apiClient   <- apiClientZIO
-      inVariables <-
-        identityCorrelation match
-          case None     => ZIO.succeed(processVariables)
-          case Some(ic) =>
-            ZIO.succeed:
-              processVariables.add(
-                "identityCorrelation",
-                identityCorrelation.asJson.deepDropNullValues
-              )
+      apiClient        <- apiClientZIO
+      _                <- logDebug(s"Completing UserTask: $taskId")
 
-      _            <- logDebug(s"Completing UserTask: $taskId - $inVariables")
-      corr         <- getOrUpdateCorrelation(taskId, identityCorrelation)
-      variableMap  <- CamundaVariable.jsonToCamundaValue(inVariables.add(
-                        InputParams.identityCorrelation.toString,
-                        corr.asJson.deepDropNullValues
-                      ).toJson) match
-                        case m: Map[?, ?] =>
-                          ZIO.succeed(m.asInstanceOf[Map[String, CamundaVariable]])
-                        case other        =>
-                          ZIO.fail(EngineError.MappingError(s"Expected a Map, but got $other"))
-      variableDtos <- toC7Variables(variableMap)
-      _            <- ZIO
-                        .attempt:
-                          new TaskApi(apiClient)
-                            .complete(
-                              taskId,
-                              new CompleteTaskDto()
-                                .variables(variableDtos.asJava)
+      // Get existing correlation from process or use provided one
+      existingCorr     <- getOrUpdateCorrelation(taskId, identityCorrelation)
+
+      // Get processInstanceId from task
+      processInstanceId <- getProcessInstanceIdFromTask(taskId)
+
+      // Sign the correlation with processInstanceId if provided
+      signedCorr       <- existingCorr match
+                            case Some(corr) => signCorrelation(corr, processInstanceId)
+                            case None       => ZIO.succeed(None)
+
+      // Build variables with signed correlation
+      variableMap      <- CamundaVariable.jsonToCamundaValue(
+                            processVariables.add(
+                              InputParams.identityCorrelation.toString,
+                              signedCorr.asJson.deepDropNullValues
+                            ).toJson
+                          ) match
+                            case m: Map[?, ?] =>
+                              ZIO.succeed(m.asInstanceOf[Map[String, CamundaVariable]])
+                            case other        =>
+                              ZIO.fail(EngineError.MappingError(s"Expected a Map, but got $other"))
+
+      variableDtos     <- toC7Variables(variableMap)
+      _                <- ZIO
+                            .attempt:
+                              new TaskApi(apiClient)
+                                .complete(
+                                  taskId,
+                                  new CompleteTaskDto()
+                                    .variables(variableDtos.asJava)
+                                )
+                            .mapError(err =>
+                              EngineError.ProcessError(s"Problem completing task: $err")
                             )
-                        .mapError(err =>
-                          EngineError.ProcessError(s"Problem completing task: $err")
-                        )
     yield ()
 
   private def mapToUserTasks(taskDtos: java.util.List[TaskWithAttachmentAndCommentDto])
@@ -259,11 +264,13 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
                     IdentityCorrelation(
                       username =
                         json.hcursor.downField("username").as[String].getOrElse("BAD_USERNAME"),
-                      secret = json.hcursor.downField("secret").as[Option[String]].getOrElse(None),
                       email = json.hcursor.downField("email").as[Option[String]].getOrElse(None),
                       impersonateProcessValue = json.hcursor.downField(
                         "impersonateProcessValue"
-                      ).as[Option[String]].getOrElse(None)
+                      ).as[Option[String]].getOrElse(None),
+                      issuedAt = json.hcursor.downField("issuedAt").as[Long].getOrElse(System.currentTimeMillis()),
+                      processInstanceId = json.hcursor.downField("processInstanceId").as[Option[String]].getOrElse(None),
+                      signature = json.hcursor.downField("signature").as[Option[String]].getOrElse(None)
                     )
                   )
             .getOrElse(ZIO.none)
@@ -288,5 +295,41 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
           .as(None)
 
   private lazy val impersonateProcessKeyLabel = engineConfig.impersonateProcessKey.getOrElse("NONE")
+
+  private def getProcessInstanceIdFromTask(taskId: String): IO[EngineError, String] =
+    for
+      apiClient <- apiClientZIO
+      task      <- ZIO
+                     .attempt:
+                       new TaskApi(apiClient).getTask(taskId)
+                     .mapError(err =>
+                       EngineError.ProcessError(s"Problem getting task: $err")
+                     )
+      processInstanceId <- ZIO
+                             .fromOption(Option(task.getProcessInstanceId))
+                             .mapError(_ =>
+                               EngineError.ProcessError(s"Task $taskId has no processInstanceId")
+                             )
+    yield processInstanceId
+
+  private def signCorrelation(
+      correlation: IdentityCorrelation,
+      processInstanceId: String
+  ): IO[EngineError, Option[IdentityCorrelation]] =
+    engineConfig.identitySigningKey match
+      case Some(key) =>
+        ZIO.succeed:
+          Some(
+            orchescala.domain.IdentityCorrelationSigner.sign(
+              correlation.copy(processInstanceId = Some(processInstanceId)),
+              processInstanceId,
+              key
+            )
+          )
+      case None      =>
+        ZIO.logWarning(
+          "No identity signing key configured - correlation will not be signed"
+        ) *>
+          ZIO.succeed(Some(correlation.copy(processInstanceId = Some(processInstanceId))))
 
 end C7UserTaskService

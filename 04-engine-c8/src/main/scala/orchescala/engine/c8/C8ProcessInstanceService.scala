@@ -3,12 +3,12 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
-import orchescala.domain.{IdentityCorrelation, JsonProperty}
+import orchescala.domain.{IdentityCorrelation, IdentityCorrelationSigner, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
-import zio.ZIO.{logDebug, logInfo}
+import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
@@ -25,21 +25,114 @@ class C8ProcessInstanceService(using
       tenantId: Option[String],
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, ProcessInfo] =
+    identityCorrelation match
+      case None =>
+        // No identity correlation - start process normally
+        startProcessWithoutCorrelation(processDefId, in, businessKey, tenantId)
+
+      case Some(correlation) =>
+        // Two-step flow: start process, then set signed correlation
+        startProcessWithSignedCorrelation(processDefId, in, businessKey, tenantId, correlation)
+  end startProcessAsync
+
+  /**
+   * Start process without identity correlation (simple flow)
+   */
+  private def startProcessWithoutCorrelation(
+      processDefId: String,
+      in: JsonObject,
+      businessKey: Option[String],
+      tenantId: Option[String]
+  ): IO[EngineError, ProcessInfo] =
     for
       camundaClient <- camundaClientZIO
-      inVariables      <- ZIO.succeed(
-        if identityCorrelation.isEmpty then in
-        else
-          in.add("identityCorrelation", identityCorrelation.asJson.deepDropNullValues)
-      )
       _             <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      instance      <- callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, inVariables.asJson)
+      instance      <- callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, in.asJson)
     yield ProcessInfo(
       processInstanceId = instance.getProcessInstanceKey.toString,
       businessKey = businessKey,
       status = ProcessInfo.ProcessStatus.Active,
       engineType = C8
     )
+  end startProcessWithoutCorrelation
+
+  /**
+   * Start process with signed identity correlation (two-step flow)
+   * Step 1: Start process without correlation
+   * Step 2: Sign correlation with processInstanceId and set as variable
+   */
+  private def startProcessWithSignedCorrelation(
+      processDefId: String,
+      in: JsonObject,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      correlation: IdentityCorrelation
+  ): IO[EngineError, ProcessInfo] =
+    for
+      camundaClient <- camundaClientZIO
+
+      // Step 1: Start process WITHOUT correlation
+      _                 <- logDebug(s"Starting Process '$processDefId' (will sign correlation after)")
+      instance          <- callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, in.asJson)
+      processInstanceId = instance.getProcessInstanceKey.toString
+
+      // Step 2: Sign correlation with processInstanceId
+      signedCorrelation <- signCorrelation(correlation, processInstanceId)
+
+      // Step 3: Set signed correlation as process variable
+      _ <- setCorrelationVariable(camundaClient, processInstanceId, signedCorrelation)
+      _ <- logInfo(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
+
+    yield ProcessInfo(
+      processInstanceId = processInstanceId,
+      businessKey = businessKey,
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = C8
+    )
+  end startProcessWithSignedCorrelation
+
+  /**
+   * Sign the identity correlation with the process instance ID
+   */
+  private def signCorrelation(
+      correlation: IdentityCorrelation,
+      processInstanceId: String
+  ): IO[EngineError, IdentityCorrelation] =
+    engineConfig.identitySigningKey match
+      case None =>
+        logWarning("No identitySigningKey configured - correlation will not be signed!").as(
+          correlation.copy(processInstanceId = Some(processInstanceId))
+        )
+      case Some(secretKey) =>
+        ZIO.succeed(
+          IdentityCorrelationSigner.sign(correlation, processInstanceId, secretKey)
+        )
+  end signCorrelation
+
+  /**
+   * Set the signed correlation as a process variable using Camunda C8 client
+   */
+  private def setCorrelationVariable(
+      camundaClient: CamundaClient,
+      processInstanceId: String,
+      signedCorrelation: IdentityCorrelation
+  ): IO[EngineError, Unit] =
+    for
+      correlationJson <- ZIO.succeed(signedCorrelation.asJson.deepDropNullValues)
+      variablesMap    <- ZIO.succeed(jsonToVariablesMap(Json.obj("identityCorrelation" -> correlationJson)))
+      _               <- ZIO
+        .attempt:
+          camundaClient
+            .newSetVariablesCommand(processInstanceId.toLong)
+            .variables(variablesMap.asJava)
+            .send()
+            .join()
+        .mapError: err =>
+          EngineError.ProcessError(
+            s"Problem setting identityCorrelation variable for process '$processInstanceId': $err"
+          )
+    yield ()
+  end setCorrelationVariable
 
   private def callStartProcessAsync(
       processDefId: String,
