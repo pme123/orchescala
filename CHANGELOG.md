@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.31 - 2025-12-06
+### Changed 
+- Added ProcessInstanceEndpoints.startProcessByMessage. - see [Commit](git@github.com:pme123/orchescala/commit/33f3150f76f2d7c5ce6100f5ce23f6a57ab73cb6)
+
 ## 0.2.30 - 2025-12-06
 ### Changed 
 - Added EngineConfig to EngineContext to verify signature in ServiceHandler only. - see [Commit](git@github.com:pme123/orchescala/commit/aa95a2f50d8a85ca4b2aae2141b5db5b613df5e2)
