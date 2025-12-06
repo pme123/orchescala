@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.30 - 2025-12-06
+### Changed 
+- Added EngineConfig to EngineContext to verify signature in ServiceHandler only. - see [Commit](git@github.com:pme123/orchescala/commit/aa95a2f50d8a85ca4b2aae2141b5db5b613df5e2)
+- Added IdentityCorrelation signing. - see [Commit](git@github.com:pme123/orchescala/commit/0ff561089e59c642c8fa62445042a6130236f937)
+- Added IdentityCorrelation to UserTask Complete. - see [Commit](git@github.com:pme123/orchescala/commit/c89654cb0ab1616805a240de09a109032b4a36df)
+- Made it compatible with old solution. - see [Commit](git@github.com:pme123/orchescala/commit/401ed0e2155cf6d56afc3c3a05358b282a148394)
+- Added IdentityCorrelation to the Gateway start process. - see [Commit](git@github.com:pme123/orchescala/commit/1486b9a6bdfc207ec88d06d87319a42d6ee79e4f)
+- Added traits for OAuth2 flows for testability. - see [Commit](git@github.com:pme123/orchescala/commit/047954750df5803be8afbeae451ba351ba07176e)
+- Refactored OAuth2Flow - tested with project. - see [Commit](git@github.com:pme123/orchescala/commit/e4cf0deaffef932d1c29ffc7f6a8c3bc5546f526)
+- Adjusted GatewayServer with default run method. - see [Commit](git@github.com:pme123/orchescala/commit/67fe96932632bbc29805c2e206de7e8939a5fbaa)
+
 ## 0.2.29 - 2025-11-26
 ### Changed 
 - Added catchall to handle unexpected errors in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/7b976b4a2f724a3a7022167993ec93596aaeaf49)

@@ -622,7 +622,8 @@ paths:
         description: Variables to set when completing the task as a JSON object
         content:
           application/json:
-            schema: {}
+            schema:
+              $ref: '#/components/schemas/JsonObject'
             example:
               approved: true
               approverComment: Order approved - customer has good credit rating
@@ -706,7 +707,8 @@ paths:
         description: Variables to set when completing the task as a JSON object
         content:
           application/json:
-            schema: {}
+            schema:
+              $ref: '#/components/schemas/JsonObject'
             example:
               approved: true
               approverComment: Order approved - customer has good credit rating
