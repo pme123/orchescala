@@ -30,6 +30,19 @@ class GProcessInstanceService( using
       cacheUpdateKey = Some((processInfo: ProcessInfo) => processInfo.processInstanceId)
     )
 
+  def startProcessByMessage(
+      messageName: String,
+      businessKey: Option[String] = None,
+      tenantId: Option[String] = None,
+      variables: Option[Map[String, CamundaVariable]] = None,
+      identityCorrelation: Option[IdentityCorrelation] = None
+  ): IO[EngineError, ProcessInfo] =
+    tryServicesWithErrorCollection[ProcessInstanceService, ProcessInfo](
+      _.startProcessByMessage(messageName, businessKey, tenantId, variables, identityCorrelation),
+      "startProcessByMessage",
+      cacheUpdateKey = Some((processInfo: ProcessInfo) => processInfo.processInstanceId)
+    )
+
   def getVariablesInternal(processInstanceId: String, variableFilter: Option[Seq[String]]): IO[EngineError, Seq[JsonProperty]] =
     tryServicesWithErrorCollection[ProcessInstanceService, Seq[JsonProperty]](
       _.getVariablesInternal(processInstanceId, variableFilter),

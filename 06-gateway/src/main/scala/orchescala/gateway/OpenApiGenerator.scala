@@ -26,6 +26,7 @@ object OpenApiGenerator:
     val endpoints = List(
       MessageEndpoints.sendMessage,
       ProcessInstanceEndpoints.startProcessAsync,
+      ProcessInstanceEndpoints.startProcessByMessage,
       ProcessInstanceEndpoints.getProcessVariables,
       ProcessInstanceEndpoints.getProcessVariablesForApi,
       SignalEndpoints.sendSignal,

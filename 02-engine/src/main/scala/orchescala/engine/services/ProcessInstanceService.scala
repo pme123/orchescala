@@ -14,6 +14,23 @@ trait ProcessInstanceService extends EngineService:
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, ProcessInfo]
 
+  @description(
+    """
+      |Starts a process instance by sending a message to a Message Start Event.
+      |This is used when a process is triggered by a message rather than being started directly.
+      |
+      |If identityCorrelation is provided, it will be signed with the resulting processInstanceId
+      |and stored as a process variable after the process is started.
+      |""".stripMargin
+  )
+  def startProcessByMessage(
+      messageName: String,
+      businessKey: Option[String] = None,
+      tenantId: Option[String] = None,
+      variables: Option[Map[String, CamundaVariable]] = None,
+      identityCorrelation: Option[IdentityCorrelation] = None
+  ): IO[EngineError, ProcessInfo]
+
   def getVariablesInternal(
       processInstanceId: String,
       @description(

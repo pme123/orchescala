@@ -3,10 +3,10 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
-import orchescala.domain.{IdentityCorrelation, IdentityCorrelationSigner, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, IdentityCorrelationSigner, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C8
-import orchescala.engine.domain.{EngineError, ProcessInfo}
+import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{IO, ZIO}
@@ -16,7 +16,7 @@ import scala.jdk.CollectionConverters.*
 class C8ProcessInstanceService(using
     camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
-) extends ProcessInstanceService, C8Service:
+) extends ProcessInstanceService, C8Service, C8EventService:
 
   def startProcessAsync(
       processDefId: String,
@@ -220,5 +220,98 @@ class C8ProcessInstanceService(using
         )
 
   end toVariableValue
+
+  def startProcessByMessage(
+      messageName: String,
+      businessKey: Option[String] = None,
+      tenantId: Option[String] = None,
+      variables: Option[Map[String, CamundaVariable]] = None,
+      identityCorrelation: Option[IdentityCorrelation] = None
+  ): IO[EngineError, ProcessInfo] =
+    identityCorrelation match
+      case None =>
+        // No identity correlation - just send message
+        startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
+
+      case Some(correlation) =>
+        // Note: C8 message correlation doesn't return processInstanceId directly
+        // We can only sign the correlation if we can query for the process instance
+        // For now, log a warning and proceed without signing
+        logWarning(
+          s"Identity correlation signing for startProcessByMessage is not fully supported in C8 " +
+          s"because message correlation doesn't return processInstanceId. " +
+          s"Consider using startProcessAsync instead for processes that need identity correlation."
+        ) *> startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
+  end startProcessByMessage
+
+  /**
+   * Start process by message without identity correlation
+   * Note: C8 message correlation returns messageKey, not processInstanceId
+   */
+  private def startProcessByMessageWithoutCorrelation(
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[Map[String, CamundaVariable]]
+  ): IO[EngineError, ProcessInfo] =
+    for
+      _                 <- logInfo(s"Starting process by message '$messageName'")
+      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      messageKey         = correlationResult.id
+      _                 <- logInfo(s"Process started by message '$messageName' with messageKey: $messageKey")
+    yield ProcessInfo(
+      processInstanceId = messageKey, // Using messageKey as ID since we don't have processInstanceId
+      businessKey = businessKey,
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = C8
+    )
+  end startProcessByMessageWithoutCorrelation
+
+  /**
+   * Send message to start a process (via Message Start Event)
+   * Note: C8 returns messageKey, not processInstanceId
+   */
+  private def sendMessageToStartProcess(
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[Map[String, CamundaVariable]]
+  ): IO[EngineError, MessageCorrelationResult] =
+    for
+      camundaClient <- camundaClientZIO
+      variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
+      response      <-
+        ZIO
+          .attempt:
+            val command = camundaClient.newCorrelateMessageCommand()
+              .messageName(messageName)
+
+            val withCorrelationKey =
+              businessKey match
+                case Some(key) => command.correlationKey(key)
+                case None      => command.withoutCorrelationKey()
+
+            withCorrelationKey
+              .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
+              .variables(variablesMap)
+              .send().join()
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem sending message '$messageName' to start process: $err"
+            )
+      result        <-
+        ZIO
+          .attempt:
+            MessageCorrelationResult.ProcessInstance(
+              response.getMessageKey.toString,
+              response.getMessageKey.toString, // C8 doesn't return processInstanceId
+              C8
+            )
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem mapping MessageCorrelationResult: $err"
+            )
+    yield result
+  end sendMessageToStartProcess
 
 end C8ProcessInstanceService

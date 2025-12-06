@@ -44,6 +44,32 @@ object GatewayRoutes:
                     )
               .mapError(ErrorResponse.fromOrchescalaError)
 
+    val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+      ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
+        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
+      }.serverLogic:
+        validatedToken =>
+          (messageName, businessKeyQuery, tenantIdQuery, in) =>
+
+            config.extractCorrelation(validatedToken, in)
+              .flatMap: identityCorrelation =>
+                // Set the bearer token in AuthContext so it can be used by the engine services
+                AuthContext.withBearerToken(validatedToken):
+                  // Convert JSON to Map[String, CamundaVariable]
+                  val camundaVariables = CamundaVariable.jsonToCamundaValue(CirceJson.fromJsonObject(in)) match
+                    case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
+                    case _            => Map.empty[String, CamundaVariable]
+
+                  processInstanceService
+                    .startProcessByMessage(
+                      messageName = messageName,
+                      businessKey = businessKeyQuery,
+                      tenantId = tenantIdQuery,
+                      variables = Some(camundaVariables),
+                      identityCorrelation = Some(identityCorrelation)
+                    )
+              .mapError(ErrorResponse.fromOrchescalaError)
+
     val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
         config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
@@ -174,6 +200,7 @@ object GatewayRoutes:
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(
         startProcessEndpoint,
+        startProcessByMessageEndpoint,
         getProcessVariablesEndpoint,
         getProcessVariablesEndpointForApi,
         getUserTaskVariablesEndpoint,

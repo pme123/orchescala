@@ -51,7 +51,7 @@ object ProcessInstanceEndpoints:
       {"productId": "PROD-042", "quantity": 1}
     ]
   }""").map(_.asObject.get).getOrElse(JsonObject())
-
+  
   lazy val startProcessAsync: Endpoint[
     String,
     (String, Option[String], Option[String], JsonObject),
@@ -84,7 +84,45 @@ object ProcessInstanceEndpoints:
         """Starts a new process instance asynchronously using the Gateway.
           |""".stripMargin
       )
-      .tag("Process Instance")
+      .tag(apiGroup)
+
+  lazy val startProcessByMessage: Endpoint[
+    String,
+    (String, Option[String], Option[String], JsonObject),
+    ErrorResponse,
+    ProcessInfo,
+    Any
+  ] =
+    securedBaseEndpoint
+      .post
+      .in(path[String]("messageName")
+        .description("Message name that triggers a Message Start Event")
+        .example("order-received"))
+      .in("message")
+      .in(query[Option[String]]("businessKey")
+        .description("Business Key, be aware that this is not supported in Camunda 8.")
+        .example(Some("order-12345")))
+      .in(query[Option[String]]("tenantId")
+        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
+        .example(Some("{{tenantId}}")))
+      .in(jsonBody[JsonObject]
+        .description("Request body with process variables as a JSON object")
+        .example(startProcessRequestExample))
+      .out(statusCode(StatusCode.Ok))
+      .out(jsonBody[ProcessInfo]
+        .description("Information about the started process instance")
+        .example(ProcessInfo.example))
+      .name("Start Process By Message")
+      .summary("Start a process instance via Message Start Event")
+      .description(
+        """Starts a new process instance by sending a message to a Message Start Event.
+          |This is used when a process is triggered by a message rather than being started directly.
+          |
+          |Note: In Camunda 8, identity correlation signing is not supported for message-started processes
+          |because the message correlation response doesn't include the processInstanceId.
+          |""".stripMargin
+      )
+      .tag(apiGroup)
 
   // Example JSON for process variables response
   private lazy val processVariablesExample = parse("""{
@@ -121,7 +159,7 @@ object ProcessInstanceEndpoints:
         """Retrieves all variables or a filtered set of variables for a specific process instance.
           |""".stripMargin
       )
-      .tag("Process Instance")
+      .tag(apiGroup)
 
   lazy val getProcessVariablesForApi
       : Endpoint[String, (String, String, Option[String]), ErrorResponse, Json, Any] =
@@ -149,7 +187,9 @@ object ProcessInstanceEndpoints:
         """Retrieves all variables or a filtered set of variables for a specific process instance.
           |""".stripMargin
       )
-      .tag("Process Instance")
+      .tag(apiGroup)
+
+  private lazy val apiGroup = "Process Instance"
 
   // Extension method for process variables endpoint configuration
   extension [In](endpoint: Endpoint[String, In, ErrorResponse, Unit, Any])
@@ -173,7 +213,7 @@ object ProcessInstanceEndpoints:
           """Retrieves all variables or a filtered set of variables for a specific process instance.
             |""".stripMargin
         )
-        .tag("Process Instance")
+        .tag(apiGroup)
         .asInstanceOf[Endpoint[String, Out, ErrorResponse, Json, Any]]
   end extension
 end ProcessInstanceEndpoints
