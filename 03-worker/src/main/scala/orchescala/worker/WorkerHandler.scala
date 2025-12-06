@@ -157,6 +157,8 @@ case class ServiceHandler[
   ): RunnerOutputZIO =
     for
       _                  <- ZIO.logDebug(s"Running Service: ${niceClassName(this.getClass)}")
+      // Verify identity correlation signature if present (for ServiceWorkers only)
+      _                  <- verifyIdentityCorrelation()
       rRequest           <-
         ZIO.attempt(runnableRequest(inputObject))
           .mapError: err =>
@@ -174,6 +176,36 @@ case class ServiceHandler[
     yield output
     end for
   end runWorkZIO
+
+  /**
+   * Verify the identity correlation signature if present.
+   * This is called automatically at the start of every ServiceWorker execution.
+   */
+  private def verifyIdentityCorrelation()(using context: EngineRunContext): ZIO[Any, Nothing, Unit] =
+    context.generalVariables.identityCorrelation match
+      case None =>
+        // No identity correlation present - skip verification
+        ZIO.unit
+      case Some(correlation) =>
+        // Get processInstanceId from context
+        val processInstanceIdOpt = correlation.processInstanceId
+
+        processInstanceIdOpt match
+          case None =>
+            // Correlation exists but has no processInstanceId - log warning
+            ZIO.logWarning(
+              "IdentityCorrelation present but not bound to a process instance - skipping verification"
+            )
+          case Some(processInstanceId) =>
+            // Get signing key from EngineConfig (can be overridden in custom EngineContext)
+            val signingKeyOpt = context.engineContext.engineConfig.identitySigningKey
+
+            // Verify signature using optional verification (logs warnings but doesn't fail)
+            IdentityVerification.verifySignatureOptional(
+              correlation,
+              processInstanceId,
+              signingKeyOpt
+            )
 
   private def runnableRequest(
       inputObject: In

@@ -10,6 +10,7 @@ import scala.reflect.ClassTag
 
 trait EngineContext:
   def workerConfig: WorkerConfig = WorkerConfig.default
+  def engineConfig: orchescala.engine.EngineConfig = orchescala.engine.EngineConfig()
   def getLogger(clazz: Class[?]): OrchescalaLogger
   def toEngineObject: Json => Any
 

@@ -51,6 +51,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
           ZIO.fail(UnexpectedRunError(
             s"Unexpected error runWorkFromWorkerUnsafe. Defect: ${defect.getMessage}"
           ))
+          
   protected def regexMatchesAll(
       errorHandled: Boolean,
       error: WorkerError,
