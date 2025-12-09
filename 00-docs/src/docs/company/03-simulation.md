@@ -83,22 +83,22 @@ import orchescala.simulation.custom.*
 
 trait CompanySimulation extends OAuthSimulationDsl:
 
-  lazy val fsso: Fsso = Fsso(
-    s"$fssoBaseUrl/realms/${config.tenantId.get}/protocol/openid-connect",
+  lazy val sso: Fsso = Fsso(
+    s"$ssoBaseUrl/realms/${config.tenantId.get}/protocol/openid-connect",
     Map(
       "grant_type" -> "password",
       "client_id" -> "bpf",
-      "client_secret" -> fssoClientSecret,
-      "username" -> fssoUser,
-      "password" -> fssoPassword,
+      "client_secret" -> ssoClientSecret,
+      "username" -> ssoUser,
+      "password" -> ssoPassword,
       "scope" -> "fcs"
     ))
   //...
-  private lazy val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", "http://host.lima.internal:8090/auth")
+  private lazy val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", "http://host.lima.internal:8090/auth")
   //...
 ```
 
-Here you have to provide the FSSO configuration.
-- `Fsso.url` is the URL of the FSSO Server.
+Here you have to provide the SSO configuration.
+- `Fsso.url` is the URL of the SSO Server.
 - `Fsso.bodyForm` is the body of the POST request to get the token.
 

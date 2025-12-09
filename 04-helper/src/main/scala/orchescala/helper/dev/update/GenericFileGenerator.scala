@@ -116,15 +116,15 @@ case class GenericFileGenerator()(using config: DevConfig):
        |
        |""".stripMargin
 
-  private lazy val fssoBaseUrl =
-    sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+  private lazy val ssoBaseUrl =
+    sys.env.getOrElse("SSO_BASE_URL", s"http://host.lima.internal:8090")
 
   private lazy val workerTestAppIntellij =
     s"""|<!-- DO NOT ADJUST. This file is replaced by `./helper.scala update` -->
         |<component name="ProjectRunConfigurationManager">
         |  <configuration default="false" name="WorkerTestApp" type="Application" factoryName="Application" nameIsGenerated="true">
         |    <envs>
-        |      <env name="FSSO_BASE_URL" value="$fssoBaseUrl/auth" />
+        |      <env name="SSO_BASE_URL" value="$ssoBaseUrl/auth" />
         |      <env name="WORKER_TEST_MODE" value="true" />
         |    </envs>
         |    <option name="MAIN_CLASS_NAME" value="${config.projectPackage}.worker.WorkerTestApp" />
@@ -154,7 +154,7 @@ case class GenericFileGenerator()(using config: DevConfig):
         |            "mainClass": "${config.projectPackage}.worker.WorkerTestApp",
         |            "args": [],
         |            "jvmOptions": [],
-        |            "env": { "FSSO_BASE_URL": "$fssoBaseUrl/auth", "WORKER_TEST_MODE": "true"},
+        |            "env": { "SSO_BASE_URL": "$ssoBaseUrl/auth", "WORKER_TEST_MODE": "true"},
         |        }
         |    ]
         |}

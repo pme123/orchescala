@@ -79,24 +79,24 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        | */
        |object CompanyEngineConfig:
        |
-       |  lazy val fssoClientName = sys.env.getOrElse("FSSO_CLIENT_NAME", "myClient")
-       |  lazy val fssoClientSecret =
-       |    sys.env.getOrElse("FSSO_CLIENT_SECRET", "mySecret")
-       |  lazy val fssoScope = sys.env.getOrElse("FSSO_SCOPE", "myScope")
+       |  lazy val ssoClientName = sys.env.getOrElse("SSO_CLIENT_NAME", "myClient")
+       |  lazy val ssoClientSecret =
+       |    sys.env.getOrElse("SSO_CLIENT_SECRET", "mySecret")
+       |  lazy val ssoScope = sys.env.getOrElse("SSO_SCOPE", "myScope")
        |
-       |  lazy val fssoTechuserName = sys.env.getOrElse("FSSO_TECHUSER_NAME", "admin")
-       |  lazy val fssoTechuserPassword = sys.env.getOrElse("FSSO_TECHUSER_PASSWORD", "admin")
+       |  lazy val ssoTechuserName = sys.env.getOrElse("SSO_TECHUSER_NAME", "admin")
+       |  lazy val ssoTechuserPassword = sys.env.getOrElse("SSO_TECHUSER_PASSWORD", "admin")
        |
        |
-       |  lazy val fssoRealm: String = sys.env.getOrElse("FSSO_REALM", "MY_REALM")
-       |  lazy val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
+       |  lazy val ssoRealm: String = sys.env.getOrElse("SSO_REALM", "MY_REALM")
+       |  lazy val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", s"http://host.lima.internal:8090")
        |  lazy val camundaRestUrl = sys.env.getOrElse("CAMUNDA_BASE_URL", "http://localhost:8080/engine-rest")
        |
-       |  lazy val client_id = fssoClientName
-       |  lazy val client_secret = fssoClientSecret
-       |  lazy val scope = fssoScope
-       |  lazy val username = fssoTechuserName
-       |  lazy val password = fssoTechuserPassword
+       |  lazy val client_id = ssoClientName
+       |  lazy val client_secret = ssoClientSecret
+       |  lazy val scope = ssoScope
+       |  lazy val username = ssoTechuserName
+       |  lazy val password = ssoTechuserPassword
        |
        |end CompanyEngineConfig
        |""".stripMargin
@@ -313,8 +313,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |
        |trait CompanyPasswordFlow extends OAuth2WorkerClient:
        |
-       |  def fssoRealm: String = CompanyEngineConfig.fssoRealm
-       |  def fssoBaseUrl: String = CompanyEngineConfig.fssoBaseUrl
+       |  def ssoRealm: String = CompanyEngineConfig.ssoRealm
+       |  def ssoBaseUrl: String = CompanyEngineConfig.ssoBaseUrl
        |
        | // override the config if needed or change the WorkerClient
        |
@@ -377,14 +377,14 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |import scala.concurrent.duration.*
        |
        |trait CompanyC7Client extends OAuth2WorkerClient:
-       |  lazy val fssoRealm = CompanyEngineConfig.fssoRealm
-       |  lazy val fssoBaseUrl = CompanyEngineConfig.fssoBaseUrl
+       |  lazy val ssoRealm = CompanyEngineConfig.ssoRealm
+       |  lazy val ssoBaseUrl = CompanyEngineConfig.ssoBaseUrl
        |  override lazy val camundaRestUrl = CompanyEngineConfig.camundaRestUrl
-       |  override lazy val client_id = CompanyEngineConfig.fssoClientName
-       |  override lazy val client_secret = CompanyEngineConfig.fssoClientSecret
-       |  override lazy val scope = CompanyEngineConfig.fssoScope
-       |  override lazy val username = CompanyEngineConfig.fssoTechuserName
-       |  override lazy val password = CompanyEngineConfig.fssoTechuserPassword
+       |  override lazy val client_id = CompanyEngineConfig.ssoClientName
+       |  override lazy val client_secret = CompanyEngineConfig.ssoClientSecret
+       |  override lazy val scope = CompanyEngineConfig.ssoScope
+       |  override lazy val username = CompanyEngineConfig.ssoTechuserName
+       |  override lazy val password = CompanyEngineConfig.ssoTechuserPassword
        |
        |  override lazy val lockDuration: Long = 5.minutes.toMillis
        |

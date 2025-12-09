@@ -51,7 +51,7 @@ class C7OAuth2Client(camundaRestUrl: String, oAuthConfig: OAuthConfig.ClientCred
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
     SharedC7ClientManager.getOrCreateClient:
       (for
-        _ <- ZIO.logDebug(s"Creating Engine Client: ${oAuthConfig.fssoBaseUrl}")
+        _ <- ZIO.logDebug(s"Creating Engine Client: ${oAuthConfig.ssoBaseUrl}")
         client <- ZIO.attempt(ApiClient())
         _ <- ZIO.attempt:
           client.setBasePath(camundaRestUrl)
