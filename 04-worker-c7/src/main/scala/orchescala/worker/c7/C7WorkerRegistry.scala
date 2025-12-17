@@ -1,5 +1,6 @@
 package orchescala.worker.c7
 
+import orchescala.domain.GeneralVariables
 import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient
 import zio.{Scope, UIO, ZIO, ZLayer}
@@ -35,6 +36,7 @@ class C7WorkerRegistry(client: C7WorkerClient)
       attempt(client
         .subscribe(worker.topic)
         .handler(worker)
+        .variables((worker.worker.inVariableNames ++ GeneralVariables.variableNames :+ "businessKey")*)
         .open())
         .tap(_ => logInfo(s"Subscription opened successfully for topic: '${worker.topic}'"))
         .tapError(err =>

@@ -34,9 +34,9 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
               case None =>
                 ZIO.logError(s"Worker execution for job $jobId timed out after $workerTimeout") *>
                   ZIO.fail(new RuntimeException(s"Worker execution timed out after $workerTimeout"))
-                    .tapError(err => ZIO.logError(s"Worker execution for job $jobId failed: ${err.getMessage}"))
+                    .tapError(err => ZIO.logError(s"Worker execution for job $jobId failed: $err"))
             .catchAll: ex =>
-              ZIO.logError(s"Worker execution for job $jobId failed: ${ex.getMessage}\n${ex.getStackTrace.mkString("\n")}")
+              ZIO.logError(s"Worker execution for job $jobId failed: $ex\n${ex.getStackTrace.mkString("\n")}")
                 .unit // Return unit instead of failing
         
 

@@ -128,6 +128,8 @@ object GeneralVariables:
   given InOutCodec[GeneralVariables] = CirceCodec.from(decoder, deriveInOutEncoder)
   given ApiSchema[GeneralVariables]  = deriveApiSchema
 
+  lazy val variableNames: Seq[String] = allFieldNames[GeneralVariables]
+  
   lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables]:
     final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
       for

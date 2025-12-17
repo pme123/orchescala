@@ -100,6 +100,6 @@ class C7HistoricVariableService(using
   private def mapToCamundaVariable(histVar: HistoricVariableInstanceDto) =
     histVar.getType.toLowerCase match
       case "null" => None
-      case "json" => Option(CJson(histVar.getValue.toString))
-      case _      => Option(histVar.getValue).map(CamundaVariable.valueToCamunda)
+      case "json" => Some(CJson(histVar.getValue.toString))
+      case _ => Option(histVar.getValue).map(CamundaVariable.valueToCamunda)
 end C7HistoricVariableService

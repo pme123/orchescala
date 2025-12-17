@@ -38,7 +38,7 @@ class C8MessageService(using
              |- tenantId: ${tenantId.getOrElse("-")}
              |""".stripMargin
         )
-      variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
+      variablesMap  <- mapToC8Variables(variables)
       correlationKey = businessKey.orElse(processInstanceId)
       result        <- timeToLiveInSec
                          .map: ttl =>

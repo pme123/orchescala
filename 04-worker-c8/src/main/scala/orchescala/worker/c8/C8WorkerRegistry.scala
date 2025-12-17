@@ -1,10 +1,13 @@
 package orchescala.worker.c8
 
 import io.camunda.client.CamundaClient
+import orchescala.domain.GeneralVariables
 import orchescala.engine.c8.{C8Client, SharedC8ClientManager}
 import orchescala.worker.{WorkerDsl, WorkerRegistry}
 import zio.*
 import zio.ZIO.*
+
+import scala.jdk.CollectionConverters.*
 
 class C8WorkerRegistry(c8Client: C8Client)
     extends WorkerRegistry:
@@ -32,6 +35,7 @@ class C8WorkerRegistry(c8Client: C8Client)
         .newWorker()
         .jobType(worker.topic)
         .handler(worker)
+        .fetchVariables((worker.worker.inVariableNames ++ GeneralVariables.variableNames :+ "businessKey").asJava)
         .timeout(worker.timeout.toMillis)
         .open()) *>
       logInfo("Registered C8 Worker: " + worker.topic)

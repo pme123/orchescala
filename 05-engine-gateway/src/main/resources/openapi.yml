@@ -234,6 +234,115 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - httpAuth: []
+  /process/{messageName}/message:
+    post:
+      tags:
+      - Process Instance
+      summary: Start a process instance via Message Start Event
+      description: |
+        Starts a new process instance by sending a message to a Message Start Event.
+        This is used when a process is triggered by a message rather than being started directly.
+
+        Note: In Camunda 8, identity correlation signing is not supported for message-started processes
+        because the message correlation response doesn't include the processInstanceId.
+      operationId: Start Process By Message
+      parameters:
+      - name: messageName
+        in: path
+        description: Message name that triggers a Message Start Event
+        required: true
+        schema:
+          type: string
+        example: order-received
+      - name: businessKey
+        in: query
+        description: Business Key, be aware that this is not supported in Camunda
+          8.
+        required: false
+        schema:
+          type: string
+        example: order-12345
+      - name: tenantId
+        in: query
+        description: If you have a multi tenant setup, you must specify the Tenant
+          ID.
+        required: false
+        schema:
+          type: string
+        example: '{{tenantId}}'
+      requestBody:
+        description: Request body with process variables as a JSON object
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonObject'
+            example:
+              customerName: John Doe
+              orderAmount: 1250.50
+              orderDate: '2025-10-26'
+              priority: high
+              items:
+              - productId: PROD-001
+                quantity: 2
+              - productId: PROD-042
+                quantity: 1
+        required: true
+      responses:
+        '200':
+          description: Information about the started process instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessInfo'
+              example:
+                processInstanceId: f150c3f1-13f5-11ec-936e-0242ac1d0007
+                businessKey: ORDER-2025-12345
+                status: Active
+                engineType: C7
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid request parameters
+                code: INVALID_PARAMETERS
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Invalid or missing authentication token
+                code: UNAUTHORIZED
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Resource not found
+                code: NOT_FOUND
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: Internal server error
+                code: ENGINE_ERROR
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - httpAuth: []
   /process/{processInstanceId}/variables:
     get:
       tags:
