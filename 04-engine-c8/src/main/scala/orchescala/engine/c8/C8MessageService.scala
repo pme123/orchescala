@@ -48,7 +48,7 @@ class C8MessageService(using
                              tenantId,
                              correlationKey,
                              ttl,
-                             variablesMap.asJava
+                             variablesMap
                            )
                          .getOrElse:
                            correlateMessage(
@@ -107,7 +107,7 @@ class C8MessageService(using
       tenantId: Option[String],
       correlationKey: Option[String],
       timeToLiveInSec: Int,
-      variablesMap: java.util.Map[String, Any]
+      variablesMap: Map[String, Any]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO
       .fromFutureJava:
@@ -129,7 +129,7 @@ class C8MessageService(using
 
         withTenantId
           .timeToLive(java.time.Duration.ofSeconds(timeToLiveInSec))
-          .variables(variablesMap)
+          .variables(variablesMap.asJava)
           .send()
       .mapError: err =>
         EngineError.ProcessError(
