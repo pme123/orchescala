@@ -10,32 +10,6 @@ import zio.{IO, ZIO}
 
 import scala.reflect.ClassTag
 
-trait WorkerHandler[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
-  def worker: Worker[In, Out, ?]
-  def topic: String
-
-  type RunnerOutput =
-    EngineRunContext ?=> IO[RunWorkError, Out]
-
-  def applicationName: String
-  def registerHandler(register: => Unit): Unit =
-    val appPackageName = applicationName.replace("-", ".")
-    val testMode       = sys.env.get("WORKER_TEST_MODE").contains("true") // did not work with lazy val
-    if testMode || getClass.getName.startsWith(appPackageName)
-    then
-      register
-      logger.info(s"Old Worker registered: $topic -> ${worker.getClass.getSimpleName}")
-      logger.debug(prettyString(worker))
-    else
-      logger.info(
-        s"Worker NOT registered: $topic -> ${worker.getClass.getSimpleName} (class starts not with $appPackageName)"
-      )
-    end if
-  end registerHandler
-
-  protected lazy val logger: OrchescalaLogger
-end WorkerHandler
-
 /** handler for Custom Validation (next to the automatic Validation of the In Object.
   *
   * For example if one of two optional variables must exist.
@@ -110,7 +84,7 @@ object InitProcessHandler:
   def apply[
       In <: Product: InOutCodec
   ](
-      funct: In => EngineRunContext ?=> IO[InitProcessError, Map[String, Any]],
+      funct: In => InitProcessFunction,
       processLabels: ProcessLabels
   ): InitProcessHandler[In] =
     new InitProcessHandler[In]:
