@@ -26,7 +26,7 @@ class C8HistoricVariableService(using
       camundaClient <- camundaClientZIO
       variableDtos  <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             camundaClient
               .newVariableSearchRequest()
               .filter(f =>
@@ -39,8 +39,8 @@ class C8HistoricVariableService(using
                   case _                          => ()
                 end match
               ).send()
-              .join()
-              .items()
+          .map:
+              _.items()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
@@ -99,7 +99,7 @@ class C8HistoricVariableService(using
       case v if v.toDoubleOption.isDefined                   => Some(CamundaVariable.CDouble(v.toDouble))
       case v if v.toLongOption.isDefined                     => Some(CamundaVariable.CLong(v.toLong))
 
-  private def mapToJson(histVar: Variable): Option[Json] = 
+  private def mapToJson(histVar: Variable): Option[Json] =
     parser.parse(histVar.getValue) match
       case Right(v) if v.isNull  => None
       case Right(v)  => Some(v)

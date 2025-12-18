@@ -69,7 +69,7 @@ class C8MessageService(using
       variablesMap: java.util.Map[String, Any]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO
-      .attempt:
+      .fromFutureJava:
         val command = camundaClient.newCorrelateMessageCommand()
           .messageName(name)
 
@@ -83,7 +83,7 @@ class C8MessageService(using
         withCorrelationKey
           .tenantId(tenantId.orNull)
           .variables(variablesMap)
-          .send().join()
+          .send()
       .mapError: err =>
         EngineError.ProcessError(
           s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): $err"
@@ -110,7 +110,7 @@ class C8MessageService(using
       variablesMap: java.util.Map[String, Any]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO
-      .attempt:
+      .fromFutureJava:
         val command = camundaClient.newPublishMessageCommand()
           .messageName(name)
 
@@ -130,7 +130,7 @@ class C8MessageService(using
         withTenantId
           .timeToLive(java.time.Duration.ofSeconds(timeToLiveInSec))
           .variables(variablesMap)
-          .send().join()
+          .send()
       .mapError: err =>
         EngineError.ProcessError(
           s"Problem publishing Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): $err"

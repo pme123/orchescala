@@ -81,12 +81,11 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
       camundaVariables = jsonToVariablesMap(jsonVariables.toMap)
       _               <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             camundaClient
               .newCompleteUserTaskCommand(taskKey)
               .variables(camundaVariables.asJava)
               .send()
-              .join()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem completing UserTask '$taskKey': $err"

@@ -27,14 +27,12 @@ class C8SignalService(using
       variablesMap = variables.map(_.toVariablesMap).getOrElse(Map.empty)
       _           <-
         ZIO
-          .attempt {
+          .fromFutureJava :
             camundaClient
               .newBroadcastSignalCommand()
               .signalName(name)
               .variables(variablesMap)
               .send()
-              .join()
-          }
           .mapError { err =>
             EngineError.ProcessError(
               s"Problem sending Signal '$name': $err"
