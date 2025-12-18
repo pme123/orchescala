@@ -23,7 +23,7 @@ class C8MessageService(using
       timeToLiveInSec: Option[Int],
       businessKey: Option[String],
       processInstanceId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
 
     for
@@ -38,7 +38,7 @@ class C8MessageService(using
              |- tenantId: ${tenantId.getOrElse("-")}
              |""".stripMargin
         )
-      variablesMap  <- mapToC8Variables(variables)
+      variablesMap  = variables.map(_.toVariablesMap).getOrElse(Map.empty)
       correlationKey = businessKey.orElse(processInstanceId)
       result        <- timeToLiveInSec
                          .map: ttl =>
@@ -48,7 +48,7 @@ class C8MessageService(using
                              tenantId,
                              correlationKey,
                              ttl,
-                             variablesMap
+                             variablesMap.asJava
                            )
                          .getOrElse:
                            correlateMessage(
@@ -56,7 +56,7 @@ class C8MessageService(using
                              name,
                              tenantId,
                              correlationKey,
-                             variablesMap
+                             variablesMap.asJava
                            )
       _             <- logInfo(s"Message '$name' sent successfully.")
     yield result

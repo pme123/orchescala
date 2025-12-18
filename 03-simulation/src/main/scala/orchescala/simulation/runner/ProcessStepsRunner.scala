@@ -105,5 +105,5 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   ): Seq[JsonProperty] =
     variables
       .map: v =>
-        JsonProperty(v.name, v.value.map(_.toJson).getOrElse(Json.Null))
+        JsonProperty(v.name, v.value.getOrElse(Json.Null))
 end ProcessStepsRunner

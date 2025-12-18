@@ -27,7 +27,7 @@ class C7MessageService(using
       timeToLiveInSec: Option[Int],
       businessKey: Option[String],
       processInstanceId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     val theBusinessKey = if processInstanceId.isDefined then None else businessKey
     val theTenantId    = if processInstanceId.isDefined then None else tenantId

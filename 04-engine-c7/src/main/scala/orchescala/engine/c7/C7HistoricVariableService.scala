@@ -1,8 +1,7 @@
 package orchescala.engine
 package c7
 
-import orchescala.domain.CamundaVariable
-import orchescala.domain.CamundaVariable.*
+import orchescala.domain.*
 import orchescala.engine.domain.{EngineError, HistoricVariable}
 import orchescala.engine.services.HistoricVariableService
 import org.camunda.community.rest.client.api.HistoricVariableInstanceApi
@@ -63,7 +62,7 @@ class C7HistoricVariableService(using
             mapToHistoricVariables(variableFilter, variableDtos)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': $err"
+              s"Problem mapping Historic Variables for Process Instance '${processInstanceId.mkString}': $err"
             )
     yield variables
 
@@ -82,7 +81,7 @@ class C7HistoricVariableService(using
         HistoricVariable(
           id = dto.getId,
           name = dto.getName,
-          value = mapToCamundaVariable(dto),
+          value = mapToJson(dto),
           processDefinitionKey = Option(dto.getProcessDefinitionKey),
           processDefinitionId = Option(dto.getProcessDefinitionId),
           processInstanceId = Option(dto.getProcessInstanceId),
@@ -97,9 +96,9 @@ class C7HistoricVariableService(using
         )
   end mapToHistoricVariables
 
-  private def mapToCamundaVariable(histVar: HistoricVariableInstanceDto) =
+  private def mapToJson(histVar: HistoricVariableInstanceDto): Option[Json] =
     histVar.getType.toLowerCase match
       case "null" => None
-      case "json" => Some(CJson(histVar.getValue.toString))
-      case _ => Option(histVar.getValue).map(CamundaVariable.valueToCamunda)
+      case "json" => Some(toJson(histVar.getValue.toString))
+      case _ => Option(histVar.getValue).map(CamundaVariable.valueToCamunda).map(_.toJson)
 end C7HistoricVariableService

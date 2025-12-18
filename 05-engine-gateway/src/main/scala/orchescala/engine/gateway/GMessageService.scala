@@ -15,7 +15,7 @@ class GMessageService(using
                    timeToLiveInSec: Option[Int] = None,
                    businessKey: Option[String] = None,
                    processInstanceId: Option[String] = None,
-                   variables: Option[Map[String, CamundaVariable]] = None
+                   variables: Option[JsonObject] = None
                  ): IO[EngineError, MessageCorrelationResult] =
     tryServicesWithErrorCollection[MessageService, MessageCorrelationResult](
       _.sendMessage(name, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables),

@@ -72,7 +72,8 @@ paths:
         description: Variables to send with the message as a JSON object
         content:
           application/json:
-            schema: {}
+            schema:
+              $ref: '#/components/schemas/JsonObject'
             example:
               orderId: '12345'
               amount: 99.99
@@ -548,7 +549,8 @@ paths:
         description: Variables to send with the signal as a JSON object
         content:
           application/json:
-            schema: {}
+            schema:
+              $ref: '#/components/schemas/JsonObject'
             example:
               orderStatus: canceled
               cancelReason: No response from the customer.

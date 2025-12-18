@@ -225,7 +225,7 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String] = None,
       tenantId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None,
+      variables: Option[JsonObject] = None,
       identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, ProcessInfo] =
     identityCorrelation match
@@ -252,7 +252,7 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, ProcessInfo] =
     for
       _                 <- logInfo(s"Starting process by message '$messageName'")
@@ -275,11 +275,12 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     for
       camundaClient <- camundaClientZIO
-      variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
+      variablesMap  <- ZIO.succeed(variables.map(_.toVariablesMap).getOrElse(Map.empty))
+      _               <- logInfo("variablesMap: " + variablesMap)
       response      <-
         ZIO
           .attempt:

@@ -35,9 +35,9 @@ object SignalEndpoints:
   private val sendSignalRequestExample = parse("""{
     "orderStatus": "canceled",
     "cancelReason": "No response from the customer."
-  }""").getOrElse(io.circe.Json.Null)
+  }""").toOption.flatMap(_.asObject).get
 
-  val sendSignal: Endpoint[String, (String, Option[String], Json), ErrorResponse, Unit, Any] =
+  val sendSignal: Endpoint[String, (String, Option[String], JsonObject), ErrorResponse, Unit, Any] =
     securedBaseEndpoint
       .post
       .in(path[String]("signalName")
@@ -46,7 +46,7 @@ object SignalEndpoints:
       .in(query[Option[String]]("tenantId")
         .description("If you have a multi tenant setup, you must specify the Tenant ID.")
         .example(Some("{{tenantId}}")))
-      .in(jsonBody[Json]
+      .in(jsonBody[JsonObject]
         .description("Variables to send with the signal as a JSON object")
         .example(sendSignalRequestExample))
       .out(statusCode(StatusCode.NoContent))

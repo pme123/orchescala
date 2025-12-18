@@ -70,28 +70,21 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
       processInstanceId <- getProcessInstanceIdFromTask(taskKey)
 
       // Sign the correlation with processInstanceId if provided
-      signedCorr                                <- identityCorrelation match
-                                                     case Some(corr) => signCorrelation(corr, processInstanceId)
-                                                     case None       => ZIO.none
-
-      variableMap: Map[String, CamundaVariable] <-
-        CamundaVariable.jsonToCamundaValue(processVariables.toJson) match
-          case m: Map[?, ?] =>
-            ZIO.succeed(m.asInstanceOf[Map[String, CamundaVariable]])
-          case other        =>
-            ZIO.fail(EngineError.MappingError(s"Expected a Map, but got $other"))
-      _                                         <- logInfo("Variables: " + variableMap)
-      camundaVariables                          <- mapToC8Variables(signedCorr.map(s =>
-                                                     variableMap +
-                                                       ("identityCorrelation" -> CJson(s.asJson.deepDropNullValues.toString))
-                                                   ))
-      _                                         <- logInfo("camundaVariables: " + camundaVariables)
-      _                                         <-
+      signedCorr      <- identityCorrelation match
+                           case Some(corr) => signCorrelation(corr, processInstanceId)
+                           case None       => ZIO.none
+      jsonVariables =
+        signedCorr
+          .map: s =>
+            processVariables.add("identityCorrelation", s.asJson.deepDropNullValues)
+          .getOrElse(processVariables)
+      camundaVariables = jsonToVariablesMap(jsonVariables.toMap)
+      _               <-
         ZIO
           .attempt:
             camundaClient
               .newCompleteUserTaskCommand(taskKey)
-              .variables(camundaVariables)
+              .variables(camundaVariables.asJava)
               .send()
               .join()
           .mapError: err =>

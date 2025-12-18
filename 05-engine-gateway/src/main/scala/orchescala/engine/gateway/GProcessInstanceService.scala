@@ -34,7 +34,7 @@ class GProcessInstanceService( using
       messageName: String,
       businessKey: Option[String] = None,
       tenantId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None,
+      variables: Option[JsonObject] = None,
       identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, ProcessInfo] =
     tryServicesWithErrorCollection[ProcessInstanceService, ProcessInfo](

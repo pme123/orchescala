@@ -55,17 +55,12 @@ object GatewayRoutes:
               .flatMap: identityCorrelation =>
                 // Set the bearer token in AuthContext so it can be used by the engine services
                 AuthContext.withBearerToken(validatedToken):
-                  // Convert JSON to Map[String, CamundaVariable]
-                  val camundaVariables = CamundaVariable.jsonToCamundaValue(CirceJson.fromJsonObject(in)) match
-                    case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-                    case _            => Map.empty[String, CamundaVariable]
-
                   processInstanceService
                     .startProcessByMessage(
                       messageName = messageName,
                       businessKey = businessKeyQuery,
                       tenantId = tenantIdQuery,
-                      variables = Some(camundaVariables),
+                      variables = Some(in),
                       identityCorrelation = Some(identityCorrelation)
                     )
               .mapError(ErrorResponse.fromOrchescalaError)
@@ -85,7 +80,7 @@ object GatewayRoutes:
               )
               .map: variables =>
                 CirceJson.obj(variables.map(v =>
-                  v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null)
+                  v.name -> v.value.getOrElse(CirceJson.Null)
                 )*)
               .mapError(ErrorResponse.fromOrchescalaError)
 
@@ -109,7 +104,7 @@ object GatewayRoutes:
               )
               .map: variables =>
                 CirceJson.obj(variables.map(v =>
-                  v.name -> v.value.map(_.toJson).getOrElse(CirceJson.Null)
+                  v.name -> v.value.getOrElse(CirceJson.Null)
                 )*)
               .mapError(ErrorResponse.fromOrchescalaError)
 
@@ -161,16 +156,11 @@ object GatewayRoutes:
         (signalName, tenantId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
-            // Convert JSON to Map[String, CamundaVariable]
-            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
-              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _            => Map.empty[String, CamundaVariable]
-
             signalService
               .sendSignal(
                 name = signalName,
                 tenantId = tenantId,
-                variables = Some(camundaVariables)
+                variables = Some(variables)
               )
               .mapError(ErrorResponse.fromOrchescalaError)
 
@@ -181,11 +171,6 @@ object GatewayRoutes:
         (messageName, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
-            // Convert JSON to Map[String, CamundaVariable]
-            val camundaVariables = CamundaVariable.jsonToCamundaValue(variables) match
-              case m: Map[?, ?] => m.asInstanceOf[Map[String, CamundaVariable]]
-              case _            => Map.empty[String, CamundaVariable]
-
             messageService
               .sendMessage(
                 name = messageName,
@@ -193,7 +178,7 @@ object GatewayRoutes:
                 timeToLiveInSec = timeToLiveInSec,
                 businessKey = businessKey,
                 processInstanceId = processInstanceId,
-                variables = Some(camundaVariables)
+                variables = Some(variables)
               )
               .mapError(ErrorResponse.fromOrchescalaError)
 
