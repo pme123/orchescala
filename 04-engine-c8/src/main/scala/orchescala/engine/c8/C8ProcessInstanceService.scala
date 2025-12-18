@@ -293,7 +293,7 @@ class C8ProcessInstanceService(using
 
             withCorrelationKey
               .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
-              .variables(variablesMap)
+              .variables(variablesMap.asJava)
               .send().join()
           .mapError: err =>
             EngineError.ProcessError(
