@@ -4,14 +4,14 @@ import sttp.client3.*
 
 sealed trait OAuthConfig:
 
-  def fssoRealm: String
-  def fssoBaseUrl: String
+  def ssoRealm: String
+  def ssoBaseUrl: String
   def client_id: String
   def client_secret: String
   def scope: String
   def grantType: String
 
-  def identityUrl = uri"$fssoBaseUrl/realms/$fssoRealm/protocol/openid-connect/token"
+  def identityUrl = uri"$ssoBaseUrl/realms/$ssoRealm/protocol/openid-connect/token"
 
   def asMap: Map[String, String] = Map(
     "grant_type"    -> grantType,
@@ -22,8 +22,8 @@ sealed trait OAuthConfig:
 
   override def toString: String =
     s"""OAuthConfig:
-       |- fssoRealm: $fssoRealm
-       |- fssoBaseUrl: $fssoBaseUrl
+       |- ssoRealm: $ssoRealm
+       |- ssoBaseUrl: $ssoBaseUrl
        |- client_id: $client_id
        |- client_secret: ${client_secret.take(5)}***"
        |- scope: $scope
@@ -34,8 +34,8 @@ end OAuthConfig
 object OAuthConfig:
 
   case class PasswordGrant(
-      fssoRealm: String,
-      fssoBaseUrl: String,
+      ssoRealm: String,
+      ssoBaseUrl: String,
       client_id: String,
       client_secret: String,
       scope: String,
@@ -51,8 +51,8 @@ object OAuthConfig:
       )
 
     val clientCredentialsConfig: OAuthConfig.ClientCredentials = ClientCredentials(
-      fssoRealm = fssoRealm,
-      fssoBaseUrl = fssoBaseUrl,
+      ssoRealm = ssoRealm,
+      ssoBaseUrl = ssoBaseUrl,
       client_id = client_id,
       client_secret = client_secret,
       scope = scope
@@ -67,8 +67,8 @@ object OAuthConfig:
   end PasswordGrant
 
   case class ClientCredentials(
-      fssoRealm: String,
-      fssoBaseUrl: String,
+      ssoRealm: String,
+      ssoBaseUrl: String,
       client_id: String,
       client_secret: String,
       scope: String
@@ -81,8 +81,8 @@ object OAuthConfig:
       clientCredConfig: ClientCredentials
   ) extends OAuthConfig:
     val grantType     = "urn:ietf:params:oauth:grant-type:token-exchange"
-    val fssoRealm     = clientCredConfig.fssoRealm
-    val fssoBaseUrl   = clientCredConfig.fssoBaseUrl
+    val ssoRealm     = clientCredConfig.ssoRealm
+    val ssoBaseUrl   = clientCredConfig.ssoBaseUrl
     val client_id     = clientCredConfig.client_id
     val client_secret = clientCredConfig.client_secret
     val scope         = clientCredConfig.scope

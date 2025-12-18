@@ -121,12 +121,11 @@ class C8ProcessInstanceService(using
       correlationJson <- ZIO.succeed(signedCorrelation.asJson.deepDropNullValues)
       variablesMap    <- ZIO.succeed(jsonToVariablesMap(Json.obj("identityCorrelation" -> correlationJson)))
       _               <- ZIO
-        .attempt:
+        .fromFutureJava:
           camundaClient
             .newSetVariablesCommand(processInstanceId.toLong)
             .variables(variablesMap.asJava)
             .send()
-            .join()
         .mapError: err =>
           EngineError.ProcessError(
             s"Problem setting identityCorrelation variable for process '$processInstanceId': $err"
@@ -142,7 +141,7 @@ class C8ProcessInstanceService(using
       processVariables: Json
   ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
     ZIO
-      .attempt:
+      .fromFutureJava:
         val variables = processVariables.deepMerge(businessKey.map(bk =>
           Json.obj("businessKey" -> bk.asJson)
         ).getOrElse(Json.obj()))
@@ -160,7 +159,7 @@ class C8ProcessInstanceService(using
               command.tenantId(tenantId)
             .getOrElse(command)
 
-        commandWithTenant.send().join()
+        commandWithTenant.send()
       .mapError: err =>
         EngineError.ProcessError(
           s"Problem starting Process '$processDefId': $err"
@@ -174,13 +173,13 @@ class C8ProcessInstanceService(using
       camundaClient <- camundaClientZIO
       variableDtos  <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             camundaClient
               .newVariableSearchRequest()
               .filter(_.processInstanceKey(processInstanceId.toLong))
               .send()
-              .join()
-              .items()
+          .map:
+             _.items()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Variables for Process Instance '$processInstanceId': $err"
@@ -225,7 +224,7 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String] = None,
       tenantId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None,
+      variables: Option[JsonObject] = None,
       identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, ProcessInfo] =
     identityCorrelation match
@@ -252,7 +251,7 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, ProcessInfo] =
     for
       _                 <- logInfo(s"Starting process by message '$messageName'")
@@ -275,11 +274,12 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     for
       camundaClient <- camundaClientZIO
-      variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
+      variablesMap  <- ZIO.succeed(variables.map(_.toVariablesMap).getOrElse(Map.empty))
+      _               <- logInfo("variablesMap: " + variablesMap)
       response      <-
         ZIO
           .attempt:
@@ -293,7 +293,7 @@ class C8ProcessInstanceService(using
 
             withCorrelationKey
               .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
-              .variables(variablesMap)
+              .variables(variablesMap.asJava)
               .send().join()
           .mapError: err =>
             EngineError.ProcessError(

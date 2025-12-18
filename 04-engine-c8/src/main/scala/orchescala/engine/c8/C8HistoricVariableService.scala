@@ -26,7 +26,7 @@ class C8HistoricVariableService(using
       camundaClient <- camundaClientZIO
       variableDtos  <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             camundaClient
               .newVariableSearchRequest()
               .filter(f =>
@@ -39,8 +39,8 @@ class C8HistoricVariableService(using
                   case _                          => ()
                 end match
               ).send()
-              .join()
-              .items()
+          .map:
+              _.items()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
@@ -54,7 +54,7 @@ class C8HistoricVariableService(using
             mapToHistoricVariables(variableFilter, variableDtos.asScala.toSeq)
           .mapError: err =>
             EngineError.ProcessError(
-              s"Problem mapping Historic Variables for Process Instance '$processInstanceId': $err"
+              s"Problem mapping Historic Variables for Process Instance '${processInstanceId.mkString}': $err"
             )
     yield variables
 
@@ -72,7 +72,7 @@ class C8HistoricVariableService(using
         HistoricVariable(
           id = dto.getVariableKey.toString,
           name = dto.getName,
-          value = mapToCamundaVariable(dto),
+          value = mapToJson(dto),
           processDefinitionKey = None, // not supported
           processDefinitionId = None,  // not supported
           processInstanceId = Option(dto.getProcessInstanceKey).map(_.toString),
@@ -98,5 +98,11 @@ class C8HistoricVariableService(using
       case str if str.startsWith("{") || str.startsWith("[") => Some(CamundaVariable.CJson(str))
       case v if v.toDoubleOption.isDefined                   => Some(CamundaVariable.CDouble(v.toDouble))
       case v if v.toLongOption.isDefined                     => Some(CamundaVariable.CLong(v.toLong))
+
+  private def mapToJson(histVar: Variable): Option[Json] =
+    parser.parse(histVar.getValue) match
+      case Right(v) if v.isNull  => None
+      case Right(v)  => Some(v)
+      case Left(exc) => Some(s"Problem parsing Variable from Camunda ${histVar.getName} - ${histVar.getValue}: $exc".asJson)
 
 end C8HistoricVariableService

@@ -24,7 +24,7 @@ class C8IncidentService(using
       camundaClient <- camundaClientZIO
       incidentDtos <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             camundaClient
               .newIncidentSearchRequest()
               .filter(f =>
@@ -38,8 +38,8 @@ class C8IncidentService(using
                 end match
               )
               .send()
-              .join()
-              .items()
+          .map:
+              _.items()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Incidents: $err"

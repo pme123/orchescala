@@ -108,18 +108,16 @@ case class WorkerExecutor[
   end InputValidator
 
   object Initializer:
-    private val defaultVariables = Map(
-      "serviceName" -> "NOT-USED" // serviceName is not needed anymore
-    )
-
+    
     def initVariables(
         validatedInput: In
     )(using EngineContext): IO[InitProcessError, Map[String, Any]] =
-      worker.initProcessHandler
+      worker
+        .initProcessHandler
         .map: vi =>
-          vi.init(validatedInput).map(_ ++ defaultVariables)
+          vi.init(validatedInput)
         .getOrElse:
-          ZIO.succeed(defaultVariables)
+          ZIO.succeed(Map.empty[String, Any])
   end Initializer
 
   private def camundaOutputs(

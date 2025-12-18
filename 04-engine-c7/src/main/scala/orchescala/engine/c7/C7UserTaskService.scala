@@ -151,44 +151,42 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Unit] =
     for
-      apiClient        <- apiClientZIO
-      _                <- logDebug(s"Completing UserTask: $taskId")
+      apiClient <- apiClientZIO
+      _         <- logInfo(s"Completing UserTask: $taskId")
 
       // Get existing correlation from process or use provided one
-      existingCorr     <- getOrUpdateCorrelation(taskId, identityCorrelation)
+      existingCorr <- getOrUpdateCorrelation(taskId, identityCorrelation)
+      _            <- logInfo(s"existingCorr existingCorr: $taskId")
 
       // Get processInstanceId from task
       processInstanceId <- getProcessInstanceIdFromTask(taskId)
 
       // Sign the correlation with processInstanceId if provided
-      signedCorr       <- existingCorr match
-                            case Some(corr) => signCorrelation(corr, processInstanceId)
-                            case None       => ZIO.succeed(None)
+      signedCorr <- existingCorr match
+                      case Some(corr) => signCorrelation(corr, processInstanceId)
+                      case None       => ZIO.succeed(None)
+      _          <- logInfo(s"existingCorr $signedCorr: $taskId")
 
       // Build variables with signed correlation
-      variableMap      <- CamundaVariable.jsonToCamundaValue(
-                            processVariables.add(
-                              InputParams.identityCorrelation.toString,
-                              signedCorr.asJson.deepDropNullValues
-                            ).toJson
-                          ) match
-                            case m: Map[?, ?] =>
-                              ZIO.succeed(m.asInstanceOf[Map[String, CamundaVariable]])
-                            case other        =>
-                              ZIO.fail(EngineError.MappingError(s"Expected a Map, but got $other"))
+      jsonObj = processVariables.add(
+                       InputParams.identityCorrelation.toString,
+                       signedCorr.asJson.deepDropNullValues
+                     )
+      _           <- logInfo(s"complete UserTask: $taskId - $jsonObj")
 
-      variableDtos     <- toC7Variables(variableMap)
-      _                <- ZIO
-                            .attempt:
-                              new TaskApi(apiClient)
-                                .complete(
-                                  taskId,
-                                  new CompleteTaskDto()
-                                    .variables(variableDtos.asJava)
-                                )
-                            .mapError(err =>
-                              EngineError.ProcessError(s"Problem completing task: $err")
+      variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
+      _            <- ZIO
+                        .attempt:
+                          new TaskApi(apiClient)
+                            .complete(
+                              taskId,
+                              new CompleteTaskDto()
+                                .variables(variableDtos.asJava)
                             )
+                        .mapError(err =>
+                          EngineError.ProcessError(s"Problem completing task: $err")
+                        )
+      _            <- logInfo(s"UserTask completed: $taskId")
     yield ()
 
   private def mapToUserTasks(taskDtos: java.util.List[TaskWithAttachmentAndCommentDto])
@@ -234,8 +232,8 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Option[IdentityCorrelation]] =
     for
-      apiClient                        <- apiClientZIO
-      variables                        <-
+      apiClient <- apiClientZIO
+      variables <-
         ZIO
           .attempt:
             new TaskApi(apiClient)
@@ -248,12 +246,14 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
             EngineError.ProcessError(s"Problem getting form variables: $err")
 
       doOverrideImpersonation <- checkOverride(variables)
-      impersonateProcessValue  <- impersonateProcessValue(variables)
-      idCorrelation                    <-
-        if doOverrideImpersonation then {
+      impersonateProcessValue <- impersonateProcessValue(variables)
+      idCorrelation           <-
+        if doOverrideImpersonation then
           // impersonateProcessValue is not set in the identityCorrelation, but maybe in the existing Correlation
-          ZIO.succeed(identityCorrelation.map(_.copy(impersonateProcessValue = impersonateProcessValue)))
-        } else
+          ZIO.succeed(identityCorrelation.map(_.copy(impersonateProcessValue =
+            impersonateProcessValue
+          )))
+        else
           variables
             .get(InputParams.identityCorrelation.toString)
             .map: dto =>
@@ -268,9 +268,14 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
                       impersonateProcessValue = json.hcursor.downField(
                         "impersonateProcessValue"
                       ).as[Option[String]].getOrElse(None),
-                      issuedAt = json.hcursor.downField("issuedAt").as[Long].getOrElse(System.currentTimeMillis()),
-                      processInstanceId = json.hcursor.downField("processInstanceId").as[Option[String]].getOrElse(None),
-                      signature = json.hcursor.downField("signature").as[Option[String]].getOrElse(None)
+                      issuedAt = json.hcursor.downField(
+                        "issuedAt"
+                      ).as[Long].getOrElse(System.currentTimeMillis()),
+                      processInstanceId = json.hcursor.downField(
+                        "processInstanceId"
+                      ).as[Option[String]].getOrElse(None),
+                      signature =
+                        json.hcursor.downField("signature").as[Option[String]].getOrElse(None)
                     )
                   )
             .getOrElse(ZIO.none)
@@ -298,13 +303,13 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
 
   private def getProcessInstanceIdFromTask(taskId: String): IO[EngineError, String] =
     for
-      apiClient <- apiClientZIO
-      task      <- ZIO
-                     .attempt:
-                       new TaskApi(apiClient).getTask(taskId)
-                     .mapError(err =>
-                       EngineError.ProcessError(s"Problem getting task: $err")
-                     )
+      apiClient         <- apiClientZIO
+      task              <- ZIO
+                             .attempt:
+                               new TaskApi(apiClient).getTask(taskId)
+                             .mapError(err =>
+                               EngineError.ProcessError(s"Problem getting task: $err")
+                             )
       processInstanceId <- ZIO
                              .fromOption(Option(task.getProcessInstanceId))
                              .mapError(_ =>

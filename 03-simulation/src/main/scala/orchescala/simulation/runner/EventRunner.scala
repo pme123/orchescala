@@ -1,7 +1,7 @@
 package orchescala.simulation
 package runner
 
-import orchescala.engine.ProcessEngine
+import orchescala.engine.*
 import zio.ZIO
 import zio.ZIO.logInfo
 
@@ -30,7 +30,7 @@ class EventRunner(sEvent: SEvent)(using
             )
       _                  <- logInfo(s"Variables fetched for ${sEvent.inOut.id}: $variables")
       given ScenarioData <-
-        if variables.nonEmpty && variables.head.value.exists(_.value == readyValue) then
+        if variables.nonEmpty && variables.head.value.exists(_.toOptionalAny.contains(readyValue)) then
           ZIO.succeed(summon[ScenarioData]
             .info(
               s"Variable for '${sEvent.name}' ready ($variableName = '$readyValue')"

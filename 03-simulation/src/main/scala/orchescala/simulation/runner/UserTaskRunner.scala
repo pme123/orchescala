@@ -94,6 +94,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
   private def completeTask: ResultType =
     val taskId = summon[ScenarioData].context.taskId
     for
+      _ <- logInfo(s"Completing UserTask: $taskId")
       _ <- userTaskService.complete(
              taskId,
              userTaskScenario.inOut.outAsJson.asObject.get,

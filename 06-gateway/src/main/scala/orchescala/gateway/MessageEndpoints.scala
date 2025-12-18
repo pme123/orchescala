@@ -39,9 +39,9 @@ object MessageEndpoints:
       "amount": 99.99,
       "approved": true
     }
-  """).getOrElse(io.circe.Json.Null)
+  """).toOption.flatMap(_.asObject).get
 
-  val sendMessage: Endpoint[String, (String, Option[String], Option[Int], Option[String], Option[String], Json), ErrorResponse, MessageCorrelationResult, Any] =
+  val sendMessage: Endpoint[String, (String, Option[String], Option[Int], Option[String], Option[String], JsonObject), ErrorResponse, MessageCorrelationResult, Any] =
     securedBaseEndpoint
       .post
       .in(path[String]("messageName")
@@ -60,7 +60,7 @@ object MessageEndpoints:
       .in(query[Option[String]]("processInstanceId")
         .description("Process instance ID to correlate the message to a specific process instance.")
         .example(Some("f150c3f1-13f5-11ec-936e-0242ac1d0007")))
-      .in(jsonBody[Json]
+      .in(jsonBody[JsonObject]
         .description("Variables to send with the message as a JSON object")
         .example(sendMessageRequestExample))
       .out(statusCode(StatusCode.Ok))

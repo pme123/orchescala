@@ -19,7 +19,7 @@ class C7SignalService(using
       name: String,
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
-      variables: Option[Map[String, CamundaVariable]] = None
+      variables: Option[JsonObject] = None
   ): IO[EngineError, Unit] =
     for
       apiClient <- apiClientZIO

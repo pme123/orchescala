@@ -1,6 +1,10 @@
 package orchescala.engine.c8
 
 import orchescala.domain.*
+import orchescala.domain.CamundaVariable.CJson
+import orchescala.engine.domain.EngineError
+import zio.{IO, ZIO}
+
 import scala.util.Try
 import scala.jdk.CollectionConverters.*
 
@@ -8,20 +12,7 @@ def jsonToVariablesMap(json: Json): Map[String, Any] =
   json.asObject.map(_.toMap.map { case (k, v) => k -> jsonToValue(v) }).getOrElse(Map.empty)
 
 def jsonToVariablesMap(json: Map[String, Any]): Map[String, Any] =
-  jsonToVariablesMap(Json.obj(json.toSeq.map { case (k, v) => k -> valueToJson(v) } *))
-
-protected def mapToC8Variables(
-                                variables: Option[Map[String, CamundaVariable]]
-                              ): java.util.Map[String, Any] =
-  variables
-    .map { in =>
-      in
-        .collect :
-          case (k, v) if v.value != null =>
-            k -> v.value
-        .asJava
-    }
-    .getOrElse(Map.empty.asJava)
+  jsonToVariablesMap(Json.obj(json.toSeq.map { case (k, v) => k -> valueToJson(v) }*))
 
 private def jsonToValue(json: Json): Any =
   json.fold(

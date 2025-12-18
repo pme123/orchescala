@@ -56,7 +56,7 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
                                   name = msgName,
                                   tenantId = tenantId,
                                   businessKey = businessKey,
-                                  variables = Some(scenario.inOut.camundaInMap)
+                                  variables = scenario.inOut.inAsJson.asObject
                                 )
                                 .map: result =>
                                   summon[ScenarioData]

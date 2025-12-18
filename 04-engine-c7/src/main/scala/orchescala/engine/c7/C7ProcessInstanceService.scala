@@ -213,7 +213,7 @@ class C7ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String] = None,
       tenantId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None,
+      variables: Option[JsonObject] = None,
       identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, ProcessInfo] =
     identityCorrelation match
@@ -233,7 +233,7 @@ class C7ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, ProcessInfo] =
     for
       _                 <- logInfo(s"Starting process by message '$messageName'")
@@ -257,7 +257,7 @@ class C7ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]],
+      variables: Option[JsonObject],
       correlation: IdentityCorrelation
   ): IO[EngineError, ProcessInfo] =
     for
@@ -290,7 +290,7 @@ class C7ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     for
       apiClient <- apiClientZIO
