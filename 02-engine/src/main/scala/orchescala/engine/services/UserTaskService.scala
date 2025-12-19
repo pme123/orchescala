@@ -1,10 +1,9 @@
 package orchescala.engine.services
 
-import orchescala.domain.{CamundaVariable, IdentityCorrelation, JsonProperty}
+import orchescala.domain.{IdentityCorrelation, JsonProperty}
 import orchescala.engine.domain.*
 import sttp.tapir.Schema.annotations.description
-import zio.{IO, ZIO}
-import zio.durationInt
+import zio.{IO, ZIO, durationInt}
 
 trait UserTaskService extends EngineService:
 

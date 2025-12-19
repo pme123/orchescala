@@ -1,11 +1,14 @@
 package orchescala.helper.dev.update
 
+import orchescala.api.ModuleType
 import orchescala.helper.util.DevConfig
 
 case class ApiGeneratorGenerator()(using config: DevConfig):
 
-  lazy val generate: Unit =
-    createIfNotExists(apiGeneratorPath, apiGenerator)
+  lazy val generate: Unit = {
+    if config.apiProjectConfig.modules.contains(ModuleType.helper) then
+      createIfNotExists(apiGeneratorPath, apiGenerator)
+  }
 
   private lazy val companyName = config.companyName
   private lazy val helperPath =

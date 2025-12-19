@@ -1,10 +1,13 @@
 package orchescala.helper.dev.update
 
+import orchescala.api.ModuleType
+
 
 case class DmnGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
-    createIfNotExists(dmnPath() / "ProjectDmnTester.scala", dmnTester)
+    if config.apiProjectConfig.modules.contains(ModuleType.dmn) then
+      createIfNotExists(dmnPath() / "ProjectDmnTester.scala", dmnTester)
 
   lazy val dmnTester: String =
     s"""package ${config.projectPackage}

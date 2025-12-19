@@ -1,18 +1,21 @@
 package orchescala.helper.dev.update
 
+import orchescala.api.ModuleType
+
 case class ApiGenerator()(using config: DevConfig):
 
   private lazy val companyNameNice = config.companyName.head.toUpper + config.companyName.tail
 
   lazy val generate: Unit =
-    createIfNotExists(
-      config.projectDir / ModuleConfig.apiModule.packagePath(
-        config.projectPath
-      ) / "ApiProjectCreator.scala",
-      api
-    )
-    createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", openApiHtml)
-    createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", postmanOpenApiHtml)
+    if config.apiProjectConfig.modules.contains(ModuleType.api) then
+      createIfNotExists(
+        config.projectDir / ModuleConfig.apiModule.packagePath(
+          config.projectPath
+        ) / "ApiProjectCreator.scala",
+        api
+      )
+      createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", openApiHtml)
+      createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", postmanOpenApiHtml)
   end generate
 
   lazy val api =

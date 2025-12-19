@@ -1,12 +1,13 @@
 package orchescala.helper.dev.update
 
-import orchescala.api.DependencyConfig
+import orchescala.api.ModuleType
 
 case class GatewayGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
-    createOrUpdate(gatewayPath / "GatewayServerApp.scala", gatewayApp)
-    createOrUpdate(gatewayConfigPath / "logback.xml", logbackXml)
+    if config.apiProjectConfig.modules.contains(ModuleType.gateway) then
+      createOrUpdate(gatewayPath / "GatewayServerApp.scala", gatewayApp)
+      createOrUpdate(gatewayConfigPath / "logback.xml", logbackXml)
   end generate
 
   private lazy val companyName = config.companyName

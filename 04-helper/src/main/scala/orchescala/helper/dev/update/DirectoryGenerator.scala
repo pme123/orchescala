@@ -5,15 +5,17 @@ import orchescala.helper.util.TestType
 case class DirectoryGenerator()(using config: DevConfig):
   lazy val generate =
     os.makeDir.all(config.sbtProjectDir)
-    config.modules.map:
-      generateModule
+    config.modules
+      .filter: moduleConfig =>
+        config.apiProjectConfig.modules.contains(moduleConfig.moduleType)
+      .map:
+        generateModule
       
   lazy val generateForGateway =
     os.makeDir.all(config.sbtProjectDir)
     generateModule(ModuleConfig.gatewayModule)
 
   private def generateModule(moduleConfig: ModuleConfig): Unit =
-
     def printMainAndTest(
         subProject: Option[String] = None
     ): Unit =
