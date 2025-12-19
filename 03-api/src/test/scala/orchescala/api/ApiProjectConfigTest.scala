@@ -3,6 +3,7 @@ package orchescala.api
 import munit.FunSuite
 
 class ApiProjectConfigTest extends FunSuite:
+
   test("ApiProjectConfig".ignore): // needs coursier
     val apiProjectConfig = ApiProjectConfig(
       os.pwd / "03-api" / "src" / "test" / defaultProjectConfigPath
@@ -17,7 +18,8 @@ class ApiProjectConfigTest extends FunSuite:
           DependencyConfig("mastercompany-services"),
           DependencyConfig("mycompany-commons")
         ),
-        Seq.empty
+        Seq.empty,
+        ModuleType.projectModules
       )
     )
 

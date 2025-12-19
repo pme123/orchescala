@@ -15,7 +15,7 @@ case class SbtGenerator()(using
   end generate
 
   lazy val generateForGateway: Unit =
-    println(s"Generate Sbt for Gateway: ${config.modules}")
+    println(s"Generate Sbt for Gateway: $modulesTypes")
     createOrUpdate(buildSbtDir, buildSbtForGateway)
     generateBuildProperties()
     generatePluginsSbt
@@ -78,6 +78,8 @@ case class SbtGenerator()(using
        |
        |${
         config.modules
+          .filter: m =>
+            modulesTypes.contains(m.moduleType)
           .filter(_.hasProjectDependencies)
           .map: moduleConfig =>
             val moduleName: String = moduleConfig.name
@@ -100,7 +102,7 @@ case class SbtGenerator()(using
        |    sourcesInBase := false,
        |    projectSettings(),
        |    publicationSettings, //Camunda artifacts
-       |  ).aggregate(${config.modules.map(_.name).mkString(", ")})
+       |  ).aggregate(${modulesTypes.mkString(", ")})
        |""".stripMargin
 
   lazy val sbtRootForGateway =
@@ -116,6 +118,8 @@ case class SbtGenerator()(using
 
   lazy val sbtModules =
     config.modules
+      .filter: m =>
+        modulesTypes.contains(m.moduleType)
       .map: modC =>
         sbtModule(modC)
       .mkString
@@ -197,4 +201,5 @@ case class SbtGenerator()(using
       case TestType.Simulation =>
         s""",
            |    simulationSettings""".stripMargin
+  private lazy val modulesTypes = config.apiProjectConfig.modules
 end SbtGenerator
