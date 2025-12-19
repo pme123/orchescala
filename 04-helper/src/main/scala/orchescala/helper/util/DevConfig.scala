@@ -41,7 +41,6 @@ case class DevConfig(
   lazy val sbtProjectDir: os.Path  = projectDir / "project"
 
   def dependsOn(level: Int): String =
-    println(s"DEPENDSONdd: $level")
     val bLevel =
       modules
         .sortBy(_.level)
@@ -49,7 +48,6 @@ case class DevConfig(
         ._1.lastOption
         .map(_.level)
         .getOrElse(0)
-    println(s"DEPENDSON: $bLevel ${modules
       .sortBy(_.level)
       .span(_.level < level)}")
 
@@ -63,10 +61,8 @@ case class DevConfig(
       then depsOn.mkString(".dependsOn(", ", ", ")")
       else if belowLevel > 1
       then
-        println(s"dependsOn: $level - $belowLevel - 1")
         dependsOn(belowLevel - 1)
       else
-        println(s"dependsOn no result: $level - $belowLevel")
         ""
       end if
     end dependsOn
