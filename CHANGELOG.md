@@ -15,6 +15,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.3.0 - 2025-12-19
+### Changed 
+- Merge pull request #5 from pme123/feature/moduleType - see [Commit](git@github.com:pme123/orchescala/commit/7cee161976e392b14332d67f5d27440f5c50f7f4)
+- Fixed pull request comments. - see [Commit](git@github.com:pme123/orchescala/commit/4ec0f522594a43a0b93bb32d57b4cb79d4478300)
+- Added ModuleType to the ApiProjectConfig, so you can have different project layouts (service only). - see [Commit](git@github.com:pme123/orchescala/commit/fa16c27849b6fde662bd55bab35cd9dea291dd14)
+- Merge pull request #4 from pme123/feature/changedVariablesToJson - see [Commit](git@github.com:pme123/orchescala/commit/1f43c088e1a7f9eb1bfe2ad3d5f039e90195bd9d)
+- Fixing Pull Request comments. - see [Commit](git@github.com:pme123/orchescala/commit/db7b258a9f91ca52d70188b1d4604435d9775e1a)
+- Fixing Pull Request comments. - see [Commit](git@github.com:pme123/orchescala/commit/fa35fa618a9e7f0405e4529d1808a57d954a7fa3)
+- Cleanup WorkerHandler. - see [Commit](git@github.com:pme123/orchescala/commit/8beef3dca886b28df256ef039ce7f340b1e36758)
+- Changed C8 Camunda API calls to async. - see [Commit](git@github.com:pme123/orchescala/commit/222e3fb1396bf6afcf7c6d13957db039a0f6a302)
+- Changed variables to JsonObject from CamundaVariables in Engine Services. - see [Commit](git@github.com:pme123/orchescala/commit/45b46bd6de8b21eb491d195872450ffc7c282ec1)
+- Fixing identity correlation problem - not working. - see [Commit](git@github.com:pme123/orchescala/commit/8ce1a602ac7dea7a95f47b6a7af2bd310191a846)
+- Fixed naming to sso. - see [Commit](git@github.com:pme123/orchescala/commit/f7de24a57172e0614f2494914dc8780d8f9a99c4)
+
 ## 0.2.31 - 2025-12-06
 ### Changed 
 - Added ProcessInstanceEndpoints.startProcessByMessage. - see [Commit](git@github.com:pme123/orchescala/commit/33f3150f76f2d7c5ce6100f5ce23f6a57ab73cb6)

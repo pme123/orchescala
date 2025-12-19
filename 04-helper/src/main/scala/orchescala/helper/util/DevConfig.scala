@@ -48,8 +48,6 @@ case class DevConfig(
         ._1.lastOption
         .map(_.level)
         .getOrElse(0)
-      .sortBy(_.level)
-      .span(_.level < level)}")
 
     def dependsOn(belowLevel: Int): String =
       val depsOn = modules
