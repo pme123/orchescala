@@ -15,6 +15,7 @@ final case class ApiProjectConfig(
     modules: Seq[ModuleType]
 ):
   lazy val companyName: String = projectName.split("-").head
+  lazy val allDependencies: Seq[DependencyConfig] = (dependencies ++ workerDependencies).distinct
 end ApiProjectConfig
 
 object ApiProjectConfig:

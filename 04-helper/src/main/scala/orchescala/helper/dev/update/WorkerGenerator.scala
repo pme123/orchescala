@@ -36,13 +36,13 @@ case class WorkerGenerator()(using config: DevConfig):
     createWorkerApp("WorkerApp")
 
   private lazy val workerTestApp =
-    createWorkerApp("WorkerTestApp", Some(config.apiProjectConfig.dependencies))
+    createWorkerApp("WorkerTestApp", Some(config.apiProjectConfig.allDependencies))
 
   private def createWorkerApp(
       objName: String,
       dependencies: Option[Seq[DependencyConfig]] = None
   ) =
-    s"""$helperDoNotAdjustText
+    s"""$helperHowToResetText
        |package ${config.projectPackage}.worker
        |
        |// sbt worker/${dependencies.map(_ => "test:").getOrElse("")}run

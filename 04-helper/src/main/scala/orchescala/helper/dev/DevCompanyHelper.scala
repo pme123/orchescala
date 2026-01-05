@@ -63,8 +63,12 @@ object DevCompanyHelper:
        |  // subProject1
        |  // subProject2
        |]
+       |workerDependencies: [
+       |    // mastercompany-services
+       |    // mycompany-services
+       |]
+       |
        |dependencies: [
-       |  // mastercompany-services
        |  // mycompany-commons
        |]
        |""".stripMargin
