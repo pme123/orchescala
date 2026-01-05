@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.3.1 - 2026-01-05
+### Changed 
+- Fixes for Demo setup new project. - see [Commit](git@github.com:pme123/orchescala/commit/a1ffba8cc3cc07901eb084b4a1f07bdc781fab11)
+
 ## 0.3.0 - 2025-12-19
 ### Changed 
 - Merge pull request #5 from pme123/feature/moduleType - see [Commit](git@github.com:pme123/orchescala/commit/7cee161976e392b14332d67f5d27440f5c50f7f4)
