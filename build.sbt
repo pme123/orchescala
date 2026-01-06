@@ -141,7 +141,7 @@ lazy val worker = project
     libraryDependencies ++= Seq(
       scaffeineDependency,
       logbackDependency
-    ) ++ zioTestDependencies
+    ) ++ zioTestDependencies ++ zioHttpDependencies
   )
   .dependsOn(engine)
 

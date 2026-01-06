@@ -178,6 +178,11 @@ object WorkerError:
       errorMsg: String
   ) extends ServiceError
 
+  case class TokenValidationError(
+      errorMsg: String,
+      errorCode: ErrorCodes = ErrorCodes.`mapping-error`
+  ) extends WorkerError
+
   def requestMsg[ServiceIn: InOutEncoder](
       runnableRequest: RunnableRequest[ServiceIn]
   ): String =
