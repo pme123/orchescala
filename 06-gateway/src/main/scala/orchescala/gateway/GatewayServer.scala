@@ -24,21 +24,7 @@ import zio.http.*
 abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
   def config: GatewayConfig = GatewayConfig.default
-  
-  var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
 
-  /** Add all the workers you want to support.
-    *
-    * You can add single workers, lists of workers or even complete WorkerApps. And a mix of all of
-    * the above.
-    */
-  def supportedWorkers(dWorkers: (WorkerDsl[?, ?] | Seq[WorkerDsl[?, ?]] | WorkerApp)*): Unit =
-    theWorkers = dWorkers
-      .flatMap:
-        case d: WorkerDsl[?, ?] => Seq(d)
-        case s: Seq[?]          => s.collect { case d: WorkerDsl[?, ?] => d }
-        case app: WorkerApp     => app.theWorkers
-      .toSet
 
   def run: ZIO[Any, Any, Any] = start()
 
@@ -53,7 +39,6 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
       for
         _ <- ZIO.logInfo(banner("Engine Gateway Server"))
         _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.port}")
-        _ <- ZIO.logInfo(s"\n${theWorkers.size} supported Workers: \n- ${theWorkers.map(_.topic).mkString("\n- ")}")
 
         // Create gateway engine
         gatewayEngine <- engineZIO
@@ -67,7 +52,7 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                          gatewayEngine.historicVariableService,
           config
                        )
-        workerRoutes = WorkerRoutes.routes(theWorkers, config.validateToken)
+        workerRoutes = WorkerRoutes.routes(config)
         docsRoutes   = OpenApiRoutes.routes
         allRoutes    = apiRoutes ++ workerRoutes ++ docsRoutes
 

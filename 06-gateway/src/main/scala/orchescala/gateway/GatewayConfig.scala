@@ -12,17 +12,37 @@ trait GatewayConfig:
   def validateToken(token: String): IO[GatewayError, String]
   def extractCorrelation(
       token: String,
-      in: JsonObject,
+      in: JsonObject
   ): IO[GatewayError, IdentityCorrelation]
+
+  /** Get the base URL for a worker app by topic name. Returns None if the worker should be executed
+    * locally. Returns Some(url) if the worker request should be forwarded to the given URL.
+    */
+  def workerAppUrl(topicName: String): Option[String]
+end GatewayConfig
+
+object GatewayConfig:
+  val localWorkerAppUrl = "http://localhost:5555"
+  def default           = DefaultGatewayConfig()
+
 end GatewayConfig
 
 case class DefaultGatewayConfig(
     port: Int = 8888,
+    workersBasePath: String = GatewayConfig.localWorkerAppUrl,
     impersonateProcessKey: Option[String] = None
 ) extends GatewayConfig:
 
+  def workerAppUrl(topicName: String): Option[String] =
+    if workersBasePath == GatewayConfig.localWorkerAppUrl then
+      Some(GatewayConfig.localWorkerAppUrl)
+    else
+      topicName.split('-').take(2).lastOption
+        .map: projectName =>
+          s"$workersBasePath/orchescala/$projectName/v1"
+
   /** Default token validator - validates that token is not empty and returns the token. Override
-    * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
+    * this with your down validation logic (e.g., JWT validation, database lookup, etc.)
     */
   def validateToken(token: String): IO[GatewayError, String] =
     if token.nonEmpty then
@@ -34,7 +54,7 @@ case class DefaultGatewayConfig(
 
   def extractCorrelation(
       token: String,
-      in: JsonObject,
+      in: JsonObject
   ): ZIO[Any, GatewayError.TokenExtractionError, IdentityCorrelation] =
     (for
       decoded <- ZIO.attempt(JWT.decode(token))
@@ -57,8 +77,3 @@ case class DefaultGatewayConfig(
         )
       )
 end DefaultGatewayConfig
-
-object GatewayConfig:
-  def default = DefaultGatewayConfig()
-
-end GatewayConfig

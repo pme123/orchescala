@@ -60,10 +60,10 @@ object WorkerEndpoints:
           }
         )
       )
-      .name("Trigger Worker")
-      .summary("Trigger a worker execution")
+      .name("Forward to Worker")
+      .summary("Forward to a worker execution")
       .description(
-        """Triggers a worker to execute with the provided variables.
+        """Forwards to the WorkerApp to trigger a worker executing with the provided variables.
           |
           |This endpoint allows you to manually trigger a worker execution, which can be useful for:
           |- Testing worker implementations
