@@ -16,42 +16,6 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   def topic: String     = worker.topic
   def timeout: Duration = 10.seconds
 
-  def runWorkFromWorker(json: Json)(using
-                                EngineRunContext
-  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
-    ZIO.fromEither(json.as[In])
-      .mapError: err =>
-        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
-      .flatMap(runWorkFromWorker)
-      .map :
-        case NoOutput() => None
-        case out => Some(out.asInstanceOf[Out].asJson.deepDropNullValues)
-
-  def runWorkFromWorker(in: In)(using
-      EngineRunContext
-  ): ZIO[SttpClientBackend, WorkerError, Out | NoOutput] =
-    for
-      validatedInput            <- ZIO.fromEither(
-                                     worker.validationHandler.validate(in)
-                                   )
-      mockedOutput: Option[Out] <- OutMocker(worker).mockedOutput(validatedInput)
-      out                       <-
-        if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
-        else ZIO.succeed(mockedOutput.get)
-    yield out
-
-  /*
-    Only call this if it is NOT an InitWorker
-   */
-  def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[WorkerError, Out] =
-    runWorkFromWorker(in)
-      .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
-      .catchAllDefect: defect =>
-        ZIO.logError(s"DEFECT runWorkFromWorkerUnsafe: ${defect.toString}") *>
-          ZIO.fail(UnexpectedRunError(
-            s"Unexpected error runWorkFromWorkerUnsafe. Defect: ${defect.getMessage}"
-          ))
-          
   protected def regexMatchesAll(
       errorHandled: Boolean,
       error: WorkerError,
@@ -103,9 +67,7 @@ trait InitWorkerDsl[
     Out <: Product: InOutCodec,
     InitIn <: Product: InOutCodec,
     InConfig <: Product: InOutCodec
-] extends WorkerDsl[In, Out],
-      ValidateDsl[In],
-      InitProcessDsl[In, InitIn, InConfig]:
+] extends InitProcessDsl[In, Out, InitIn, InConfig]:
 
   protected def inOutExample: Process[In, Out, InitIn]
 
@@ -223,9 +185,31 @@ end ValidateDsl
 
 private trait InitProcessDsl[
     In <: Product: InOutCodec,
+    Out <: Product: InOutCodec,
     InitIn <: Product: InOutCodec,
     InConfig <: Product: InOutCodec
-]:
+] extends ValidateDsl[In], WorkerDsl[In, Out]:
+
+  def runWorkFromService(json: Json)(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+    ZIO.fromEither(json.as[In])
+      .mapError: err =>
+        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
+      .flatMap(runWorkFromWorker)
+      .map: initIn =>
+        Some(initIn.asJson.deepDropNullValues)
+
+  def runWorkFromWorker(in: In)(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, InitIn] =
+    for
+      validatedInput <- ZIO.fromEither(
+                          worker.validationHandler.validate(in)
+                        )
+      out            <-
+        customInitZIO(validatedInput)
+    yield out
 
   protected def customInitZIO(
       inputObject: In
@@ -240,7 +224,7 @@ private trait InitProcessDsl[
   // by default the InConfig is initialized
   final def initProcessZIO(in: In): EngineRunContext ?=> IO[InitProcessError, Map[String, Any]] =
     given EngineContext = summon[EngineRunContext].engineContext
-    val inConfigZIO = in match
+    val inConfigZIO     = in match
       case i: WithConfig[?] =>
         ZIO
           .attempt:
@@ -251,11 +235,11 @@ private trait InitProcessDsl[
           .mapError: err =>
             InitProcessError(s"Error initializing InConfig: $err")
       case _                => ZIO.succeed(Map.empty)
-    for 
-      initIn <- customInitZIO(in)
+    for
+      initIn   <- customInitZIO(in)
       inConfig <- inConfigZIO
     yield inConfig ++ summon[EngineRunContext].toEngineObject(initIn)
-    
+
   end initProcessZIO
 
   /** initialize the config of the form of:
@@ -312,9 +296,45 @@ end InitProcessDsl
 private trait RunWorkDsl[
     In <: Product: InOutCodec,
     Out <: Product: InOutCodec
-]:
-  type RunWorkOutput    =
+] extends ValidateDsl[In], WorkerDsl[In, Out]:
+  type RunWorkOutput =
     Either[CustomError, Out]
+
+  def runWorkFromWorker(json: Json)(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+    ZIO.fromEither(json.as[In])
+      .mapError: err =>
+        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
+      .flatMap(runWorkFromWorker)
+      .map:
+        case NoOutput() => None
+        case out        => Some(out.asInstanceOf[Out].asJson.deepDropNullValues)
+
+  def runWorkFromWorker(in: In)(using
+      context: EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Out | NoOutput] =
+    for
+      validatedInput            <- ZIO.fromEither(
+                                     worker.validationHandler.validate(in)
+                                   )
+      mockedOutput: Option[Out] <- OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
+      out                       <-
+        if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
+        else ZIO.succeed(mockedOutput.get)
+    yield out
+
+  /*
+    Only call this if it is NOT an InitWorker
+   */
+  def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[WorkerError, Out] =
+    runWorkFromWorker(in)
+      .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
+      .catchAllDefect: defect =>
+        ZIO.logError(s"DEFECT runWorkFromWorkerUnsafe: ${defect.toString}") *>
+          ZIO.fail(UnexpectedRunError(
+            s"Unexpected error runWorkFromWorkerUnsafe. Defect: ${defect.getMessage}"
+          ))
 
   protected def runWorkZIO(
       inputObject: In

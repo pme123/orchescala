@@ -26,7 +26,7 @@ case class WorkerExecutor[
       _                            <- logDebug(s"- validatedInput: $validatedInput")
       initializedOutput            <- Initializer.initVariables(validatedInput)
       _                            <- logDebug(s"- initializedOutput: $initializedOutput")
-      mockedOutput                 <- OutMocker(worker).mockedOutput(validatedInput)
+      mockedOutput                 <- OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
       _                            <- logDebug(s"- mockedOutput: $mockedOutput")
       // only run the work if it is not mocked
       output                       <-

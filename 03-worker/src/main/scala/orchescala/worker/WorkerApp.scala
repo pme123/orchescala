@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.engine.rest.HttpClientProvider
-import orchescala.engine.{EngineRuntime, banner}
+import orchescala.engine.{EngineConfig, EngineRuntime, banner}
 import zio.ZIO.*
 import zio.http.Server
 import zio.{Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
@@ -12,7 +12,7 @@ import scala.jdk.CollectionConverters.*
 trait WorkerApp extends ZIOAppDefault:
   def port: Int               = 5555
   def applicationName: String = getClass.getName.split('.').take(2).mkString("-")
-
+  def engineContext: EngineContext
   // a list of registries for each worker implementation
   def workerRegistries: Seq[WorkerRegistry]
 
@@ -55,7 +55,7 @@ trait WorkerApp extends ZIOAppDefault:
                          registry.register(workerApps(this).flatMap(_.theWorkers).toSet)
                        }.fork
         // Start HTTP server
-        workerRoutes = WorkerRoutes.routes(workerApps(this).flatMap(_.theWorkers).toSet)
+        workerRoutes = WorkerRoutes(engineContext).routes(workerApps(this).flatMap(_.theWorkers).toSet)
         docsRoutes   = OpenApiRoutes.routes
         _           <- ZIO.logInfo(s"Server ready at http://localhost:$port")
         _           <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs")

@@ -23,7 +23,7 @@ type RunWorkZIOOutput[Out] =
   EngineRunContext ?=> IO[CustomError, Out]
 
 type InitProcessZIOOutput[InitIn] =
-  EngineRunContext ?=> IO[InitProcessError, InitIn]
+  IO[InitProcessError, InitIn]
 
 def decodeTo[A: InOutDecoder](
     jsonStr: String
@@ -216,3 +216,12 @@ def printTimeOnConsole(start: Date) =
   else Console.BLACK
   s"($color$time ms${Console.RESET})"
 end printTimeOnConsole
+
+def extractGeneralVariables(json: Json) =
+  ZIO.fromEither(
+    customDecodeAccumulating[GeneralVariables](json.hcursor)
+  ).mapError(ex =>
+    ValidatorError(
+      s"Problem extract general variables from $json\n" + ex.getMessage
+    )
+  )

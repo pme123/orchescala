@@ -877,9 +877,9 @@ paths:
     post:
       tags:
       - Worker
-      summary: Trigger a worker execution
+      summary: Forward to a worker execution
       description: |
-        Triggers a worker to execute with the provided variables.
+        Forwards to the WorkerApp to trigger a worker executing with the provided variables.
 
         This endpoint allows you to manually trigger a worker execution, which can be useful for:
         - Testing worker implementations
@@ -889,7 +889,7 @@ paths:
         The worker will receive the provided variables as input and execute its logic accordingly.
         If the worker returns output variables, they will be returned with status 200 OK.
         If the worker returns no output (NoOutput), status 204 No Content will be returned.
-      operationId: Trigger Worker
+      operationId: Forward to Worker
       parameters:
       - name: topicName
         in: path

@@ -13,7 +13,7 @@ class DevConfigTest extends munit.FunSuite:
   test("dependsOn with single level dependency"):
     assertEquals(
       testConfig.dependsOn(3),
-      ".dependsOn(engine)"
+      ".dependsOn(domain)"
     )
 
   test("dependsOn with multiple dependencies"):

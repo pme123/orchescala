@@ -18,18 +18,9 @@ case class GatewayGenerator()(using config: DevConfig):
     s"""$helperDoNotAdjustText
        |package ${config.projectPackage}
        |
-       |import ${companyName}.orchescala.gateway.CompanyGatewayServerApp
-       |
        |// sbt gateway/run
-       |object $objName extends CompanyGatewayServerApp:
-       |  // You can add single workers, lists of workers or even complete WorkerApps. And a mix of all of them.
-       |  supportedWorkers(
-       |    ${dependencies
-        .map:
-          _.projectPackage + ".worker.WorkerApp"
-        .mkString("", ",\n    ", "")}
-       |  )
-       |end $objName""".stripMargin
+       |object $objName extends GatewayServer, CompanyEngineGApp
+       |""".stripMargin
   end gatewayApp
 
   lazy val logbackXml =

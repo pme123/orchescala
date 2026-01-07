@@ -10,13 +10,13 @@ final class OutMocker[
     In <: Product: InOutCodec,
     Out <: Product: InOutCodec,
     T <: Worker[In, Out, ?]
-](worker: T)(using context: EngineRunContext):
+](worker: T, generalVariables: GeneralVariables):
 
   def mockedOutput(in: In): IO[MockerError, Option[Out]] =
     (
-      context.generalVariables.isMockedWorker(worker.topic),
-      context.generalVariables.outputMock,
-      context.generalVariables.outputServiceMock
+      generalVariables.isMockedWorker(worker.topic),
+      generalVariables.outputMock,
+      generalVariables.outputServiceMock
     ) match
       // if the outputMock is set than we mock
       case (_, Some(outputMock), _) =>

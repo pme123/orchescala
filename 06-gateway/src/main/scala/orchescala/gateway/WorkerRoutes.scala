@@ -88,9 +88,9 @@ object WorkerRoutes:
                     .contentType("application/json")
       response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                     request.send(backend)
-                      .mapError: ex =>
+                      .mapError: err =>
                         WorkerError.ServiceUnexpectedError(
-                          s"Error forwarding request to worker app: ${ex.getMessage}"
+                          s"Error forwarding request to worker app: $err"
                         )
       _        <- ZIO.logDebug(s"Worker app response status: ${response.code.code}")
       result   <- response.code.code match
@@ -102,13 +102,12 @@ object WorkerRoutes:
                         )
                         .map(Some(_))
                     case code =>
-                      val body = response.body.fold(
-                        _,
-                        _
-                      )
+                      val body = response.body match
+                        case Right(msg) => msg
+                        case Left(msg) => msg
                       ZIO.fail(WorkerError.ServiceRequestError(
                         code,
-                        s"Worker app returned error: $body"
+                        body
                       ))
     yield result
 end WorkerRoutes

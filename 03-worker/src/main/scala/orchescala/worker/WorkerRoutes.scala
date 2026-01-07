@@ -4,35 +4,22 @@ import orchescala.domain.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.domain.EngineError.ProcessError
 import orchescala.engine.rest.HttpClientProvider
-import orchescala.engine.{AuthContext, Slf4JLogger}
+import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
 import orchescala.worker.*
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.http.{Response, Routes}
+import zio.prelude.data.Optional.AllValuesAreNullable
 import zio.{IO, ZIO}
 
 import scala.reflect.ClassTag
 
-object WorkerRoutes:
+case class WorkerRoutes(engineContext: EngineContext):
 
-  /** Simple EngineContext implementation for the worker app */
-  private class WorkerEngineContext extends EngineContext:
-    override def getLogger(clazz: Class[?]): OrchescalaLogger =
-      Slf4JLogger.logger(clazz.getName)
-
-    override def toEngineObject: Json => Any =
-      json => json
-
-    override def sendRequest[ServiceIn: InOutEncoder, ServiceOut: {InOutDecoder, ClassTag}](
-                                                                                             request: RunnableRequest[ServiceIn]
-                                                                                           ): SendRequestType[ServiceOut] =
-      DefaultRestApiClient.sendRequest(request)
-  end WorkerEngineContext
-  
   def routes(
-      supportedWorkers: Set[WorkerDsl[?, ?]],
+      supportedWorkers: Set[WorkerDsl[?, ?]]
       // no validation for workers
       // validateToken: String => IO[WorkerError, String]
   ): Routes[Any, Response] =
@@ -49,31 +36,42 @@ object WorkerRoutes:
         .serverLogic: validatedToken =>
           (topicName, variables) =>
             AuthContext.withBearerToken(validatedToken):
-              given EngineRunContext = EngineRunContext(
-                engineContext = WorkerEngineContext(),
-                generalVariables = GeneralVariables()
-              )
-
               ZIO.logInfo(s"Triggering worker: $topicName with variables: $variables") *>
-                  workers.get(topicName)
-                    .fold(ZIO.fail(EngineError.ProcessError(s"Worker not found: $topicName"))):
-                      worker =>
-                        worker
-                          .runWorkFromWorker(variables)
-                          .tap: r =>
-                            ZIO.logDebug(s"Worker '$topicName' response: $r")
-                          .provideLayer(HttpClientProvider.live)
-                    .mapError: err =>
-                      ErrorResponse.fromOrchescalaError(ProcessError(s"Running Worker failed: $err"))
+                workers.get(topicName)
+                  .fold(ZIO.fail(EngineError.ProcessError(s"Worker not found: $topicName"))):
+                    worker =>
+                      for
+                        generalVariables      <- extractGeneralVariables(variables)
+                        given EngineRunContext = createRunContext(generalVariables)
+                        result                <- worker match
+                                                   case worker: RunWorkDsl[?, ?]           =>
+                                                     worker
+                                                       .runWorkFromWorker(variables)
+                                                   case worker: InitProcessDsl[?, ?, ?, ?] =>
+                                                     worker
+                                                       .runWorkFromService(variables)
+                        _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
+                      yield result
+                  .provideLayer(HttpClientProvider.live)
+                  .tapError: err =>
+                    ZIO.logError(s"Triggering Worker Error: $err")
+                  .mapError: err =>
+                    ErrorResponse.fromOrchescalaError(ProcessError(s"Running Worker failed: $err"))
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(triggerWorkerEndpoint)
     )
   end routes
 
+  private def createRunContext(generalVariables: GeneralVariables) =
+    EngineRunContext(
+      engineContext = engineContext,
+      generalVariables = generalVariables
+    )
+
   /** Default token validator - validates that token is not empty and returns the token. Override
-   * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
-   */
+    * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
+    */
   private def validateToken(token: String): IO[WorkerError, String] =
     if token.nonEmpty then
       ZIO.succeed(token)
