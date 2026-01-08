@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.3.2 - 2026-01-08
+### Changed 
+- Fixed bad variable name filters in WorkerRegistries. - see [Commit](git@github.com:pme123/orchescala/commit/fe156b65f243cf26f32725c32efd4d78713449f7)
+
 ## 0.3.1 - 2026-01-05
 ### Changed 
 - Fixes for Demo setup new project. - see [Commit](git@github.com:pme123/orchescala/commit/a1ffba8cc3cc07901eb084b4a1f07bdc781fab11)
