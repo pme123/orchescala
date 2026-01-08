@@ -36,7 +36,7 @@ class C7WorkerRegistry(client: C7WorkerClient)
       attempt(client
         .subscribe(worker.topic)
         .handler(worker)
-        .variables((worker.worker.inVariableNames ++ GeneralVariables.variableNames :+ "businessKey")*)
+        .variables((worker.worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey")*)
         .open())
         .tap(_ => logInfo(s"Subscription opened successfully for topic: '${worker.topic}'"))
         .tapError(err =>

@@ -35,7 +35,7 @@ class C8WorkerRegistry(c8Client: C8Client)
         .newWorker()
         .jobType(worker.topic)
         .handler(worker)
-        .fetchVariables((worker.worker.inVariableNames ++ GeneralVariables.variableNames :+ "businessKey").asJava)
+        .fetchVariables((worker.worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey").asJava)
         .timeout(worker.timeout.toMillis)
         .open()) *>
       logInfo("Registered C8 Worker: " + worker.topic)
