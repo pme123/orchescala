@@ -131,10 +131,14 @@ class C7ProcessInstanceService(using
             .modifications(Map("identityCorrelation" -> correlationDto).asJava)
           new ProcessInstanceApi(apiClient)
             .modifyProcessInstanceVariables(processInstanceId, modifications)
-        .mapError: err =>
-          EngineError.ProcessError(
-            s"Problem setting identityCorrelation variable for process '$processInstanceId': $err"
-          )
+        .catchAll:
+          case err if err.getMessage.contains("doesn't exist: execution is null") =>
+            ZIO.logWarning(s"Process $processInstanceId has already ended - correlation not set.")
+          case err =>
+            ZIO.fail:
+              EngineError.ProcessError(
+                s"Problem setting identityCorrelation variable for process '$processInstanceId': $err"
+              )
     yield ()
   end setCorrelationVariable
 
