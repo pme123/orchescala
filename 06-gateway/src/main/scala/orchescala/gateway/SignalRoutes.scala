@@ -2,6 +2,7 @@ package orchescala.gateway
 
 import orchescala.engine.AuthContext
 import orchescala.engine.services.*
+import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
@@ -17,7 +18,7 @@ object SignalRoutes:
 
     val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
+        config.validateToken(token).mapError(ServiceRequestError.apply)
       .serverLogic: validatedToken =>
         (signalName, tenantId, variables) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -28,7 +29,7 @@ object SignalRoutes:
                 tenantId = tenantId,
                 variables = Some(variables)
               )
-              .mapError(ErrorResponse.fromOrchescalaError)
+              .mapError(ServiceRequestError.apply)
 
     List(sendSignalEndpoint)
 

@@ -1,18 +1,14 @@
 package orchescala.gateway
 
 import io.circe.Json as CirceJson
-import io.circe.syntax.*
-import orchescala.domain.{CamundaVariable, GeneralVariables, IdentityCorrelation, InputParams}
 import orchescala.engine.AuthContext
 import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.services.*
 import orchescala.gateway.GatewayError.{ServiceRequestError, UnexpectedError}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
-import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.*
-import zio.http.*
 
 object ProcessInstanceRoutes:
 
@@ -23,11 +19,12 @@ object ProcessInstanceRoutes:
 
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
+        config.validateToken(token).mapError(ServiceRequestError.apply)
       }.serverLogic:
         validatedToken => // validatedToken is the String token returned from security logic
           (processDefId, businessKeyQuery, tenantIdQuery, in) =>
             config.extractCorrelation(validatedToken, in)
+              .mapError(ServiceRequestError.apply)
               .flatMap: identityCorrelation =>
                 // Set the bearer token in AuthContext so it can be used by the engine services
                 AuthContext.withBearerToken(validatedToken):
@@ -35,7 +32,7 @@ object ProcessInstanceRoutes:
                     processDefId = processDefId,
                     in = in,
                     token = validatedToken
-                  ) *>
+                  ).mapError(ServiceRequestError.apply) *>
                     processInstanceService
                       .startProcessAsync(
                         processDefId = processDefId,
@@ -44,14 +41,15 @@ object ProcessInstanceRoutes:
                         tenantId = tenantIdQuery,
                         identityCorrelation = Some(identityCorrelation)
                       )
-              .mapError(ErrorResponse.fromOrchescalaError)
+                      .mapError(ServiceRequestError.apply)
 
     val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
+        config.validateToken(token).mapError(ServiceRequestError.apply)
       }.serverLogic: validatedToken =>
         (messageName, businessKeyQuery, tenantIdQuery, in) =>
           config.extractCorrelation(validatedToken, in)
+            .mapError(ServiceRequestError.apply)
             .flatMap: identityCorrelation =>
               // Set the bearer token in AuthContext so it can be used by the engine services
               AuthContext.withBearerToken(validatedToken):
@@ -59,7 +57,7 @@ object ProcessInstanceRoutes:
                   processDefId = messageName,
                   in = in,
                   token = validatedToken
-                ) *>
+                ).mapError(ServiceRequestError.apply) *>
                   processInstanceService
                     .startProcessByMessage(
                       messageName = messageName,
@@ -67,12 +65,11 @@ object ProcessInstanceRoutes:
                       tenantId = tenantIdQuery,
                       variables = Some(in),
                       identityCorrelation = Some(identityCorrelation)
-                    )
-            .mapError(ErrorResponse.fromOrchescalaError)
+                    ).mapError(ServiceRequestError.apply)
 
     val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
+        config.validateToken(token).mapError(ServiceRequestError.apply)
       .serverLogic: validatedToken =>
         (processInstanceId, variableFilter) =>
           // Set the bearer token in AuthContext so it can be used by the engine services
@@ -87,12 +84,12 @@ object ProcessInstanceRoutes:
                 CirceJson.obj(variables.map(v =>
                   v.name -> v.value.getOrElse(CirceJson.Null)
                 )*)
-              .mapError(ErrorResponse.fromOrchescalaError)
+              .mapError(ServiceRequestError.apply)
 
     // same as getProcessVariablesEndpoint, but with processDefinitionKey as path parameter for API documentation
     val getProcessVariablesEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariablesForApi.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
+        config.validateToken(token).mapError(ServiceRequestError.apply)
       .serverLogic: validatedToken =>
         (
             processDefinitionKey,
@@ -111,7 +108,7 @@ object ProcessInstanceRoutes:
                 CirceJson.obj(variables.map(v =>
                   v.name -> v.value.getOrElse(CirceJson.Null)
                 )*)
-              .mapError(ErrorResponse.fromOrchescalaError)
+              .mapError(ServiceRequestError.apply)
 
     List(
       startProcessEndpoint,
@@ -129,13 +126,16 @@ object ProcessInstanceRoutes:
       in: JsonObject,
       token: String
   )(using config: GatewayConfig): ZIO[Any, GatewayError, Option[Json]] =
-    // Forward request to the init worker
-    WorkerRoutes.forwardWorkerRequest(processDefId, in.asJson, token)
-      .provideLayer(HttpClientProvider.live)
-      .mapError:
-        case ServiceRequestError(errorCode, errorMsg) =>
-          ServiceRequestError(500, s"Init worker failed: $errorMsg")
-        case err                                      =>
-          UnexpectedError(s"Init worker failed: ${err.getMessage}")
+    if !config.validateInput then
+      ZIO.logInfo("Input validation is disabled (`GatewayConfig.validateInput`)") *> ZIO.none
+    else
+      // Forward request to the init worker
+      WorkerRoutes.forwardWorkerRequest(processDefId, in.asJson, token)
+        .provideLayer(HttpClientProvider.live)
+        .mapError:
+          case ServiceRequestError(errorCode, errorMsg) =>
+            ServiceRequestError(500, s"Init worker failed: $errorMsg")
+          case err                                      =>
+            UnexpectedError(s"Init worker failed: ${err.getMessage}")
 
 end ProcessInstanceRoutes

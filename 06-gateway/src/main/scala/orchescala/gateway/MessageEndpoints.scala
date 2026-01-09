@@ -3,47 +3,16 @@ package orchescala.gateway
 import io.circe.parser.*
 import orchescala.domain.*
 import orchescala.engine.domain.MessageCorrelationResult
+import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
 
 object MessageEndpoints:
 
-  private val baseEndpoint = endpoint
-    .in("message")
-    .errorOut(
-      oneOf[ErrorResponse](
-        oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.unauthorized))) { case e: ErrorResponse if e.httpStatus == 401 => true },
-        oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.badRequest))) { case e: ErrorResponse if e.httpStatus == 400 => true },
-        oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.notFound))) { case e: ErrorResponse if e.httpStatus == 404 => true },
-        oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.internalError))) { case e: ErrorResponse if e.httpStatus >= 500 => true },
-        oneOfDefaultVariant(jsonBody[ErrorResponse])
-      )
-    )
-
-  // Secured base endpoint with Bearer token authentication
-  private val securedBaseEndpoint = baseEndpoint
-    .securityIn(auth.bearer[String]())
-
-  // Example request body for sending a message
-  private val sendMessageRequestExample = parse("""
-    {
-      "orderId": "12345",
-      "amount": 99.99,
-      "approved": true
-    }
-  """).toOption.flatMap(_.asObject).get
-
-  val sendMessage: Endpoint[String, (String, Option[String], Option[Int], Option[String], Option[String], JsonObject), ErrorResponse, MessageCorrelationResult, Any] =
-    securedBaseEndpoint
+  val sendMessage: Endpoint[String, (String, Option[String], Option[Int], Option[String], Option[String], JsonObject), ServiceRequestError, MessageCorrelationResult, Any] =
+    EndpointsUtil.baseEndpoint
       .post
+      .in("message")
       .in(path[String]("messageName")
         .description("Message name")
         .example("order-received"))
@@ -79,5 +48,13 @@ object MessageEndpoints:
       )
       .tag("Message")
 
+  // Example request body for sending a message
+  private lazy val sendMessageRequestExample = 
+    Json.obj(
+      "orderId" -> Json.fromString("12345"),
+      "amount" -> Json.fromDoubleOrNull(99.99),
+      "approved" -> Json.fromBoolean(true)
+    ).asObject.get
+    
 end MessageEndpoints
 

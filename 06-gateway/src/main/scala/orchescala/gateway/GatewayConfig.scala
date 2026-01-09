@@ -8,6 +8,7 @@ import scala.jdk.CollectionConverters.*
 
 trait GatewayConfig:
   def port: Int
+  def validateInput: Boolean
   def impersonateProcessKey: Option[String]
   def validateToken(token: String): IO[GatewayError, String]
   def extractCorrelation(
@@ -29,6 +30,7 @@ end GatewayConfig
 
 case class DefaultGatewayConfig(
     port: Int = 8888,
+    validateInput: Boolean = true,
     workersBasePath: String = GatewayConfig.localWorkerAppUrl,
     impersonateProcessKey: Option[String] = None
 ) extends GatewayConfig:
@@ -60,8 +62,8 @@ case class DefaultGatewayConfig(
       decoded <- ZIO.attempt(JWT.decode(token))
       claims  <- ZIO.attempt(decoded.getClaims.asScala)
       payload <- ZIO.attempt(new String(java.util.Base64.getDecoder.decode(decoded.getPayload)))
-      _       <- ZIO.logInfo(s"Payload: $payload")
-      _       <- ZIO.logInfo(s"Claims: ${claims}")
+      _       <- ZIO.logDebug(s"Payload: $payload")
+      _       <- ZIO.logDebug(s"Claims: ${claims}")
     yield IdentityCorrelation(
       username = claims.get("preferred_username").map(_.asString()).mkString,
       email = claims.get("email").map(_.asString()),
