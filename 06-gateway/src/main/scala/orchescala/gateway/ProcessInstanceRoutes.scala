@@ -12,16 +12,12 @@ import sttp.tapir.ztapir.*
 import zio.*
 import zio.http.*
 
-object GatewayRoutes:
+object ProcessInstanceRoutes:
   
   def routes(
       processInstanceService: ProcessInstanceService,
-      userTaskService: UserTaskService,
-      signalService: SignalService,
-      messageService: MessageService,
-      historicVariableService: HistoricVariableService,
-      config: GatewayConfig
-  ): Routes[Any, Response] =
+      historicVariableService: HistoricVariableService
+  )(using config: GatewayConfig): List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
 
     val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
@@ -108,96 +104,14 @@ object GatewayRoutes:
                 )*)
               .mapError(ErrorResponse.fromOrchescalaError)
 
-    val getUserTaskVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      UserTaskEndpoints
-        .getUserTaskVariables.zServerSecurityLogic: token =>
-          config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
-        .serverLogic: validatedToken =>
-          (processInstanceId, taskDefinitionKey, variableFilter, timeoutInSec) =>
-            // Set the bearer token in AuthContext so it can be used by the engine services
-            AuthContext.withBearerToken(validatedToken):
-              userTaskService
-                .getUserTaskVariables(
-                  processInstanceId,
-                  taskDefinitionKey,
-                  variableFilter,
-                  timeoutInSec
-                )
-                .mapError(ErrorResponse.fromOrchescalaError)
-
-    def completeTask(validatedToken: String, userTaskId: String, in: JsonObject) =
-      config
-        .extractCorrelation(validatedToken, in)
-        .flatMap: identityCorrelation =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            userTaskService
-              .complete(userTaskId, in, Some(identityCorrelation))
-        .mapError(ErrorResponse.fromOrchescalaError)
-
-    val completeUserTaskEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      UserTaskEndpoints.completeUserTask.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
-      .serverLogic: validatedToken =>
-        (userTaskId, in) =>
-          completeTask(validatedToken, userTaskId, in)
-
-    val completeUserTaskEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      UserTaskEndpoints.completeUserTaskForApi.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
-      .serverLogic: validatedToken =>
-        (_, userTaskId, variables) => // taskDefinitionKey is not used - just for API documentation
-          completeTask(validatedToken, userTaskId, variables)
-
-    val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
-      .serverLogic: validatedToken =>
-        (signalName, tenantId, variables) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            signalService
-              .sendSignal(
-                name = signalName,
-                tenantId = tenantId,
-                variables = Some(variables)
-              )
-              .mapError(ErrorResponse.fromOrchescalaError)
-
-    val sendMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      MessageEndpoints.sendMessage.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
-      .serverLogic: validatedToken =>
-        (messageName, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            messageService
-              .sendMessage(
-                name = messageName,
-                tenantId = tenantId,
-                timeToLiveInSec = timeToLiveInSec,
-                businessKey = businessKey,
-                processInstanceId = processInstanceId,
-                variables = Some(variables)
-              )
-              .mapError(ErrorResponse.fromOrchescalaError)
-
-    ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      List(
-        startProcessEndpoint,
-        startProcessByMessageEndpoint,
-        getProcessVariablesEndpoint,
-        getProcessVariablesEndpointForApi,
-        getUserTaskVariablesEndpoint,
-        completeUserTaskEndpoint,
-        completeUserTaskEndpointForApi,
-        sendSignalEndpoint,
-        sendMessageEndpoint
-      )
+    List(
+      startProcessEndpoint,
+      startProcessByMessageEndpoint,
+      getProcessVariablesEndpoint,
+      getProcessVariablesEndpointForApi
     )
-
 
   end routes
 
+end ProcessInstanceRoutes
 
-end GatewayRoutes

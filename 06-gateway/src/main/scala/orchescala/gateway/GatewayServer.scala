@@ -1,6 +1,11 @@
 package orchescala.gateway
 
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
+import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
+import sttp.tapir.ztapir.*
 import orchescala.engine.*
+import orchescala.engine.services.*
 import orchescala.worker.{WorkerApp, WorkerDsl}
 import zio.*
 import zio.http.*
@@ -25,7 +30,6 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
   def config: GatewayConfig = GatewayConfig.default
 
-
   def run: ZIO[Any, Any, Any] = start()
 
   /** Starts the Gateway HTTP server with the specified configuration.
@@ -41,20 +45,10 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
         _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.port}")
 
         // Create gateway engine
-        gatewayEngine <- engineZIO
-
+        gatewayEngine      <- engineZIO
+        given GatewayConfig = config
         // Create routes
-        apiRoutes    = GatewayRoutes.routes(
-                         gatewayEngine.processInstanceService,
-                         gatewayEngine.userTaskService,
-                         gatewayEngine.signalService,
-                         gatewayEngine.messageService,
-                         gatewayEngine.historicVariableService,
-          config
-                       )
-        workerRoutes = WorkerRoutes.routes(config)
-        docsRoutes   = OpenApiRoutes.routes
-        allRoutes    = apiRoutes ++ workerRoutes ++ docsRoutes
+        allRoutes           = routes(gatewayEngine)
 
         // Start server
         _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.port}")
@@ -67,5 +61,25 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
       EngineRuntime.logger
     ).unit
   end start
+
+  private def routes(gatewayEngine: ProcessEngine)(using GatewayConfig): Routes[Any, Response] =
+
+    ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
+      WorkerRoutes.routes ++
+        ProcessInstanceRoutes.routes(
+          gatewayEngine.processInstanceService,
+          gatewayEngine.historicVariableService
+        ) ++
+        UserTaskRoutes.routes(
+          gatewayEngine.userTaskService
+        ) ++
+        SignalRoutes.routes(
+          gatewayEngine.signalService
+        ) ++
+        MessageRoutes.routes(
+          gatewayEngine.messageService
+        )
+    ) ++
+      OpenApiRoutes.routes
 
 end GatewayServer

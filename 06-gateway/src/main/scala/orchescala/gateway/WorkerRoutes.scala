@@ -33,9 +33,7 @@ object WorkerRoutes:
       DefaultRestApiClient.sendRequest(request)
   end GatewayEngineContext
 
-  def routes(
-      config: GatewayConfig
-  ): Routes[Any, Response] =
+  def routes(using config: GatewayConfig): List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
 
     val triggerWorkerEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       WorkerEndpoints
@@ -65,9 +63,7 @@ object WorkerRoutes:
                         ProcessError(s"Running Worker failed: $err")
                       ))
 
-    ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      List(triggerWorkerEndpoint)
-    )
+    List(triggerWorkerEndpoint)
   end routes
 
   /** Forward a worker request to a remote WorkerApp using HTTP */
@@ -104,7 +100,7 @@ object WorkerRoutes:
                     case code =>
                       val body = response.body match
                         case Right(msg) => msg
-                        case Left(msg) => msg
+                        case Left(msg)  => msg
                       ZIO.fail(WorkerError.ServiceRequestError(
                         code,
                         body
