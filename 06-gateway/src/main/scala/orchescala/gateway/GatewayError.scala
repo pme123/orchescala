@@ -11,9 +11,9 @@ object GatewayError:
     val errorCode: ErrorCodes = ErrorCodes.`mapping-error`
 
   case class TokenValidationError(
-      errorMsg: String,
+      errorMsg: String
   ) extends GatewayError:
-    val errorCode: ErrorCodes    = ErrorCodes.`validation-failed`
+    val errorCode: ErrorCodes = ErrorCodes.`validation-failed`
 
   case class ServiceRequestError(
       errorCode: Int,
@@ -26,10 +26,10 @@ object GatewayError:
 
     def apply(err: GatewayError): ServiceRequestError =
       err match
-        case err: ServiceRequestError    => err
-        case TokenExtractionError(msg)   => ServiceRequestError(401, msg)
-        case TokenValidationError(msg)    => ServiceRequestError(401, msg)
-        case err                          => ServiceRequestError(500, err.errorMsg)
+        case err: ServiceRequestError  => err
+        case TokenExtractionError(msg) => ServiceRequestError(401, msg)
+        case TokenValidationError(msg) => ServiceRequestError(401, msg)
+        case err                       => ServiceRequestError(500, err.errorMsg)
   end ServiceRequestError
   case class UnexpectedError(
       errorMsg: String,

@@ -906,7 +906,7 @@ paths:
             example:
               orderId: '12345'
               customerId: CUST-789
-              amount: 150.00
+              amount: 150.0
         required: true
       responses:
         '200':
@@ -921,43 +921,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
 components:
@@ -1058,6 +1059,18 @@ components:
       enum:
       - Execution
       - ProcessInstance
+    ServiceRequestError:
+      title: ServiceRequestError
+      type: object
+      required:
+      - errorCode
+      - errorMsg
+      properties:
+        errorCode:
+          type: integer
+          format: int32
+        errorMsg:
+          type: string
   securitySchemes:
     httpAuth:
       type: http

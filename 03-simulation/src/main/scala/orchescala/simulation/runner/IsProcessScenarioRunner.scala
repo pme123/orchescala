@@ -15,7 +15,6 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
 ):
 
   private lazy val processInstanceService = engine.processInstanceService
-  private lazy val messageService         = engine.messageService
   private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(scenario)
 
   private[simulation] def startProcess: ResultType =
@@ -51,16 +50,16 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
       val businessKey       = Some(scenario.name)
       val tenantId          = config.tenantId
       for
-        given ScenarioData <- messageService
-                                .sendMessage(
-                                  name = msgName,
+        given ScenarioData <- processInstanceService
+                                .startProcessByMessage(
+                                  messageName = msgName,
                                   tenantId = tenantId,
                                   businessKey = businessKey,
-                                  variables = scenario.inOut.inAsJson.asObject
+                                  variables = Some(scenario.process.camundaInBody)
                                 )
                                 .map: result =>
                                   summon[ScenarioData]
-                                    .withProcessInstanceId(result.id)
+                                    .withProcessInstanceId(result.processInstanceId)
                                     .info(
                                       s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(result)})"
                                     )
