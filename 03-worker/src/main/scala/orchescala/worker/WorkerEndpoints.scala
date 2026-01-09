@@ -2,6 +2,7 @@ package orchescala.worker
 
 import io.circe.parser.*
 import orchescala.domain.*
+import orchescala.worker.WorkerError.*
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
 
@@ -10,20 +11,28 @@ object WorkerEndpoints:
   private val baseEndpoint = endpoint
     .in("worker")
     .errorOut(
-      oneOf[ErrorResponse](
+      oneOf[ServiceRequestError](
         oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.unauthorized))) { case e: ErrorResponse if e.httpStatus == 401 => true },
+          .and(jsonBody[ServiceRequestError]
+            .example(
+              ServiceRequestError(ServiceAuthError("Problem authenticating request: error"))
+            ))) { case e: ServiceRequestError if e.errorCode == 401 => true },
         oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.badRequest))) { case e: ErrorResponse if e.httpStatus == 400 => true },
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(ServiceBadBodyError(
+              "There is no body in the response and the ServiceOut is neither NoOutput nor Option (Class is class java.lang.String)."
+            ))))) { case e: ServiceRequestError if e.errorCode == 400 => true },
         oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.notFound))) { case e: ErrorResponse if e.httpStatus == 404 => true },
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(404, "Not Found")))) {
+          case e: ServiceRequestError if e.errorCode == 404 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.internalError))) { case e: ErrorResponse if e.httpStatus >= 500 => true },
-        oneOfDefaultVariant(jsonBody[ErrorResponse])
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(500, "Internal Server Error")))) {
+          case e: ServiceRequestError if e.errorCode >= 500 => true
+        },
+        oneOfDefaultVariant(jsonBody[ServiceRequestError])
       )
     )
 
@@ -40,8 +49,7 @@ object WorkerEndpoints:
     }
   """).getOrElse(io.circe.Json.Null)
 
-
-  val triggerWorker: Endpoint[String, (String, Json), ErrorResponse, Option[Json], Any] =
+  val triggerWorker: Endpoint[String, (String, Json), ServiceRequestError, Option[Json], Any] =
     securedBaseEndpoint
       .post
       .in(path[String]("topicName")
@@ -55,7 +63,9 @@ object WorkerEndpoints:
           oneOfVariantValueMatcher(statusCode(StatusCode.NoContent).and(emptyOutputAs(None))) {
             case None => true
           },
-          oneOfVariantValueMatcher(statusCode(StatusCode.Ok).and(jsonBody[Json].map(Some(_))(_.get))) {
+          oneOfVariantValueMatcher(
+            statusCode(StatusCode.Ok).and(jsonBody[Json].map(Some(_))(_.get))
+          ) {
             case Some(_) => true
           }
         )
@@ -77,4 +87,3 @@ object WorkerEndpoints:
       ).tag("Worker")
 
 end WorkerEndpoints
-

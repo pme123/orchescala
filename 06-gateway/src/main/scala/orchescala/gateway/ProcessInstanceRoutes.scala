@@ -4,6 +4,7 @@ import io.circe.Json as CirceJson
 import io.circe.syntax.*
 import orchescala.domain.{CamundaVariable, GeneralVariables, IdentityCorrelation, InputParams}
 import orchescala.engine.AuthContext
+import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.services.*
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
@@ -13,7 +14,7 @@ import zio.*
 import zio.http.*
 
 object ProcessInstanceRoutes:
-  
+
   def routes(
       processInstanceService: ProcessInstanceService,
       historicVariableService: HistoricVariableService
@@ -25,7 +26,6 @@ object ProcessInstanceRoutes:
       }.serverLogic:
         validatedToken => // validatedToken is the String token returned from security logic
           (processDefId, businessKeyQuery, tenantIdQuery, in) =>
-            
             config.extractCorrelation(validatedToken, in)
               .flatMap: identityCorrelation =>
                 // Set the bearer token in AuthContext so it can be used by the engine services
@@ -43,23 +43,21 @@ object ProcessInstanceRoutes:
     val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
         config.validateToken(token).mapError(ErrorResponse.fromOrchescalaError)
-      }.serverLogic:
-        validatedToken =>
-          (messageName, businessKeyQuery, tenantIdQuery, in) =>
-
-            config.extractCorrelation(validatedToken, in)
-              .flatMap: identityCorrelation =>
-                // Set the bearer token in AuthContext so it can be used by the engine services
-                AuthContext.withBearerToken(validatedToken):
-                  processInstanceService
-                    .startProcessByMessage(
-                      messageName = messageName,
-                      businessKey = businessKeyQuery,
-                      tenantId = tenantIdQuery,
-                      variables = Some(in),
-                      identityCorrelation = Some(identityCorrelation)
-                    )
-              .mapError(ErrorResponse.fromOrchescalaError)
+      }.serverLogic: validatedToken =>
+        (messageName, businessKeyQuery, tenantIdQuery, in) =>
+          config.extractCorrelation(validatedToken, in)
+            .flatMap: identityCorrelation =>
+              // Set the bearer token in AuthContext so it can be used by the engine services
+              AuthContext.withBearerToken(validatedToken):
+                processInstanceService
+                  .startProcessByMessage(
+                    messageName = messageName,
+                    businessKey = businessKeyQuery,
+                    tenantId = tenantIdQuery,
+                    variables = Some(in),
+                    identityCorrelation = Some(identityCorrelation)
+                  )
+            .mapError(ErrorResponse.fromOrchescalaError)
 
     val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
@@ -113,5 +111,18 @@ object ProcessInstanceRoutes:
 
   end routes
 
+  private def initProcessInstance(
+      processDefId: String,
+      in: JsonObject,
+      token: String
+  )(using config: GatewayConfig): ZIO[Any, GatewayError, JsonObject] =
+    // Forward request to the init worker
+    WorkerRoutes.forwardWorkerRequest(processDefId, in.asJson, token)
+      .provideLayer(HttpClientProvider.live)
+      .mapError: err =>
+        GatewayError.UnexpectedError(s"Init worker failed: $err")
+      .flatMap: result =>
+        ZIO.fromEither(result.getOrElse(in.asJson).as[JsonObject])
+          .mapError: err =>
+            GatewayError.UnexpectedError(s"Init worker response is not a valid JSON object: $err")
 end ProcessInstanceRoutes
-

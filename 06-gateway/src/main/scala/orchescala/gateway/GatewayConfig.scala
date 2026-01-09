@@ -39,7 +39,7 @@ case class DefaultGatewayConfig(
     else
       topicName.split('-').take(2).lastOption
         .map: projectName =>
-          s"$workersBasePath/orchescala/$projectName/v1"
+          s"$workersBasePath/orchescala/$projectName"
 
   /** Default token validator - validates that token is not empty and returns the token. Override
     * this with your down validation logic (e.g., JWT validation, database lookup, etc.)

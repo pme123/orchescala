@@ -1,11 +1,10 @@
 package orchescala.gateway
 
 import orchescala.domain.*
-import orchescala.engine.domain.EngineError
-import orchescala.engine.domain.EngineError.ProcessError
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.engine.{AuthContext, Slf4JLogger}
-import orchescala.worker.*
+import orchescala.gateway.GatewayError.{ServiceRequestError, UnexpectedError}
+import orchescala.worker.{DefaultRestApiClient, EngineContext, EngineRunContext, RunnableRequest, SendRequestType}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.*
@@ -39,7 +38,7 @@ object WorkerRoutes:
       WorkerEndpoints
         .triggerWorker.zServerSecurityLogic: token =>
           config.validateToken(token)
-            .mapError(ErrorResponse.fromOrchescalaError)
+            .mapError(ServiceRequestError.apply)
         .serverLogic: validatedToken =>
           (topicName, variables) =>
             AuthContext.withBearerToken(validatedToken):
@@ -48,62 +47,71 @@ object WorkerRoutes:
                 generalVariables = GeneralVariables()
               )
 
-              ZIO.logInfo(s"Triggering worker: $topicName with variables: $variables") *>
-                config.workerAppUrl(topicName)
-                  .fold(
-                    // Execute locally if no remote URL is configured
-                    ZIO.fail(EngineError.ProcessError(s"Worker not found: $topicName"))
-                  ): workerAppBaseUrl =>
-                    // Forward request to the worker app
-                    forwardWorkerRequest(topicName, variables, workerAppBaseUrl, validatedToken)
-                      .provideLayer(HttpClientProvider.live)
-                  .catchAll: err =>
-                    ZIO.logError(s"Worker forwarding Error: $err") *>
-                      ZIO.fail(ErrorResponse.fromOrchescalaError(
-                        ProcessError(s"Running Worker failed: $err")
-                      ))
-
+              // Forward request to the worker app
+              forwardWorkerRequest(topicName, variables, validatedToken)
+                .provideLayer(HttpClientProvider.live)
+                .mapError:
+                  case err: GatewayError =>
+                    ServiceRequestError(err)
+                  case err               =>
+                    ServiceRequestError(500, err.getMessage)
+                .tapError(err => ZIO.logError(s"Triggering Worker Error: $err"))
     List(triggerWorkerEndpoint)
   end routes
 
+  def forwardWorkerRequest(
+      topicName: String,
+      variables: Json,
+      token: String
+  )(using config: GatewayConfig): ZIO[SttpClientBackend, GatewayError, Option[Json]] =
+    config.workerAppUrl(topicName)
+      .fold(
+        // No worker app configured
+        ZIO.fail(UnexpectedError(s"Worker not found: $topicName"))
+      ): workerAppBaseUrl =>
+        forwardRequest(topicName, variables, workerAppBaseUrl, token)
+
   /** Forward a worker request to a remote WorkerApp using HTTP */
-  private def forwardWorkerRequest(
+  private def forwardRequest(
       topicName: String,
       variables: Json,
       workerAppBaseUrl: String,
       token: String
-  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+  ): ZIO[SttpClientBackend, GatewayError, Option[Json]] =
     for
       _        <- ZIO.logDebug(s"Forwarding worker request to: $workerAppBaseUrl/worker/$topicName")
       uri      <- ZIO.fromEither(Uri.parse(s"$workerAppBaseUrl/worker/$topicName"))
-                    .mapError(err => WorkerError.ServiceUnexpectedError(s"Invalid worker app URL: $err"))
-      request   = basicRequest
+                    .mapError(err => UnexpectedError(s"Invalid worker app URL: $err"))
+      request   = token.foldLeft(basicRequest
                     .post(uri)
-                    .header("Authorization", s"Bearer $token")
                     .body(variables.toString)
-                    .contentType("application/json")
+                    .contentType("application/json")): (req, t) =>
+                    req.header("Authorization", s"Bearer $t")
       response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                     request.send(backend)
                       .mapError: err =>
-                        WorkerError.ServiceUnexpectedError(
+                        UnexpectedError(
                           s"Error forwarding request to worker app: $err"
                         )
       _        <- ZIO.logDebug(s"Worker app response status: ${response.code.code}")
-      result   <- response.code.code match
-                    case 204  => ZIO.none
-                    case 200  =>
-                      ZIO.fromEither(io.circe.parser.parse(response.body.getOrElse("null")))
+      result   <- response.body match
+                    case Right(body) =>
+                      ZIO.fromEither(parser.parse(body))
                         .mapError(err =>
-                          WorkerError.ServiceBadBodyError(s"Failed to parse response: $err")
+                          UnexpectedError(s"Failed to parse error response: $err")
                         )
-                        .map(Some(_))
-                    case code =>
-                      val body = response.body match
-                        case Right(msg) => msg
-                        case Left(msg)  => msg
-                      ZIO.fail(WorkerError.ServiceRequestError(
-                        code,
-                        body
-                      ))
+                        .map(Option.apply)
+                    case Left(err)   =>
+                      for
+                        json <- ZIO
+                          .fromEither(parser.parse(err))
+                          .mapError: err =>
+                            UnexpectedError(s"Failed to parse response to JSON: $err")
+                        error <- ZIO
+                          .fromEither(json.as[ServiceRequestError])
+                          .mapError: err =>
+                            UnexpectedError(s"Failed to parse response to ServiceRequestError: $err")
+                        _ <- ZIO.fail(error)
+                      yield None
     yield result
 end WorkerRoutes

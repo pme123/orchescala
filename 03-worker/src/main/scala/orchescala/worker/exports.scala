@@ -178,6 +178,24 @@ object WorkerError:
       errorMsg: String
   ) extends ServiceError
 
+  object ServiceRequestError:
+    given InOutCodec[ServiceRequestError] = deriveCodec
+    given ApiSchema[ServiceRequestError]  = deriveApiSchema
+
+    def apply(err: WorkerError): ServiceRequestError =
+      err match
+        case ServiceAuthError(msg)          => ServiceRequestError(401, msg)
+        case ServiceBadBodyError(msg)       => ServiceRequestError(400, msg)
+        case ServiceBadPathError(msg)       => ServiceRequestError(404, msg)
+        case ServiceMappingError(msg)       => ServiceRequestError(400, msg)
+        case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
+        case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
+        case err                            =>
+      end match
+      ServiceRequestError(500, err.errorMsg)
+    end apply
+  end ServiceRequestError
+
   case class TokenValidationError(
       errorMsg: String,
       errorCode: ErrorCodes = ErrorCodes.`mapping-error`

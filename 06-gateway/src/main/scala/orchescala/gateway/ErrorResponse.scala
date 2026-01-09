@@ -1,7 +1,7 @@
 package orchescala.gateway
 
 import orchescala.domain.*
-import orchescala.engine.domain.{EngineError, EngineType, ProcessInfo}
+import orchescala.engine.domain.{EngineType, ProcessInfo}
 import sttp.tapir.Schema.annotations.description
 
 

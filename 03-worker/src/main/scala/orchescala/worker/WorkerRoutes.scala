@@ -6,11 +6,13 @@ import orchescala.engine.domain.EngineError.ProcessError
 import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
 import orchescala.worker.*
+import orchescala.worker.WorkerError.ServiceRequestError
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.http.{Response, Routes}
+import zio.prelude.data.Optional
 import zio.prelude.data.Optional.AllValuesAreNullable
 import zio.{IO, ZIO}
 
@@ -32,13 +34,13 @@ case class WorkerRoutes(engineContext: EngineContext):
       WorkerEndpoints
         .triggerWorker.zServerSecurityLogic: token =>
           validateToken(token)
-            .mapError(ErrorResponse.fromOrchescalaError)
+            .mapError(ServiceRequestError.apply)
         .serverLogic: validatedToken =>
           (topicName, variables) =>
             AuthContext.withBearerToken(validatedToken):
               ZIO.logInfo(s"Triggering worker: $topicName with variables: $variables") *>
                 workers.get(topicName)
-                  .fold(ZIO.fail(EngineError.ProcessError(s"Worker not found: $topicName"))):
+                  .fold(ZIO.fail(WorkerError.ServiceBadPathError(s"Worker not found: $topicName"))):
                     worker =>
                       for
                         generalVariables      <- extractGeneralVariables(variables)
@@ -55,8 +57,11 @@ case class WorkerRoutes(engineContext: EngineContext):
                   .provideLayer(HttpClientProvider.live)
                   .tapError: err =>
                     ZIO.logError(s"Triggering Worker Error: $err")
-                  .mapError: err =>
-                    ErrorResponse.fromOrchescalaError(ProcessError(s"Running Worker failed: $err"))
+                  .mapError:
+                    case err : WorkerError =>
+                       ServiceRequestError(err)
+                    case err =>
+                      ServiceRequestError(500, err.getMessage)
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       List(triggerWorkerEndpoint)
