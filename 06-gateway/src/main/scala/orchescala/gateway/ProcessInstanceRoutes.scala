@@ -32,16 +32,17 @@ object ProcessInstanceRoutes:
                     processDefId = processDefId,
                     in = in,
                     token = validatedToken
-                  ).mapError(ServiceRequestError.apply) *>
-                    processInstanceService
-                      .startProcessAsync(
-                        processDefId = processDefId,
-                        in = in,
-                        businessKey = businessKeyQuery,
-                        tenantId = tenantIdQuery,
-                        identityCorrelation = Some(identityCorrelation)
-                      )
-                      .mapError(ServiceRequestError.apply)
+                  ).mapError(ServiceRequestError.apply)
+                    .flatMap: inJson =>
+                      processInstanceService
+                        .startProcessAsync(
+                          processDefId = processDefId,
+                          in = inJson.flatMap(_.asObject).getOrElse(JsonObject()),
+                          businessKey = businessKeyQuery,
+                          tenantId = tenantIdQuery,
+                          identityCorrelation = Some(identityCorrelation)
+                        )
+                        .mapError(ServiceRequestError.apply)
 
     val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
@@ -57,15 +58,16 @@ object ProcessInstanceRoutes:
                   processDefId = messageName,
                   in = in,
                   token = validatedToken
-                ).mapError(ServiceRequestError.apply) *>
-                  processInstanceService
-                    .startProcessByMessage(
-                      messageName = messageName,
-                      businessKey = businessKeyQuery,
-                      tenantId = tenantIdQuery,
-                      variables = Some(in),
-                      identityCorrelation = Some(identityCorrelation)
-                    ).mapError(ServiceRequestError.apply)
+                ).mapError(ServiceRequestError.apply)
+                  .flatMap: inJson =>
+                    processInstanceService
+                      .startProcessByMessage(
+                        messageName = messageName,
+                        businessKey = businessKeyQuery,
+                        tenantId = tenantIdQuery,
+                        variables = inJson.flatMap(_.asObject),
+                        identityCorrelation = Some(identityCorrelation)
+                      ).mapError(ServiceRequestError.apply)
 
     val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
