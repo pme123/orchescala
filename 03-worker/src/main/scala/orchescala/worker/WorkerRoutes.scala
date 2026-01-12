@@ -51,7 +51,7 @@ case class WorkerRoutes(engineContext: EngineContext):
                                                        .runWorkFromWorker(variables)
                                                    case worker: InitProcessDsl[?, ?, ?, ?] =>
                                                      worker
-                                                       .runWorkFromService(variables)
+                                                       .runWorkFromServiceWithMocking(variables)
                         _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
                       yield result
                   .provideLayer(HttpClientProvider.live)

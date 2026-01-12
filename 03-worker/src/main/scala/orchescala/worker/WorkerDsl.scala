@@ -200,6 +200,110 @@ private trait InitProcessDsl[
       .map: initIn =>
         Some(initIn.asJson.deepDropNullValues)
 
+  /** Execute with full WorkerExecutor functionality including mocking and inConfig merging */
+  def runWorkFromServiceWithMocking(json: Json)(using
+      context: EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+    for
+      in                <- mergeInConfig(json)
+      validatedInput    <- ZIO.fromEither(worker.validationHandler.validate(in))
+      initializedOutput <- worker.initProcessHandler
+                             .map: vi =>
+                               vi.init(validatedInput)
+                             .getOrElse:
+                               ZIO.succeed(Map.empty[String, Any])
+      mockedOutput      <- mockOutput(validatedInput)
+      output            <-
+        if mockedOutput.isEmpty then customInitZIO(validatedInput)
+        else ZIO.succeed(mockedOutput.get)
+      allOutputs        = mergeOutputs(validatedInput, initializedOutput, output)
+      filteredOut       = filterOutput(allOutputs, context.generalVariables.outputVariableSeq)
+      _                 <- ZIO.fail(MockedOutput(filteredOut)).when(mockedOutput.isDefined)
+    yield Some(mapToJson(filteredOut).deepDropNullValues)
+
+  private def mergeInConfig(json: Json): ZIO[Any, WorkerError, In] =
+    ZIO.fromEither(json.as[In])
+      .mapError: err =>
+        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
+      .flatMap: in =>
+        in match
+          case i: WithConfig[?] =>
+            val jsonObj = json.asObject.get
+            val inputVariables = jsonObj.toMap
+            val configJson: JsonObject =
+              inputVariables.getOrElse("inConfig", i.defaultConfigAsJson).asObject.get
+            val newJsonConfig = worker.inConfigVariableNames
+              .foldLeft(configJson): (configJson, n) =>
+                if jsonObj.contains(n)
+                then configJson.add(n, jsonObj(n).get)
+                else configJson
+            val newJsonObj = jsonObj.add("inConfig", newJsonConfig.asJson)
+            ZIO.fromEither(newJsonObj.asJson.as[In])
+              .mapError: err =>
+                WorkerError.ValidatorError(s"Problem parsing merged inConfig Json to ${nameOfType[In]}: $err")
+          case _ =>
+            ZIO.succeed(in)
+
+  private def mockOutput(validatedInput: In)(using
+      context: EngineRunContext
+  ): IO[MockerError, Option[InitIn]] =
+    (
+      context.generalVariables.isMockedWorker(worker.topic),
+      context.generalVariables.outputMock
+    ) match
+      case (_, Some(outputMock)) =>
+        ZIO.fromEither(outputMock.as[InitIn])
+          .map(Some(_))
+          .mapError: error =>
+            MockerError(errorMsg = s"$error:\n- $outputMock")
+      case (true, None)          =>
+        // For init workers, use the Out mock as InitIn (they should be compatible)
+        worker.defaultMock(validatedInput).map(_.asInstanceOf[InitIn]).map(Some(_))
+      case (_, None)             =>
+        ZIO.none
+
+  private def mergeOutputs(
+      initializedInput: In,
+      internalVariables: Map[String, Any],
+      output: InitIn
+  )(using context: EngineRunContext): Map[String, Any] =
+    context.toEngineObject(initializedInput) ++ internalVariables ++
+      context.toEngineObject(output)
+
+  private def filterOutput(
+      allOutputs: Map[String, Any],
+      outputVariables: Seq[String]
+  ): Map[String, Any] =
+    if outputVariables.isEmpty then
+      allOutputs
+    else
+      allOutputs
+        .filter { case k -> _ => outputVariables.contains(k) }
+    end if
+
+  private def mapToJson(map: Map[String, Any]): Json =
+    Json.obj(
+      map.map { case k -> v =>
+        k -> (v match
+          case j: Json => j
+          case null => Json.Null
+          case s: String => Json.fromString(s)
+          case n: Number => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
+          case b: Boolean => Json.fromBoolean(b)
+          case m: Map[?, ?] => mapToJson(m.asInstanceOf[Map[String, Any]])
+          case seq: Seq[?] => Json.arr(seq.map {
+            case j: Json => j
+            case null => Json.Null
+            case s: String => Json.fromString(s)
+            case n: Number => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
+            case b: Boolean => Json.fromBoolean(b)
+            case other => Json.fromString(other.toString)
+          }*)
+          case other => Json.fromString(other.toString)
+        )
+      }.toSeq*
+    )
+
   def runWorkFromWorker(in: In)(using
       EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, InitIn] =
