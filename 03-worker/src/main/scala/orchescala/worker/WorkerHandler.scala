@@ -198,7 +198,7 @@ case class ServiceHandler[
       in: In
   )(using context: EngineRunContext): IO[ServiceError, Option[Out]] =
     (
-      context.generalVariables.servicesMocked,
+      context.generalVariables.isMockedService,
       context.generalVariables.outputServiceMock
     ) match
       case (_, Some(json)) =>

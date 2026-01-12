@@ -94,15 +94,15 @@ object NoInConfig:
 // ApiCreator that describes these variables
 case class GeneralVariables(
     // mocking
-    servicesMocked: Boolean = false,             // Process only
-    mockedWorkers: StringOrSeq = Seq.empty,      // Process only
+    servicesMocked: Option[Boolean] = None,         // Process only
+    mockedWorkers: Option[StringOrSeq] = None,      // Process only
     outputMock: Option[Json] = None,
-    outputServiceMock: Option[Json] = None,      // Service only
+    outputServiceMock: Option[Json] = None,         // Service only
     // mapping
-    manualOutMapping: Boolean = false,           // Service only
-    outputVariables: StringOrSeq = Seq.empty,    // Service only
-    handledErrors: StringOrSeq = Seq.empty,      // Service only
-    regexHandledErrors: StringOrSeq = Seq.empty, // Service only
+    manualOutMapping: Option[Boolean] = None,       // Service only
+    outputVariables: Option[StringOrSeq] = None,    // Service only
+    handledErrors: Option[StringOrSeq] = None,      // Service only
+    regexHandledErrors: Option[StringOrSeq] = None, // Service only
     // authorization
     identityCorrelation: Option[IdentityCorrelation] = None,
     @deprecated("Use `identityCorrelation`")
@@ -114,52 +114,24 @@ case class GeneralVariables(
   lazy val handledErrorSeq: Seq[String]      = asSeq(handledErrors)
   lazy val regexHandledErrorSeq: Seq[String] = asSeq(regexHandledErrors)
 
-  def isMockedService: Boolean                         = servicesMocked
+  def isMockedService: Boolean                         = servicesMocked.contains(true)
+  def isManualOutMapping: Boolean                      = manualOutMapping.contains(true)
   def isMockedWorker(workerTopicName: String): Boolean =
     mockedWorkerSeq.contains(workerTopicName)
 
-  private def asSeq(value: StringOrSeq): Seq[String] =
+  private def asSeq(value: Option[StringOrSeq]): Seq[String] =
     value match
-      case s: String        => s.split(",").toSeq
-      case seq: Seq[String] => seq
+      case None | Some("")        => Seq.empty
+      case Some(s: String)        => s.split(",").toSeq
+      case Some(seq: Seq[String]) => seq
 end GeneralVariables
 
 object GeneralVariables:
-  given InOutCodec[GeneralVariables] = CirceCodec.from(decoder, deriveInOutEncoder)
+  given InOutCodec[GeneralVariables] = deriveInOutCodec
   given ApiSchema[GeneralVariables]  = deriveApiSchema
 
   lazy val variableNames: Seq[String] = allFieldNames[GeneralVariables]
-  
-  lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables]:
-    final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
-      for
-        servicesMocked      <- c.downField(InputParams.servicesMocked.toString).as[Option[Boolean]].map(_.getOrElse(false))
-        mockedWorkers       <-
-          c.downField(InputParams.mockedWorkers.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        outputMock          <- c.downField(InputParams.outputMock.toString).as[Option[Json]]
-        outputServiceMock   <- c.downField(InputParams.outputServiceMock.toString).as[Option[Json]]
-        manualOutMapping    <-
-          c.downField(InputParams.manualOutMapping.toString).as[Option[Boolean]].map(_.getOrElse(false))
-        outputVariables     <-
-          c.downField(InputParams.outputVariables.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        handledErrors       <-
-          c.downField(InputParams.handledErrors.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        regexHandledErrors  <-
-          c.downField(InputParams.regexHandledErrors.toString).as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        identityCorrelation <- c.downField(InputParams.identityCorrelation.toString).as[Option[IdentityCorrelation]]
-        impersonateUserId   <- c.downField(InputParams.impersonateUserId.toString).as[Option[String]]
-      yield GeneralVariables(
-        servicesMocked,
-        mockedWorkers,
-        outputMock,
-        outputServiceMock,
-        manualOutMapping,
-        outputVariables,
-        handledErrors,
-        regexHandledErrors,
-        identityCorrelation,
-        impersonateUserId
-      )
+
 end GeneralVariables
 
 def typeDescription(obj: AnyRef) =

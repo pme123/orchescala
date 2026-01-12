@@ -48,19 +48,33 @@ object CamundaHelper:
         BadVariableError(s"Problem get variable for $varKey: $err")
       .flatMap:
         case Some(typedValue) if typedValue.getType == ValueType.NULL =>
-          ZIO.succeed(None) // k -> null as Camunda Expressions need them
+          ZIO.none // k -> null as Camunda Expressions need them
         case Some(typedValue) =>
           extractValue(typedValue)
             .map(v => Some(v))
         case _                =>
-          ZIO.succeed(None)
+          ZIO.none
 
   // used for input variables you can define with Array of Strings or a comma-separated String
   // if not set it returns an empty Seq
-  def extractSeqFromArrayOrString(
+  def extractSeqFromArrayOrStringOpt(
       varKey: String | InputParams
-  ): HelperContext[IO[BadVariableError, Seq[String]]] =
-    extractSeqFromArrayOrString(varKey, Seq.empty)
+  ): HelperContext[IO[BadVariableError, Option[Seq[String]]]] =
+    jsonVariableOpt(varKey)
+      .flatMap:
+        case Some(value) if value.isArray  =>
+          extractFromSeq(
+            value
+              .as[Seq[String]]
+          ).map(Some.apply)
+        case Some(value) if value.isString =>
+          extractFromSeq(
+            value
+              .as[String]
+              .map(_.split(",").toSeq)
+          ).map(Some.apply)
+        case _                             =>
+          ZIO.none
 
   // used for input variables you can define with Array of Strings or a comma-separated String
   // if not set it returns an empty Seq
@@ -68,22 +82,10 @@ object CamundaHelper:
       varKey: String | InputParams,
       defaultSeq: Seq[String | ErrorCodes] = Seq.empty
   ): HelperContext[IO[BadVariableError, Seq[String]]] =
-    jsonVariableOpt(varKey)
-      .flatMap {
-        case Some(value) if value.isArray  =>
-          extractFromSeq(
-            value
-              .as[Seq[String]]
-          )
-        case Some(value) if value.isString =>
-          extractFromSeq(
-            value
-              .as[String]
-              .map(_.split(",").toSeq)
-          )
-        case _                             =>
-          ZIO.succeed(defaultSeq.map(_.toString))
-      }
+    extractSeqFromArrayOrStringOpt(varKey)
+      .map:
+        _.getOrElse(defaultSeq.map(_.toString))
+
 
   /** Analog `variable(String vari)`. You can define a Value that is returned if there is no
     * Variable with this name.
@@ -105,7 +107,7 @@ object CamundaHelper:
       .flatMap(maybeVar =>
         ZIO.fromOption(
           maybeVar
-        ).orElseFail :
+        ).orElseFail:
           BadVariableError(
             s"The Variable '$varKey' is required! But does  not exist in your Process"
           )
@@ -167,7 +169,7 @@ object CamundaHelper:
               .mapError(ex =>
                 BadVariableError(s"Input is not valid: $ex")
               )
-          case null                  =>
+          case null                   =>
             ZIO.succeed(Json.Null)
           case other                  =>
             ZIO.fail(

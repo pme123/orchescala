@@ -37,15 +37,15 @@ object ProcessVariablesExtractor:
       .getOrElse:
         for
           // mocking
-          servicesMocked <- variable(InputParams.servicesMocked, false)
-          mockedWorkers <- extractSeqFromArrayOrString(InputParams.mockedWorkers, Seq.empty)
+          servicesMocked <- variableOpt[Boolean](InputParams.servicesMocked)
+          mockedWorkers <- extractSeqFromArrayOrStringOpt(InputParams.mockedWorkers)
           outputMockOpt <- jsonVariableOpt(InputParams.outputMock)
           outputServiceMockOpt <- jsonVariableOpt(InputParams.outputServiceMock)
           // mapping
-          manualOutMapping <- variable(InputParams.manualOutMapping, false)
-          outputVariables <- extractSeqFromArrayOrString(InputParams.outputVariables, Seq.empty)
-          handledErrors <- extractSeqFromArrayOrString(InputParams.handledErrors, Seq.empty)
-          regexHandledErrors <- extractSeqFromArrayOrString(InputParams.regexHandledErrors, Seq.empty)
+          manualOutMapping <- variableOpt[Boolean](InputParams.manualOutMapping)
+          outputVariables <- extractSeqFromArrayOrStringOpt(InputParams.outputVariables)
+          handledErrors <- extractSeqFromArrayOrStringOpt(InputParams.handledErrors)
+          regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams.regexHandledErrors)
           // authorization
           identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams.identityCorrelation)
           impersonateUserIdOpt <- variableOpt[String](InputParams.impersonateUserId)

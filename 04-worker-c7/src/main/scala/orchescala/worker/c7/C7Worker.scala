@@ -57,7 +57,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       _                      <- logDebug(s"filteredOut: $filteredOut")
       _                      <- externalTaskService.handleSuccess(
                                   filteredOut,
-                                  generalVariables.manualOutMapping
+                                  generalVariables.isManualOutMapping
                                 )
       _                      <- logDebug(s"Worker: ${worker.topic} completed successfully")
     yield ())
@@ -145,7 +145,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                error.errorCode.toString
              )
            then
-             handleSuccess(filtered, generalVariables.manualOutMapping)
+             handleSuccess(filtered, generalVariables.isManualOutMapping)
            else
              handleBpmnError(error, filtered)
           ).as(AlreadyHandledError)
