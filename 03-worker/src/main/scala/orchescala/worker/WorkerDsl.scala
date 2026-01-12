@@ -266,7 +266,10 @@ private trait InitProcessDsl[
       internalVariables: Map[String, Any],
       output: InitIn
   )(using context: EngineRunContext): Map[String, Any] =
-    context.toEngineObject(initializedInput) ++ internalVariables ++
+    val generalVarsJson = context.generalVariables.asJson.deepDropNullValues
+    val generalVarsMap = generalVarsJson.asObject.get.toMap
+      .map { case (k, v) => k -> jsonToEngineValue(v) }
+    generalVarsMap ++ context.toEngineObject(initializedInput) ++ internalVariables ++
       context.toEngineObject(output)
 
   private def filterOutput(
@@ -281,6 +284,22 @@ private trait InitProcessDsl[
           .filter { case k -> _ => outputVariables.contains(k) }
     // Remove inConfig as it's only used for input merging, not output
     filtered - "inConfig"
+
+  private def jsonToEngineValue(json: Json): Any =
+    json match
+      case j if j.isNull => null
+      case j if j.isNumber =>
+        j.asNumber.get.toBigDecimal.get match
+          case n if n.isValidInt => n.toInt
+          case n if n.isValidLong => n.toLong
+          case n => n.toDouble
+      case j if j.isBoolean => j.asBoolean.get
+      case j if j.isString => j.asString.get
+      case j if j.isArray =>
+        j.asArray.get.map(jsonToEngineValue)
+      case j =>
+        j.asObject.get.toMap
+          .map { case (k, v) => k -> jsonToEngineValue(v) }
 
   private def mapToJson(map: Map[String, Any]): Json =
     Json.obj(
