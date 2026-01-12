@@ -225,24 +225,23 @@ private trait InitProcessDsl[
     ZIO.fromEither(json.as[In])
       .mapError: err =>
         WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
-      .flatMap: in =>
-        in match
-          case i: WithConfig[?] =>
-            val jsonObj = json.asObject.get
-            val inputVariables = jsonObj.toMap
-            val configJson: JsonObject =
-              inputVariables.getOrElse("inConfig", i.defaultConfigAsJson).asObject.get
-            val newJsonConfig = worker.inConfigVariableNames
-              .foldLeft(configJson): (configJson, n) =>
-                if jsonObj.contains(n)
-                then configJson.add(n, jsonObj(n).get)
-                else configJson
-            val newJsonObj = jsonObj.add("inConfig", newJsonConfig.asJson)
-            ZIO.fromEither(newJsonObj.asJson.as[In])
-              .mapError: err =>
-                WorkerError.ValidatorError(s"Problem parsing merged inConfig Json to ${nameOfType[In]}: $err")
-          case _ =>
-            ZIO.succeed(in)
+      .flatMap :
+        case i: WithConfig[?] =>
+          val jsonObj = json.asObject.get
+          val inputVariables = jsonObj.toMap
+          val configJson: JsonObject =
+            inputVariables.getOrElse("inConfig", i.defaultConfigAsJson).asObject.get
+          val newJsonConfig = worker.inConfigVariableNames
+            .foldLeft(configJson): (configJson, n) =>
+              if jsonObj.contains(n)
+              then configJson.add(n, jsonObj(n).get)
+              else configJson
+          val newJsonObj = jsonObj.add("inConfig", newJsonConfig.asJson)
+          ZIO.fromEither(newJsonObj.asJson.as[In])
+            .mapError: err =>
+              WorkerError.ValidatorError(s"Problem parsing merged inConfig Json to ${nameOfType[In]}: $err")
+        case in =>
+          ZIO.succeed(in)
 
   private def mockOutput(validatedInput: In)(using
       context: EngineRunContext
@@ -274,12 +273,14 @@ private trait InitProcessDsl[
       allOutputs: Map[String, Any],
       outputVariables: Seq[String]
   ): Map[String, Any] =
-    if outputVariables.isEmpty then
-      allOutputs
-    else
-      allOutputs
-        .filter { case k -> _ => outputVariables.contains(k) }
-    end if
+    val filtered =
+      if outputVariables.isEmpty then
+        allOutputs
+      else
+        allOutputs
+          .filter { case k -> _ => outputVariables.contains(k) }
+    // Remove inConfig as it's only used for input merging, not output
+    filtered - "inConfig"
 
   private def mapToJson(map: Map[String, Any]): Json =
     Json.obj(
