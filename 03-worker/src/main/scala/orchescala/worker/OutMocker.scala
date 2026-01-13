@@ -15,8 +15,8 @@ final class OutMocker[
   def mockedOutput(in: In): IO[MockerError, Option[Out]] =
     (
       generalVariables.isMockedWorker(worker.topic),
-      generalVariables.outputMock,
-      generalVariables.outputServiceMock
+      generalVariables._outputMock,
+      generalVariables._outputServiceMock
     ) match
       // if the outputMock is set than we mock
       case (_, Some(outputMock), _) =>

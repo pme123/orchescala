@@ -5,6 +5,7 @@ import orchescala.domain.*
 import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object UserTaskEndpoints:
   
@@ -12,20 +13,12 @@ object UserTaskEndpoints:
     EndpointsUtil.baseEndpoint
       .get
       .in("process")
-      .in(path[String]("processInstanceId")
-        .description("Process instance ID")
-        .example("{{processInstanceId}}"))
+      .in(processInstanceIdPath)
       .in("userTask")
-      .in(path[String]("taskDefinitionKey")
-        .description("User task definition ID (task definition key in the BPMN)")
-        .example("ApproveOrderUT"))
+      .in(userTaskDefinitionKeyPath)
       .in("variables")
-      .in(query[Option[String]]("variableFilter")
-        .description("A comma-separated String of variable names. E.g. `name,firstName`")
-        .example(Some("customerName,orderAmount")))
-      .in(query[Option[Int]]("timeoutInSec")
-        .description("Maximum number of seconds to wait for the user task to become active. If not provided, it will wait 10 seconds.")
-        .example(Some(30)))
+      .in(variableFilterQuery())
+      .in(timeoutInSecQuery)
       .out(statusCode(StatusCode.Ok))
       .out(header[String]("userTaskId")
         .description("The ID of the user task")
@@ -46,9 +39,7 @@ object UserTaskEndpoints:
     EndpointsUtil.baseEndpoint
       .post
       .in("userTask")
-      .in(path[String]("userTaskInstanceId")
-        .description("User task instance ID (obtained from getUserTaskVariables)")
-        .example("{{userTaskInstanceId}}"))
+      .in(userTaskInstanceIdPath)
       .in("complete")
       .in(jsonBody[JsonObject]
         .description("Variables to set when completing the task as a JSON object")
@@ -66,16 +57,8 @@ object UserTaskEndpoints:
     EndpointsUtil.baseEndpoint
       .post
       .in("userTask")
-      .in(path[String]("userTaskDefinitionKey")
-        .description(
-          """User task definition ID (task definition key in the BPMN)
-            |- This is used for API path differentiation in OpenAPI.
-            |- We use this that you can have multiple UserTasks in one Project.
-            |""".stripMargin)
-        .example("ApproveOrderUT"))
-      .in(path[String]("userTaskInstanceId")
-        .description("User task instance ID (obtained from getUserTaskVariables)")
-        .example("{{userTaskInstanceId}}"))
+      .in(userTaskDefinitionKeyPath)
+      .in(userTaskInstanceIdPath)
       .in("complete")
       .in(jsonBody[JsonObject]
         .description("Variables to set when completing the task as a JSON object")

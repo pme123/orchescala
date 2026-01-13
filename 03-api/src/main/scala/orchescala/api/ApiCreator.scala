@@ -111,13 +111,13 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         |### Mocking
         |""".stripMargin +
       createGeneralVariable(
-        InputParams.servicesMocked,
+        InputParams._servicesMocked,
         "Mock all the _ServiceWorkers_ in your process with their default Mock:",
         "process(..)\n  .mockServices",
-        s"\"${InputParams.servicesMocked}\": true,"
+        s"\"${InputParams._servicesMocked}\": true,"
       ) +
       createGeneralVariable(
-        InputParams.mockedWorkers,
+        InputParams._mockedWorkers,
         s"""Mock any Process- and/or ExternalTask-Worker with their default Mocks.
            |This is a list of the _Worker topicNames or Process processNames_, you want to mock.
            |${listOfStringsOrCommaSeparated("mySubProcess,myOtherSubProcess,myService")}
@@ -130,7 +130,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"mockedWorkers": ["mySubProcess", "myOtherSubProcess, myService"],"""
       ) +
       createGeneralVariable(
-        InputParams.outputMock,
+        InputParams._outputMock,
         """Mock the Process or ExternalTask (`Out`)
           | - You find an example in every _Process_ and _ExternalTask_.
           |""".stripMargin,
@@ -139,7 +139,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"outputMock": {..},"""
       ) +
       createGeneralVariable(
-        InputParams.outputServiceMock,
+        InputParams._outputServiceMock,
         """Mock the Inner-Service (`MockedServiceResponse[ServiceOut]`)
           | - You find an example in every _ServiceTask_.
           |""".stripMargin,
@@ -152,7 +152,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
       ) +
       "### Mapping" +
       createGeneralVariable(
-        InputParams.outputVariables,
+        InputParams._outputVariables,
         s"""You can filter the Output with a list of variable names you are interested in.
            |This list may include all variables from the output (`Out`). We included an example for each Process or ExternalTask.
            |${listOfStringsOrCommaSeparated("name,firstName")}
@@ -163,9 +163,9 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"outputVariables": ["name", "firstName"],"""
       ) +
       createGeneralVariable(
-        InputParams.manualOutMapping,
+        InputParams._manualOutMapping,
         s"""By default all output Variables (`Out`) are on the Process for _External Tasks_.
-           |If the filter _${InputParams.outputVariables}_ is not enough,
+           |If the filter _${InputParams._outputVariables}_ is not enough,
            |you can set this variable - every output variable is then local.
            |
            |_Be aware_ that you must then manually have _output mappings_ for each output variable!
@@ -175,7 +175,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"manualOutMapping": true,"""
       ) + "### Mocking" +
       createGeneralVariable(
-        InputParams.handledErrors,
+        InputParams._handledErrors,
         s"""A list of error codes that are handled (`BpmnError`)
            |${listOfStringsOrCommaSeparated("validation-failed,404")}
            |
@@ -187,7 +187,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         s""""handledErrors": ["validation-failed", "404"],""".stripMargin
       ) +
       createGeneralVariable(
-        InputParams.regexHandledErrors,
+        InputParams._regexHandledErrors,
         s"""You can further filter Handled Errors with a list of Regex expressions that the body error message must match.
            |${listOfStringsOrCommaSeparated(
             "SQL exception,\"errorNr\":\"20000\""

@@ -5,22 +5,19 @@ import orchescala.domain.*
 import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object SignalEndpoints:
   
-  lazy val sendSignal: Endpoint[String, (String, Option[String], JsonObject), ServiceRequestError, Unit, Any] =
+  lazy val sendSignal: Endpoint[String, (String, Option[String], Option[JsonObject]), ServiceRequestError, Unit, Any] =
     EndpointsUtil.baseEndpoint
       .post
       .in("signal")
-      .in(path[String]("signalName")
-        .description("Signal name")
-        .example("order-completed-signal"))
-      .in(query[Option[String]]("tenantId")
-        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("{{tenantId}}")))
-      .in(jsonBody[JsonObject]
+      .in(signalOrMessageNamePath)
+      .in(tenantIdQuery)
+      .in(jsonBody[Option[JsonObject]]
         .description("Variables to send with the signal as a JSON object")
-        .example(sendSignalRequestExample))
+        .example(Some(sendSignalRequestExample)))
       .out(statusCode(StatusCode.NoContent))
       .name("Send Signal")
       .summary("Send a signal to process instances")

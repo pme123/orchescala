@@ -156,7 +156,7 @@ case class ServiceHandler[
    * This is called automatically at the start of every ServiceWorker execution.
    */
   private def verifyIdentityCorrelation()(using context: EngineRunContext): ZIO[Any, Nothing, Unit] =
-    context.generalVariables.identityCorrelation match
+    context.generalVariables._identityCorrelation match
       case None =>
         // No identity correlation present - skip verification
         ZIO.unit
@@ -199,7 +199,7 @@ case class ServiceHandler[
   )(using context: EngineRunContext): IO[ServiceError, Option[Out]] =
     (
       context.generalVariables.isMockedService,
-      context.generalVariables.outputServiceMock
+      context.generalVariables._outputServiceMock
     ) match
       case (_, Some(json)) =>
         (for

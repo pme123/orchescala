@@ -27,7 +27,7 @@ object SignalRoutes:
               .sendSignal(
                 name = signalName,
                 tenantId = tenantId,
-                variables = Some(variables)
+                variables = variables
               )
               .mapError(ServiceRequestError.apply)
 

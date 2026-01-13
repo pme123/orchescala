@@ -25,7 +25,7 @@ object ServiceHandlerSpec extends ZIOSpecDefault:
                                                                                      request: RunnableRequest[ServiceIn]
                                                                                    ): SendRequestType[ServiceOut] = ???
     ,
-    GeneralVariables(outputServiceMock = Some(MockedServiceResponse.success200(ServiceOut(true)).asJson))
+    GeneralVariables(_outputServiceMock = Some(MockedServiceResponse.success200(ServiceOut(true)).asJson))
   )
 
   case class In(id: Int = 1) derives InOutCodec
@@ -75,7 +75,7 @@ object ServiceHandlerSpec extends ZIOSpecDefault:
       val input = In(1)
       val errorMock = MockedServiceResponse.error[ServiceOut](404)
       val mockedJson = errorMock.asJson
-      given EngineRunContext = summon[EngineRunContext].copy(generalVariables = GeneralVariables(outputServiceMock = Some(mockedJson)))
+      given EngineRunContext = summon[EngineRunContext].copy(generalVariables = GeneralVariables(_outputServiceMock = Some(mockedJson)))
       val result = handler.runWorkZIO(input)
       
       assertZIO(result.exit)(fails(isSubtype[ServiceRequestError](anything)))

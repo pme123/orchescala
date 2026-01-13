@@ -49,7 +49,7 @@ class C7MessageService(using
             new MessageApi(apiClient)
               .deliverMessage(CorrelationMessageDto()
                 .messageName(name)
-                .tenantId(theTenantId.orNull)
+              //  .tenantId(theTenantId.orNull)
                 .businessKey(theBusinessKey.orNull)
                 .processInstanceId(processInstanceId.orNull)
                 .processVariables(mapToC7Variables(variables))

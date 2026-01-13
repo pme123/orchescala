@@ -22,21 +22,36 @@ inline def nameOfType[A]: String                           = ${ NameOf.nameOfTyp
 
 enum InputParams:
   // mocking
-  case servicesMocked
-  case mockedWorkers
-  case outputMock
-  case outputServiceMock
+  case _servicesMocked
+  case _mockedWorkers
+  case _outputMock
+  case _outputServiceMock
   // mapping
-  case manualOutMapping
-  case outputVariables
-  case handledErrors
-  case regexHandledErrors
+  case _manualOutMapping
+  case _outputVariables
+  case _handledErrors
+  case _regexHandledErrors
   // authorization
-  case identityCorrelation
+  case _identityCorrelation
+  @deprecated("Use `identityCorrelation`") 
   case impersonateUserId
-  // special cases
-  case topicName
-  case inConfig
+  @deprecated("Use `_servicesMocked`")
+  case servicesMocked
+  @deprecated("Use `_mockedWorkers`")
+  case mockedWorkers
+  @deprecated("Use `_outputMock`")
+  case outputMock
+  @deprecated("Use `_outputServiceMock`")
+  case outputServiceMock
+  @deprecated("Use `_manualOutMapping`")
+  case manualOutMapping
+  @deprecated("Use `_outputVariables`")
+  case outputVariables
+  @deprecated("Use `_handledErrors`")
+  case handledErrors
+  @deprecated("Use `_regexHandledErrors`")
+  case regexHandledErrors
+
 end InputParams
 
 type ErrorCodeType = ErrorCodes | String | Int
@@ -94,28 +109,45 @@ object NoInConfig:
 // ApiCreator that describes these variables
 case class GeneralVariables(
     // mocking
-    servicesMocked: Option[Boolean] = None,         // Process only
-    mockedWorkers: Option[StringOrSeq] = None,      // Process only
-    outputMock: Option[Json] = None,
-    outputServiceMock: Option[Json] = None,         // Service only
+    _servicesMocked: Option[Boolean] = None,         // Process only
+    _mockedWorkers: Option[StringOrSeq] = None,      // Process only
+    _outputMock: Option[Json] = None,
+    _outputServiceMock: Option[Json] = None,         // Service only
     // mapping
-    manualOutMapping: Option[Boolean] = None,       // Service only
-    outputVariables: Option[StringOrSeq] = None,    // Service only
-    handledErrors: Option[StringOrSeq] = None,      // Service only
-    regexHandledErrors: Option[StringOrSeq] = None, // Service only
+    _manualOutMapping: Option[Boolean] = None,       // Service only
+    _outputVariables: Option[StringOrSeq] = None,    // Service only
+    _handledErrors: Option[StringOrSeq] = None,      // Service only
+    _regexHandledErrors: Option[StringOrSeq] = None, // Service only
     // authorization
-    identityCorrelation: Option[IdentityCorrelation] = None,
+    _identityCorrelation: Option[IdentityCorrelation] = None,
+    // DEPRECATED
     @deprecated("Use `identityCorrelation`")
-    impersonateUserId: Option[String] = None
+    impersonateUserId: Option[String] = None,
+    @deprecated("Use `_servicesMocked`")
+    servicesMocked: Option[Boolean] = None,          // Process only
+    @deprecated("Use `_mockedWorkers`")
+    mockedWorkers: Option[StringOrSeq] = None,       // Process only
+    @deprecated("Use `_outputMock`")
+    outputMock: Option[Json] = None,
+    @deprecated("Use `_outputServiceMock`")
+    outputServiceMock: Option[Json] = None,           // Service only
+    @deprecated("Use `_manualOutMapping`")
+    manualOutMapping: Option[Boolean] = None,        // Service only
+    @deprecated("Use `_outputVariables`")
+    outputVariables: Option[StringOrSeq] = None,    // Service only
+    @deprecated("Use `_handledErrors`")
+    handledErrors: Option[StringOrSeq] = None,      // Service only
+    @deprecated("Use `_regexHandledErrors`")
+    regexHandledErrors: Option[StringOrSeq] = None // Service only
 ):
 
-  lazy val mockedWorkerSeq: Seq[String]      = asSeq(mockedWorkers)
-  lazy val outputVariableSeq: Seq[String]    = asSeq(outputVariables)
-  lazy val handledErrorSeq: Seq[String]      = asSeq(handledErrors)
-  lazy val regexHandledErrorSeq: Seq[String] = asSeq(regexHandledErrors)
+  lazy val mockedWorkerSeq: Seq[String]      = asSeq(_mockedWorkers.orElse(mockedWorkers))
+  lazy val outputVariableSeq: Seq[String]    = asSeq(_outputVariables.orElse(outputVariables))
+  lazy val handledErrorSeq: Seq[String]      = asSeq(_handledErrors.orElse(handledErrors))
+  lazy val regexHandledErrorSeq: Seq[String] = asSeq(_regexHandledErrors.orElse(regexHandledErrors))
 
-  def isMockedService: Boolean                         = servicesMocked.contains(true)
-  def isManualOutMapping: Boolean                      = manualOutMapping.contains(true)
+  def isMockedService: Boolean                         = _servicesMocked.orElse(servicesMocked).contains(true)
+  def isManualOutMapping: Boolean                      = _manualOutMapping.orElse(manualOutMapping).contains(true)
   def isMockedWorker(workerTopicName: String): Boolean =
     mockedWorkerSeq.contains(workerTopicName)
 

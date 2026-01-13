@@ -1,37 +1,26 @@
 package orchescala.gateway
 
-import io.circe.parser.*
 import orchescala.domain.*
 import orchescala.engine.domain.MessageCorrelationResult
 import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object MessageEndpoints:
 
-  val sendMessage: Endpoint[String, (String, Option[String], Option[Int], Option[String], Option[String], JsonObject), ServiceRequestError, MessageCorrelationResult, Any] =
+  val sendMessage: Endpoint[String, (String, Option[String], Option[Int], Option[String], Option[String], Option[JsonObject]), ServiceRequestError, MessageCorrelationResult, Any] =
     EndpointsUtil.baseEndpoint
       .post
       .in("message")
-      .in(path[String]("messageName")
-        .description("Message name")
-        .example("order-received"))
-      .in(query[Option[String]]("tenantId")
-        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("{{tenantId}}")))
-      .in(query[Option[Int]]("timeToLiveInSec")
-        .description("The time in seconds the message is buffered, waiting for correlation. The default value is 0 seconds (no buffering). " +
-          "Only supported in C8 - BE AWARE that if set, it is fire and forget: Camunda will just try to correlate for the configured time.")
-        .example(Some(60)))
-      .in(query[Option[String]]("businessKey")
-        .description("Business key to correlate the message to a specific process instance.")
-        .example(Some("Started by Test Client")))
-      .in(query[Option[String]]("processInstanceId")
-        .description("Process instance ID to correlate the message to a specific process instance.")
-        .example(Some("f150c3f1-13f5-11ec-936e-0242ac1d0007")))
-      .in(jsonBody[JsonObject]
+      .in(signalOrMessageNamePath)
+      .in(tenantIdQuery)
+      .in(timeToLiveInSecQuery)
+      .in(businessKeyQuery)
+      .in(processInstanceIdQuery)
+      .in(jsonBody[Option[JsonObject]]
         .description("Variables to send with the message as a JSON object")
-        .example(sendMessageRequestExample))
+        .example(Some(sendMessageRequestExample)))
       .out(statusCode(StatusCode.Ok))
       .out(jsonBody[MessageCorrelationResult]
         .description("Message correlation result"))

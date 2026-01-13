@@ -6,6 +6,7 @@ import orchescala.engine.domain.ProcessInfo
 import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object ProcessInstanceEndpoints:
 
@@ -19,16 +20,10 @@ object ProcessInstanceEndpoints:
     EndpointsUtil.baseEndpoint
       .post
       .in("process")
-      .in(path[String]("processDefinitionKey")
-        .description("Process definition ID or key")
-        .example("order-process"))
+      .in(processDefinitionKeyPath)
       .in("async")
-      .in(query[Option[String]]("businessKey")
-        .description("Business Key, be aware that this is not supported in Camunda 8.")
-        .example(Some("Started by Test Client")))
-      .in(query[Option[String]]("tenantId")
-        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("{{tenantId}}")))
+      .in(businessKeyQuery)
+      .in(tenantIdQuery)
       .in(jsonBody[JsonObject]
         .description("Request body with process variables as a JSON object")
         .example(startProcessRequestExample))
@@ -54,16 +49,10 @@ object ProcessInstanceEndpoints:
     EndpointsUtil.baseEndpoint
       .post
       .in("process")
-      .in(path[String]("messageName")
-        .description("Message name that triggers a Message Start Event")
-        .example("order-received"))
+      .in(signalOrMessageNamePath)
       .in("message")
-      .in(query[Option[String]]("businessKey")
-        .description("Business Key, be aware that this is not supported in Camunda 8.")
-        .example(Some("order-12345")))
-      .in(query[Option[String]]("tenantId")
-        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("{{tenantId}}")))
+      .in(businessKeyQuery)
+      .in(tenantIdQuery)
       .in(jsonBody[JsonObject]
         .description("Request body with process variables as a JSON object")
         .example(startProcessRequestExample))

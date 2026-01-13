@@ -30,7 +30,7 @@ object MessageRoutes:
                 timeToLiveInSec = timeToLiveInSec,
                 businessKey = businessKey,
                 processInstanceId = processInstanceId,
-                variables = Some(variables)
+                variables = variables
               )
               .mapError(ServiceRequestError.apply)
     List(sendMessageEndpoint)

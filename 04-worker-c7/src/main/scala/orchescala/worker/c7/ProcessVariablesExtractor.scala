@@ -37,28 +37,37 @@ object ProcessVariablesExtractor:
       .getOrElse:
         for
           // mocking
-          servicesMocked <- variableOpt[Boolean](InputParams.servicesMocked)
-          mockedWorkers <- extractSeqFromArrayOrStringOpt(InputParams.mockedWorkers)
-          outputMockOpt <- jsonVariableOpt(InputParams.outputMock)
-          outputServiceMockOpt <- jsonVariableOpt(InputParams.outputServiceMock)
+          servicesMocked <- variableOpt[Boolean](InputParams._servicesMocked)
+          mockedWorkers <- extractSeqFromArrayOrStringOpt(InputParams._mockedWorkers)
+          outputMockOpt <- jsonVariableOpt(InputParams._outputMock)
+          outputServiceMockOpt <- jsonVariableOpt(InputParams._outputServiceMock)
           // mapping
-          manualOutMapping <- variableOpt[Boolean](InputParams.manualOutMapping)
-          outputVariables <- extractSeqFromArrayOrStringOpt(InputParams.outputVariables)
-          handledErrors <- extractSeqFromArrayOrStringOpt(InputParams.handledErrors)
-          regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams.regexHandledErrors)
+          manualOutMapping <- variableOpt[Boolean](InputParams._manualOutMapping)
+          outputVariables <- extractSeqFromArrayOrStringOpt(InputParams._outputVariables)
+          handledErrors <- extractSeqFromArrayOrStringOpt(InputParams._handledErrors)
+          regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams._regexHandledErrors)
           // authorization
-          identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams.identityCorrelation)
+          identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams._identityCorrelation)
+          // DEPRECATED
+          servicesMockedOld <- variableOpt[Boolean](InputParams.servicesMocked)
+          mockedWorkersOld <- extractSeqFromArrayOrStringOpt(InputParams.mockedWorkers)
+          outputMockOptOld <- jsonVariableOpt(InputParams.outputMock)
+          outputServiceMockOptOld <- jsonVariableOpt(InputParams.outputServiceMock)
+          manualOutMappingOld <- variableOpt[Boolean](InputParams.manualOutMapping)
+          outputVariablesOld <- extractSeqFromArrayOrStringOpt(InputParams.outputVariables)
+          handledErrorsOld <- extractSeqFromArrayOrStringOpt(InputParams.handledErrors)
+          regexHandledErrorsOld <- extractSeqFromArrayOrStringOpt(InputParams.regexHandledErrors)
           impersonateUserIdOpt <- variableOpt[String](InputParams.impersonateUserId)
         yield GeneralVariables(
-          servicesMocked = servicesMocked,
-          mockedWorkers = mockedWorkers,
-          outputMock = outputMockOpt,
-          outputServiceMock = outputServiceMockOpt,
-          outputVariables = outputVariables,
-          manualOutMapping = manualOutMapping,
-          handledErrors = handledErrors,
-          regexHandledErrors = regexHandledErrors,
-          identityCorrelation = identityCorrelationOpt,
+          _servicesMocked = servicesMocked.orElse(servicesMockedOld),
+          _mockedWorkers = mockedWorkers.orElse(mockedWorkersOld),
+          _outputMock = outputMockOpt.orElse(outputMockOptOld),
+          _outputServiceMock = outputServiceMockOpt.orElse(outputServiceMockOptOld),
+          _outputVariables = outputVariables.orElse(outputVariablesOld),
+          _manualOutMapping = manualOutMapping.orElse(manualOutMappingOld),
+          _handledErrors = handledErrors.orElse(handledErrorsOld),
+          _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
+          _identityCorrelation = identityCorrelationOpt,
           impersonateUserId = impersonateUserIdOpt
         )
   end extractGeneral

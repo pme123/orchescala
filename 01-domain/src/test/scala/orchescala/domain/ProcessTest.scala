@@ -10,5 +10,5 @@ class ProcessTest extends FunSuite:
       NoInput(),
       ProcessLabels.none
     )
-    assertEquals(process.camundaInBody, Json.obj("servicesMocked" -> Json.fromBoolean(false), "mockedWorkers" -> Json.arr()).asObject.get)
+    assertEquals(process.camundaInBody, Json.obj("_servicesMocked" -> Json.fromBoolean(false), "_mockedWorkers" -> Json.arr()).asObject.get)
   }

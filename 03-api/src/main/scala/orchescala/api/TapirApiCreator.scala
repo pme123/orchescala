@@ -1,9 +1,8 @@
 package orchescala
 package api
 
-import orchescala.api.InOutDocu.IN
 import orchescala.domain.*
-import orchescala.domain.InOutType.Bpmn
+import orchescala.engine.PathUtils.*
 import orchescala.engine.domain.ProcessInfo
 import sttp.tapir.EndpointIO.Example
 
@@ -178,35 +177,23 @@ trait TapirApiCreator extends AbstractApiCreator:
     def endpointPath(inOutDoc: InOutDocu) =
       val id = inOutApi.id
       inOutApi.inOutType match
-        case InOutType.Bpmn if inOutDoc == InOutDocu.IN     =>
+        case InOutType.Bpmn if inOutDoc == InOutDocu.IN =>
           "process" / id / "async" / tenantIdQuery / businessKeyQuery // process start
-        case InOutType.Bpmn                                 =>
-          "process" / id / processInstanceIdPath / "variables" / variableFilterQuery(inOutApi.inOut.out) // variables
+        case InOutType.Bpmn =>
+          "process" / id / processInstanceIdPath / "variables" / variableFilterQuery(
+            inOutApi.inOut.out
+          ) // variables
         case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
-          "userTask" / id / path[String](
-            "userTaskInstanceId"
-          ).default("{{userTaskInstanceId}}") / "complete"
+          "userTask" / id / userTaskInstanceIdPath / "complete"
         case InOutType.UserTask                             => // variables
           "process" / processInstanceIdPath / "userTask" / id / "variables" /
             variableFilterQuery(inOutApi.inOut.in) / timeoutInSecQuery
         case InOutType.Signal                               =>
-          "signal" / path[String](id.replace(
-            SignalEvent.Dynamic_ProcessInstance,
-            "processInstanceId"
-          )).example(id.replace(
-            SignalEvent.Dynamic_ProcessInstance,
-            s"{${SignalEvent.Dynamic_ProcessInstance}}"
-          )) / tenantIdQuery
+          "signal" / signalOrMessageNamePath(id) / tenantIdQuery
         case InOutType.Message                              =>
-          "message" / path[String](id.replace(
-            SignalEvent.Dynamic_ProcessInstance,
-            "processInstanceId"
-          )).example(id.replace(
-            SignalEvent.Dynamic_ProcessInstance,
-            s"{${SignalEvent.Dynamic_ProcessInstance}}"
-          ))
+          "message" / signalOrMessageNamePath(id) / tenantIdQuery / timeToLiveInSecQuery / businessKeyQuery / processInstanceIdQuery
         case InOutType.Timer                                =>
           "timer" / id / "NOT_IMPLEMENTED"
         case InOutType.Dmn                                  =>
@@ -352,38 +339,6 @@ trait TapirApiCreator extends AbstractApiCreator:
   private lazy val outputStartProcessEndpoint =
     jsonBody[ProcessInfo]
       .example(ProcessInfo.example)
-
-  private def processDefinitionKeyPath(processDefinitionKey: String) =
-    path[String](
-      "processDefinitionKey"
-    ).description("Process definition ID or key")
-      .default("{{processDefinitionKey}}")
-      .example(processDefinitionKey)
-
-  private lazy val processInstanceIdPath =
-    path[String]("processInstanceId")
-      .description(
-        """The processInstanceId of the Process.
-          |
-          |> This is the result id of the `StartProcess`. And should automatically be set in Postman - see _Postman Instructions_.
-          |
-          |""".stripMargin
-      )
-      .default("{{processInstanceId}}")
-
-  private lazy val tenantIdQuery                = query[String]("tenantId").default(
-    "{{tenantId}}"
-  ).description("If you have a multi tenant setup, you must specify the Tenant ID.")
-  private lazy val businessKeyQuery             = query[String]("businessKey").default(
-    "From Test Client"
-  ).description("Business Key, be aware that in Camunda 8 this is an additional process variable.")
-  private def variableFilterQuery(out: Product) = query[String](
-    "variableFilter"
-  ).example(out.productElementNames.mkString(","))
-    .description("A comma-separated String of variable names. E.g. `name,firstName`")
-  private lazy val timeoutInSecQuery            = query[Int]("timeoutInSec").example(10).description(
-    "The maximum number of seconds to wait for the user task to become active. If not provided, it will wait 10 seconds."
-  )
 
   extension (pa: ProcessApi[?, ?, ?] | ExternalTaskApi[?, ?])
     def processName: String =

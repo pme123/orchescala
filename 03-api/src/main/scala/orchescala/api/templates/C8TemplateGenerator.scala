@@ -154,25 +154,25 @@ class C8TemplateGenerator(
     case _                               => Seq.empty
 
   private def serviceWorkerVariables: Seq[InputParamForTempl] =
-    optionalMapping(outputServiceMock) +: customWorkerVariables
+    optionalMapping(_outputServiceMock) +: customWorkerVariables
 
   private def customWorkerVariables: Seq[InputParamForTempl] = Seq(
-    InputParamForTempl(manualOutMapping, "true"),
+    InputParamForTempl(_manualOutMapping, "true"),
     InputParamForTempl(
-      outputVariables,
+      _outputVariables,
       _.productElementNames.map(n => s""""$n"""").mkString("[ ", ", ", " ]")
     ),
-    optionalMapping(outputMock),
-    InputParamForTempl(handledErrors, """["handledError1", "handledError2"]"""),
-    InputParamForTempl(regexHandledErrors, """["errorRegex1", "errorRegex2"]""")
+    optionalMapping(_outputMock),
+    InputParamForTempl(_handledErrors, """["handledError1", "handledError2"]"""),
+    InputParamForTempl(_regexHandledErrors, """["errorRegex1", "errorRegex2"]""")
   )
 
   private def processVariables: Seq[InputParamForTempl] = Seq(
-    optionalMapping(servicesMocked),
-    optionalMapping(mockedWorkers),
-    optionalMapping(outputMock),
+    optionalMapping(_servicesMocked),
+    optionalMapping(_mockedWorkers),
+    optionalMapping(_outputMock),
     optionalMapping(impersonateUserId),
-    optionalMapping(identityCorrelation)
+    optionalMapping(_identityCorrelation)
   )
 
   private def optionalMapping(name: InputParams): InputParamForTempl =

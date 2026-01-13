@@ -248,7 +248,7 @@ private trait InitProcessDsl[
   ): IO[MockerError, Option[InitIn]] =
     (
       context.generalVariables.isMockedWorker(worker.topic),
-      context.generalVariables.outputMock
+      context.generalVariables._outputMock
     ) match
       case (_, Some(outputMock)) =>
         ZIO.fromEither(outputMock.as[InitIn])

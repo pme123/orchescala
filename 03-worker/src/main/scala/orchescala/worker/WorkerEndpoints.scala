@@ -5,6 +5,7 @@ import orchescala.domain.*
 import orchescala.worker.WorkerError.*
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object WorkerEndpoints:
 
@@ -52,9 +53,7 @@ object WorkerEndpoints:
   val triggerWorker: Endpoint[String, (String, Json), ServiceRequestError, Option[Json], Any] =
     securedBaseEndpoint
       .post
-      .in(path[String]("topicName")
-        .description("Worker definition ID (worker topic name)")
-        .example("process-order-worker"))
+      .in(workerTopicNamePath)
       .in(jsonBody[Json]
         .description("Variables to send to the worker as a JSON object")
         .example(triggerWorkerRequestExample))

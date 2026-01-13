@@ -158,22 +158,22 @@ class C7TemplateGenerator(
     case _ => Seq.empty
 
   private def serviceWorkerVariables: Seq[InputParamForTempl] =
-    optionalMapping(outputServiceMock) +: customWorkerVariables
+    optionalMapping(_outputServiceMock) +: customWorkerVariables
 
   private def customWorkerVariables: Seq[InputParamForTempl] = Seq(
-    InputParamForTempl(manualOutMapping, "#{true}"),
-    InputParamForTempl(outputVariables, _.productElementNames.mkString(", ")),
-    optionalMapping(outputMock),
-    InputParamForTempl(handledErrors, "handledError1, handledError2"),
-    InputParamForTempl(regexHandledErrors, "errorRegex1, errorRegex2")
+    InputParamForTempl(_manualOutMapping, "#{true}"),
+    InputParamForTempl(_outputVariables, _.productElementNames.mkString(", ")),
+    optionalMapping(_outputMock),
+    InputParamForTempl(_handledErrors, "handledError1, handledError2"),
+    InputParamForTempl(_regexHandledErrors, "errorRegex1, errorRegex2")
   )
 
   private def processVariables: Seq[InputParamForTempl] = Seq(
-    optionalMapping(servicesMocked),
-    optionalMapping(mockedWorkers),
-    optionalMapping(outputMock),
+    optionalMapping(_servicesMocked),
+    optionalMapping(_mockedWorkers),
+    optionalMapping(_outputMock),
     optionalMapping(impersonateUserId),
-    optionalMapping(identityCorrelation)
+    optionalMapping(_identityCorrelation)
   )
 
   private def optionalMapping(name: InputParams): InputParamForTempl =
