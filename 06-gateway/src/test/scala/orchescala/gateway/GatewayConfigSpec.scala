@@ -1,14 +1,18 @@
 package orchescala.gateway
 
-import zio.*
-import zio.test.*
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import java.util.Base64
+import orchescala.engine.DefaultEngineConfig
+import zio.*
+import zio.test.*
+
 import scala.jdk.CollectionConverters.*
 
 object GatewayConfigSpec extends ZIOSpecDefault:
-  private lazy val config = DefaultGatewayConfig(impersonateProcessKey = Some("customerId"))
+  private lazy val config = DefaultGatewayConfig(
+    engineConfig = DefaultEngineConfig(),
+    impersonateProcessKey = Some("customerId")
+  )
 
   def spec = suite("GatewayConfig")(
     suite("defaultTokenValidator")(
@@ -30,7 +34,7 @@ object GatewayConfigSpec extends ZIOSpecDefault:
         val token   = JWT.create()
           .withPayload(payload)
           .sign(Algorithm.none())
-        val in = Json.obj("customerId" -> Json.fromLong(123L)).asObject.get
+        val in      = Json.obj("customerId" -> Json.fromLong(123L)).asObject.get
         for
           result <- config.extractCorrelation(token, in)
         yield assertTrue(
@@ -40,12 +44,12 @@ object GatewayConfigSpec extends ZIOSpecDefault:
           result.impersonateProcessValue.contains("123")
         )
       },
-    test("should extract payload from valid JWT no impersonateProcessKey") {
+      test("should extract payload from valid JWT no impersonateProcessKey") {
         val payload = Map("preferred_username" -> "user123", "email" -> "pme@master.ch").asJava
         val token   = JWT.create()
           .withPayload(payload)
           .sign(Algorithm.none())
-        val in = Json.obj("clientKey" -> Json.fromString("123")).asObject.get
+        val in      = Json.obj("clientKey" -> Json.fromString("123")).asObject.get
         for
           result <- config.extractCorrelation(token, in)
         yield assertTrue(

@@ -10,7 +10,8 @@ import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters.*
 
 trait WorkerApp extends ZIOAppDefault:
-  def port: Int               = 5555
+  def workerConfig: WorkerConfig
+  def port: Int               = workerConfig.workerAppPort
   def applicationName: String = getClass.getName.split('.').take(2).mkString("-")
   def engineContext: EngineContext
   // a list of registries for each worker implementation

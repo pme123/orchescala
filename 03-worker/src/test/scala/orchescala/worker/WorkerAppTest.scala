@@ -16,7 +16,8 @@ class WorkerAppTest extends FunSuite:
           request: RunnableRequest[ServiceIn]
       ): SendRequestType[ServiceOut] = ???
     end engineContext
-    
+
+    override def workerConfig: WorkerConfig = DefaultWorkerConfig()
     override def applicationName: String = name
     override def workerRegistries: Seq[WorkerRegistry] = Seq.empty
     

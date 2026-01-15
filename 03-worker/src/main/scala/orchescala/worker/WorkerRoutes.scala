@@ -6,7 +6,7 @@ import orchescala.engine.domain.EngineError.ProcessError
 import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
 import orchescala.worker.*
-import orchescala.worker.WorkerError.ServiceRequestError
+import orchescala.worker.WorkerError.{MockedOutputJson, ServiceRequestError}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
@@ -50,17 +50,18 @@ case class WorkerRoutes(engineContext: EngineContext):
                                                      worker
                                                        .runWorkFromWorker(variables)
                                                    case worker: InitProcessDsl[?, ?, ?, ?] =>
-                                                     worker
-                                                       .runWorkFromServiceWithMocking(variables)
+                                                       worker
+                                                         .runWorkFromServiceWithMocking(variables)
+                                                         .map(Option.apply)
                         _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
                       yield result
                   .provideLayer(HttpClientProvider.live)
                   .tapError: err =>
-                    ZIO.logError(s"Triggering Worker Error: $err")
+                    ZIO.logError(s"Triggering Worker Error in Gateway: $err")
                   .mapError:
-                    case err : WorkerError =>
-                       ServiceRequestError(err)
-                    case err =>
+                    case err: WorkerError =>
+                      ServiceRequestError(err)
+                    case err              =>
                       ServiceRequestError(500, err.getMessage)
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(

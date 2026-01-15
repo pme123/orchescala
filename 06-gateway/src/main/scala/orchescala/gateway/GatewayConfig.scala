@@ -2,46 +2,27 @@ package orchescala.gateway
 
 import com.auth0.jwt.JWT
 import orchescala.domain.*
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
 
 trait GatewayConfig:
-  def port: Int
-  def validateInput: Boolean
-  def impersonateProcessKey: Option[String]
+  def engineConfig: EngineConfig
+  def gatewayPort: Int
   def validateToken(token: String): IO[GatewayError, String]
   def extractCorrelation(
       token: String,
       in: JsonObject
   ): IO[GatewayError, IdentityCorrelation]
 
-  /** Get the base URL for a worker app by topic name. Returns None if the worker should be executed
-    * locally. Returns Some(url) if the worker request should be forwarded to the given URL.
-    */
-  def workerAppUrl(topicName: String): Option[String]
-end GatewayConfig
-
-object GatewayConfig:
-  val localWorkerAppUrl = "http://localhost:5555"
-  def default           = DefaultGatewayConfig()
-
 end GatewayConfig
 
 case class DefaultGatewayConfig(
-    port: Int = 8888,
-    validateInput: Boolean = true,
-    workersBasePath: String = GatewayConfig.localWorkerAppUrl,
-    impersonateProcessKey: Option[String] = None
+    engineConfig: EngineConfig = DefaultEngineConfig(),
+    impersonateProcessKey: Option[String] = None,
+    gatewayPort: Int = 8888,
 ) extends GatewayConfig:
-
-  def workerAppUrl(topicName: String): Option[String] =
-    if workersBasePath == GatewayConfig.localWorkerAppUrl then
-      Some(GatewayConfig.localWorkerAppUrl)
-    else
-      topicName.split('-').take(2).lastOption
-        .map: projectName =>
-          s"$workersBasePath/orchescala/$projectName"
 
   /** Default token validator - validates that token is not empty and returns the token. Override
     * this with your down validation logic (e.g., JWT validation, database lookup, etc.)

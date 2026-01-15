@@ -28,7 +28,7 @@ import zio.http.*
   */
 abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
-  def config: GatewayConfig = GatewayConfig.default
+  def config: GatewayConfig
 
   def run: ZIO[Any, Any, Any] = start()
 
@@ -42,7 +42,7 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     val program =
       for
         _ <- ZIO.logInfo(banner("Engine Gateway Server"))
-        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.port}")
+        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
 
         // Create gateway engine
         gatewayEngine      <- engineZIO
@@ -51,13 +51,13 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
         allRoutes           = routes(gatewayEngine)
 
         // Start server
-        _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.port}")
-        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:${config.port}/docs")
+        _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.gatewayPort}")
+        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:${config.gatewayPort}/docs")
         _ <- Server.serve(allRoutes).forever
       yield ()
 
     program.provide(
-      Server.defaultWithPort(config.port),
+      Server.defaultWithPort(config.gatewayPort),
       EngineRuntime.logger
     ).unit
   end start

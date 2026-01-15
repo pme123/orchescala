@@ -7,6 +7,7 @@ import orchescala.worker.WorkerError.{RunWorkError, *}
 import zio.{IO, UIO, ZIO}
 
 import scala.concurrent.duration.*
+import scala.math.Fractional.Implicits.infixFractionalOps
 import scala.reflect.ClassTag
 
 trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
@@ -203,7 +204,7 @@ private trait InitProcessDsl[
   /** Execute with full WorkerExecutor functionality including mocking and inConfig merging */
   def runWorkFromServiceWithMocking(json: Json)(using
       context: EngineRunContext
-  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+  ): ZIO[SttpClientBackend, WorkerError, Json] =
     for
       in                <- mergeInConfig(json)
       validatedInput    <- ZIO.fromEither(worker.validationHandler.validate(in))
@@ -212,35 +213,36 @@ private trait InitProcessDsl[
                                vi.init(validatedInput)
                              .getOrElse:
                                ZIO.succeed(Map.empty[String, Any])
-      mockedOutput      <- mockOutput(validatedInput)
-      output            <-
-        if mockedOutput.isEmpty then customInitZIO(validatedInput)
-        else ZIO.succeed(mockedOutput.get)
-      allOutputs        = mergeOutputs(validatedInput, initializedOutput, output)
-      filteredOut       = filterOutput(allOutputs, context.generalVariables.outputVariableSeq)
-      _                 <- ZIO.fail(MockedOutput(filteredOut)).when(mockedOutput.isDefined)
-    yield Some(mapToJson(filteredOut).deepDropNullValues)
+      //  mockedOutput      <- mockOutput(validatedInput)
+      allOutputs: Json  <-
+        customInitZIO(validatedInput)
+          .map:
+            mergeOutputs(validatedInput, initializedOutput, _)
+      filteredOut        = filterOutput(allOutputs, context.generalVariables.outputVariableSeq)
+    yield json.deepDropNullValues
 
   private def mergeInConfig(json: Json): ZIO[Any, WorkerError, In] =
     ZIO.fromEither(json.as[In])
       .mapError: err =>
         WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
-      .flatMap :
+      .flatMap:
         case i: WithConfig[?] =>
-          val jsonObj = json.asObject.get
-          val inputVariables = jsonObj.toMap
+          val jsonObj                = json.asObject.get
+          val inputVariables         = jsonObj.toMap
           val configJson: JsonObject =
             inputVariables.getOrElse("inConfig", i.defaultConfigAsJson).asObject.get
-          val newJsonConfig = worker.inConfigVariableNames
+          val newJsonConfig          = worker.inConfigVariableNames
             .foldLeft(configJson): (configJson, n) =>
               if jsonObj.contains(n)
               then configJson.add(n, jsonObj(n).get)
               else configJson
-          val newJsonObj = jsonObj.add("inConfig", newJsonConfig.asJson)
+          val newJsonObj             = jsonObj.add("inConfig", newJsonConfig.asJson)
           ZIO.fromEither(newJsonObj.asJson.as[In])
             .mapError: err =>
-              WorkerError.ValidatorError(s"Problem parsing merged inConfig Json to ${nameOfType[In]}: $err")
-        case in =>
+              WorkerError.ValidatorError(
+                s"Problem parsing merged inConfig Json to ${nameOfType[In]}: $err"
+              )
+        case in               =>
           ZIO.succeed(in)
 
   private def mockOutput(validatedInput: In)(using
@@ -265,39 +267,45 @@ private trait InitProcessDsl[
       initializedInput: In,
       internalVariables: Map[String, Any],
       output: InitIn
-  )(using context: EngineRunContext): Map[String, Any] =
+  )(using context: EngineRunContext): Json =
     val generalVarsJson = context.generalVariables.asJson.deepDropNullValues
-    val generalVarsMap = generalVarsJson.asObject.get.toMap
+    val generalVarsMap  = generalVarsJson.asObject.get.toMap
       .map { case (k, v) => k -> jsonToEngineValue(v) }
-    generalVarsMap ++ context.toEngineObject(initializedInput) ++ internalVariables ++
-      context.toEngineObject(output)
+    generalVarsJson
+      .deepMerge(initializedInput.asJson)
+      .deepMerge(mapToJson(internalVariables))
+      .deepMerge(output.asJson)
+  end mergeOutputs
 
   private def filterOutput(
-      allOutputs: Map[String, Any],
+      allOutputs: Json,
       outputVariables: Seq[String]
-  ): Map[String, Any] =
-    val filtered =
-      if outputVariables.isEmpty then
-        allOutputs
-      else
-        allOutputs
-          .filter { case k -> _ => outputVariables.contains(k) }
-    // Remove inConfig as it's only used for input merging, not output
-    filtered - "inConfig"
+  ): Json =
+    if outputVariables.isEmpty then
+      allOutputs
+    else
+      allOutputs
+        .asObject.get.toMap
+        .filter:
+          case k -> _ => outputVariables.contains(k)
+        .filterNot:
+          case k -> _ =>
+            k == "inConfig" // Remove inConfig as it's only used for input merging, not output
+        .asJson
 
   private def jsonToEngineValue(json: Json): Any =
     json match
-      case j if j.isNull => null
-      case j if j.isNumber =>
+      case j if j.isNull    => null
+      case j if j.isNumber  =>
         j.asNumber.get.toBigDecimal.get match
-          case n if n.isValidInt => n.toInt
+          case n if n.isValidInt  => n.toInt
           case n if n.isValidLong => n.toLong
-          case n => n.toDouble
+          case n                  => n.toDouble
       case j if j.isBoolean => j.asBoolean.get
-      case j if j.isString => j.asString.get
-      case j if j.isArray =>
+      case j if j.isString  => j.asString.get
+      case j if j.isArray   =>
         j.asArray.get.map(jsonToEngineValue)
-      case j =>
+      case j                =>
         j.asObject.get.toMap
           .map { case (k, v) => k -> jsonToEngineValue(v) }
 
@@ -305,22 +313,21 @@ private trait InitProcessDsl[
     Json.obj(
       map.map { case k -> v =>
         k -> (v match
-          case j: Json => j
-          case null => Json.Null
-          case s: String => Json.fromString(s)
-          case n: Number => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
-          case b: Boolean => Json.fromBoolean(b)
+          case j: Json      => j
+          case null         => Json.Null
+          case s: String    => Json.fromString(s)
+          case n: Number    => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
+          case b: Boolean   => Json.fromBoolean(b)
           case m: Map[?, ?] => mapToJson(m.asInstanceOf[Map[String, Any]])
-          case seq: Seq[?] => Json.arr(seq.map {
-            case j: Json => j
-            case null => Json.Null
-            case s: String => Json.fromString(s)
-            case n: Number => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
-            case b: Boolean => Json.fromBoolean(b)
-            case other => Json.fromString(other.toString)
-          }*)
-          case other => Json.fromString(other.toString)
-        )
+          case seq: Seq[?]  => Json.arr(seq.map {
+              case j: Json    => j
+              case null       => Json.Null
+              case s: String  => Json.fromString(s)
+              case n: Number  => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
+              case b: Boolean => Json.fromBoolean(b)
+              case other      => Json.fromString(other.toString)
+            }*)
+          case other        => Json.fromString(other.toString))
       }.toSeq*
     )
 
@@ -442,7 +449,8 @@ private trait RunWorkDsl[
       validatedInput            <- ZIO.fromEither(
                                      worker.validationHandler.validate(in)
                                    )
-      mockedOutput: Option[Out] <- OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
+      mockedOutput: Option[Out] <-
+        OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
       out                       <-
         if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
         else ZIO.succeed(mockedOutput.get)

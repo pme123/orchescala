@@ -2,6 +2,7 @@ package orchescala.gateway
 
 import orchescala.domain.*
 import orchescala.engine.domain.EngineError
+import orchescala.worker.WorkerError
 
 sealed trait GatewayError extends OrchescalaError
 
@@ -25,8 +26,11 @@ object GatewayError:
     given InOutCodec[ServiceRequestError] = deriveInOutCodec
     given ApiSchema[ServiceRequestError]  = deriveApiSchema
 
-    def apply(err: GatewayError | EngineError): ServiceRequestError =
+    def apply(err: GatewayError | EngineError | WorkerError): ServiceRequestError =
       err match
+        case err: WorkerError.ServiceRequestError =>
+          ServiceRequestError(err.errorCode, err.errorMsg)
+        case err: WorkerError         => ServiceRequestError(500, err.toString)  
         case err: EngineError          => ServiceRequestError(500, err.toString)
         case err: ServiceRequestError  => err
         case TokenExtractionError(msg) => ServiceRequestError(401, msg)

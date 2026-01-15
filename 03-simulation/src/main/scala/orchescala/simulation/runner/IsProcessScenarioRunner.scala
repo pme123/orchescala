@@ -3,7 +3,8 @@ package runner
 
 import orchescala.domain.{InOutDecoder, InOutEncoder}
 import orchescala.engine.ProcessEngine
-import orchescala.engine.domain.MessageCorrelationResult
+import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
+import orchescala.engine.rest.{HttpClientProvider, WorkerForwardUtil}
 import zio.ZIO.*
 import zio.{IO, ZIO}
 
@@ -15,60 +16,67 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
 ):
 
   private lazy val processInstanceService = engine.processInstanceService
-  private lazy val scenarioOrStepRunner = ScenarioOrStepRunner(scenario)
+  private lazy val scenarioOrStepRunner   = ScenarioOrStepRunner(scenario)
+
+  private val processName: String = scenario.process.processName
 
   private[simulation] def startProcess: ResultType =
+    val variables = scenario.process.camundaInBody.asJson
     for
       _                  <-
         logDebug(
-          s"Starting process: ${scenario.process.processName} - ${scenario.process.camundaInBody.asJson}"
+          s"Starting process: $processName - $variables"
         )
+      initVariables      <- initProcess(variables)
       given ScenarioData <-
         processInstanceService.startProcessAsync(
-          scenario.process.processName,
-          scenario.process.camundaInBody,
+          processName,
+          initVariables.getOrElse(JsonObject()),
           Some(scenario.name),
           config.tenantId,
           identityCorrelation = Some(testIdentityCorrelation)
         ).mapError: err =>
           SimulationError.ProcessError(
             summon[ScenarioData].error(
-              s"Problem starting Process '${scenario.process.processName}': ${err.errorMsg}"
+              s"Problem starting Process '$processName': ${err.errorMsg}"
             )
           )
         .map: engineProcessInfo =>
           summon[ScenarioData].withProcessInstanceId(engineProcessInfo.processInstanceId)
             .info(
-              s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(engineProcessInfo)})"
+              s"Process '$processName' started (check ${config.cockpitUrl(engineProcessInfo)})"
             )
     yield summon[ScenarioData]
+    end for
   end startProcess
 
   private[simulation] def sendMessage: ResultType =
     def correlate: ResultType =
-      val msgName           = scenario.inOut.id
-      val businessKey       = Some(scenario.name)
-      val tenantId          = config.tenantId
+      val msgName     = scenario.inOut.id
+      val businessKey = Some(scenario.name)
+      val tenantId    = config.tenantId
       for
-        given ScenarioData <- processInstanceService
-                                .startProcessByMessage(
-                                  messageName = msgName,
-                                  tenantId = tenantId,
-                                  businessKey = businessKey,
-                                  variables = Some(scenario.process.camundaInBody)
-                                )
-                                .map: result =>
-                                  summon[ScenarioData]
-                                    .withProcessInstanceId(result.processInstanceId)
-                                    .info(
-                                      s"Process '${scenario.process.processName}' started (check ${config.cockpitUrl(result)})"
-                                    )
-                                .mapError: err =>
-                                  SimulationError.ProcessError(
-                                    summon[ScenarioData].error(
-                                      err.errorMsg
-                                    )
-                                  )
+        initVariables      <- initProcess(scenario.process.camundaInBody.asJson)
+        given ScenarioData <-
+          processInstanceService
+            .startProcessByMessage(
+              messageName = msgName,
+              tenantId = tenantId,
+              businessKey = businessKey,
+              variables = initVariables
+            )
+            .map: result =>
+              summon[ScenarioData]
+                .withProcessInstanceId(result.processInstanceId)
+                .info(
+                  s"Process '$processName' started (check ${config.cockpitUrl(result)})"
+                )
+            .mapError: err =>
+              SimulationError.ProcessError(
+                summon[ScenarioData].error(
+                  err.errorMsg
+                )
+              )
         _                  <- logInfo(s"Start Message ${summon[ScenarioData].context.taskId} sent")
       yield summon[ScenarioData]
       end for
@@ -80,4 +88,18 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
       correlate(using summon[ScenarioData].withRequestCount(0))
   end sendMessage
 
+
+  private def initProcess(variables: Json)(using ScenarioData) =
+    // Forward request to the worker app
+    WorkerForwardUtil.forwardWorkerRequest(processName, variables, "No token needed")(using
+        config.engineConfig
+      )
+      .provideLayer(HttpClientProvider.live)
+      .map:
+        _.flatMap(_.asObject)
+      .mapError:
+        case err: EngineError =>
+          SimulationError.ProcessError(summon[ScenarioData].error(
+            s"Problem starting Process '$processName': ${err.errorMsg}"
+          ))
 end IsProcessScenarioRunner

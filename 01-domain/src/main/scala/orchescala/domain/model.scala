@@ -177,7 +177,11 @@ sealed trait ProcessOrExternalTask[
       _servicesMocked = Some(servicesMocked),
       _mockedWorkers = Some(mockedWorkers),
       _identityCorrelation = identityCorrelation
-    ).asJson.deepDropNullValues.asObject.get
+    ).asJson
+      .deepMerge(inAsJson)
+      .deepDropNullValues
+      .asObject
+      .get
   // this is safe as it is a JsonObject
   end camundaInBody
 

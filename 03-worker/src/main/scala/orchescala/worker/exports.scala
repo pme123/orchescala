@@ -72,6 +72,14 @@ object WorkerError:
     override val isMock       = true
   end MockedOutput
 
+  case class MockedOutputJson(
+      output: Json,
+      errorMsg: String = "Output mocked as Json"
+  ) extends WorkerError:
+    val errorCode: ErrorCodes = ErrorCodes.`output-mocked`
+    override val isMock       = true
+  end MockedOutputJson
+
   case object AlreadyHandledError extends WorkerError:
     val errorMsg: String      = "Error already handled."
     val errorCode: ErrorCodes = ErrorCodes.`error-already-handled`
@@ -184,6 +192,7 @@ object WorkerError:
 
     def apply(err: WorkerError): ServiceRequestError =
       err match
+        case ValidatorError(msg)            => ServiceRequestError(400, msg)
         case ServiceAuthError(msg)          => ServiceRequestError(401, msg)
         case ServiceBadBodyError(msg)       => ServiceRequestError(400, msg)
         case ServiceBadPathError(msg)       => ServiceRequestError(404, msg)

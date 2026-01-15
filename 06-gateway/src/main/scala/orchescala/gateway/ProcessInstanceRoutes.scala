@@ -1,8 +1,8 @@
 package orchescala.gateway
 
 import io.circe.Json as CirceJson
-import orchescala.engine.AuthContext
-import orchescala.engine.rest.HttpClientProvider
+import orchescala.engine.{AuthContext, EngineConfig}
+import orchescala.engine.rest.{HttpClientProvider, WorkerForwardUtil}
 import orchescala.engine.services.*
 import orchescala.gateway.GatewayError.{ServiceRequestError, UnexpectedError}
 import sttp.capabilities.WebSockets
@@ -28,7 +28,7 @@ object ProcessInstanceRoutes:
               .flatMap: identityCorrelation =>
                 // Set the bearer token in AuthContext so it can be used by the engine services
                 AuthContext.withBearerToken(validatedToken):
-                  validateInput(
+                  initProcess(
                     processDefId = processDefId,
                     in = in,
                     token = validatedToken
@@ -54,7 +54,7 @@ object ProcessInstanceRoutes:
             .flatMap: identityCorrelation =>
               // Set the bearer token in AuthContext so it can be used by the engine services
               AuthContext.withBearerToken(validatedToken):
-                validateInput(
+                initProcess(
                   processDefId = messageName,
                   in = in,
                   token = validatedToken
@@ -123,16 +123,14 @@ object ProcessInstanceRoutes:
 
   // this runs the init worker to validate the input
   // so a process instance needs an InitWorker
-  private def validateInput(
+  private def initProcess(
       processDefId: String,
       in: JsonObject,
       token: String
-  )(using config: GatewayConfig): ZIO[Any, GatewayError, Option[Json]] =
-    if !config.validateInput then
-      ZIO.logInfo("Input validation is disabled (`GatewayConfig.validateInput`)") *> ZIO.none
-    else
+  )(using gatewayConfig: GatewayConfig): ZIO[Any, GatewayError, Option[Json]] =
+    given config: EngineConfig = gatewayConfig.engineConfig
       // Forward request to the init worker
-      WorkerRoutes.forwardWorkerRequest(processDefId, in.asJson, token)
+      WorkerForwardUtil.forwardWorkerRequest(processDefId, in.asJson, token)
         .provideLayer(HttpClientProvider.live)
         .mapError:
           case ServiceRequestError(errorCode, errorMsg) =>

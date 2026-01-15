@@ -15,7 +15,7 @@ abstract class SimulationRunner
       Logging:
 
   def config: SimulationConfig =
-    SimulationConfig()
+    DefaultSimulationConfig()
 
   // Override this to provide the ZIO layers required by this simulation
   def requiredLayers: Seq[ZLayer[Any, Nothing, Any]]
