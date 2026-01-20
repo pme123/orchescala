@@ -31,7 +31,7 @@ object CamundaHelper:
                        .getOrElse(Right(None))
                    ).mapError(err =>
                      BadVariableError(
-                       s"Problem decoding Json to ${nameOfType[A]}: $err"
+                       s"Problem decoding Json '$varKey' to ${nameOfType[A]}: $err"
                      )
                    )
     yield obj
