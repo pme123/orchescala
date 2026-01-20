@@ -3,6 +3,7 @@ package orchescala.worker.c7
 import orchescala.worker.{DefaultWorkerConfig, WorkerConfig, WorkerError}
 import orchescala.worker.WorkerError.*
 import munit.FunSuite
+import orchescala.engine.DefaultEngineConfig
 import org.camunda.bpm.client.task.ExternalTask
 import org.camunda.bpm.client.task.impl.ExternalTaskImpl
 
@@ -14,7 +15,7 @@ class C7WorkerCalcRetriesTest extends FunSuite:
   // Simple test helper that replicates the calcRetries logic
   def calcRetries(error: WorkerError, currentRetries: Int): Int = {
     externalTask.setRetries(currentRetries)
-    C7Worker.calcRetries(error, DefaultWorkerConfig().doRetryList)
+    C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList)
   }
 
   test("calcRetries - normal error with retries > 0"):

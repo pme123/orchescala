@@ -3,7 +3,8 @@ package orchescala.worker.c8
 import io.camunda.client.CamundaClient
 import orchescala.domain.GeneralVariables
 import orchescala.engine.c8.{C8Client, SharedC8ClientManager}
-import orchescala.worker.{WorkerDsl, WorkerRegistry}
+import orchescala.engine.DefaultEngineConfig
+import orchescala.worker.{WorkerConfig, WorkerDsl, WorkerRegistry}
 import zio.*
 import zio.ZIO.*
 
@@ -16,7 +17,7 @@ class C8WorkerRegistry(c8Client: C8Client)
   override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
     Seq(SharedC8ClientManager.layer)
 
-  protected def registerWorkers[R](workers: Set[WorkerDsl[?, ?]]): ZIO[R, Any, Any] =
+  protected def registerWorkers[R](workers: Set[WorkerDsl[?, ?]])(using config: WorkerConfig): ZIO[R, Any, Any] =
     // Cast to Any to match the generic signature, but this will only work if R includes SharedC8ClientManager
     c8Client.client.asInstanceOf[ZIO[R, Any, CamundaClient]].flatMap { client =>
       acquireReleaseWith(ZIO.succeed(client))(_.closeClient()): client =>
@@ -24,6 +25,7 @@ class C8WorkerRegistry(c8Client: C8Client)
           _        <- logInfo(s"Starting C8 Worker Client - ${workers.size} workers.")
           c8Workers = workers.collect { case w: C8Worker[?, ?] => w }
           _        <- foreachParDiscard(c8Workers)(w => registerWorker(w, client))
+                       .withParallelism(config.engineConfig.parallelism)
           _        <- logInfo(s"C8 Worker Client started - registered ${c8Workers.size} workers")
           _        <- ZIO.never // keep the worker running
         yield ()

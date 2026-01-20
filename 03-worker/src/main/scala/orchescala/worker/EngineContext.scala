@@ -2,14 +2,14 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.engine.DefaultEngineConfig
+import orchescala.engine.EngineConfig
 
 import java.time.{LocalDate, LocalDateTime}
 import scala.reflect.ClassTag
 
 trait EngineContext:
-  def workerConfig: WorkerConfig = DefaultWorkerConfig()
-  def engineConfig: orchescala.engine.EngineConfig = DefaultEngineConfig()
+  def engineConfig: EngineConfig
+  def workerConfig: WorkerConfig
   def getLogger(clazz: Class[?]): OrchescalaLogger
   def toEngineObject: Json => Any
 

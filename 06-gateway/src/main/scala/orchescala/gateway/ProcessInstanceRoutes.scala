@@ -37,7 +37,7 @@ object ProcessInstanceRoutes:
                       processInstanceService
                         .startProcessAsync(
                           processDefId = processDefId,
-                          in = inJson.flatMap(_.asObject).getOrElse(JsonObject()),
+                          in = inJson.asObject.getOrElse(JsonObject()),
                           businessKey = businessKeyQuery,
                           tenantId = tenantIdQuery,
                           identityCorrelation = Some(identityCorrelation)
@@ -65,7 +65,7 @@ object ProcessInstanceRoutes:
                         messageName = messageName,
                         businessKey = businessKeyQuery,
                         tenantId = tenantIdQuery,
-                        variables = inJson.flatMap(_.asObject),
+                        variables = inJson.asObject,
                         identityCorrelation = Some(identityCorrelation)
                       ).mapError(ServiceRequestError.apply)
 
@@ -127,7 +127,7 @@ object ProcessInstanceRoutes:
       processDefId: String,
       in: JsonObject,
       token: String
-  )(using gatewayConfig: GatewayConfig): ZIO[Any, GatewayError, Option[Json]] =
+  )(using gatewayConfig: GatewayConfig): ZIO[Any, GatewayError, Json] =
     given config: EngineConfig = gatewayConfig.engineConfig
       // Forward request to the init worker
       WorkerForwardUtil.forwardWorkerRequest(processDefId, in.asJson, token)

@@ -24,9 +24,10 @@ object WorkerForwardUtil:
       topicName: String,
       variables: Json,
       token: String
-  )(using config: EngineConfig): ZIO[SttpClientBackend, EngineError, Option[Json]] =
+  )(using config: EngineConfig): ZIO[SttpClientBackend, EngineError, Json] =
     if !config.validateInput then
-      ZIO.logDebug("Input validation is disabled (starting a process)") *> ZIO.none
+      ZIO.logDebug("Input validation is disabled (starting a process)")
+        .as(variables)
     else
       config.workerAppUrl(topicName)
         .fold(
@@ -43,7 +44,7 @@ object WorkerForwardUtil:
       variables: Json,
       workerAppBaseUrl: String,
       token: String
-  ): ZIO[SttpClientBackend, EngineError, Option[Json]] =
+  ): ZIO[SttpClientBackend, EngineError, Json] =
     for
       _        <- ZIO.logDebug(s"Forwarding worker request to: $workerAppBaseUrl/worker/$topicName")
       uri      <- ZIO.fromEither(Uri.parse(s"$workerAppBaseUrl/worker/$topicName"))
@@ -57,7 +58,7 @@ object WorkerForwardUtil:
                     request.send(backend)
                       .mapError: err =>
                         UnexpectedError(
-                          s"Error forwarding request to worker app: $err"
+                          s"Error forwarding request to worker app: $err\n$variables"
                         )
       _        <- ZIO.logDebug(s"Worker app response status: ${response.code.code}")
       result   <- response.body match
@@ -66,7 +67,6 @@ object WorkerForwardUtil:
                         .mapError(err =>
                           UnexpectedError(s"Failed to parse error response: $err")
                         )
-                        .map(Option.apply)
                     case Left(err)   =>
                       for
                         json  <- ZIO
@@ -80,6 +80,6 @@ object WorkerForwardUtil:
                                        s"Failed to parse response to ServiceRequestError: $err"
                                      )
                         _     <- ZIO.fail(error)
-                      yield None
+                      yield variables // does not happen
     yield result
 end WorkerForwardUtil

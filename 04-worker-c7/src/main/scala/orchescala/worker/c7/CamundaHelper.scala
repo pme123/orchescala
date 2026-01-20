@@ -29,12 +29,10 @@ object CamundaHelper:
                      maybeJson
                        .map(_.as[Option[A]])
                        .getOrElse(Right(None))
-                       .left
-                       .map(err =>
-                         BadVariableError(
-                           s"Problem decoding Json to ${nameOfType[A]}: $err"
-                         )
-                       )
+                   ).mapError(err =>
+                     BadVariableError(
+                       s"Problem decoding Json to ${nameOfType[A]}: $err"
+                     )
                    )
     yield obj
 
@@ -85,7 +83,6 @@ object CamundaHelper:
     extractSeqFromArrayOrStringOpt(varKey)
       .map:
         _.getOrElse(defaultSeq.map(_.toString))
-
 
   /** Analog `variable(String vari)`. You can define a Value that is returned if there is no
     * Variable with this name.

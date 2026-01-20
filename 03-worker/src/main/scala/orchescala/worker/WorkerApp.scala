@@ -49,12 +49,13 @@ trait WorkerApp extends ZIOAppDefault:
         _           <- HttpClientProvider.threadPoolFinalizer
         _           <- foreachParDiscard(workerRegistries): registry =>
                          registry.engineConnectionManagerFinalizer
+                       .withParallelism(engineContext.engineConfig.parallelism)
         _           <- logInfo(banner(applicationName))
         _           <- printJvmInfologInfo
         _           <- MemoryMonitor.start
         workersFork <- foreachParDiscard(workerRegistries) { registry =>
-                         registry.register(workerApps(this).flatMap(_.theWorkers).toSet)
-                       }.fork
+                         registry.register(workerApps(this).flatMap(_.theWorkers).toSet)(using workerConfig)
+                       }.withParallelism(engineContext.engineConfig.parallelism).fork
         // Start HTTP server
         workerRoutes = WorkerRoutes(engineContext).routes(workerApps(this).flatMap(_.theWorkers).toSet)
         docsRoutes   = OpenApiRoutes.routes

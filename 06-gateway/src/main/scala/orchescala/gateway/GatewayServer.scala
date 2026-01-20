@@ -65,7 +65,7 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
   private def routes(gatewayEngine: ProcessEngine)(using GatewayConfig): Routes[Any, Response] =
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      WorkerRoutes.routes ++
+      WorkerRoutes().routes ++
         ProcessInstanceRoutes.routes(
           gatewayEngine.processInstanceService,
           gatewayEngine.historicVariableService

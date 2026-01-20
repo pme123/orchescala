@@ -96,7 +96,7 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
       )
       .provideLayer(HttpClientProvider.live)
       .map:
-        _.flatMap(_.asObject)
+        _.asObject
       .mapError:
         case err: EngineError =>
           SimulationError.ProcessError(summon[ScenarioData].error(

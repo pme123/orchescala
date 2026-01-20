@@ -229,15 +229,16 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 end C7Worker
 
 object C7Worker:
-  
+
   private[worker] def calcRetries(
-                                   error: WorkerError,
-                                   doRetryMsgs: Seq[String]
-                                 ): HelperContext[Int] =
+      error: WorkerError,
+      doRetryMsgs: Seq[String]
+  ): HelperContext[Int] =
     val doRetry = doRetryMsgs.exists(error.toString.toLowerCase.contains)
 
     summon[camunda.ExternalTask].getRetries match
       case r if r <= 0 && doRetry => 2
-      case r => r - 1
+      case r                      => r - 1
 
   end calcRetries
+end C7Worker

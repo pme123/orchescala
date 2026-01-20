@@ -58,18 +58,23 @@ object ProcessVariablesExtractor:
           handledErrorsOld <- extractSeqFromArrayOrStringOpt(InputParams.handledErrors)
           regexHandledErrorsOld <- extractSeqFromArrayOrStringOpt(InputParams.regexHandledErrors)
           impersonateUserIdOpt <- variableOpt[String](InputParams.impersonateUserId)
-        yield GeneralVariables(
-          _servicesMocked = servicesMocked.orElse(servicesMockedOld),
-          _mockedWorkers = mockedWorkers.orElse(mockedWorkersOld),
-          _outputMock = outputMockOpt.orElse(outputMockOptOld),
-          _outputServiceMock = outputServiceMockOpt.orElse(outputServiceMockOptOld),
-          _outputVariables = outputVariables.orElse(outputVariablesOld),
-          _manualOutMapping = manualOutMapping.orElse(manualOutMappingOld),
-          _handledErrors = handledErrors.orElse(handledErrorsOld),
-          _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
-          _identityCorrelation = identityCorrelationOpt,
-          impersonateUserId = impersonateUserIdOpt
-        )
+          generalVariables <- ZIO
+            .attempt:
+              GeneralVariables(
+                _servicesMocked = servicesMocked.orElse(servicesMockedOld),
+                _mockedWorkers = mockedWorkers.orElse(mockedWorkersOld),
+                _outputMock = outputMockOpt.orElse(outputMockOptOld),
+                _outputServiceMock = outputServiceMockOpt.orElse(outputServiceMockOptOld),
+                _outputVariables = outputVariables.orElse(outputVariablesOld),
+                _manualOutMapping = manualOutMapping.orElse(manualOutMappingOld),
+                _handledErrors = handledErrors.orElse(handledErrorsOld),
+                _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
+                _identityCorrelation = identityCorrelationOpt,
+                impersonateUserId = impersonateUserIdOpt
+              )
+            .mapError: err =>
+              BadVariableError(s"Problem creating GeneralVariables: $err")
+        yield generalVariables
   end extractGeneral
 
 end ProcessVariablesExtractor

@@ -21,12 +21,25 @@ trait EngineConfig:
   def workerAppUrl(topicName: String): Option[String]
 
   @description(
-    """Validate input variables before starting a process instance. 
+    """Validate input variables before starting a process instance.
       |If true the input is validated before starting the process.
       |If the validation fails the process is not even started and a 400 is returned.
       |""".stripMargin
   )
   def validateInput: Boolean
+
+  @description(
+    """Parallelism limit for concurrent fiber execution in parallel operations.
+      |Controls how many workers, simulations, and API operations run concurrently.
+      |Default: 4 concurrent fibers
+      |""".stripMargin
+  )
+  def parallelism: Int
+
+  def validateProcess(doValidate: Boolean): EngineConfig
+
+  def withTenantId(tenantId: String): EngineConfig 
+
 end EngineConfig
 
 case class DefaultEngineConfig(
@@ -34,10 +47,17 @@ case class DefaultEngineConfig(
     impersonateProcessKey: Option[String] = None,
     identitySigningKey: Option[String] = sys.env.get("ORCHESCALA_IDENTITY_SIGNING_KEY"),
     workersBasePath: String = WorkerForwardUtil.localWorkerAppUrl,
-    validateInput: Boolean = true
+    validateInput: Boolean = true,
+    parallelism: Int = 4
 ) extends EngineConfig:
 
   def workerAppUrl(topicName: String): Option[String] =
     WorkerForwardUtil.defaultWorkerAppUrl(topicName, workersBasePath)
+
+  def validateProcess(doValidate: Boolean): EngineConfig =
+    copy(validateInput = doValidate)
+
+  def withTenantId(tenantId: String): EngineConfig =
+    copy(tenantId = Some(tenantId))
 
 end DefaultEngineConfig

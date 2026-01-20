@@ -3,11 +3,10 @@ package worker
 
 import orchescala.domain.*
 import orchescala.engine.rest.SttpClientBackend
-import orchescala.worker.WorkerError.{RunWorkError, *}
-import zio.{IO, UIO, ZIO}
+import orchescala.worker.WorkerError.*
+import zio.{IO, ZIO}
 
 import scala.concurrent.duration.*
-import scala.math.Fractional.Implicits.infixFractionalOps
 import scala.reflect.ClassTag
 
 trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
@@ -453,7 +452,7 @@ private trait RunWorkDsl[
         OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
       out                       <-
         if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
-        else ZIO.succeed(mockedOutput.get)
+        else ZIO.logInfo(s"Mocked output used: ${mockedOutput.get.asJson}").as(mockedOutput.get)
     yield out
 
   /*

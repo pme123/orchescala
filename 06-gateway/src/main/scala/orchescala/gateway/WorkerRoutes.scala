@@ -3,9 +3,9 @@ package orchescala.gateway
 import orchescala.domain.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend, WorkerForwardUtil}
-import orchescala.engine.{AuthContext, Slf4JLogger}
+import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
 import orchescala.gateway.GatewayError.{ServiceRequestError, UnexpectedError}
-import orchescala.worker.{DefaultRestApiClient, EngineContext, EngineRunContext, RunnableRequest, SendRequestType, WorkerError}
+import orchescala.worker.{DefaultRestApiClient, EngineContext, EngineRunContext, RunnableRequest, SendRequestType, WorkerConfig, WorkerError}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.*
@@ -17,10 +17,12 @@ import zio.{IO, ZIO}
 
 import scala.reflect.ClassTag
 
-object WorkerRoutes:
+class WorkerRoutes()(using config: GatewayConfig):
 
   /** Simple EngineContext implementation for the gateway */
   private class GatewayEngineContext extends EngineContext:
+    override def engineConfig: EngineConfig = config.engineConfig
+    override def workerConfig: WorkerConfig = config.workerConfig
     override def getLogger(clazz: Class[?]): OrchescalaLogger =
       Slf4JLogger.logger(clazz.getName)
 
@@ -33,7 +35,7 @@ object WorkerRoutes:
       DefaultRestApiClient.sendRequest(request)
   end GatewayEngineContext
 
-  def routes(using config: GatewayConfig): List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
+  def routes: List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
 
     val triggerWorkerEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       WorkerEndpoints
@@ -46,6 +48,8 @@ object WorkerRoutes:
               // Forward request to the worker app
               WorkerForwardUtil.forwardWorkerRequest(topicName, variables, validatedToken)(using config.engineConfig)
                 .provideLayer(HttpClientProvider.live)
+                .map:
+                  Option.apply
                 .mapError:
                   case err: EngineError =>
                     ServiceRequestError(err)

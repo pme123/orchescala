@@ -3,12 +3,14 @@ package orchescala.gateway
 import com.auth0.jwt.JWT
 import orchescala.domain.*
 import orchescala.engine.{DefaultEngineConfig, EngineConfig}
+import orchescala.worker.{DefaultWorkerConfig, WorkerConfig}
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
 
 trait GatewayConfig:
   def engineConfig: EngineConfig
+  def workerConfig: WorkerConfig
   def gatewayPort: Int
   def validateToken(token: String): IO[GatewayError, String]
   def extractCorrelation(
@@ -19,7 +21,8 @@ trait GatewayConfig:
 end GatewayConfig
 
 case class DefaultGatewayConfig(
-    engineConfig: EngineConfig = DefaultEngineConfig(),
+    engineConfig: EngineConfig,
+    workerConfig: WorkerConfig,
     impersonateProcessKey: Option[String] = None,
     gatewayPort: Int = 8888,
 ) extends GatewayConfig:

@@ -1,7 +1,8 @@
 package orchescala.worker.c7
 
 import orchescala.domain.GeneralVariables
-import orchescala.worker.{WorkerDsl, WorkerRegistry}
+import orchescala.engine.DefaultEngineConfig
+import orchescala.worker.{WorkerConfig, WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient
 import zio.{Scope, UIO, ZIO, ZLayer}
 import zio.ZIO.*
@@ -13,7 +14,7 @@ class C7WorkerRegistry(client: C7WorkerClient)
   override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
     Seq(SharedC7ExternalClientManager.layer)
 
-  protected def registerWorkers[R](workers: Set[WorkerDsl[?, ?]]): ZIO[R, Any, Any] =
+  protected def registerWorkers[R](workers: Set[WorkerDsl[?, ?]])(using config: WorkerConfig): ZIO[R, Any, Any] =
     // Cast to Any to match the generic signature, but this will only work if R includes SharedC7ExternalClientManager
     client.client.asInstanceOf[ZIO[R, Any, ExternalTaskClient]].flatMap { client =>
       acquireReleaseWith(ZIO.succeed(client))(_.closeClient()): client =>
@@ -24,6 +25,7 @@ class C7WorkerRegistry(client: C7WorkerClient)
             )
           c7Workers: Set[C7Worker[?, ?]] = workers.collect { case w: C7Worker[?, ?] => w }
           _                             <- foreachParDiscard(c7Workers)(w => registerWorker(w, client))
+                                            .withParallelism(config.engineConfig.parallelism)
           _                             <- logInfo(s"C7 Worker Client started - registered ${c7Workers.size} workers")
           _                             <- ZIO.never // keep the worker running
         yield ()

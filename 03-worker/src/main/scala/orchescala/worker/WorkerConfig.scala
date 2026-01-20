@@ -1,8 +1,10 @@
 package orchescala.worker
 
+import orchescala.engine.EngineConfig
 import sttp.tapir.Schema.annotations.description
 
 trait WorkerConfig:
+  def engineConfig: EngineConfig
   def workerAppPort: Int
   @description("List of error messages that should be retried")
   def doRetryList: Seq[String]
@@ -10,8 +12,8 @@ trait WorkerConfig:
 end WorkerConfig
 
 case class DefaultWorkerConfig(
+    engineConfig: EngineConfig,
     workerAppPort: Int = 5555,
-    workersBasePath: String = WorkerConfig.localWorkerAppUrl,
     doRetryList: Seq[String] = Seq(
       "Entity was updated by another transaction concurrently",
       "Exception while completing the external task: Connection could not be established with message",
@@ -20,8 +22,7 @@ case class DefaultWorkerConfig(
       "Exception when sending request: PUT"  // only GET and PUT to be safe a POST is not executed again
       //  "Service Unavailable",
       //  "Gateway Timeout"
-    ).map(_.toLowerCase),
-    workerAppUrl: Option[String] = None
+    ).map(_.toLowerCase)
 ) extends WorkerConfig
 
 object WorkerConfig:
