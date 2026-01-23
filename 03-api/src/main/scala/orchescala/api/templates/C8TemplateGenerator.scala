@@ -140,7 +140,7 @@ class C8TemplateGenerator(
         val k = in.inParam.toString
         TemplPropC8(
           label = k,
-          value = if isCallActivity then k else in.defaultValue(inOutApi.inOut.out),
+          value = if isCallActivity then k else in.defaultValue(inOutApi.inOut),
           binding = PropBindingC8.`zeebe:input`(name = k)
         )
     else
@@ -160,7 +160,7 @@ class C8TemplateGenerator(
     InputParamForTempl(_manualOutMapping, "true"),
     InputParamForTempl(
       _outputVariables,
-      _.productElementNames.map(n => s""""$n"""").mkString("[ ", ", ", " ]")
+      _.outVariableNames.map(n => s""""$n"""").mkString("[ ", ", ", " ]")
     ),
     optionalMapping(_outputMock),
     InputParamForTempl(_handledErrors, """["handledError1", "handledError2"]"""),

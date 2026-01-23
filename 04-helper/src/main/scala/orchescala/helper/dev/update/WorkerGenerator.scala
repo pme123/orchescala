@@ -36,13 +36,18 @@ case class WorkerGenerator()(using config: DevConfig):
     createWorkerApp("WorkerApp")
 
   private lazy val workerTestApp =
-    createWorkerApp("WorkerTestApp", Some(config.apiProjectConfig.allDependencies))
+    createWorkerApp(
+      "WorkerTestApp",
+      Some(config.apiProjectConfig.allDependencies),
+      helperDoNotAdjustText
+    )
 
   private def createWorkerApp(
       objName: String,
-      dependencies: Option[Seq[DependencyConfig]] = None
+      dependencies: Option[Seq[DependencyConfig]] = None,
+      resetText: String = helperHowToResetText
   ) =
-    s"""$helperHowToResetText
+    s"""$resetText
        |package ${config.projectPackage}.worker
        |
        |// sbt worker/${dependencies.map(_ => "test:").getOrElse("")}run
@@ -55,7 +60,7 @@ case class WorkerGenerator()(using config: DevConfig):
         dependencies
           .map:
             _.map(_.projectPackage + ".worker.WorkerApp")
-              .mkString("WorkerApp,\n    ",",\n    ", "")
+              .mkString("WorkerApp,\n    ", ",\n    ", "")
           .getOrElse("")
       }
        |  )
@@ -114,7 +119,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |end ${workerName}Worker""".stripMargin
   end processElement
 
-  private def workerContent(label: String) =
+  private def workerContent(label: String)                  =
     if label == "CustomTask"
     then
       """  lazy val customTask = example

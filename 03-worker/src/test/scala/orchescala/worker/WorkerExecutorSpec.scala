@@ -1,6 +1,7 @@
 package orchescala.worker
 
 import orchescala.domain.*
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import orchescala.worker.WorkerError.*
 import zio.*
 import zio.test.*
@@ -15,6 +16,8 @@ object WorkerExecutorSpec extends ZIOSpecDefault:
 
   given EngineRunContext = EngineRunContext(
     new EngineContext:
+      override def engineConfig: EngineConfig = DefaultEngineConfig()
+      override def workerConfig: WorkerConfig = DefaultWorkerConfig(engineConfig)
       override def getLogger(clazz: Class[?]): OrchescalaLogger = ???
       override def toEngineObject: Json => Any = ???
       override def sendRequest[ServiceIn: Encoder, ServiceOut: {Decoder, ClassTag}](

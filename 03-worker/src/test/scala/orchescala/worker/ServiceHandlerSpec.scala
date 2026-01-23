@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.domain.*
-import orchescala.engine.Slf4JLogger
+import orchescala.engine.{DefaultEngineConfig, EngineConfig, Slf4JLogger}
 import orchescala.engine.rest.HttpClientProvider
 import orchescala.worker.WorkerError.ServiceRequestError
 import sttp.client3.*
@@ -17,6 +17,8 @@ object ServiceHandlerSpec extends ZIOSpecDefault:
 
   given EngineRunContext = EngineRunContext(
     new EngineContext:
+      override def engineConfig: EngineConfig = DefaultEngineConfig()
+      override def workerConfig: WorkerConfig = DefaultWorkerConfig(engineConfig)
       override def getLogger(clazz: Class[?]): OrchescalaLogger = Slf4JLogger.logger("test")
 
       override def toEngineObject: Json => Any = ???

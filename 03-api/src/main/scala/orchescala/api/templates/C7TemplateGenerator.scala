@@ -5,9 +5,8 @@ import orchescala.api.*
 import io.circe.syntax.*
 import orchescala.domain.InputParams.*
 
-/**
- * Camunda 7 implementation of the ModelerTemplateGenerator interface
- */
+/** Camunda 7 implementation of the ModelerTemplateGenerator interface
+  */
 class C7TemplateGenerator(
     config: ModelerTemplateConfig,
     val projectName: String,
@@ -16,23 +15,24 @@ class C7TemplateGenerator(
 ) extends ModelerTemplateGenerator:
 
   private val helper = TemplateGeneratorHelper(config, projectName, companyName, apiVersion)
-  
+
   val version: Int = helper.version
 
-  def generate(apis: List[InOutApi[?, ?]]): Unit =
+  def generate(apis: List[InOutApi[?, ?]]): Unit                             =
     helper.ensureTemplateDirectory()
     println(s"Generate C7 Modeler Templates for: $projectName: ${apis.map(_.id).mkString(", ")}")
-    
+
     apis.foreach: api =>
       val supported = helper.isApiSupported(api)
       helper.logApiGeneration(api, "C7", supported)
-      
+
       if supported then
         api match
           case extApi: ExternalTaskApi[?, ?] => generateExternalTaskTemplate(extApi)
           case procApi: ProcessApi[?, ?, ?]  => generateProcessTemplate(procApi)
           case _                             => // Already logged as unsupported
-
+      end if
+  end generate
   private def generateExternalTaskTemplate(api: ExternalTaskApi[?, ?]): Unit =
     val vars = getVariablesForApi(api)
     generateTemplate(
@@ -44,6 +44,7 @@ class C7TemplateGenerator(
         TemplProp.serviceTaskType
       ) ++ generateGeneralVariables(isCallActivity = false, vars, api)
     )
+  end generateExternalTaskTemplate
 
   private def generateProcessTemplate(api: ProcessApi[?, ?, ?]): Unit =
     generateTemplate(
@@ -75,7 +76,7 @@ class C7TemplateGenerator(
         if elementType == ElementType.callActivity then PropType.`camunda:out`
         else PropType.`camunda:outputParameter`
       )
-    
+
     val niceName = helper.generateNiceName(inOut)
     val template = MTemplate(
       inOut.id,
@@ -87,11 +88,12 @@ class C7TemplateGenerator(
       mapProps ++ properties :+ TemplProp.name(niceName),
       config.schemaC7
     )
-    
+
     os.write.over(
       config.templatePath / s"${inOut.id}.json",
       template.asJson.deepDropNullValues.toString
     )
+  end generateTemplate
 
   private def generateMappings(
       variables: Seq[(String, Any)],
@@ -104,7 +106,6 @@ class C7TemplateGenerator(
         case name -> value =>
           TemplProp(
             label = name,
-            
             value = if PropType.`camunda:inputParameter` == propType then
               mapping(name, value)
             else name,
@@ -129,7 +130,6 @@ class C7TemplateGenerator(
                 throw new IllegalArgumentException(s"PropType not expected for mappings: $propType")
           )
 
-
   private def generateGeneralVariables(
       isCallActivity: Boolean,
       vars: Seq[InputParamForTempl],
@@ -140,7 +140,7 @@ class C7TemplateGenerator(
         val k = in.inParam.toString
         TemplProp(
           label = k,
-          value = if isCallActivity then k else in.defaultValue(inOutApi.inOut.out),
+          value = if isCallActivity then k else in.defaultValue(inOutApi.inOut),
           binding = if isCallActivity then
             PropBinding.`camunda:in`(target = k)
           else
@@ -149,20 +149,19 @@ class C7TemplateGenerator(
     else
       Seq.empty
 
-  /**
-   * Gets the appropriate variables for the given API type
-   */
+  /** Gets the appropriate variables for the given API type
+    */
   private def getVariablesForApi(api: InOutApi[?, ?]): Seq[InputParamForTempl] = api match
     case _: ServiceWorkerApi[?, ?, ?, ?] => serviceWorkerVariables
-    case _: ExternalTaskApi[?, ?] => customWorkerVariables
-    case _ => Seq.empty
+    case _: ExternalTaskApi[?, ?]        => customWorkerVariables
+    case _                               => Seq.empty
 
   private def serviceWorkerVariables: Seq[InputParamForTempl] =
     optionalMapping(_outputServiceMock) +: customWorkerVariables
 
   private def customWorkerVariables: Seq[InputParamForTempl] = Seq(
     InputParamForTempl(_manualOutMapping, "#{true}"),
-    InputParamForTempl(_outputVariables, _.productElementNames.mkString(", ")),
+    InputParamForTempl(_outputVariables, _.outVariableNames.mkString(", ")),
     optionalMapping(_outputMock),
     InputParamForTempl(_handledErrors, "handledError1, handledError2"),
     InputParamForTempl(_regexHandledErrors, "errorRegex1, errorRegex2")
@@ -185,6 +184,6 @@ class C7TemplateGenerator(
   def mapping(name: String, elem: Any): String =
     elem match
       case _: Option[?] => optionalMapping(name)
-      case _ => s"#{$name}"
+      case _            => s"#{$name}"
 
 end C7TemplateGenerator

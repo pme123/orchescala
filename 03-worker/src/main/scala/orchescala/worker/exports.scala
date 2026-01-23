@@ -23,7 +23,7 @@ type RunWorkZIOOutput[Out] =
   EngineRunContext ?=> IO[CustomError, Out]
 
 type InitProcessZIOOutput[InitIn] =
-  IO[InitProcessError, InitIn]
+  EngineRunContext ?=> IO[InitProcessError, InitIn]
 
 def decodeTo[A: InOutDecoder](
     jsonStr: String

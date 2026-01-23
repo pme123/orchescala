@@ -3,6 +3,7 @@ package orchescala.gateway
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import orchescala.engine.DefaultEngineConfig
+import orchescala.worker.DefaultWorkerConfig
 import zio.*
 import zio.test.*
 
@@ -11,6 +12,7 @@ import scala.jdk.CollectionConverters.*
 object GatewayConfigSpec extends ZIOSpecDefault:
   private lazy val config = DefaultGatewayConfig(
     engineConfig = DefaultEngineConfig(),
+    workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
     impersonateProcessKey = Some("customerId")
   )
 
