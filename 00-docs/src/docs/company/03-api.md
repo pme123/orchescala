@@ -28,7 +28,10 @@ trait CompanyApiCreator extends ApiCreator, ApiDsl, CamundaPostmanApiCreator:
     lazy val companyProjectVersion = BuildInfo.version
     
 object CompanyApiCreator:
-    lazy val apiConfig = ApiConfig(companyName = "mycompany")
+    lazy val apiConfig = ApiConfig(
+      engineConfig = DefaultEngineConfig(),
+      companyName = "mycompany"
+    )
 end CompanyApiCreator
 ```
 
@@ -39,21 +42,25 @@ Here an example:
 
 ```scala mdoc
 import orchescala.api.ApiConfig
+import orchescala.engine.DefaultEngineConfig
 
 lazy val apiConfig: ApiConfig =
-  ApiConfig("mycompany")
+  ApiConfig(
+    engineConfig = DefaultEngineConfig(),
+    companyName = "mycompany"
+  )
     .withTenantId("mycompany")
     .withDocBaseUrl(s"http://mycompany.ch/bpmnDocs")
-    .withJiraUrls("COM" -> "https://issue.mycompany.ch/browse")  
+    .withJiraUrls("COM" -> "https://issue.mycompany.ch/browse")
 ```
 
 ### Default ApiConfig
 This is the default Configuration:
 ```scala
+// Engine configuration (includes tenant, parallelism, validation, etc.)
+engineConfig: EngineConfig,
 // your company name like 'mycompany'
 companyName: String,
-// define tenant if you have one - used for the Postman OpenApi
-tenantId: Option[String] = None,
 // contact email / phone, if there are questions
 contact: Option[Contact] = None,
 // REST endpoint (for testing API)
@@ -64,14 +71,62 @@ basePath: os.Path = os.pwd,
 jiraUrls: Map[String, String] = Map.empty,
 // Configure your project setup
 projectsConfig: ProjectsConfig = ProjectsConfig(),
-// Configure your template generation
-modelerTemplateConfig: ModelerTemplateConfig = ModelerTemplateConfig(),
+// For generating references to other projects, your Workers/Processes are used in
+otherProjectsConfig: ProjectsConfig = ProjectsConfig(),
+// Configure your template generation (supports multiple configs for C7 and C8)
+modelerTemplateConfigs: Seq[ModelerTemplateConfig] = Seq(
+  ModelerTemplateConfig(),
+  ModelerTemplateConfig(
+    supportedEngine = SupportedEngine.C8,
+    templateRelativePath = os.rel / ".camunda" / "element-templates" / "c8"
+  )
+),
 // The URL of your published documentations
 // s"http://myCompany/bpmnDocs"
 docBaseUrl: Option[String] = None,
 // Path, where the Git Projects are cloned - for dependency check.
 // the default is for the structure: dev-myCompany/projects/myProject
 tempGitDir: os.Path = os.pwd / os.up / os.up /  os.up / "git-temp"
+```
+
+### EngineConfig
+The `EngineConfig` controls engine behavior and parallelism:
+
+```scala
+case class DefaultEngineConfig(
+    // define tenant if you have one
+    tenantId: Option[String] = None,
+    // The key of the process variable that contains an additional value to verify the impersonate User
+    impersonateProcessKey: Option[String] = None,
+    // Secret key for signing IdentityCorrelation (HMAC-SHA256). Should be set from environment variable.
+    identitySigningKey: Option[String] = sys.env.get("ORCHESCALA_IDENTITY_SIGNING_KEY"),
+    // Base path for worker apps
+    workersBasePath: String = WorkerForwardUtil.localWorkerAppUrl,
+    // Validate input variables before starting a process instance
+    validateInput: Boolean = true,
+    // Parallelism limit for concurrent fiber execution in parallel operations
+    // Controls how many workers, simulations, and API operations run concurrently
+    parallelism: Int = 4
+)
+```
+
+You can customize the engine config:
+
+```scala mdoc:reset
+import orchescala.api.ApiConfig
+import orchescala.engine.DefaultEngineConfig
+
+lazy val customEngineConfig = DefaultEngineConfig(
+  tenantId = Some("mycompany"),
+  parallelism = 8,  // Increase parallelism for better performance
+  validateInput = true
+)
+
+lazy val apiConfig: ApiConfig =
+  ApiConfig(
+    engineConfig = customEngineConfig,
+    companyName = "mycompany"
+  )
 ```
 
 ## ProjectsConfig
@@ -142,17 +197,17 @@ By default, the following Variables are supported:
 ```scala mdoc
 enum InputParams:
   // mocking
-  case servicesMocked
-  case mockedWorkers
-  case outputMock
-  case outputServiceMock
+  case _servicesMocked
+  case _mockedWorkers
+  case _outputMock
+  case _outputServiceMock
   // mapping
-  case manualOutMapping
-  case outputVariables
-  case handledErrors
-  case regexHandledErrors
+  case _manualOutMapping
+  case _outputVariables
+  case _handledErrors
+  case _regexHandledErrors
   // authorization
-  case impersonateUserId
+  case _identityCorrelation
   // ..
 end InputParams
 ```
@@ -166,12 +221,12 @@ If you only want to support some of them, you can override them:
 
 ```scala
   override def supportedVariables: Seq[InputParams] = Seq(
-    servicesMocked,
-    outputMock,
-    outputServiceMock,
-    handledErrors,
-    regexHandledErrors,
-    impersonateUserId
+    _servicesMocked,
+    _outputMock,
+    _outputServiceMock,
+    _handledErrors,
+    _regexHandledErrors,
+    _identityCorrelation
   )
 ```
 
