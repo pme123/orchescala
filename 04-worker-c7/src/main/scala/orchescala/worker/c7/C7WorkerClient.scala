@@ -38,7 +38,6 @@ trait C7WorkerClient:
         maxTimeForAcquireJob.toMillis
       )
     )
-    .lockDuration(lockDuration)
 end C7WorkerClient
 
 object C7NoAuthWorkerClient extends C7WorkerClient:

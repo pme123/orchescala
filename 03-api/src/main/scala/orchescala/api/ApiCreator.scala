@@ -160,7 +160,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """process(..) // or serviceTask(..)/customTask(..)
           |  .withOutputVariables("name", "firstName") // creates a list with outputVariables
           |  .withOutputVariable("nickname") // adds a outputVariable""".stripMargin,
-        """"outputVariables": ["name", "firstName"],"""
+        """"_outputVariables": ["name", "firstName"],"""
       ) +
       createGeneralVariable(
         InputParams._manualOutMapping,
@@ -172,7 +172,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
            |""".stripMargin,
         """serviceTask(..) // or customTask(..)
           |  .manualOutMapping""".stripMargin,
-        """"manualOutMapping": true,"""
+        """"_manualOutMapping": true,"""
       ) + "### Mocking" +
       createGeneralVariable(
         InputParams._handledErrors,
@@ -184,7 +184,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """serviceTask(..)
           |  .handleErrors(ErrorCodes.`validation-failed`, "404") // create a list of handledErrors
           |  .handleError("404") // add a handledError""".stripMargin,
-        s""""handledErrors": ["validation-failed", "404"],""".stripMargin
+        s""""_handledErrors": ["validation-failed", "404"],""".stripMargin
       ) +
       createGeneralVariable(
         InputParams._regexHandledErrors,
@@ -198,17 +198,30 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """serviceTask(..)
           |  .handleErrorWithRegex("SQL exception")
           |  .handleErrorWithRegex("\"errorNr\":\"20000\"")""".stripMargin,
-        s""""regexHandledErrors": ["SQL exception", "\"errorNr\":\"20000\""],""".stripMargin
+        s""""_regexHandledErrors": ["SQL exception", "\"errorNr\":\"20000\""],""".stripMargin
       ) +
       "### Authorization" +
       createGeneralVariable(
-        InputParams.impersonateUserId,
-        """User-ID of a User that should be taken to authenticate to the services.
-          |This must be supported by your implementation. *Be caution: this may be a security issue!*.
-          |It is helpful if you have Tokens that expire, but long running Processes.""".stripMargin,
-        """process(..) // or serviceTask(..)/customTask(..)
-          |  .withImpersonateUserId(impersonateUserId)""".stripMargin,
-        """"impersonateUserId": "myUserName","""
+        InputParams._identityCorrelation,
+        """Identity correlation for binding user identity to the process instance using HMAC-SHA256 signatures.
+          |This prevents replay attacks and tampering by cryptographically binding the user identity to a specific process instance.
+          |The correlation is automatically signed with the process instance ID when starting a process or completing a user task.
+          |Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY` or in `EngineConfig`.""".stripMargin,
+        """val identity = IdentityCorrelation(
+          |  username = "alice@example.com",
+          |  email = Some("alice@example.com"),
+          |  impersonateProcessValue = Some("department-123")
+          |)
+          |process(..) // or serviceTask(..)/customTask(..)
+          |  .withIdentityCorrelation(identity)""".stripMargin,
+        """"_identityCorrelation": {
+          |  "username": "alice@example.com",
+          |  "email": "alice@example.com",
+          |  "impersonateProcessValue": "department-123",
+          |  "issuedAt": 1706371200000,
+          |  "processInstanceId": "12345",
+          |  "signature": "abc123..."
+          |},"""
       ) +
       """</p>
         |</details>
