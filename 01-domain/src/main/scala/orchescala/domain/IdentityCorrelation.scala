@@ -36,3 +36,9 @@ end IdentityCorrelation
 object IdentityCorrelation:
   given InOutCodec[IdentityCorrelation] = deriveInOutCodec[IdentityCorrelation]
   given ApiSchema[IdentityCorrelation] = deriveApiSchema[IdentityCorrelation]
+
+  lazy val example = IdentityCorrelation(
+    username = "myUser",
+    email = Some("myUser@orchescala.ch"),
+    impersonateProcessValue = Some("1234567890")
+  )
