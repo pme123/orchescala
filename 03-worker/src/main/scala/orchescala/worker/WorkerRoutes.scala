@@ -48,10 +48,10 @@ case class WorkerRoutes(engineContext: EngineContext):
                         result                <- worker match
                                                    case worker: RunWorkDsl[?, ?]           =>
                                                      worker
-                                                       .runWorkFromWorker(variables)
+                                                       .runWorkFromService(variables)
                                                    case worker: InitProcessDsl[?, ?, ?, ?] =>
                                                        worker
-                                                         .runWorkFromServiceWithMocking(variables)
+                                                         .initWorkFromService(variables)
                                                          .map(Option.apply)
                         _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
                       yield result

@@ -201,8 +201,8 @@ private trait InitProcessDsl[
         Some(initIn.asJson.deepDropNullValues)
 
   /** Execute with full WorkerExecutor functionality including mocking and inConfig merging */
-  def runWorkFromServiceWithMocking(json: Json)(using
-      context: EngineRunContext
+  def initWorkFromService(json: Json)(using
+                                      context: EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, Json] =
     for
       in                <- mergeInConfig(json)
@@ -212,13 +212,11 @@ private trait InitProcessDsl[
                                vi.init(validatedInput)
                              .getOrElse:
                                ZIO.succeed(Map.empty[String, Any])
-      //  mockedOutput      <- mockOutput(validatedInput)
       allOutputs: Json  <-
         customInitZIO(validatedInput)
           .map:
             mergeOutputs(validatedInput, initializedOutput, _)
-      filteredOut        = filterOutput(allOutputs, context.generalVariables.outputVariableSeq)
-    yield json.deepDropNullValues
+    yield allOutputs.deepDropNullValues
 
   private def mergeInConfig(json: Json): ZIO[Any, WorkerError, In] =
     ZIO.fromEither(json.as[In])
@@ -430,8 +428,8 @@ private trait RunWorkDsl[
   type RunWorkOutput =
     Either[CustomError, Out]
 
-  def runWorkFromWorker(json: Json)(using
-      EngineRunContext
+  def runWorkFromService(json: Json)(using
+                                     EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
     ZIO.fromEither(json.as[In])
       .mapError: err =>
