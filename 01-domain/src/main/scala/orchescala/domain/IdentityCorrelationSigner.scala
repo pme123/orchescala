@@ -1,5 +1,6 @@
 package orchescala.domain
 
+import java.security.MessageDigest
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import java.util.Base64
@@ -61,8 +62,8 @@ object IdentityCorrelationSigner:
       processInstanceId = processInstanceId,
       secretKey = secretKey
     )
-  
-    signature == expectedSignature
+
+    MessageDigest.isEqual(signature.getBytes("UTF-8"), expectedSignature.getBytes("UTF-8"))
   end verify
 
   private def computeSignature(
