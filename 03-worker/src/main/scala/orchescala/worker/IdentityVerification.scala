@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.domain.{IdentityCorrelation, IdentityCorrelationSigner}
-import orchescala.worker.WorkerError.UnexpectedError
+import orchescala.worker.WorkerError.{BadSignatureError, UnexpectedError}
 import zio.{IO, ZIO}
 
 /**
@@ -40,12 +40,12 @@ object IdentityVerification:
       correlation: IdentityCorrelation,
       processInstanceId: String,
       secretKey: String
-  ): IO[UnexpectedError, Unit] =
+  ): IO[BadSignatureError, Unit] =
     // Check if correlation has a signature
     correlation.signature match
       case None =>
         ZIO.fail(
-          UnexpectedError(
+          BadSignatureError(
             "IdentityCorrelation has no signature - cannot verify authenticity"
           )
         )
@@ -55,14 +55,14 @@ object IdentityVerification:
         correlation.processInstanceId match
           case None =>
             ZIO.fail(
-              UnexpectedError(
+              BadSignatureError(
                 "IdentityCorrelation is not bound to a process instance"
               )
             )
 
           case Some(correlationPid) if correlationPid != processInstanceId =>
             ZIO.fail(
-              UnexpectedError(
+              BadSignatureError(
                 s"IdentityCorrelation is bound to process '$correlationPid' but current process is '$processInstanceId'"
               )
             )
@@ -79,7 +79,7 @@ object IdentityVerification:
               ZIO.unit
             else
               ZIO.fail(
-                UnexpectedError(
+                BadSignatureError(
                   "IdentityCorrelation signature is invalid - possible tampering detected"
                 )
               )

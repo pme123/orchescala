@@ -104,6 +104,11 @@ object WorkerError:
   ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
 
+  case class BadSignatureError(
+      errorMsg: String
+  ) extends WorkerError:
+    val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
+
   case class HandledRegexNotMatchedError(
       errorMsg: String
   ) extends WorkerError:
