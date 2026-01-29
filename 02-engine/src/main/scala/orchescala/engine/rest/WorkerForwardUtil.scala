@@ -49,11 +49,10 @@ object WorkerForwardUtil:
       _        <- ZIO.logDebug(s"Forwarding worker request to: $workerAppBaseUrl/worker/$topicName")
       uri      <- ZIO.fromEither(Uri.parse(s"$workerAppBaseUrl/worker/$topicName"))
                     .mapError(err => UnexpectedError(s"Invalid worker app URL: $err"))
-      request   = token.foldLeft(basicRequest
+      request   = basicRequest
                     .post(uri)
                     .body(variables.toString)
-                    .contentType("application/json")): (req, t) =>
-                    req.header("Authorization", s"Bearer $t")
+                    .header("Authorization", s"Bearer $token")
       response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                     request.send(backend)
                       .mapError: err =>
