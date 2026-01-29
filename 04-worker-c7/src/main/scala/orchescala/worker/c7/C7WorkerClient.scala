@@ -7,7 +7,6 @@ import orchescala.worker.WorkerError
 import org.apache.hc.client5.http.config.RequestConfig
 import org.apache.hc.core5.http.*
 import org.apache.hc.core5.http.protocol.HttpContext
-import org.apache.hc.core5.util.Timeout
 import org.camunda.bpm.client.ExternalTaskClient
 import org.camunda.bpm.client.backoff.ExponentialBackoffStrategy
 import zio.ZIO
@@ -20,10 +19,10 @@ trait C7WorkerClient:
   def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient]
 
   protected def camundaRestUrl: String
-  protected def maxTimeForAcquireJob = 500.millis
-  protected def asyncResponseTimeout = 15.seconds
-  protected def lockDuration         = 30.seconds
-  protected def maxTasks: Int        = 10
+  protected def maxTimeForAcquireJob: Duration = 500.millis
+  protected def asyncResponseTimeout: Duration = 15.seconds
+  protected def lockDuration: Duration         = 30.seconds
+  protected def maxTasks: Int                  = 10
 
   protected def externalClient = ExternalTaskClient.create()
     .baseUrl(camundaRestUrl)
