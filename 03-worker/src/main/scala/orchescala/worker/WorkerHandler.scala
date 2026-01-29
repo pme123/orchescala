@@ -151,35 +151,49 @@ case class ServiceHandler[
     end for
   end runWorkZIO
 
-  /**
-   * Verify the identity correlation signature if present.
-   * This is called automatically at the start of every ServiceWorker execution.
-   */
-  private def verifyIdentityCorrelation()(using context: EngineRunContext): ZIO[Any, Nothing, Unit] =
-    context.generalVariables._identityCorrelation match
-      case None =>
+  /** Verify the identity correlation signature if present. This is called automatically at the
+    * start of every ServiceWorker execution.
+    */
+  private[worker] def verifyIdentityCorrelation()(using
+      context: EngineRunContext
+  ): ZIO[Any, BadSignatureError, Unit] =
+    val engineConfig     = context.engineContext.engineConfig
+    val workerConfig     = context.engineContext.workerConfig
+    val generalVariables = context.generalVariables
+
+    (generalVariables._identityCorrelation, workerConfig.identityVerification) match
+      case (None, false) =>
         // No identity correlation present - skip verification
         ZIO.unit
-      case Some(correlation) =>
-        // Get processInstanceId from context
-        val processInstanceIdOpt = correlation.processInstanceId
+      case (None, true)  =>
+        ZIO.fail(
+          WorkerError.BadSignatureError(
+            "IdentityCorrelation verification is required but no correlation was provided"
+          )
+        )
 
-        processInstanceIdOpt match
-          case None =>
+      case (Some(correlation), false) =>
+        // Get processInstanceId from context
+        correlation.processInstanceId match
+          case None                    =>
             // Correlation exists but has no processInstanceId - log warning
             ZIO.logWarning(
               "IdentityCorrelation present but not bound to a process instance - skipping verification"
             )
           case Some(processInstanceId) =>
-            // Get signing key from EngineConfig (can be overridden in custom EngineContext)
-            val signingKeyOpt = context.engineContext.engineConfig.identitySigningKey
-
             // Verify signature using optional verification (logs warnings but doesn't fail)
             IdentityVerification.verifySignatureOptional(
               correlation,
-              processInstanceId,
-              signingKeyOpt
+              engineConfig.identitySigningKey
             )
+      case (Some(correlation), true)  =>
+        // Verify signature using optional verification (logs warnings but doesn't fail)
+        IdentityVerification.verifySignature(
+          correlation,
+          engineConfig.identitySigningKey
+        )
+    end match
+  end verifyIdentityCorrelation
 
   private def runnableRequest(
       inputObject: In

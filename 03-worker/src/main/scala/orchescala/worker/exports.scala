@@ -103,12 +103,7 @@ object WorkerError:
       errorMsg: String
   ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
-
-  case class BadSignatureError(
-      errorMsg: String
-  ) extends WorkerError:
-    val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
-
+  
   case class HandledRegexNotMatchedError(
       errorMsg: String
   ) extends WorkerError:
@@ -130,6 +125,11 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`bad-variable`
 
   sealed trait RunWorkError extends WorkerError
+
+  case class BadSignatureError(
+                                errorMsg: String
+                              ) extends RunWorkError:
+    val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
 
   case class MissingHandlerError(
       errorMsg: String

@@ -2,7 +2,7 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.engine.EngineConfig
+import orchescala.engine.{DefaultEngineConfig, EngineConfig, Slf4JLogger}
 
 import java.time.{LocalDate, LocalDateTime}
 import scala.reflect.ClassTag
@@ -96,6 +96,32 @@ trait EngineContext:
   end jsonToEngineValue
 
 end EngineContext
+
+// mainly used for testing
+case class DefaultEngineContext(
+    engineConfig: EngineConfig,
+    workerConfig: WorkerConfig,
+    getLoggerFn: Class[?] => OrchescalaLogger,
+    toEngineObject: Json => Any,
+    restApiClient: RestApiClient
+                               ) extends EngineContext:
+
+  def getLogger(clazz: Class[?]): OrchescalaLogger = getLoggerFn(clazz)
+
+  def sendRequest[ServiceIn: InOutEncoder, ServiceOut: {InOutDecoder, ClassTag}](
+      request: RunnableRequest[ServiceIn]
+  ): SendRequestType[ServiceOut] =
+    restApiClient.sendRequest(request)
+
+object DefaultEngineContext:
+  lazy val example = DefaultEngineContext(
+    engineConfig = DefaultEngineConfig(),
+    workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
+    getLoggerFn = c => Slf4JLogger.logger(c.getName),
+    toEngineObject = json => json,
+    restApiClient = DefaultRestApiClient
+  )
+
 
 final case class EngineRunContext(engineContext: EngineContext, generalVariables: GeneralVariables):
 
