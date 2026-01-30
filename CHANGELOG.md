@@ -15,6 +15,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.3.3 - 2026-01-30
+### Changed 
+- Merge pull request #6 from pme123/feature/worker-endpoint - see [Commit](git@github.com:pme123/orchescala/commit/eeabff376290700564b3e0d023477c895456adee)
+- Small adjustment in DefaultEngineContext. - see [Commit](git@github.com:pme123/orchescala/commit/25fc610992060932c5a7f39df2c2e5eb1902e99b)
+- Fixed bad Error handling in ProcessInstanceRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/5976603d11c28a587f68498c4b35b7f0a55af05c)
+- Cleanup running InitWorker from WorkerRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/80070a65b27b4d66c899b3ce05388587715b92f6)
+- Added tenantId in C7MessageService. - see [Commit](git@github.com:pme123/orchescala/commit/7b223460dfb1fa61fbd843f60a6fbeac29498958)
+- Adjusted gateway dependecy to worker. - see [Commit](git@github.com:pme123/orchescala/commit/6f4fa7711e3ca376b8b30a168d530956c03f909d)
+- Adjustments running Worker from WorkerRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/b71823d6e797096d2e8aeb3b049e6e3e702a8d16)
+- Fixed timing side channels in IdentityCorrelationSigner. - see [Commit](git@github.com:pme123/orchescala/commit/081044ef4bcfeb11a5ccca0311911fdf365545a8)
+- Fixed bad foldLeft in WorkerForwardUtil. - see [Commit](git@github.com:pme123/orchescala/commit/3eeaa93ded23fb77541fe408b727e4dbc10b88f9)
+- Added types in C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/224ed427a3c1509cf887cac4fe5ee4227f84c9b6)
+- Cleanup IdentityVerification. - see [Commit](git@github.com:pme123/orchescala/commit/d6fb01c65510d91d4cc7e264dc2a9e152d85ffdb)
+- Added documentation for gateway. - see [Commit](git@github.com:pme123/orchescala/commit/a9c655a0f7c49cf2d6739e77b6131460bd0a0bb7)
+- Changed general variables to _. - see [Commit](git@github.com:pme123/orchescala/commit/12aaba76e72f074c52de03548f0b0f19484c916f)
+- Changed documentation general variables to _. - see [Commit](git@github.com:pme123/orchescala/commit/393515d7205fd0db30a83d3be4540371f16e53a0)
+- Added example for IdentityCorrelation. - see [Commit](git@github.com:pme123/orchescala/commit/ece4fbf8dfb95d8cf65acf5fcb37dd9dc7b7f0ee)
+- Cleanup C7WorkerClient configuration. - see [Commit](git@github.com:pme123/orchescala/commit/261dd30b470ff35dca3da5cfd687623ff08f4d0a)
+- Fixed WorkerTestApp generation / outputVariables in TemplateGenerator / added context to InitProcessZIOOutput / used retries from Camunda in C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/3843dd88dc6e1d63b52349920741dc08c709b554)
+- Fixed Error in extractGeneralVariables. - see [Commit](git@github.com:pme123/orchescala/commit/ac95ef93673af51a5b53b3b7fe3437d357214827)
+- Added maximum parallelism adjusted configs. - see [Commit](git@github.com:pme123/orchescala/commit/7de6e0486dbe085effaffef994e58a9d83633a09)
+- Working version for using initProcess also from the simulations. - see [Commit](git@github.com:pme123/orchescala/commit/a122f6876c9564043320f02337ddcf89ce6d5413)
+- Clean up and alignment of Api-/Gateway-paths. - see [Commit](git@github.com:pme123/orchescala/commit/82cd817327c4b1c9ca644b3cc37d5bd9c66d07a2)
+- Changed all GeneralVariables to optional to minimize process variables. - see [Commit](git@github.com:pme123/orchescala/commit/35008a6c68f2be858b166a074908b9dcfaf63881)
+- Added generalVariables to initFunction. - see [Commit](git@github.com:pme123/orchescala/commit/877371d2c806b4c9400d894de9ec0ea2208b239a)
+- Fixed startProcess with new initializedInput. - see [Commit](git@github.com:pme123/orchescala/commit/784272065b03386e9b6389ae2fb33ab3c78a874b)
+- Removed inConfig. - see [Commit](git@github.com:pme123/orchescala/commit/1e96627a06b5357018567a9fb084ff17e20e5cf1)
+- Added mocking and inConfig in runWorkFromServiceWithMocking. - see [Commit](git@github.com:pme123/orchescala/commit/90268a5f45695c452d9f3b2c7907d81a58a9b6a6)
+- Cleanup Endpoint definitions. - see [Commit](git@github.com:pme123/orchescala/commit/9b7d4b596de27ca66d45654fbcf55269f581cf06)
+- Fixed Simulations with C7 and C8 - start with Message. - see [Commit](git@github.com:pme123/orchescala/commit/9cef850987eb395b4aff3f632efa0aa1d8673f52)
+- Adjusted Error Handling in WorkerRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/81c5eedbe65e34dfdc7e34992262573defb58fc9)
+- Split the Routes to specific routes in Gateway. - see [Commit](git@github.com:pme123/orchescala/commit/47a7a4a1073553a51da725515ae8b80ae1590e42)
+- Merge branch 'develop' into feature/worker-endpoint - see [Commit](git@github.com:pme123/orchescala/commit/925240115c7cd2e603eabb9cbc7608dcad49d319)
+- Fix: handle error in setCorrelationVariable if the process is only 'short lived'. - see [Commit](git@github.com:pme123/orchescala/commit/aa49565c9c9f1cc539f9680131ef781b0cb86123)
+
 ## 0.3.2 - 2026-01-08
 ### Changed 
 - Fixed bad variable name filters in WorkerRegistries. - see [Commit](git@github.com:pme123/orchescala/commit/fe156b65f243cf26f32725c32efd4d78713449f7)
