@@ -37,30 +37,44 @@ object ProcessVariablesExtractor:
       .getOrElse:
         for
           // mocking
-          servicesMocked <- variable(InputParams.servicesMocked, false)
-          mockedWorkers <- extractSeqFromArrayOrString(InputParams.mockedWorkers, Seq.empty)
-          outputMockOpt <- jsonVariableOpt(InputParams.outputMock)
-          outputServiceMockOpt <- jsonVariableOpt(InputParams.outputServiceMock)
+          servicesMocked <- variableOpt[Boolean](InputParams._servicesMocked)
+          mockedWorkers <- extractSeqFromArrayOrStringOpt(InputParams._mockedWorkers)
+          outputMockOpt <- jsonVariableOpt(InputParams._outputMock)
+          outputServiceMockOpt <- jsonVariableOpt(InputParams._outputServiceMock)
           // mapping
-          manualOutMapping <- variable(InputParams.manualOutMapping, false)
-          outputVariables <- extractSeqFromArrayOrString(InputParams.outputVariables, Seq.empty)
-          handledErrors <- extractSeqFromArrayOrString(InputParams.handledErrors, Seq.empty)
-          regexHandledErrors <- extractSeqFromArrayOrString(InputParams.regexHandledErrors, Seq.empty)
+          manualOutMapping <- variableOpt[Boolean](InputParams._manualOutMapping)
+          outputVariables <- extractSeqFromArrayOrStringOpt(InputParams._outputVariables)
+          handledErrors <- extractSeqFromArrayOrStringOpt(InputParams._handledErrors)
+          regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams._regexHandledErrors)
           // authorization
-          identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams.identityCorrelation)
+          identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams._identityCorrelation)
+          // DEPRECATED
+          servicesMockedOld <- variableOpt[Boolean](InputParams.servicesMocked)
+          mockedWorkersOld <- extractSeqFromArrayOrStringOpt(InputParams.mockedWorkers)
+          outputMockOptOld <- jsonVariableOpt(InputParams.outputMock)
+          outputServiceMockOptOld <- jsonVariableOpt(InputParams.outputServiceMock)
+          manualOutMappingOld <- variableOpt[Boolean](InputParams.manualOutMapping)
+          outputVariablesOld <- extractSeqFromArrayOrStringOpt(InputParams.outputVariables)
+          handledErrorsOld <- extractSeqFromArrayOrStringOpt(InputParams.handledErrors)
+          regexHandledErrorsOld <- extractSeqFromArrayOrStringOpt(InputParams.regexHandledErrors)
           impersonateUserIdOpt <- variableOpt[String](InputParams.impersonateUserId)
-        yield GeneralVariables(
-          servicesMocked = servicesMocked,
-          mockedWorkers = mockedWorkers,
-          outputMock = outputMockOpt,
-          outputServiceMock = outputServiceMockOpt,
-          outputVariables = outputVariables,
-          manualOutMapping = manualOutMapping,
-          handledErrors = handledErrors,
-          regexHandledErrors = regexHandledErrors,
-          identityCorrelation = identityCorrelationOpt,
-          impersonateUserId = impersonateUserIdOpt
-        )
+          generalVariables <- ZIO
+            .attempt:
+              GeneralVariables(
+                _servicesMocked = servicesMocked.orElse(servicesMockedOld),
+                _mockedWorkers = mockedWorkers.orElse(mockedWorkersOld),
+                _outputMock = outputMockOpt.orElse(outputMockOptOld),
+                _outputServiceMock = outputServiceMockOpt.orElse(outputServiceMockOptOld),
+                _outputVariables = outputVariables.orElse(outputVariablesOld),
+                _manualOutMapping = manualOutMapping.orElse(manualOutMappingOld),
+                _handledErrors = handledErrors.orElse(handledErrorsOld),
+                _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
+                _identityCorrelation = identityCorrelationOpt,
+                impersonateUserId = impersonateUserIdOpt
+              )
+            .mapError: err =>
+              BadVariableError(s"Problem creating GeneralVariables: $err")
+        yield generalVariables
   end extractGeneral
 
 end ProcessVariablesExtractor

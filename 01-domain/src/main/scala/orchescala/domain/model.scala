@@ -149,21 +149,21 @@ sealed trait ProcessOrExternalTask[
   override def camundaInMap: Map[String, CamundaVariable] =
     val camundaOutputMock: Map[String, CamundaVariable] = outputMock
       .map(m =>
-        InputParams.outputMock.toString -> CamundaVariable.valueToCamunda(
+        InputParams._outputMock.toString -> CamundaVariable.valueToCamunda(
           m.asJson.deepDropNullValues
         )
       )
       .toMap
 
     val camundaServicesMocked: (String, CamundaVariable) =
-      InputParams.servicesMocked.toString -> CamundaVariable.valueToCamunda(
+      InputParams._servicesMocked.toString -> CamundaVariable.valueToCamunda(
         servicesMocked
       )
     val camundaImpersonateUserId                                 = impersonateUserId.toSeq.map { uiId =>
       InputParams.impersonateUserId.toString -> CamundaVariable.valueToCamunda(uiId)
     }.toMap
     val camundaIdentityCorrelation: Map[String, CamundaVariable] = identityCorrelation.map { ic =>
-      InputParams.identityCorrelation.toString -> CamundaVariable.valueToCamunda(
+      InputParams._identityCorrelation.toString -> CamundaVariable.valueToCamunda(
         ic.asJson.deepDropNullValues
       )
     }.toMap
@@ -172,21 +172,17 @@ sealed trait ProcessOrExternalTask[
   end camundaInMap
 
   def camundaInBody: JsonObject =
-    Json.obj(
-      (InputParams.outputMock.toString, outputMock.map(_.asJson).getOrElse(Json.Null)),
-      (InputParams.servicesMocked.toString, servicesMocked.asJson),
-      (InputParams.mockedWorkers.toString, mockedWorkers.asJson.deepDropNullValues),
-      (
-        InputParams.impersonateUserId.toString,
-        impersonateUserId.map(_.asJson).getOrElse(Json.Null)
-      ),
-      (
-        InputParams.identityCorrelation.toString,
-        identityCorrelation.map(_.asJson).getOrElse(Json.Null)
-      )
-    ).deepMerge(inAsJson)
+    GeneralVariables(
+      _outputMock = outputMock.map(_.asJson),
+      _servicesMocked = Some(servicesMocked),
+      _mockedWorkers = Some(mockedWorkers),
+      _identityCorrelation = identityCorrelation
+    ).asJson
+      .deepMerge(inAsJson)
       .deepDropNullValues
-      .asObject.get // this is safe as it is a JsonObject
+      .asObject
+      .get
+  // this is safe as it is a JsonObject
   end camundaInBody
 
 end ProcessOrExternalTask
@@ -284,7 +280,7 @@ case class Process[
 
   override def camundaInMap: Map[String, CamundaVariable] =
     val camundaMockedWorkers =
-      InputParams.mockedWorkers.toString -> CamundaVariable.valueToCamunda(
+      InputParams._mockedWorkers.toString -> CamundaVariable.valueToCamunda(
         mockedWorkers.asJson.deepDropNullValues
       )
 
@@ -317,16 +313,14 @@ sealed trait ExternalTask[
 
   override def camundaInMap: Map[String, CamundaVariable]      =
     super.camundaInMap +
-      (InputParams.handledErrors.toString      -> CamundaVariable.valueToCamunda(
+      (InputParams._handledErrors.toString      -> CamundaVariable.valueToCamunda(
         handledErrors.map(_.toString).asJson.deepDropNullValues
       )) +
-      (InputParams.regexHandledErrors.toString -> CamundaVariable
+      (InputParams._regexHandledErrors.toString -> CamundaVariable
         .valueToCamunda(regexHandledErrors.asJson.deepDropNullValues)) +
-      (InputParams.topicName.toString          -> CamundaVariable
-        .valueToCamunda(topicName)) +
-      (InputParams.manualOutMapping.toString   -> CamundaVariable
+      (InputParams._manualOutMapping.toString   -> CamundaVariable
         .valueToCamunda(manualOutMapping)) +
-      (InputParams.outputVariables.toString    -> CamundaVariable
+      (InputParams._outputVariables.toString    -> CamundaVariable
         .valueToCamunda(outputVariables.asJson.deepDropNullValues))
 end ExternalTask
 
@@ -457,7 +451,7 @@ case class ServiceTask[
   override def camundaInMap: Map[String, CamundaVariable] =
     val camundaOutputServiceMock = outputServiceMock
       .map(m =>
-        InputParams.outputServiceMock.toString -> CamundaVariable.valueToCamunda(
+        InputParams._outputServiceMock.toString -> CamundaVariable.valueToCamunda(
           m.asJson.deepDropNullValues
         )
       )

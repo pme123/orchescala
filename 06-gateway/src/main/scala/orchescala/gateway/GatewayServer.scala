@@ -1,6 +1,11 @@
 package orchescala.gateway
 
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
+import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
+import sttp.tapir.ztapir.*
 import orchescala.engine.*
+import orchescala.engine.services.*
 import orchescala.worker.{WorkerApp, WorkerDsl}
 import zio.*
 import zio.http.*
@@ -23,22 +28,7 @@ import zio.http.*
   */
 abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
-  def config: GatewayConfig = GatewayConfig.default
-  
-  var theWorkers: Set[WorkerDsl[?, ?]] = Set.empty
-
-  /** Add all the workers you want to support.
-    *
-    * You can add single workers, lists of workers or even complete WorkerApps. And a mix of all of
-    * the above.
-    */
-  def supportedWorkers(dWorkers: (WorkerDsl[?, ?] | Seq[WorkerDsl[?, ?]] | WorkerApp)*): Unit =
-    theWorkers = dWorkers
-      .flatMap:
-        case d: WorkerDsl[?, ?] => Seq(d)
-        case s: Seq[?]          => s.collect { case d: WorkerDsl[?, ?] => d }
-        case app: WorkerApp     => app.theWorkers
-      .toSet
+  def config: GatewayConfig
 
   def run: ZIO[Any, Any, Any] = start()
 
@@ -52,35 +42,44 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     val program =
       for
         _ <- ZIO.logInfo(banner("Engine Gateway Server"))
-        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.port}")
-        _ <- ZIO.logInfo(s"\n${theWorkers.size} supported Workers: \n- ${theWorkers.map(_.topic).mkString("\n- ")}")
+        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
 
         // Create gateway engine
-        gatewayEngine <- engineZIO
-
+        gatewayEngine      <- engineZIO
+        given GatewayConfig = config
         // Create routes
-        apiRoutes    = GatewayRoutes.routes(
-                         gatewayEngine.processInstanceService,
-                         gatewayEngine.userTaskService,
-                         gatewayEngine.signalService,
-                         gatewayEngine.messageService,
-                         gatewayEngine.historicVariableService,
-          config
-                       )
-        workerRoutes = WorkerRoutes.routes(theWorkers, config.validateToken)
-        docsRoutes   = OpenApiRoutes.routes
-        allRoutes    = apiRoutes ++ workerRoutes ++ docsRoutes
+        allRoutes           = routes(gatewayEngine)
 
         // Start server
-        _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.port}")
-        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:${config.port}/docs")
+        _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.gatewayPort}")
+        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:${config.gatewayPort}/docs")
         _ <- Server.serve(allRoutes).forever
       yield ()
 
     program.provide(
-      Server.defaultWithPort(config.port),
+      Server.defaultWithPort(config.gatewayPort),
       EngineRuntime.logger
     ).unit
   end start
+
+  private def routes(gatewayEngine: ProcessEngine)(using GatewayConfig): Routes[Any, Response] =
+
+    ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
+      WorkerRoutes().routes ++
+        ProcessInstanceRoutes.routes(
+          gatewayEngine.processInstanceService,
+          gatewayEngine.historicVariableService
+        ) ++
+        UserTaskRoutes.routes(
+          gatewayEngine.userTaskService
+        ) ++
+        SignalRoutes.routes(
+          gatewayEngine.signalService
+        ) ++
+        MessageRoutes.routes(
+          gatewayEngine.messageService
+        )
+    ) ++
+      OpenApiRoutes.routes
 
 end GatewayServer

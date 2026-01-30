@@ -2,12 +2,14 @@ package orchescala.gateway
 
 import orchescala.domain.*
 import orchescala.engine.domain.EngineError
-import orchescala.engine.domain.EngineError.ProcessError
-import orchescala.engine.rest.HttpClientProvider
-import orchescala.engine.{AuthContext, Slf4JLogger}
-import orchescala.worker.*
+import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend, WorkerForwardUtil}
+import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
+import orchescala.gateway.GatewayError.{ServiceRequestError, UnexpectedError}
+import orchescala.worker.{DefaultRestApiClient, EngineContext, EngineRunContext, RunnableRequest, SendRequestType, WorkerConfig, WorkerError}
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
+import sttp.client3.*
+import sttp.model.Uri
 import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.http.{Response, Routes}
@@ -15,10 +17,12 @@ import zio.{IO, ZIO}
 
 import scala.reflect.ClassTag
 
-object WorkerRoutes:
+class WorkerRoutes()(using config: GatewayConfig):
 
   /** Simple EngineContext implementation for the gateway */
   private class GatewayEngineContext extends EngineContext:
+    override def engineConfig: EngineConfig = config.engineConfig
+    override def workerConfig: WorkerConfig = config.workerConfig
     override def getLogger(clazz: Class[?]): OrchescalaLogger =
       Slf4JLogger.logger(clazz.getName)
 
@@ -31,43 +35,29 @@ object WorkerRoutes:
       DefaultRestApiClient.sendRequest(request)
   end GatewayEngineContext
 
-  def routes(
-      supportedWorkers: Set[WorkerDsl[?, ?]],
-      validateToken: String => IO[GatewayError, String]
-  ): Routes[Any, Response] =
-    val workers: Map[String, WorkerDsl[?, ?]] = supportedWorkers
-      .map: w =>
-        w.topic -> w
-      .toMap
+  def routes: List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
 
     val triggerWorkerEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       WorkerEndpoints
         .triggerWorker.zServerSecurityLogic: token =>
-          validateToken(token)
-            .mapError(ErrorResponse.fromOrchescalaError)
+          config.validateToken(token)
+            .mapError(ServiceRequestError.apply)
         .serverLogic: validatedToken =>
           (topicName, variables) =>
             AuthContext.withBearerToken(validatedToken):
-              given EngineRunContext = EngineRunContext(
-                engineContext = GatewayEngineContext(),
-                generalVariables = GeneralVariables()
-              )
-
-              ZIO.logInfo(s"Triggering worker: $topicName with variables: $variables") *>
-                AuthContext.withBearerToken(validatedToken):
-                  workers.get(topicName)
-                    .fold(ZIO.fail(EngineError.ProcessError(s"Worker not found: $topicName"))):
-                      worker =>
-                        worker
-                          .runWorkFromWorker(variables)
-                          .tap: r =>
-                            ZIO.logDebug(s"Worker '$topicName' response: $r")
-                          .provideLayer(HttpClientProvider.live)
-                    .mapError: err =>
-                      ErrorResponse.fromOrchescalaError(ProcessError(s"Running Worker failed: $err"))
-
-    ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
-      List(triggerWorkerEndpoint)
-    )
+              // Forward request to the worker app
+              WorkerForwardUtil.forwardWorkerRequest(topicName, variables, validatedToken)(using config.engineConfig)
+                .provideLayer(HttpClientProvider.live)
+                .map:
+                  Option.apply
+                .mapError:
+                  case err: EngineError =>
+                    ServiceRequestError(err)
+                  case err               =>
+                    ServiceRequestError(500, err.getMessage)
+                .tapError(err => ZIO.logError(s"Triggering Worker Error in WorkerApp: $err"))
+    List(triggerWorkerEndpoint)
   end routes
+  
+
 end WorkerRoutes

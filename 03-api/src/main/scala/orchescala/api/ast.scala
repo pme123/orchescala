@@ -72,7 +72,6 @@ sealed trait InOutApi[
     inOut.inVariableNames
 
   lazy val variableNamesOut: Seq[String] =
-    println(s"inOut.outVariableNames: ${inOut.outVariableNames} - ${inOut.otherEnumOutExamples}")
     inOut.outVariableNames
 
   def apiDescription(companyName: String): String =

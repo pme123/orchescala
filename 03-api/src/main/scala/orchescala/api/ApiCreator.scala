@@ -111,13 +111,13 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         |### Mocking
         |""".stripMargin +
       createGeneralVariable(
-        InputParams.servicesMocked,
+        InputParams._servicesMocked,
         "Mock all the _ServiceWorkers_ in your process with their default Mock:",
         "process(..)\n  .mockServices",
-        s"\"${InputParams.servicesMocked}\": true,"
+        s"\"${InputParams._servicesMocked}\": true,"
       ) +
       createGeneralVariable(
-        InputParams.mockedWorkers,
+        InputParams._mockedWorkers,
         s"""Mock any Process- and/or ExternalTask-Worker with their default Mocks.
            |This is a list of the _Worker topicNames or Process processNames_, you want to mock.
            |${listOfStringsOrCommaSeparated("mySubProcess,myOtherSubProcess,myService")}
@@ -130,7 +130,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"mockedWorkers": ["mySubProcess", "myOtherSubProcess, myService"],"""
       ) +
       createGeneralVariable(
-        InputParams.outputMock,
+        InputParams._outputMock,
         """Mock the Process or ExternalTask (`Out`)
           | - You find an example in every _Process_ and _ExternalTask_.
           |""".stripMargin,
@@ -139,7 +139,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"outputMock": {..},"""
       ) +
       createGeneralVariable(
-        InputParams.outputServiceMock,
+        InputParams._outputServiceMock,
         """Mock the Inner-Service (`MockedServiceResponse[ServiceOut]`)
           | - You find an example in every _ServiceTask_.
           |""".stripMargin,
@@ -152,7 +152,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
       ) +
       "### Mapping" +
       createGeneralVariable(
-        InputParams.outputVariables,
+        InputParams._outputVariables,
         s"""You can filter the Output with a list of variable names you are interested in.
            |This list may include all variables from the output (`Out`). We included an example for each Process or ExternalTask.
            |${listOfStringsOrCommaSeparated("name,firstName")}
@@ -160,22 +160,22 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """process(..) // or serviceTask(..)/customTask(..)
           |  .withOutputVariables("name", "firstName") // creates a list with outputVariables
           |  .withOutputVariable("nickname") // adds a outputVariable""".stripMargin,
-        """"outputVariables": ["name", "firstName"],"""
+        """"_outputVariables": ["name", "firstName"],"""
       ) +
       createGeneralVariable(
-        InputParams.manualOutMapping,
+        InputParams._manualOutMapping,
         s"""By default all output Variables (`Out`) are on the Process for _External Tasks_.
-           |If the filter _${InputParams.outputVariables}_ is not enough,
+           |If the filter _${InputParams._outputVariables}_ is not enough,
            |you can set this variable - every output variable is then local.
            |
            |_Be aware_ that you must then manually have _output mappings_ for each output variable!
            |""".stripMargin,
         """serviceTask(..) // or customTask(..)
           |  .manualOutMapping""".stripMargin,
-        """"manualOutMapping": true,"""
+        """"_manualOutMapping": true,"""
       ) + "### Mocking" +
       createGeneralVariable(
-        InputParams.handledErrors,
+        InputParams._handledErrors,
         s"""A list of error codes that are handled (`BpmnError`)
            |${listOfStringsOrCommaSeparated("validation-failed,404")}
            |
@@ -184,10 +184,10 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """serviceTask(..)
           |  .handleErrors(ErrorCodes.`validation-failed`, "404") // create a list of handledErrors
           |  .handleError("404") // add a handledError""".stripMargin,
-        s""""handledErrors": ["validation-failed", "404"],""".stripMargin
+        s""""_handledErrors": ["validation-failed", "404"],""".stripMargin
       ) +
       createGeneralVariable(
-        InputParams.regexHandledErrors,
+        InputParams._regexHandledErrors,
         s"""You can further filter Handled Errors with a list of Regex expressions that the body error message must match.
            |${listOfStringsOrCommaSeparated(
             "SQL exception,\"errorNr\":\"20000\""
@@ -198,17 +198,30 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """serviceTask(..)
           |  .handleErrorWithRegex("SQL exception")
           |  .handleErrorWithRegex("\"errorNr\":\"20000\"")""".stripMargin,
-        s""""regexHandledErrors": ["SQL exception", "\"errorNr\":\"20000\""],""".stripMargin
+        s""""_regexHandledErrors": ["SQL exception", "\"errorNr\":\"20000\""],""".stripMargin
       ) +
       "### Authorization" +
       createGeneralVariable(
-        InputParams.impersonateUserId,
-        """User-ID of a User that should be taken to authenticate to the services.
-          |This must be supported by your implementation. *Be caution: this may be a security issue!*.
-          |It is helpful if you have Tokens that expire, but long running Processes.""".stripMargin,
-        """process(..) // or serviceTask(..)/customTask(..)
-          |  .withImpersonateUserId(impersonateUserId)""".stripMargin,
-        """"impersonateUserId": "myUserName","""
+        InputParams._identityCorrelation,
+        """Identity correlation for binding user identity to the process instance using HMAC-SHA256 signatures.
+          |This prevents replay attacks and tampering by cryptographically binding the user identity to a specific process instance.
+          |The correlation is automatically signed with the process instance ID when starting a process or completing a user task.
+          |Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY` or in `EngineConfig`.""".stripMargin,
+        """val identity = IdentityCorrelation(
+          |  username = "alice@example.com",
+          |  email = Some("alice@example.com"),
+          |  impersonateProcessValue = Some("department-123")
+          |)
+          |process(..) // or serviceTask(..)/customTask(..)
+          |  .withIdentityCorrelation(identity)""".stripMargin,
+        """"_identityCorrelation": {
+          |  "username": "alice@example.com",
+          |  "email": "alice@example.com",
+          |  "impersonateProcessValue": "department-123",
+          |  "issuedAt": 1706371200000,
+          |  "processInstanceId": "12345",
+          |  "signature": "abc123..."
+          |},"""
       ) +
       """</p>
         |</details>

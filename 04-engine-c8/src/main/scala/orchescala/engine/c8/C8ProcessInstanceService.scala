@@ -281,27 +281,30 @@ class C8ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[JsonObject]
+      processVariables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
+    val variables = processVariables
+      .map(_.asJson)
+      .map(_.deepMerge(businessKey
+        .map(bk =>
+          Json.obj("businessKey" -> bk.asJson)
+        ).getOrElse(Json.obj())))
+      .getOrElse(Json.obj())
     for
       camundaClient <- camundaClientZIO
-      variablesMap  <- ZIO.succeed(variables.map(_.toVariablesMap).getOrElse(Map.empty))
-      _             <- logInfo("variablesMap: " + variablesMap)
+      variablesMap  <- ZIO.succeed(jsonToVariablesMap(variables))
+      _             <- logInfo(s"Send Message $messageName: $variablesMap")
       response      <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             val command = camundaClient.newCorrelateMessageCommand()
               .messageName(messageName)
 
-            val withCorrelationKey =
-              businessKey match
-                case Some(key) => command.correlationKey(key)
-                case None      => command.withoutCorrelationKey()
-
-            withCorrelationKey
+            command
+              .withoutCorrelationKey()
               .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
               .variables(variablesMap.asJava)
-              .send().join()
+              .send()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem sending message '$messageName' to start process: $err"
@@ -310,8 +313,8 @@ class C8ProcessInstanceService(using
         ZIO
           .attempt:
             MessageCorrelationResult.ProcessInstance(
-              response.getMessageKey.toString,
-              response.getMessageKey.toString, // C8 doesn't return processInstanceId
+              response.getProcessInstanceKey.toString,
+              response.getProcessInstanceKey.toString,
               C8
             )
           .mapError: err =>
@@ -319,6 +322,7 @@ class C8ProcessInstanceService(using
               s"Problem mapping MessageCorrelationResult: $err"
             )
     yield result
+    end for
   end sendMessageToStartProcess
 
 end C8ProcessInstanceService

@@ -2,7 +2,7 @@ package orchescala.worker
 
 import io.circe.Decoder.Result
 import orchescala.domain.*
-import orchescala.engine.EngineRuntime
+import orchescala.engine.{EngineConfig, EngineRuntime}
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.{BadVariableError, ValidatorError}
@@ -38,16 +38,6 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             .catchAll: ex =>
               ZIO.logError(s"Worker execution for job $jobId failed: $ex\n${ex.getStackTrace.mkString("\n")}")
                 .unit // Return unit instead of failing
-        
-
-  protected def extractGeneralVariables(json: Json) =
-    ZIO.fromEither(
-      customDecodeAccumulating[GeneralVariables](json.hcursor)
-    ).mapError(ex =>
-      ValidatorError(
-        s"Problem extract general variables from $json\n" + ex.getMessage
-      )
-    )
 
   protected def extractBusinessKey(json: Json) =
     ZIO.fromEither(json.as[BusinessKey].map(_.businessKey.getOrElse("no businessKey")))

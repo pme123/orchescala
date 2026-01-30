@@ -273,14 +273,14 @@ case class InputParamForTempl(
     // for the default value, you have:
     //  - a simple value
     //  - a mapping function out => ...
-    defaultValue: Product => String
+    defaultValue: (InOut[?, ?, ?]) => String
 )
 
 object InputParamForTempl:
   def apply(name: InputParams, inputMapValue: String): InputParamForTempl =
     new InputParamForTempl(name, _ => inputMapValue)
 
-  def apply(name: InputParams, inputMapFunct: Product => String): InputParamForTempl =
+  def apply(name: InputParams, inputMapFunct: (InOut[?, ?, ?]) => String): InputParamForTempl =
     new InputParamForTempl(name, inputMapFunct)
 end InputParamForTempl
 

@@ -43,7 +43,7 @@ lazy val docs =
       mdocSettings
     )
     .enablePlugins(LaikaPlugin, MdocPlugin)
-    .dependsOn(helper)
+    .dependsOn(helper, gateway)
 
 // layer 01
 lazy val domain = project
@@ -141,7 +141,7 @@ lazy val worker = project
     libraryDependencies ++= Seq(
       scaffeineDependency,
       logbackDependency
-    ) ++ zioTestDependencies
+    ) ++ zioTestDependencies ++ zioHttpDependencies
   )
   .dependsOn(engine)
 

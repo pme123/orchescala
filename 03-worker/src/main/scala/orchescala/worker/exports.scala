@@ -72,6 +72,14 @@ object WorkerError:
     override val isMock       = true
   end MockedOutput
 
+  case class MockedOutputJson(
+      output: Json,
+      errorMsg: String = "Output mocked as Json"
+  ) extends WorkerError:
+    val errorCode: ErrorCodes = ErrorCodes.`output-mocked`
+    override val isMock       = true
+  end MockedOutputJson
+
   case object AlreadyHandledError extends WorkerError:
     val errorMsg: String      = "Error already handled."
     val errorCode: ErrorCodes = ErrorCodes.`error-already-handled`
@@ -95,7 +103,7 @@ object WorkerError:
       errorMsg: String
   ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
-
+  
   case class HandledRegexNotMatchedError(
       errorMsg: String
   ) extends WorkerError:
@@ -117,6 +125,11 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`bad-variable`
 
   sealed trait RunWorkError extends WorkerError
+
+  case class BadSignatureError(
+                                errorMsg: String
+                              ) extends RunWorkError:
+    val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
 
   case class MissingHandlerError(
       errorMsg: String
@@ -178,6 +191,30 @@ object WorkerError:
       errorMsg: String
   ) extends ServiceError
 
+  object ServiceRequestError:
+    given InOutCodec[ServiceRequestError] = deriveCodec
+    given ApiSchema[ServiceRequestError]  = deriveApiSchema
+
+    def apply(err: WorkerError): ServiceRequestError =
+      err match
+        case ValidatorError(msg)            => ServiceRequestError(400, msg)
+        case ServiceAuthError(msg)          => ServiceRequestError(401, msg)
+        case ServiceBadBodyError(msg)       => ServiceRequestError(400, msg)
+        case ServiceBadPathError(msg)       => ServiceRequestError(404, msg)
+        case ServiceMappingError(msg)       => ServiceRequestError(400, msg)
+        case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
+        case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
+        case err                            =>
+      end match
+      ServiceRequestError(500, err.errorMsg)
+    end apply
+  end ServiceRequestError
+
+  case class TokenValidationError(
+      errorMsg: String,
+      errorCode: ErrorCodes = ErrorCodes.`mapping-error`
+  ) extends WorkerError
+
   def requestMsg[ServiceIn: InOutEncoder](
       runnableRequest: RunnableRequest[ServiceIn]
   ): String =
@@ -211,3 +248,12 @@ def printTimeOnConsole(start: Date) =
   else Console.BLACK
   s"($color$time ms${Console.RESET})"
 end printTimeOnConsole
+
+def extractGeneralVariables(json: Json) =
+  ZIO.fromEither(
+    customDecodeAccumulating[GeneralVariables](json.hcursor)
+  ).mapError(ex =>
+    ValidatorError(
+      s"Problem extract general variables from $json\n" + ex.getMessage
+    )
+  )

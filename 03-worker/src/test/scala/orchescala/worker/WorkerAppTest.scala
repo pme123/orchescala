@@ -1,12 +1,26 @@
 package orchescala.worker
 
-import orchescala.domain.*
 import munit.FunSuite
+import orchescala.domain.*
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
+
+import scala.reflect.ClassTag
 
 class WorkerAppTest extends FunSuite:
 
   // Test helper classes
   class TestWorkerApp(name: String, deps: Seq[WorkerApp] = Seq.empty) extends WorkerApp:
+    lazy val engineContext = new EngineContext:
+      override def engineConfig: EngineConfig = DefaultEngineConfig()
+      override def workerConfig: WorkerConfig = DefaultWorkerConfig(engineConfig)
+      override def getLogger(clazz: Class[?]): OrchescalaLogger = ???
+      override def toEngineObject: Json => Any = ???
+      override def sendRequest[ServiceIn: Encoder, ServiceOut: {Decoder, ClassTag}](
+          request: RunnableRequest[ServiceIn]
+      ): SendRequestType[ServiceOut] = ???
+    end engineContext
+
+    override def workerConfig: WorkerConfig = DefaultWorkerConfig(DefaultEngineConfig())
     override def applicationName: String = name
     override def workerRegistries: Seq[WorkerRegistry] = Seq.empty
     

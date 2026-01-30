@@ -1,6 +1,6 @@
 package orchescala.engine.domain
 
-import orchescala.domain.{ErrorCodes, OrchescalaError}
+import orchescala.domain.*
 
 sealed trait EngineError extends OrchescalaError
 
@@ -44,5 +44,17 @@ object EngineError:
       errorMsg: String,
       errorCode: ErrorCodes = ErrorCodes.`engine-service-error`
   ) extends EngineError
-  
+
+  case class ServiceRequestError(
+                                  errorCode: Int,
+                                  errorMsg: String
+                                ) extends EngineError
+  object ServiceRequestError:
+    given InOutCodec[ServiceRequestError] = deriveInOutCodec
+    
+    def apply(err: EngineError): ServiceRequestError =
+      err match
+        case err: ServiceRequestError => err
+        case err                      => ServiceRequestError(500, err.toString)
+    
 end EngineError

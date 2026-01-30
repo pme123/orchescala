@@ -169,7 +169,7 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
 
       // Build variables with signed correlation
       jsonObj = processVariables.add(
-                       InputParams.identityCorrelation.toString,
+                       InputParams._identityCorrelation.toString,
                        signedCorr.asJson.deepDropNullValues
                      )
       _           <- logInfo(s"complete UserTask: $taskId - $jsonObj")
@@ -255,7 +255,7 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
           )))
         else
           variables
-            .get(InputParams.identityCorrelation.toString)
+            .get(InputParams._identityCorrelation.toString)
             .map: dto =>
               toVariableValue(dto)
                 .map: v =>

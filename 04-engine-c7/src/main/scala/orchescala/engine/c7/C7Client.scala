@@ -19,7 +19,6 @@ trait C7LocalClient extends C7Client:
       ZIO.attempt:
         val apiClient = new ApiClient()
         apiClient.setBasePath(camundaRestUrl)
-        apiClient
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating C7 API Client: $ex")
 

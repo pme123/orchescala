@@ -2,51 +2,19 @@ package orchescala.gateway
 
 import io.circe.parser.*
 import orchescala.domain.*
+import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object WorkerEndpoints:
-
-  private val baseEndpoint = endpoint
-    .in("worker")
-    .errorOut(
-      oneOf[ErrorResponse](
-        oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.unauthorized))) { case e: ErrorResponse if e.httpStatus == 401 => true },
-        oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.badRequest))) { case e: ErrorResponse if e.httpStatus == 400 => true },
-        oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.notFound))) { case e: ErrorResponse if e.httpStatus == 404 => true },
-        oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.internalError))) { case e: ErrorResponse if e.httpStatus >= 500 => true },
-        oneOfDefaultVariant(jsonBody[ErrorResponse])
-      )
-    )
-
-  // Secured base endpoint with Bearer token authentication
-  private val securedBaseEndpoint = baseEndpoint
-    .securityIn(auth.bearer[String]())
-
-  // Example request body for triggering a worker
-  private val triggerWorkerRequestExample = parse("""
-    {
-      "orderId": "12345",
-      "customerId": "CUST-789",
-      "amount": 150.00
-    }
-  """).getOrElse(io.circe.Json.Null)
-
-
-  val triggerWorker: Endpoint[String, (String, Json), ErrorResponse, Option[Json], Any] =
-    securedBaseEndpoint
+  
+  lazy val triggerWorker
+      : Endpoint[String, (String, Json), ServiceRequestError, Option[Json], Any] =
+    EndpointsUtil.baseEndpoint
       .post
-      .in(path[String]("topicName")
-        .description("Worker definition ID (worker topic name)")
-        .example("process-order-worker"))
+      .in("worker")
+      .in(workerTopicNamePath)
       .in(jsonBody[Json]
         .description("Variables to send to the worker as a JSON object")
         .example(triggerWorkerRequestExample))
@@ -55,15 +23,17 @@ object WorkerEndpoints:
           oneOfVariantValueMatcher(statusCode(StatusCode.NoContent).and(emptyOutputAs(None))) {
             case None => true
           },
-          oneOfVariantValueMatcher(statusCode(StatusCode.Ok).and(jsonBody[Json].map(Some(_))(_.get))) {
+          oneOfVariantValueMatcher(
+            statusCode(StatusCode.Ok).and(jsonBody[Json].map(Some(_))(_.get))
+          ) {
             case Some(_) => true
           }
         )
       )
-      .name("Trigger Worker")
-      .summary("Trigger a worker execution")
+      .name("Forward to Worker")
+      .summary("Forward to a worker execution")
       .description(
-        """Triggers a worker to execute with the provided variables.
+        """Forwards to the WorkerApp to trigger a worker executing with the provided variables.
           |
           |This endpoint allows you to manually trigger a worker execution, which can be useful for:
           |- Testing worker implementations
@@ -76,5 +46,12 @@ object WorkerEndpoints:
           |""".stripMargin
       ).tag("Worker")
 
-end WorkerEndpoints
+  // Example request body for triggering a worker
+  private lazy val triggerWorkerRequestExample =
+    Json.obj(
+      "orderId" -> Json.fromString("12345"),
+      "customerId" -> Json.fromString("CUST-789"),
+      "amount" -> Json.fromDoubleOrNull(150.00)
+    )
 
+end WorkerEndpoints

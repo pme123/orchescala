@@ -25,8 +25,7 @@ trait DocCreator extends DependencyCreator, Helpers:
 
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
-    apiConfig.projectsConfig.init
-    apiConfig.otherProjectsConfig.init
+    apiConfig.init
     createCatalog()
     DevStatisticsCreator(gitBasePath, apiConfig.basePath, apiConfig.companyName).create()
     createDynamicConf()
@@ -152,7 +151,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     val previousVersions     = extractVersions(previousConfigsLines)
 
     // Use ZIO to run fetchConf in parallel
-    import zio._
+    import zio.*
 
     val configs = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
@@ -167,7 +166,7 @@ trait DocCreator extends DependencyCreator, Helpers:
               projectName.endsWith("worker")
             )
           }
-        }
+        }.withParallelism(apiConfig.engineConfig.parallelism)
       ).getOrThrow()
     }
 

@@ -75,7 +75,7 @@ class C7ProcessInstanceService(using
       apiClient <- apiClientZIO
 
       // Step 1: Start process WITHOUT correlation
-      _                <- logDebug(s"Starting Process '$processDefId' (will sign correlation after)")
+      _                <- logDebug(s"Starting Process '$processDefId' (will sign correlation after): ${in.asJson}")
       processVariables <- C7VariableMapper.toC7Variables(in.asJson)
       instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
       processInstanceId = instance.getId

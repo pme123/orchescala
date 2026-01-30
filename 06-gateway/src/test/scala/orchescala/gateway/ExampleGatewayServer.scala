@@ -4,6 +4,7 @@ import orchescala.engine.*
 import orchescala.engine.c7.{C7BearerTokenClient, C7ProcessEngine, SharedC7ClientManager}
 import orchescala.engine.c8.{C8BearerTokenClient, C8ProcessEngine, SharedC8ClientManager}
 import orchescala.engine.gateway.GProcessEngine
+import orchescala.worker.DefaultWorkerConfig
 import zio.*
 import zio.http.*
 
@@ -26,6 +27,10 @@ import zio.http.*
   * - CAMUNDA_C8_REST_URL: Camunda 8 REST API URL (default: http://localhost:8080)
   */
 object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
+  override def config: GatewayConfig = DefaultGatewayConfig(
+    engineConfig = DefaultEngineConfig(),
+    workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
+  )
 
   /** Example C7 client with Bearer token pass-through authentication */
   object ExampleC7Client extends C7BearerTokenClient:
@@ -40,9 +45,7 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
       sys.env.getOrElse("CAMUNDA_C8_REST_URL", "http://localhost:8080")
 
   /** Example Gateway configuration */
-  given EngineConfig = EngineConfig(
-    tenantId = None,  // Set to Some("your-tenant") if needed
-    impersonateProcessKey = None
+  given EngineConfig = DefaultEngineConfig(
   )
   
   override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =

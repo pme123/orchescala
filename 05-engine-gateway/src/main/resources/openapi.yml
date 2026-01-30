@@ -29,7 +29,7 @@ paths:
       parameters:
       - name: messageName
         in: path
-        description: Message name
+        description: The messageName of the Event (Signal or Message).
         required: true
         schema:
           type: string
@@ -40,8 +40,8 @@ paths:
           ID.
         required: false
         schema:
+          default: '{{tenantId}}'
           type: string
-        example: '{{tenantId}}'
       - name: timeToLiveInSec
         in: query
         description: 'The time in seconds the message is buffered, waiting for correlation.
@@ -52,22 +52,23 @@ paths:
         schema:
           type: integer
           format: int32
-        example: 60
+        example: 10
       - name: businessKey
         in: query
-        description: Business key to correlate the message to a specific process instance.
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
         required: false
         schema:
+          default: From Test Client
           type: string
-        example: Started by Test Client
       - name: processInstanceId
         in: query
         description: Process instance ID to correlate the message to a specific process
           instance.
         required: false
         schema:
+          default: '{{processInstanceId}}'
           type: string
-        example: f150c3f1-13f5-11ec-936e-0242ac1d0007
       requestBody:
         description: Variables to send with the message as a JSON object
         content:
@@ -78,7 +79,7 @@ paths:
               orderId: '12345'
               amount: 99.99
               approved: true
-        required: true
+        required: false
       responses:
         '200':
           description: Message correlation result
@@ -91,43 +92,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
   /process/{processDefinitionKey}/async:
@@ -144,24 +146,25 @@ paths:
         description: Process definition ID or key
         required: true
         schema:
+          default: '{{processDefinitionKey}}'
           type: string
-        example: order-process
+        example: '{{processDefinitionKey}}'
       - name: businessKey
         in: query
-        description: Business Key, be aware that this is not supported in Camunda
-          8.
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
         required: false
         schema:
+          default: From Test Client
           type: string
-        example: Started by Test Client
       - name: tenantId
         in: query
         description: If you have a multi tenant setup, you must specify the Tenant
           ID.
         required: false
         schema:
+          default: '{{tenantId}}'
           type: string
-        example: '{{tenantId}}'
       requestBody:
         description: Request body with process variables as a JSON object
         content:
@@ -170,7 +173,7 @@ paths:
               $ref: '#/components/schemas/JsonObject'
             example:
               customerName: John Doe
-              orderAmount: 1250.50
+              orderAmount: 1250.5
               orderDate: '2025-10-26'
               priority: high
               items:
@@ -196,43 +199,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
   /process/{messageName}/message:
@@ -250,27 +254,27 @@ paths:
       parameters:
       - name: messageName
         in: path
-        description: Message name that triggers a Message Start Event
+        description: The messageName of the Event (Signal or Message).
         required: true
         schema:
           type: string
         example: order-received
       - name: businessKey
         in: query
-        description: Business Key, be aware that this is not supported in Camunda
-          8.
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
         required: false
         schema:
+          default: From Test Client
           type: string
-        example: order-12345
       - name: tenantId
         in: query
         description: If you have a multi tenant setup, you must specify the Tenant
           ID.
         required: false
         schema:
+          default: '{{tenantId}}'
           type: string
-        example: '{{tenantId}}'
       requestBody:
         description: Request body with process variables as a JSON object
         content:
@@ -279,7 +283,7 @@ paths:
               $ref: '#/components/schemas/JsonObject'
             example:
               customerName: John Doe
-              orderAmount: 1250.50
+              orderAmount: 1250.5
               orderDate: '2025-10-26'
               priority: high
               items:
@@ -305,43 +309,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
   /process/{processInstanceId}/variables:
@@ -376,7 +381,7 @@ paths:
               schema: {}
               example:
                 customerName: John Doe
-                orderAmount: 1250.50
+                orderAmount: 1250.5
                 orderDate: '2025-10-26'
                 priority: high
                 items:
@@ -389,43 +394,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
   /process/{processDefinitionKey}/{processInstanceId}/variables:
@@ -467,7 +473,7 @@ paths:
               schema: {}
               example:
                 customerName: John Doe
-                orderAmount: 1250.50
+                orderAmount: 1250.5
                 orderDate: '2025-10-26'
                 priority: high
                 items:
@@ -480,46 +486,47 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
-  /signal/{signalName}:
+  /signal/{messageName}:
     post:
       tags:
       - Signal
@@ -530,21 +537,21 @@ paths:
         It is fire and forget.
       operationId: Send Signal
       parameters:
-      - name: signalName
+      - name: messageName
         in: path
-        description: Signal name
+        description: The messageName of the Event (Signal or Message).
         required: true
         schema:
           type: string
-        example: order-completed-signal
+        example: order-received
       - name: tenantId
         in: query
         description: If you have a multi tenant setup, you must specify the Tenant
           ID.
         required: false
         schema:
+          default: '{{tenantId}}'
           type: string
-        example: '{{tenantId}}'
       requestBody:
         description: Variables to send with the signal as a JSON object
         content:
@@ -554,7 +561,7 @@ paths:
             example:
               orderStatus: canceled
               cancelReason: No response from the customer.
-        required: true
+        required: false
       responses:
         '204':
           description: ''
@@ -563,46 +570,47 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
-  /process/{processInstanceId}/userTask/{taskDefinitionKey}/variables:
+  /process/{processInstanceId}/userTask/{userTaskDefinitionKey}/variables:
     get:
       tags:
       - User Task
@@ -614,14 +622,21 @@ paths:
       parameters:
       - name: processInstanceId
         in: path
-        description: Process instance ID
+        description: |+
+          The processInstanceId of the Process.
+
+          > This is the result id of the `StartProcess`. And should automatically be set in Postman - see _Postman Instructions_.
+
         required: true
         schema:
+          default: '{{processInstanceId}}'
           type: string
-        example: '{{processInstanceId}}'
-      - name: taskDefinitionKey
+      - name: userTaskDefinitionKey
         in: path
-        description: User task definition ID (task definition key in the BPMN)
+        description: |
+          User task definition ID (task definition key in the BPMN)
+          - In `complete`: This is only used for API path differentiation in OpenAPI.
+          - We use this that you can have multiple UserTasks in one Project.
         required: true
         schema:
           type: string
@@ -632,16 +647,16 @@ paths:
         required: false
         schema:
           type: string
-        example: customerName,orderAmount
+        example: name,firstName
       - name: timeoutInSec
         in: query
-        description: Maximum number of seconds to wait for the user task to become
+        description: The maximum number of seconds to wait for the user task to become
           active. If not provided, it will wait 10 seconds.
         required: false
         schema:
           type: integer
           format: int32
-        example: 30
+        example: 10
       responses:
         '200':
           description: Variables for the current user task as JSON object
@@ -657,7 +672,7 @@ paths:
               schema: {}
               example:
                 customerName: John Doe
-                orderAmount: 1250.50
+                orderAmount: 1250.5
                 orderDate: '2025-10-26'
                 priority: high
                 approvalRequired: true
@@ -668,49 +683,50 @@ paths:
                   price: 500.25
                 - productId: PROD-042
                   quantity: 1
-                  price: 250.00
+                  price: 250.0
         '400':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
   /userTask/{userTaskInstanceId}/complete:
@@ -749,43 +765,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
   /userTask/{userTaskDefinitionKey}/{userTaskInstanceId}/complete:
@@ -801,7 +818,7 @@ paths:
         in: path
         description: |
           User task definition ID (task definition key in the BPMN)
-          - This is used for API path differentiation in OpenAPI.
+          - In `complete`: This is only used for API path differentiation in OpenAPI.
           - We use this that you can have multiple UserTasks in one Project.
         required: true
         schema:
@@ -834,52 +851,53 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
-  /worker/{topicName}:
+  /worker/{workerTopicName}:
     post:
       tags:
       - Worker
-      summary: Trigger a worker execution
+      summary: Forward to a worker execution
       description: |
-        Triggers a worker to execute with the provided variables.
+        Forwards to the WorkerApp to trigger a worker executing with the provided variables.
 
         This endpoint allows you to manually trigger a worker execution, which can be useful for:
         - Testing worker implementations
@@ -889,9 +907,9 @@ paths:
         The worker will receive the provided variables as input and execute its logic accordingly.
         If the worker returns output variables, they will be returned with status 200 OK.
         If the worker returns no output (NoOutput), status 204 No Content will be returned.
-      operationId: Trigger Worker
+      operationId: Forward to Worker
       parameters:
-      - name: topicName
+      - name: workerTopicName
         in: path
         description: Worker definition ID (worker topic name)
         required: true
@@ -906,7 +924,7 @@ paths:
             example:
               orderId: '12345'
               customerId: CUST-789
-              amount: 150.00
+              amount: 150.0
         required: true
       responses:
         '200':
@@ -921,43 +939,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid request parameters
-                code: INVALID_PARAMETERS
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
         '401':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Invalid or missing authentication token
-                code: UNAUTHORIZED
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
         '404':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Resource not found
-                code: NOT_FOUND
+                errorCode: 404
+                errorMsg: Not Found
         '500':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
               example:
-                message: Internal server error
-                code: ENGINE_ERROR
+                errorCode: 500
+                errorMsg: Internal Server Error
         default:
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
 components:
@@ -969,19 +988,6 @@ components:
       - C7
       - C8
       - Gateway
-    ErrorResponse:
-      title: ErrorResponse
-      description: Error response
-      type: object
-      required:
-      - message
-      properties:
-        message:
-          description: Error message
-          type: string
-        code:
-          description: Optional error code
-          type: string
     Execution:
       title: Execution
       type: object
@@ -1058,6 +1064,18 @@ components:
       enum:
       - Execution
       - ProcessInstance
+    ServiceRequestError:
+      title: ServiceRequestError
+      type: object
+      required:
+      - errorCode
+      - errorMsg
+      properties:
+        errorCode:
+          type: integer
+          format: int32
+        errorMsg:
+          type: string
   securitySchemes:
     httpAuth:
       type: http

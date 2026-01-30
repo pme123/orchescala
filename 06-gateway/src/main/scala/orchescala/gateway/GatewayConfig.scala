@@ -2,27 +2,33 @@ package orchescala.gateway
 
 import com.auth0.jwt.JWT
 import orchescala.domain.*
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
+import orchescala.worker.{DefaultWorkerConfig, WorkerConfig}
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
 
 trait GatewayConfig:
-  def port: Int
-  def impersonateProcessKey: Option[String]
+  def engineConfig: EngineConfig
+  def workerConfig: WorkerConfig
+  def gatewayPort: Int
   def validateToken(token: String): IO[GatewayError, String]
   def extractCorrelation(
       token: String,
-      in: JsonObject,
+      in: JsonObject
   ): IO[GatewayError, IdentityCorrelation]
+
 end GatewayConfig
 
 case class DefaultGatewayConfig(
-    port: Int = 8888,
-    impersonateProcessKey: Option[String] = None
+    engineConfig: EngineConfig,
+    workerConfig: WorkerConfig,
+    impersonateProcessKey: Option[String] = None,
+    gatewayPort: Int = 8888,
 ) extends GatewayConfig:
 
   /** Default token validator - validates that token is not empty and returns the token. Override
-    * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
+    * this with your down validation logic (e.g., JWT validation, database lookup, etc.)
     */
   def validateToken(token: String): IO[GatewayError, String] =
     if token.nonEmpty then
@@ -34,14 +40,14 @@ case class DefaultGatewayConfig(
 
   def extractCorrelation(
       token: String,
-      in: JsonObject,
+      in: JsonObject
   ): ZIO[Any, GatewayError.TokenExtractionError, IdentityCorrelation] =
     (for
       decoded <- ZIO.attempt(JWT.decode(token))
       claims  <- ZIO.attempt(decoded.getClaims.asScala)
       payload <- ZIO.attempt(new String(java.util.Base64.getDecoder.decode(decoded.getPayload)))
-      _       <- ZIO.logInfo(s"Payload: $payload")
-      _       <- ZIO.logInfo(s"Claims: ${claims}")
+      _       <- ZIO.logDebug(s"Payload: $payload")
+      _       <- ZIO.logDebug(s"Claims: ${claims}")
     yield IdentityCorrelation(
       username = claims.get("preferred_username").map(_.asString()).mkString,
       email = claims.get("email").map(_.asString()),
@@ -57,8 +63,3 @@ case class DefaultGatewayConfig(
         )
       )
 end DefaultGatewayConfig
-
-object GatewayConfig:
-  def default = DefaultGatewayConfig()
-
-end GatewayConfig

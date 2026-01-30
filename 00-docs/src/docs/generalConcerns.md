@@ -21,12 +21,12 @@ You can override the list of variables, you support in your _ApiProjectCreator_,
 import orchescala.domain.InputParams.*
 
 override def supportedVariables: Seq[InputParams] = Seq(
-  servicesMocked,
-  outputMock,
-  outputServiceMock,
-  handledErrors,
-  regexHandledErrors,
-  impersonateUserId
+  _servicesMocked,
+  _outputMock,
+  _outputServiceMock,
+  _handledErrors,
+  _regexHandledErrors,
+  _identityCorrelation
 )
 ```
 
@@ -55,14 +55,14 @@ We have four ways to mock. Each possibility is done with a dedicated Process Var
 
 #### 1. Services mocked
 
-- Variable: `servicesMocked: Boolean` - default: _false_
+- Variable: `_servicesMocked: Boolean` - default: _false_
 
 In a process, this mocks every _ServiceTask_ (_ServiceWorker_),
 with the `serviceMock` (`MockedServiceResponse[ServiceOut]`).
 
 #### 2. Mocked Workers
 
-- Variable: `mockedWorkers: Seq[String]` - default: _Seq.empty_
+- Variable: `_mockedWorkers: Seq[String]` - default: _Seq.empty_
 
 In a process, this mocks the _SubProcesses_ and _ServiceTasks_,
 if their _topicName_ or _processName_ is in this list.
@@ -71,7 +71,7 @@ _Processes_ must have an _InitWorker_ and you need to add an _In Mapping_ in the
 
 #### 3. Mocked Output
 
-- Variable: `outputMock: Option[Out]` - default: _None_
+- Variable: `_outputMock: Option[Out]` - default: _None_
 
 A Process or a Worker, can be mocked with its `Out` object.
 
@@ -79,7 +79,7 @@ _Processes_ must have an _InitWorker_!
 
 #### 4. Mocked Service Output
 
-- Variable: `outputServiceMock: Option[MockedServiceResponse[ServiceOut]]` - default: _None_
+- Variable: `_outputServiceMock: Option[MockedServiceResponse[ServiceOut]]` - default: _None_
 
 A _ServiceWorker_, can be mocked with its `ServiceOut` object.
 

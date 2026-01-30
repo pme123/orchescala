@@ -3,74 +3,27 @@ package orchescala.gateway
 import io.circe.parser.*
 import orchescala.domain.*
 import orchescala.engine.domain.ProcessInfo
+import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
+import orchescala.engine.PathUtils.*
 
 object ProcessInstanceEndpoints:
 
-  private lazy val baseEndpoint = endpoint
-    .in("process")
-    .errorOut(
-      oneOf[ErrorResponse](
-        oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.unauthorized))) {
-          case e: ErrorResponse if e.httpStatus == 401 => true
-        },
-        oneOfVariantValueMatcher(statusCode(StatusCode.BadRequest)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.badRequest))) {
-          case e: ErrorResponse if e.httpStatus == 400 => true
-        },
-        oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.notFound))) {
-          case e: ErrorResponse if e.httpStatus == 404 => true
-        },
-        oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
-          .and(jsonBody[ErrorResponse]
-            .example(ErrorResponse.internalError))) {
-          case e: ErrorResponse if e.httpStatus >= 500 => true
-        },
-        oneOfDefaultVariant(jsonBody[ErrorResponse])
-      )
-    )
-
-  // Secured base endpoint with Bearer token authentication
-  private lazy val securedBaseEndpoint = baseEndpoint
-    .securityIn(auth.bearer[String]())
-
-  // Example JSON for request body
-  private lazy val startProcessRequestExample: JsonObject = parse("""{
-    "customerName": "John Doe",
-    "orderAmount": 1250.50,
-    "orderDate": "2025-10-26",
-    "priority": "high",
-    "items": [
-      {"productId": "PROD-001", "quantity": 2},
-      {"productId": "PROD-042", "quantity": 1}
-    ]
-  }""").map(_.asObject.get).getOrElse(JsonObject())
-  
   lazy val startProcessAsync: Endpoint[
     String,
     (String, Option[String], Option[String], JsonObject),
-    ErrorResponse,
+    ServiceRequestError,
     ProcessInfo,
     Any
   ] =
-    securedBaseEndpoint
+    EndpointsUtil.baseEndpoint
       .post
-      .in(path[String]("processDefinitionKey")
-        .description("Process definition ID or key")
-        .example("order-process"))
+      .in("process")
+      .in(processDefinitionKeyPath)
       .in("async")
-      .in(query[Option[String]]("businessKey")
-        .description("Business Key, be aware that this is not supported in Camunda 8.")
-        .example(Some("Started by Test Client")))
-      .in(query[Option[String]]("tenantId")
-        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("{{tenantId}}")))
+      .in(businessKeyQuery)
+      .in(tenantIdQuery)
       .in(jsonBody[JsonObject]
         .description("Request body with process variables as a JSON object")
         .example(startProcessRequestExample))
@@ -89,22 +42,17 @@ object ProcessInstanceEndpoints:
   lazy val startProcessByMessage: Endpoint[
     String,
     (String, Option[String], Option[String], JsonObject),
-    ErrorResponse,
+    ServiceRequestError,
     ProcessInfo,
     Any
   ] =
-    securedBaseEndpoint
+    EndpointsUtil.baseEndpoint
       .post
-      .in(path[String]("messageName")
-        .description("Message name that triggers a Message Start Event")
-        .example("order-received"))
+      .in("process")
+      .in(signalOrMessageNamePath)
       .in("message")
-      .in(query[Option[String]]("businessKey")
-        .description("Business Key, be aware that this is not supported in Camunda 8.")
-        .example(Some("order-12345")))
-      .in(query[Option[String]]("tenantId")
-        .description("If you have a multi tenant setup, you must specify the Tenant ID.")
-        .example(Some("{{tenantId}}")))
+      .in(businessKeyQuery)
+      .in(tenantIdQuery)
       .in(jsonBody[JsonObject]
         .description("Request body with process variables as a JSON object")
         .example(startProcessRequestExample))
@@ -124,22 +72,11 @@ object ProcessInstanceEndpoints:
       )
       .tag(apiGroup)
 
-  // Example JSON for process variables response
-  private lazy val processVariablesExample = parse("""{
-    "customerName": "John Doe",
-    "orderAmount": 1250.50,
-    "orderDate": "2025-10-26",
-    "priority": "high",
-    "items": [
-      {"productId": "PROD-001", "quantity": 2},
-      {"productId": "PROD-042", "quantity": 1}
-    ]
-  }""").getOrElse(io.circe.Json.Null)
-
   lazy val getProcessVariables
-      : Endpoint[String, (String, Option[String]), ErrorResponse, Json, Any] =
-    securedBaseEndpoint
+      : Endpoint[String, (String, Option[String]), ServiceRequestError, Json, Any] =
+    EndpointsUtil.baseEndpoint
       .get
+      .in("process")
       .in(path[String]("processInstanceId")
         .description("Process instance ID")
         .example("{{processInstanceId}}"))
@@ -162,9 +99,10 @@ object ProcessInstanceEndpoints:
       .tag(apiGroup)
 
   lazy val getProcessVariablesForApi
-      : Endpoint[String, (String, String, Option[String]), ErrorResponse, Json, Any] =
-    securedBaseEndpoint
+      : Endpoint[String, (String, String, Option[String]), ServiceRequestError, Json, Any] =
+    EndpointsUtil.baseEndpoint
       .get
+      .in("process")
       .in(path[String]("processDefinitionKey")
         .description("Process definition ID or key")
         .example("order-process"))
@@ -192,9 +130,9 @@ object ProcessInstanceEndpoints:
   private lazy val apiGroup = "Process Instance"
 
   // Extension method for process variables endpoint configuration
-  extension [In](endpoint: Endpoint[String, In, ErrorResponse, Unit, Any])
+  extension [In](endpoint: Endpoint[String, In, ServiceRequestError, Unit, Any])
     private def withProcessVariablesConfig[Out]
-        : Endpoint[String, Out, ErrorResponse, Json, Any] =
+        : Endpoint[String, Out, ServiceRequestError, Json, Any] =
       endpoint
         .in(path[String]("processInstanceId")
           .description("Process instance ID")
@@ -214,6 +152,45 @@ object ProcessInstanceEndpoints:
             |""".stripMargin
         )
         .tag(apiGroup)
-        .asInstanceOf[Endpoint[String, Out, ErrorResponse, Json, Any]]
+        .asInstanceOf[Endpoint[String, Out, ServiceRequestError, Json, Any]]
   end extension
+
+  // Example JSON for request body
+  private lazy val startProcessRequestExample =
+    Json.obj(
+      "customerName" -> Json.fromString("John Doe"),
+      "orderAmount"  -> Json.fromDoubleOrNull(1250.50),
+      "orderDate"    -> Json.fromString("2025-10-26"),
+      "priority"     -> Json.fromString("high"),
+      "items"        -> Json.arr(
+        Json.obj(
+          "productId" -> Json.fromString("PROD-001"),
+          "quantity"  -> Json.fromInt(2)
+        ),
+        Json.obj(
+          "productId" -> Json.fromString("PROD-042"),
+          "quantity"  -> Json.fromInt(1)
+        )
+      )
+    ).asObject.get
+
+  // Example JSON for process variables response
+  private lazy val processVariablesExample =
+    Json.obj(
+      "customerName" -> Json.fromString("John Doe"),
+      "orderAmount"  -> Json.fromDoubleOrNull(1250.50),
+      "orderDate"    -> Json.fromString("2025-10-26"),
+      "priority"     -> Json.fromString("high"),
+      "items"        -> Json.arr(
+        Json.obj(
+          "productId" -> Json.fromString("PROD-001"),
+          "quantity"  -> Json.fromInt(2)
+        ),
+        Json.obj(
+          "productId" -> Json.fromString("PROD-042"),
+          "quantity"  -> Json.fromInt(1)
+        )
+      )
+    )
+
 end ProcessInstanceEndpoints

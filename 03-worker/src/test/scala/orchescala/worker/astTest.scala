@@ -1,6 +1,7 @@
 package orchescala.worker
 
 import orchescala.domain.*
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import orchescala.worker.WorkerError.{MockedOutput, ServiceError}
 import zio.*
 import zio.test.*
@@ -13,6 +14,8 @@ object AstSpec extends ZIOSpecDefault:
 
   given EngineRunContext = EngineRunContext(
     new EngineContext:
+      override def engineConfig: EngineConfig = DefaultEngineConfig()
+      override def workerConfig: WorkerConfig = DefaultWorkerConfig(engineConfig)
       override def getLogger(clazz: Class[?]): OrchescalaLogger = ???
 
       override def toEngineObject: Json => Any =

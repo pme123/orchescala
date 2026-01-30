@@ -135,6 +135,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala
        |package api
        |
+       |import orchescala.engine.DefaultEngineConfig
+       |
        |/**
        | * Add here company specific stuff, to create the Api documentation and the Postman collection.
        | */
@@ -146,7 +148,10 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |  lazy val companyProjectVersion = BuildInfo.version
        |
        |object CompanyApiCreator:
-       |   lazy val apiConfig = ApiConfig(companyName = "$companyName")
+       |   lazy val apiConfig = ApiConfig(
+       |     engineConfig = DefaultEngineConfig(),
+       |     companyName = "$companyName"
+       |   )
        |""".stripMargin
 
   private lazy val dmnWrapper =
