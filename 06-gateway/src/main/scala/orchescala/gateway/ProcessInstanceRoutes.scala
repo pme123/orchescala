@@ -1,6 +1,7 @@
 package orchescala.gateway
 
 import io.circe.Json as CirceJson
+import orchescala.engine.domain.EngineError
 import orchescala.engine.{AuthContext, EngineConfig}
 import orchescala.engine.rest.{HttpClientProvider, WorkerForwardUtil}
 import orchescala.engine.services.*
@@ -133,7 +134,7 @@ object ProcessInstanceRoutes:
       WorkerForwardUtil.forwardWorkerRequest(processDefId, in.asJson, token)
         .provideLayer(HttpClientProvider.live)
         .mapError:
-          case ServiceRequestError(errorCode, errorMsg) =>
+          case EngineError.ServiceRequestError(errorCode, errorMsg) =>
             ServiceRequestError(500, s"Init worker failed: $errorMsg")
           case err                                      =>
             UnexpectedError(s"Init worker failed: ${err.getMessage}")
