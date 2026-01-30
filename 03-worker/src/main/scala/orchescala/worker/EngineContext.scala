@@ -116,7 +116,7 @@ case class DefaultEngineContext(
 object DefaultEngineContext:
   lazy val example = DefaultEngineContext(
     engineConfig = DefaultEngineConfig(),
-    workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
+    workerConfig = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false),
     getLoggerFn = c => Slf4JLogger.logger(c.getName),
     toEngineObject = json => json,
     restApiClient = DefaultRestApiClient
