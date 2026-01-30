@@ -123,7 +123,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
             if dependencies.nonEmpty then dependencies.mkString("\n      ", ",\n      ", ",")
             else ""
           }
-           |      customer %% s"$$customer-orchescala-${ if isGateway then "engine" else name}" % customerOrchescalaV,
+           |      customer %% s"$$customer-orchescala-${ if isGateway then "worker" else name}" % customerOrchescalaV,
            |      "io.github.pme123" %% "orchescala-$name" % orchescalaV
            |    )
            |""".stripMargin
