@@ -190,16 +190,6 @@ private trait InitProcessDsl[
     InConfig <: Product: InOutCodec
 ] extends ValidateDsl[In], WorkerDsl[In, Out]:
 
-  def runWorkFromService(json: Json)(using
-      EngineRunContext
-  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
-    ZIO.fromEither(json.as[In])
-      .mapError: err =>
-        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
-      .flatMap(runWorkFromWorker)
-      .map: initIn =>
-        Some(initIn.asJson.deepDropNullValues)
-
   /** Execute with full WorkerExecutor functionality including mocking and inConfig merging */
   def initWorkFromService(json: Json)(using
                                       context: EngineRunContext
@@ -207,16 +197,11 @@ private trait InitProcessDsl[
     for
       in                <- mergeInConfig(json)
       validatedInput    <- ZIO.fromEither(worker.validationHandler.validate(in))
-      initializedOutput <- worker.initProcessHandler
-                             .map: vi =>
-                               vi.init(validatedInput)
-                             .getOrElse:
-                               ZIO.succeed(Map.empty[String, Any])
       allOutputs: Json  <-
         customInitZIO(validatedInput)
           .map:
-            mergeOutputs(validatedInput, initializedOutput, _)
-    yield allOutputs.deepDropNullValues
+            mergeOutputs(validatedInput, _)
+    yield allOutputs
 
   private def mergeInConfig(json: Json): ZIO[Any, WorkerError, In] =
     ZIO.fromEither(json.as[In])
@@ -262,16 +247,14 @@ private trait InitProcessDsl[
 
   private def mergeOutputs(
       initializedInput: In,
-      internalVariables: Map[String, Any],
       output: InitIn
   )(using context: EngineRunContext): Json =
     val generalVarsJson = context.generalVariables.asJson.deepDropNullValues
-    val generalVarsMap  = generalVarsJson.asObject.get.toMap
-      .map { case (k, v) => k -> jsonToEngineValue(v) }
+    val inJson = initializedInput.asJson.deepDropNullValues
+    val outJson = output.asJson.deepDropNullValues
     generalVarsJson
-      .deepMerge(initializedInput.asJson)
-      .deepMerge(mapToJson(internalVariables))
-      .deepMerge(output.asJson)
+      .deepMerge(inJson)
+      .deepMerge(outJson)
   end mergeOutputs
 
   private def filterOutput(

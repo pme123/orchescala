@@ -53,7 +53,7 @@ case class WorkerRoutes(engineContext: EngineContext):
                                                        worker
                                                          .initWorkFromService(variables)
                                                          .map(Option.apply)
-                        _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
+                        _                     <- ZIO.logInfo(s"Worker '$topicName' response: $result")
                       yield result
                   .provideLayer(HttpClientProvider.live)
                   .tapError: err =>
