@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.3.4 - 2026-02-02
+### Changed 
+- Fixed double diagrams in apiDescription for processes. - see [Commit](git@github.com:pme123/orchescala/commit/8ad4a1b7e6569234be3ca44946f707a7182336ad)
+
 ## 0.3.3 - 2026-01-30
 ### Changed 
 - Merge pull request #6 from pme123/feature/worker-endpoint - see [Commit](git@github.com:pme123/orchescala/commit/eeabff376290700564b3e0d023477c895456adee)
