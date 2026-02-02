@@ -143,7 +143,7 @@ trait TapirApiCreator extends AbstractApiCreator:
             inOutApi.endpointName(inOutDocu)
 
       println(s"Endpoint: $endpointName")
-      val description = inOutApi.apiDescription(apiConfig.companyName) +
+      val description = inOutApi.apiDescription(apiConfig.companyName, inOutDocu) +
         additionalDescr.getOrElse("") +
         generalInformation(inOutDocu)
       Seq(
