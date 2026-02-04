@@ -48,7 +48,6 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     def endpointName(inOutDocu: InOutDocu): String =
       val name        = (inOutApi, inOutApi.inOut.in) match
         case (_: ServiceWorkerApi[?, ?, ?, ?], _) => inOutApi.inOutDescr.shortName
-        case (_, gs: GenericServiceIn)            => gs.shortServiceName
         case _                                    => inOutApi.inOutDescr.shortName
       val typePostfix = (inOutDocu, inOutApi.inOutType) match
         case (InOutDocu.IN, InOutType.UserTask) => " complete"

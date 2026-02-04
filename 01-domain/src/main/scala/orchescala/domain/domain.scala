@@ -187,45 +187,6 @@ object ProcessStatus:
   given InOutCodec[ProcessStatus.canceled.type]        = deriveEnumValueInOutCodec
 end ProcessStatus
 
-@deprecated("Use _ProcessStatus_")
-enum ProcessEndStatus:
-  case succeeded, `output-mocked`
-object ProcessEndStatus:
-  given ApiSchema[ProcessEndStatus]  = deriveEnumApiSchema
-  given InOutCodec[ProcessEndStatus] = deriveEnumInOutCodec
-
-@deprecated("Use _ProcessStatus_")
-enum NotValidStatus:
-  case notValid, canceled
-object NotValidStatus:
-  given ApiSchema[NotValidStatus]  = deriveEnumApiSchema
-  given InOutCodec[NotValidStatus] = deriveEnumInOutCodec
-
-@deprecated("Use _ProcessStatus_")
-enum CanceledStatus:
-  case canceled
-object CanceledStatus:
-  given ApiSchema[CanceledStatus]  = deriveEnumApiSchema
-  given InOutCodec[CanceledStatus] = deriveEnumInOutCodec
-
-@deprecated
-trait GenericServiceIn:
-  def serviceName: String
-  def shortServiceName: String =
-    GenericServiceIn.shortServiceName(serviceName)
-end GenericServiceIn
-object GenericServiceIn:
-
-  def shortServiceName(serviceName: String): String =
-    val name = serviceName.split("-")
-      .last
-    if Seq("get", "post", "put", "delete").contains(name.toLowerCase)
-    then serviceName // keep the name as it is
-    else name
-  end shortServiceName
-
-end GenericServiceIn
-
 case class FileInOut(
     fileName: String,
     @description("The content of the File as a Byte Array.")
@@ -355,7 +316,7 @@ extension (str: String)
         s"$r$c"
     result.split("-")
       .map: p =>
-        p.head.toUpper + p.tail
+        s"${p.head.toUpper}${p.tail}"
       .mkString(" ")
   end niceName
 end extension

@@ -29,7 +29,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   end generate
 
   private lazy val companyName = config.companyName
-  private lazy val companyNameNice = config.companyName.head.toUpper + config.companyName.tail
+  private lazy val companyNameNice = s"${config.companyName.head.toUpper}${config.companyName.tail}"
 
   private lazy val projectDomainPath = ModuleConfig.domainModule.srcPath / "CompanyBpmnDsl.scala"
   private lazy val projectEnginePath = ModuleConfig.engineModule.srcPath / "CompanyEngineConfig.scala"

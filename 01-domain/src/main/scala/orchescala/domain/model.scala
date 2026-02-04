@@ -16,7 +16,7 @@ case class InOutDescr[
   lazy val niceName: String =
     id.split("-")
       .map: p =>
-        p.head.toUpper + p.tail
+        s"${p.head.toUpper}${p.tail}"
       .mkString(" ")
   end niceName
 
@@ -336,10 +336,6 @@ case class ServiceTask[
     otherEnumInExamples: Option[Seq[In]] = None,
     otherEnumOutExamples: Option[Seq[Out]] = None,
     dynamicServiceOutMock: Option[In => MockedServiceResponse[ServiceOut]] = None,
-    @deprecated(
-      "Default is _GenericExternalTaskProcessName_ - in future only used as External Task"
-    )
-    override val processName: String = GenericExternalTaskProcessName,
     protected val outputMock: Option[Out] = None,
     protected val servicesMocked: Boolean = false,
     protected val outputServiceMock: Option[MockedServiceResponse[ServiceOut]] = None,
@@ -351,18 +347,11 @@ case class ServiceTask[
     protected val identityCorrelation: Option[IdentityCorrelation] = None
 ) extends ExternalTask[In, Out, ServiceTask[In, Out, ServiceIn, ServiceOut]]:
   lazy val dynamicOutMock: Option[In => Out] = None
-  @deprecated("Use _topicName_")
-  lazy val serviceName: String               = inOutDescr.id
 
   def withInOutDescr(
       descr: InOutDescr[In, Out]
   ): ServiceTask[In, Out, ServiceIn, ServiceOut] =
     copy(inOutDescr = descr)
-
-  def withProcessName(
-      processName: String
-  ): ServiceTask[In, Out, ServiceIn, ServiceOut] =
-    copy(processName = processName)
 
   def mockWith(outputMock: Out): ServiceTask[In, Out, ServiceIn, ServiceOut] =
     copy(outputMock = Some(outputMock))

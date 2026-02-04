@@ -130,7 +130,7 @@ case class SbtGenerator()(using
     val sbtSettings = modC.sbtSettings
 
     def sbtSubProjectName(subProject: String) =
-      name + subProject.head.toUpper + subProject.tail
+      s"$name${subProject.head.toUpper}${subProject.tail}"
 
     val (subProjects, aggregateSubProjects) =
       if modC.generateSubModule then

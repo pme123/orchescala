@@ -252,8 +252,8 @@ trait DevHelper:
 
   extension (name: String)
     private def asProcessName: String =
-      name.head.toLower + name.tail
+      s"${name.head.toLower}${name.tail}"
     private def asElemName: String    =
-      name.head.toUpper + name.tail
+      s"${name.head.toUpper}${name.tail}"
   end extension
 end DevHelper

@@ -40,7 +40,7 @@ object Dependencies {
   val sardineWebDavVersion  = "5.13"
   // 04-worker-c7spring
   // -> worker
-  val camundaVersion        = "7.23.0" // external task client
+  val camundaVersion        = "7.24.0" // external task client
   val jaxbApiVersion        = "4.0.2"  // needed by the camunda client 7.21?!
   val scaffeineV            = "5.3.0"  // caching
   val zioVersion            = "2.1.24" // zio
@@ -52,7 +52,7 @@ object Dependencies {
   // --- Experiments
   // 04-c7-spring
   // -> bpmn
-  val camundaSpinVersion    = "7.23.0"
+  val camundaSpinVersion    = "7.24.0"
   // camunda // server spring-boot
   // 04-c8-spring
   // -> bpmn

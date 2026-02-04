@@ -60,7 +60,7 @@ case class BpmnClassesCreator(
 
   private def generateServiceName(key: String, method: Method, forTopic: Boolean = false) =
     val mStr              = method.toString
-    val methodStr         = mStr.head + mStr.tail.toLowerCase
+    val methodStr         = s"${mStr.head}${mStr.tail.toLowerCase}"
     val pathElems         = key
       .split("/")
       .filterNot(_.isBlank)
@@ -69,7 +69,7 @@ case class BpmnClassesCreator(
         .filterNot(config.filterNames.contains)
     val pathElements: Seq[String] =
       if pathElemsFiltered.nonEmpty then
-        pathElemsFiltered
+        pathElemsFiltered.toSeq
       else
         pathElems.lastOption
           .toSeq
@@ -90,7 +90,7 @@ case class BpmnClassesCreator(
             .filter:
               _.trim.nonEmpty
             .map: e =>
-              e.head.toUpper + e.tail
+              s"${e.head.toUpper}${e.tail}"
             .mkString
         .distinct
         .mkString

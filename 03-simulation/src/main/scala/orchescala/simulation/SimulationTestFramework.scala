@@ -178,7 +178,7 @@ class Task(
       loggers: Array[sbt.testing.Logger]
   ): Array[sbt.testing.Task] =
     Await.ready(
-      runUTestTask(loggers, eventHandler),
+      runUTestTask(loggers.toSeq, eventHandler),
       5.minutes
     )
     Array()

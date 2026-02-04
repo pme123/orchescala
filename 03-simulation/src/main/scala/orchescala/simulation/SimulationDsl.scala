@@ -1,7 +1,7 @@
 package orchescala.simulation
 
 import orchescala.domain.*
-
+import scala.language.implicitConversions
 trait SimulationDsl[T] extends TestOverrideExtensions:
 
   protected def run(sim: SSimulation): T
@@ -81,7 +81,8 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
   extension (event: SSignalEvent)
     def waitFor(readyVariable: String): SSignalEvent =
       event.waitFor(readyVariable, true)
-    def waitFor(readyVariable: String, readyValue: Any = true): SSignalEvent =
+
+    def waitFor(readyVariable: String, readyValue: Any): SSignalEvent =
       SSignalEvent(event.scenarioName, event.inOut, readyVariable, readyValue)
   end extension
 

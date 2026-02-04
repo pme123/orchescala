@@ -14,7 +14,7 @@ import java.util.Date
 import scala.util.matching.Regex
 import scala.jdk.CollectionConverters.*
 
-trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
+trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
 
   protected def companyProjectVersion: String
   protected def projectDescr: String

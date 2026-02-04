@@ -137,8 +137,6 @@ trait PostmanApiCreator extends AbstractApiCreator:
   extension (inOutApi: InOutApi[?, ?])
     protected def endpointPath(isGroup: Boolean): EndpointInput[Unit] =
       inOutApi.inOut.in match
-        case gs: GenericServiceIn =>
-          inOutApi.id / s"--REMOVE${gs.serviceName}--"
         case _                    =>
           if isGroup then
             inOutApi.id / s"--REMOVE${inOutApi.name.replace(" ", "")}--"

@@ -341,11 +341,7 @@ trait TapirApiCreator extends AbstractApiCreator:
       .example(ProcessInfo.example)
 
   extension (pa: ProcessApi[?, ?, ?] | ExternalTaskApi[?, ?])
-    def processName: String =
-      pa.inOut.in match
-        case gs: GenericServiceIn =>
-          gs.serviceName
-        case _                    => pa.id
+    def processName: String = pa.id
 
     def additionalDescr: Option[String] =
       if apiConfig.projectsConfig.isConfigured then

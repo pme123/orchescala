@@ -6,7 +6,7 @@ import pme123.camunda.dmn.tester.shared.*
 
 import java.io.FileNotFoundException
 import java.time.LocalDateTime
-import scala.language.reflectiveCalls
+import scala.reflect.Selectable.reflectiveSelectable
 import scala.reflect.ClassTag
 
 trait DmnTesterConfigCreator extends DmnConfigWriter, DmnTesterStarter:

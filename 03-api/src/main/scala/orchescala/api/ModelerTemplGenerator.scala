@@ -11,7 +11,7 @@ final case class ModelerTemplGenerator(
     configs: Seq[ModelerTemplateConfig],
     projectName: String,
     companyName: String
-) extends App:
+):
 
   private def generator(config: ModelerTemplateConfig) =  
     config.supportedEngine match

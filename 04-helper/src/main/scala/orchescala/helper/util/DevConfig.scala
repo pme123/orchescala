@@ -26,9 +26,9 @@ case class DevConfig(
   lazy val baseDir: os.Path               = os.pwd
   lazy val projectName: String            = apiProjectConfig.projectName
   lazy val companyName: String            = apiProjectConfig.companyName
-  lazy val companyClassName: String       = companyName.head.toUpper + companyName.tail
+  lazy val companyClassName: String       = s"${companyName.head.toUpper}${companyName.tail}"
   lazy val projectShortName: String       = projectName.split("-").tail.mkString("-")
-  lazy val projectClassNames: Seq[String] = projectName.split("-").map(n => n.head.toUpper + n.tail)
+  lazy val projectClassNames: Seq[String] = projectName.split("-").toSeq.map(n => s"${n.head.toUpper}${n.tail}")
   lazy val projectShortClassName: String  = projectClassNames.last
   lazy val projectClassName: String       = projectClassNames.mkString
 

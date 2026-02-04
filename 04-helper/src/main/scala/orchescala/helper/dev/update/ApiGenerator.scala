@@ -4,7 +4,7 @@ import orchescala.api.ModuleType
 
 case class ApiGenerator()(using config: DevConfig):
 
-  private lazy val companyNameNice = config.companyName.head.toUpper + config.companyName.tail
+  private lazy val companyNameNice = s"${config.companyName.head.toUpper}${config.companyName.tail}"
 
   lazy val generate: Unit =
     if config.apiProjectConfig.modules.contains(ModuleType.api) then

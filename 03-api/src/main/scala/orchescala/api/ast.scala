@@ -86,7 +86,7 @@ sealed trait InOutApi[
 
   protected def diagramFrame(companyName: String): String =
     val postfix         = if typeName == "Process" then "bpmn" else "dmn"
-    val postfixUpper    = postfix.head.toUpper + postfix.tail
+    val postfixUpper    = s"${postfix.head.toUpper}${postfix.tail}"
     val pureDiagramName = diagramName.getOrElse(id)
     val name            = pureDiagramName.replaceFirst(s"$companyName-", "")
     val fileName        = s"$name.$postfix"

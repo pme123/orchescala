@@ -50,7 +50,7 @@ case class VersionHelper(
   private def variableName(name: String) = // company-project -> companyProject
     name.split("-").toList match
       case head :: tail =>
-        head + tail.map(n => n.head.toUpper + n.tail).mkString
+        s"$head${tail.map(n => s"${n.head.toUpper}${n.tail}").mkString}"
       case other => other
 
 end VersionHelper
