@@ -15,7 +15,7 @@ object Settings {
 
   lazy val projectVersion =
     Using(scala.io.Source.fromFile("version"))(_.mkString.trim).get
-  val scalaV = "3.7.2"
+  val scalaV = "3.8.1"
   val org = "io.github.pme123"
 
   def projectSettings(projName: String) = Seq(
@@ -24,6 +24,8 @@ object Settings {
     scalaVersion := scalaV,
     version := projectVersion,
     scalacOptions ++= Seq(
+      "-deprecation", // Emit warning and location for usages of deprecated APIs.
+      "-feature", // Emit warning and location for usages of features that should be imported explicitly.
       //   "-Xmax-inlines:50", // is declared as erased, but is in fact used
       //   "-Wunused:imports",
     ),

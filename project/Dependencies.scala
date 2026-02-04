@@ -10,7 +10,7 @@ object Dependencies {
   val osLibVersion          = "0.11.4"
   // 01-domain
   val openapiCirceVersion   = "0.11.10"
-  val tapirVersion          = "1.11.50"
+  val tapirVersion          = "1.13.6"
   val ironCirceVersion      = "3.2.0"
   val mUnitVersion          = "1.1.0"
   val scala3MockVersion     = "0.6.6"
@@ -43,10 +43,10 @@ object Dependencies {
   val camundaVersion        = "7.23.0" // external task client
   val jaxbApiVersion        = "4.0.2"  // needed by the camunda client 7.21?!
   val scaffeineV            = "5.3.0"  // caching
-  val zioVersion            = "2.1.22" // zio
+  val zioVersion            = "2.1.24" // zio
   val zioHttpVersion        = "3.5.1"  // zio http
   val zioLoggingVersion     = "2.5.1" // logging
-  val logbackVersion        = "1.4.14" // logging
+  val logbackVersion        = "1.5.26" // logging
   // - sttpClient3
 
   // --- Experiments
@@ -58,7 +58,7 @@ object Dependencies {
   // -> bpmn
   val scalaJacksonVersion   = "2.20.0"
   val camunda8Version       = "8.8.0-alpha8-rc3"
-  val springBootVersion     = "3.3.9"
+  val springBootVersion     = "3.4.13"
   val nettyVersion          = "4.2.0.Final"
   val swaggerOpenAPIVersion = "2.1.34"
   val testcontainersVersion = "1.20.4"
