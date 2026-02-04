@@ -18,8 +18,8 @@ case class CompanySbtGenerator()(using
     createOrUpdate(config.sbtProjectDir / "Settings.scala", settings)
   end generate
 
-  private lazy val projectConf = config.apiProjectConfig
-  private lazy val buildSbtDir = config.projectDir / "build.sbt"
+  private lazy val projectConf      = config.apiProjectConfig
+  private lazy val buildSbtDir      = config.projectDir / "build.sbt"
   private lazy val companyNameUpper = companyName.toUpperCase()
 
   private lazy val projectDev =
@@ -326,16 +326,17 @@ case class CompanySbtGenerator()(using
 
   private lazy val pluginsSbt =
     s"""$helperCompanyDoNotAdjustText
+       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.11.4")
+       |
+       |// https://github.com/djspiewak/sbt-github-actions
+       |//addSbtPlugin("com.codecommit" % "sbt-github-actions" % "0.13.0")
+       |addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "1.11.2")
+       |addSbtPlugin("org.typelevel"  % "laika-sbt"      % "1.3.2")
+       |//addSbtPlugin("org.scalameta"  % "sbt-mdoc"       % "2.8.2")
+       |
+       |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.13.1")
+       |
        |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
-       |
-       |addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.2")
-       |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.12.0")
-       |
-       |// docs
-       |addSbtPlugin("org.typelevel" % "laika-sbt" % "1.3.0")
-       |
-       |// docker (optional)
-       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.10.0")
        |""".stripMargin
 
 end CompanySbtGenerator
