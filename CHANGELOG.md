@@ -15,6 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.4.0 - 2026-02-04
+### Changed 
+- Fixed bad deserialization in C7HistoricVariableService. - see [Commit](git@github.com:pme123/orchescala/commit/dab527fdd9a6b4f5b1775cc39db60660f9237f35)
+- Fixed deprecated App inheritance with main def. - see [Commit](git@github.com:pme123/orchescala/commit/ec5ddfdbc5e5be4d65b4b8bc4e53b954bf2a3da8)
+- Fixed bad encoding in Camunda Vars. - see [Commit](git@github.com:pme123/orchescala/commit/072db233ccf81aa4e7b3ab0c9e17589c6ba77a15)
+- Removed deprecations where possible. - see [Commit](git@github.com:pme123/orchescala/commit/85c2992e8c246025dc64ff7a07cca4a582b3661d)
+- Changed C7 Services to queries where possible. - see [Commit](git@github.com:pme123/orchescala/commit/738c00acd6cb6408dc5c212765407870d850c97d)
+- Updated dependencies. - see [Commit](git@github.com:pme123/orchescala/commit/87fc5b917459ff092a9f42db2959f440afbd9d5a)
+- Adjusted scalacOptions in SbtSettingsGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/ae02aa938fea220d836151de0eab3acba2573fa6)
+
 ## 0.3.4 - 2026-02-02
 ### Changed 
 - Fixed double diagrams in apiDescription for processes. - see [Commit](git@github.com:pme123/orchescala/commit/8ad4a1b7e6569234be3ca44946f707a7182336ad)
