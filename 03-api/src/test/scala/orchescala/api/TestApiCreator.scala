@@ -5,7 +5,7 @@ import orchescala.api.Sample.{SampleOut, standardSample}
 import orchescala.domain.{BpmnDsl, BpmnProcessDsl, InOutDescr, Process, ProcessLabels, *}
 import orchescala.engine.DefaultEngineConfig
 
-object TestApiCreator extends DefaultApiCreator, App:
+object TestApiCreator extends DefaultApiCreator:
 
   
   def title = "Test API"
