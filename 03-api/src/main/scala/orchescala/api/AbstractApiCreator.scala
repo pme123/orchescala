@@ -20,6 +20,8 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     Server(apiConfig.endpoint).description("Local Developer Server")
   )
 
+  def main(args: Array[String]): Unit = () // starts the app
+
   /** You can adjust the OpenApi for Postman, e.g. to replace some values with placeholders.
     *
     * @param api

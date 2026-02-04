@@ -24,9 +24,10 @@ case class ApiGeneratorGenerator()(using config: DevConfig):
        |
        |import orchescala.helper.openApi.*
        |
-       |object $objName extends App:
+       |object $objName:
        |
-       |  OpenApiGenerator().generate
+       |  def main(args: Array[String]): Unit =
+       |    OpenApiGenerator().generate
        |
        |  private given OpenApiConfig = OpenApiConfig(
        |    projectName = "${config.projectName}",
