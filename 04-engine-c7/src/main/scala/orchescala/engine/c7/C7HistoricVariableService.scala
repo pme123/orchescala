@@ -10,7 +10,7 @@ import org.camunda.community.rest.client.invoker.ApiClient
 import zio.{IO, ZIO}
 
 import java.util
-import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.collection.JavaConverters.{asScalaBufferConverter, seqAsJavaListConverter}
 
 class C7HistoricVariableService(using
     apiClientZIO: IO[EngineError, ApiClient],
@@ -32,11 +32,12 @@ class C7HistoricVariableService(using
         ZIO
           .attempt:
             new HistoricVariableInstanceApi(apiClient)
-              .queryHistoricVariableInstances(null, null, true, dto)
+              .queryHistoricVariableInstances(null, null, false, dto)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
             )
+      _ <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.asScala.toSeq.map(v => s"${v.getType}: ${v.getName} -> ${v.getValue}").mkString("\n", "\n", "\n")}")
       variables    <-
         ZIO
           .attempt:

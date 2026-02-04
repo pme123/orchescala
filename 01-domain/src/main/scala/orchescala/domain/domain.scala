@@ -236,7 +236,7 @@ def toJson(json: String): Json =
   parser.parse(json) match
     case Right(v)  => v.deepDropNullValues
     case Left(exc) =>
-      throwErr(s"Could not create Json from your String -> $exc")
+      throwErr(s"Could not create Json from your String ($json) -> $exc")
 val testModeDescr              =
   "This flag indicades that this is a test - in the process it can behave accordingly."
 
