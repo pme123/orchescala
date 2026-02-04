@@ -10,6 +10,7 @@ import orchescala.engine.services.UserTaskService
 import org.camunda.community.rest.client.api.TaskApi
 import org.camunda.community.rest.client.dto.{
   CompleteTaskDto,
+  TaskQueryDto,
   TaskWithAttachmentAndCommentDto,
   VariableValueDto
 }
@@ -35,110 +36,12 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
         logInfo(
           s"Getting UserTask for processInstanceId: $processInstanceId - userTaskDefId: $userTaskDefId"
         )
+      query     =  new TaskQueryDto()
+                     .processInstanceId(processInstanceId)
+                     .taskDefinitionKey(userTaskDefId)
       taskDtos  <- ZIO
                      .attempt:
-                       new TaskApi(apiClient)
-                         .getTasks(
-                           null,              // taskId,
-                           null,              // taskIdIn,
-                           processInstanceId, // processInstanceId,
-                           null,              // processInstanceIdIn,
-                           null,              // processInstanceBusinessKey,
-                           null,              // processInstanceBusinessKeyExpression,
-                           null,              // processInstanceBusinessKeyIn,
-                           null,              // processInstanceBusinessKeyLike,
-                           null,              // processInstanceBusinessKeyLikeExpression,
-                           null,              // processDefinitionId,
-                           null,              // processDefinitionKey,
-                           null,              // processDefinitionKeyIn,
-                           null,              // processDefinitionName,
-                           null,              // processDefinitionNameLike,
-                           null,              // executionId,
-                           null,              // caseInstanceId,
-                           null,              // caseInstanceBusinessKey,
-                           null,              // caseInstanceBusinessKeyLike,
-                           null,              // caseDefinitionId,
-                           null,              // caseDefinitionKey,
-                           null,              // caseDefinitionName,
-                           null,              // caseDefinitionNameLike,
-                           null,              // caseExecutionId,
-                           null,              // activityInstanceIdIn,
-                           null,              // tenantIdIn,
-                           null,              // withoutTenantId,
-                           null,              // assignee,
-                           null,              // assigneeExpression,
-                           null,              // assigneeLike,
-                           null,              // assigneeLikeExpression,
-                           null,              // assigneeIn,
-                           null,              // assigneeNotIn,
-                           null,              // owner,
-                           null,              // ownerExpression,
-                           null,              // candidateGroup,
-                           null,              // candidateGroupLike,
-                           null,              // candidateGroupExpression,
-                           null,              // candidateUser,
-                           null,              // candidateUserExpression,
-                           null,              // includeAssignedTasks,
-                           null,              // involvedUser,
-                           null,              // involvedUserExpression,
-                           null,              // assigned,
-                           null,              // unassigned,
-                           userTaskDefId,     // taskDefinitionKey,
-                           null,              // taskDefinitionKeyIn,
-                           null,              // taskDefinitionKeyLike,
-                           null,              // name,
-                           null,              // nameNotEqual,
-                           null,              // nameLike,
-                           null,              // nameNotLike,
-                           null,              // description,
-                           null,              // descriptionLike,
-                           null,              // priority,
-                           null,              // maxPriority,
-                           null,              // minPriority,
-                           null,              // dueDate,
-                           null,              // dueDateExpression,
-                           null,              // dueAfter,
-                           null,              // dueAfterExpression,
-                           null,              // dueBefore,
-                           null,              // dueBeforeExpression,
-                           null,              // withoutDueDate,
-                           null,              // followUpDate,
-                           null,              // followUpDateExpression,
-                           null,              // followUpAfter,
-                           null,              // followUpAfterExpression,
-                           null,              // followUpBefore,
-                           null,              // followUpBeforeExpression,
-                           null,              // followUpBeforeOrNotExistent,
-                           null,              // followUpBeforeOrNotExistentExpression,
-                           null,              // createdOn,
-                           null,              // createdOnExpression,
-                           null,              // createdAfter,
-                           null,              // createdAfterExpression,
-                           null,              // createdBefore,
-                           null,              // createdBeforeExpression,
-                           null,              // updatedAfter,
-                           null,              // updatedAfterExpression,
-                           null,              // delegationState,
-                           null,              // candidateGroups,
-                           null,              // candidateGroupsExpression,
-                           null,              // withCandidateGroups,
-                           null,              // withoutCandidateGroups,
-                           null,              // withCandidateUsers,
-                           null,              // withoutCandidateUsers,
-                           null,              // active,
-                           null,              // suspended,
-                           null,              // taskVariables,
-                           null,              // processVariables,
-                           null,              // caseInstanceVariables,
-                           null,              // variableNamesIgnoreCase,
-                           null,              // variableValuesIgnoreCase,
-                           null,              // parentTaskId,
-                           null,              // withCommentAttachmentInfo,
-                           null,              // sortBy,
-                           null,              // sortOrder,
-                           null,              // firstResult,
-                           null               // maxResults) throws ApiException {
-                         )
+                       new TaskApi(apiClient).queryTasks(null, null, query)
                      .mapError(err =>
                        EngineError.ProcessError(s"Problem getting tasks: $err")
                      )
@@ -169,10 +72,10 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
 
       // Build variables with signed correlation
       jsonObj = processVariables.add(
-                       InputParams._identityCorrelation.toString,
-                       signedCorr.asJson.deepDropNullValues
-                     )
-      _           <- logInfo(s"complete UserTask: $taskId - $jsonObj")
+                  InputParams._identityCorrelation.toString,
+                  signedCorr.asJson.deepDropNullValues
+                )
+      _      <- logInfo(s"complete UserTask: $taskId - $jsonObj")
 
       variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
       _            <- ZIO

@@ -5,9 +5,12 @@ import orchescala.domain.*
 import orchescala.engine.domain.{EngineError, HistoricVariable}
 import orchescala.engine.services.HistoricVariableService
 import org.camunda.community.rest.client.api.HistoricVariableInstanceApi
-import org.camunda.community.rest.client.dto.HistoricVariableInstanceDto
+import org.camunda.community.rest.client.dto.{HistoricVariableInstanceDto, HistoricVariableInstanceQueryDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.{IO, ZIO}
+
+import java.util
+import scala.collection.JavaConverters.seqAsJavaListConverter
 
 class C7HistoricVariableService(using
     apiClientZIO: IO[EngineError, ApiClient],
@@ -21,37 +24,15 @@ class C7HistoricVariableService(using
   ): IO[EngineError, Seq[HistoricVariable]] =
     for
       apiClient    <- apiClientZIO
+      dto = new HistoricVariableInstanceQueryDto()
+        .variableName(variableName.orNull)
+        .processInstanceId(processInstanceId.orNull)
+        .executionIdIn(Seq(processInstanceId.orNull).asJava)
       variableDtos <-
         ZIO
           .attempt:
             new HistoricVariableInstanceApi(apiClient)
-              .getHistoricVariableInstances(
-                variableName.orNull,      // variableName
-                null,                     // variableNameLike
-                null,                     // variableValue
-                false,                    // variableNamesIgnoreCase
-                null,                     // variableValuesIgnoreCase
-                null,                     // variableTypeIn
-                null,                     // includeDeleted
-                processInstanceId.orNull, // processInstanceId
-                null,                     // processInstanceIdIn
-                null,                     // processDefinitionId
-                null,                     // processDefinitionKey
-                processInstanceId.orNull, // executionIdIn -> this makes sure only public variables are taken
-                null,                     // caseInstanceId
-                null,                     // caseExecutionIdIn
-                null,                     // caseActivityIdIn
-                null,                     // taskIdIn
-                null,                     // activityInstanceIdIn
-                null,                     // tenantIdIn
-                null,                     // withoutTenantId
-                null,                     // variableNameIn
-                null,                     // sortBy
-                null,                     // sortOrder
-                null,                     // firstResult
-                null,                     // maxResults
-                false
-              )
+              .queryHistoricVariableInstances(null, null, true, dto)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
