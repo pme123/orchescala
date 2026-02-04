@@ -158,7 +158,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         filteredGeneralVariables: Map[String, Any]
     ): URIO[Any, Unit] =
       val errorVars = Map(
-        "errorCode" -> error.errorCode,
+        "errorCode" -> error.errorCode.toString,
         "errorMsg"  -> error.errorMsg
       )
       val variables =
@@ -176,7 +176,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           )
       .catchAll: err =>
         handleFailure(
-          UnexpectedError(s"Problem handling BpmnError to C7: $err."),
+          UnexpectedError(s"Problem handling BpmnError to C8: $err."),
           doRetry = true
         )
       .ignore
@@ -198,7 +198,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 .retries(job.getRetries - 1)
                                 .retryBackoff(time.Duration.ofSeconds(60))
                                 .variables(Map(
-                                  "errorCode"          -> error.errorCode,
+                                  "errorCode"          -> error.errorCode.toString,
                                   "errorMsg"           -> error.errorMsg,
                                   "businessKey"        -> businessKey,
                                   "processInstanceKey" -> job.getProcessInstanceKey
@@ -223,7 +223,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 .unit
             else
               val errorVars = Map(
-                "errorCode" -> error.errorCode,
+                "errorCode" -> error.errorCode.toString,
                 "errorMsg"  -> error.errorMsg
               )
               logError(

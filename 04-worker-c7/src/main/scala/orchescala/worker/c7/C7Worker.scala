@@ -167,7 +167,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         retries: Int
     ): HelperContext[URIO[Any, Unit]] =
       val errorVars = Map(
-        "errorCode" -> error.errorCode,
+        "errorCode" -> error.errorCode.toString,
         "errorMsg"  -> error.errorMsg
       )
       val variables = (filteredGeneralVariables ++ errorVars).asJava
