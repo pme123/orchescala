@@ -115,8 +115,7 @@ object DevConfig:
     apiModule,
     dmnModule,
     simulationModule,
-    workerModule,
-    helperModule
+    workerModule
   )
 
 end DevConfig
