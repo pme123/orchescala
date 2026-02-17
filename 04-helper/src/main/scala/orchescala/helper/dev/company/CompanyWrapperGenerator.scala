@@ -500,6 +500,9 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
         |    <link rel="stylesheet" href="https://unpkg.com/dmn-js@14.1.0/dist/assets/dmn-js-literal-expression.css">
         |    <link rel="stylesheet" href="https://unpkg.com/dmn-js@14.1.0/dist/assets/dmn-font/css/dmn.css">
         |
+        |    <!-- Mermaid.js for diagram rendering -->
+        |    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+        |
         |    <!--
         |    ReDoc doesn't change outer page styles
         |    -->
