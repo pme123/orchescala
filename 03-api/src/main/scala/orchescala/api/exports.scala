@@ -26,7 +26,7 @@ enum InOutDocu:
 enum ModuleType:
   case domain, engine, api, dmn, simulation, worker, helper, gateway
 object ModuleType:
-  def projectModules: Seq[ModuleType] = Seq(domain, api, dmn, simulation, worker, helper)
+  def projectModules: Seq[ModuleType] = Seq(domain, api, dmn, simulation, worker)
 end ModuleType
 extension (proc: os.proc)
   def callOnConsole(path: os.Path = os.pwd): CommandResult =
