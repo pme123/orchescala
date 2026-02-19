@@ -24,7 +24,7 @@ case class DefaultGatewayConfig(
     engineConfig: EngineConfig,
     workerConfig: WorkerConfig,
     impersonateProcessKey: Option[String] = None,
-    gatewayPort: Int = 8888,
+    gatewayPort: Int = 8888
 ) extends GatewayConfig:
 
   /** Default token validator - validates that token is not empty and returns the token. Override
@@ -32,9 +32,11 @@ case class DefaultGatewayConfig(
     */
   def validateToken(token: String): IO[GatewayError, String] =
     if token.nonEmpty then
-      ZIO.succeed(token)
+      ZIO.logInfo("Token is valid")
+        .as(token)
     else
-      ZIO.fail(GatewayError.TokenValidationError(
+      ZIO.logError("Token is empty!") *>
+        ZIO.fail(GatewayError.TokenValidationError(
         errorMsg = "Invalid or missing authentication token"
       ))
 

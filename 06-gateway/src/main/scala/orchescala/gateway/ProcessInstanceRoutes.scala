@@ -24,26 +24,30 @@ object ProcessInstanceRoutes:
       }.serverLogic:
         validatedToken => // validatedToken is the String token returned from security logic
           (processDefId, businessKeyQuery, tenantIdQuery, in) =>
-            config.extractCorrelation(validatedToken, in)
-              .mapError(ServiceRequestError.apply)
-              .flatMap: identityCorrelation =>
-                // Set the bearer token in AuthContext so it can be used by the engine services
-                AuthContext.withBearerToken(validatedToken):
-                  initProcess(
-                    processDefId = processDefId,
-                    in = in,
-                    token = validatedToken
-                  ).mapError(ServiceRequestError.apply)
-                    .flatMap: inJson =>
-                      processInstanceService
-                        .startProcessAsync(
-                          processDefId = processDefId,
-                          in = inJson.asObject.getOrElse(JsonObject()),
-                          businessKey = businessKeyQuery,
-                          tenantId = tenantIdQuery,
-                          identityCorrelation = Some(identityCorrelation)
-                        )
-                        .mapError(ServiceRequestError.apply)
+            ZIO.logInfo(s"Start process $processDefId ($businessKeyQuery)") *>
+              config.extractCorrelation(validatedToken, in)
+                .tap: c =>
+                  ZIO.logInfo(s"Extract Correlation was successful: ${c.username}")
+                .mapError(ServiceRequestError.apply)
+                .flatMap: identityCorrelation =>
+                  // Set the bearer token in AuthContext so it can be used by the engine services
+                  AuthContext.withBearerToken(validatedToken):
+                    (for
+                      inJson <- ZIO.when(config.engineConfig.validateInput):
+                        initProcess(
+                                  processDefId = processDefId,
+                                  in = in,
+                                  token = validatedToken
+                                )
+                      result <- processInstanceService
+                                  .startProcessAsync(
+                                    processDefId = processDefId,
+                                    in = inJson.flatMap(_.asObject).getOrElse(in),
+                                    businessKey = businessKeyQuery,
+                                    tenantId = tenantIdQuery,
+                                    identityCorrelation = Some(identityCorrelation)
+                                  )
+                    yield result).mapError(ServiceRequestError.apply)
 
     val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
       ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
@@ -55,6 +59,7 @@ object ProcessInstanceRoutes:
             .flatMap: identityCorrelation =>
               // Set the bearer token in AuthContext so it can be used by the engine services
               AuthContext.withBearerToken(validatedToken):
+                //TODO analog startProcessEndpoint
                 initProcess(
                   processDefId = messageName,
                   in = in,
@@ -130,13 +135,14 @@ object ProcessInstanceRoutes:
       token: String
   )(using gatewayConfig: GatewayConfig): ZIO[Any, GatewayError, Json] =
     given config: EngineConfig = gatewayConfig.engineConfig
-      // Forward request to the init worker
-      WorkerForwardUtil.forwardWorkerRequest(processDefId, in.asJson, token)
-        .provideLayer(HttpClientProvider.live)
-        .mapError:
-          case EngineError.ServiceRequestError(errorCode, errorMsg) =>
-            ServiceRequestError(500, s"Init worker failed: $errorMsg")
-          case err                                      =>
-            UnexpectedError(s"Init worker failed: ${err.getMessage}")
+    // Forward request to the init worker
+    WorkerForwardUtil.forwardWorkerRequest(processDefId, in.asJson, token)
+      .provideLayer(HttpClientProvider.live)
+      .mapError:
+        case EngineError.ServiceRequestError(errorCode, errorMsg) =>
+          ServiceRequestError(500, s"Init worker failed: $errorMsg")
+        case err                                                  =>
+          UnexpectedError(s"Init worker failed: ${err.getMessage}")
+  end initProcess
 
 end ProcessInstanceRoutes
