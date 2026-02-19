@@ -14,6 +14,3 @@ trait ProcessEngine:
 
 end ProcessEngine
 
-object ProcessEngine:
-  lazy val c7Endpoint = "http://localhost:8080/engine-rest"
-  lazy val c7CockpitUrl = "http://localhost:8080/camunda/app/cockpit/default/#/process-instance/"

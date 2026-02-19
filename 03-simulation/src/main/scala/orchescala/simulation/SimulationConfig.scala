@@ -50,8 +50,8 @@ case class DefaultSimulationConfig(
     engineConfig: EngineConfig = DefaultEngineConfig(),
     tenantId: Option[String] = None,
     maxCount: Int = 10,
-    cockpitUrl: String | Map[EngineType, String] = ProcessEngine.c7CockpitUrl,
-    logLevel: LogLevel = LogLevel.INFO
+    logLevel: LogLevel = LogLevel.INFO,
+    cockpitUrl: String | Map[EngineType, String]
 ) extends SimulationConfig:
 
   def withTenantId(tenantId: String): SimulationConfig =

@@ -1,26 +1,31 @@
 package orchescala.engine.c7
 
+import orchescala.engine.SharedClientManager
 import org.camunda.community.rest.client.invoker.ApiClient
-import orchescala.engine.domain.EngineError
+import orchescala.engine.domain.{EngineError, EngineType}
 import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
 import zio.*
 
 /** Base trait for C7 clients that provide ApiClient instances */
 trait C7Client:
-  def client: ZIO[SharedC7ClientManager, EngineError, ApiClient]
+  def engineType = EngineType.C7
+
+  def client: ZIO[SharedClientManager[?, ?], EngineError, ApiClient]
 
 /** C7 client for local/direct connections */
-trait C7LocalClient extends C7Client:
-
-  protected def camundaRestUrl: String
-
-  lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
-    SharedC7ClientManager.getOrCreateClient:
+class C7LocalClient(camundaRestUrl: String) extends C7Client:
+  lazy val client: ZIO[SharedClientManager[?, ?], EngineError, ApiClient] = {
+    val getOrCreateClient = engineType match 
+      case EngineType.C7 => SharedC7ClientManager.getOrCreateClient
+      case _ => SharedOpClientManager.getOrCreateClient
+    
+    getOrCreateClient:
       ZIO.attempt:
         val apiClient = new ApiClient()
         apiClient.setBasePath(camundaRestUrl)
       .mapError: ex =>
-        EngineError.UnexpectedError(s"Problem creating C7 API Client: $ex")
+        EngineError.UnexpectedError(s"Problem creating $engineType API Client: $ex")
+  }
 
 end C7LocalClient
 
@@ -40,7 +45,7 @@ trait C7BasicAuthClient extends C7Client:
         apiClient.setPassword(password)
         apiClient
       .mapError: ex =>
-        EngineError.UnexpectedError(s"Problem creating C7 API Client: $ex")
+        EngineError.UnexpectedError(s"Problem creating $engineType API Client: $ex")
 
 end C7BasicAuthClient
 
@@ -78,7 +83,7 @@ trait C7BearerTokenClient extends C7Client:
       apiClient.addDefaultHeader("Authorization", s"Bearer $token")
       apiClient
     .mapError: ex =>
-      EngineError.UnexpectedError(s"Problem creating C7 API Client with token: $ex")
+      EngineError.UnexpectedError(s"Problem creating $engineType API Client with token: $ex")
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =

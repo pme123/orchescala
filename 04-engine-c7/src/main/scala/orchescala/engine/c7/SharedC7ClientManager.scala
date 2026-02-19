@@ -1,8 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.engine.SharedClientManager
-import orchescala.engine.domain.EngineError
-import orchescala.engine.rest.SttpClientBackend
+import orchescala.engine.domain.{EngineError, EngineType}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.*
 
@@ -14,7 +13,7 @@ object SharedC7ClientManager:
   /** ZLayer that provides SharedC7ClientManager service */
   val layer: ZLayer[Any, Nothing, SharedC7ClientManager] =
     SharedClientManager.createLayer[ApiClient, EngineError](
-      "C7 API",
+      EngineType.C7.toString,
       client => ZIO.attempt(client.getHttpClient.close()).ignore
     )
 

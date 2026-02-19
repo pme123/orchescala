@@ -202,4 +202,5 @@ case class SbtGenerator()(using
         s""",
            |    simulationSettings""".stripMargin
   private lazy val modulesTypes = config.apiProjectConfig.modules
+
 end SbtGenerator

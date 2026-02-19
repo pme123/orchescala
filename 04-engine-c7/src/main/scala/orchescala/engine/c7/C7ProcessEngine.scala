@@ -25,12 +25,26 @@ class C7ProcessEngine()(
 end C7ProcessEngine
 
 object C7ProcessEngine:
-  
+  def rootUrl(port: String)                             = s"http://localhost:$port"
+  def restEndpoint(port: String)                        = s"${rootUrl(port)}/engine-rest"
+  def cockpitEndpoint(port: String, engineName: String) =
+    s"${rootUrl(port)}/$engineName/app/cockpit/default/#/process-instance/"
+  lazy val port                                         = "8080"
+  lazy val restUrl                                      = restEndpoint(port)
+  lazy val cockpitUrl                                   = cockpitEndpoint(port, "camunda")
+
   /** Creates a C7ProcessEngine with the proper client resolved from SharedC7ClientManager */
   def withClient(c7Client: C7Client)(using
-                                     engineConfig: EngineConfig
+      engineConfig: EngineConfig
   ): ZIO[SharedC7ClientManager, Nothing, C7ProcessEngine] =
-    C7Client.resolveClient(c7Client).map : resolvedClient =>
+    C7Client.resolveClient(c7Client).map: resolvedClient =>
       given IO[EngineError, ApiClient] = resolvedClient
 
       C7ProcessEngine()
+end C7ProcessEngine
+
+// operaton has same except port
+object OpProcessEngine:
+  lazy val port       = "9999"
+  lazy val restUrl    = C7ProcessEngine.restEndpoint(port)
+  lazy val cockpitUrl = C7ProcessEngine.cockpitEndpoint(port, "operation")

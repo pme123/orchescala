@@ -3,6 +3,7 @@ package orchescala.gateway
 import orchescala.engine.*
 import orchescala.engine.c7.{C7BearerTokenClient, C7ProcessEngine, SharedC7ClientManager}
 import orchescala.engine.c8.{C8BearerTokenClient, C8ProcessEngine, SharedC8ClientManager}
+import orchescala.engine.domain.EngineType
 import orchescala.engine.gateway.GProcessEngine
 import orchescala.worker.DefaultWorkerConfig
 import zio.*
@@ -35,7 +36,12 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
   /** Example C7 client with Bearer token pass-through authentication */
   object ExampleC7Client extends C7BearerTokenClient:
     override protected def camundaRestUrl: String =
-      sys.env.getOrElse("CAMUNDA_C7_REST_URL", "http://localhost:8080/engine-rest")
+      sys.env.getOrElse("CAMUNDA_C7_REST_URL", C7ProcessEngine.restUrl)
+      
+  /** Example Op client with Bearer token pass-through authentication */
+  object ExampleOpClient extends C7BearerTokenClient:
+    override protected def camundaRestUrl: String =
+      sys.env.getOrElse("OPERATON_REST_URL", OpProcessEngine.restUrl)
 
   /** Example C8 client with Bearer token pass-through authentication */
   object ExampleC8Client extends C8BearerTokenClient:
@@ -52,9 +58,10 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
     (for
       c7Engine <- C7ProcessEngine.withClient(ExampleC7Client)
       c8Engine <- C8ProcessEngine.withClient(ExampleC8Client)
+      opEngine <- C7ProcessEngine.withClient(ExampleOpClient)
       given Seq[ProcessEngine] = Seq(c8Engine, c7Engine)
     yield GProcessEngine())
-      .provideLayer(SharedC7ClientManager.layer ++ SharedC8ClientManager.layer)
+      .provideLayer(SharedC7ClientManager.layer(EngineType.C7) ++ SharedC7ClientManager.layer(EngineType.Op) ++ SharedC8ClientManager.layer)
 
   override def run: ZIO[Any, Any, Any] = start()
 

@@ -9,8 +9,7 @@ import org.camunda.community.rest.client.dto.{HistoricVariableInstanceDto, Histo
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.{IO, ZIO}
 
-import java.util
-import scala.collection.JavaConverters.{asScalaBufferConverter, seqAsJavaListConverter}
+import scala.jdk.CollectionConverters.*
 
 class C7HistoricVariableService(using
     apiClientZIO: IO[EngineError, ApiClient],
