@@ -26,7 +26,13 @@ import zio.http.*
   *     )
   * }}}
   */
-abstract class GatewayServer extends EngineApp, ZIOAppDefault:
+abstract class GatewayServer extends EngineApp, ZIOApp:
+
+  type Environment = Any
+
+  val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = EngineRuntime.logger
+
+  val environmentTag: EnvironmentTag[Any] = EnvironmentTag[Any]
 
   def config: GatewayConfig
 
@@ -57,8 +63,7 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
       yield ()
 
     program.provide(
-      Server.defaultWithPort(config.gatewayPort),
-      EngineRuntime.logger
+      Server.defaultWithPort(config.gatewayPort)
     ).unit
   end start
 

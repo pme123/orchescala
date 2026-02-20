@@ -36,7 +36,7 @@ import zio.http.*
   *   - CAMUNDA_C8_GRPC_URL: Camunda 8 gRPC URL (default: http://localhost:26500)
   *   - CAMUNDA_C8_REST_URL: Camunda 8 REST API URL (default: http://localhost:8080)
   */
-object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
+object ExampleGatewayServer extends GatewayServer:
   override def config: GatewayConfig = DefaultGatewayConfig(
     engineConfig = DefaultEngineConfig(),
     workerConfig = DefaultWorkerConfig(DefaultEngineConfig())
@@ -64,9 +64,7 @@ object ExampleGatewayServer extends GatewayServer with ZIOAppDefault:
       given Seq[ProcessEngine] = Seq(c8Engine, c7Engine)
     yield GProcessEngine())
       .provideLayer(SharedC7ClientManager.layer ++ SharedC8ClientManager.layer)
-
-  override def run: ZIO[Any, Any, Any] = start()
-
+  
   lazy val supportedWorkers =
     Seq(
     )
