@@ -10,6 +10,7 @@ class WorkerAppTest extends FunSuite:
 
   // Test helper classes
   class TestWorkerApp(name: String, deps: Seq[WorkerApp] = Seq.empty) extends WorkerApp:
+    
     lazy val engineContext = new EngineContext:
       override def engineConfig: EngineConfig = DefaultEngineConfig()
       override def workerConfig: WorkerConfig = DefaultWorkerConfig(engineConfig)
