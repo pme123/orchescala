@@ -71,19 +71,19 @@ abstract class GatewayServer extends EngineApp, ZIOApp:
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       WorkerRoutes().routes ++
-        ProcessInstanceRoutes.routes(
+        ProcessInstanceRoutes(
           gatewayEngine.processInstanceService,
           gatewayEngine.historicVariableService
-        ) ++
-        UserTaskRoutes.routes(
+        ).routes ++
+        UserTaskRoutes(
           gatewayEngine.userTaskService
-        ) ++
-        SignalRoutes.routes(
+        ).routes ++
+        SignalRoutes(
           gatewayEngine.signalService
-        ) ++
-        MessageRoutes.routes(
+        ).routes ++
+        MessageRoutes(
           gatewayEngine.messageService
-        )
+        ).routes
     ) ++
       OpenApiRoutes.routes
 

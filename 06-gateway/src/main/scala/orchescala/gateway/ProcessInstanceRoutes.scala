@@ -11,123 +11,113 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.ztapir.*
 import zio.*
 
-object ProcessInstanceRoutes:
+case class ProcessInstanceRoutes(
+                                  processInstanceService: ProcessInstanceService,
+                                  historicVariableService: HistoricVariableService
+                                )(using config: GatewayConfig):
 
-  def routes(
-      processInstanceService: ProcessInstanceService,
-      historicVariableService: HistoricVariableService
-  )(using config: GatewayConfig): List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
-
-    val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
-        config.validateToken(token).mapError(ServiceRequestError.apply)
-      }.serverLogic:
-        validatedToken => // validatedToken is the String token returned from security logic
-          (processDefId, businessKeyQuery, tenantIdQuery, in) =>
-            ZIO.logInfo(s"Start process $processDefId (${businessKeyQuery.mkString})") *>
-              config.extractCorrelation(validatedToken, in)
-                .tap: c =>
-                  ZIO.logInfo(s"Extract Correlation was successful: ${c.username}")
-                .mapError(ServiceRequestError.apply)
-                .flatMap: identityCorrelation =>
-                  // Set the bearer token in AuthContext so it can be used by the engine services
-                  AuthContext.withBearerToken(validatedToken):
-                    for
-                      inJson <- ZIO.when(config.engineConfig.validateInput):
-                                  initProcess(
-                                    processDefId = processDefId,
-                                    in = in,
-                                    token = validatedToken
-                                  ).mapError(ServiceRequestError.apply)
-                      _      <- ZIO.logInfo(s"Init Process successful: $inJson")
-                      result <- processInstanceService
-                                  .startProcessAsync(
-                                    processDefId = processDefId,
-                                    in = inJson.flatMap(_.asObject).getOrElse(in),
-                                    businessKey = businessKeyQuery,
-                                    tenantId = tenantIdQuery,
-                                    identityCorrelation = Some(identityCorrelation)
-                                  ).mapError(ServiceRequestError.apply)
-                      _      <- ZIO.logInfo(s"Process started: ${result.processInstanceId}")
-                    yield result
-
-    val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
-        config.validateToken(token).mapError(ServiceRequestError.apply)
-      }.serverLogic: validatedToken =>
-        (messageName, businessKeyQuery, tenantIdQuery, in) =>
-          config.extractCorrelation(validatedToken, in)
-            .mapError(ServiceRequestError.apply)
-            .flatMap: identityCorrelation =>
-              // Set the bearer token in AuthContext so it can be used by the engine services
-              AuthContext.withBearerToken(validatedToken):
-                // TODO analog startProcessEndpoint
-                initProcess(
-                  processDefId = messageName,
-                  in = in,
-                  token = validatedToken
-                ).mapError(ServiceRequestError.apply)
-                  .flatMap: inJson =>
-                    processInstanceService
-                      .startProcessByMessage(
-                        messageName = messageName,
-                        businessKey = businessKeyQuery,
-                        tenantId = tenantIdQuery,
-                        variables = inJson.asObject,
-                        identityCorrelation = Some(identityCorrelation)
-                      ).mapError(ServiceRequestError.apply)
-
-    val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ServiceRequestError.apply)
-      .serverLogic: validatedToken =>
-        (processInstanceId, variableFilter) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            historicVariableService
-              .getVariables(
-                variableName = None,
-                processInstanceId = Some(processInstanceId),
-                variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
-              )
-              .map: variables =>
-                CirceJson.obj(variables.map(v =>
-                  v.name -> v.value.getOrElse(CirceJson.Null)
-                )*)
-              .mapError(ServiceRequestError.apply)
-
-    // same as getProcessVariablesEndpoint, but with processDefinitionKey as path parameter for API documentation
-    val getProcessVariablesEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      ProcessInstanceEndpoints.getProcessVariablesForApi.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ServiceRequestError.apply)
-      .serverLogic: validatedToken =>
-        (
-            processDefinitionKey,
-            processInstanceId,
-            variableFilter
-        ) => // processDefinitionKey is not used
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            historicVariableService
-              .getVariables(
-                variableName = None,
-                processInstanceId = Some(processInstanceId),
-                variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
-              )
-              .map: variables =>
-                CirceJson.obj(variables.map(v =>
-                  v.name -> v.value.getOrElse(CirceJson.Null)
-                )*)
-              .mapError(ServiceRequestError.apply)
-
+  lazy val routes: List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
     List(
       startProcessEndpoint,
       startProcessByMessageEndpoint,
       getProcessVariablesEndpoint,
       getProcessVariablesEndpointForApi
     )
+  
+  private lazy val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    ProcessInstanceEndpoints.startProcessAsync.zServerSecurityLogic { token =>
+      config.validateToken(token).mapError(ServiceRequestError.apply)
+    }.serverLogic:
+      validatedToken => // validatedToken is the String token returned from security logic
+        (processDefId, businessKeyQuery, tenantIdQuery, in) =>
+          ZIO.logDebug(s"Start process $processDefId (${businessKeyQuery.mkString})") *>
+            config.extractCorrelation(validatedToken, in)
+              .mapError(ServiceRequestError.apply)
+              .flatMap: identityCorrelation =>
+                // Set the bearer token in AuthContext so it can be used by the engine services
+                AuthContext.withBearerToken(validatedToken):
+                  for
+                    inJson <- initProcess(
+                      processDefId = processDefId,
+                      in = in,
+                      token = validatedToken
+                    ).mapError(ServiceRequestError.apply)
+                    result <- processInstanceService
+                      .startProcessAsync(
+                        processDefId = processDefId,
+                        in = inJson.asObject.getOrElse(in),
+                        businessKey = businessKeyQuery,
+                        tenantId = tenantIdQuery,
+                        identityCorrelation = Some(identityCorrelation)
+                      ).mapError(ServiceRequestError.apply)
+                    _ <-
+                      ZIO.logInfo(
+                        s"Process started: $processDefId (${businessKeyQuery.mkString}) -> ${result.processInstanceId}"
+                      )
+                  yield result
 
-  end routes
+  private lazy val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
+      config.validateToken(token).mapError(ServiceRequestError.apply)
+    }.serverLogic: validatedToken =>
+      (messageName, businessKeyQuery, tenantIdQuery, in) =>
+        ZIO.logDebug(s"Start process by message $messageName (${businessKeyQuery.mkString})") *>
+          config.extractCorrelation(validatedToken, in)
+            .mapError(ServiceRequestError.apply)
+            .flatMap: identityCorrelation =>
+              // Set the bearer token in AuthContext so it can be used by the engine services
+              AuthContext.withBearerToken(validatedToken):
+                for
+                  inJson <- initProcess(
+                    processDefId = messageName,
+                    in = in,
+                    token = validatedToken
+                  ).mapError(ServiceRequestError.apply)
+                  result <- processInstanceService
+                    .startProcessByMessage(
+                      messageName = messageName,
+                      businessKey = businessKeyQuery,
+                      tenantId = tenantIdQuery,
+                      variables = inJson.asObject,
+                      identityCorrelation = Some(identityCorrelation)
+                    ).mapError(ServiceRequestError.apply)
+                  _ <- ZIO.logInfo(s"Process started by message '$messageName' (${businessKeyQuery.mkString}) -> ${result.processInstanceId}")
+                yield result
+                end for
+
+  private lazy val getProcessVariablesEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    ProcessInstanceEndpoints.getProcessVariables.zServerSecurityLogic: token =>
+      config.validateToken(token).mapError(ServiceRequestError.apply)
+    .serverLogic: validatedToken =>
+      (processInstanceId, variableFilter) =>
+        getHistoricProcessVariables(validatedToken, processInstanceId, variableFilter)
+
+  // same as getProcessVariablesEndpoint, but with processDefinitionKey as path parameter for API documentation
+  private lazy val getProcessVariablesEndpointForApi: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    ProcessInstanceEndpoints.getProcessVariablesForApi.zServerSecurityLogic: token =>
+      config.validateToken(token).mapError(ServiceRequestError.apply)
+    .serverLogic: validatedToken =>
+      (
+        processDefinitionKey,
+        processInstanceId,
+        variableFilter
+      ) => // processDefinitionKey is not used
+        // Set the bearer token in AuthContext so it can be used by the engine services
+        getHistoricProcessVariables(validatedToken, processInstanceId, variableFilter)
+
+  private def getHistoricProcessVariables(validatedToken: String, processInstanceId: String, variableFilter: Option[String]) =
+    AuthContext.withBearerToken(validatedToken):
+      historicVariableService
+        .getVariables(
+          variableName = None,
+          processInstanceId = Some(processInstanceId),
+          variableFilter = variableFilter.map(_.split(",").map(_.trim).toSeq)
+        )
+        .map: variables =>
+          CirceJson.obj(variables.map(v =>
+            v.name -> v.value.getOrElse(CirceJson.Null)
+          ) *)
+        .mapError(ServiceRequestError.apply)
 
   // this runs the init worker to validate the input
   // so a process instance needs an InitWorker
