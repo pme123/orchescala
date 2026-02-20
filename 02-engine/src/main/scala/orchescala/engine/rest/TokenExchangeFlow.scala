@@ -32,7 +32,7 @@ class TokenExchangeFlow(
           .map(t => t.access_token)
       ).mapError: err =>
         ServiceError(
-          s"Could not get impersonated token for $username - ${clientCredToken.take(20)}...${clientCredToken.takeRight(10)}!\n$err\n\n$identityUrl"
+          s"Could not get impersonated token for $username - ${clientCredToken.take(20)}...${clientCredToken.takeRight(10)}!\n$err"
         )
   end exchangeToken
 

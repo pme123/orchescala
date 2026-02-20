@@ -25,7 +25,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
           .left
           .map(err =>
             ServiceError(
-              s"Could not get a token for '$username'!\n$err\n> $identityUrl"
+              s"Could not get a token for '$username'!\n$err"
             )
           )
           .map: token =>
@@ -48,7 +48,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
               .flatMap(ZIO.fromEither)
               .mapError(err =>
                 ServiceError(
-                  s"Could not get a token for '$username'!\n$err\n> $identityUrl"
+                  s"Could not get a token for '$username'!\n$err"
                 )
               )
               .tap: token =>

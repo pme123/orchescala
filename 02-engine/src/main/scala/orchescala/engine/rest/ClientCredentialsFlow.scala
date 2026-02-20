@@ -24,7 +24,7 @@ class ClientCredentialsFlow(val config: OAuthConfig.ClientCredentials) extends C
               .flatMap(ZIO.fromEither)
               .mapError: err =>
                 ServiceError(
-                  s"Could not get a token for '${requestBody("client_id")}' -> ClientCredentials!\n$err\n\n$identityUrl"
+                  s"Could not get a token for '${requestBody("client_id")}' -> ClientCredentials!\n$err"
                 )
               .tap: token =>
                 ZIO.logInfo(
