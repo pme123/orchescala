@@ -15,9 +15,13 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
 )(using services: Seq[S]): IO[EngineError, A] =
   val sortedServices = services.sortedFromCache(cacheGetKey)
   sortedServices match
-    case Nil => ZIO.fail(EngineError.ProcessError("No services available"))
+    case Nil =>
+      ZIO.logError(s"No services available for $operationName") *>
+        ZIO.fail(EngineError.ProcessError("No services available"))
     case _   =>
-      ZIO.logDebug(s"Services for $operationName: ${sortedServices.map(_.engineType).mkString(", ")}") *>
+      ZIO.logInfo(
+        s"Services for $operationName: ${sortedServices.map(_.engineType).mkString(", ")}"
+      ) *>
         sortedServices
           .foldLeft(ZIO.succeed((
             List.empty[EngineError],
@@ -45,9 +49,11 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
                 .mapError(ex =>
                   EngineError.ProcessError(s"Problem updating cache: ${ex.getMessage}")
                 ).as(result)
-            case (errors, _, _)                   => ZIO.fail(EngineError.ProcessError(
+            case (errors, _, _)                      => ZIO.fail(EngineError.ProcessError(
                 s"All services failed for $operationName: ${errors.map(_.errorMsg).mkString("; ")}"
               ))
+  end match
+end tryServicesWithErrorCollection
 
 extension [S <: EngineService](services: Seq[S])
   private def sortedFromCache(cacheGetKey: Option[String]): Seq[S] =
@@ -75,6 +81,6 @@ end extension
 
 def engineTypeForKey(key: String) =
   key match
-    case uuidRegex() => Some(EngineType.C8)
+    case uuidRegex()                       => Some(EngineType.C8)
     case str if str.toLongOption.isDefined => Some(EngineType.C7)
-    case _ => None
+    case _                                 => None

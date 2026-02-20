@@ -84,6 +84,8 @@ trait C8BearerTokenClient extends C8Client:
 
 end C8BearerTokenClient
 
+class C8DefaultBearerTokenClient(val zeebeGrpc: String, val zeebeRest: String) extends C8BearerTokenClient
+
 object C8Client:
 
   /** Helper to create an IO[EngineError, CamundaClient] from a C8Client that can be used in engine services.

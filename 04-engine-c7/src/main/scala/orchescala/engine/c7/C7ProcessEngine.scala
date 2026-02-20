@@ -33,4 +33,4 @@ object C7ProcessEngine:
     C7Client.resolveClient(c7Client).map : resolvedClient =>
       given IO[EngineError, ApiClient] = resolvedClient
 
-      C7ProcessEngine()
+        C7ProcessEngine()
