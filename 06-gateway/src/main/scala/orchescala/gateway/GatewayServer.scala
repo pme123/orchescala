@@ -26,13 +26,9 @@ import zio.http.*
   *     )
   * }}}
   */
-abstract class GatewayServer extends EngineApp, ZIOApp:
+abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
-  type Environment = Any
-
-  val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = EngineRuntime.logger
-
-  val environmentTag: EnvironmentTag[Any] = EnvironmentTag[Any]
+  override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = EngineRuntime.logger
 
   def config: GatewayConfig
 

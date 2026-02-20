@@ -9,10 +9,7 @@ import zio.{EnvironmentTag, Trace, ZIO, ZIOApp, ZIOAppArgs, ZIOAppDefault, ZLaye
 import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters.*
 
-trait WorkerApp extends ZIOApp:
-  
-  type Environment = Any
-  val environmentTag: EnvironmentTag[Any] = EnvironmentTag[Any]
+trait WorkerApp extends ZIOAppDefault:
 
   def workerConfig: WorkerConfig
   def port: Int               = workerConfig.workerAppPort
