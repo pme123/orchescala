@@ -29,7 +29,9 @@ lazy val root = project
     engineGateway,
     gateway,
     workerC7,
-    workerC8
+    workerC8,
+    engineOp,
+    workerOp
   )
 
 // general independent
@@ -238,3 +240,26 @@ lazy val workerC8 = project
     ) ++ zioTestDependencies
   )
   .dependsOn(worker, engineC8)
+
+lazy val engineOp = project
+  .in(file("./04-engine-op"))
+  .settings(publicationSettings)
+  .settings(projectSettings("engine-op"))
+  .settings(
+    autoImportSetting,
+    unitTestSettings,
+    libraryDependencies ++= camunda7EngineDependencies ++ zioTestDependencies
+  )
+  .dependsOn(engineC7)
+
+lazy val workerOp = project
+  .in(file("./04-worker-op"))
+  .settings(publicationSettings)
+  .settings(projectSettings("worker-op"))
+  .settings(unitTestSettings)
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++=
+      opWorkerDependencies ++ zioTestDependencies
+  )
+  .dependsOn(worker)

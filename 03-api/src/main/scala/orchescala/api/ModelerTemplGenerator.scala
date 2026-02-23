@@ -13,10 +13,11 @@ final case class ModelerTemplGenerator(
     companyName: String
 ):
 
-  private def generator(config: ModelerTemplateConfig) =  
+  private def generator(config: ModelerTemplateConfig) =
     config.supportedEngine match
       case SupportedEngine.C7 => C7TemplateGenerator(config, projectName, companyName, apiVersion)
       case SupportedEngine.C8 => C8TemplateGenerator(config, projectName, companyName, apiVersion)
+      case SupportedEngine.Op => C7TemplateGenerator(config, projectName, companyName, apiVersion)
 
   lazy val version = apiVersion.split("\\.").head.toInt
 

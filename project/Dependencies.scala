@@ -98,6 +98,11 @@ object Dependencies {
   lazy val camunda7ZioWorkerDependencies = Seq(
     "org.camunda.bpm" % "camunda-external-task-client" % camundaVersion
   )
+
+  val opVersion = "1.1.0"
+  lazy val opWorkerDependencies = Seq(
+    "org.operaton.bpm" % "operaton-external-task-client" % opVersion
+  )
   lazy val camunda7EngineDependencies    =
     Seq("org.camunda.community" % "camunda-engine-rest-client-openapi-java" % camundaVersion)
 

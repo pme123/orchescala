@@ -295,7 +295,7 @@ case class ProjectGroup(
     fill: String = "#ddd"
 )
 enum SupportedEngine:
-  case C7, C8
+  case C7, C8, Op
 object SupportedEngine:
   given InOutCodec[SupportedEngine] = deriveEnumInOutCodec
   given ApiSchema[SupportedEngine]  = deriveApiSchema
