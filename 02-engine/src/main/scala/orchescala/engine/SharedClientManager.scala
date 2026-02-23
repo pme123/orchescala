@@ -43,7 +43,8 @@ object SharedClientManager:
         _                                              <- ZIO
                                                             .addFinalizer:
                                                               semaphore.withPermit:
-                                                                clientRef.get.flatMap:
+                                                                clientRef.get
+                                                                  .flatMap:
                                                                   case Some(client) =>
                                                                     ZIO.logInfo(s"Closing shared $clientTypeName client") *>
                                                                       closeClient(client)

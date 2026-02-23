@@ -11,10 +11,13 @@ trait EngineApp:
 
   // For environment-based engines (C8 with SharedC8ClientManager, C7 with SharedC7ClientManager)
   def engineZIO: ZIO[Any, EngineError, ProcessEngine] =
-    ZIO
-      .attempt(engine)
-      .mapError(ex =>
-        EngineError.ProcessError(s"Error creating engine: ${ex.getMessage}")
-      )
+    ZIO.scoped:
+      for
+        _      <- EngineRuntime.threadPoolFinalizer
+        engine <- ZIO.attempt(engine)
+                    .mapError(ex =>
+                      EngineError.ProcessError(s"Error creating engine: ${ex.getMessage}")
+                    )
+      yield engine
 
 end EngineApp
