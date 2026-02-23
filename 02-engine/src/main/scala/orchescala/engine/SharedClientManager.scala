@@ -56,7 +56,7 @@ object SharedClientManager:
                                                                         ))
                                                                         .ignore
                                                                   case None         => ZIO.unit
-                                                            .zipLeft(ZIO.logInfo(s"Shared $clientTypeName client finalizer started"))
+                                                            .zipLeft(ZIO.logInfo(s"Shared $clientTypeName finalizer started"))
                                                             .uninterruptible
       yield service
 

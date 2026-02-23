@@ -34,6 +34,7 @@ object EngineRuntime:
           ZIO.logError(s"Error shutting down thread pool.\n$ex")
             .as(threadPool.shutdownNow())
         .zipLeft(ZIO.logInfo("Thread pool has shut down."))
+    .zipLeft(ZIO.logInfo("Thread pool finalizer registered."))
     .uninterruptible
 
   lazy val zioRuntime = zio.Runtime.default

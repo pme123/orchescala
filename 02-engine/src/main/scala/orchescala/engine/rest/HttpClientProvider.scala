@@ -55,5 +55,6 @@ object HttpClientProvider:
       (cachedBackend.close() *> ZIO.attempt(sharedHttpClient.close()))
         .catchAll: ex =>
           ZIO.logError(s"Error closing HTTP client.\n$ex")
-        .zipLeft(ZIO.logInfo("HTTP client closed successfully"))
+        .zipLeft(ZIO.logInfo("HTTP thread pool closed successfully"))
+    .zipLeft(ZIO.logInfo("HTTP thread pool finalizer registered."))  
 end HttpClientProvider
