@@ -45,7 +45,5 @@ class C8WorkerRegistry(c8Client: C8Client)
   extension (client: CamundaClient)
     private def closeClient(): UIO[Unit] =
       logInfo("Closing C8 Worker Client").as(if client != null then client.close() else ())
-
-  // no connection manager to close
-  lazy val engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any] = ZIO.unit
+  
 end C8WorkerRegistry
