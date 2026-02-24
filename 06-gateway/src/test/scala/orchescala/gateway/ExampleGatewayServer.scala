@@ -59,15 +59,11 @@ object ExampleGatewayServer extends GatewayServer:
     )
 
   override def engineZIO: ZIO[Any, EngineError, ProcessEngine] =
-    ZIO.scoped:
-      for
-        c7Engine                <- C7ProcessEngine.withClient(ExampleC7Client)
-                                     .provideLayer(SharedC7ClientManager.layer)
-        //    c8Engine                <- C8ProcessEngine.withClient(ExampleC8Client)
-        given Seq[ProcessEngine] = Seq(c7Engine)
-      yield GProcessEngine()
-
-  override protected def requiredEngineLayers: ZLayer[Any, Nothing, Any] =
-    SharedC7ClientManager.layer ++ SharedC8ClientManager.layer
+    (for
+      c7Engine <- C7ProcessEngine.withClient(ExampleC7Client)
+      c8Engine                <- C8ProcessEngine.withClient(ExampleC8Client)
+      given Seq[ProcessEngine] = Seq(c7Engine, c8Engine)
+    yield GProcessEngine())
+      .provideLayer(SharedC7ClientManager.layer ++ SharedC8ClientManager.layer)
 
 end ExampleGatewayServer

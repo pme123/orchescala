@@ -62,15 +62,9 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     program.provide(
       EngineRuntime.sharedExecutorLayer ++
         HttpClientProvider.live ++
-        requiredEngineLayers ++
         Server.defaultWithPort(config.gatewayPort)
     ).unit
   end start
-
-  /** Override this method to provide shared client layers (e.g., SharedC7ClientManager, SharedC8ClientManager)
-    * These layers will be scoped to the entire server lifetime, ensuring finalizers are called on shutdown.
-    */
-  protected def requiredEngineLayers: ZLayer[Any, Nothing, Any]
 
   private def routes(gatewayEngine: ProcessEngine)(using GatewayConfig): Routes[Any, Response] =
 
