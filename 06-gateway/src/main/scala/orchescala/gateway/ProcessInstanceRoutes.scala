@@ -33,8 +33,7 @@ object ProcessInstanceRoutes:
                   // Set the bearer token in AuthContext so it can be used by the engine services
                   AuthContext.withBearerToken(validatedToken):
                     for
-                      inJson <- ZIO.when(config.engineConfig.validateInput):
-                                  initProcess(
+                      inJson <- initProcess(
                                     processDefId = processDefId,
                                     in = in,
                                     token = validatedToken
@@ -43,7 +42,7 @@ object ProcessInstanceRoutes:
                       result <- processInstanceService
                                   .startProcessAsync(
                                     processDefId = processDefId,
-                                    in = inJson.flatMap(_.asObject).getOrElse(in),
+                                    in = inJson.asObject.getOrElse(in),
                                     businessKey = businessKeyQuery,
                                     tenantId = tenantIdQuery,
                                     identityCorrelation = Some(identityCorrelation)
@@ -61,7 +60,6 @@ object ProcessInstanceRoutes:
             .flatMap: identityCorrelation =>
               // Set the bearer token in AuthContext so it can be used by the engine services
               AuthContext.withBearerToken(validatedToken):
-                // TODO analog startProcessEndpoint
                 initProcess(
                   processDefId = messageName,
                   in = in,
