@@ -190,20 +190,17 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       logError(
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
       ) *>
-        ZIO
-          .when(retries >= 0):
-            ZIO.attempt(
-              externalTaskService.handleFailure(
-                taskId,
-                error.causeMsg,
-                s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
-                Math.max(retries, 0), // < 0 not allowed
-                10.seconds.toMillis
-              )
-            ).flatMapError: throwable =>
-              logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
-            .ignore
-          .ignore
+        ZIO.attempt(
+          externalTaskService.handleFailure(
+            taskId,
+            error.causeMsg,
+            s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
+            Math.max(retries, 0), // < 0 not allowed
+            10.seconds.toMillis
+          )
+        ).flatMapError: throwable =>
+          logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
+        .ignore
 
     end handleFailure
 
