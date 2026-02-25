@@ -1,15 +1,16 @@
 package orchescala.worker
 
 import orchescala.engine.rest.HttpClientProvider
-import orchescala.engine.{EngineConfig, EngineRuntime, banner}
+import orchescala.engine.{EngineRuntime, banner}
 import zio.ZIO.*
 import zio.http.Server
-import zio.{Trace, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
+import zio.{EnvironmentTag, Trace, ZIO, ZIOApp, ZIOAppArgs, ZIOAppDefault, ZLayer}
 
 import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters.*
 
 trait WorkerApp extends ZIOAppDefault:
+
   def workerConfig: WorkerConfig
   def port: Int               = workerConfig.workerAppPort
   def applicationName: String = getClass.getName.split('.').take(2).mkString("-")

@@ -23,9 +23,9 @@ import zio.http.*
   * }}}
   */
 abstract class GatewayServer extends EngineApp, ZIOAppDefault:
-  
+
   override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] = EngineRuntime.logger
-  
+
   def config: GatewayConfig
 
   def run: ZIO[Any, Any, Any] = start()

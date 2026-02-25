@@ -10,29 +10,26 @@ import sttp.tapir.ztapir.*
 import zio.*
 import zio.http.*
 
-object SignalRoutes:
+case class SignalRoutes(
+    signalService: SignalService
+)(using config: GatewayConfig):
 
-  def routes(
-      signalService: SignalService
-  )(using config: GatewayConfig): List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
-
-    val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-      SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
-        config.validateToken(token).mapError(ServiceRequestError.apply)
-      .serverLogic: validatedToken =>
-        (signalName, tenantId, variables) =>
-          // Set the bearer token in AuthContext so it can be used by the engine services
-          AuthContext.withBearerToken(validatedToken):
-            signalService
-              .sendSignal(
-                name = signalName,
-                tenantId = tenantId,
-                variables = variables
-              )
-              .mapError(ServiceRequestError.apply)
-
+  lazy val routes: List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
     List(sendSignalEndpoint)
 
-  end routes
+  private lazy val sendSignalEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    SignalEndpoints.sendSignal.zServerSecurityLogic: token =>
+      config.validateToken(token).mapError(ServiceRequestError.apply)
+    .serverLogic: validatedToken =>
+      (signalName, tenantId, variables) =>
+        // Set the bearer token in AuthContext so it can be used by the engine services
+        AuthContext.withBearerToken(validatedToken):
+          signalService
+            .sendSignal(
+              name = signalName,
+              tenantId = tenantId,
+              variables = variables
+            )
+            .mapError(ServiceRequestError.apply)
 
 end SignalRoutes
