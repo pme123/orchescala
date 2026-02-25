@@ -18,7 +18,7 @@ trait EngineConfig:
     """Get the base URL for a worker app by topic name. Returns None if the worker should be executed
       |locally. Returns Some(url) if the worker request should be forwarded to the given URL.
       |""".stripMargin)
-  def workerAppUrl(topicName: String): Option[String]
+  def workerAppUrl: (topicName: String) => Option[String]
 
   @description(
     """Validate input variables before starting a process instance.
@@ -46,14 +46,11 @@ case class DefaultEngineConfig(
     tenantId: Option[String] = None,
     impersonateProcessKey: Option[String] = None,
     identitySigningKey: Option[String] = sys.env.get("ORCHESCALA_IDENTITY_SIGNING_KEY"),
-    workersBasePath: String = WorkerForwardUtil.localWorkerAppUrl,
     validateInput: Boolean = true,
-    parallelism: Int = 4
+    parallelism: Int = 4,
+    workerAppUrl: (topicName: String) => Option[String] = (topicName) => WorkerForwardUtil.defaultWorkerAppUrl(topicName, WorkerForwardUtil.localWorkerAppUrl)
 ) extends EngineConfig:
-
-  def workerAppUrl(topicName: String): Option[String] =
-    WorkerForwardUtil.defaultWorkerAppUrl(topicName, workersBasePath)
-
+  
   def validateProcess(doValidate: Boolean): EngineConfig =
     copy(validateInput = doValidate)
 

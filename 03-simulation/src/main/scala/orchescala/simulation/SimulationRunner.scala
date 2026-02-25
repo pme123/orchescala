@@ -19,7 +19,7 @@ abstract class SimulationRunner
     DefaultSimulationConfig()
 
   // Override this to provide the ZIO layers required by this simulation
-  def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] = Seq.empty
+  def requiredLayers: Seq[ZLayer[Any, Nothing, Any]]
 
   // Automatically combine all required layers
   private def allRequiredLayers: ZLayer[Any, Nothing, Any] =
