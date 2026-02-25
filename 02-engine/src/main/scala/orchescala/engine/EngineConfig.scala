@@ -48,7 +48,12 @@ case class DefaultEngineConfig(
     identitySigningKey: Option[String] = sys.env.get("ORCHESCALA_IDENTITY_SIGNING_KEY"),
     validateInput: Boolean = true,
     parallelism: Int = 4,
-    workerAppUrl: (topicName: String) => Option[String] = (topicName) => WorkerForwardUtil.defaultWorkerAppUrl(topicName, WorkerForwardUtil.localWorkerAppUrl)
+    workerAppUrl: (topicName: String) => Option[String] = topicName =>
+      Some(
+        s"http://${
+          if EnvironmentDetector.isLocalhost then "localhost" else topicName.split('-').take(2).mkString("-")
+        }:5555"
+      )
 ) extends EngineConfig:
   
   def validateProcess(doValidate: Boolean): EngineConfig =

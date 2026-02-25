@@ -40,8 +40,8 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     val program =
       ZIO.scoped:
         for
-          _           <- EngineRuntime.threadPoolFinalizer
-          _           <- HttpClientProvider.threadPoolFinalizer
+          _ <- EngineRuntime.threadPoolFinalizer
+          _ <- HttpClientProvider.threadPoolFinalizer
           _ <- ZIO.logInfo(banner("Engine Gateway Server"))
           _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
 
@@ -70,20 +70,31 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
 
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       WorkerRoutes().routes ++
-        ProcessInstanceRoutes.routes(
+        ProcessInstanceRoutes(
           gatewayEngine.processInstanceService,
           gatewayEngine.historicVariableService
-        ) ++
-        UserTaskRoutes.routes(
+        ).routes ++
+        UserTaskRoutes(
           gatewayEngine.userTaskService
-        ) ++
-        SignalRoutes.routes(
+        ).routes ++
+        SignalRoutes(
           gatewayEngine.signalService
-        ) ++
-        MessageRoutes.routes(
+        ).routes ++
+        MessageRoutes(
           gatewayEngine.messageService
-        )
+        ).routes
     ) ++
       OpenApiRoutes.routes
 
+  // Log environment info on startup
+  println(EnvironmentDetector.environmentInfo)
+
+  // Example: Adjust configuration based on environment
+  protected val isLocalDev = EnvironmentDetector.isLocalhost
+
+  if isLocalDev then
+    println("🏠 Running on localhost (not in Docker)")
+  else if EnvironmentDetector.isRunningInDocker then
+    println("🐳 Running in Docker container")
+    
 end GatewayServer
