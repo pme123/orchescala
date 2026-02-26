@@ -50,7 +50,7 @@ case class PublishHelper()(using
   def publishGateway(version: String): Unit =
     println(s"Publishing Gateway: $version")
     verifyVersion(version)
-    // TODO verifySnapshots()
+    verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     // not used setApiVersion(version)

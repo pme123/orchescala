@@ -15,6 +15,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.0 - 2026-02-26
+### Changed 
+- Merge pull request #8 from pme123/fix-problem-simulation - see [Commit](git@github.com:pme123/orchescala/commit/92ab640a7b02b5b9bbc8afc0c03c672295a14875)
+- Cleanup Resource finalizers. - see [Commit](git@github.com:pme123/orchescala/commit/7a902ee5891f04e2c5170d1ce358e3c7b06c2f95)
+- Fixed problem of not running the failureHandling at all. - see [Commit](git@github.com:pme123/orchescala/commit/d4ff5826d1803276e9cb8e5c89e90ebd0f5589dc)
+- Fixed compile problems added EnvironmentDetector for generice workerapp forward url. - see [Commit](git@github.com:pme123/orchescala/commit/23076a55b0820cb2a410fe4eb46c0a4f34eded2e)
+- Merge branch 'develop' into fix-problem-simulation - see [Commit](git@github.com:pme123/orchescala/commit/c3b736d7148f09da9df1e5ea96afd8d12c891e5a)
+- Fixed retry behavior in case of a failure in C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/bd0ba8447c55dd9e2e7d0218efa263149eeeea50)
+- Changed workerAppUrl to variable. - see [Commit](git@github.com:pme123/orchescala/commit/88f9c66cff4d23558371f9f55dbfdc84bb7f44a3)
+- Cleanup forward to worker logic in ProcessInstanceRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/58a96a4b06ea2ad6fb6defa6d5950a59c485cb1d)
+- Cleanup client/engine creation for GatewayServer. - see [Commit](git@github.com:pme123/orchescala/commit/96289b759636d74cb171b7037b190bd00b28a65d)
+- Removed engineConnectionManagerFinalizer. - see [Commit](git@github.com:pme123/orchescala/commit/9012b768c09d68e99298f38b9a7cda2e06a4bbf2)
+- Working version without closing finalizer - see [Commit](git@github.com:pme123/orchescala/commit/c5ea71634ac8cec25e8acdfef2577cce354698b4)
+- Added logging for finalizer creation - see [Commit](git@github.com:pme123/orchescala/commit/d6f0c575d6d0da160905c132571ebdc49301f7e9)
+- Simulations working. - see [Commit](git@github.com:pme123/orchescala/commit/c64db9cfc0c43403bf3e3f403e4c8c0571807856)
+- Only bootstrap in Apps. - see [Commit](git@github.com:pme123/orchescala/commit/3df25e8156ffe13e8d300fbd381f7d7fafb36996)
+- Added logging in bootstrap in WorkerApp. - see [Commit](git@github.com:pme123/orchescala/commit/fb42c3462fc6fab0d6de74dea2026653f7244b50)
+- Cleanup Routes - see [Commit](git@github.com:pme123/orchescala/commit/456359a018f01915b01b4b59f5b38a64318d9b12)
+- Fixed problem with logging format. - see [Commit](git@github.com:pme123/orchescala/commit/202945e3da36e1edf2f2cc96b4dfde6787bfc8a5)
+- Adjustments after deploying Gateway to Openshift. - see [Commit](git@github.com:pme123/orchescala/commit/0f91f5577c389c18014509f81d794a6612504850)
+- Cosmetics logs comments. - see [Commit](git@github.com:pme123/orchescala/commit/b10956a74fef1a311e1a44c8ad872ecc6ad1e0d0)
+- Added check before forwarding initProcess. - see [Commit](git@github.com:pme123/orchescala/commit/5aa3c941f9a1003831892474ac8570f38fef2c44)
+- Removed helper from standard projectModules. - see [Commit](git@github.com:pme123/orchescala/commit/239fcd6432672074474219a0f2316eb48a806313)
+- Added mermaid support in Api documentations. - see [Commit](git@github.com:pme123/orchescala/commit/520d36fb04b0640870a1be5d2ffea610572756e9)
+- Removed Helper from modules, as it is only needed by service packages. - see [Commit](git@github.com:pme123/orchescala/commit/8b2d5ecedd8724687286e7e14d329970f7477f84)
+- Fixed compile error in tests. - see [Commit](git@github.com:pme123/orchescala/commit/a8521e0132e88af47aab541d9989877ac7fd68d3)
+- Updated Plugin versions in SbtGenerators. - see [Commit](git@github.com:pme123/orchescala/commit/0931453fc304b7afdb98dd117dc4b07bc4dc790f)
+
 ## 0.4.0 - 2026-02-04
 ### Changed 
 - Fixed bad deserialization in C7HistoricVariableService. - see [Commit](git@github.com:pme123/orchescala/commit/dab527fdd9a6b4f5b1775cc39db60660f9237f35)
