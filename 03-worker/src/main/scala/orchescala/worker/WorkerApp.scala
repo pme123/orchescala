@@ -46,11 +46,6 @@ trait WorkerApp extends ZIOAppDefault:
   override def run: ZIO[Any, Any, Any]                                 =
     ZIO.scoped:
       for
-        _           <- EngineRuntime.threadPoolFinalizer
-        _           <- HttpClientProvider.threadPoolFinalizer
-        _           <- foreachParDiscard(workerRegistries): registry =>
-                         registry.engineConnectionManagerFinalizer
-                       .withParallelism(engineContext.engineConfig.parallelism)
         _           <- logInfo(banner(applicationName))
         _           <- printJvmInfologInfo
         _           <- MemoryMonitor.start

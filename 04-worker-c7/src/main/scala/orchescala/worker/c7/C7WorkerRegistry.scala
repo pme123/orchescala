@@ -55,5 +55,4 @@ class C7WorkerRegistry(client: C7WorkerClient)
           .ignore
   end extension
 
-  lazy val engineConnectionManagerFinalizer: ZIO[Scope, Nothing, Any] = ZIO.unit
 end C7WorkerRegistry

@@ -96,7 +96,6 @@ final class SimulationTestRunner(
                 // Fork the worker execution within the scope
                 fiber           <-
                   runSimulation(taskDef, sim)
-                    .provideLayer(EngineRuntime.sharedExecutorLayer)
                     .fork
                 // Add a finalizer to ensure the fiber is interrupted if the scope closes
                 _               <- ZIO.addFinalizer:

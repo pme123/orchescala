@@ -13,6 +13,7 @@ import orchescala.engine.c8.{
   C8ProcessEngine,
   SharedC8ClientManager
 }
+import orchescala.engine.domain.EngineError
 import orchescala.engine.gateway.GProcessEngine
 import orchescala.worker.DefaultWorkerConfig
 import zio.*
@@ -57,15 +58,12 @@ object ExampleGatewayServer extends GatewayServer:
     DefaultEngineConfig(
     )
 
-  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+  override def engineZIO: ZIO[Any, EngineError, ProcessEngine] =
     (for
-      c7Engine                <- C7ProcessEngine.withClient(ExampleC7Client)
+      c7Engine <- C7ProcessEngine.withClient(ExampleC7Client)
       c8Engine                <- C8ProcessEngine.withClient(ExampleC8Client)
-      given Seq[ProcessEngine] = Seq(c8Engine, c7Engine)
+      given Seq[ProcessEngine] = Seq(c7Engine, c8Engine)
     yield GProcessEngine())
       .provideLayer(SharedC7ClientManager.layer ++ SharedC8ClientManager.layer)
-  
-  lazy val supportedWorkers =
-    Seq(
-    )
+
 end ExampleGatewayServer

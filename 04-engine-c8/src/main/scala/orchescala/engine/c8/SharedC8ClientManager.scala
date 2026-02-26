@@ -11,16 +11,12 @@ type SharedC8ClientManager = SharedClientManager[CamundaClient, EngineError]
 object SharedC8ClientManager:
 
   /** ZLayer that provides SharedC8ClientManager service */
-  val layer: ZLayer[Any, Nothing, SharedC8ClientManager] =
+  lazy val layer: ZLayer[Any, Nothing, SharedC8ClientManager] =
     SharedClientManager.createLayer[CamundaClient, EngineError](
-      "C8",
+      "C8 Client",
       client =>
         ZIO
           .attempt(client.close())
-          .tapBoth(
-            err => ZIO.logError(s"Error closing shared C8 client: $err"),
-            _ => ZIO.logInfo("Shared C8 client closed successfully")
-          ).ignore
     )
 
   /** Convenience method to access the service */
