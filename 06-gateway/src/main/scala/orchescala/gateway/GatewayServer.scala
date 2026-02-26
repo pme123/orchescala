@@ -40,8 +40,6 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     val program =
       ZIO.scoped:
         for
-          _ <- EngineRuntime.threadPoolFinalizer
-          _ <- HttpClientProvider.threadPoolFinalizer
           _ <- ZIO.logInfo(banner("Engine Gateway Server"))
           _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
 

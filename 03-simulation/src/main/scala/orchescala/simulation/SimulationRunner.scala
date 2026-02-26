@@ -1,11 +1,10 @@
 package orchescala.simulation
 
-import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.{EngineApp, EngineRuntime, ProcessEngine}
 import orchescala.simulation.*
 import orchescala.simulation.runner.*
-import zio.{IO, Scope, ZIO, ZLayer}
+import zio.{IO, ZIO, ZLayer}
 
 import scala.compiletime.uninitialized
 
@@ -38,8 +37,6 @@ abstract class SimulationRunner
       : IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
     ZIO.scoped:
       for
-        _                     <- EngineRuntime.threadPoolFinalizer
-        _                     <- HttpClientProvider.threadPoolFinalizer
         _                     <- ZIO.logInfo(s"Starting Simulation ....")
         engine                <- engineZIO
                                    .mapError: err =>

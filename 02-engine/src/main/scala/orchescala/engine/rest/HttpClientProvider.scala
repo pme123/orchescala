@@ -16,9 +16,24 @@ object HttpClientProvider:
       EngineRuntime.zioRuntime.unsafe.run(createBackend.provideLayer(EngineRuntime.logger)).getOrThrow()
 
   // A shared, cached instance of the underlying AsyncHttpClient
-  private lazy val sharedHttpClient: AsyncHttpClient = Unsafe.unsafe:
-    implicit unsafe =>
-      EngineRuntime.zioRuntime.unsafe.run(createHttpClient.provideLayer(EngineRuntime.logger)).getOrThrow()
+  private lazy val sharedHttpClient: AsyncHttpClient =
+    val client = Unsafe.unsafe:
+      implicit unsafe =>
+        EngineRuntime.zioRuntime.unsafe.run(createHttpClient.provideLayer(EngineRuntime.logger)).getOrThrow()
+    // Register a JVM shutdown hook to close the HTTP client on JVM exit.
+    // This avoids the problem of closing the globally cached client at the end
+    // of each ZIO scope, which would break later simulations in the same JVM.
+    java.lang.Runtime.getRuntime.addShutdownHook(new Thread(() =>
+      Unsafe.unsafe:
+        implicit unsafe =>
+          val _ = EngineRuntime.zioRuntime.unsafe.run(
+            (cachedBackend.close() *> ZIO.attempt(client.close()))
+              .catchAll(ex => ZIO.logError(s"Error closing HTTP client.\n$ex"))
+              .zipLeft(ZIO.logInfo("HTTP client closed via shutdown hook"))
+              .provideLayer(EngineRuntime.logger)
+          )
+    ))
+    client
 
   private lazy val createHttpClient: ZIO[Any, Throwable, AsyncHttpClient] =
     ZIO.logInfo("Creating shared AsyncHttpClient") *>
@@ -50,11 +65,4 @@ object HttpClientProvider:
   lazy val live: ZLayer[Any, Throwable, SttpClientBackend] = ZLayer
     .succeed(cachedBackend)
 
-  lazy val threadPoolFinalizer = ZIO
-    .addFinalizer:
-      (cachedBackend.close() *> ZIO.attempt(sharedHttpClient.close()))
-        .catchAll: ex =>
-          ZIO.logError(s"Error closing HTTP client.\n$ex")
-        .zipLeft(ZIO.logInfo("HTTP thread pool closed successfully"))
-    .zipLeft(ZIO.logInfo("HTTP thread pool finalizer registered."))  
 end HttpClientProvider
