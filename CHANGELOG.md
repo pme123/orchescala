@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.1 - 2026-02-27
+### Changed 
+- Increased MaxConnectionsPerHost from 10 to 25. - see [Commit](git@github.com:pme123/orchescala/commit/9701e8fcf4a830b671c095b9385e831b52d742b4)
+
 ## 0.5.0 - 2026-02-26
 ### Changed 
 - Merge pull request #8 from pme123/fix-problem-simulation - see [Commit](git@github.com:pme123/orchescala/commit/92ab640a7b02b5b9bbc8afc0c03c672295a14875)
