@@ -43,7 +43,7 @@ object HttpClientProvider:
           .setIoThreadsCount(1)
           .setUseNativeTransport(false)
           .setMaxConnections(50)
-          .setMaxConnectionsPerHost(10)
+          .setMaxConnectionsPerHost(25)
           .setConnectTimeout(30000)
           .setReadTimeout(30000)
           .setKeepAlive(true)
