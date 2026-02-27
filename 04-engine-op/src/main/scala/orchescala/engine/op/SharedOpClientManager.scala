@@ -8,7 +8,7 @@ import zio.*
 /** Service trait for managing shared Operaton API Client for simulations */
 type SharedOpClientManager = SharedClientManager[ApiClient, EngineError]
 
-object SharedOperatonClientManager:
+object SharedOpClientManager:
 
   /** ZLayer that provides SharedOperatonClientManager service */
   val layer: ZLayer[Any, Nothing, SharedOpClientManager] =
@@ -21,5 +21,5 @@ object SharedOperatonClientManager:
   def getOrCreateClient(clientFactory: ZIO[Any, EngineError, ApiClient]): ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedClientManager.getOrCreateClient(clientFactory)
 
-end SharedOperatonClientManager
+end SharedOpClientManager
 

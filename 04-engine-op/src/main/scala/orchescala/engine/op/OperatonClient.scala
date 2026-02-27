@@ -15,7 +15,7 @@ trait OperatonLocalClient extends OperatonClient:
   protected def operatonRestUrl: String
 
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
-    SharedOperatonClientManager.getOrCreateClient:
+    SharedOpClientManager.getOrCreateClient:
       ZIO.attempt:
         val apiClient = new ApiClient()
         apiClient.setBasePath(operatonRestUrl)
@@ -32,7 +32,7 @@ trait OperatonBasicAuthClient extends OperatonClient:
   protected def password: String
 
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
-    SharedOperatonClientManager.getOrCreateClient:
+    SharedOpClientManager.getOrCreateClient:
       ZIO.attempt:
         val apiClient = new ApiClient()
         apiClient.setBasePath(operatonRestUrl)
@@ -49,7 +49,7 @@ class OperatonOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.Cli
   lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
 
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
-    SharedOperatonClientManager.getOrCreateClient:
+    SharedOpClientManager.getOrCreateClient:
       (for
         _      <- ZIO.logDebug(s"Creating Operaton Engine Client: ${oAuthConfig.ssoBaseUrl}")
         client <- ZIO.attempt(ApiClient())

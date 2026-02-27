@@ -58,7 +58,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             _                      <- logDebug(s"filteredOut: $filteredOut")
             _                      <- externalTaskService.handleSuccess(
                                         filteredOut,
-                                        generalVariables.isManualOutMapping
+                                        generalVariables.isManualOutMapping,
+                                        inTestMode = generalVariables._servicesMocked.contains(true)
                                       )
             _                      <- logDebug(s"Worker: ${worker.topic} completed successfully")
           yield ())
@@ -66,7 +67,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
               externalTaskService.handleError(ex, generalVariables)
             .unit
         .catchAll: ex =>
-          externalTaskService.handleFailure(ex)
+          externalTaskService.handleFailure(ex, inTestMode = false)
   end executeWorker
 
   private def createEngineRunContext(generalVariables: GeneralVariables) =
@@ -87,7 +88,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
     private[worker] def handleSuccess(
         filteredOutput: Map[String, Any],
-        manualOutMapping: Boolean
+        manualOutMapping: Boolean,
+        inTestMode: Boolean
     ): HelperContext[URIO[Any, Unit]] = {
       ZIO.logDebug(s"handleSuccess BEFORE complete: ${worker.topic}") *>
         ZIO.attempt {
@@ -103,7 +105,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       handleFailure(
         UnexpectedError(
           s"There is an unexpected Error from completing a successful Worker to C7: $err."
-        )
+        ),
+        inTestMode
       )
     .ignore
 
@@ -116,7 +119,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           case _: (UnexpectedError | MockedOutput | AlreadyHandledError.type) =>
             ZIO.unit
           case err                                                            =>
-            handleFailure(err)
+            handleFailure(err, generalVariables._servicesMocked.contains(true))
 
     end handleError
 
@@ -139,14 +142,19 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             case _                      => Map.empty
           val filtered: Map[String, Any] =
             filteredOutput(generalVariables.outputVariableSeq, mockedOutput)
+          val inTestMode                 = generalVariables._servicesMocked.contains(true)
           (if
              error.isMock && !generalVariables.handledErrorSeq.contains(
                error.errorCode.toString
              )
            then
-             handleSuccess(filtered, generalVariables.isManualOutMapping)
+             handleSuccess(
+               filtered,
+               generalVariables.isManualOutMapping,
+               inTestMode = inTestMode
+             )
            else
-             handleBpmnError(error, filtered)
+             handleBpmnError(error, filtered, inTestMode)
           ).as(AlreadyHandledError)
         case (true, false) =>
           ZIO.succeed(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrorSeq))
@@ -157,7 +165,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
     private[worker] def handleBpmnError(
         error: WorkerError,
-        filteredGeneralVariables: Map[String, Any]
+        filteredGeneralVariables: Map[String, Any],
+        inTestMode: Boolean
     ): HelperContext[URIO[Any, Unit]] =
       val errorVars = Map(
         "errorCode" -> error.errorCode.toString,
@@ -174,22 +183,24 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       )
         .catchAll: err =>
           handleFailure(
-            UnexpectedError(s"Problem handling BpmnError to C7: $err.")
+            UnexpectedError(s"Problem handling BpmnError to C7: $err."),
+            inTestMode = inTestMode
           ).ignore
         .ignore
     end handleBpmnError
 
     private[worker] def handleFailure(
-        error: WorkerError
+        error: WorkerError,
+        inTestMode: Boolean
     ): HelperContext[URIO[Any, Unit]] =
       val taskId            = summon[camunda.ExternalTask].getId
       val processInstanceId = summon[camunda.ExternalTask].getProcessInstanceId
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
-      val retries           = C7Worker.calcRetries(error, c7Context.workerConfig.doRetryList)
+      val retries           = C7Worker.calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
 
-      logError(
+      ZIO.when(retries <= 0)(logError(
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
-      ) *>
+      )) *>
         ZIO.attempt(
           externalTaskService.handleFailure(
             taskId,
@@ -225,16 +236,19 @@ object C7Worker:
 
   private[worker] def calcRetries(
       error: WorkerError,
-      doRetryMsgs: Seq[String]
+      doRetryMsgs: Seq[String],
+      inTestMode: Boolean
   ): HelperContext[Int] =
     // TODO not used at the moment as every failed
     // val doRetry = doRetryMsgs.exists(error.toString.toLowerCase.contains)
-
-    Option(summon[camunda.ExternalTask].getRetries)
-      .map:
-        _ - 1
-      .getOrElse:
-        2
+    if inTestMode then
+      0
+    else
+      Option(summon[camunda.ExternalTask].getRetries)
+        .map:
+          _ - 1
+        .getOrElse:
+          2
 
   end calcRetries
 end C7Worker

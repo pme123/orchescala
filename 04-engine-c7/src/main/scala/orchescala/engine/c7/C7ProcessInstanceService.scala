@@ -129,7 +129,7 @@ class C7ProcessInstanceService(using
       _               <- ZIO
                            .attempt:
                              val modifications = new PatchVariablesDto()
-                               .modifications(Map("identityCorrelation" -> correlationDto).asJava)
+                               .modifications(Map(InputParams._identityCorrelation.toString -> correlationDto).asJava)
                              new ProcessInstanceApi(apiClient)
                                .modifyProcessInstanceVariables(processInstanceId, modifications)
                            .catchAll:

@@ -3,12 +3,7 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.response.ProcessInstanceEvent
 import io.camunda.client.api.search.response.Variable
-import orchescala.domain.{
-  CamundaVariable,
-  IdentityCorrelation,
-  IdentityCorrelationSigner,
-  JsonProperty
-}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, IdentityCorrelationSigner, InputParams, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
@@ -121,7 +116,7 @@ class C8ProcessInstanceService(using
     for
       correlationJson <- ZIO.succeed(signedCorrelation.asJson.deepDropNullValues)
       variablesMap    <-
-        ZIO.succeed(jsonToVariablesMap(Json.obj("identityCorrelation" -> correlationJson)))
+        ZIO.succeed(jsonToVariablesMap(Json.obj(InputParams._identityCorrelation.toString -> correlationJson)))
       _               <- ZIO
                            .fromFutureJava:
                              camundaClient

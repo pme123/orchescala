@@ -26,11 +26,11 @@ lazy val root = project
     helper,
     engineC7,
     engineC8,
+    engineOp,
     engineGateway,
     gateway,
     workerC7,
     workerC8,
-    engineOp,
     workerOp
   )
 
@@ -262,4 +262,4 @@ lazy val workerOp = project
     libraryDependencies ++=
       opWorkerDependencies ++ zioTestDependencies
   )
-  .dependsOn(worker)
+  .dependsOn(worker, engineOp)
