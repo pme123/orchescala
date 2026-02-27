@@ -6,7 +6,9 @@ import orchescala.engine.domain.EngineError.{ServiceRequestError, UnexpectedErro
 import orchescala.engine.rest.SttpClientBackend
 import sttp.client3.basicRequest
 import sttp.model.Uri
-import zio.ZIO
+import zio.{ZIO, durationInt}
+
+import scala.concurrent.duration.DurationInt
 
 object WorkerForwardUtil:
   val localWorkerAppUrl = "http://localhost:5555"
@@ -45,8 +47,8 @@ object WorkerForwardUtil:
       workerAppBaseUrl: String,
       token: String
   ): ZIO[SttpClientBackend, EngineError, Json] =
-    for
-      _        <- ZIO.logDebug(s"Forwarding worker request to: $workerAppBaseUrl/worker/$topicName")
+    (for
+      _        <- ZIO.logInfo(s"Forwarding worker request to: $workerAppBaseUrl/worker/$topicName")
       uri      <- ZIO.fromEither(Uri.parse(s"$workerAppBaseUrl/worker/$topicName"))
                     .mapError(err => UnexpectedError(s"Invalid worker app URL: $err"))
       request   = basicRequest
@@ -54,12 +56,15 @@ object WorkerForwardUtil:
                     .body(variables.toString)
                     .header("Authorization", s"Bearer $token")
       response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
-                    request.send(backend)
+                    request
+                      .readTimeout(DurationInt(15).seconds)
+                      .send(backend)
+                      .timeoutFail(UnexpectedError(s"Timeout forwarding request to worker app"))(15.seconds)
                       .mapError: err =>
                         UnexpectedError(
                           s"Error forwarding request to worker app: $err\n$variables"
                         )
-      _        <- ZIO.logDebug(s"Worker app response status: ${response.code.code}")
+      _        <- ZIO.logInfo(s"Worker app response status: ${response.code.code}")
       result   <- response.body match
                     case Right(body) =>
                       ZIO.fromEither(parser.parse(body))
@@ -80,5 +85,6 @@ object WorkerForwardUtil:
                                      )
                         _     <- ZIO.fail(error)
                       yield variables // does not happen
-    yield result
+    yield result).tapError: err =>
+      ZIO.logError(s"Error forwarding request to worker app: $err")
 end WorkerForwardUtil

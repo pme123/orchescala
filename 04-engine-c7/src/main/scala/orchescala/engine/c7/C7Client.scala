@@ -1,5 +1,6 @@
 package orchescala.engine.c7
 
+import orchescala.engine.AuthContext
 import org.camunda.community.rest.client.invoker.ApiClient
 import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
@@ -103,37 +104,25 @@ object C7Client:
       : ZIO[SharedC7ClientManager, Nothing, IO[EngineError, ApiClient]] =
     c7Client match
       case bearerClient: C7BearerTokenClient =>
-        ZIO.logDebug("Using C7BearerTokenClient")
-          .as:
-            // For bearer token clients, check AuthContext on every request
-            import orchescala.engine.AuthContext
-            AuthContext.get.flatMap: authContext =>
+        ZIO.logDebug("Using C7BearerTokenClient") *>
+          // For bearer token clients, check AuthContext on every request
+          ZIO.environmentWith[SharedC7ClientManager] : env =>
+            AuthContext.get.flatMap : authContext =>
               authContext.bearerToken match
                 case Some(token) =>
-                  ZIO.logDebug(
-                    s"Using token from AuthContext: ${token.take(20)}...${token.takeRight(10)}"
-                  ) *>
+                  ZIO.logDebug(s"Using token from AuthContext: ${token.take(20)}...${token.takeRight(10)}") *>
                     // Use fresh client with token from AuthContext (pass-through authentication)
                     bearerClient.clientWithToken(token)
-                case None        =>
+                case None =>
                   ZIO.logDebug("No token in AuthContext, using default client") *>
-                    // No token in context, fail with error (bearer token client requires token)
-                    ZIO.fail(EngineError.UnexpectedError(
-                      "C7BearerTokenClient requires a token in AuthContext"
-                    ))
-
+                    // No token in context, use default client (may be cached)
+                    bearerClient.client.provideEnvironment(env)
       case _ =>
         ZIO.logDebug("Using default client") *>
           // For other client types, eagerly resolve the client and return it as an IO
-          ZIO.serviceWithZIO[SharedC7ClientManager]: _ =>
-            c7Client.client
-              .map: apiClient =>
-                // Return the cached client wrapped in ZIO.succeed
-                ZIO.logDebug("Return cached client")
-                  .as(apiClient)
-              .catchAll: err =>
-                // If client creation fails, return an IO that will fail when executed
-                ZIO.logError(s"Problem creating C7 API Client: $err")
-                  .as(ZIO.fail(err))
+          // For other client types, use the standard cached client
+          ZIO.environmentWith[SharedC7ClientManager] { env =>
+            c7Client.client.provideEnvironment(env)
+          }
 
 end C7Client

@@ -1,12 +1,8 @@
 package orchescala.gateway
 
-import sttp.capabilities.WebSockets
-import sttp.capabilities.zio.ZioStreams
-import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
-import sttp.tapir.ztapir.*
 import orchescala.engine.*
-import orchescala.engine.services.*
-import orchescala.worker.{WorkerApp, WorkerDsl}
+import orchescala.engine.rest.HttpClientProvider
+import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import zio.*
 import zio.http.*
 
@@ -42,24 +38,29 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
   def start(): ZIO[Any, Throwable, Unit] =
 
     val program =
-      for
-        _ <- ZIO.logInfo(banner("Engine Gateway Server"))
-        _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
+      ZIO.scoped:
+        for
+          _ <- ZIO.logInfo(banner("Engine Gateway Server"))
+          _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
 
-        // Create gateway engine
-        gatewayEngine      <- engineZIO
-        given GatewayConfig = config
-        // Create routes
-        allRoutes           = routes(gatewayEngine)
+          // Create gateway engine (with shared client layers provided)
+          gatewayEngine      <- engineZIO
+          given GatewayConfig = config
+          // Create routes
+          allRoutes           = routes(gatewayEngine)
 
-        // Start server
-        _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.gatewayPort}")
-        _ <- ZIO.logInfo(s"API Documentation available at http://localhost:${config.gatewayPort}/docs")
-        _ <- Server.serve(allRoutes).forever
-      yield ()
+          // Start server
+          _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.gatewayPort}")
+          _ <- ZIO.logInfo(
+                 s"API Documentation available at http://localhost:${config.gatewayPort}/docs"
+               )
+          _ <- Server.serve(allRoutes).forever
+        yield ()
 
     program.provide(
-      Server.defaultWithPort(config.gatewayPort)
+      EngineRuntime.sharedExecutorLayer ++
+        HttpClientProvider.live ++
+        Server.defaultWithPort(config.gatewayPort)
     ).unit
   end start
 
@@ -83,4 +84,15 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
     ) ++
       OpenApiRoutes.routes
 
+  // Log environment info on startup
+  println(EnvironmentDetector.environmentInfo)
+
+  // Example: Adjust configuration based on environment
+  protected val isLocalDev = EnvironmentDetector.isLocalhost
+
+  if isLocalDev then
+    println("🏠 Running on localhost (not in Docker)")
+  else if EnvironmentDetector.isRunningInDocker then
+    println("🐳 Running in Docker container")
+    
 end GatewayServer

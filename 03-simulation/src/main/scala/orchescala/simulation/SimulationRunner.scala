@@ -1,10 +1,10 @@
 package orchescala.simulation
 
-import orchescala.engine.domain.EngineError
-import orchescala.engine.{EngineApp, ProcessEngine}
+import orchescala.engine.rest.HttpClientProvider
+import orchescala.engine.{EngineApp, EngineRuntime, ProcessEngine}
 import orchescala.simulation.*
 import orchescala.simulation.runner.*
-import zio.{IO, Scope, ZIO, ZLayer}
+import zio.{IO, ZIO, ZLayer}
 
 import scala.compiletime.uninitialized
 
@@ -35,41 +35,47 @@ abstract class SimulationRunner
 
   private def runZIO(sim: SSimulation)
       : IO[SimulationError, Seq[(LogLevel, Seq[ScenarioResult])]] =
-    (for
-      _                     <- ZIO.logInfo(s"Starting Simulation ....")
-      engine                <- engineZIO
-                                 .mapError: err =>
-                                   SimulationError.EngineError(err.toString)
-      _                     <- ZIO.logInfo(s"Engine loaded")
-      given ProcessEngine    = engine
-      given SimulationConfig = config
-      results               <- ZIO
-                                 .logInfo(s"Starting Simulation ....") *>
-                                 ZIO
-                                   .foreachPar(sim.scenarios):
-                                     case scen: ProcessScenario  =>
-                                       ProcessScenarioRunner(scen).run
-                                     case scen: IncidentScenario => IncidentScenarioRunner(scen).run
-                                     case scen: BadScenario      => BadScenarioRunner(scen).run
-                                   .withParallelism(config.engineConfig.parallelism)
-                                   .map: results =>
-                                     results
-                                       .map { (resultData: ScenarioData) =>
-                                         val log =
-                                           resultData.logEntries
-                                             .filter(_.logLevel <= config.logLevel)
-                                             .map(_.toString)
-                                             .mkString("\n")
-                                         ScenarioResult(
-                                           resultData.scenarioName,
-                                           resultData.logEntries.maxLevel,
-                                           log
-                                         )
-                                       }
-                                       .groupBy(_.maxLevel)
-                                       .toSeq
-                                       .sortBy(_._1)
-    yield results).provideLayer(allRequiredLayers)
+    ZIO.scoped:
+      for
+        _                     <- ZIO.logInfo(s"Starting Simulation ....")
+        engine                <- engineZIO
+                                   .mapError: err =>
+                                     SimulationError.EngineError(err.toString)
+        _                     <- ZIO.logInfo(s"Engine loaded")
+        given ProcessEngine    = engine
+        given SimulationConfig = config
+        results               <- ZIO
+                                   .logInfo(s"Starting Simulation ....") *>
+                                   ZIO
+                                     .foreachPar(sim.scenarios):
+                                       case scen: ProcessScenario  =>
+                                         ProcessScenarioRunner(scen).run
+                                       case scen: IncidentScenario => IncidentScenarioRunner(scen).run
+                                       case scen: BadScenario      => BadScenarioRunner(scen).run
+                                     .withParallelism(config.engineConfig.parallelism)
+                                     .map: results =>
+                                       results
+                                         .map { (resultData: ScenarioData) =>
+                                           val log =
+                                             resultData.logEntries
+                                               .filter(_.logLevel <= config.logLevel)
+                                               .map(_.toString)
+                                               .mkString("\n")
+                                           ScenarioResult(
+                                             resultData.scenarioName,
+                                             resultData.logEntries.maxLevel,
+                                             log
+                                           )
+                                         }
+                                         .groupBy(_.maxLevel)
+                                         .toSeq
+                                         .sortBy(_._1)
+      yield results
+    .provideLayer(
+      EngineRuntime.sharedExecutorLayer ++
+        HttpClientProvider.live.orDie ++
+        allRequiredLayers
+    )
   end runZIO
 
 end SimulationRunner

@@ -11,8 +11,7 @@ trait EngineApp:
 
   // For environment-based engines (C8 with SharedC8ClientManager, C7 with SharedC7ClientManager)
   def engineZIO: ZIO[Any, EngineError, ProcessEngine] =
-    ZIO
-      .attempt(engine)
+    ZIO.attempt(engine)
       .mapError(ex =>
         EngineError.ProcessError(s"Error creating engine: ${ex.getMessage}")
       )
