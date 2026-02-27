@@ -1,4 +1,4 @@
-package orchescala.worker.operaton
+package orchescala.worker.op
 
 import org.operaton.bpm.client.ExternalTaskClient
 import orchescala.engine.SharedClientManager

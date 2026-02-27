@@ -1,4 +1,4 @@
-package orchescala.engine.operaton
+package orchescala.engine.op
 
 import orchescala.engine.*
 import orchescala.engine.domain.EngineError
@@ -29,7 +29,7 @@ object OperatonProcessEngine:
   /** Creates an OperatonProcessEngine with the proper client resolved from SharedOperatonClientManager */
   def withClient(operatonClient: OperatonClient)(using
                                      engineConfig: EngineConfig
-  ): ZIO[SharedOperatonClientManager, Nothing, OperatonProcessEngine] =
+  ): ZIO[SharedOpClientManager, Nothing, OperatonProcessEngine] =
     OperatonClient.resolveClient(operatonClient).map : resolvedClient =>
       given IO[EngineError, ApiClient] = resolvedClient
 

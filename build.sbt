@@ -195,7 +195,7 @@ lazy val engineGateway = project
       logbackDependency
     )
   )
-  .dependsOn(engineC7, engineC8, worker)
+  .dependsOn(engineC7, engineC8, engineOp, worker)
 
 // layer 06
 lazy val gateway = project

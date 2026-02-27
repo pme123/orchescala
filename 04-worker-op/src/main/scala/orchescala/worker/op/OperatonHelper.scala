@@ -1,4 +1,4 @@
-package orchescala.worker.operaton
+package orchescala.worker.op
 
 import orchescala.domain.{*, given}
 import orchescala.worker.*

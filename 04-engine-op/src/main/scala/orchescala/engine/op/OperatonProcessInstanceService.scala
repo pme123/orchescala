@@ -1,13 +1,13 @@
-package orchescala.engine.operaton
+package orchescala.engine.op
 
 import orchescala.engine.EngineConfig
-import orchescala.engine.c7.C7HistoricProcessInstanceService
+import orchescala.engine.c7.C7ProcessInstanceService
 import orchescala.engine.domain.EngineError
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.IO
 
-class OperatonHistoricProcessInstanceService(using
+class OperatonProcessInstanceService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends C7HistoricProcessInstanceService, OperatonService
+) extends C7ProcessInstanceService, OperatonService, OperatonEventService
 

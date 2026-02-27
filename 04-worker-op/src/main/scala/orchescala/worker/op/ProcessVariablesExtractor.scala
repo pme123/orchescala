@@ -1,6 +1,6 @@
-package orchescala.worker.operaton
+package orchescala.worker.op
 
-import orchescala.worker.operaton.OperatonHelper.*
+import orchescala.worker.op.OperatonHelper.*
 import orchescala.domain.*
 import orchescala.worker.*
 import orchescala.worker.WorkerError.BadVariableError

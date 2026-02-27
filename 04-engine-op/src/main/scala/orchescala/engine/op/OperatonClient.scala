@@ -1,4 +1,4 @@
-package orchescala.engine.operaton
+package orchescala.engine.op
 
 import org.camunda.community.rest.client.invoker.ApiClient
 import orchescala.engine.domain.EngineError
@@ -7,14 +7,14 @@ import zio.*
 
 /** Base trait for Operaton clients that provide ApiClient instances */
 trait OperatonClient:
-  def client: ZIO[SharedOperatonClientManager, EngineError, ApiClient]
+  def client: ZIO[SharedOpClientManager, EngineError, ApiClient]
 
 /** Operaton client for local/direct connections */
 trait OperatonLocalClient extends OperatonClient:
 
   protected def operatonRestUrl: String
 
-  lazy val client: ZIO[SharedOperatonClientManager, EngineError, ApiClient] =
+  lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOperatonClientManager.getOrCreateClient:
       ZIO.attempt:
         val apiClient = new ApiClient()
@@ -31,7 +31,7 @@ trait OperatonBasicAuthClient extends OperatonClient:
   protected def username: String
   protected def password: String
 
-  lazy val client: ZIO[SharedOperatonClientManager, EngineError, ApiClient] =
+  lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOperatonClientManager.getOrCreateClient:
       ZIO.attempt:
         val apiClient = new ApiClient()
@@ -48,7 +48,7 @@ class OperatonOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.Cli
     extends OperatonClient:
   lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
 
-  lazy val client: ZIO[SharedOperatonClientManager, EngineError, ApiClient] =
+  lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOperatonClientManager.getOrCreateClient:
       (for
         _      <- ZIO.logDebug(s"Creating Operaton Engine Client: ${oAuthConfig.ssoBaseUrl}")
@@ -83,7 +83,7 @@ trait OperatonBearerTokenClient extends OperatonClient:
       EngineError.UnexpectedError(s"Problem creating Operaton API Client with token: $ex")
 
   // Default client without token (for compatibility)
-  lazy val client: ZIO[SharedOperatonClientManager, EngineError, ApiClient] =
+  lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     ZIO.fail(EngineError.UnexpectedError("OperatonBearerTokenClient must provide a token."))
 
 end OperatonBearerTokenClient
@@ -100,7 +100,7 @@ object OperatonClient:
     * correctly even when tokens change between requests.
     */
   def resolveClient(operatonClient: OperatonClient)
-      : ZIO[SharedOperatonClientManager, Nothing, IO[EngineError, ApiClient]] =
+      : ZIO[SharedOpClientManager, Nothing, IO[EngineError, ApiClient]] =
     operatonClient match
       case bearerClient: OperatonBearerTokenClient =>
         ZIO.logDebug("Using OperatonBearerTokenClient")
@@ -125,7 +125,7 @@ object OperatonClient:
       case _ =>
         ZIO.logDebug("Using default client") *>
           // For other client types, eagerly resolve the client and return it as an IO
-          ZIO.serviceWithZIO[SharedOperatonClientManager]: _ =>
+          ZIO.serviceWithZIO[SharedOpClientManager]: _ =>
             operatonClient.client
               .map: apiClient =>
                 // Return the cached client wrapped in ZIO.succeed

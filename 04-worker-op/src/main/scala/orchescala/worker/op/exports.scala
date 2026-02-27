@@ -1,4 +1,4 @@
-package orchescala.worker.operaton
+package orchescala.worker.op
 
 import org.operaton.bpm.client.task.ExternalTask
 import sttp.client3.{HttpClientSyncBackend, Identity, SttpBackend}

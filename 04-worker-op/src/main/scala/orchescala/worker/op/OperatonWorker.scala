@@ -1,11 +1,11 @@
-package orchescala.worker.operaton
+package orchescala.worker.op
 
 import orchescala.domain.*
 import orchescala.engine.rest.SttpClientBackend
 import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
-import orchescala.worker.operaton.OperatonHelper.*
+import orchescala.worker.op.OperatonHelper.*
 import org.operaton.bpm.client.task as operaton
 import zio.*
 import zio.ZIO.*

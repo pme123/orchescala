@@ -1,4 +1,4 @@
-package orchescala.worker.operaton
+package orchescala.worker.op
 
 import orchescala.engine.EngineRuntime
 import org.apache.hc.client5.http.config.ConnectionConfig
