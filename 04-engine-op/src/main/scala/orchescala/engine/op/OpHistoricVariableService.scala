@@ -1,13 +1,13 @@
 package orchescala.engine.op
 
 import orchescala.engine.EngineConfig
-import orchescala.engine.c7.C7IncidentService
+import orchescala.engine.c7.C7HistoricVariableService
 import orchescala.engine.domain.EngineError
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.IO
 
-class OperatonIncidentService(using
+class OpHistoricVariableService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends C7IncidentService, OperatonService
+) extends C7HistoricVariableService, OpService
 

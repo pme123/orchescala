@@ -5,15 +5,15 @@ import orchescala.engine.domain.EngineError
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.*
 
-/** Service trait for managing shared Operaton API Client for simulations */
+/** Service trait for managing shared Op API Client for simulations */
 type SharedOpClientManager = SharedClientManager[ApiClient, EngineError]
 
 object SharedOpClientManager:
 
-  /** ZLayer that provides SharedOperatonClientManager service */
+  /** ZLayer that provides SharedOpClientManager service */
   val layer: ZLayer[Any, Nothing, SharedOpClientManager] =
     SharedClientManager.createLayer[ApiClient, EngineError](
-      "Operaton API",
+      "Op API",
       client => ZIO.attempt(client.getHttpClient.close()).ignore
     )
 

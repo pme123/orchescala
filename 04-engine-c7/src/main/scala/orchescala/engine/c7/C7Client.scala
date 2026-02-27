@@ -45,8 +45,12 @@ trait C7BasicAuthClient extends C7Client:
 
 end C7BasicAuthClient
 
-class C7OAuth2Client(camundaRestUrl: String, oAuthConfig: OAuthConfig.ClientCredentials)
+trait C7OAuth2Client
     extends C7Client:
+
+  def camundaRestUrl: String
+  def oAuthConfig: OAuthConfig.ClientCredentials
+
   lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
 
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
@@ -106,18 +110,20 @@ object C7Client:
       case bearerClient: C7BearerTokenClient =>
         ZIO.logDebug("Using C7BearerTokenClient") *>
           // For bearer token clients, check AuthContext on every request
-          ZIO.environmentWith[SharedC7ClientManager] : env =>
-            AuthContext.get.flatMap : authContext =>
+          ZIO.environmentWith[SharedC7ClientManager]: env =>
+            AuthContext.get.flatMap: authContext =>
               authContext.bearerToken match
                 case Some(token) =>
-                  ZIO.logDebug(s"Using token from AuthContext: ${token.take(20)}...${token.takeRight(10)}") *>
+                  ZIO.logDebug(
+                    s"Using token from AuthContext: ${token.take(20)}...${token.takeRight(10)}"
+                  ) *>
                     // Use fresh client with token from AuthContext (pass-through authentication)
                     bearerClient.clientWithToken(token)
-                case None =>
+                case None        =>
                   ZIO.logDebug("No token in AuthContext, using default client") *>
                     // No token in context, use default client (may be cached)
                     bearerClient.client.provideEnvironment(env)
-      case _ =>
+      case _                                 =>
         ZIO.logDebug("Using default client") *>
           // For other client types, eagerly resolve the client and return it as an IO
           // For other client types, use the standard cached client

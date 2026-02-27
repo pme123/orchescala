@@ -1,13 +1,13 @@
 package orchescala.engine.op
 
 import orchescala.engine.EngineConfig
-import orchescala.engine.c7.C7ProcessInstanceService
+import orchescala.engine.c7.C7SignalService
 import orchescala.engine.domain.EngineError
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.IO
 
-class OperatonProcessInstanceService(using
+class OpSignalService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends C7ProcessInstanceService, OperatonService, OperatonEventService
+) extends C7SignalService, OpEventService
 

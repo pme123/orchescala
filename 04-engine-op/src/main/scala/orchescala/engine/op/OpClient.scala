@@ -5,12 +5,12 @@ import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
 import zio.*
 
-/** Base trait for Operaton clients that provide ApiClient instances */
-trait OperatonClient:
+/** Base trait for Op clients that provide ApiClient instances */
+trait OpClient:
   def client: ZIO[SharedOpClientManager, EngineError, ApiClient]
 
-/** Operaton client for local/direct connections */
-trait OperatonLocalClient extends OperatonClient:
+/** Op client for local/direct connections */
+trait OpLocalClient extends OpClient:
 
   protected def operatonRestUrl: String
 
@@ -20,12 +20,12 @@ trait OperatonLocalClient extends OperatonClient:
         val apiClient = new ApiClient()
         apiClient.setBasePath(operatonRestUrl)
       .mapError: ex =>
-        EngineError.UnexpectedError(s"Problem creating Operaton API Client: $ex")
+        EngineError.UnexpectedError(s"Problem creating Op API Client: $ex")
 
-end OperatonLocalClient
+end OpLocalClient
 
-/** Operaton client with basic authentication */
-trait OperatonBasicAuthClient extends OperatonClient:
+/** Op client with basic authentication */
+trait OpBasicAuthClient extends OpClient:
 
   protected def operatonRestUrl: String
   protected def username: String
@@ -40,18 +40,18 @@ trait OperatonBasicAuthClient extends OperatonClient:
         apiClient.setPassword(password)
         apiClient
       .mapError: ex =>
-        EngineError.UnexpectedError(s"Problem creating Operaton API Client: $ex")
+        EngineError.UnexpectedError(s"Problem creating Op API Client: $ex")
 
-end OperatonBasicAuthClient
+end OpBasicAuthClient
 
-class OperatonOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.ClientCredentials)
-    extends OperatonClient:
+class OpOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.ClientCredentials)
+    extends OpClient:
   lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
 
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOpClientManager.getOrCreateClient:
       (for
-        _      <- ZIO.logDebug(s"Creating Operaton Engine Client: ${oAuthConfig.ssoBaseUrl}")
+        _      <- ZIO.logDebug(s"Creating Op Engine Client: ${oAuthConfig.ssoBaseUrl}")
         client <- ZIO.attempt(ApiClient())
         _      <- ZIO.attempt:
                     client.setBasePath(operatonRestUrl)
@@ -60,18 +60,18 @@ class OperatonOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.Cli
                     client.addDefaultHeader("Authorization", s"Bearer $token")
       yield client)
         .tapError: err =>
-          ZIO.logError(s"Problem creating Operaton Engine Client: $err")
+          ZIO.logError(s"Problem creating Op Engine Client: $err")
         .mapError: ex =>
-          EngineError.UnexpectedError(s"Problem creating Operaton Engine Client: $ex")
-end OperatonOAuth2Client
+          EngineError.UnexpectedError(s"Problem creating Op Engine Client: $ex")
+end OpOAuth2Client
 
-/** Operaton client with Bearer token authentication (token provided per request) */
-trait OperatonBearerTokenClient extends OperatonClient:
+/** Op client with Bearer token authentication (token provided per request) */
+trait OpBearerTokenClient extends OpClient:
 
   protected def operatonRestUrl: String
 
   /** Creates a client with the provided Bearer token. Note: This creates a new client for each
-    * token, so it should not be cached in SharedOperatonClientManager.
+    * token, so it should not be cached in SharedOpClientManager.
     */
   def clientWithToken(token: String): ZIO[Any, EngineError, ApiClient] =
     ZIO.attempt:
@@ -80,30 +80,30 @@ trait OperatonBearerTokenClient extends OperatonClient:
       apiClient.addDefaultHeader("Authorization", s"Bearer $token")
       apiClient
     .mapError: ex =>
-      EngineError.UnexpectedError(s"Problem creating Operaton API Client with token: $ex")
+      EngineError.UnexpectedError(s"Problem creating Op API Client with token: $ex")
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
-    ZIO.fail(EngineError.UnexpectedError("OperatonBearerTokenClient must provide a token."))
+    ZIO.fail(EngineError.UnexpectedError("OpBearerTokenClient must provide a token."))
 
-end OperatonBearerTokenClient
+end OpBearerTokenClient
 
-class OperatonDefaultBearerTokenClient(val operatonRestUrl: String) extends OperatonBearerTokenClient
+class OpDefaultBearerTokenClient(val operatonRestUrl: String) extends OpBearerTokenClient
 
-object OperatonClient:
+object OpClient:
 
-  /** Helper to create an IO[EngineError, ApiClient] from an OperatonClient that can be used in engine
+  /** Helper to create an IO[EngineError, ApiClient] from an OpClient that can be used in engine
     * services.
     *
-    * For OperatonBearerTokenClient, this will check AuthContext on every request and create a fresh
+    * For OpBearerTokenClient, this will check AuthContext on every request and create a fresh
     * client with the token if present. This ensures that pass-through authentication works
     * correctly even when tokens change between requests.
     */
-  def resolveClient(operatonClient: OperatonClient)
+  def resolveClient(operatonClient: OpClient)
       : ZIO[SharedOpClientManager, Nothing, IO[EngineError, ApiClient]] =
     operatonClient match
-      case bearerClient: OperatonBearerTokenClient =>
-        ZIO.logDebug("Using OperatonBearerTokenClient")
+      case bearerClient: OpBearerTokenClient =>
+        ZIO.logDebug("Using OpBearerTokenClient")
           .as:
             // For bearer token clients, check AuthContext on every request
             import orchescala.engine.AuthContext
@@ -119,7 +119,7 @@ object OperatonClient:
                   ZIO.logDebug("No token in AuthContext, using default client") *>
                     // No token in context, fail with error (bearer token client requires token)
                     ZIO.fail(EngineError.UnexpectedError(
-                      "OperatonBearerTokenClient requires a token in AuthContext"
+                      "OpBearerTokenClient requires a token in AuthContext"
                     ))
 
       case _ =>
@@ -133,8 +133,8 @@ object OperatonClient:
                   .as(apiClient)
               .catchAll: err =>
                 // If client creation fails, return an IO that will fail when executed
-                ZIO.logError(s"Problem creating Operaton API Client: $err")
+                ZIO.logError(s"Problem creating Op API Client: $err")
                   .as(ZIO.fail(err))
 
-end OperatonClient
+end OpClient
 
