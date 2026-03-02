@@ -101,3 +101,4 @@ Just go through the pages:
 1. [Process & Domain Specification](specification.md)
 2. [BPMN DSL](bpmnDsl.md)
 3. [Functionality DSLs](functionalityDsls/apiDoc.md)
+4. [Gateway](gateway/01-overview.md)
