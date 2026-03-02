@@ -15,6 +15,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.2 - 2026-03-02
+### Changed 
+- Fix in default DevConfig - for generating build.sbt. - see [Commit](git@github.com:pme123/orchescala/commit/bebc3fcaaac500bf930c046e3500e767c8f9a8af)
+- Merge pull request #7 from pme123/add-operaton-engine-support - see [Commit](git@github.com:pme123/orchescala/commit/5117182649495d5f8f7947474fe6743b9a84b9bf)
+- Logging less of the token. - see [Commit](git@github.com:pme123/orchescala/commit/49cc021ec1dda05bb09b2c50b0ed3ad2399d0a32)
+- Updated Gateway Docs. - see [Commit](git@github.com:pme123/orchescala/commit/566879ed2d4fe2766390134024b2487bf117adf7)
+- Fixed pool shut down in OpClient. - see [Commit](git@github.com:pme123/orchescala/commit/689c3aeaa4e75d5be77bbb31183898fbb3a9f499)
+- Renamed Operaton to Op. - see [Commit](git@github.com:pme123/orchescala/commit/00d741e107ed30a58da059d9e5f8dba3e9da1704)
+- Renamed Operaton to Op. - see [Commit](git@github.com:pme123/orchescala/commit/53a8ed4a771250419edded6ee989d48c4e2841ea)
+- Fixes in simulation missing _identityCorrelation. - see [Commit](git@github.com:pme123/orchescala/commit/52bee95bd91946f59e2e3df4b2285cc472e892f7)
+- Fixes in simulation / _identityCorrelation. - see [Commit](git@github.com:pme123/orchescala/commit/d4da1b0c6e0776207e9cdd082956ca2ab79fc1e3)
+- Merge branch 'develop' into add-operaton-engine-support - see [Commit](git@github.com:pme123/orchescala/commit/adb48dfdf95bbbba842cc379d1e9e08bbb62a036)
+
 ## 0.5.1 - 2026-02-27
 ### Changed 
 - Increased MaxConnectionsPerHost from 10 to 25. - see [Commit](git@github.com:pme123/orchescala/commit/9701e8fcf4a830b671c095b9385e831b52d742b4)
