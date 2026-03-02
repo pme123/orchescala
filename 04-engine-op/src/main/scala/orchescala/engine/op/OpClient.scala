@@ -124,17 +124,12 @@ object OpClient:
 
       case _ =>
         ZIO.logDebug("Using default client") *>
-          // For other client types, eagerly resolve the client and return it as an IO
-          ZIO.serviceWithZIO[SharedOpClientManager]: _ =>
-            operatonClient.client
-              .map: apiClient =>
-                // Return the cached client wrapped in ZIO.succeed
-                ZIO.logDebug("Return cached client")
-                  .as(apiClient)
-              .catchAll: err =>
-                // If client creation fails, return an IO that will fail when executed
-                ZIO.logError(s"Problem creating Op API Client: $err")
-                  .as(ZIO.fail(err))
+          // For other client types, lazily resolve the client using the captured environment.
+          // This mirrors C7Client.resolveClient: the returned IO calls getOrCreateClient each time
+          // it is executed, so if the scoped SharedOpClientManager finalizer closed the previous
+          // ApiClient and reset the Ref, a fresh client will be created on the next call.
+          ZIO.environmentWith[SharedOpClientManager]: env =>
+            operatonClient.client.provideEnvironment(env)
 
 end OpClient
 
