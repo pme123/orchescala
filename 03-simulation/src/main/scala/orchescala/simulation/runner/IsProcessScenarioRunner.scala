@@ -63,7 +63,8 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
               messageName = msgName,
               tenantId = tenantId,
               businessKey = businessKey,
-              variables = initVariables
+              variables = initVariables,
+              identityCorrelation = Some(testIdentityCorrelation)
             )
             .map: result =>
               summon[ScenarioData]

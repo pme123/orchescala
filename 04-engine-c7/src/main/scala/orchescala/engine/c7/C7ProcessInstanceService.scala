@@ -4,7 +4,6 @@ package c7
 import orchescala.domain.*
 import orchescala.domain.CamundaVariable.*
 import orchescala.engine.*
-import orchescala.engine.domain.EngineType.C7
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import org.camunda.community.rest.client.api.{ProcessDefinitionApi, ProcessInstanceApi}
@@ -61,7 +60,7 @@ class C7ProcessInstanceService(using
       processInstanceId = instance.getId,
       businessKey = Option(instance.getBusinessKey),
       status = ProcessInfo.ProcessStatus.Active,
-      engineType = C7
+      engineType = engineType
     )
   end startProcessWithoutCorrelation
 
@@ -95,7 +94,7 @@ class C7ProcessInstanceService(using
       processInstanceId = processInstanceId,
       businessKey = Option(instance.getBusinessKey),
       status = ProcessInfo.ProcessStatus.Active,
-      engineType = C7
+      engineType = engineType
     )
   end startProcessWithSignedCorrelation
 
@@ -130,7 +129,7 @@ class C7ProcessInstanceService(using
       _               <- ZIO
                            .attempt:
                              val modifications = new PatchVariablesDto()
-                               .modifications(Map("identityCorrelation" -> correlationDto).asJava)
+                               .modifications(Map(InputParams._identityCorrelation.toString -> correlationDto).asJava)
                              new ProcessInstanceApi(apiClient)
                                .modifyProcessInstanceVariables(processInstanceId, modifications)
                            .catchAll:
@@ -260,7 +259,7 @@ class C7ProcessInstanceService(using
       processInstanceId = processInstanceId,
       businessKey = businessKey,
       status = ProcessInfo.ProcessStatus.Active,
-      engineType = C7
+      engineType = engineType
     )
   end startProcessByMessageWithoutCorrelation
 
@@ -292,7 +291,7 @@ class C7ProcessInstanceService(using
       processInstanceId = processInstanceId,
       businessKey = businessKey,
       status = ProcessInfo.ProcessStatus.Active,
-      engineType = C7
+      engineType = engineType
     )
   end startProcessByMessageWithSignedCorrelation
 
@@ -338,14 +337,14 @@ class C7ProcessInstanceService(using
             MessageCorrelationResult.Execution(
               result.getExecution.getId,
               result.getExecution.getProcessInstanceId,
-              C7
+              engineType
             )
         case result if result.getResultType.getValue == "ProcessDefinition" =>
           Some:
             MessageCorrelationResult.ProcessInstance(
               result.getProcessInstance.getId,
               result.getProcessInstance.getId,
-              C7
+              engineType
             )
         case _                                                              =>
           None

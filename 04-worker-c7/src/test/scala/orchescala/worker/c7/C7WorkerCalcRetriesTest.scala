@@ -14,14 +14,19 @@ class C7WorkerCalcRetriesTest extends FunSuite:
   given ExternalTask = externalTask
 
   // Simple test helper that replicates the calcRetries logic
-  def calcRetries(error: WorkerError, currentRetries: Int): Int = {
+  def calcRetries(error: WorkerError, currentRetries: Int, inTestMode: Boolean = false): Int = {
     externalTask.setRetries(currentRetries)
-    C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList)
+    C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList, inTestMode)
   }
+
+  test("calcRetries - in test mode"):
+    val error = UnexpectedError("Some unexpected error")
+    val result = calcRetries(error, 3, inTestMode = true)
+    assertEquals(result, 0) // retries - 1
 
   test("calcRetries - retries is null"):
     val error = UnexpectedError("Some unexpected error")
-    val result = C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList)
+    val result = C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList, false)
     assertEquals(result, 2) // retries - 1
 
   test("calcRetries - normal error with retries > 0"):

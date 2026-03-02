@@ -110,7 +110,7 @@ val processInstanceId = processInstance.getId
 val signedCorrelation = signCorrelation(unsignedCorrelation, processInstanceId)
 
 // Update process variables with signed correlation
-runtimeService.setVariable(processInstanceId, "identityCorrelation", signedCorrelation)
+runtimeService.setVariable(processInstanceId, "_identityCorrelation", signedCorrelation)
 ```
 
 **Implemented in:**

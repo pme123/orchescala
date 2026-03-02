@@ -212,6 +212,7 @@ enum BpmnProcessType:
   def diagramPath: os.RelPath
   case C7(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
   case C8(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda8")
+  case Op(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
 
 object BpmnProcessType:
   def diagramPaths: Seq[os.RelPath] =

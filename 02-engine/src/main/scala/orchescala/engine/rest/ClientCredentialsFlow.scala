@@ -28,7 +28,7 @@ class ClientCredentialsFlow(val config: OAuthConfig.ClientCredentials) extends C
                 )
               .tap: token =>
                 ZIO.logInfo(
-                  s"Added Admin Token to Cache self acquired: ${config.client_id} - ${token.take(20)}...${token.takeRight(10)}"
+                  s"Added Admin Token to Cache self acquired: ${config.client_id} - ${token.take(5)}...${token.takeRight(5)}"
                 ).as(TokenCache.cache.put("clientCredentialsToken", token))
 
   protected def identityUrl    = config.identityUrl

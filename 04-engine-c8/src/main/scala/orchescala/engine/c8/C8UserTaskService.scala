@@ -6,7 +6,7 @@ import io.camunda.client.api.search.response.Variable
 import orchescala.engine.domain.EngineError
 
 import java.time.OffsetDateTime
-import orchescala.domain.{CamundaVariable, IdentityCorrelation, Json, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams, Json, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.UserTask
 import orchescala.engine.services.UserTaskService
@@ -76,7 +76,7 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
       jsonVariables =
         signedCorr
           .map: s =>
-            processVariables.add("identityCorrelation", s.asJson.deepDropNullValues)
+            processVariables.add(InputParams._identityCorrelation.toString, s.asJson.deepDropNullValues)
           .getOrElse(processVariables)
       camundaVariables = jsonToVariablesMap(jsonVariables.toMap)
       _               <-

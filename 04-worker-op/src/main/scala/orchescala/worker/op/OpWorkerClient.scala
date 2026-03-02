@@ -1,4 +1,4 @@
-package orchescala.worker.c7
+package orchescala.worker.op
 
 import orchescala.domain.OrchescalaLogger
 import orchescala.engine.Slf4JLogger
@@ -7,25 +7,25 @@ import orchescala.worker.WorkerError
 import org.apache.hc.client5.http.config.RequestConfig
 import org.apache.hc.core5.http.*
 import org.apache.hc.core5.http.protocol.HttpContext
-import org.camunda.bpm.client.ExternalTaskClient
-import org.camunda.bpm.client.backoff.ExponentialBackoffStrategy
+import org.operaton.bpm.client.ExternalTaskClient
+import org.operaton.bpm.client.backoff.ExponentialBackoffStrategy
 import zio.ZIO
 
 import java.util.Base64
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
-trait C7WorkerClient:
-  def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient]
+trait OpWorkerClient:
+  def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient]
 
-  protected def camundaRestUrl: String
+  protected def operatonRestUrl: String
   protected def maxTimeForAcquireJob: Duration = 500.millis
   protected def asyncResponseTimeout: Duration = 15.seconds
   protected def lockDuration: Duration         = 30.seconds
   protected def maxTasks: Int                  = 10
 
   protected def externalClient = ExternalTaskClient.create()
-    .baseUrl(camundaRestUrl)
+    .baseUrl(operatonRestUrl)
     .maxTasks(maxTasks)
     .asyncResponseTimeout(asyncResponseTimeout.toMillis)
     .lockDuration(lockDuration.toMillis)
@@ -37,16 +37,16 @@ trait C7WorkerClient:
         maxTimeForAcquireJob.toMillis
       )
     )
-end C7WorkerClient
+end OpWorkerClient
 
-object C7NoAuthWorkerClient extends C7WorkerClient:
+object OpNoAuthWorkerClient$ extends OpWorkerClient:
 
-  protected def camundaRestUrl: String = "http://localhost:8887/engine-rest"
+  protected def operatonRestUrl: String = "http://localhost:8887/engine-rest"
 
-  def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
-    SharedC7ExternalClientManager.getOrCreateClient:
+  def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedOpExternalClientManager.getOrCreateClient:
       ZIO.logInfo(
-        "Creating C7 ExternalTaskClient (No Auth) for http://localhost:8887/engine-rest"
+        "Creating Op ExternalTaskClient (No Auth) for http://localhost:8887/engine-rest"
       ) *>
         ZIO
           .attempt:
@@ -56,38 +56,43 @@ object C7NoAuthWorkerClient extends C7WorkerClient:
                   // .setResponseTimeout(Timeout.ofSeconds(15))
                   .build())
               .build()
-          .tap(_ => ZIO.logInfo("C7 ExternalTaskClient (No Auth) created successfully"))
-          .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient (No Auth): $err"))
-end C7NoAuthWorkerClient
+          .tapBoth(
+            err => ZIO.logError(s"Failed to create Op ExternalTaskClient (No Auth): $err"),
+            _ => ZIO.logInfo("Op ExternalTaskClient (No Auth) created successfully")
+          )
+end OpNoAuthWorkerClient$
 
-object C7BasicAuthWorkerClient extends C7WorkerClient:
+object OpBasicAuthWorkerClient$ extends OpWorkerClient:
 
-  protected def camundaRestUrl: String = "http://localhost:8080/engine-rest"
+  protected def operatonRestUrl: String = "http://localhost:8080/engine-rest"
 
   lazy val client =
     ZIO.logInfo(
-      s"Creating C7 ExternalTaskClient (Basic Auth) for $camundaRestUrl"
+      s"Creating Op ExternalTaskClient (Basic Auth) for $operatonRestUrl"
     ) *>
-      ZIO.attempt:
-        val encodedCredentials = encodeCredentials("admin", "admin")
-        externalClient
-          .customizeHttpClient: httpClientBuilder =>
-            httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
-              .build())
-              .setDefaultHeaders(List(new org.apache.hc.core5.http.message.BasicHeader(
-                "Authorization",
-                s"Basic $encodedCredentials"
-              )).asJava)
-          .build()
-      .tap(_ => ZIO.logInfo("C7 ExternalTaskClient (Basic Auth) created successfully"))
-        .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient (Basic Auth): $err"))
+      ZIO
+        .attempt:
+          val encodedCredentials = encodeCredentials("admin", "admin")
+          externalClient
+            .customizeHttpClient: httpClientBuilder =>
+              httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
+                .build())
+                .setDefaultHeaders(List(new org.apache.hc.core5.http.message.BasicHeader(
+                  "Authorization",
+                  s"Basic $encodedCredentials"
+                )).asJava)
+            .build()
+        .tapBoth(
+          err => ZIO.logError(s"Failed to create Op ExternalTaskClient (Basic Auth): $err"),
+          _ => ZIO.logInfo("Op ExternalTaskClient (Basic Auth) created successfully")
+        )
 
   private def encodeCredentials(username: String, password: String): String =
     val credentials = s"$username:$password"
     Base64.getEncoder.encodeToString(credentials.getBytes)
-end C7BasicAuthWorkerClient
+end OpBasicAuthWorkerClient$
 
-trait OAuth2PasswordWorkerClient extends C7WorkerClient:
+trait OAuth2PasswordWorkerClient extends OpWorkerClient:
   given logger: OrchescalaLogger = Slf4JLogger.logger(getClass.getName)
 
   protected def oAuthConfig: OAuthConfig.PasswordGrant
@@ -108,10 +113,10 @@ trait OAuth2PasswordWorkerClient extends C7WorkerClient:
           // Still add a placeholder to make the failure explicit in logs
           request.addHeader("Authorization", "Bearer FAILED_TO_ACQUIRE_TOKEN")
 
-  lazy val client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
-    SharedC7ExternalClientManager.getOrCreateClient:
+  lazy val client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedOpExternalClientManager.getOrCreateClient:
       ZIO.logInfo(
-        s"""Creating C7 ExternalTaskClient with OAuth2 for $camundaRestUrl
+        s"""Creating Op ExternalTaskClient with OAuth2 for $operatonRestUrl
            |  - maxTasks: $maxTasks
            |  - lockDuration: ${lockDuration}ms (${lockDuration / 1000}s)
            |  - asyncResponseTimeout: ${asyncResponseTimeout.toSeconds}s  
@@ -127,8 +132,10 @@ trait OAuth2PasswordWorkerClient extends C7WorkerClient:
                   .setConnectionManager(SharedHttpClientManager.connectionManager)
                   .build()
               .build()
-          .tap(_ => ZIO.logInfo("C7 ExternalTaskClient created successfully"))
-          .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient: $err"))
+          .tapBoth(
+            err => ZIO.logError(s"Failed to create Op ExternalTaskClient: $err"),
+            _ => ZIO.logInfo("Op ExternalTaskClient created successfully")
+          )
 
   private lazy val passwordFlow = new PasswordGrantFlow(oAuthConfig)
 end OAuth2PasswordWorkerClient

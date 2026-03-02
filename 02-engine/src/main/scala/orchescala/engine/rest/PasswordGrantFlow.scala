@@ -30,7 +30,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
           )
           .map: token =>
             logger.info(
-              s"Added Admin Token to Cache self acquired: $username - ${token.take(20)}...${token.takeRight(10)}"
+              s"Added Admin Token to Cache self acquired: $username - ${token.take(5)}...${token.takeRight(5)}"
             )
             TokenCache.cache.put(username, token)
             token
@@ -53,7 +53,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
               )
               .tap: token =>
                 ZIO.logInfo(
-                  s"Added Admin Token to Cache: $username - ${token.take(20)}...${token.takeRight(10)}"
+                  s"Added Admin Token to Cache: $username - ${token.take(5)}...${token.takeRight(5)}"
                 ).as(TokenCache.cache.put(username, token))
 
   protected def identityUrl    = config.identityUrl

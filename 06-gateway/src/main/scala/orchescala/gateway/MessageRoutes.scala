@@ -5,10 +5,8 @@ import orchescala.engine.services.*
 import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
-import sttp.tapir.server.ziohttp.{ZioHttpInterpreter, ZioHttpServerOptions}
 import sttp.tapir.ztapir.*
 import zio.*
-import zio.http.*
 
 case class MessageRoutes(
     messageService: MessageService
