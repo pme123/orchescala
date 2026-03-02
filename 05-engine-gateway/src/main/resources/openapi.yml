@@ -988,6 +988,7 @@ components:
       - C7
       - C8
       - Gateway
+      - Op
     Execution:
       title: Execution
       type: object
