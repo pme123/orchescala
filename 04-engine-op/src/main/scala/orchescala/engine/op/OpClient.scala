@@ -111,7 +111,7 @@ object OpClient:
               authContext.bearerToken match
                 case Some(token) =>
                   ZIO.logDebug(
-                    s"Using token from AuthContext: ${token.take(20)}...${token.takeRight(10)}"
+                    s"Using token from AuthContext: ${token.take(5)}...${token.takeRight(5)}"
                   ) *>
                     // Use fresh client with token from AuthContext (pass-through authentication)
                     bearerClient.clientWithToken(token)

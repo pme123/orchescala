@@ -106,7 +106,7 @@ trait OAuth2PasswordWorkerClient extends OpWorkerClient:
       passwordFlow
         .retrieveTokenSync()
         .map: token =>
-          logger.debug(s"Added Bearer Token to Request: ${token.take(20)}...${token.takeRight(10)}")
+          logger.debug(s"Added Bearer Token to Request: ${token.take(5)}...${token.takeRight(5)}")
           request.addHeader("Authorization", s"Bearer $token")
         .left.map: error =>
           logger.error(error)
