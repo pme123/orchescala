@@ -9,7 +9,7 @@ import org.operaton.bpm.engine.variable.`type`.{PrimitiveValueType, ValueType}
 import org.operaton.bpm.engine.variable.value.TypedValue
 import zio.*
 
-object OperatonHelper:
+object OpHelper:
 
   def variableTypedOpt(
       varKey: String | InputParams
@@ -195,5 +195,5 @@ object OperatonHelper:
           s"Could not extract Seq for an Array or comma-separated String: ${error.getMessage}"
         )
 
-end OperatonHelper
+end OpHelper
 

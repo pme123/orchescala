@@ -5,12 +5,12 @@ import orchescala.engine.SharedClientManager
 import zio.{ZIO, *}
 
 /** Service trait for managing shared Operaton ExternalTaskClient */
-type SharedOperatonExternalClientManager = SharedClientManager[ExternalTaskClient, Throwable]
+type SharedOpExternalClientManager = SharedClientManager[ExternalTaskClient, Throwable]
 
-object SharedOperatonExternalClientManager:
+object SharedOpExternalClientManager:
 
   /** ZLayer that provides SharedOperatonExternalClientManager service */
-  val layer: ZLayer[Any, Nothing, SharedOperatonExternalClientManager] =
+  val layer: ZLayer[Any, Nothing, SharedOpExternalClientManager] =
     SharedClientManager.createLayer[ExternalTaskClient, Throwable](
       "Operaton ExternalTask",
       client =>
@@ -24,8 +24,8 @@ object SharedOperatonExternalClientManager:
 
   /** Convenience method to access the service */
   def getOrCreateClient(clientFactory: ZIO[Any, Throwable, ExternalTaskClient])
-      : ZIO[SharedOperatonExternalClientManager, Throwable, ExternalTaskClient] =
+      : ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
     SharedClientManager.getOrCreateClient(clientFactory)
 
-end SharedOperatonExternalClientManager
+end SharedOpExternalClientManager
 

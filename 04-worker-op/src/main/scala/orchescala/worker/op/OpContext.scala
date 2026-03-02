@@ -7,7 +7,7 @@ import org.operaton.bpm.client.variable.ClientValues
 
 import scala.reflect.ClassTag
 
-trait OperatonContext extends EngineContext:
+trait OpContext extends EngineContext:
 
   def getLogger(clazz: Class[?]): OrchescalaLogger =
     Slf4JLogger.logger(clazz.getName)
@@ -20,5 +20,5 @@ trait OperatonContext extends EngineContext:
   ): SendRequestType[ServiceOut] =
     DefaultRestApiClient.sendRequest(request)
 
-end OperatonContext
+end OpContext
 

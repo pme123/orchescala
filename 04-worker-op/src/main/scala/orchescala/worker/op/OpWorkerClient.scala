@@ -15,8 +15,8 @@ import java.util.Base64
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
-trait OperatonWorkerClient:
-  def client: ZIO[SharedOperatonExternalClientManager, Throwable, ExternalTaskClient]
+trait OpWorkerClient:
+  def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient]
 
   protected def operatonRestUrl: String
   protected def maxTimeForAcquireJob: Duration = 500.millis
@@ -37,16 +37,16 @@ trait OperatonWorkerClient:
         maxTimeForAcquireJob.toMillis
       )
     )
-end OperatonWorkerClient
+end OpWorkerClient
 
-object OperatonNoAuthWorkerClient extends OperatonWorkerClient:
+object OpNoAuthWorkerClient$ extends OpWorkerClient:
 
   protected def operatonRestUrl: String = "http://localhost:8887/engine-rest"
 
-  def client: ZIO[SharedOperatonExternalClientManager, Throwable, ExternalTaskClient] =
-    SharedOperatonExternalClientManager.getOrCreateClient:
+  def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedOpExternalClientManager.getOrCreateClient:
       ZIO.logInfo(
-        "Creating Operaton ExternalTaskClient (No Auth) for http://localhost:8887/engine-rest"
+        "Creating Op ExternalTaskClient (No Auth) for http://localhost:8887/engine-rest"
       ) *>
         ZIO
           .attempt:
@@ -56,38 +56,43 @@ object OperatonNoAuthWorkerClient extends OperatonWorkerClient:
                   // .setResponseTimeout(Timeout.ofSeconds(15))
                   .build())
               .build()
-          .tap(_ => ZIO.logInfo("Operaton ExternalTaskClient (No Auth) created successfully"))
-          .tapError(err => ZIO.logError(s"Failed to create Operaton ExternalTaskClient (No Auth): $err"))
-end OperatonNoAuthWorkerClient
+          .tapBoth(
+            err => ZIO.logError(s"Failed to create Op ExternalTaskClient (No Auth): $err"),
+            _ => ZIO.logInfo("Op ExternalTaskClient (No Auth) created successfully")
+          )
+end OpNoAuthWorkerClient$
 
-object OperatonBasicAuthWorkerClient extends OperatonWorkerClient:
+object OpBasicAuthWorkerClient$ extends OpWorkerClient:
 
   protected def operatonRestUrl: String = "http://localhost:8080/engine-rest"
 
   lazy val client =
     ZIO.logInfo(
-      s"Creating Operaton ExternalTaskClient (Basic Auth) for $operatonRestUrl"
+      s"Creating Op ExternalTaskClient (Basic Auth) for $operatonRestUrl"
     ) *>
-      ZIO.attempt:
-        val encodedCredentials = encodeCredentials("admin", "admin")
-        externalClient
-          .customizeHttpClient: httpClientBuilder =>
-            httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
-              .build())
-              .setDefaultHeaders(List(new org.apache.hc.core5.http.message.BasicHeader(
-                "Authorization",
-                s"Basic $encodedCredentials"
-              )).asJava)
-          .build()
-      .tap(_ => ZIO.logInfo("Operaton ExternalTaskClient (Basic Auth) created successfully"))
-        .tapError(err => ZIO.logError(s"Failed to create Operaton ExternalTaskClient (Basic Auth): $err"))
+      ZIO
+        .attempt:
+          val encodedCredentials = encodeCredentials("admin", "admin")
+          externalClient
+            .customizeHttpClient: httpClientBuilder =>
+              httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
+                .build())
+                .setDefaultHeaders(List(new org.apache.hc.core5.http.message.BasicHeader(
+                  "Authorization",
+                  s"Basic $encodedCredentials"
+                )).asJava)
+            .build()
+        .tapBoth(
+          err => ZIO.logError(s"Failed to create Op ExternalTaskClient (Basic Auth): $err"),
+          _ => ZIO.logInfo("Op ExternalTaskClient (Basic Auth) created successfully")
+        )
 
   private def encodeCredentials(username: String, password: String): String =
     val credentials = s"$username:$password"
     Base64.getEncoder.encodeToString(credentials.getBytes)
-end OperatonBasicAuthWorkerClient
+end OpBasicAuthWorkerClient$
 
-trait OAuth2PasswordWorkerClient extends OperatonWorkerClient:
+trait OAuth2PasswordWorkerClient extends OpWorkerClient:
   given logger: OrchescalaLogger = Slf4JLogger.logger(getClass.getName)
 
   protected def oAuthConfig: OAuthConfig.PasswordGrant
@@ -108,10 +113,10 @@ trait OAuth2PasswordWorkerClient extends OperatonWorkerClient:
           // Still add a placeholder to make the failure explicit in logs
           request.addHeader("Authorization", "Bearer FAILED_TO_ACQUIRE_TOKEN")
 
-  lazy val client: ZIO[SharedOperatonExternalClientManager, Throwable, ExternalTaskClient] =
-    SharedOperatonExternalClientManager.getOrCreateClient:
+  lazy val client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+    SharedOpExternalClientManager.getOrCreateClient:
       ZIO.logInfo(
-        s"""Creating Operaton ExternalTaskClient with OAuth2 for $operatonRestUrl
+        s"""Creating Op ExternalTaskClient with OAuth2 for $operatonRestUrl
            |  - maxTasks: $maxTasks
            |  - lockDuration: ${lockDuration}ms (${lockDuration / 1000}s)
            |  - asyncResponseTimeout: ${asyncResponseTimeout.toSeconds}s  
@@ -127,9 +132,10 @@ trait OAuth2PasswordWorkerClient extends OperatonWorkerClient:
                   .setConnectionManager(SharedHttpClientManager.connectionManager)
                   .build()
               .build()
-          .tap(_ => ZIO.logInfo("Operaton ExternalTaskClient created successfully"))
-          .tapError(err => ZIO.logError(s"Failed to create Operaton ExternalTaskClient: $err"))
+          .tapBoth(
+            err => ZIO.logError(s"Failed to create Op ExternalTaskClient: $err"),
+            _ => ZIO.logInfo("Op ExternalTaskClient created successfully")
+          )
 
   private lazy val passwordFlow = new PasswordGrantFlow(oAuthConfig)
 end OAuth2PasswordWorkerClient
-

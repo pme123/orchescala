@@ -5,7 +5,7 @@ import orchescala.engine.rest.SttpClientBackend
 import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
-import orchescala.worker.op.OperatonHelper.*
+import orchescala.worker.op.OpHelper.*
 import org.operaton.bpm.client.task as operaton
 import zio.*
 import zio.ZIO.*
@@ -13,10 +13,10 @@ import zio.ZIO.*
 import java.util.Date
 import scala.jdk.CollectionConverters.*
 
-trait OperatonWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
+trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends BaseWorker[In, Out], operaton.ExternalTaskHandler:
 
-  protected def operatonContext: OperatonContext
+  protected def operatonContext: OpContext
 
   def logger = operatonContext.getLogger(getClass)
 
@@ -227,9 +227,9 @@ trait OperatonWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   end extension
 
-end OperatonWorker
+end OpWorker
 
-object OperatonWorker:
+object OpWorker:
 
-end OperatonWorker
+end OpWorker
 
