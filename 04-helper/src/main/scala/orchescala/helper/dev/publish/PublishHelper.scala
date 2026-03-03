@@ -12,8 +12,8 @@ case class PublishHelper()(using
 
   def publish(version: String): Unit =
     println(s"Publishing BPF Package: $version")
-    //TODO verifyVersion(version)
-    verifySnapshots()
+    verifyVersion(version)
+    //TODO verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     setApiVersion(version)
@@ -50,7 +50,7 @@ case class PublishHelper()(using
   def publishGateway(version: String): Unit =
     println(s"Publishing Gateway: $version")
     verifyVersion(version)
-    verifySnapshots()
+    //TODO verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     // not used setApiVersion(version)

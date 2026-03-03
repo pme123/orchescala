@@ -204,9 +204,7 @@ object WorkerError:
         case ServiceMappingError(msg)       => ServiceRequestError(400, msg)
         case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
         case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
-        case err                            =>
-      end match
-      ServiceRequestError(500, err.errorMsg)
+        case err                            => ServiceRequestError(500, err.errorMsg)
     end apply
   end ServiceRequestError
 

@@ -28,14 +28,16 @@ object GatewayError:
 
     def apply(err: GatewayError | EngineError | WorkerError): ServiceRequestError =
       err match
-        case err: WorkerError.ServiceRequestError =>
+        case err: WorkerError.ServiceRequestError  =>
           ServiceRequestError(err.errorCode, err.errorMsg)
-        case err: WorkerError         => ServiceRequestError(500, err.toString)  
-        case err: EngineError          => ServiceRequestError(500, err.toString)
-        case err: ServiceRequestError  => err
-        case TokenExtractionError(msg) => ServiceRequestError(401, msg)
-        case TokenValidationError(msg) => ServiceRequestError(401, msg)
-        case err                       => ServiceRequestError(500, err.errorMsg)
+        case err: WorkerError                      => ServiceRequestError(500, err.toString)
+        case err: EngineError.ServiceRequestError  =>
+          ServiceRequestError(err.errorCode, err.errorMsg)
+        case err: EngineError                      => ServiceRequestError(500, err.toString)
+        case err: ServiceRequestError              => err
+        case TokenExtractionError(msg)             => ServiceRequestError(401, msg)
+        case TokenValidationError(msg)             => ServiceRequestError(401, msg)
+        case err                                   => ServiceRequestError(500, err.errorMsg)
     
   end ServiceRequestError
   case class UnexpectedError(

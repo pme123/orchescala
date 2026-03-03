@@ -59,11 +59,11 @@ object WorkerForwardUtil:
                     request
                       .readTimeout(DurationInt(15).seconds)
                       .send(backend)
-                      .timeoutFail(UnexpectedError(s"Timeout forwarding request to worker app"))(15.seconds)
                       .mapError: err =>
-                        UnexpectedError(
-                          s"Error forwarding request to worker app: $err\n$variables"
+                        ServiceRequestError(503,
+                          s"Error connecting to worker app: $err\n$variables"
                         )
+                      .timeoutFail(ServiceRequestError(504, s"Timeout forwarding request to worker app"))(15.seconds)
       _        <- ZIO.logInfo(s"Worker app response status: ${response.code.code}")
       result   <- response.body match
                     case Right(body) =>
@@ -72,19 +72,10 @@ object WorkerForwardUtil:
                           UnexpectedError(s"Failed to parse error response: $err")
                         )
                     case Left(err)   =>
-                      for
-                        json  <- ZIO
-                                   .fromEither(parser.parse(err))
-                                   .mapError: err =>
-                                     UnexpectedError(s"Failed to parse response to JSON: $err")
-                        error <- ZIO
-                                   .fromEither(json.as[ServiceRequestError])
-                                   .mapError: err =>
-                                     UnexpectedError(
-                                       s"Failed to parse response to ServiceRequestError: $err"
-                                     )
-                        _     <- ZIO.fail(error)
-                      yield variables // does not happen
+                      ZIO
+                        .fromEither(parser.parse(err).flatMap(_.as[ServiceRequestError]))
+                        .orElse(ZIO.succeed(ServiceRequestError(response.code.code, err)))
+                        .flatMap(ZIO.fail(_))
     yield result).tapError: err =>
       ZIO.logError(s"Error forwarding request to worker app: $err")
 end WorkerForwardUtil
