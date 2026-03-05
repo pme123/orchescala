@@ -5,13 +5,19 @@ BPMN engines and provides a unified REST API regardless of which engine runs you
 
 ## Supported Engines
 
-Currently, Orchescala supports three BPMN engines:
+Currently, Orchescala supports three BPMN engines and one in-process workflow engine:
 
-| Engine        | Module                 | Client     | Description                                                        | State            |
-|---------------|------------------------|------------|--------------------------------------------------------------------|------------------|
-| **Camunda 7** | `orchescala-engine-c7` | `C7Client` | The classic Camunda Platform via REST API                          | Production       |
-| **Camunda 8** | `orchescala-engine-c8` | `C8Client` | Zeebe Engine via REST API                                          | Proof of Concept |
-| **Operaton**  | `orchescala-engine-op` | `OpClient` | [Operaton](https://operaton.org/) – the open-source Camunda 7 fork | Proof of Concept |
+| Engine             | Module                  | Client     | Description                                                        | State            |
+|--------------------|-------------------------|------------|--------------------------------------------------------------------|------------------|
+| **Camunda 7**      | `orchescala-engine-c7`  | `C7Client` | The classic Camunda Platform via REST API                          | Production       |
+| **Camunda 8**      | `orchescala-engine-c8`  | `C8Client` | Zeebe Engine via REST API                                          | Proof of Concept |
+| **Operaton**       | `orchescala-engine-op`  | `OpClient` | [Operaton](https://operaton.org/) – the open-source Camunda 7 fork | Proof of Concept |
+| **Workflows4s**    | `orchescala-engine-w4s` | —          | In-process Scala workflow engine (no BPMN)                         | Proof of Concept |
+
+@:callout(info)
+Workflows4s (W4S) is fundamentally different from the BPMN engines above — it runs **in-process** and workflows are defined in **Scala code**, not BPMN XML.
+See the [W4S Engine documentation](../engines/w4s.md) for details.
+@:@
 
 ### Camunda 7
 
@@ -149,11 +155,12 @@ on Camunda 7/ Operaton and Camunda 8.
 
 Workers also have engine-specific implementations, following the same pattern:
 
-| Engine        | Worker Module          | Description                                | State            |
-|---------------|------------------------|--------------------------------------------|------------------|
-| **Camunda 7** | `orchescala-worker-c7` | External Task workers via Camunda 7 Worker | Production       |
-| **Camunda 8** | `orchescala-worker-c8` | Job workers via Camunda 8 Worker           | Proof of Concept |
-| **Operaton**  | `orchescala-worker-op` | External Task workers via Operaton Worker  | Proof of Concept |
+| Engine             | Worker Module           | Description                                | State            |
+|--------------------|-------------------------|--------------------------------------------|------------------|
+| **Camunda 7**      | `orchescala-worker-c7`  | External Task workers via Camunda 7 Worker | Production       |
+| **Camunda 8**      | `orchescala-worker-c8`  | Job workers via Camunda 8 Worker           | Proof of Concept |
+| **Operaton**       | `orchescala-worker-op`  | External Task workers via Operaton Worker  | Proof of Concept |
+| **Workflows4s**    | `orchescala-worker-w4s` | In-process workers via W4S Engine          | Proof of Concept |
 
 All workers share the same base `Worker` abstraction from `orchescala-worker`,
 so your business logic remains **engine-independent**.

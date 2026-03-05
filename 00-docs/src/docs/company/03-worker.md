@@ -135,10 +135,16 @@ package mycompany.orchescala.worker
 
 import orchescala.worker.c7.C7WorkerRegistry // Camunda 7 support
 import orchescala.worker.c8.C8WorkerRegistry // Camunda 8 support
+import orchescala.worker.w4s.{W4SWorkerRegistry, W4SInMemoryWorkerClient} // W4S support
 
 trait CompanyWorkerApp extends WorkerApp:
 
   lazy val workerRegistries: Seq[WorkerRegistry] =
     Seq(C7WorkerRegistry(CompanyOAuth2Client), C7WorkerRegistry(CompanyOAuth2Client))
 
+  // For W4S (in-process, no external engine):
+  // lazy val workerRegistries: Seq[WorkerRegistry] =
+  //   Seq(W4SWorkerRegistry(W4SInMemoryWorkerClient))
 ```
+
+See [Workflows4s (W4S) Engine](../engines/w4s.md) for details on the W4S integration.
