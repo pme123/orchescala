@@ -19,6 +19,13 @@ trait W4SEngineRuntime:
   def isRunning: Boolean
   def shutdown(): Unit
 
+object W4SEngineRuntime:
+  /** Creates a new in-process W4S engine runtime */
+  def create(): W4SEngineRuntime = new W4SEngineRuntime:
+    @volatile private var running: Boolean = true
+    def isRunning: Boolean = running
+    def shutdown(): Unit = running = false
+
 object SharedW4SEngineManager:
 
   /** ZLayer that provides SharedW4SEngineManager service */
