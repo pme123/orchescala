@@ -989,6 +989,7 @@ components:
       - C8
       - Gateway
       - Op
+      - W4S
     Execution:
       title: Execution
       type: object

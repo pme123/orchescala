@@ -35,11 +35,3 @@ class W4SProcessEngine()(using
 
 end W4SProcessEngine
 
-object W4SProcessEngine:
-
-  /** Creates a W4SProcessEngine with the given engine configuration */
-  def apply(using engineConfig: EngineConfig): W4SProcessEngine =
-    new W4SProcessEngine()
-
-end W4SProcessEngine
-
