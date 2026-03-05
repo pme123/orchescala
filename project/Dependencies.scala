@@ -65,6 +65,9 @@ object Dependencies {
   // 06-gateway
   val oauth2Version = "4.5.0"
 
+  // 04-engine-w4s
+  val workflows4sVersion    = "0.4.2"
+
   // examples
   val h2Version             = "2.3.232"
   val twitter4jVersion      = "4.1.2"
@@ -166,6 +169,10 @@ object Dependencies {
    // "io.camunda" % "zeebe-process-test-extension" % zeebeVersion % Test,
    // "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
    // "org.testcontainers" % "junit-jupiter" % testcontainersVersion % Test
+  )
+
+  lazy val workflows4sDependencies = Seq(
+    "org.business4s" %% "workflows4s-core" % workflows4sVersion
   )
 
 }
