@@ -27,11 +27,13 @@ lazy val root = project
     engineC7,
     engineC8,
     engineOp,
+    engineW4S,
     engineGateway,
     gateway,
     workerC7,
     workerC8,
-    workerOp
+    workerOp,
+    workerW4S
   )
 
 // general independent
@@ -252,6 +254,17 @@ lazy val engineOp = project
   )
   .dependsOn(engineC7)
 
+lazy val engineW4S = project
+  .in(file("./04-engine-w4s"))
+  .settings(publicationSettings)
+  .settings(projectSettings("engine-w4s"))
+  .settings(
+    autoImportSetting,
+    unitTestSettings,
+    libraryDependencies ++= workflows4sDependencies ++ zioTestDependencies
+  )
+  .dependsOn(engine)
+
 lazy val workerOp = project
   .in(file("./04-worker-op"))
   .settings(publicationSettings)
@@ -263,3 +276,15 @@ lazy val workerOp = project
       opWorkerDependencies ++ zioTestDependencies
   )
   .dependsOn(worker, engineOp)
+
+lazy val workerW4S = project
+  .in(file("./04-worker-w4s"))
+  .settings(publicationSettings)
+  .settings(projectSettings("worker-w4s"))
+  .settings(unitTestSettings)
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++=
+      zioTestDependencies
+  )
+  .dependsOn(worker)
