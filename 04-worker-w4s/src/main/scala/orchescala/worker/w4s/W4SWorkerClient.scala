@@ -24,7 +24,7 @@ end W4SWorkerClient
 /** Default W4S Worker Client using an in-memory engine.
   * This is the simplest configuration, suitable for development and testing.
   */
-object W4SInMemoryWorkerClient extends W4SWorkerClient:
+trait W4SInMemoryWorkerClient extends W4SWorkerClient:
 
   override protected def persistent: Boolean = false
 
