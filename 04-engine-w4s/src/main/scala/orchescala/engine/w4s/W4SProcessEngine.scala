@@ -2,6 +2,7 @@ package orchescala.engine.w4s
 
 import orchescala.engine.*
 import orchescala.engine.services.*
+import zio.ZIO
 
 /** ProcessEngine implementation for Workflows4s (W4S).
   *
@@ -34,4 +35,14 @@ class W4SProcessEngine()(using
     W4SUserTaskService(W4SProcessInstanceService())
 
 end W4SProcessEngine
+
+object W4SProcessEngine:
+  /** Creates an OpProcessEngine with the proper client resolved from SharedOpClientManager */
+  def withClient()(using
+                                           engineConfig: EngineConfig
+  ): ZIO[SharedW4SClientManager, Nothing, W4SProcessEngine] = ???
+  //  OpClient.resolveClient(operatonClient).map : resolvedClient =>
+  //    given IO[EngineError, ApiClient] = resolvedClient
+
+  //    OpProcessEngine()
 

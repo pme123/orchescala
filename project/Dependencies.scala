@@ -67,6 +67,7 @@ object Dependencies {
 
   // 04-engine-w4s
   val workflows4sVersion    = "0.4.2"
+  val http4sVersion         = "0.23.33"
 
   // examples
   val h2Version             = "2.3.232"
@@ -172,7 +173,13 @@ object Dependencies {
   )
 
   lazy val workflows4sDependencies = Seq(
-    "org.business4s" %% "workflows4s-core" % workflows4sVersion
+    "org.business4s" %% "workflows4s-core" % workflows4sVersion,
+    "org.business4s" %% "workflows4s-bpmn" % workflows4sVersion,
+    "org.business4s" %% "workflows4s-web-ui-bundle" % workflows4sVersion,
+    "org.business4s" %% "workflows4s-web-api-shared" % workflows4sVersion, // Endpoint definitions and models
+    "org.business4s" %% "workflows4s-web-api-server" % workflows4sVersion, // Server implementation
+    "org.http4s" %% "http4s-ember-server" % http4sVersion,
+    "org.http4s" %% "http4s-dsl" % http4sVersion,
   )
 
 }

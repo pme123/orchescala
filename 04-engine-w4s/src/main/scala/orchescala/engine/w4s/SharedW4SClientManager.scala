@@ -24,8 +24,7 @@ object SharedW4SClientManager:
     SharedClientManager.createLayer[W4SRuntime, EngineError](
       "W4S Runtime",
       runtime =>
-        ZIO
-          .attempt(()) // W4S runtime is in-process, no external cleanup needed
+        ZIO.unit // W4S runtime is in-process, no external cleanup needed
     )
 
   /** Convenience method to access the service */
