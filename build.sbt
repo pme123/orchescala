@@ -287,4 +287,4 @@ lazy val workerW4S = project
     libraryDependencies ++=
       zioTestDependencies
   )
-  .dependsOn(worker)
+  .dependsOn(worker, engineW4S)

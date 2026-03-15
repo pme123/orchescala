@@ -27,6 +27,17 @@ trait WorkerApp extends ZIOAppDefault:
     allLayers.foldLeft(ZLayer.empty: ZLayer[Any, Nothing, Any])(_ ++ _)
   end requiredEngineLayers
 
+  /** Optional additional ZIO services to run in parallel with the worker registries.
+    *
+    * Override this in your concrete app to start extra services (e.g. the W4S UI server):
+    * {{{
+    *   override protected def additionalServices: ZIO[Any, Any, Any] =
+    *     serverWithUiZIO(uiPort, apiUrl)
+    * }}}
+    * The effect is forked as a daemon fiber and runs until the application is interrupted.
+    */
+  protected def additionalServices: ZIO[Any, Any, Any] = ZIO.unit
+
   // list all the workers you want to register
   def workers(dWorkers: (WorkerDsl[?, ?] | Seq[WorkerDsl[?, ?]])*): Unit =
     theWorkers = dWorkers
@@ -49,6 +60,9 @@ trait WorkerApp extends ZIOAppDefault:
         _           <- logInfo(banner(applicationName))
         _           <- printJvmInfologInfo
         _           <- MemoryMonitor.start
+        _           <- additionalServices
+                         .tapError(err => ZIO.logError(s"Additional service crashed: $err"))
+                         .forkDaemon
         workersFork <- foreachParDiscard(workerRegistries) { registry =>
                          registry.register(workerApps(this).flatMap(_.theWorkers).toSet)(using workerConfig)
                        }.withParallelism(engineContext.engineConfig.parallelism).fork
@@ -74,12 +88,12 @@ trait WorkerApp extends ZIOAppDefault:
           workerApp.theDependencies.flatMap(workerApps)
 
   private def printJvmInfologInfo(using Trace): ZIO[Any, Nothing, Unit] =
-    // Print JVM arguments at startup
     val runtimeMxBean = ManagementFactory.getRuntimeMXBean
     val jvmArgs       = runtimeMxBean.getInputArguments.asScala.mkString("\n  ")
-    ZIO.logDebug(s"JVM Arguments:\n  $jvmArgs") *>
-      ZIO.logDebug(
-        s"Memory Settings: Max=${java.lang.Runtime.getRuntime.maxMemory() / 1024 / 1024}MB, Total=${java.lang.Runtime.getRuntime.totalMemory() / 1024 / 1024}MB, Free=${java.lang.Runtime.getRuntime.freeMemory() / 1024 / 1024}MB"
-      )
+    val rt            = java.lang.Runtime.getRuntime
+    ZIO.logInfo(
+      s"JVM Heap: Max=${rt.maxMemory() / 1024 / 1024}MB  Total=${rt.totalMemory() / 1024 / 1024}MB  Free=${rt.freeMemory() / 1024 / 1024}MB"
+    ) *>
+      ZIO.logDebug(s"JVM Arguments:\n  $jvmArgs")
   end printJvmInfologInfo
 end WorkerApp
