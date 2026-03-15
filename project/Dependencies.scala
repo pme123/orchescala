@@ -10,7 +10,10 @@ object Dependencies {
   val osLibVersion          = "0.11.4"
   // 01-domain
   val openapiCirceVersion   = "0.11.10"
-  val tapirVersion          = "1.13.6"
+  // Pinned to 1.11.50 to match workflows4s 0.4.2, which was compiled against
+  // tapir 1.11.50.  RawValue.apply gained a third parameter in 1.13.x, making
+  // tapir-http4s-server 1.11.50 binary-incompatible with tapir-server 1.13.x.
+  val tapirVersion          = "1.11.50"
   val ironCirceVersion      = "3.2.0"
   val mUnitVersion          = "1.1.0"
   val scala3MockVersion     = "0.6.6"
@@ -173,11 +176,11 @@ object Dependencies {
   )
 
   lazy val workflows4sDependencies = Seq(
-    "org.business4s" %% "workflows4s-core" % workflows4sVersion,
-    "org.business4s" %% "workflows4s-bpmn" % workflows4sVersion,
-    "org.business4s" %% "workflows4s-web-ui-bundle" % workflows4sVersion,
-    "org.business4s" %% "workflows4s-web-api-shared" % workflows4sVersion, // Endpoint definitions and models
-    "org.business4s" %% "workflows4s-web-api-server" % workflows4sVersion, // Server implementation
+    "org.business4s" %% "workflows4s-core"           % workflows4sVersion,
+    "org.business4s" %% "workflows4s-bpmn"           % workflows4sVersion,
+    "org.business4s" %% "workflows4s-web-ui-bundle"  % workflows4sVersion,
+    "org.business4s" %% "workflows4s-web-api-shared" % workflows4sVersion,
+    "org.business4s" %% "workflows4s-web-api-server" % workflows4sVersion,
     "org.http4s" %% "http4s-ember-server" % http4sVersion,
     "org.http4s" %% "http4s-dsl" % http4sVersion,
   )
