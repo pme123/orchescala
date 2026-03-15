@@ -20,26 +20,27 @@ import workflows4s.web.api.server.{WorkflowEntry, WorkflowServerEndpoints}
 import zio.{Task, ZIO}
 
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.ExecutionContext
 
-trait W4SServer:
-  def w4SConfig: W4SConfig
-
-  protected def workflowEntries: Resource[cats.effect.IO, List[WorkflowEntry[cats.effect.IO, ?]]]
-
-  /** Override to disable search functionality in the server (e.g. for testing the search-disabled
-    * UI).
+object W4SServer:
+  /** JVM-static holder for the engine created during [[W4SServer.w4SWorkflowApi]] startup.
+    * Stored in the companion object so it is a true static field — a `private val` in a trait
+    * compiles to an abstract accessor that breaks binary compatibility with older class files.
     */
-  protected def includeSearch: Boolean = true
+  private[w4s] val engineHolder: AtomicReference[Option[WorkflowInstanceEngine]] =
+    new AtomicReference(None)
 
   /** Dedicated Cats Effect IORuntime for the W4S http4s server.
     *
-    * Uses separate, daemon-thread pools for compute and blocking so that
-    * Ember's blocking I/O calls (socket bind, accept, …) never starve the
-    * CE fibers scheduled on the compute pool.  All threads are daemons, so
-    * they do not prevent JVM shutdown.
+    * Stored in the companion object (not the trait) to avoid AbstractMethodError: a `private val`
+    * in a trait compiles to an abstract accessor on the JVM interface, breaking already-compiled
+    * subclasses. As a companion-object val it becomes a true JVM static field.
+    *
+    * Uses separate daemon-thread pools for compute and blocking so that Ember's blocking I/O calls
+    * never starve CE fibers. All threads are daemons so they do not prevent JVM shutdown.
     */
-  private lazy val ceIORuntime: IORuntime =
+  private[w4s] lazy val ceIORuntime: IORuntime =
     def daemonFactory(prefix: String): java.util.concurrent.ThreadFactory =
       var idx = 0
       r =>
@@ -59,6 +60,28 @@ trait W4SServer:
       config    = IORuntimeConfig()
     )
 
+trait W4SServer:
+  def w4SConfig: W4SConfig
+
+  /** Override to provide the list of workflow entries for this server.
+    *
+    * Use [[w4SEngine]] to access the engine — it safely returns the engine
+    * that was already created in the current startup chain, without starting
+    * a new one.
+    *
+    * Example:
+    * {{{
+    *   override protected def workflowEntries: Resource[IO, List[WorkflowEntry[IO, ?]]] =
+    *     Workflows.workflows(w4SEngine)
+    * }}}
+    */
+  protected def workflowEntries: Resource[cats.effect.IO, List[WorkflowEntry[cats.effect.IO, ?]]]
+
+  /** Override to disable search functionality in the server (e.g. for testing the search-disabled
+    * UI).
+    */
+  protected def includeSearch: Boolean = true
+
   /** Starts the W4S UI server as a ZIO Task.
     *
     * Converts the Cats Effect based http4s server to a ZIO effect so it can be forked alongside a
@@ -74,7 +97,7 @@ trait W4SServer:
   lazy val serverWithUiZIO: Task[Nothing] =
     ZIO.logInfo(s"Starting W4S UI Server on port ${w4SConfig.port} (API: ${w4SConfig.effectiveApiUrl}) ...") *>
       ZIO.asyncInterrupt[Any, Throwable, Nothing] { cb =>
-        given IORuntime = ceIORuntime
+        given IORuntime = W4SServer.ceIORuntime
         // handleErrorWith propagates server errors to the ZIO fiber;
         // normal completion never happens (IO.never), only cancellation.
         val cancel = serverWithUi
@@ -89,12 +112,22 @@ trait W4SServer:
           .orDie)
       }.tapError(err => ZIO.logError(s"W4S UI Server failed to start: ${err.getMessage}"))
 
-  /** Creates the API routes with CORS enabled.
+  /** Provides the [[WorkflowInstanceEngine]] created by this server's startup chain.
     *
-    * The engine is constructed here and passed directly to [[workflowEntries]].
-    * Subclasses must NOT reference [[w4SEngine]] from inside [[workflowEntries]]
-    * to avoid circular resource acquisition.
+    * Safe to call from inside [[workflowEntries]]: it reads the engine stored in
+    * [[engineHolder]], which is set immediately before [[workflowEntries]] is called,
+    * so no second resource chain is started.
     */
+  protected lazy val w4SEngine: Resource[IO, WorkflowInstanceEngine] =
+    Resource.eval(IO(W4SServer.engineHolder.get()).flatMap {
+      case Some(engine) => IO.pure(engine)
+      case None         => IO.raiseError(new IllegalStateException(
+        "w4SEngine was accessed before the engine was initialized. " +
+          "Only use w4SEngine inside workflowEntries."
+      ))
+    })
+
+  /** Creates the API routes with CORS enabled. */
   protected lazy val w4SWorkflowApi: Resource[IO, (WorkflowInstanceEngine, HttpRoutes[IO])] =
     for
       _            <- Resource.eval(IO(println("[W4S] Initializing KnockerUpper...")))
@@ -102,6 +135,8 @@ trait W4SServer:
       _            <- Resource.eval(IO(println("[W4S] Initializing Registry...")))
       registry     <- InMemoryWorkflowRegistry().toResource
       engine        = WorkflowInstanceEngine.default(knockerUpper, registry)
+      // Store the engine BEFORE calling workflowEntries so w4SEngine can read it safely
+      _            <- Resource.eval(IO(W4SServer.engineHolder.set(Some(engine))))
       _            <- Resource.eval(IO(println("[W4S] Loading workflow entries...")))
       wEntries     <- workflowEntries
       _            <- Resource.eval(IO(println(s"[W4S] Compiling routes (${wEntries.size} workflow entries)...")))
@@ -110,15 +145,6 @@ trait W4SServer:
           .toRoutes(WorkflowServerEndpoints.get[IO](wEntries, Option.when(includeSearch)(registry)))
       _            <- Resource.eval(IO(println("[W4S] Routes compiled.")))
     yield (engine, CORS.policy.withAllowOriginAll(routes))
-
-  /** The shared engine instance used by this server, exposed for subclass use
-    * outside the resource chain (e.g. for injecting into ZIO services).
-    *
-    * WARNING: calling `.use` on this Resource starts a SECOND, independent engine.
-    * Inside [[workflowEntries]] use the `engine` parameter instead.
-    */
-  protected lazy val w4SEngine: Resource[IO, WorkflowInstanceEngine] =
-    w4SWorkflowApi.map(_._1)
 
   protected lazy val serverWithUi: Resource[IO, org.http4s.server.Server] =
     for
