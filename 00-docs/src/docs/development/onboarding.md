@@ -45,7 +45,6 @@ Orchescala is **engine-agnostic** – it supports multiple BPMN engines through 
 | **Camunda 7** | The classic Camunda platform | Production       | Embedded or standalone engine, REST API |
 | **Camunda 8** | Zeebe-based cloud-native engine | Proof of Concept | Distributed engine, gRPC + REST API |
 | **Operaton** | Open-source fork of Camunda 7 | Proof of Concept | Same as Camunda 7 (compatible REST API) |
-| **Workflows4s** | Scala-native in-process engine | Experimenting    | No external server, runs inside the application |
 
 ### Camunda 7
 
@@ -96,16 +95,6 @@ The **next generation** – cloud-native, based on **Zeebe** as a distributed wo
 - 📖 [Operaton Website](https://operaton.org/)
 - 📖 [Operaton GitHub](https://github.com/operaton/operaton)
 
-### Workflows4s (W4S)
-
-**[Workflows4s](https://business4s.github.io/workflows4s/)** is a **Scala-native workflow engine** that runs **in-process** – no external BPMN server required. Workflows are defined directly in Scala code.
-
-> 💡 W4S is especially suited when you want **type-safe workflows** without external infrastructure. For processes that need to be modeled by business analysts, BPMN engines remain the better choice.
-
-**Links:**
-- 📖 [Workflows4s Docs](https://business4s.github.io/workflows4s/)
-- 📖 [W4S in Orchescala](../engines/w4s.md)
-
 ### Which Engine to Use?
 
 | Use Case | Recommended Engine |
@@ -113,7 +102,6 @@ The **next generation** – cloud-native, based on **Zeebe** as a distributed wo
 | **Production processes (established)** | Camunda 7 |
 | **New projects / cloud-native** | Camunda 8 |
 | **Open source without license costs** | Operaton |
-| **Internal Scala workflows** | Workflows4s |
 
 ---
 
@@ -171,7 +159,7 @@ The fundamentals of Scala – type system, collections, pattern matching, etc.
 - 🎓 [Functional Programming in Scala (Coursera)](https://www.coursera.org/learn/scala-functional-programming)
 - 📖 [Tour of Scala](https://docs.scala-lang.org/tour/tour-of-scala.html)
 
-### DSLs (Domain Specific Languages)
+#### DSLs (Domain Specific Languages)
 
 Orchescala provides its own DSL for describing processes and workers. Scala is excellent for this thanks to its flexible syntax.
 
@@ -184,7 +172,7 @@ Orchescala provides its own DSL for describing processes and workers. Scala is e
 **Resources:**
 - 📖 [Scala DSL Techniques](https://docs.scala-lang.org/scala3/reference/contextual/extension-methods.html)
 
-### Iron
+#### Iron
 
 **Iron** is a Scala 3 library for **Refined Types** – types with embedded constraints that enable compile-time validation.
 
@@ -201,7 +189,7 @@ val amount: PositiveAmount = 100.0.refineUnsafe
 - 📖 [Iron Documentation](https://iltotore.github.io/iron/docs/)
 - 📖 [Iron GitHub](https://github.com/Iltotore/iron)
 
-### Tapir
+#### Tapir
 
 **Tapir** enables **type-safe HTTP API definitions** in Scala. Endpoints are described as values and can be interpreted as server, client, or OpenAPI documentation.
 
@@ -219,7 +207,7 @@ val bookListing: PublicEndpoint[Unit, String, List[Book], Any] =
 - 🎓 [Tapir Quickstart](https://tapir.softwaremill.com/en/latest/quickstart.html)
 - 📖 [Tapir GitHub](https://github.com/softwaremill/tapir)
 
-### Circe
+#### Circe
 
 **Circe** is the standard library for **JSON encoding/decoding** in our Scala stack.
 
@@ -247,7 +235,7 @@ val result: Either[Error, Book] = decode[Book]("""{"title":"Clean Code","year":2
 
 As a **user**, you use Orchescala to describe processes, domain objects, and workers – using the provided DSL. You don't need a deep understanding of the underlying libraries (ZIO, Tapir, etc.).
 
-### What You Do as a User
+#### What You Do as a User
 
 - Describe processes and sub-processes in the Orchescala DSL
 - Model domain objects (Input/Output) as Case Classes
@@ -331,7 +319,8 @@ dev-mycompany
 ```bash
 cd ~/dev-mycompany   # or your preferred workspace directory
 ```
-# Download [project-checkout.scala](project-checkout.scala) and put it in your `dev-mycompany` folder.
+
+Download [project-checkout.scala](project-checkout.scala) and put it in your `dev-mycompany` folder.
 
 **2.** Adjust the variables in the script to match your company's project layout:
 - `baseUrl` to your company's Git provider like `https://code.mycompany.com/repos`
