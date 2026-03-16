@@ -126,4 +126,6 @@ The gateway automatically generates and serves OpenAPI documentation:
 
 - [Authentication & Security](02-authentication.md) - Learn about token validation and identity correlation
 - [Impersonation](03-impersonation.md) - Understand identity correlation and process security
+- [BPMN Engine Support](04-engine-support.md) - Supported engines, routing, and worker forwarding
+- [Demo Company](https://github.com/pme123/orchescala-democompany) - Check out an Example, on how to set up different BPMN-Engines.
 

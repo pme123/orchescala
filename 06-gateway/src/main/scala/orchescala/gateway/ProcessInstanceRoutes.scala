@@ -132,7 +132,7 @@ case class ProcessInstanceRoutes(
       .provideLayer(HttpClientProvider.live)
       .mapError:
         case EngineError.ServiceRequestError(errorCode, errorMsg) =>
-          ServiceRequestError(500, s"Init worker failed: $errorMsg")
+          ServiceRequestError(errorCode, s"Init worker failed: $errorMsg")
         case err                                                  =>
           UnexpectedError(s"Init worker failed: ${err.getMessage}")
   end initProcess

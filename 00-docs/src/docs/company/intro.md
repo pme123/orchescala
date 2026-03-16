@@ -7,6 +7,10 @@ helium.site.pageNavigation.enabled = false
 A Company Project handles the specific configuration for the company.
 
 @:callout(info)
+See our [Demo Company](https://github.com/pme123/orchescala-democompany) - Check out an Example, how to setup _Orchescala_ for your Company - examples for all Engines.
+@:@
+
+@:callout(warning)
 **Be aware** that this is not tested.
 
 Make sure you have [init the company](../development/initCompany.md).
