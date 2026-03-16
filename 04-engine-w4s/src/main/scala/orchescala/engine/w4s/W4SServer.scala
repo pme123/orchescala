@@ -4,7 +4,6 @@ import cats.MonoidK.ops.toAllMonoidKOps
 import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 import cats.effect.{IO, Resource}
 import cats.syntax.all.catsSyntaxApplicativeId
-import com.comcast.ip4s.{Port, ipv4}
 import io.circe.Encoder
 import org.http4s.HttpRoutes
 import org.http4s.dsl.io.*
@@ -95,7 +94,7 @@ trait W4SServer:
     * }}}
     */
   lazy val serverWithUiZIO: Task[Nothing] =
-    ZIO.logInfo(s"Starting W4S UI Server on port ${w4SConfig.port} (API: ${w4SConfig.effectiveApiUrl}) ...") *>
+    ZIO.logInfo(s"Starting W4S UI Server on port ${w4SConfig.port} (Host: ${w4SConfig.effectiveApiUrl}) ...") *>
       ZIO.asyncInterrupt[Any, Throwable, Nothing] { cb =>
         given IORuntime = W4SServer.ceIORuntime
         // handleErrorWith propagates server errors to the ZIO fiber;
@@ -103,7 +102,7 @@ trait W4SServer:
         val cancel = serverWithUi
           .use(_ =>
             IO(println(
-              s"W4S UI Server ready ► http://localhost:${w4SConfig.port}/ui/"
+              s"W4S UI Server ready ► ${w4SConfig.effectiveApiUrl}/ui/"
             )) *> IO.never
           )
           .handleErrorWith(err => IO(cb(ZIO.fail(err))))
@@ -171,8 +170,8 @@ trait W4SServer:
       _        <- Resource.eval(IO(println(s"[W4S] Binding EmberServer to port ${w4SConfig.port}...")))
       server   <- EmberServerBuilder
                     .default[IO]
-                    .withHost(ipv4"0.0.0.0")
-                    .withPort(Port.fromInt(w4SConfig.port).get)
+                    .withHost(w4SConfig.host)
+                    .withPort(w4SConfig.port)
                     .withHttpApp(allRoutes.orNotFound)
                     .build
     yield server
