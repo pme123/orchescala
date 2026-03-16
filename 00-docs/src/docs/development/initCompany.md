@@ -66,10 +66,10 @@ chmod +x helperCompany.scala
 
 1. Set the environment variables for the company:
 ```bash
-export SWISSCOM_MVN_REPOSITORY_USERNAME=myUsername
-export SWISSCOM_MVN_REPOSITORY_PASSWORD=myPassword
-export SWISSCOM_MVN_RELEASE_REPOSITORY="https://myArtifactory.com/myReleaseRepo"
-export SWISSCOM_MVN_DEPENDENCY_REPOSITORY="https://myArtifactory.com/myDependencyRepo"
+export MYCOMPANY_MVN_REPOSITORY_USERNAME=myUsername
+export MYCOMPANY_MVN_REPOSITORY_PASSWORD=myPassword
+export MYCOMPANY_MVN_RELEASE_REPOSITORY="https://myArtifactory.com/myReleaseRepo"
+export MYCOMPANY_MVN_DEPENDENCY_REPOSITORY="https://myArtifactory.com/myDependencyRepo"
 ```
 1. Open the `company-orchescala` directory with your IDE (I use Intellij).
 1. Import the sbt project. The project should compile without errors.

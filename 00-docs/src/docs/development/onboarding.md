@@ -40,12 +40,12 @@ Orchescala is **engine-agnostic** – it supports multiple BPMN engines through 
 
 ### Supported Engines
 
-| Engine | Description | Status | Architecture |
-|---|---|---|---|
-| **Camunda 7** | The classic Camunda platform | Production | Embedded or standalone engine, REST API |
+| Engine | Description | Status           | Architecture |
+|---|---|------------------|---|
+| **Camunda 7** | The classic Camunda platform | Production       | Embedded or standalone engine, REST API |
 | **Camunda 8** | Zeebe-based cloud-native engine | Proof of Concept | Distributed engine, gRPC + REST API |
 | **Operaton** | Open-source fork of Camunda 7 | Proof of Concept | Same as Camunda 7 (compatible REST API) |
-| **Workflows4s** | Scala-native in-process engine | Proof of Concept | No external server, runs inside the application |
+| **Workflows4s** | Scala-native in-process engine | Experimenting    | No external server, runs inside the application |
 
 ### Camunda 7
 
@@ -57,18 +57,6 @@ The **classic Camunda platform** – battle-tested for years and our **productio
 - **Cockpit**: Monitoring & Operations
 - **REST API**: External systems interact via HTTP
 - **External Tasks**: Worker pattern for Service Tasks
-
-**Installation (Mac):**
-
-```bash
-# Via Docker (recommended for local development)
-docker run -d --name camunda7 \
-  -p 8080:8080 \
-  camunda/camunda-bpm-platform:latest
-
-# Cockpit & Tasklist: http://localhost:8080/camunda
-# Default login: demo / demo
-```
 
 **Links:**
 - 📖 [Camunda 7 Docs](https://docs.camunda.org/manual/latest/)
@@ -90,16 +78,6 @@ The **next generation** – cloud-native, based on **Zeebe** as a distributed wo
 | **Scripts** | Inline Groovy/JS | FEEL or Workers |
 | **Tasklist** | Classic Tasklist | New Tasklist (React) |
 
-**Installation (Mac):**
-
-```bash
-# Via Docker Compose (recommended)
-# See: https://github.com/camunda/camunda-platform
-
-# Or: Camunda 8 SaaS (free trial)
-# https://camunda.io
-```
-
 **Links:**
 - 📖 [Camunda 8 Docs](https://docs.camunda.io/)
 - 📖 [Zeebe Docs](https://docs.camunda.io/docs/components/zeebe/zeebe-overview/)
@@ -113,18 +91,6 @@ The **next generation** – cloud-native, based on **Zeebe** as a distributed wo
 - 100% open source (no enterprise license required)
 - API-compatible with Camunda 7
 - Community-driven, independent development
-
-**Installation (Mac):**
-
-```bash
-# Via Docker
-docker run -d --name operaton \
-  -p 8080:8080 \
-  operaton/operaton:latest
-
-# Web UI: http://localhost:8080/operaton
-# Default login: demo / demo
-```
 
 **Links:**
 - 📖 [Operaton Website](https://operaton.org/)
@@ -148,8 +114,6 @@ docker run -d --name operaton \
 | **New projects / cloud-native** | Camunda 8 |
 | **Open source without license costs** | Operaton |
 | **Internal Scala workflows** | Workflows4s |
-
-> 📖 Detailed technical documentation: [Engine Support](../gateway/04-engine-support.md) · [Engines](../engines/w4s.md)
 
 ---
 
@@ -291,6 +255,95 @@ As a **user**, you use Orchescala to describe processes, domain objects, and wor
 - Reference DMN decisions
 
 See **_[Orchescala - Introduction](/index.md)_**
+
+---
+
+## Setup the Orchescala Projects
+
+This section guides you through cloning all necessary repositories to start working on your Orchescala projects.
+
+### Git SSH Key Setup (Mac)
+
+If you already have access rights to your company's Git provider (e.g. `https://code.mycompany.com/repos`), follow these steps to configure SSH-based access.
+
+**1. Generate an SSH key pair**
+
+```bash
+# Generate a new Ed25519 key (recommended)
+ssh-keygen -t ed25519 -C "your.email@company.com"
+
+# Follow the prompts – choose a secure passphrase
+# Default location: ~/.ssh/id_ed25519
+```
+
+**2. Enable SSH passphrase caching via macOS Keychain**
+
+Add the following to your `~/.ssh/config` (create the file if it doesn't exist):
+
+```
+Host *
+  UseKeychain yes
+  AddKeysToAgent yes
+  IdentityFile ~/.ssh/id_ed25519
+```
+
+Then add the key to the agent:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+```
+
+> 💡 With `UseKeychain yes`, macOS stores the passphrase in the system Keychain – you only need to enter it once after each reboot.
+
+**3. Add the public key to your Git provider**
+
+```bash
+# Copy the public key to your clipboard
+pbcopy < ~/.ssh/id_ed25519.pub
+```
+
+Then paste it in your Git provider's SSH key settings (e.g. GitLab → Preferences → SSH Keys).
+
+**4. Verify the connection**
+
+```bash
+# Replace with your Git provider's hostname
+ssh -T git@code.mycompany.com
+```
+
+---
+
+### Project Checkout
+
+This clones all required projects into your local projects folder.
+
+```
+dev-mycompany
+├── mycompany-orchescala
+├── projects
+    ├── mycompany-commons
+    ├── mycompany-services
+    └── mycompany-cards
+```
+
+**1.** Navigate to your development folder and download the checkout script:
+
+```bash
+cd ~/dev-mycompany   # or your preferred workspace directory
+```
+# Download [project-checkout.scala](project-checkout.scala) and put it in your `dev-mycompany` folder.
+
+**2.** Adjust the variables in the script to match your company's project layout:
+- `baseUrl` to your company's Git provider like `https://code.mycompany.com/repos`
+- `company` to your company name like `mycompany`
+- `projects` a list of all projects you want to clone like `Seq("mycompany-commons", "mycompany-services")`
+
+**3.** Make the script executable and run it:
+
+```bash
+chmod +x project-checkout.scala
+./project-checkout.scala
+```
 
 ---
 
@@ -531,6 +584,5 @@ As a **developer** of Orchescala itself, you work on the framework core: designi
 4. Implement your first framework contribution via pair programming
 
 ---
-
 
 *Questions? Don't hesitate to ask the team – nobody expects you to learn everything at once! 🙌*
