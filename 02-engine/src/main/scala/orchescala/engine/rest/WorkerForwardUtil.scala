@@ -61,7 +61,7 @@ object WorkerForwardUtil:
                       .send(backend)
                       .mapError: err =>
                         ServiceRequestError(503,
-                          s"Error connecting to worker app: $err\n$variables"
+                          s"Error connecting to worker app: $err"
                         )
                       .timeoutFail(ServiceRequestError(504, s"Timeout forwarding request to worker app"))(15.seconds)
       _        <- ZIO.logInfo(s"Worker app response status: ${response.code.code}")
@@ -74,8 +74,15 @@ object WorkerForwardUtil:
                     case Left(err)   =>
                       ZIO
                         .fromEither(parser.parse(err).flatMap(_.as[ServiceRequestError]))
-                        .orElse(ZIO.succeed(ServiceRequestError(response.code.code, err)))
+                        .orElse(ZIO.succeed(ServiceRequestError(response.code.code, truncateErrorBody(err))))
                         .flatMap(ZIO.fail(_))
     yield result).tapError: err =>
       ZIO.logError(s"Error forwarding request to worker app: $err")
+
+  private val MaxErrorBodyLength = 500
+
+  private def truncateErrorBody(body: String): String =
+    if body.length <= MaxErrorBodyLength then body
+    else body.take(MaxErrorBodyLength) + s"... [truncated, ${body.length} chars total]"
+
 end WorkerForwardUtil

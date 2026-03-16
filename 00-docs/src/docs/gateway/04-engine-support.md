@@ -126,20 +126,18 @@ import orchescala.engine.*
 import orchescala.engine.c7.C7Client
 import orchescala.engine.c8.C8Client
 
-object MyGatewayApp extends GatewayServer
+object MyGatewayApp extends GatewayServer:
 
-:
+  def config: GatewayConfig = DefaultGatewayConfig(
+    engineConfig = DefaultEngineConfig(),
+    workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
+    gatewayPort = 8888
+  )
 
-def config: GatewayConfig = DefaultGatewayConfig(
-  engineConfig = DefaultEngineConfig(),
-  workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
-  gatewayPort = 8888
-)
+  // Configure which engines are available
+  override def c7Clients: Seq[C7Client] = Seq(myC7Client)
 
-// Configure which engines are available
-override def c7Clients: Seq[C7Client] = Seq(myC7Client)
-
-override def c8Clients: Seq[C8Client] = Seq(myC8Client)
+  override def c8Clients: Seq[C8Client] = Seq(myC8Client)
 ```
 
 With this setup, the Gateway provides a **single REST API** that transparently handles processes
