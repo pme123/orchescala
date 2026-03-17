@@ -145,6 +145,7 @@ case class GenericFileGenerator()(using config: DevConfig):
 
   private lazy val gitLabPipeline =
     s"""
+       |# $helperDoNotAdjustText
        |stages:
        |  - test
        |
@@ -155,13 +156,13 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  - template: Jobs/Secret-Detection.gitlab-ci.yml
        |
        |variables:
-       |  ALL_PROXY: ${config.pipelineConfig.map(_.baseProxy)}
+       |  ALL_PROXY: ${config.pipelineConfig.map(_.baseProxy).getOrElse(throw new IllegalArgumentException("No baseProxy defined in pipelineConfig"))}
        |  TP_PROXY: $$ALL_PROXY
        |  HTTP_PROXY: $$ALL_PROXY
        |  HTTPS_PROXY: $$ALL_PROXY
-       |  SCALA_IMAGE: "${config.pipelineConfig.map(_.baseImage)}"
-       |  ${config.pipelineConfig.map(_.companyMVNUser)}: $$CI_REGISTRY_USER
-       |  ${config.pipelineConfig.map(_.companyMVNPassword)}: $$CI_REGISTRY_PASSWORD
+       |  SCALA_IMAGE: ${config.pipelineConfig.map( _.baseImage).getOrElse(throw new IllegalArgumentException("No baseImage defined in pipelineConfig"))}
+       |  ${config.pipelineConfig.map(_.companyMVNUser).getOrElse(throw new IllegalArgumentException("No companyMVNUser defined in pipelineConfig"))}: $$CI_REGISTRY_USER
+       |  ${config.pipelineConfig.map(_.companyMVNPassword).getOrElse(throw new IllegalArgumentException("No companyMVNPassword defined in pipelineConfig"))}: $$CI_REGISTRY_PASSWORD
        |
        |worker-test:
        |  stage: test
