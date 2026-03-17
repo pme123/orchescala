@@ -12,6 +12,7 @@ case class GenericFileGenerator()(using config: DevConfig):
     os.makeDir.all(config.projectDir / ".vscode")
     createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
     createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
+    createOrUpdate(config.projectDir / ".gitlab-ci.yml", gitLabPipeline)
   end generate
 
   lazy val generateForGateway: Unit =
@@ -141,6 +142,42 @@ case class GenericFileGenerator()(using config: DevConfig):
         |  </configuration>
         |</component>
         |""".stripMargin
+
+  private lazy val gitLabPipeline =
+    s"""
+       |stages:
+       |  - test
+       |
+       |include:
+       |  - template: Jobs/SAST.gitlab-ci.yml
+       |  - template: Jobs/SAST-IaC.gitlab-ci.yml
+       |  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+       |  - template: Jobs/Secret-Detection.gitlab-ci.yml
+       |
+       |variables:
+       |  ALL_PROXY: ${config.pipelineConfig.map(_.baseProxy)}
+       |  TP_PROXY: $$ALL_PROXY
+       |  HTTP_PROXY: $$ALL_PROXY
+       |  HTTPS_PROXY: $$ALL_PROXY
+       |  SCALA_IMAGE: "${config.pipelineConfig.map(_.baseImage)}"
+       |  ${config.pipelineConfig.map(_.companyMVNUser)}: $$CI_REGISTRY_USER
+       |  ${config.pipelineConfig.map(_.companyMVNPassword)}: $$CI_REGISTRY_PASSWORD
+       |
+       |worker-test:
+       |  stage: test
+       |  image:
+       |    name: $$SCALA_IMAGE
+       |  variables:
+       |    CI_DEBUG_SERVICES: false
+       |  script:
+       |    - curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
+       |    - chmod +x ./cs
+       |    - eval "$$(./cs setup --env --jvm 21 --apps coursier)"
+       |    - sbt domain/test
+       |    - sbt worker/test
+       |
+       |""".stripMargin
+
   private lazy val workerTestAppVsCode   =
     s"""|// DO NOT ADJUST. This file is replaced by `./helper.scala update`.
         |{
