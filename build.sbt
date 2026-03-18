@@ -72,8 +72,14 @@ lazy val domain = project
       BuildInfoKey("osLibVersion", osLibVersion),
       BuildInfoKey("mUnitVersion", mUnitVersion),
       BuildInfoKey("zioVersion", zioVersion),
+      BuildInfoKey("zioLoggingVersion", zioLoggingVersion),
       BuildInfoKey("logbackVersion", logbackVersion),
-      BuildInfoKey("dmnTesterVersion", dmnTesterVersion)
+      BuildInfoKey("dmnTesterVersion", dmnTesterVersion),
+      // plugins
+      BuildInfoKey("sbtNativePackager", sbtNativePackager),
+      BuildInfoKey("sbtCiRelease", sbtCiRelease),
+      BuildInfoKey("laikaSbt", laikaSbt),
+      BuildInfoKey("sbtBuildInfo", sbtBuildInfo)
     )
   ).enablePlugins(BuildInfoPlugin)
 // layer 02

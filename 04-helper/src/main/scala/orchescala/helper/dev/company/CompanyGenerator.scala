@@ -2,19 +2,24 @@ package orchescala.helper.dev.company
 
 import orchescala.api.*
 import orchescala.api.defaultProjectConfigPath
+import orchescala.engine.EngineConfig
 import orchescala.helper.dev.update.*
 
-case class CompanyGenerator()(using config: DevConfig):
+case class CompanyGenerator(isInitCompany: Boolean = true)(using config: DevConfig, engineConfig: EngineConfig):
 
+  lazy val basePath = if isInitCompany then os.pwd else os.pwd / os.up
+  
   lazy val generate: Unit =
+    
     generateDirectories
     DirectoryGenerator().generate // generates myCompany-orchescala project
     GenericFileGenerator().createScalaFmt
     GenericFileGenerator().createGitIgnore
     // needed helper classes
-    CompanyWrapperGenerator().generate
+    CompanyWrapperGenerator().generate(engineConfig.supportedEngines)
     // override helperCompany.scala
-    createOrUpdate(os.pwd / "helperCompany.scala", CompanyScriptCreator().companyHelper)
+    if isInitCompany then
+      createOrUpdate(basePath / "helperCompany.scala", CompanyScriptCreator().companyHelper)
     // sbt
     CompanySbtGenerator().generate
     // company-orchescala
@@ -43,9 +48,9 @@ case class CompanyGenerator()(using config: DevConfig):
   private lazy val generateProjectDirectories: Unit =
     os.makeDir.all(projectsPath / projectName)
 
-  private lazy val gitTemp = os.pwd / os.up / "git-temp"
-  private lazy val docker = os.pwd / "docker"
-  private lazy val companyOrchescala = os.pwd / s"$companyName-orchescala"
+  private lazy val gitTemp = basePath / os.up / "git-temp"
+  private lazy val docker = basePath / "docker"
+  private lazy val companyOrchescala = basePath / s"$companyName-orchescala"
   
 end CompanyGenerator
 

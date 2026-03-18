@@ -19,20 +19,13 @@ object OpenApiRoutes:
   def routes: Routes[Any, Response] = {
     Routes(
       // Serve OpenAPI YAML specification at /docs/openapi.yml
-      Method.GET / "docs" / "openapi.yml" -> handler {
+      Method.GET / "docs" / "OpenApi.yml" -> handler {
         val yaml = scala.io.Source
-          .fromResource("openapi.yml")
+          .fromResource("OpenApi.yml")
           .mkString
         Response.text(yaml).addHeader(Header.ContentType(MediaType.text.yaml))
       },
 
-      // Also serve at root level for HTML compatibility
-      Method.GET / "openapi.yml" -> handler {
-        val yaml = scala.io.Source
-          .fromResource("openapi.yml")
-          .mkString
-        Response.text(yaml).addHeader(Header.ContentType(MediaType.text.yaml))
-      },
 
       // Serve favicon
       Method.GET / "favicon.ico" -> handler {

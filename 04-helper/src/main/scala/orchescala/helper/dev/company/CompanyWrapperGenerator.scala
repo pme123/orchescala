@@ -1,27 +1,33 @@
 package orchescala.helper.dev.company
 
+import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.update.{GenericFileGenerator, createIfNotExists, createOrUpdate, helperDoNotAdjustText}
 import orchescala.helper.util.*
 
 case class CompanyWrapperGenerator()(using config: DevConfig):
 
-  lazy val generate: Unit =
+  def generate(supportedEngines: Seq[EngineType]): Unit =
     println("Generate Company Wrapper")
     createIfNotExists(config.projectDir / "CHANGELOG.md", GenericFileGenerator().changeLog)
     createIfNotExists(projectDomainPath, domainWrapper)
-    createIfNotExists(projectEnginePath, engineWrapper)
-    createIfNotExists(projectEngineC8Path, engineC8Wrapper)
     createIfNotExists(projectApiPath, apiWrapper)
     createIfNotExists(projectDmnPath, dmnWrapper)
     createIfNotExists(projectSimulationPath, simulationWrapper)
-    createIfNotExists(projectC8SimulationPath, c8SimulationWrapper)
-    createIfNotExists(projectC7SimulationPath, c7SimulationWrapper)
+
+    if supportedEngines.contains(EngineType.C7) then
+      createIfNotExists(projectEngineC7Path, engineC7Wrapper)
+      createIfNotExists(projectC7SimulationPath, c7SimulationWrapper)
+      createIfNotExists(projectWorkerC7ClientPath, workerCompanyC7ClientWrapper)
+
+    if supportedEngines.contains(EngineType.C8) then
+      createIfNotExists(projectEngineC8Path, engineC8Wrapper)
+      createIfNotExists(projectC8SimulationPath, c8SimulationWrapper)
+      
     createIfNotExists(projectWorkerPath, workerWrapper)
     createIfNotExists(projectWorkerContextPath, workerContextWrapper)
-    createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
+    //createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
     createIfNotExists(projectWorkerRestApiPath, workerRestApiWrapper)
     createIfNotExists(projectWorkerAppPath, workerAppWrapper)
-    createIfNotExists(projectWorkerC7ClientPath, workerCompanyC7ClientWrapper)
     createIfNotExists(helperCompanyDevHelperPath, helperCompanyDevHelperWrapper)
     createIfNotExists(helperCompanyDevConfigPath, helperCompanyDevConfigWrapper)
     createIfNotExists(helperCompanyOrchescalaDevHelperPath, helperCompanyOrchescalaDevHelperWrapper)
@@ -32,7 +38,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val companyNameNice = s"${config.companyName.head.toUpper}${config.companyName.tail}"
 
   private lazy val projectDomainPath = ModuleConfig.domainModule.srcPath / "CompanyBpmnDsl.scala"
-  private lazy val projectEnginePath = ModuleConfig.engineModule.srcPath / "CompanyEngineConfig.scala"
+  // Camunda 7
+  private lazy val projectEngineC7Path = ModuleConfig.engineModule.srcPath / "CompanyEngineC7Config.scala"
   private lazy val projectEngineC8Path = ModuleConfig.engineModule.srcPath / "CompanyEngineC8Config.scala"
   private lazy val projectApiPath = ModuleConfig.apiModule.srcPath / "CompanyApiCreator.scala"
   private lazy val projectDmnPath = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
@@ -70,14 +77,14 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |trait CompanyBpmnTimerEventDsl extends BpmnTimerEventDsl, CompanyBpmnDsl
        |""".stripMargin
 
-  private lazy val engineWrapper =
+  private lazy val engineC7Wrapper =
     s"""package $companyName.orchescala
        |package engine
        |
        |/**
        | * Add here company specific stuff, to configure the Engine.
        | */
-       |object CompanyEngineConfig:
+       |object CompanyEngineC7Config:
        |
        |  lazy val ssoClientName = sys.env.getOrElse("SSO_CLIENT_NAME", "myClient")
        |  lazy val ssoClientSecret =
@@ -98,7 +105,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |  lazy val username = ssoTechuserName
        |  lazy val password = ssoTechuserPassword
        |
-       |end CompanyEngineConfig
+       |end CompanyEngineC7Config
        |""".stripMargin
 
   private lazy val engineC8Wrapper =
@@ -229,7 +236,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |/**
        | * Company-specific C7 Simulation trait that works with SharedC7ClientManager
        | */
-       |trait CompanyC7Simulation extends SimulationRunner, CompanyEngineConfig, C7LocalClient:
+       |trait CompanyC7Simulation extends SimulationRunner, CompanyEngineC7Config, C7LocalClient:
        |
        |  // Override requiredLayers to provide the SharedC7ClientManager layer
        |  override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
@@ -314,12 +321,12 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     s"""package $companyName.orchescala.worker
        |
        |import orchescala.worker.c7.OAuth2WorkerClient
-       |import $companyName.orchescala.engine.CompanyEngineConfig
+       |import $companyName.orchescala.engine.CompanyEngineC7Config
        |
        |trait CompanyPasswordFlow extends OAuth2WorkerClient:
        |
-       |  def ssoRealm: String = CompanyEngineConfig.ssoRealm
-       |  def ssoBaseUrl: String = CompanyEngineConfig.ssoBaseUrl
+       |  def ssoRealm: String = CompanyEngineC7Config.ssoRealm
+       |  def ssoBaseUrl: String = CompanyEngineC7Config.ssoBaseUrl
        |
        | // override the config if needed or change the WorkerClient
        |
@@ -377,19 +384,19 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val workerCompanyC7ClientWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import democompany.orchescala.engine.CompanyEngineConfig
+       |import democompany.orchescala.engine.CompanyEngineC7Config
        |import orchescala.worker.c7.OAuth2WorkerClient
        |import scala.concurrent.duration.*
        |
        |trait CompanyC7Client extends OAuth2WorkerClient:
-       |  lazy val ssoRealm = CompanyEngineConfig.ssoRealm
-       |  lazy val ssoBaseUrl = CompanyEngineConfig.ssoBaseUrl
-       |  override lazy val camundaRestUrl = CompanyEngineConfig.camundaRestUrl
-       |  override lazy val client_id = CompanyEngineConfig.ssoClientName
-       |  override lazy val client_secret = CompanyEngineConfig.ssoClientSecret
-       |  override lazy val scope = CompanyEngineConfig.ssoScope
-       |  override lazy val username = CompanyEngineConfig.ssoTechuserName
-       |  override lazy val password = CompanyEngineConfig.ssoTechuserPassword
+       |  lazy val ssoRealm = CompanyEngineC7Config.ssoRealm
+       |  lazy val ssoBaseUrl = CompanyEngineC7Config.ssoBaseUrl
+       |  override lazy val camundaRestUrl = CompanyEngineC7Config.camundaRestUrl
+       |  override lazy val client_id = CompanyEngineC7Config.ssoClientName
+       |  override lazy val client_secret = CompanyEngineC7Config.ssoClientSecret
+       |  override lazy val scope = CompanyEngineC7Config.ssoScope
+       |  override lazy val username = CompanyEngineC7Config.ssoTechuserName
+       |  override lazy val password = CompanyEngineC7Config.ssoTechuserPassword
        |
        |  override lazy val lockDuration: Long = 5.minutes.toMillis
        |
