@@ -16,16 +16,28 @@ object OpenApiRoutes:
     * @return
     *   ZIO HTTP routes for documentation
     */
-  def routes: Routes[Any, Response] = {
+  def routes: Routes[Any, Response] =
     Routes(
       // Serve OpenAPI YAML specification at /docs/openapi.yml
-      Method.GET / "docs" / "OpenApi.yml" -> handler {
+      Method.GET / "docs" / "OpenApi.yml"                      -> handler {
         val yaml = scala.io.Source
           .fromResource("OpenApi.yml")
           .mkString
         Response.text(yaml).addHeader(Header.ContentType(MediaType.text.yaml))
       },
+      // Serve BPMNs und DMNs
+      Method.GET / "diagrams" / string("diagramName") -> handler {
+        (diagramName: String, _: Request) =>
+          ZIO
+            .attempt:
+              val xml = scala.io.Source
+                .fromResource(s"diagrams/$diagramName")
+                .mkString
+              Response.text(xml).addHeader(Header.ContentType(MediaType.application.xml))
+            .catchAll: _ =>
+              ZIO.succeed(Response.status(Status.NotFound))
 
+      },
 
       // Serve favicon
       Method.GET / "favicon.ico" -> handler {
@@ -58,6 +70,5 @@ object OpenApiRoutes:
         }
       }
     )
-  }
 
 end OpenApiRoutes
