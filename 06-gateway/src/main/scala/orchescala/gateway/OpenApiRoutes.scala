@@ -1,5 +1,7 @@
 package orchescala.gateway
 
+import io.circe.parser as circeParser
+import java.util.concurrent.ConcurrentHashMap
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import sttp.client3.basicRequest
 import sttp.model.Uri
@@ -10,6 +12,14 @@ import zio.http.*
   */
 class OpenApiRoutes()(using config: GatewayConfig):
 
+  private case class OAuth2CodeExchangeEntry(
+      createdAtMillis: Long,
+      promise: Promise[Nothing, Either[String, String]]
+  )
+
+  private val oauth2CodeExchanges = ConcurrentHashMap[String, OAuth2CodeExchangeEntry]()
+  private val oauth2CodeExchangeTtlMillis = 10.minutes.toMillis
+
   /** Creates routes for serving OpenAPI documentation.
     *
     * Provides:
@@ -18,12 +28,15 @@ class OpenApiRoutes()(using config: GatewayConfig):
     *   - GET /docs/openApis/{projectName} - Forwards to projectName worker app /docs
     *   - GET /docs/openApis/{projectName}/OpenApi.yml - Forwards to projectName worker app
     *     /docs/OpenApi.yml
+    *   - GET /docs/oauth2/callback - OAuth 2.0 Authorization Code callback (when OAuth2 is configured)
+    *
+    * Authentication is applied to all `/docs` routes according to [[GatewayConfig.docsAuth]].
     *
     * @return
     *   ZIO HTTP routes for documentation
     */
   def routes: Routes[Any, Response] =
-    Routes(
+    val protectedRoutes = Routes(
       // Serve OpenAPI YAML specification at /docs/OpenApi.yml
       Method.GET / "docs" / "OpenApi.yml" -> handler {
         val yaml = OpenApiGenerator.generateYaml
@@ -56,22 +69,6 @@ class OpenApiRoutes()(using config: GatewayConfig):
           forwardDocsRequest(projectName, s"diagrams/$diagramName", MediaType.application.xml)
       },
 
-      // Serve favicon
-      Method.GET / "favicon.ico" -> handler {
-        ZIO.attempt {
-          val faviconBytes = scala.io.Source
-            .fromResource("favicon.ico")(using scala.io.Codec.ISO8859)
-            .map(_.toByte)
-            .toArray
-          Response(
-            body = Body.fromArray(faviconBytes),
-            headers = Headers(Header.ContentType(MediaType.image.`x-icon`))
-          )
-        }.catchAll { error =>
-          ZIO.succeed(Response.status(Status.NotFound))
-        }
-      },
-
       // Serve HTML documentation page
       Method.GET / "docs" -> handler {
         ZIO.attempt {
@@ -87,6 +84,37 @@ class OpenApiRoutes()(using config: GatewayConfig):
         }
       }
     )
+
+    // Favicon is always public (browsers request it automatically)
+    val faviconRoute = Routes(
+      Method.GET / "favicon.ico" -> handler {
+        ZIO.attempt {
+          val faviconBytes = scala.io.Source
+            .fromResource("favicon.ico")(using scala.io.Codec.ISO8859)
+            .map(_.toByte)
+            .toArray
+          Response(
+            body    = Body.fromArray(faviconBytes),
+            headers = Headers(Header.ContentType(MediaType.image.`x-icon`))
+          )
+        }.catchAll(_ => ZIO.succeed(Response.status(Status.NotFound)))
+      }
+    )
+
+    config.docsAuth match
+      case DocsAuth.Disabled =>
+        protectedRoutes ++ faviconRoute
+
+      case auth: DocsAuth.BasicAuth =>
+        // HandlerAspect.basicAuth performs constant-time credential comparison and
+        // replies with WWW-Authenticate: Basic so browsers show a login dialog.
+        (protectedRoutes @@ HandlerAspect.basicAuth(auth.username, auth.password)) ++ faviconRoute
+
+      case auth: DocsAuth.OAuth2AuthCode =>
+        // The middleware only checks the token cookie and redirects to Keycloak if absent.
+        // The Keycloak callback is handled by a dedicated public route at /docs/oauth2/callback,
+        // which avoids OAuth2 query params (code, state, …) ever landing on the main /docs page.
+        (protectedRoutes @@ oauth2AuthMiddleware(auth)) ++ oauth2CallbackRoute(auth) ++ faviconRoute
 
   private def forwardDocsRequest(
       projectName: String,
@@ -120,5 +148,276 @@ class OpenApiRoutes()(using config: GatewayConfig):
             ZIO.logError(
               s"Error forwarding docs request for '$projectName': $err"
             ).as(Response.status(Status.InternalServerError))
+
+  // ---------------------------------------------------------------------------
+  // OAuth 2.0 Authorization Code Grant helpers
+  // ---------------------------------------------------------------------------
+
+  /** Middleware that protects routes with OAuth 2.0 Authorization Code Grant.
+    *
+    * Two cases on every request:
+    *
+    *   1. Token cookie present → pass through to the handler.
+    *   2. No cookie → redirect browser to Keycloak authorization URL.
+    *
+    * The Keycloak callback is handled by the dedicated public route
+    * `GET /docs/oauth2/callback` (see [[oauth2CallbackRoute]]), which exchanges the
+    * authorization code for a token and then issues a clean redirect to `/docs`.
+    * This ensures that OAuth2 query params (code, state, …) never appear on the
+    * `/docs` page itself, preventing parameter accumulation caused by multiple
+    * simultaneous sub-requests each triggering their own Keycloak redirect.
+    */
+  private def oauth2AuthMiddleware(auth: DocsAuth.OAuth2AuthCode): Middleware[Any] =
+    new Middleware[Any]:
+      def apply[Env1 <: Any, Err](routes: Routes[Env1, Err]): Routes[Env1, Err] =
+        routes.transform[Env1]: handler =>
+          Handler.scoped[Env1]:
+            zio.http.handler: (request: Request) =>
+              request.cookie("orchescala_docs_token") match
+
+                // ── 1. Authenticated ────────────────────────────────────────
+                case Some(cookie) if cookie.content.nonEmpty =>
+                  handler(request)
+
+                // ── 2. No token → redirect to Keycloak ──────────────────────
+                case _ =>
+                  val state       = java.util.UUID.randomUUID().toString
+                  val redirectUri = deriveCallbackUri(request)
+                  val authUrl     = buildOAuthUrl(auth, state, redirectUri)
+                  ZIO.succeed:
+                    Response(status = Status.Found, headers = Headers("location" -> authUrl))
+                      .addCookie(
+                        Cookie.Response(
+                          name       = "orchescala_oauth_state",
+                          content    = state,
+                          path       = Some(Path.root),
+                          isHttpOnly = true,
+                          sameSite   = Some(Cookie.SameSite.Lax)
+                        )
+                      )
+
+  /** Public (unprotected) route that handles the Keycloak authorization-code callback.
+    *
+    * Keycloak redirects here (`/docs/oauth2/callback?code=…&state=…`) after the user
+    * authenticates. The route verifies the CSRF state, exchanges the code for an access
+    * token, stores it in an HTTP-only cookie and issues a clean `302 → /docs` redirect.
+    * Because this is a dedicated route (not `/docs`), OAuth2 query params can never
+    * accumulate on the docs page regardless of how many parallel sub-requests are in flight.
+    */
+  private def oauth2CallbackRoute(auth: DocsAuth.OAuth2AuthCode): Routes[Any, Nothing] =
+    Routes(
+      Method.GET / "docs" / "oauth2" / "callback" -> handler { (request: Request) =>
+        val codeOpt     = request.queryParam("code")
+        val stateOpt    = request.queryParam("state")
+        val storedState = request.cookie("orchescala_oauth_state").map(_.content)
+
+        // Build the redirect_uri from the *actual* URL the user called (path taken
+        // directly from request.url, not reconstructed from a hard-coded string).
+        // This guarantees it is byte-for-byte identical to the URI Keycloak received
+        // during the authorization request, which is required for the token exchange.
+        val scheme      = request.rawHeader("X-Forwarded-Proto").getOrElse("http")
+        val host        = request.header(Header.Host).map(_.renderedValue).getOrElse("localhost")
+        val callbackUri = s"$scheme://$host${request.url.path}"
+
+        (codeOpt, stateOpt) match
+
+          // ── Valid callback: state matches ────────────────────────────────
+          case (Some(code), Some(state)) if storedState.contains(state) =>
+            exchangeCodeForTokenOnce(auth, code, callbackUri)
+              .foldZIO(
+                err =>
+                  ZIO.logError(s"OAuth2 token exchange failed: $err")
+                    .as(
+                      Response.text(s"OAuth2 token exchange failed:\n$err")
+                        .status(Status.BadGateway)
+                    ),
+                token =>
+                  ZIO.succeed:
+                    oauth2ContinuePageResponse("/docs")
+                      .addCookie(
+                        Cookie.Response(
+                          name       = "orchescala_docs_token",
+                          content    = token,
+                          path       = Some(Path.root / "docs"),
+                          isHttpOnly = true,
+                          // OAuth login returns from Keycloak via a top-level cross-site redirect.
+                          // `SameSite=Strict` prevents the browser from sending the cookie on that
+                          // very first redirect to `/docs`, causing an auth loop. `Lax` allows the
+                          // cookie on top-level navigations while still blocking most CSRF cases.
+                          sameSite   = Some(Cookie.SameSite.Lax),
+                          maxAge     = Some(1.hour)
+                        )
+                      )
+                      .addCookie(Cookie.clear("orchescala_oauth_state"))
+              )
+
+          // ── State mismatch (CSRF / stale request) ───────────────────────
+          case (Some(_), Some(_)) =>
+            ZIO.logWarning("OAuth2: state mismatch – possible CSRF attempt or stale callback")
+              .as(Response.status(Status.Unauthorized))
+
+          // ── Missing code or state → restart the flow ────────────────────
+          case _ =>
+            ZIO.logWarning("OAuth2 callback: missing code or state, redirecting to /docs")
+              .as(oauth2ContinuePageResponse("/docs"))
+      }
+    )
+
+  /** Returns a tiny HTML page that navigates to the target on the client side.
+    *
+    * Why not a plain HTTP 302? During the OAuth callback flow the browser is still in a
+    * cross-site redirect chain from Keycloak (`Sec-Fetch-Site: cross-site`). Some browsers
+    * do not send the freshly-set cookie on the *immediately-following* redirected request,
+    * which produces an auth loop (`/callback` -> `/docs` -> Keycloak -> ...). Returning a
+    * same-origin HTML page and letting JavaScript navigate to `/docs` breaks that chain, so
+    * the next request is a normal first-party navigation and the docs cookie is included.
+    */
+  private def oauth2ContinuePageResponse(target: String): Response =
+    Response(
+      status = Status.Ok,
+      body = Body.fromString(
+        s"""<!doctype html>
+           |<html lang=\"en\">
+           |  <head>
+           |    <meta charset=\"utf-8\" />
+           |    <meta http-equiv=\"Cache-Control\" content=\"no-store\" />
+           |    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+           |    <title>Signing in...</title>
+           |  </head>
+           |  <body>
+           |    <p>Sign-in complete. Continuing...</p>
+           |    <script>
+           |      window.location.replace(${renderJsStringLiteral(target)});
+           |    </script>
+           |    <noscript>
+           |      <meta http-equiv=\"refresh\" content=\"0;url=$target\" />
+           |      <p><a href=\"$target\">Continue</a></p>
+           |    </noscript>
+           |  </body>
+           |</html>
+           |""".stripMargin
+      ),
+      headers = Headers(
+        Header.ContentType(MediaType.text.html),
+        Header.CacheControl.NoStore
+      )
+    )
+
+  private def renderJsStringLiteral(value: String): String =
+    "\"" + value.flatMap {
+      case '\\' => "\\\\"
+      case '\"' => "\\\""
+      case '\n' => "\\n"
+      case '\r' => "\\r"
+      case '\t' => "\\t"
+      case c    => c.toString
+    } + "\""
+
+  /** Exchanges an OAuth 2.0 authorization code for an access token.
+    *
+    * The `redirectUri` must be identical to the one used when building the authorization URL
+    * (Keycloak and other providers validate this as a security measure).
+    */
+  private def exchangeCodeForToken(
+      auth: DocsAuth.OAuth2AuthCode,
+      code: String,
+      redirectUri: String
+  ): ZIO[Any, String, String] =
+    (for
+      _        <- ZIO.logInfo(s"OAuth2 token exchange → POST ${auth.tokenUrl}")
+      _        <- ZIO.logInfo(s"OAuth2 token exchange redirect_uri=$redirectUri client_id=${auth.clientId}")
+      uri      <- ZIO.fromEither(Uri.parse(auth.tokenUrl)).mapError(_.toString)
+      request   = basicRequest
+                    .post(uri)
+                    .body(
+                      Map(
+                        "grant_type"    -> "authorization_code",
+                        "code"          -> code,
+                        "redirect_uri"  -> redirectUri,
+                        "client_id"     -> auth.clientId,
+                        "client_secret" -> auth.clientSecret
+                      )
+                    )
+      response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
+                    request.send(backend).mapError(_.getMessage)
+      _        <- ZIO.logInfo(s"OAuth2 token endpoint HTTP ${response.code}")
+      token    <- response.body match
+                    case Right(body) =>
+                      ZIO.fromEither(
+                        circeParser
+                          .parse(body)
+                          .flatMap(_.hcursor.downField("access_token").as[String])
+                      ).mapError(err => s"Failed to parse token response: $err")
+                    case Left(body)  =>
+                      ZIO.fail(s"Token endpoint returned HTTP ${response.code}: $body")
+    yield token)
+      .provideLayer(HttpClientProvider.live)
+      .mapError:
+        case s: String    => s
+        case t: Throwable => s"HTTP client error: ${t.getMessage}"
+
+  /** Ensures a given authorization code is exchanged at most once on this gateway instance.
+    *
+    * Some browsers/private-window flows can trigger the callback URL more than once for the
+    * same authorization code. Since OAuth2 auth codes are single-use, a second POST to the
+    * token endpoint fails with `invalid_grant / Code not valid`. This method deduplicates
+    * concurrent or repeated exchanges so all duplicate callers share the first result.
+    */
+  private def exchangeCodeForTokenOnce(
+      auth: DocsAuth.OAuth2AuthCode,
+      code: String,
+      redirectUri: String
+  ): ZIO[Any, String, String] =
+    for
+      _          <- cleanupExpiredOAuth2CodeExchanges
+      nowMillis  <- Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS)
+      promise    <- Promise.make[Nothing, Either[String, String]]
+      newEntry    = OAuth2CodeExchangeEntry(nowMillis, promise)
+      existing    = Option(oauth2CodeExchanges.putIfAbsent(code, newEntry))
+      token      <- existing match
+                      case Some(entry) =>
+                        ZIO.logInfo(s"OAuth2 duplicate callback detected for code=$code; reusing in-flight/completed exchange") *>
+                          entry.promise.await.flatMap(ZIO.fromEither(_))
+
+                      case None =>
+                        exchangeCodeForToken(auth, code, redirectUri)
+                          .either
+                          .tap(result => promise.succeed(result).ignore)
+                          .flatMap(ZIO.fromEither(_))
+    yield token
+
+  private def cleanupExpiredOAuth2CodeExchanges: UIO[Unit] =
+    Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS).map: nowMillis =>
+      val iterator = oauth2CodeExchanges.entrySet().iterator()
+      while iterator.hasNext do
+        val entry = iterator.next()
+        if nowMillis - entry.getValue.createdAtMillis > oauth2CodeExchangeTtlMillis then
+          iterator.remove()
+
+  /** Builds the authorization URL with properly encoded query parameters. */
+  private def buildOAuthUrl(auth: DocsAuth.OAuth2AuthCode, state: String, redirectUri: String): String =
+    val encode = java.net.URLEncoder.encode(_: String, "UTF-8")
+    val params = List(
+      "response_type" -> "code",
+      "client_id"     -> auth.clientId,
+      "redirect_uri"  -> redirectUri,
+      "state"         -> state,
+      "scope"         -> auth.scopes
+    ).map((k, v) => s"$k=${encode(v)}").mkString("&")
+    s"${auth.authorizationUrl}?$params"
+
+  /** Derives the OAuth2 `redirect_uri` from the incoming request's Host header.
+    *
+    * Points to `/docs/oauth2/callback` – a dedicated, unprotected route – so that Keycloak
+    * always redirects the browser there and never deposits `code`/`state` params on the main
+    * `/docs` page. Register `http(s)://<gateway-host>/docs/oauth2/callback` as a valid
+    * redirect URI in Keycloak.
+    *
+    * Uses `X-Forwarded-Proto` (set by reverse proxies) to detect https, falling back to `http`.
+    */
+  private def deriveCallbackUri(request: Request): String =
+    val host   = request.header(Header.Host).map(_.renderedValue).getOrElse("localhost")
+    val scheme = request.rawHeader("X-Forwarded-Proto").getOrElse("http")
+    s"$scheme://$host/docs/oauth2/callback"
 
 end OpenApiRoutes
