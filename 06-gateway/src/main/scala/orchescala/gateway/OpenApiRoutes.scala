@@ -13,12 +13,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** Creates routes for serving OpenAPI documentation.
     *
     * Provides:
-    * - GET /docs - HTML documentation page (gateway)
-    * - GET /docs/OpenApi.yml - OpenAPI specification in YAML format (gateway)
-    * - GET /docs/openApis/{projectName} - Forwards to projectName worker app /docs
-    * - GET /docs/openApis/{projectName}/OpenApi.yml - Forwards to projectName worker app /docs/OpenApi.yml
+    *   - GET /docs - HTML documentation page (gateway)
+    *   - GET /docs/OpenApi.yml - OpenAPI specification in YAML format (gateway)
+    *   - GET /docs/openApis/{projectName} - Forwards to projectName worker app /docs
+    *   - GET /docs/openApis/{projectName}/OpenApi.yml - Forwards to projectName worker app
+    *     /docs/OpenApi.yml
     *
-    * @return ZIO HTTP routes for documentation
+    * @return
+    *   ZIO HTTP routes for documentation
     */
   def routes: Routes[Any, Response] =
     Routes(
@@ -29,15 +31,29 @@ class OpenApiRoutes()(using config: GatewayConfig):
       },
 
       // Forward docs HTML page for a project worker app
+      // Rewrites relative "diagrams/" links so they resolve correctly under /docs/openApis/{projectName}/
       Method.GET / "docs" / "openApis" / string("projectName") -> handler {
         (projectName: String, _: Request) =>
-          forwardDocsRequest(projectName, "docs", MediaType.text.html)
+          forwardDocsRequest(
+            projectName,
+            "docs",
+            MediaType.text.html,
+            body => body.replace("\"diagrams/\"", s"\"${projectName}/diagrams/\"")
+          )
       },
 
       // Forward OpenApi.yml for a project worker app
       Method.GET / "docs" / "openApis" / string("projectName") / "OpenApi.yml" -> handler {
         (projectName: String, _: Request) =>
           forwardDocsRequest(projectName, "docs/OpenApi.yml", MediaType.text.yaml)
+      },
+
+      // Forward BPMN/DMN diagrams for a project worker app
+      Method.GET / "docs" / "openApis" / string("projectName") / "diagrams" / string(
+        "diagramName"
+      ) -> handler {
+        (projectName: String, diagramName: String, _: Request) =>
+          forwardDocsRequest(projectName, s"diagrams/$diagramName", MediaType.application.xml)
       },
 
       // Serve favicon
@@ -75,12 +91,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
   private def forwardDocsRequest(
       projectName: String,
       path: String,
-      contentType: MediaType
+      contentType: MediaType,
+      transform: String => String = identity
   ): ZIO[Any, Nothing, Response] =
     config.docsAppUrl(projectName) match
-      case None =>
-        ZIO.logWarning(s"No docs URL configured for project: $projectName") *>
-          ZIO.succeed(Response.status(Status.NotFound))
+      case None          =>
+        ZIO.logWarning(
+          s"No docs URL configured for project: $projectName"
+        ).as(Response.status(Status.NotFound))
       case Some(baseUrl) =>
         (for
           _        <- ZIO.logInfo(s"Forwarding docs request to: $baseUrl/$path")
@@ -91,15 +109,16 @@ class OpenApiRoutes()(using config: GatewayConfig):
                         request.send(backend).mapError(_.getMessage)
           result   <- response.body match
                         case Right(body) =>
-                          ZIO.succeed(Response.text(body).addHeader(Header.ContentType(contentType)))
+                          ZIO.succeed(Response.text(transform(body)).addHeader(Header.ContentType(contentType)))
                         case Left(err)   =>
-                          ZIO.logError(s"Error response from docs service '$projectName': $err") *>
-                            ZIO.succeed(Response.status(Status.BadGateway))
+                          ZIO.logError(
+                            s"Error response from docs service '$projectName': $err"
+                          ).as(Response.status(Status.BadGateway))
         yield result)
           .provideLayer(HttpClientProvider.live)
           .catchAll: err =>
-            ZIO.logError(s"Error forwarding docs request for '$projectName': $err") *>
-              ZIO.succeed(Response.status(Status.InternalServerError))
+            ZIO.logError(
+              s"Error forwarding docs request for '$projectName': $err"
+            ).as(Response.status(Status.InternalServerError))
 
 end OpenApiRoutes
-
