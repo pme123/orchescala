@@ -2,7 +2,7 @@ package orchescala.gateway
 
 import com.auth0.jwt.JWT
 import orchescala.domain.*
-import orchescala.engine.{DefaultEngineConfig, EngineConfig}
+import orchescala.engine.{DefaultEngineConfig, EngineConfig, EnvironmentDetector}
 import orchescala.worker.{DefaultWorkerConfig, WorkerConfig}
 import zio.{IO, ZIO}
 
@@ -18,13 +18,25 @@ trait GatewayConfig:
       in: JsonObject
   ): IO[GatewayError, IdentityCorrelation]
 
+  /** Resolves the base URL of a worker app by project name, used for forwarding docs requests.
+    * Returns None if the project docs are not available remotely.
+    */
+  def docsAppUrl: (projectName: String) => Option[String]
+
 end GatewayConfig
 
 case class DefaultGatewayConfig(
     engineConfig: EngineConfig,
     workerConfig: WorkerConfig,
     impersonateProcessKey: Option[String] = None,
-    gatewayPort: Int = 8888
+    gatewayPort: Int = 8888,
+    docsAppUrl: (projectName: String) => Option[String] = projectName =>
+      Some(
+        s"http://${
+            if EnvironmentDetector.isLocalhost then "localhost"
+            else projectName
+          }:5555"
+      )
 ) extends GatewayConfig:
 
   /** Default token validator - validates that token is not empty and returns the token. Override
