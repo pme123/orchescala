@@ -43,11 +43,19 @@ trait DocCreator extends DependencyCreator, Helpers:
       "clean",
       "laikaSite" // generate HTML pages from Markup
     ).callOnConsole()
+    os.copy(
+      apiConfig.basePath / "target" / "docs" / "site",
+      apiConfig.basePath / "site" / apiConfig.companyName,
+      replaceExisting = true,
+      createFolders = true,
+      mergeFolders = true
+    )
+    /*
     publishConfig
       .map: config =>
         DocsWebDAV(apiConfig, config).upload(releaseConfig.releaseTag)
         CatalogWebDAV(apiConfig, config).upload()
-      .getOrElse(println("No Publish Config found"))
+      .getOrElse(println("No Publish Config found")) */
   end publishDocs
 
   protected def createCatalog(): Unit =
@@ -58,8 +66,9 @@ trait DocCreator extends DependencyCreator, Helpers:
                       |%}
                       |## Catalog
                       |${projectConfigs
-                       .collect :
-                         case pc @ ProjectConfig(projectName, _, _, _) if projectName.startsWith(apiConfig.companyName) =>
+                       .collect:
+                         case pc @ ProjectConfig(projectName, _, _, _)
+                             if projectName.startsWith(apiConfig.companyName) =>
                            val path = pc.absGitPath(gitBasePath) / catalogFileName
                            if os.exists(path) then
                              os.read(path)
@@ -68,7 +77,6 @@ trait DocCreator extends DependencyCreator, Helpers:
                                 |Sorry there is no $path.
                                 |""".stripMargin
                            end if
-                       
                        .mkString("\n")}""".stripMargin
     val catalogPath = apiConfig.basePath / "src" / "docs" / catalogFileName
     println(s"Catalog Path: $catalogPath")
@@ -95,7 +103,7 @@ trait DocCreator extends DependencyCreator, Helpers:
          |  devStatistics.md
          |  catalog.md
          |  contact.md
-         |  instructions.md
+         |  development
          |  dependencies
          |]
          """.stripMargin
@@ -104,8 +112,8 @@ trait DocCreator extends DependencyCreator, Helpers:
 
   private def createReleasePage(): Unit =
     given configs: Seq[DocProjectConfig] = setupConfigs()
-    val bpmnConfigs = configs.filter(!_.isWorker)
-    val workerConfigs = configs.filter(_.isWorker)
+    val bpmnConfigs                      = configs.filter(!_.isWorker)
+    val workerConfigs                    = configs.filter(_.isWorker)
     given ReleaseConfig                  = releaseConfig
     DependencyValidator().validateDependencies
     val indexGraph                       = DependencyGraphCreator().createIndex
@@ -131,11 +139,17 @@ trait DocCreator extends DependencyCreator, Helpers:
          |
          |## Camunda Dependencies
          |
-         |${if bpmnConfigs.size > 1 then dependencyTable(bpmnConfigs) + s"\n\n$tableFooter" else "No Dependencies"}
+         |${
+          if bpmnConfigs.size > 1 then dependencyTable(bpmnConfigs) + s"\n\n$tableFooter"
+          else "No Dependencies"
+        }
          |
          |## Worker Dependencies
          |
-         |${if workerConfigs.size > 1 then dependencyTable(workerConfigs) + s"\n\n$tableFooter" else "No Dependencies"}
+         |${
+          if workerConfigs.size > 1 then dependencyTable(workerConfigs) + s"\n\n$tableFooter"
+          else "No Dependencies"
+        }
          |
          |$releaseNotes
          """.stripMargin
@@ -191,16 +205,16 @@ trait DocCreator extends DependencyCreator, Helpers:
       .toMap
 
   private def fetchConf(
-                         project: String,
-                         version: String,
-                         versionPrevious: String,
-                         isWorker: Boolean
-                       ) =
+      project: String,
+      version: String,
+      versionPrevious: String,
+      isWorker: Boolean
+  ) =
     for
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
-      _ = println(s"Project Git Path $projectPath / $gitBasePath")
-      _ =
+      _           = println(s"Project Git Path $projectPath / $gitBasePath")
+      _           =
         if !os.exists(projectPath) then
           apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
 
@@ -247,6 +261,7 @@ trait DocCreator extends DependencyCreator, Helpers:
       candidates.find(c => remoteTags.contains(s"refs/tags/$c"))
         .getOrElse(throw new Exception(s"Tag not found: ${candidates.mkString(" or ")}"))
     }
+  end resolveTagRef
 
   private def dependencyTable(configs: Seq[DocProjectConfig]) =
 
@@ -323,10 +338,14 @@ trait DocCreator extends DependencyCreator, Helpers:
 
     val projectChangelogs = mergeConfigs
       .sortBy(_.projectName)
-      .map(c => s"""
-                   |## [${c.projectName}](${if c.companyName == apiConfig.companyName then s".." else s"../../${c.companyName}"}/${c.projectName}/OpenApi.html")
-                   |${extractChangelog(c)}
-                   |""".stripMargin)
+      .map(c =>
+        s"""
+           |## [${c.projectName}](${
+            if c.companyName == apiConfig.companyName then s".." else s"../../${c.companyName}"
+          }/${c.projectName}/OpenApi.html")
+           |${extractChangelog(c)}
+           |""".stripMargin
+      )
       .mkString("\n")
     s"""
        |# Release Notes

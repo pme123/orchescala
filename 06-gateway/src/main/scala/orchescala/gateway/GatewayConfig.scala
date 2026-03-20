@@ -33,7 +33,8 @@ object DocsAuth:
     *
     * The gateway handles the callback at `/docs/oauth2/callback` to exchange the
     * authorization code for an access token, which is stored in a secure HTTP-only cookie.
-    * After a successful exchange the user is redirected to the clean `/docs` page.
+    * After a successful exchange the user is redirected back to the originally requested
+    * protected page (`/docs` or `/site`).
     *
     * The `redirect_uri` (`http(s)://<gateway-host>/docs/oauth2/callback`) is derived
     * automatically from each incoming request's `Host` header and does not need to be

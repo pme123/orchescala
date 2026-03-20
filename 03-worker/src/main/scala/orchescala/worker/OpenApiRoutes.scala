@@ -26,7 +26,7 @@ object OpenApiRoutes:
         Response.text(yaml).addHeader(Header.ContentType(MediaType.text.yaml))
       },
       // Serve BPMNs und DMNs
-      Method.GET / "diagrams" / string("diagramName") -> handler {
+      Method.GET / "docs" / "diagrams" / string("diagramName") -> handler {
         (diagramName: String, _: Request) =>
           ZIO
             .attempt:

@@ -49,6 +49,10 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     println(s"Update Project: ${devConfig.projectName}")
     println(s" - with Subprojects: ${devConfig.subProjects}")
     CompanyGenerator(isInitCompany = false).generate
+    os.symlink(
+      os.pwd / "04-gateway" / "src" / "main" / "resources" / "site",
+      os.pwd / "00-docs" / "site"
+    )
 
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")

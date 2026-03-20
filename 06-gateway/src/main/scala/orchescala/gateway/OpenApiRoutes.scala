@@ -1,10 +1,13 @@
 package orchescala.gateway
 
 import io.circe.parser as circeParser
+import java.net.JarURLConnection
+import java.nio.file.{Files, Paths}
 import java.util.concurrent.ConcurrentHashMap
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import sttp.client3.basicRequest
 import sttp.model.Uri
+import scala.jdk.CollectionConverters.*
 import zio.*
 import zio.http.*
 
@@ -19,10 +22,18 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
   private val oauth2CodeExchanges = ConcurrentHashMap[String, OAuth2CodeExchangeEntry]()
   private val oauth2CodeExchangeTtlMillis = 10.minutes.toMillis
+  private val docsTokenCookieName         = "orchescala_docs_token"
+  private val oauth2StateCookieName       = "orchescala_oauth_state"
+  private val oauth2TargetCookieName      = "orchescala_oauth_target"
+  private val defaultOAuth2Target         = "/docs"
+  private val siteVersionSegmentPattern   = raw"\d{4}-\d{2}".r
 
-  /** Creates routes for serving OpenAPI documentation.
+  /** Creates routes for serving OpenAPI documentation and company documentation.
     *
     * Provides:
+    *   - GET /site - Redirects to `/site/` so relative links resolve correctly
+    *   - GET /site/ - Company documentation index (served from classpath `site/index.html`)
+    *   - GET /site/{path} - Company documentation static files (served from classpath `site/{path}`)
     *   - GET /docs - HTML documentation page (gateway)
     *   - GET /docs/OpenApi.yml - OpenAPI specification in YAML format (gateway)
     *   - GET /docs/openApis/{projectName} - Forwards to projectName worker app /docs
@@ -30,13 +41,31 @@ class OpenApiRoutes()(using config: GatewayConfig):
     *     /docs/OpenApi.yml
     *   - GET /docs/oauth2/callback - OAuth 2.0 Authorization Code callback (when OAuth2 is configured)
     *
-    * Authentication is applied to all `/docs` routes according to [[GatewayConfig.docsAuth]].
+    * Authentication is applied to all `/docs` and `/site` routes according to [[GatewayConfig.docsAuth]].
     *
     * @return
     *   ZIO HTTP routes for documentation
     */
   def routes: Routes[Any, Response] =
     val protectedRoutes = Routes(
+      // Canonicalize only the exact /site path so relative links like ./valiant/... resolve
+      // below /site/ without causing a redirect loop on the already-canonical /site/ URL.
+      Method.GET / "site" -> handler {
+        (request: Request) =>
+          if needsCanonicalSiteRedirect(request.url.path.toString) then
+            ZIO.succeed(siteCanonicalRedirectResponse)
+          else
+            serveClasspathFile("site/index.html")
+      },
+
+      // Serve company documentation index and static files (e.g. /site/, /site/valiant/index.html)
+      Method.GET / "site" / trailing -> handler { (path: Path, _: Request) =>
+        val relativePath = path.segments.mkString("/")
+        versionedSiteRedirect(relativePath) match
+          case Some(location) => ZIO.succeed(siteVersionRedirectResponse(location))
+          case None           => serveClasspathFile(siteResourcePath(relativePath))
+      },
+
       // Serve OpenAPI YAML specification at /docs/OpenApi.yml
       Method.GET / "docs" / "OpenApi.yml" -> handler {
         val yaml = OpenApiGenerator.generateYaml
@@ -45,28 +74,28 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
       // Forward docs HTML page for a project worker app
       // Rewrites relative "diagrams/" links so they resolve correctly under /docs/openApis/{projectName}/
-      Method.GET / "docs" / "openApis" / string("projectName") -> handler {
-        (projectName: String, _: Request) =>
+      Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.html" -> handler {
+        (_: String, projectName: String, _: Request) =>
           forwardDocsRequest(
             projectName,
             "docs",
             MediaType.text.html,
-            body => body.replace("\"diagrams/\"", s"\"${projectName}/diagrams/\"")
+            body => body//.replace("\"diagrams/\"", s"\"${projectName}/diagrams/\"")
           )
       },
 
       // Forward OpenApi.yml for a project worker app
-      Method.GET / "docs" / "openApis" / string("projectName") / "OpenApi.yml" -> handler {
-        (projectName: String, _: Request) =>
+      Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.yml" -> handler {
+        (_: String, projectName: String, _: Request) =>
           forwardDocsRequest(projectName, "docs/OpenApi.yml", MediaType.text.yaml)
       },
 
       // Forward BPMN/DMN diagrams for a project worker app
-      Method.GET / "docs" / "openApis" / string("projectName") / "diagrams" / string(
+      Method.GET / "site" / string("companyName") / string("projectName") / "diagrams" / string(
         "diagramName"
       ) -> handler {
-        (projectName: String, diagramName: String, _: Request) =>
-          forwardDocsRequest(projectName, s"diagrams/$diagramName", MediaType.application.xml)
+        (_: String, projectName: String, diagramName: String, _: Request) =>
+          forwardDocsRequest(projectName, s"../diagrams/$diagramName", MediaType.application.xml)
       },
 
       // Serve HTML documentation page
@@ -162,7 +191,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     *
     * The Keycloak callback is handled by the dedicated public route
     * `GET /docs/oauth2/callback` (see [[oauth2CallbackRoute]]), which exchanges the
-    * authorization code for a token and then issues a clean redirect to `/docs`.
+    * authorization code for a token and then issues a clean redirect back to the
+    * originally requested protected page (`/docs` or `/site`).
     * This ensures that OAuth2 query params (code, state, …) never appear on the
     * `/docs` page itself, preventing parameter accumulation caused by multiple
     * simultaneous sub-requests each triggering their own Keycloak redirect.
@@ -173,7 +203,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         routes.transform[Env1]: handler =>
           Handler.scoped[Env1]:
             zio.http.handler: (request: Request) =>
-              request.cookie("orchescala_docs_token") match
+              request.cookie(docsTokenCookieName) match
 
                 // ── 1. Authenticated ────────────────────────────────────────
                 case Some(cookie) if cookie.content.nonEmpty =>
@@ -182,14 +212,24 @@ class OpenApiRoutes()(using config: GatewayConfig):
                 // ── 2. No token → redirect to Keycloak ──────────────────────
                 case _ =>
                   val state       = java.util.UUID.randomUUID().toString
+                  val target      = deriveOAuth2Target(request)
                   val redirectUri = deriveCallbackUri(request)
                   val authUrl     = buildOAuthUrl(auth, state, redirectUri)
                   ZIO.succeed:
                     Response(status = Status.Found, headers = Headers("location" -> authUrl))
                       .addCookie(
                         Cookie.Response(
-                          name       = "orchescala_oauth_state",
+                          name       = oauth2StateCookieName,
                           content    = state,
+                          path       = Some(Path.root),
+                          isHttpOnly = true,
+                          sameSite   = Some(Cookie.SameSite.Lax)
+                        )
+                      )
+                      .addCookie(
+                        Cookie.Response(
+                          name       = oauth2TargetCookieName,
+                          content    = target,
                           path       = Some(Path.root),
                           isHttpOnly = true,
                           sameSite   = Some(Cookie.SameSite.Lax)
@@ -200,7 +240,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     *
     * Keycloak redirects here (`/docs/oauth2/callback?code=…&state=…`) after the user
     * authenticates. The route verifies the CSRF state, exchanges the code for an access
-    * token, stores it in an HTTP-only cookie and issues a clean `302 → /docs` redirect.
+    * token, stores it in an HTTP-only cookie and issues a clean redirect back to the
+    * originally requested protected page.
     * Because this is a dedicated route (not `/docs`), OAuth2 query params can never
     * accumulate on the docs page regardless of how many parallel sub-requests are in flight.
     */
@@ -209,7 +250,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
       Method.GET / "docs" / "oauth2" / "callback" -> handler { (request: Request) =>
         val codeOpt     = request.queryParam("code")
         val stateOpt    = request.queryParam("state")
-        val storedState = request.cookie("orchescala_oauth_state").map(_.content)
+        val storedState = request.cookie(oauth2StateCookieName).map(_.content)
+        val target      = request.cookie(oauth2TargetCookieName).map(_.content).flatMap(sanitizeOAuth2Target).getOrElse(defaultOAuth2Target)
 
         // Build the redirect_uri from the *actual* URL the user called (path taken
         // directly from request.url, not reconstructed from a hard-coded string).
@@ -230,36 +272,34 @@ class OpenApiRoutes()(using config: GatewayConfig):
                     .as(
                       Response.text(s"OAuth2 token exchange failed:\n$err")
                         .status(Status.BadGateway)
+                        .addCookie(clearRootCookie(oauth2StateCookieName))
+                        .addCookie(clearRootCookie(oauth2TargetCookieName))
                     ),
                 token =>
                   ZIO.succeed:
-                    oauth2ContinuePageResponse("/docs")
-                      .addCookie(
-                        Cookie.Response(
-                          name       = "orchescala_docs_token",
-                          content    = token,
-                          path       = Some(Path.root / "docs"),
-                          isHttpOnly = true,
-                          // OAuth login returns from Keycloak via a top-level cross-site redirect.
-                          // `SameSite=Strict` prevents the browser from sending the cookie on that
-                          // very first redirect to `/docs`, causing an auth loop. `Lax` allows the
-                          // cookie on top-level navigations while still blocking most CSRF cases.
-                          sameSite   = Some(Cookie.SameSite.Lax),
-                          maxAge     = Some(1.hour)
-                        )
-                      )
-                      .addCookie(Cookie.clear("orchescala_oauth_state"))
+                    oauth2ContinuePageResponse(target)
+                      .addCookie(docsTokenCookie(token))
+                      .addCookie(clearRootCookie(oauth2StateCookieName))
+                      .addCookie(clearRootCookie(oauth2TargetCookieName))
               )
 
           // ── State mismatch (CSRF / stale request) ───────────────────────
           case (Some(_), Some(_)) =>
             ZIO.logWarning("OAuth2: state mismatch – possible CSRF attempt or stale callback")
-              .as(Response.status(Status.Unauthorized))
+              .as(
+                Response.status(Status.Unauthorized)
+                  .addCookie(clearRootCookie(oauth2StateCookieName))
+                  .addCookie(clearRootCookie(oauth2TargetCookieName))
+              )
 
           // ── Missing code or state → restart the flow ────────────────────
           case _ =>
-            ZIO.logWarning("OAuth2 callback: missing code or state, redirecting to /docs")
-              .as(oauth2ContinuePageResponse("/docs"))
+            ZIO.logWarning(s"OAuth2 callback: missing code or state, redirecting to $target")
+              .as(
+                oauth2ContinuePageResponse(target)
+                  .addCookie(clearRootCookie(oauth2StateCookieName))
+                  .addCookie(clearRootCookie(oauth2TargetCookieName))
+              )
       }
     )
 
@@ -268,9 +308,10 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * Why not a plain HTTP 302? During the OAuth callback flow the browser is still in a
     * cross-site redirect chain from Keycloak (`Sec-Fetch-Site: cross-site`). Some browsers
     * do not send the freshly-set cookie on the *immediately-following* redirected request,
-    * which produces an auth loop (`/callback` -> `/docs` -> Keycloak -> ...). Returning a
-    * same-origin HTML page and letting JavaScript navigate to `/docs` breaks that chain, so
-    * the next request is a normal first-party navigation and the docs cookie is included.
+    * which produces an auth loop (`/callback` -> protected page -> Keycloak -> ...). Returning
+    * a same-origin HTML page and letting JavaScript navigate to the final target breaks that
+    * chain, so the next request is a normal first-party navigation and the docs cookie is
+    * included.
     */
   private def oauth2ContinuePageResponse(target: String): Response =
     Response(
@@ -312,6 +353,118 @@ class OpenApiRoutes()(using config: GatewayConfig):
       case '\t' => "\\t"
       case c    => c.toString
     } + "\""
+
+  private[gateway] def docsTokenCookie(token: String): Cookie.Response =
+    Cookie.Response(
+      name       = docsTokenCookieName,
+      content    = token,
+      path       = Some(Path.root),
+      isHttpOnly = true,
+      // `/site` is protected by the same OAuth2 middleware as `/docs`, so the cookie must be
+      // available on both route trees after the callback lands on the original target page.
+      // `Lax` still allows the first top-level navigation back from Keycloak while avoiding the
+      // stricter behavior that can trigger an auth loop immediately after login.
+      sameSite   = Some(Cookie.SameSite.Lax),
+      maxAge     = Some(1.hour)
+    )
+
+  private def clearRootCookie(name: String): Cookie.Response =
+    Cookie.Response(
+      name       = name,
+      content    = "",
+      path       = Some(Path.root),
+      isHttpOnly = true,
+      sameSite   = Some(Cookie.SameSite.Lax),
+      maxAge     = Some(Duration.Zero)
+    )
+
+  private def deriveOAuth2Target(request: Request): String =
+    sanitizeOAuth2Target(request.url.path.toString).getOrElse(defaultOAuth2Target)
+
+  private[gateway] def sanitizeOAuth2Target(target: String): Option[String] =
+    Option(target)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .filter(_.startsWith("/"))
+      .filterNot(_.startsWith("//"))
+      .filter: path =>
+        path == "/docs" ||
+        path.startsWith("/docs/") ||
+        path == "/site" ||
+        path.startsWith("/site/")
+
+  private[gateway] def siteResourcePath(relativePath: String): String =
+    Option(relativePath)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .map(path => s"site/$path")
+      .getOrElse("site/index.html")
+
+  private[gateway] def versionedSiteRedirect(relativePath: String): Option[String] =
+    versionedSiteRedirect(relativePath, availableSiteVersions)
+
+  private[gateway] def versionedSiteRedirect(
+      relativePath: String,
+      availableVersions: String => Seq[String]
+  ): Option[String] =
+    Option(relativePath)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .flatMap: path =>
+        path.split('/').filter(_.nonEmpty).toList match
+          case company :: "index.html" :: Nil =>
+            availableVersions(company)
+              .filter(isSiteVersionSegment)
+              .sorted
+              .lastOption
+              .map(version => s"/site/$company/$version/index.html")
+          case _                               =>
+            None
+
+  private[gateway] def availableSiteVersions(company: String): Seq[String] =
+    classpathDirectoryEntries(s"site/$company")
+
+  private[gateway] def classpathDirectoryEntries(resourceDirectory: String): Seq[String] =
+    Option(getClass.getClassLoader.getResource(resourceDirectory.stripSuffix("/"))) match
+      case None              => Seq.empty
+      case Some(resourceUrl) =>
+        resourceUrl.openConnection() match
+          case jarConnection: JarURLConnection =>
+            val prefix = jarConnection.getEntryName.stripSuffix("/") + "/"
+            jarConnection.getJarFile.entries.asScala
+              .map(_.getName)
+              .filter(_.startsWith(prefix))
+              .flatMap: entryName =>
+                entryName
+                  .stripPrefix(prefix)
+                  .split('/')
+                  .headOption
+                  .filter(_.nonEmpty)
+              .toSeq
+              .distinct
+
+          case _ if resourceUrl.getProtocol == "file" =>
+            val directoryPath = Paths.get(resourceUrl.toURI)
+            if Files.isDirectory(directoryPath) then
+              val stream = Files.list(directoryPath)
+              try stream.iterator().asScala.map(_.getFileName.toString).toSeq
+              finally stream.close()
+            else Seq.empty
+
+          case _ =>
+            Seq.empty
+
+  private[gateway] def isSiteVersionSegment(segment: String): Boolean =
+    siteVersionSegmentPattern.matches(segment)
+
+  private[gateway] def needsCanonicalSiteRedirect(requestPath: String): Boolean =
+    requestPath == "/site"
+
+  private def siteCanonicalRedirectResponse: Response =
+    Response(status = Status.Found, headers = Headers("location" -> "/site/"))
+
+  private def siteVersionRedirectResponse(location: String): Response =
+    Response(status = Status.Found, headers = Headers("location" -> location))
 
   /** Exchanges an OAuth 2.0 authorization code for an access token.
     *
@@ -405,6 +558,27 @@ class OpenApiRoutes()(using config: GatewayConfig):
       "scope"         -> auth.scopes
     ).map((k, v) => s"$k=${encode(v)}").mkString("&")
     s"${auth.authorizationUrl}?$params"
+
+  /** Serves a static file from the classpath, detecting the content type from the file extension.
+    *
+    * Used to serve the company documentation site (generated by Laika/publishDocs) which is
+    * placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/valiant/...`).
+    */
+  private def serveClasspathFile(resourcePath: String): ZIO[Any, Nothing, Response] =
+    ZIO.attempt {
+      val ext       = resourcePath.split('.').lastOption.getOrElse("").toLowerCase
+      val mediaType = MediaType.forFileExtension(ext).getOrElse(MediaType.application.`octet-stream`)
+      Option(getClass.getClassLoader.getResourceAsStream(resourcePath)) match
+        case None         =>
+          Response.status(Status.NotFound)
+        case Some(stream) =>
+          val bytes = stream.readAllBytes()
+          stream.close()
+          Response(
+            body    = Body.fromArray(bytes),
+            headers = Headers(Header.ContentType(mediaType))
+          )
+    }.catchAll(_ => ZIO.succeed(Response.status(Status.NotFound)))
 
   /** Derives the OAuth2 `redirect_uri` from the incoming request's Host header.
     *

@@ -54,6 +54,11 @@ case class SetupGenerator()(using config: DevConfig):
     if withWorker then WorkerGenerator().createEventWorker(setupElement)
 
   def addSymLinks(): Unit =
+    os.remove(os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.html")
+    os.symlink(
+      os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.html",
+      os.pwd / "03-api" / "OpenApi.html"
+    )
     os.remove(os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml")
     os.symlink(
       os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml",
