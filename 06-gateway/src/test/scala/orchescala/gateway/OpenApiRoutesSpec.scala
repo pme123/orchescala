@@ -37,6 +37,47 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
           "site/valiant/development/catalog.html"
       )
     },
+    test("siteFolderRedirectLocation resolves nested folder URLs to index.html") {
+      val resourceExists = Set(
+        "site/valiant/index.html",
+        "site/valiant/2026-04/index.html"
+      )
+      val directoryExists = Set(
+        "site/valiant",
+        "site/valiant/2026-04"
+      )
+
+      assertTrue(
+        openApiRoutes.siteFolderRedirectLocation(
+          "valiant/2026-04",
+          "/site/valiant/2026-04/",
+          resourceExists.contains,
+          directoryExists.contains
+        ).contains("/site/valiant/2026-04/index.html"),
+        openApiRoutes.siteFolderRedirectLocation(
+          "valiant/2026-04",
+          "/site/valiant/2026-04",
+          resourceExists.contains,
+          directoryExists.contains
+        ).contains("/site/valiant/2026-04/index.html")
+      )
+    },
+    test("siteFolderRedirectLocation ignores direct file requests and unknown folders") {
+      assertTrue(
+        openApiRoutes.siteFolderRedirectLocation(
+          "valiant/development/catalog.html",
+          "/site/valiant/development/catalog.html",
+          _ => true,
+          _ => true
+        ).isEmpty,
+        openApiRoutes.siteFolderRedirectLocation(
+          "unknown/2026-04",
+          "/site/unknown/2026-04/",
+          _ => false,
+          _ => false
+        ).isEmpty
+      )
+    },
     test("versionedSiteRedirect forwards a generic company index to the newest available release") {
       val redirect = openApiRoutes.versionedSiteRedirect(
         "valiant/index.html",

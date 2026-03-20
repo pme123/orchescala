@@ -59,9 +59,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
       },
 
       // Serve company documentation index and static files (e.g. /site/, /site/valiant/index.html)
-      Method.GET / "site" / trailing -> handler { (path: Path, _: Request) =>
+      Method.GET / "site" / trailing -> handler { (path: Path, request: Request) =>
         val relativePath = path.segments.mkString("/")
-        versionedSiteRedirect(relativePath) match
+        siteFolderRedirectLocation(relativePath, request.url.path.toString)
+          .flatMap: location =>
+            versionedSiteRedirect(location.stripPrefix("/site/")).orElse(Some(location))
+          .orElse(versionedSiteRedirect(relativePath)) match
           case Some(location) => ZIO.succeed(siteVersionRedirectResponse(location))
           case None           => serveClasspathFile(siteResourcePath(relativePath))
       },
@@ -400,6 +403,27 @@ class OpenApiRoutes()(using config: GatewayConfig):
       .map(path => s"site/$path")
       .getOrElse("site/index.html")
 
+  private[gateway] def siteFolderRedirectLocation(relativePath: String, requestPath: String): Option[String] =
+    siteFolderRedirectLocation(relativePath, requestPath, classpathResourceExists, classpathDirectoryExists)
+
+  private[gateway] def siteFolderRedirectLocation(
+      relativePath: String,
+      requestPath: String,
+      resourceExists: String => Boolean,
+      directoryExists: String => Boolean
+  ): Option[String] =
+    Option(relativePath)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .map(_.stripSuffix("/"))
+      .flatMap: path =>
+        val isDirectoryRequest =
+          requestPath.endsWith("/") || (!lastPathSegmentLooksLikeFile(path) && directoryExists(s"site/$path"))
+        Option.when(isDirectoryRequest):
+          val indexPath = s"$path/index.html"
+          Option.when(resourceExists(s"site/$indexPath"))(s"/site/$indexPath")
+        .flatten
+
   private[gateway] def versionedSiteRedirect(relativePath: String): Option[String] =
     versionedSiteRedirect(relativePath, availableSiteVersions)
 
@@ -456,6 +480,15 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
   private[gateway] def isSiteVersionSegment(segment: String): Boolean =
     siteVersionSegmentPattern.matches(segment)
+
+  private[gateway] def classpathResourceExists(resourcePath: String): Boolean =
+    Option(getClass.getClassLoader.getResource(resourcePath.stripSuffix("/"))).nonEmpty
+
+  private[gateway] def classpathDirectoryExists(resourceDirectory: String): Boolean =
+    classpathResourceExists(resourceDirectory) || classpathDirectoryEntries(resourceDirectory).nonEmpty
+
+  private def lastPathSegmentLooksLikeFile(path: String): Boolean =
+    path.split('/').lastOption.exists(_.contains('.'))
 
   private[gateway] def needsCanonicalSiteRedirect(requestPath: String): Boolean =
     requestPath == "/site"
