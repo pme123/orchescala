@@ -1,6 +1,6 @@
 package orchescala.helper.dev.company.docs
 
-import orchescala.api.{ApiProjectConfig, DocProjectConfig, ProjectConfig, catalogFileName}
+import orchescala.api.{ApiProjectConfig, DocProjectConfig, ProjectConfig, ProjectGroup, catalogFileName}
 import orchescala.helper.dev.publish.{CatalogWebDAV, DocsWebDAV}
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
@@ -21,7 +21,17 @@ trait DocCreator extends DependencyCreator, Helpers:
     ApiProjectConfig(projectConfigPath)
 
   lazy val projectConfigs: Seq[ProjectConfig] =
-    apiConfig.projectsConfig.projectConfigs ++ apiConfig.otherProjectsConfig.projectConfigs
+    apiConfig.projectsConfig.projectConfigs
+
+  lazy val otherProjectGroups: Seq[(String, String)] =
+    apiConfig.projectsConfig
+      .perGitRepoConfigs
+      .flatMap: pc =>
+        pc.projects.map(_.name)
+          .map(_.split("-").head)
+          .distinct
+          .filterNot(_ == apiConfig.companyName)
+          .map(_ -> pc.cloneBaseUrl)
 
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
@@ -50,6 +60,24 @@ trait DocCreator extends DependencyCreator, Helpers:
       createFolders = true,
       mergeFolders = true
     )
+    otherProjectGroups.foreach:
+      case (group, baseUrl) =>
+        if !os.exists(gitBasePath / s"$group-orchescala") then
+          os.proc("git", "clone", s"$baseUrl/$group-orchescala.git", gitBasePath / s"$group-orchescala")
+            .callOnConsole(gitBasePath)
+        else
+          os.proc("git", "checkout", "develop")
+            .callOnConsole(gitBasePath / s"$group-orchescala")
+          os.proc("git", "pull", "origin", "develop")
+            .callOnConsole(gitBasePath / s"$group-orchescala")
+        os.makeDir.all(apiConfig.basePath / "site" / group)
+        os.copy(
+          gitBasePath / s"$group-orchescala" / "00-docs" / "site" / group,
+          apiConfig.basePath / "site" / group,
+          replaceExisting = true,
+          createFolders = true,
+          mergeFolders = true
+        )
     /*
     publishConfig
       .map: config =>
