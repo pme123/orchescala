@@ -71,7 +71,7 @@ end CatalogWebDAV
 case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfig: PublishConfig)
     extends WebDAV:
 
-  val projectUrl = s"$publishBaseUrl/$projectName/"
+  val projectUrl = s"$publishBaseUrl/${apiConfig.companyName}/$projectName/"
 
   def upload(): Unit =
     println(s"Start $projectName: upload Documentation to ${publishConfig.documentationUrl}")
