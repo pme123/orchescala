@@ -11,7 +11,7 @@ case class CompanySbtGenerator()(using
   lazy val sbtGenerator   = SbtGenerator()
   lazy val generate: Unit =
     println("Generate Company Sbt")
-    createIfNotExists(buildSbtDir, buildSbt)
+    createOrUpdate(buildSbtDir, buildSbt)
     sbtGenerator.generateBuildProperties(helperCompanyDoNotAdjustText)
     createOrUpdate(config.sbtProjectDir / "plugins.sbt", pluginsSbt)
     createIfNotExists(config.sbtProjectDir / "ProjectDef.scala", projectDev)
@@ -128,7 +128,7 @@ case class CompanySbtGenerator()(using
        |      .topNavigationBar(
        |        homeLink = IconLink.internal(Root / "index.md", HeliumIcon.home),
        |        navLinks = Seq(
-       |          TextLink.external("../../index.html", "Catalogs"),
+       |          TextLink.external("/site/index.html", "Catalogs"),
        |          TextLink.external("https://pme123.github.io/orchescala", "Orchescala")
        |        )
        |      )
@@ -271,13 +271,14 @@ case class CompanySbtGenerator()(using
        |""".stripMargin
 
   private lazy val buildSbt =
-    s"""// $helperCompanyHowToResetText
+    s"""// $helperCompanyDoNotAdjustText
        |import sbt.*
        |import sbt.Keys.*
        |import Settings.*
        |
        |ThisBuild / version := projectV
        |ThisBuild / organization := projectOrg
+       |ThisBuild / versionScheme := Some("early-semver")
        |ThisBuild / onLoadMessage := loadingMessage
        |
        |lazy val root = (project in file("."))
@@ -290,6 +291,7 @@ case class CompanySbtGenerator()(using
        |    dmn,
        |    simulation,
        |    worker,
+       |    gateway,
        |    helper,
        |    docs
        |  )
@@ -315,7 +317,7 @@ case class CompanySbtGenerator()(using
        |  .settings(publicationSettings)
        |  .settings(unitTestSettings)
        |  .settings(libraryDependencies ++= apiDeps)
-       |  .dependsOn(domain)
+       |  .dependsOn(engine)
        |
        |lazy val dmn = project
        |  .in(file("./03-dmn"))
@@ -336,8 +338,22 @@ case class CompanySbtGenerator()(using
        |  .settings(generalSettings(Some("worker")))
        |  .settings(publicationSettings)
        |  .settings(unitTestSettings)
+       |  .settings(zioTestSettings)
        |  .settings(libraryDependencies ++= workerDeps)
        |  .dependsOn(engine)
+       |
+       |lazy val gateway = project
+       |  .in(file("./04-gateway"))
+       |  .settings(generalSettings(Some("gateway")))
+       |  .settings(publicationSettings)
+       |  .settings(libraryDependencies ++= gatewayDeps)
+       |  .settings(
+       |    dockerSettings,
+       |    unitTestSettings,
+       |    zioTestSettings
+       |  )
+       |  .dependsOn(worker)
+       |  .enablePlugins(DockerPlugin, JavaAppPackaging)
        |
        |lazy val helper = project
        |  .in(file("./04-helper"))

@@ -19,19 +19,6 @@ case class SetupGenerator()(using config: DevConfig):
     addSymLinks()
   end generate
 
-  lazy val generateGateway: Unit =
-    println(
-      s"The following Files (red) were not updated! - if you want so add $doNotAdjust at the top of these file."
-    )
-    DirectoryGenerator().generateForGateway
-    GatewayGenerator().generate
-    SbtGenerator().generateForGateway
-    SbtSettingsGenerator(isGateway = true).generate
-
-    GenericFileGenerator().generateForGateway
-
-  end generateGateway
-
   def createProcess(setupElement: SetupElement): Unit =
     BpmnGenerator().createProcess(setupElement)
     BpmnProcessGenerator(config.bpmnProcessType).createBpmn(setupElement)

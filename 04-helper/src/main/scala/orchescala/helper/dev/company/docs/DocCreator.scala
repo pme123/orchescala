@@ -63,6 +63,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     val catalogs    = s"""{%
                       |// auto generated - do not change!
                       |helium.site.pageNavigation.depth = 1
+                      |helium.site.pageNavigation.enabled = true
                       |%}
                       |## Catalog
                       |${projectConfigs
@@ -106,6 +107,9 @@ trait DocCreator extends DependencyCreator, Helpers:
          |  development
          |  dependencies
          |]
+         |
+         |helium.site.pageNavigation.enabled = false
+         |
          """.stripMargin
     os.write.over(apiConfig.basePath / "src" / "docs" / "directory.conf", table)
   end createDynamicConf

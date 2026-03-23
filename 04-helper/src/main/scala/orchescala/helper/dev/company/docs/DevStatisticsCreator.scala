@@ -7,6 +7,7 @@ case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path, company
       s"""{%
          |// auto generated - do not change!
          |helium.site.pageNavigation.depth = 1
+         |laika.pageNavigation.enabled = true
          |%}
          |## Development Statistics
          |

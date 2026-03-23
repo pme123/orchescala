@@ -48,7 +48,10 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     given DevConfig = devConfig
     println(s"Update Project: ${devConfig.projectName}")
     println(s" - with Subprojects: ${devConfig.subProjects}")
+    println(s" - Modules: ${devConfig.modules}")
+
     CompanyGenerator(isInitCompany = false).generate
+    os.remove(os.pwd / "04-gateway" / "src" / "main" / "resources" / "site")
     os.symlink(
       os.pwd / "04-gateway" / "src" / "main" / "resources" / "site",
       os.pwd / "00-docs" / "site"

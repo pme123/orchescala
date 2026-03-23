@@ -4,7 +4,7 @@ import orchescala.helper.dev.update.createIfNotExists
 
 import java.time.LocalDate
 
-case class CompanyDocsGenerator(companyOrchescala: os.Path):
+case class CompanyDocsGenerator(companyName: String, companyOrchescala: os.Path):
   private lazy val companyProjectName = companyOrchescala.last
   private lazy val docsBase = companyOrchescala / s"00-docs"
   private lazy val docsSrc = docsBase / "src" / "docs"
@@ -13,17 +13,23 @@ case class CompanyDocsGenerator(companyOrchescala: os.Path):
     println("Generate Company Docs")
     // generate docs
     directory("dependencies", "Dependencies", isVersioned = true)
+    directory("development", "Development", isVersioned = false)
     directory("helium", "Helium", isVersioned = false)
     contact
     instructions
     onboarding
-    favicon
+    favicon()
     pattern
     statistics
     style
     config
     versions("VERSIONS")
     versions("VERSIONS_PREVIOUS")
+    // site
+    os.makeDir.all(docsBase / "site")
+    favicon(docsBase / "site")
+    siteIndexHtml
+    siteCss
   end generate
 
   private lazy val contact =
@@ -52,20 +58,29 @@ case class CompanyDocsGenerator(companyOrchescala: os.Path):
   private lazy val onboarding =
     createIfNotExists(
       docsSrc / "development" / "onboarding.md",
-      s"""|# Onboarding
+      s"""|{%
+          |// auto generated - do not change!
+          |helium.site.pageNavigation.depth = 2
+          |helium.site.pageNavigation.enabled = true
+          |%}
+          |# Onboarding
           |
           |The general Onboarding you find here:
           |
           |[Orchescala Onboarding](https://pme123.github.io/orchescala/development/onboarding.html)
           |
-          |On this page you find stuff that is specific to Valiant and its environment.
+          |On this page you find stuff that is specific to $companyName and its environment.
           |""".stripMargin
     )
 
   private lazy val pattern =
     createIfNotExists(
       docsSrc / "pattern.md",
-      s"""|# Process Pattern
+      s"""|{%
+          |helium.site.pageNavigation.depth = 1
+          |helium.site.pageNavigation.enabled = true
+          |%}
+          |# Process Pattern
           |We try to establish Patterns for doing the same tasks.
           |This documentation lists them and gives you some examples.
           |
@@ -98,8 +113,8 @@ case class CompanyDocsGenerator(companyOrchescala: os.Path):
           |""".stripMargin
     )
 
-  private lazy val favicon =
-    val faviconPath = docsSrc / "favicon.ico"
+  private def favicon(path: os.Path = docsSrc) =
+    val faviconPath = path / "favicon.ico"
     if !os.exists(faviconPath) then
       os.write(faviconPath, (os.resource / "favicon.ico").toSource)
 
@@ -112,6 +127,8 @@ case class CompanyDocsGenerator(companyOrchescala: os.Path):
           |${laikaTitle(title)}
           |
           |$laikaNavigationOrder
+          |
+          |helium.site.pageNavigation.enabled = false
           |""".stripMargin
     )
   end directory
@@ -157,4 +174,65 @@ case class CompanyDocsGenerator(companyOrchescala: os.Path):
           |
           |// END VERSIONS
           |""".stripMargin)
+
+  private lazy val siteIndexHtml =
+    createIfNotExists(
+      docsBase / "site" / "index.html",
+      s"""|<!DOCTYPE html>
+          |<!-- $helperCompanyHowToResetText -->
+          |<html lang="en-CH">
+          |
+          |<head>
+          |    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+          |    <meta charset="utf-8">
+          |    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          |    <meta name="generator" content="Typelevel Laika + Helium Theme"/>
+          |    <title>$companyName Process Documentation</title>
+          |    <meta name="description" content="$companyName-orchescala-docs"/>
+          |    <link rel="icon" sizes="32x32" type="image/x-icon" href="./favicon.ico"/>
+          |
+          |    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+          |    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+          |    <link rel="stylesheet" type="text/css" href="./$companyName/helium/site/icofont.min.css"/>
+          |    <link rel="stylesheet" type="text/css" href="./$companyName/helium/site/laika-helium.css"/>
+          |
+          |    <script> /* for avoiding page load transitions */ </script>
+          |</head>
+          |
+          |<body>
+          |
+          |<div id="container">
+          |
+          |    <main class="content">
+          |
+          |        <h1 class="title">Process & Worker Catalogs</h1>
+          |        <p><em>Find existing Processes and Worker in our Catalogs.</em></p>
+          |
+          |        <h2 class="section"><a href="./$companyName/index.html">$companyName</a></h2>
+          |        <ul>
+          |            <li><strong><a href="./$companyName/catalog.html" title="Catalog">Catalog</a></strong></li>
+          |        </ul>
+          |
+          |    </main>
+          |
+          |</div>
+          |
+          |</body>
+          |
+          |</html>""".stripMargin
+    )
+  private lazy val siteCss =
+    createIfNotExists(
+      docsBase / "site" / "style.css",
+      s"""# $helperCompanyHowToResetText
+         |
+         |.mermaid svg {
+         |    height: 400px;
+         |}
+         |.colorLegend {
+         |    margin-left: auto;
+         |    margin-right: 40px;
+         |    width: 400px;
+         |}""".stripMargin
+    )
 end CompanyDocsGenerator
