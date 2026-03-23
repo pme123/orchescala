@@ -13,7 +13,7 @@ import scala.jdk.CollectionConverters.CollectionHasAsScala
 abstract class WebDAV:
   def publishConfig: PublishConfig
   def apiConfig: ApiConfig
-  val publishBaseUrl  = s"${publishConfig.documentationUrl}/${apiConfig.companyName}"
+  val publishBaseUrl  = s"${publishConfig.documentationUrl}/site"
   val contentTypeHtml = "text/html"
   val contentTypeYaml = "text/yaml"
   val contentTypeIcon = "image/x-icon"
@@ -46,16 +46,25 @@ case class CatalogWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) ext
         println(
           s"Start $homeHtmlPath: upload Home HTML to ${publishConfig.documentationUrl}/index.html"
         )
-        val sardine  = startSession
-        try {
+        val sardine = startSession
+        try
           sardine.delete(s"${publishConfig.documentationUrl}/favicon.ico")
           sardine.delete(s"${publishConfig.documentationUrl}/index.html")
           // create new
-          sardine.put(s"${publishConfig.documentationUrl}/favicon.ico", os.read.inputStream(os.resource / "favicon.ico"), contentTypeIcon)
-          sardine.put(s"${publishConfig.documentationUrl}/index.html", os.read.inputStream(homeHtmlPath), contentTypeHtml)
-        } finally sardine.shutdown()
+          sardine.put(
+            s"${publishConfig.documentationUrl}/favicon.ico",
+            os.read.inputStream(os.resource / "favicon.ico"),
+            contentTypeIcon
+          )
+          sardine.put(
+            s"${publishConfig.documentationUrl}/index.html",
+            os.read.inputStream(homeHtmlPath),
+            contentTypeHtml
+          )
+        finally sardine.shutdown()
         end try
       .getOrElse(println("No home page defined."))
+  end upload
 
 end CatalogWebDAV
 
@@ -150,12 +159,12 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
     with Helpers:
   def upload(releaseTag: String): Unit =
     val sardine = startSession
-    val docDir  = apiConfig.basePath / "target" / "docs" / "site"
+    val docDir  = apiConfig.basePath / "site"
     if docDir.toIO.exists() then
       try
-        println(s"Delete $publishBaseUrl/$releaseTag/")
-        if sardine.exists(s"$publishBaseUrl/$releaseTag/") then
-          sardine.delete(s"$publishBaseUrl/$releaseTag/")
+        println(s"Delete $publishBaseUrl")
+        //   if sardine.exists(s"$publishBaseUrl") then
+        //    sardine.delete(s"$publishBaseUrl")
 
         def uploadFiles(url: String, docFiles: Seq[os.Path]): Unit =
           docFiles.foreach {
@@ -165,41 +174,41 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
               uploadFiles(s"$url/${f.toIO.getName}", os.list(f))
             case f if f.toIO.exists()                       =>
               println(s"Uploading $url/${f.toIO.getName}")
-              sardine.put(s"$url/${f.toIO.getName}", os.read.inputStream(f))
+              sardine.put(s"$url/${f.toIO.getName}", os.read.bytes(f))
             case f                                          =>
               println(s"Not supported file: $f")
           }
 
         def addBaseFiles =
           // create top level files for versioned root pages / directories
-          Seq("index.html")//, "release.html", "overviewDependencies.html")
-            .foreach: f =>
-              println(s"Create copy of versioned: $f")
-              val content = 
-                os
-                  .read(docDir / releaseTag / f)
-                  .replace(
-                    """"../""",
-                    """"./""",
-                  )
-                  .replace(
-                    """"dependencies""",
-                    s""""$releaseTag/dependencies""",
-                  )
-                  .replace(
-                    """"release.html""",
-                    s""""$releaseTag/release.html""",
-                  )
-                  .replace(
-                    """"overviewDependencies.html""",
-                    s""""$releaseTag/overviewDependencies.html""",
-                  )
-              os.write.over((docDir / f), content)
+          println(s"Create redirect of versioned: $releaseTag")
+          val content =
+            s"""<!DOCTYPE html>
+               |<html lang="en-CH">
+               |<head>
+               |  <meta charset="utf-8">
+               |  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+               |  <title>Redirecting to ${apiConfig.companyName} Documentation…</title>
+               |  <meta http-equiv="refresh" content="0; url=./$releaseTag/">
+               |  <link rel="canonical" href="./$releaseTag/">
+               |  <script>
+               |    window.location.replace("./$releaseTag/");
+               |  </script>
+               |</head>
+               |<body>
+               |  <p>Redirecting to the ${apiConfig.companyName} documentation… <a href="./$releaseTag/">Open documentation</a></p>
+               |</body>
+               |</html>""".stripMargin
+          os.write.over((docDir / apiConfig.companyName / "index.html"), content)
+        end addBaseFiles
 
         addBaseFiles
-        uploadFiles(publishBaseUrl, os.list(docDir))
-        println(s"Finished upload Documentation")
+        if sardine.exists(s"$publishBaseUrl/index.html") then
+          uploadFiles(s"$publishBaseUrl/${apiConfig.companyName}", os.list(docDir / apiConfig.companyName))
+        else
+          uploadFiles(s"$publishBaseUrl", os.list(docDir))
 
+        println(s"Finished upload Documentation")
       catch
         case ex: SardineException
             if ex.getMessage == "Unexpected response (404 Not Found)" =>
