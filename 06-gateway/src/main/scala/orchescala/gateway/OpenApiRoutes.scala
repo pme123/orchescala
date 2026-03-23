@@ -98,7 +98,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         "diagramName"
       ) -> handler {
         (_: String, projectName: String, diagramName: String, _: Request) =>
-          forwardDocsRequest(projectName, s"../diagrams/$diagramName", MediaType.application.xml)
+          forwardDocsRequest(projectName, s"docs/diagrams/$diagramName", MediaType.application.xml)
       },
 
       // Serve HTML documentation page
