@@ -47,10 +47,12 @@ trait RestApiClient:
       request: Request[Either[String, String], Any]
   ): IO[ServiceRequestError, String] =
     ZIO.fromEither(response.body)
+      .tapError: err =>
+        ZIO.logDebug(s"Error response for request: ${request.toCurl}")
       .mapError(body =>
         ServiceRequestError(
           statusCode.code,
-          s"Non-2xx response with code $statusCode:\n$body\n\n${request.toCurl}"
+          s"Non-2xx response with code $statusCode:\n$body"
         )
       )
   end readBody
