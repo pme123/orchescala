@@ -218,7 +218,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
                   val target      = deriveOAuth2Target(request)
                   val redirectUri = deriveCallbackUri(request)
                   val authUrl     = buildOAuthUrl(auth, state, redirectUri)
-                  ZIO.succeed:
+                  ZIO.logInfo(s"Redirecting to Keycloak: $authUrl \n- RedirectUri: $redirectUri\n- Target: $target\n- State: $state").as:
                     Response(status = Status.Found, headers = Headers("location" -> authUrl))
                       .addCookie(
                         Cookie.Response(
@@ -624,7 +624,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
     */
   private def deriveCallbackUri(request: Request): String =
     val host   = request.header(Header.Host).map(_.renderedValue).getOrElse("localhost")
-    val scheme = request.rawHeader("X-Forwarded-Proto").getOrElse("http")
+    val scheme = forwardedProto(request)
     s"$scheme://$host/docs/oauth2/callback"
+
+  private def forwardedProto(request: Request): String =
+    request.rawHeader("X-Forwarded-Proto")
+      .flatMap(_.split(",").headOption)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .getOrElse("http")
 
 end OpenApiRoutes
