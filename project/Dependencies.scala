@@ -70,6 +70,12 @@ object Dependencies {
   val twitter4jVersion      = "4.1.2"
   val groovyVersion         = "3.0.25"
 
+  // sbt plugins
+  val sbtNativePackager = "1.11.4"
+  val sbtCiRelease      = "1.11.2"
+  val laikaSbt          = "1.3.2"
+  val sbtBuildInfo      = "0.13.1"
+
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
   lazy val scaffeineDependency = // token caching
     "com.github.blemale" %% "scaffeine" % scaffeineV // caching

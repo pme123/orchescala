@@ -56,7 +56,7 @@ trait WorkerApp extends ZIOAppDefault:
         workerRoutes = WorkerRoutes(engineContext).routes(workerApps(this).flatMap(_.theWorkers).toSet)
         docsRoutes   = OpenApiRoutes.routes
         _           <- ZIO.logInfo(s"Server ready at http://localhost:$port")
-        _           <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs")
+        _           <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs/")
         _           <- Server.serve(workerRoutes ++ docsRoutes).forever
         _           <- ZIO.logInfo("Http Server is stopping.")
         _           <- workersFork.join

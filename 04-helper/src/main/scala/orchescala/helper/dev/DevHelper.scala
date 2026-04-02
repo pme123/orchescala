@@ -20,10 +20,6 @@ trait DevHelper:
     run(command, arguments.toSeq, runCommand)
   end run
 
-  def runForGateway(command: String, arguments: String*): Unit =
-    run(command, arguments.toSeq, runCommandForGateway, Seq(Command.update, Command.publish))
-  end runForGateway
-
   private def run(
       command: String,
       arguments: Seq[String],
@@ -140,21 +136,6 @@ trait DevHelper:
       case Command.dockerDown =>
         DockerHelper(devConfig.dockerConfig).dockerDown()
 
-  private def runCommandForGateway(command: Command, args: Seq[String]): Unit =
-    command match
-      case Command.update  =>
-        updateGateway()
-      case Command.publish =>
-        args match
-          case Seq(version) =>
-            PublishHelper().publishGateway(version)
-          case other        =>
-            println(s"Invalid arguments for command $command: $other")
-            println(s"Usage: $command <version>")
-            println(s"Example: $command 1.23.3")
-      case other           =>
-        println(s"Command not supported for gateway: $other")
-
   private def printBadActivity(command: Command, args: Seq[String]): Unit =
     println(s"Invalid arguments for command $command: $args")
     println(s"Usage: $command <processName> <bpmnName> [version: Int]")
@@ -168,19 +149,9 @@ trait DevHelper:
   def update(): Unit =
     println(s"Update Project: ${devConfig.projectName}")
     println(s" - with Subprojects: ${devConfig.subProjects}")
+    println(s" - Modules: ${devConfig.modules}")
     SetupGenerator().generate
-
-  def updateGateway(): Unit =
-    println(s"Update Gateway Project: ${devConfig.projectName}")
-    SetupGenerator()(using
-      devConfig.copy(
-        modules = Seq(ModuleConfig.gatewayModule),
-        sbtConfig = devConfig.sbtConfig.copy(
-          dockerSettings = Some("dockerSettings"),
-        )
-      )
-    ).generateGateway
-  end updateGateway
+    
 
   def createProcess(processName: String, version: Option[Int]): Unit =
     SetupGenerator().createProcess(SetupElement(

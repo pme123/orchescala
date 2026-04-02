@@ -1,10 +1,15 @@
 package orchescala.engine
 
 import orchescala.domain.*
+import orchescala.engine.domain.EngineType
 import orchescala.engine.rest.WorkerForwardUtil
 
 trait EngineConfig:
   def tenantId: Option[String]
+  @description(
+    "The engines that you support"
+  )
+  def supportedEngines: Seq[EngineType]
   @description(
     "The key of the process variable that contains an additional value to verify the impersonate User"
   )
@@ -17,7 +22,8 @@ trait EngineConfig:
   @description(
     """Get the base URL for a worker app by topic name. Returns None if the worker should be executed
       |locally. Returns Some(url) if the worker request should be forwarded to the given URL.
-      |""".stripMargin)
+      |""".stripMargin
+  )
   def workerAppUrl: (topicName: String) => Option[String]
 
   @description(
@@ -38,12 +44,13 @@ trait EngineConfig:
 
   def validateProcess(doValidate: Boolean): EngineConfig
 
-  def withTenantId(tenantId: String): EngineConfig 
+  def withTenantId(tenantId: String): EngineConfig
 
 end EngineConfig
 
 case class DefaultEngineConfig(
     tenantId: Option[String] = None,
+    supportedEngines: Seq[EngineType] = Seq(EngineType.C7),
     impersonateProcessKey: Option[String] = None,
     identitySigningKey: Option[String] = sys.env.get("ORCHESCALA_IDENTITY_SIGNING_KEY"),
     validateInput: Boolean = true,
@@ -51,11 +58,12 @@ case class DefaultEngineConfig(
     workerAppUrl: (topicName: String) => Option[String] = topicName =>
       Some(
         s"http://${
-          if EnvironmentDetector.isLocalhost then "localhost" else topicName.split('-').take(2).mkString("-")
-        }:5555"
+            if EnvironmentDetector.isLocalhost then "localhost"
+            else topicName.split('-').take(2).mkString("-")
+          }:5555"
       )
 ) extends EngineConfig:
-  
+
   def validateProcess(doValidate: Boolean): EngineConfig =
     copy(validateInput = doValidate)
 

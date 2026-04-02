@@ -151,39 +151,25 @@ val startProcessEndpoint =
 
 You can implement custom authentication by overriding the `GatewayConfig` methods:
 
-```scala mdoc
-import orchescala.gateway.*
+```scala mdoc:reset
 import orchescala.engine.*
+import orchescala.gateway.*
 import orchescala.worker.*
-import orchescala.domain.*
-import zio.ZIO
 
-class CustomGatewayConfig extends GatewayConfig {
+def config: GatewayConfig = DefaultGatewayConfig(
+  engineConfig = DefaultEngineConfig(),
+  workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
+  docsAuth = authCode
+) 
+private def authCode =
+    DocsAuth.OAuth2AuthCode(
+      ssoBaseUrl = ???,
+      realm = ???,
+      clientId = ???,
+      clientSecret = ???,
+      scopes = ???
+    )
 
-  override val engineConfig: EngineConfig = DefaultEngineConfig()
-  override val workerConfig: WorkerConfig = DefaultWorkerConfig(DefaultEngineConfig())
-  override val gatewayPort: Int = 8080
-
-  override def validateToken(token: String): IO[GatewayError, String] =
-    // Custom validation logic (e.g., call external auth service)
-    if token.startsWith("valid-") then
-      ZIO.succeed(token)
-    else
-      ZIO.fail(GatewayError.TokenExtractionError("Invalid token"))
-
-  override def extractCorrelation(
-                                   token: String,
-                                   in: JsonObject
-                                 ): IO[GatewayError, IdentityCorrelation] =
-    // Custom identity extraction logic
-    ZIO.succeed(IdentityCorrelation(
-      username = "custom-user",
-      email = Some("user@example.com"),
-      impersonateProcessValue = None,
-      issuedAt = System.currentTimeMillis(),
-      processInstanceId = Some("customerId"),
-    ))
-}
 ```
 
 ## Security Considerations

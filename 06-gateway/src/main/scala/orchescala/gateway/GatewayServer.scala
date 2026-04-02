@@ -52,7 +52,10 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
           // Start server
           _ <- ZIO.logInfo(s"Server ready at http://localhost:${config.gatewayPort}")
           _ <- ZIO.logInfo(
-                 s"API Documentation available at http://localhost:${config.gatewayPort}/docs"
+                 s"API Documentation available at http://localhost:${config.gatewayPort}/docs/"
+               )
+          _ <- ZIO.logInfo(
+                 s"Company Documentation available at http://localhost:${config.gatewayPort}/site/"
                )
           _ <- Server.serve(allRoutes).forever
         yield ()
@@ -82,7 +85,7 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
           gatewayEngine.messageService
         ).routes
     ) ++
-      OpenApiRoutes.routes
+      OpenApiRoutes().routes
 
   // Log environment info on startup
   println(EnvironmentDetector.environmentInfo)

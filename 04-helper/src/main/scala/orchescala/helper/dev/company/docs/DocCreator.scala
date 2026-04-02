@@ -1,6 +1,12 @@
 package orchescala.helper.dev.company.docs
 
-import orchescala.api.{ApiProjectConfig, DocProjectConfig, ProjectConfig, catalogFileName}
+import orchescala.api.{
+  ApiProjectConfig,
+  DocProjectConfig,
+  ProjectConfig,
+  ProjectGroup,
+  catalogFileName
+}
 import orchescala.helper.dev.publish.{CatalogWebDAV, DocsWebDAV}
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
@@ -21,7 +27,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     ApiProjectConfig(projectConfigPath)
 
   lazy val projectConfigs: Seq[ProjectConfig] =
-    apiConfig.projectsConfig.projectConfigs ++ apiConfig.otherProjectsConfig.projectConfigs
+    apiConfig.projectsConfig.projectConfigs
 
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
@@ -43,11 +49,20 @@ trait DocCreator extends DependencyCreator, Helpers:
       "clean",
       "laikaSite" // generate HTML pages from Markup
     ).callOnConsole()
+    os.copy(
+      apiConfig.basePath / "target" / "docs" / "site",
+      apiConfig.basePath / "site" / apiConfig.companyName,
+      replaceExisting = true,
+      createFolders = true,
+      mergeFolders = true
+    )
+    pullOtherProjects()
+  
     publishConfig
       .map: config =>
         DocsWebDAV(apiConfig, config).upload(releaseConfig.releaseTag)
-        CatalogWebDAV(apiConfig, config).upload()
-      .getOrElse(println("No Publish Config found"))
+      //  CatalogWebDAV(apiConfig, config).upload()
+      .getOrElse(println("No Publish Config found")) 
   end publishDocs
 
   protected def createCatalog(): Unit =
@@ -55,11 +70,13 @@ trait DocCreator extends DependencyCreator, Helpers:
     val catalogs    = s"""{%
                       |// auto generated - do not change!
                       |helium.site.pageNavigation.depth = 1
+                      |helium.site.pageNavigation.enabled = true
                       |%}
                       |## Catalog
                       |${projectConfigs
-                       .collect :
-                         case pc @ ProjectConfig(projectName, _, _, _) if projectName.startsWith(apiConfig.companyName) =>
+                       .collect:
+                         case pc @ ProjectConfig(projectName, _, _, _)
+                             if projectName.startsWith(apiConfig.companyName) =>
                            val path = pc.absGitPath(gitBasePath) / catalogFileName
                            if os.exists(path) then
                              os.read(path)
@@ -68,7 +85,6 @@ trait DocCreator extends DependencyCreator, Helpers:
                                 |Sorry there is no $path.
                                 |""".stripMargin
                            end if
-                       
                        .mkString("\n")}""".stripMargin
     val catalogPath = apiConfig.basePath / "src" / "docs" / catalogFileName
     println(s"Catalog Path: $catalogPath")
@@ -95,17 +111,20 @@ trait DocCreator extends DependencyCreator, Helpers:
          |  devStatistics.md
          |  catalog.md
          |  contact.md
-         |  instructions.md
+         |  development
          |  dependencies
          |]
+         |
+         |helium.site.pageNavigation.enabled = false
+         |
          """.stripMargin
     os.write.over(apiConfig.basePath / "src" / "docs" / "directory.conf", table)
   end createDynamicConf
 
   private def createReleasePage(): Unit =
     given configs: Seq[DocProjectConfig] = setupConfigs()
-    val bpmnConfigs = configs.filter(!_.isWorker)
-    val workerConfigs = configs.filter(_.isWorker)
+    val bpmnConfigs                      = configs.filter(!_.isWorker)
+    val workerConfigs                    = configs.filter(_.isWorker)
     given ReleaseConfig                  = releaseConfig
     DependencyValidator().validateDependencies
     val indexGraph                       = DependencyGraphCreator().createIndex
@@ -131,11 +150,17 @@ trait DocCreator extends DependencyCreator, Helpers:
          |
          |## Camunda Dependencies
          |
-         |${if bpmnConfigs.size > 1 then dependencyTable(bpmnConfigs) + s"\n\n$tableFooter" else "No Dependencies"}
+         |${
+          if bpmnConfigs.size > 1 then dependencyTable(bpmnConfigs) + s"\n\n$tableFooter"
+          else "No Dependencies"
+        }
          |
          |## Worker Dependencies
          |
-         |${if workerConfigs.size > 1 then dependencyTable(workerConfigs) + s"\n\n$tableFooter" else "No Dependencies"}
+         |${
+          if workerConfigs.size > 1 then dependencyTable(workerConfigs) + s"\n\n$tableFooter"
+          else "No Dependencies"
+        }
          |
          |$releaseNotes
          """.stripMargin
@@ -191,16 +216,16 @@ trait DocCreator extends DependencyCreator, Helpers:
       .toMap
 
   private def fetchConf(
-                         project: String,
-                         version: String,
-                         versionPrevious: String,
-                         isWorker: Boolean
-                       ) =
+      project: String,
+      version: String,
+      versionPrevious: String,
+      isWorker: Boolean
+  ) =
     for
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
-      _ = println(s"Project Git Path $projectPath / $gitBasePath")
-      _ =
+      _           = println(s"Project Git Path $projectPath / $gitBasePath")
+      _           =
         if !os.exists(projectPath) then
           apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
 
@@ -209,15 +234,16 @@ trait DocCreator extends DependencyCreator, Helpers:
 
       // resolve correct tag name (handles 'v' and non-'v')
       tagRef = resolveTagRef(projectPath, version)
-      _ = println(s"Checkout $project to 'tags/$tagRef'")
+      _      = println(s"Checkout $project to 'tags/$tagRef'")
 
       // try checkout; if local changes block it, force the checkout
-      _ = try
-        os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
-      catch
-        case _: Throwable =>
-          println("Checkout failed, retrying with '-f' due to local changes")
-          os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
+      _ = 
+        try
+          os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
+        catch
+          case _: Throwable =>
+            println("Checkout failed, retrying with '-f' due to local changes")
+            os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
     yield DocProjectConfig(
       apiProjectConfig(projectPath / apiConfig.projectsConfig.projectConfPath),
       os.read.lines(projectPath / "CHANGELOG.md"),
@@ -247,6 +273,7 @@ trait DocCreator extends DependencyCreator, Helpers:
       candidates.find(c => remoteTags.contains(s"refs/tags/$c"))
         .getOrElse(throw new Exception(s"Tag not found: ${candidates.mkString(" or ")}"))
     }
+  end resolveTagRef
 
   private def dependencyTable(configs: Seq[DocProjectConfig]) =
 
@@ -323,10 +350,14 @@ trait DocCreator extends DependencyCreator, Helpers:
 
     val projectChangelogs = mergeConfigs
       .sortBy(_.projectName)
-      .map(c => s"""
-                   |## [${c.projectName}](${if c.companyName == apiConfig.companyName then s".." else s"../../${c.companyName}"}/${c.projectName}/OpenApi.html")
-                   |${extractChangelog(c)}
-                   |""".stripMargin)
+      .map(c =>
+        s"""
+           |## [${c.projectName}](${
+            if c.companyName == apiConfig.companyName then s".." else s"../../${c.companyName}"
+          }/${c.projectName}/OpenApi.html")
+           |${extractChangelog(c)}
+           |""".stripMargin
+      )
       .mkString("\n")
     s"""
        |# Release Notes
@@ -438,6 +469,42 @@ trait DocCreator extends DependencyCreator, Helpers:
       jiraTicket
     else
       s"[$jiraTicket](https://issue.swisscom.ch/browse/$jiraTicket)"
+
+  private def pullOtherProjects(): Unit =
+    val otherProjects: Seq[(String, String)] =
+      apiConfig.projectsConfig
+        .perGitRepoConfigs
+        .flatMap: pc =>
+          pc.projects.map(_.name)
+            .map(_.split("-").head)
+            .distinct
+            .filterNot(_ == apiConfig.companyName)
+            .map(_ -> pc.cloneBaseUrl)
+    otherProjects.foreach:
+      case (group, baseUrl) =>
+        if !os.exists(gitBasePath / s"$group-orchescala") then
+          os.proc(
+            "git",
+            "clone",
+            s"$baseUrl/$group-orchescala.git",
+            gitBasePath / s"$group-orchescala"
+          )
+            .callOnConsole(gitBasePath)
+        else
+          os.proc("git", "checkout", "develop")
+            .callOnConsole(gitBasePath / s"$group-orchescala")
+          os.proc("git", "pull", "origin", "develop")
+            .callOnConsole(gitBasePath / s"$group-orchescala")
+        end if
+        os.makeDir.all(apiConfig.basePath / "site" / group)
+        os.copy(
+          gitBasePath / s"$group-orchescala" / "00-docs" / "site" / group,
+          apiConfig.basePath / "site" / group,
+          replaceExisting = true,
+          createFolders = true,
+          mergeFolders = true
+        )
+  end pullOtherProjects
 
   private enum ChangeLogGroup:
     case Added, Changed, Fixed, Deprecated, Removed, Security, Other
