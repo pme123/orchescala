@@ -20,8 +20,6 @@ case class ApiConfig(
     jiraUrls: Map[String, String] = Map.empty,
     // Configure your project setup
     projectsConfig: ProjectsConfig = ProjectsConfig(),
-    // For generating references to other projects, your Workers/Processes are used in
-    otherProjectsConfig: ProjectsConfig = ProjectsConfig(),
     // Configure your template generation
     modelerTemplateConfigs: Seq[ModelerTemplateConfig] = Seq(
       ModelerTemplateConfig(),
@@ -52,8 +50,7 @@ case class ApiConfig(
     Unsafe.unsafe:
       implicit unsafe =>
         Runtime.default.unsafe.run(
-          projectsConfig.init(tempGitDir, companyName, engineConfig.parallelism) *>
-            otherProjectsConfig.init(tempGitDir, companyName, engineConfig.parallelism)
+          projectsConfig.init(tempGitDir, companyName, engineConfig.parallelism)
         ).getOrThrow()
 
   end init
@@ -77,9 +74,6 @@ case class ApiConfig(
 
   def withProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
     copy(projectsConfig = gitConfigs)
-
-  def withOtherProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
-    copy(otherProjectsConfig = gitConfigs)
 
   def withModelerTemplateConfig(modelerTemplateConfig: ModelerTemplateConfig): ApiConfig =
     copy(modelerTemplateConfigs = modelerTemplateConfigs :+ modelerTemplateConfig)

@@ -127,7 +127,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         error: WorkerError,
         generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, WorkerError]] =
-      val errorMsg          = error.errorMsg.replace("\n", "")
+      val errorMsg          = error.toString.replace("\n", "")
       val errorHandled      = isErrorHandled(error, generalVariables.handledErrorSeq)
       val errorRegexHandled =
         error.isMock || (errorHandled && generalVariables.regexHandledErrorSeq.forall(regex =>
@@ -170,14 +170,14 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     ): HelperContext[URIO[Any, Unit]] =
       val errorVars = Map(
         "errorCode" -> error.errorCode.toString,
-        "errorMsg"  -> error.errorMsg
+        "errorMsg"  -> error.toString
       )
       val variables = (filteredGeneralVariables ++ errorVars).asJava
       ZIO.attempt(
         externalTaskService.handleBpmnError(
           summon[camunda.ExternalTask],
           s"${error.errorCode}",
-          error.errorMsg,
+          error.toString,
           variables
         )
       )
@@ -205,7 +205,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           externalTaskService.handleFailure(
             taskId,
             error.causeMsg,
-            s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
+            error.toString,
             Math.max(retries, 0), // < 0 not allowed
             10.seconds.toMillis
           )

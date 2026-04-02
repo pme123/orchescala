@@ -1,6 +1,7 @@
 package orchescala.helper.dev
 
 import orchescala.api.{defaultProjectConfigPath, projectsPath}
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.update.createIfNotExists
 import orchescala.helper.util.{DevConfig, RepoConfig}
@@ -9,6 +10,8 @@ import scala.util.{Failure, Success, Try}
 
 // dev-company/helperCompany.scala
 object DevCompanyHelper:
+
+  given engineConfig: EngineConfig = DefaultEngineConfig()
 
   def run(command: String, arguments: String*): Unit =
     val args = arguments.toSeq

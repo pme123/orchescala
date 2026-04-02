@@ -15,6 +15,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.3 - 2026-04-02
+### Changed 
+- Used error.toString to get more error information in Cockpit. - see [Commit](git@github.com:pme123/orchescala/commit/8a6316e1e57b2ebd04916ed9d74ed9ede4666629)
+- Added debug info in OpenApiRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/f1105c5198163373ee85ab3d13e4cbb4c66f4025)
+- Fixed customer data in log - now only if set to debug mode - the content of the request is shown. - see [Commit](git@github.com:pme123/orchescala/commit/26bd6c784e79c3e28d9f517530b1dfdb3485fed4)
+- Fixed bad links in Gateway. - see [Commit](git@github.com:pme123/orchescala/commit/1083d6dedaccdf0999b3e6810b01ab4ab3591864)
+- Moved api Configs in company directory. - see [Commit](git@github.com:pme123/orchescala/commit/dfac5e1011dd622817913e80d2e8f5feac3cb8d1)
+- Adding pullOtherProjects for documentation / adjusted WebDAV. - see [Commit](git@github.com:pme123/orchescala/commit/c2218ac6da8da723e4c5a3f4b0fc1dfa0db3605c)
+- Adding dependeny company projects. - see [Commit](git@github.com:pme123/orchescala/commit/1fe2aff616df4a1b5122169971e5784b155e3e32)
+- Adjustments to create docs. - see [Commit](git@github.com:pme123/orchescala/commit/f594b78f4c4f8e9f3d3f0a20bb64eb1736601861)
+- Fixed auto forwarding / to /index.html. - see [Commit](git@github.com:pme123/orchescala/commit/dffb20b5a1ff7930fb4c84a6510f4116705b37b2)
+- Working version showing documentation in gateway. - see [Commit](git@github.com:pme123/orchescala/commit/caf1dc8850cca96fa1b875a2538fe041edb3953b)
+- Working OAuth login for documentation. - see [Commit](git@github.com:pme123/orchescala/commit/ab5ffe1b73312816fd2b039b6fd1beada36ddb06)
+- Added worker apiDocs diagrams forwarding to gateway. - see [Commit](git@github.com:pme123/orchescala/commit/589adad8d8897134f502979d43afb43f70649bab)
+- Added worker apiDocs forwarding to gateway. - see [Commit](git@github.com:pme123/orchescala/commit/d4b28e2f5d1524f60461f5fc21218d1e3ed3e886)
+- Added diagrams and OpenApi.yml to OpenApiRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/9db942a0aa195b2cb5fab031712e328b3d111bc8)
+- Adjusted OpenApiRoutes - updated company creation. - see [Commit](git@github.com:pme123/orchescala/commit/16fafa7cdd544b56f77970ed766552f3c4110bd5)
+- Fixed bad link in onboarding. - see [Commit](git@github.com:pme123/orchescala/commit/d9433041eaeea2c54eec8cfa87c6ab289744305d)
+- Adjusted onboarding.md documentation / added script to setup existing file structure. - see [Commit](git@github.com:pme123/orchescala/commit/9ab2786e15fc119dde0269d276a42098c2dd4ab6)
+- Adjusted onboarding.md documentation / added script to setup existing file structure. - see [Commit](git@github.com:pme123/orchescala/commit/2efec62ebd1fc3d7e7d768c9ebdb0ade507dc2bc)
+- Added onboarding to onboard a member to the team. - see [Commit](git@github.com:pme123/orchescala/commit/4928c38c97dae8f77bc356165475cbe9c88cdf7d)
+- Added check for completing UserTask if encoding of Out does not work. - see [Commit](git@github.com:pme123/orchescala/commit/3337600aa2328cc3878d4737bc95ec5e548b1cb5)
+- Fixed Error Handling - so the gateway forwards the correct HTTP status. - see [Commit](git@github.com:pme123/orchescala/commit/3cd9d0ac929ed6a8912345bf3014cb00d56b6b2c)
+- Added Documentation for Engine support. - see [Commit](git@github.com:pme123/orchescala/commit/02e395b94d9c925dc8052cb09868dc1cb7da2a8e)
+
 ## 0.5.2 - 2026-03-02
 ### Changed 
 - Fix in default DevConfig - for generating build.sbt. - see [Commit](git@github.com:pme123/orchescala/commit/bebc3fcaaac500bf930c046e3500e767c8f9a8af)

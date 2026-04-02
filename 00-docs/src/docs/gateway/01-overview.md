@@ -80,41 +80,6 @@ object MyGatewayApp extends GatewayServer:
   )
 ```
 
-### Custom Configuration
-
-You can customize the gateway configuration by overriding the `validateToken` and `extractCorrelation` methods:
-
-```scala mdoc:reset
-import orchescala.gateway.*
-import orchescala.engine.*
-import orchescala.worker.*
-import orchescala.domain.*
-import zio.*
-
-case class CustomGatewayConfig(
-    engineConfig: EngineConfig,
-    workerConfig: WorkerConfig,
-    gatewayPort: Int = 8888
-) extends GatewayConfig:
-  
-  override def validateToken(token: String): IO[GatewayError, String] =
-    // Custom validation logic (e.g., verify JWT signature, check database)
-    if token.startsWith("valid-") then
-      ZIO.succeed(token)
-    else
-      ZIO.fail(GatewayError.TokenValidationError("Invalid token format"))
-  
-  override def extractCorrelation(
-      token: String,
-      in: JsonObject
-  ): IO[GatewayError, IdentityCorrelation] =
-    // Custom correlation extraction logic
-    ZIO.succeed(IdentityCorrelation(
-      username = "extracted-user",
-      email = Some("user@example.com")
-    ))
-```
-
 ## OpenAPI Documentation
 
 The gateway automatically generates and serves OpenAPI documentation:
@@ -126,4 +91,6 @@ The gateway automatically generates and serves OpenAPI documentation:
 
 - [Authentication & Security](02-authentication.md) - Learn about token validation and identity correlation
 - [Impersonation](03-impersonation.md) - Understand identity correlation and process security
+- [BPMN Engine Support](04-engine-support.md) - Supported engines, routing, and worker forwarding
+- [Demo Company](https://github.com/pme123/orchescala-democompany) - Check out an Example, on how to set up different BPMN-Engines.
 

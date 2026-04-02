@@ -13,7 +13,7 @@ object OpenApiGenerator:
     * @return
     *   OpenAPI specification in YAML format
     */
-  def generateYaml: String =
+  lazy val generateYaml: String =
     val openApi = generate
     openApi.toYaml
 

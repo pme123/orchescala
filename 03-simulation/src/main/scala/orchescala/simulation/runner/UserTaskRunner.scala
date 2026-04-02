@@ -94,18 +94,25 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
   private def completeTask: ResultType =
     val taskId = summon[ScenarioData].context.taskId
     for
-      _ <- logInfo(s"Completing UserTask: $taskId")
-      _ <- userTaskService.complete(
-             taskId,
-             userTaskScenario.inOut.outAsJson.asObject.get,
-             identityCorrelation = Some(testIdentityCorrelation)
-           )
-             .mapError: err =>
-               SimulationError.ProcessError(
-                 summon[ScenarioData].error(
-                   s"Problem completing Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
+      _       <- logInfo(s"Completing UserTask: $taskId")
+      jsonOut <-
+        ZIO.attempt(userTaskScenario.inOut.outAsJson.asObject.get).mapError : err =>
+          SimulationError.ProcessError(
+            summon[ScenarioData].error(
+              s"Problem Serializing Out for '${userTaskScenario.scenarioName}': ${userTaskScenario.inOut}"
+            )
+          )
+      _       <- userTaskService.complete(
+                   taskId,
+                   jsonOut,
+                   identityCorrelation = Some(testIdentityCorrelation)
                  )
-               )
+                   .mapError: err =>
+                     SimulationError.ProcessError(
+                       summon[ScenarioData].error(
+                         s"Problem completing Task '${userTaskScenario.scenarioName}': ${err.errorMsg}"
+                       )
+                     )
     yield summon[ScenarioData].info(
       s"Successful completed UserTask '${userTaskScenario.scenarioName}'."
     )

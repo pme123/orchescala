@@ -16,21 +16,8 @@ case class SetupGenerator()(using config: DevConfig):
     DmnGenerator().generate
     ApiGeneratorGenerator().generate
     ApiGenerator().generate
+    addSymLinks()
   end generate
-
-  lazy val generateGateway: Unit =
-    println(
-      s"The following Files (red) were not updated! - if you want so add $doNotAdjust at the top of these file."
-    )
-    DirectoryGenerator().generateForGateway
-    GatewayGenerator().generate
-    SbtGenerator().generateForGateway
-    SbtSettingsGenerator(isGateway = true).generate
-
-    GenericFileGenerator().generateForGateway
-
-  end generateGateway
-  
 
   def createProcess(setupElement: SetupElement): Unit =
     BpmnGenerator().createProcess(setupElement)
@@ -53,5 +40,22 @@ case class SetupGenerator()(using config: DevConfig):
     BpmnGenerator().createEvent(setupElement)
     if withWorker then WorkerGenerator().createEventWorker(setupElement)
 
+  def addSymLinks(): Unit =
+    os.remove(os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.html")
+    os.symlink(
+      os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.html",
+      os.pwd / "03-api" / "OpenApi.html"
+    )
+    os.remove(os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml")
+    os.symlink(
+      os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml",
+      os.pwd / "03-api" / "OpenApi.yml"
+    )
+    os.remove.all(os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams")
+    os.symlink(
+      os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams",
+      os.pwd / "src" / "main" / "resources" / "camunda"
+    )
+  end addSymLinks
 
 end SetupGenerator
