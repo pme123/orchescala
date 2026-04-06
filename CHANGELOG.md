@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.5 - 2026-04-06
+### Changed 
+- Fixed bad publish action. - see [Commit](git@github.com:pme123/orchescala/commit/732a5a7807cf6435f8fa39f0b5a61624c273fc29)
+
 ## 0.5.4 - 2026-04-06
 ### Changed 
 - Merge pull request #11 from pme123/feature/gitlab-pipeline - see [Commit](git@github.com:pme123/orchescala/commit/f8eab66a1af89e7b3d541b996001695c4e3e3dd2)
