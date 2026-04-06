@@ -1,5 +1,7 @@
 package orchescala.helper.dev.update
 
+import orchescala.helper.util.PipelineConfig
+
 case class GenericFileGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
@@ -12,7 +14,8 @@ case class GenericFileGenerator()(using config: DevConfig):
     os.makeDir.all(config.projectDir / ".vscode")
     createOrUpdate(config.projectDir / ".run" / "WorkerTestApp.run.xml", workerTestAppIntellij)
     createOrUpdate(config.projectDir / ".vscode" / "launch.json", workerTestAppVsCode)
-    createOrUpdate(config.projectDir / ".gitlab-ci.yml", gitLabPipeline)
+    config.pipelineConfig.foreach: pConfig => // only if configured
+      createOrUpdate(config.projectDir / ".gitlab-ci.yml", gitLabPipeline(pConfig))
   end generate
 
   lazy val generateForGateway: Unit =
@@ -143,7 +146,7 @@ case class GenericFileGenerator()(using config: DevConfig):
         |</component>
         |""".stripMargin
 
-  private lazy val gitLabPipeline =
+  private def gitLabPipeline(pipelineConfig: PipelineConfig) =
     s"""
        |# $helperDoNotAdjustText
        |stages:
@@ -156,13 +159,13 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  - template: Jobs/Secret-Detection.gitlab-ci.yml
        |
        |variables:
-       |  ALL_PROXY: ${config.pipelineConfig.map(_.baseProxy).getOrElse(throw new IllegalArgumentException("No baseProxy defined in pipelineConfig"))}
+       |  ALL_PROXY: ${pipelineConfig.baseProxy}
        |  TP_PROXY: $$ALL_PROXY
        |  HTTP_PROXY: $$ALL_PROXY
        |  HTTPS_PROXY: $$ALL_PROXY
-       |  SCALA_IMAGE: ${config.pipelineConfig.map( _.baseImage).getOrElse(throw new IllegalArgumentException("No baseImage defined in pipelineConfig"))}
-       |  ${config.pipelineConfig.map(_.companyMVNUser).getOrElse(throw new IllegalArgumentException("No companyMVNUser defined in pipelineConfig"))}: $$CI_REGISTRY_USER
-       |  ${config.pipelineConfig.map(_.companyMVNPassword).getOrElse(throw new IllegalArgumentException("No companyMVNPassword defined in pipelineConfig"))}: $$CI_REGISTRY_PASSWORD
+       |  SCALA_IMAGE: ${pipelineConfig.baseImage}
+       |  ${pipelineConfig.companyMVNUser}: $$CI_REGISTRY_USER
+       |  ${pipelineConfig.companyMVNPassword}: $$CI_REGISTRY_PASSWORD
        |
        |worker-test:
        |  stage: test
@@ -171,11 +174,11 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  variables:
        |    CI_DEBUG_SERVICES: false
        |  script:
+       |    - echo $$CI_REGISTRY_USER
        |    - curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
        |    - chmod +x ./cs
        |    - eval "$$(./cs setup --env --jvm 21 --apps coursier)"
-       |    - sbt domain/test
-       |    - sbt worker/test
+       |    - sbt "domain/test; worker/test"
        |
        |""".stripMargin
 
