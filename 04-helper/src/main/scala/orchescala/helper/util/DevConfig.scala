@@ -21,7 +21,9 @@ case class DevConfig(
     // general project structure -  do not change if possible -
     modules: Seq[ModuleConfig] = DevConfig.modules,
     // processType to create new BPMN diagrams - default is Camunda 7
-    bpmnProcessType: BpmnProcessType = BpmnProcessType.C7()
+    bpmnProcessType: BpmnProcessType = BpmnProcessType.C7(),
+    // GitLab pipeline config
+    pipelineConfig: Option[PipelineConfig] = None
 ):
   lazy val baseDir: os.Path               = os.pwd
   lazy val projectName: String            = apiProjectConfig.projectName
