@@ -164,8 +164,8 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  HTTP_PROXY: $$ALL_PROXY
        |  HTTPS_PROXY: $$ALL_PROXY
        |  SCALA_IMAGE: ${pipelineConfig.baseImage}
-       |  ${pipelineConfig.companyMVNUser}: $$CI_REGISTRY_USER
-       |  ${pipelineConfig.companyMVNPassword}: $$CI_REGISTRY_PASSWORD
+       |  ${pipelineConfig.companyMVNUserEnv.getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_USERNAME")}: $$CI_REGISTRY_USER
+       |  ${pipelineConfig.companyMVNPasswordEnv.getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_PASSWORD")}: $$CI_REGISTRY_PASSWORD
        |
        |worker-test:
        |  stage: test
@@ -174,7 +174,6 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  variables:
        |    CI_DEBUG_SERVICES: false
        |  script:
-       |    - echo $$CI_REGISTRY_USER
        |    - curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
        |    - chmod +x ./cs
        |    - eval "$$(./cs setup --env --jvm 21 --apps coursier)"
