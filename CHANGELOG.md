@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.7 - 2026-04-07
+### Changed 
+- Changed symlinks to relative path that it works for other developers. - see [Commit](git@github.com:pme123/orchescala/commit/22064b11e32211347f901b871280791da78b13d2)
+
 ## 0.5.6 - 2026-04-07
 ### Changed 
 - Adjusted PipelineConfig after KI review made standard default. - see [Commit](git@github.com:pme123/orchescala/commit/f38e2eb736707f19d70e0d2fe4e781b277049c8e)
