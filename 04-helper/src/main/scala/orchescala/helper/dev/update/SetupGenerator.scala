@@ -51,11 +51,12 @@ case class SetupGenerator()(using config: DevConfig):
       os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml",
       os.pwd / "03-api" / "OpenApi.yml"
     )
-    os.remove.all(os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams")
-    os.symlink(
-      os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams",
-      os.pwd / "src" / "main" / "resources" / "camunda"
-    )
+    if os.exists(os.pwd / "src" / "main" / "resources" / "camunda") then
+      os.remove.all(os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams")
+      os.symlink(
+        os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams",
+        os.pwd / "src" / "main" / "resources" / "camunda"
+      )
   end addSymLinks
 
 end SetupGenerator

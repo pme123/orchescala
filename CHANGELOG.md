@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.6 - 2026-04-07
+### Changed 
+- Adjusted PipelineConfig after KI review made standard default. - see [Commit](git@github.com:pme123/orchescala/commit/f38e2eb736707f19d70e0d2fe4e781b277049c8e)
+- Optional adding diagrams folder if exists. - see [Commit](git@github.com:pme123/orchescala/commit/24b1b8cfc14c7066b9873ef5dbbe6c1fa1123c97)
+- Fixed docker for gateway if no gateway is configured. - see [Commit](git@github.com:pme123/orchescala/commit/0fcabe33bcc0c0d87dedfdd4161be4e43f4678be)
+
 ## 0.5.5 - 2026-04-06
 ### Changed 
 - Fixed bad publish action. - see [Commit](git@github.com:pme123/orchescala/commit/732a5a7807cf6435f8fa39f0b5a61624c273fc29)

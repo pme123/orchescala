@@ -13,7 +13,7 @@ case class PublishHelper()(using
   def publish(version: String): Unit =
     println(s"Publishing BPF Package: $version")
     verifyVersion(version)
-    //TODO verifySnapshots()
+    verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     setApiVersion(version)
@@ -50,7 +50,7 @@ case class PublishHelper()(using
   def publishGateway(version: String): Unit =
     println(s"Publishing Gateway: $version")
     verifyVersion(version)
-    //TODO verifySnapshots()
+    verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     // not used setApiVersion(version)
@@ -72,7 +72,6 @@ case class PublishHelper()(using
       else
         Seq.empty
 
-    println(s"workerAppFile ${os.exists(gatewayAppFile)}: $gatewayAppFile")
     println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
     os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
 
