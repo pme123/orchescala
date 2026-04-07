@@ -41,21 +41,22 @@ case class SetupGenerator()(using config: DevConfig):
     if withWorker then WorkerGenerator().createEventWorker(setupElement)
 
   def addSymLinks(): Unit =
+    val basePath = os.rel / os.up / os.up / os.up / os.up
     os.remove(os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.html")
     os.symlink(
       os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.html",
-      os.pwd / "03-api" / "OpenApi.html"
+      basePath / "03-api" / "OpenApi.html"
     )
     os.remove(os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml")
     os.symlink(
       os.pwd / "03-worker" / "src" / "main" / "resources" / "OpenApi.yml",
-      os.pwd / "03-api" / "OpenApi.yml"
+      basePath / "03-api" / "OpenApi.yml"
     )
     if os.exists(os.pwd / "src" / "main" / "resources" / "camunda") then
       os.remove.all(os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams")
       os.symlink(
         os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams",
-        os.pwd / "src" / "main" / "resources" / "camunda"
+        basePath / "src" / "main" / "resources" / "camunda"
       )
   end addSymLinks
 
