@@ -266,7 +266,7 @@ case class CompanySbtGenerator()(using
        |  )
        |
        |  // gateway
-       |  lazy val dockerSettings = ${config.sbtConfig.dockerGatewaySettings.getOrElse("Seq()")}
+       |  lazy val dockerSettings = ${config.sbtConfig.dockerGatewaySettings.getOrElse("preventPublication")}
        |}
        |""".stripMargin
 
@@ -353,7 +353,7 @@ case class CompanySbtGenerator()(using
        |    zioTestSettings
        |  )
        |  .dependsOn(worker)
-       |  .enablePlugins(DockerPlugin, JavaAppPackaging)
+       |  .enablePlugins(${config.sbtConfig.dockerGatewaySettings.map(_ => "DockerPlugin, ").mkString}JavaAppPackaging)
        |
        |lazy val helper = project
        |  .in(file("./04-helper"))

@@ -60,7 +60,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")
     verifyVersion(newVersion)
-    //TODO verifySnapshots()
+    verifySnapshots()
     verifyChangelog(newVersion)
     replaceVersion(newVersion, projectFile)
     println("Versions replaced")
@@ -78,14 +78,12 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
         devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
 
     lazy val sbtDockerProcs =
-      if os.exists(gatewayAppFile) then
+      if os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty then
         Seq(
           "gateway / Docker / publish"
         )
       else
         Seq.empty
-
-    println(s"workerAppFile ${os.exists(gatewayAppFile)}: $gatewayAppFile")
     println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
     os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
 
