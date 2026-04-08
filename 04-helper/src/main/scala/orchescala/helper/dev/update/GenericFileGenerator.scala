@@ -181,7 +181,7 @@ case class GenericFileGenerator()(using config: DevConfig):
        |    - curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
        |    - chmod +x ./cs
        |    - export PATH=".:$$PATH"
-       |    - eval "$(cs setup --env --jvm 21 --apps coursier)"
+       |    - eval "$$(cs setup --env --jvm 21 --apps coursier)"
        |    - sbt "domain/test; worker/test"
        |
        |""".stripMargin
