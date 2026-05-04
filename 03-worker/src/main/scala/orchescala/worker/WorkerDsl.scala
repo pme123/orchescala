@@ -133,13 +133,16 @@ trait ServiceWorkerDsl[
   protected def serviceTask: ServiceTask[In, Out, ServiceIn, ServiceOut]
   protected def apiUri(in: In): Uri // input must be valid - so no errors
   // optional
-  protected def method: Method                                  = Method.GET
-  protected def querySegments(in: In): Seq[QuerySegmentOrParam] =
+  protected def method: Method                                                                = Method.GET
+  protected def querySegments(in: In): Seq[QuerySegmentOrParam]                               =
     Seq.empty // input must be valid - so no errors
     // mocking out from outService and headers
-  protected def inputMapper(in: In): Option[ServiceIn]          = None // input must be valid - so no errors
-  protected def inputHeaders(in: In): Map[String, String]       =
+  protected def inputMapper(in: In): Option[ServiceIn]                                        = None // input must be valid - so no errors
+  protected def inputHeaders(in: In): Map[String, String]                                     =
     Map.empty // input must be valid - so no errors
+  protected def inputHeaders(in: In, idempotentId: Option[IdempotentId]): Map[String, String] =
+    inputHeaders(in)
+
   protected def outputMapper(
       serviceOut: ServiceResponse[ServiceOut],
       in: In
@@ -172,7 +175,7 @@ trait ServiceWorkerDsl[
 
   protected def queryValues(vs: Any*): Seq[QuerySegmentOrParam] =
     vs.map(v => QuerySegmentOrParam.Value(s"$v"))
-
+    
 end ServiceWorkerDsl
 
 private trait ValidateDsl[
@@ -192,12 +195,12 @@ private trait InitProcessDsl[
 
   /** Execute with full WorkerExecutor functionality including mocking and inConfig merging */
   def initWorkFromService(json: Json)(using
-                                      context: EngineRunContext
+      context: EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, Json] =
     for
-      in                <- mergeInConfig(json)
-      validatedInput    <- ZIO.fromEither(worker.validationHandler.validate(in))
-      allOutputs: Json  <-
+      in               <- mergeInConfig(json)
+      validatedInput   <- ZIO.fromEither(worker.validationHandler.validate(in))
+      allOutputs: Json <-
         customInitZIO(validatedInput)
           .map:
             mergeOutputs(validatedInput, _)
@@ -250,8 +253,8 @@ private trait InitProcessDsl[
       output: InitIn
   )(using context: EngineRunContext): Json =
     val generalVarsJson = context.generalVariables.asJson.deepDropNullValues
-    val inJson = initializedInput.asJson.deepDropNullValues
-    val outJson = output.asJson.deepDropNullValues
+    val inJson          = initializedInput.asJson.deepDropNullValues
+    val outJson         = output.asJson.deepDropNullValues
     generalVarsJson
       .deepMerge(inJson)
       .deepMerge(outJson)
@@ -412,7 +415,7 @@ private trait RunWorkDsl[
     Either[CustomError, Out]
 
   def runWorkFromService(json: Json)(using
-                                     EngineRunContext
+      EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
     ZIO.fromEither(json.as[In])
       .mapError: err =>

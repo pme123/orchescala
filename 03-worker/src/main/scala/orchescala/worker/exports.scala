@@ -2,12 +2,16 @@ package orchescala
 package worker
 
 import io.circe.*
+import io.github.iltotore.iron.constraint.string.ValidUUID
+import io.github.iltotore.iron.refineEither
 import orchescala.domain.*
 import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.WorkerError.*
 import zio.{IO, ZIO}
 
+import java.nio.charset.StandardCharsets
 import java.util.Date
+import java.util.UUID
 
 export sttp.model.Uri.UriContext
 export sttp.model.Method
@@ -103,7 +107,7 @@ object WorkerError:
       errorMsg: String
   ) extends WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
-  
+
   case class HandledRegexNotMatchedError(
       errorMsg: String
   ) extends WorkerError:
@@ -127,8 +131,8 @@ object WorkerError:
   sealed trait RunWorkError extends WorkerError
 
   case class BadSignatureError(
-                                errorMsg: String
-                              ) extends RunWorkError:
+      errorMsg: String
+  ) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
 
   case class MissingHandlerError(
@@ -255,3 +259,19 @@ def extractGeneralVariables(json: Json) =
       s"Problem extract general variables from $json\n" + ex.getMessage
     )
   )
+
+def idempotentIdToUUID(
+    idempotentId: Option[IdempotentId],
+    // if idempotentId is not provided - use the whole input as basis for the UUID - this assumes the input is unique for each call.
+    in: AnyRef
+): String =
+  idempotentId
+    .map: id =>
+      id.refineEither[ValidUUID]
+        .fold(
+          _ => UUID.nameUUIDFromBytes(id.getBytes(StandardCharsets.UTF_8)).toString,
+          _ => id
+        )
+    .getOrElse:
+      UUID.nameUUIDFromBytes(in.toString.getBytes(StandardCharsets.UTF_8)).toString
+end idempotentIdToUUID
