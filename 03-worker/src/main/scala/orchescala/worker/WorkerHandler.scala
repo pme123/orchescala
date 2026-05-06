@@ -119,7 +119,7 @@ case class ServiceHandler[
     apiUri: In => Uri,
     querySegments: In => Seq[QuerySegmentOrParam],
     inputMapper: In => Option[ServiceIn],
-    inputHeaders: In => Map[String, String],
+    inputHeaders: (In, Option[IdempotentId]) => Map[String, String],
     outputMapper: (ServiceResponse[ServiceOut], In) => Either[ServiceMappingError, Out],
     defaultServiceOutMock: MockedServiceResponse[ServiceOut],
     dynamicServiceOutMock: Option[In => MockedServiceResponse[ServiceOut]] = None,
@@ -197,14 +197,14 @@ case class ServiceHandler[
 
   private def runnableRequest(
       inputObject: In
-  ): RunnableRequest[ServiceIn] =
+  )(using ctx: EngineRunContext): RunnableRequest[ServiceIn] =
     RunnableRequest(
       inputObject,
       httpMethod,
       apiUri(inputObject),
       querySegments(inputObject),
       inputMapper(inputObject),
-      inputHeaders(inputObject)
+      inputHeaders(inputObject, ctx.generalVariables._idempotentId)
     )
 
   private def withServiceMock(
