@@ -263,7 +263,7 @@ def extractGeneralVariables(json: Json) =
 def idempotentIdToUUID(
     idempotentId: Option[IdempotentId],
     // if idempotentId is not provided - use the whole input as basis for the UUID - this assumes the input is unique for each call.
-    in: AnyRef
+    in: Product
 ): String =
   idempotentId
     .map: id =>
