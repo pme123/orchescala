@@ -28,7 +28,7 @@ case class GatewayGenerator()(using config: DevConfig):
        |<configuration>
        |    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
        |        <encoder>
-       |            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+       |            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
        |        </encoder>
        |    </appender>
        |

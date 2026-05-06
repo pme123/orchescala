@@ -171,12 +171,17 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  stage: test
        |  image:
        |    name: $$SCALA_IMAGE
+       |  cache:
+       |    paths:
+       |      - ~/.sbt
+       |      - ~/.cache/coursier
        |  variables:
        |    CI_DEBUG_SERVICES: false
        |  script:
        |    - curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
        |    - chmod +x ./cs
-       |    - eval "$$(./cs setup --env --jvm 21 --apps coursier)"
+       |    - export PATH=".:$$PATH"
+       |    - eval "$$(cs setup --env --jvm 21 --apps coursier)"
        |    - sbt "domain/test; worker/test"
        |
        |""".stripMargin

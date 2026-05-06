@@ -1,8 +1,9 @@
 package orchescala.domain
 
+import io.github.iltotore.iron.:|
+import io.github.iltotore.iron.constraint.string.*
 import orchescala.domain.*
 
-import scala.compiletime.{constValue, constValueTuple}
 import scala.reflect.Enum
 
 // sttp
@@ -33,26 +34,21 @@ enum InputParams:
   case _regexHandledErrors
   // authorization
   case _identityCorrelation
-  @deprecated("Use `identityCorrelation`") 
-  case impersonateUserId
-  @deprecated("Use `_servicesMocked`")
-  case servicesMocked
-  @deprecated("Use `_mockedWorkers`")
-  case mockedWorkers
-  @deprecated("Use `_outputMock`")
-  case outputMock
-  @deprecated("Use `_outputServiceMock`")
-  case outputServiceMock
-  @deprecated("Use `_manualOutMapping`")
-  case manualOutMapping
-  @deprecated("Use `_outputVariables`")
-  case outputVariables
-  @deprecated("Use `_handledErrors`")
-  case handledErrors
-  @deprecated("Use `_regexHandledErrors`")
-  case regexHandledErrors
+  // idempotency
+  case _idempotentId
+  @deprecated("Use `identityCorrelation`") case impersonateUserId
+  @deprecated("Use `_servicesMocked`") case servicesMocked
+  @deprecated("Use `_mockedWorkers`") case mockedWorkers
+  @deprecated("Use `_outputMock`") case outputMock
+  @deprecated("Use `_outputServiceMock`") case outputServiceMock
+  @deprecated("Use `_manualOutMapping`") case manualOutMapping
+  @deprecated("Use `_outputVariables`") case outputVariables
+  @deprecated("Use `_handledErrors`") case handledErrors
+  @deprecated("Use `_regexHandledErrors`") case regexHandledErrors
 
 end InputParams
+
+type IdempotentId = String | String :| ValidUUID
 
 type ErrorCodeType = ErrorCodes | String | Int
 
@@ -213,6 +209,7 @@ enum BpmnProcessType:
   case C7(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
   case C8(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda8")
   case Op(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
+end BpmnProcessType
 
 object BpmnProcessType:
   def diagramPaths: Seq[os.RelPath] =

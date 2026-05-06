@@ -4,6 +4,7 @@ import orchescala.worker.op.OpHelper.*
 import orchescala.domain.*
 import orchescala.worker.*
 import orchescala.worker.WorkerError.BadVariableError
+import org.operaton.bpm.client.task.ExternalTask
 import org.operaton.bpm.engine.variable.`type`.ValueType
 import org.operaton.bpm.engine.variable.value.TypedValue
 import zio.{IO, ZIO}
@@ -48,6 +49,11 @@ object ProcessVariablesExtractor:
           regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams._regexHandledErrors)
           // authorization
           identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams._identityCorrelation)
+          // idempotency
+          idempotentIdOpt: Option[IdempotentId] <- variableOpt[IdempotentId](InputParams._idempotentId)
+            .map: maybeIdempotentId =>
+              maybeIdempotentId.orElse:
+                Option(summon[ExternalTask].getActivityInstanceId())
           // DEPRECATED
           servicesMockedOld <- variableOpt[Boolean](InputParams.servicesMocked)
           mockedWorkersOld <- extractSeqFromArrayOrStringOpt(InputParams.mockedWorkers)
@@ -70,6 +76,7 @@ object ProcessVariablesExtractor:
                 _handledErrors = handledErrors.orElse(handledErrorsOld),
                 _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
                 _identityCorrelation = identityCorrelationOpt,
+                _idempotentId = idempotentIdOpt,
                 impersonateUserId = impersonateUserIdOpt
               )
             .mapError: err =>

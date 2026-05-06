@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.8 - 2026-05-06
+### Changed 
+- Merge pull request #13 from pme123/feature/add_idempotency - see [Commit](git@github.com:pme123/orchescala/commit/4c364cbeb85a37fa61036758347be58b00cc4078)
+- Changed AnyRef to Product in idempotentIdToUUID. - see [Commit](git@github.com:pme123/orchescala/commit/3943f39156c7dfd0ccc958dd43af7ca570d2a017)
+- Added idempotency to other engines. - see [Commit](git@github.com:pme123/orchescala/commit/0c18569c339b39d5bdc407833f6108fb34b39e14)
+- Removed TODO in verifySnapshot. - see [Commit](git@github.com:pme123/orchescala/commit/8524cb081115aee23190e7d0656489db35552cb5)
+- Added _idempotency to GeneralVariables. - see [Commit](git@github.com:pme123/orchescala/commit/4e10a1d6eca9adbcd1ded1348ff2f8a9f42f851a)
+- Fixed missing day in generated lockback configs. - see [Commit](git@github.com:pme123/orchescala/commit/6686e374eb7c90391765d58c1a07ec8d48479b27)
+- Fixed missing escape $ in pipeline config. - see [Commit](git@github.com:pme123/orchescala/commit/bc4f1d4de692a80155fdef2c456cf1bf2fac636a)
+- Adjustments in pipeline config. - see [Commit](git@github.com:pme123/orchescala/commit/4ffbb15411b05999c819da4d76567a2469b8cca2)
+
 ## 0.5.7 - 2026-04-07
 ### Changed 
 - Changed symlinks to relative path that it works for other developers. - see [Commit](git@github.com:pme123/orchescala/commit/22064b11e32211347f901b871280791da78b13d2)
