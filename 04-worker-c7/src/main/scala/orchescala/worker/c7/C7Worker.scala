@@ -198,9 +198,9 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
       val retries           = C7Worker.calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
 
-      ZIO.when(retries <= 0)(logError(
+      logError(
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
-      )) *>
+      ) *>
         ZIO.attempt(
           externalTaskService.handleFailure(
             taskId,
