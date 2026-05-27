@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.9 - 2026-05-27
+### Changed 
+- Fixes not recovering from failure, in claiming tasks ind C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/3093ecfbb37f919ea710d91bd6c2ff76be0198f2)
+- Updated patched version updates. - see [Commit](git@github.com:pme123/orchescala/commit/cff8f45fdef48228fca7e1c940cc61d3cdb3c8c5)
+- Logs error with every retry not just the last. - see [Commit](git@github.com:pme123/orchescala/commit/da6c6f1d9d5ec0678ef997c133bd3574cedc5276)
+
 ## 0.5.8 - 2026-05-06
 ### Changed 
 - Merge pull request #13 from pme123/feature/add_idempotency - see [Commit](git@github.com:pme123/orchescala/commit/4c364cbeb85a37fa61036758347be58b00cc4078)
