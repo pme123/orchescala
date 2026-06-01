@@ -4,6 +4,7 @@ package api
 import orchescala.api.Sample.{SampleOut, standardSample}
 import orchescala.domain.{BpmnDsl, BpmnProcessDsl, InOutDescr, Process, ProcessLabels, *}
 import orchescala.engine.DefaultEngineConfig
+import os.Path
 
 object TestApiCreator extends DefaultApiCreator:
 
@@ -14,9 +15,12 @@ object TestApiCreator extends DefaultApiCreator:
   lazy val companyProjectVersion: String = "0.1.0"
   lazy val projectDescr: String          = ""
 
-  override val apiConfig: ApiConfig =
-    ApiConfig(DefaultEngineConfig(), "DemoConfig")
-      .withBasePath(os.pwd / "api")
+  override lazy val basePath: Path = os.pwd / "03-api" / "src" / "test"
+  override lazy val apiConfig: ApiConfig =
+    ApiConfig(DefaultEngineConfig(
+
+    ), "DemoConfig")
+      .withBasePath(basePath)
 
   document(
     api(Sample.testProcess)(
@@ -27,9 +31,9 @@ object TestApiCreator extends DefaultApiCreator:
 
   private lazy val testProcess2 =
     Process(InOutDescr(processName, standardSample, SampleOut()), NoInput(), ProcessLabels.none)
-  val processName: String = "sample-process2"
+  lazy val processName: String = "sample-process2"
 
-  val descr: String = ""
+  lazy val descr: String = ""
 end TestApiCreator
 
 object Sample extends BpmnProcessDsl:
