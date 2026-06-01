@@ -14,6 +14,8 @@ case class GeneralVariables(
     _regexHandledErrors: Option[StringOrSeq] = None, // Service only
     // authorization
     _identityCorrelation: Option[IdentityCorrelation] = None,
+    // idempotency
+    _idempotentId: Option[IdempotentId] = None,
     // DEPRECATED
     @deprecated("Use `identityCorrelation`")
     impersonateUserId: Option[String] = None,

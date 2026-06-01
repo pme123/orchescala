@@ -91,7 +91,7 @@ object AstSpec extends ZIOSpecDefault:
             apiUri = _ => Uri("http://localhost:8080"),
             querySegments = _ => Seq.empty,
             inputMapper = _ => None,
-            inputHeaders = _ => Map.empty,
+            inputHeaders = (_, _) => Map.empty,
             defaultServiceOutMock = servTask.defaultServiceOutMock,
             outputMapper = (serviceOut, _) => Right(Out(serviceOut.outputBody.value)),
             serviceInExample = NoInput(),

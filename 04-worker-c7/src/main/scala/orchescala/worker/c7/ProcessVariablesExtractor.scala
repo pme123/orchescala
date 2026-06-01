@@ -4,6 +4,7 @@ import orchescala.worker.c7.CamundaHelper.*
 import orchescala.domain.*
 import orchescala.worker.*
 import orchescala.worker.WorkerError.BadVariableError
+import org.camunda.bpm.client.task
 import org.camunda.bpm.engine.variable.`type`.ValueType
 import org.camunda.bpm.engine.variable.value.TypedValue
 import zio.{IO, ZIO}
@@ -19,7 +20,7 @@ object ProcessVariablesExtractor:
   def extract(variableNames: Seq[String]): VariableType =
     variableNames
       .map(k => k -> variableTypedOpt(k))
-      .map {
+      .map :
         case k -> Some(typedValue) if typedValue.getType == ValueType.NULL =>
           ZIO.succeed(k -> None) // k -> null as Camunda Expressions need them
         case k -> Some(typedValue) =>
@@ -28,7 +29,7 @@ object ProcessVariablesExtractor:
             .mapError(ex => BadVariableError(s"Problem extracting Process Variable $k: ${ex.errorMsg}"))
         case k -> None =>
           ZIO.succeed(k -> None) // k -> null as Camunda Expressions need them
-      }
+
   end extract
 
   def extractGeneral(generalVariablesFromError: Option[GeneralVariables] = None): GeneralVariableType =
@@ -48,7 +49,12 @@ object ProcessVariablesExtractor:
           regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams._regexHandledErrors)
           // authorization
           identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams._identityCorrelation)
-          // DEPRECATED
+          // idempotency
+          idenpotentIdOpt: Option[IdempotentId] <- variableOpt[IdempotentId](InputParams._idempotentId)
+            .map: maybeIdempotentId =>
+              maybeIdempotentId.orElse:
+                Option(summon[task.ExternalTask].getActivityInstanceId())
+          // DEPRECATED           ZIO.succeed(InputParams._idempotentId.toString -> Some(summon[task.ExternalTask].getActivityInstanceId().asJson))
           servicesMockedOld <- variableOpt[Boolean](InputParams.servicesMocked)
           mockedWorkersOld <- extractSeqFromArrayOrStringOpt(InputParams.mockedWorkers)
           outputMockOptOld <- jsonVariableOpt(InputParams.outputMock)
@@ -70,6 +76,7 @@ object ProcessVariablesExtractor:
                 _handledErrors = handledErrors.orElse(handledErrorsOld),
                 _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
                 _identityCorrelation = identityCorrelationOpt,
+                _idempotentId = idenpotentIdOpt,
                 impersonateUserId = impersonateUserIdOpt
               )
             .mapError: err =>

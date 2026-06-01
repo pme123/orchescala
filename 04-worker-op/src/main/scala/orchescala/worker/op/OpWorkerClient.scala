@@ -104,14 +104,14 @@ trait OAuth2PasswordWorkerClient extends OpWorkerClient:
   private def addAccessToken() = new HttpRequestInterceptor:
     override def process(request: HttpRequest, entity: EntityDetails, context: HttpContext): Unit =
       passwordFlow
-        .retrieveTokenSync()
-        .map: token =>
-          logger.debug(s"Added Bearer Token to Request: ${token.take(5)}...${token.takeRight(5)}")
-          request.addHeader("Authorization", s"Bearer $token")
-        .left.map: error =>
-          logger.error(error)
-          // Still add a placeholder to make the failure explicit in logs
-          request.addHeader("Authorization", "Bearer FAILED_TO_ACQUIRE_TOKEN")
+        .retrieveTokenSync() match
+          case Right(token) =>
+            logger.debug(s"Added Bearer Token to Request: ${token.take(5)}...${token.takeRight(5)}")
+            request.addHeader("Authorization", s"Bearer $token")
+          case Left(error)  =>
+            throw new org.apache.hc.core5.http.HttpException(
+              s"Cannot acquire OAuth2 token for TopicSubscriptionManager: $error"
+            )
 
   lazy val client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
     SharedOpExternalClientManager.getOrCreateClient:

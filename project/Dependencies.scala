@@ -7,12 +7,12 @@ object Dependencies {
   // 00-docs
   // - Laika Plugin
   // 04-helper
-  val osLibVersion          = "0.11.4"
+  val osLibVersion          = "0.11.8"
   // 01-domain
   val openapiCirceVersion   = "0.11.10"
-  val tapirVersion          = "1.13.6"
-  val ironCirceVersion      = "3.2.0"
-  val mUnitVersion          = "1.1.0"
+  val tapirVersion          = "1.13.15"
+  val ironCirceVersion      = "3.3.1"
+  val mUnitVersion          = "1.2.4"
   val scala3MockVersion     = "0.6.6"
   // 02-bpmn
   // -> domain
@@ -34,7 +34,7 @@ object Dependencies {
   // 03-worker
   // -> bpmn
   // -mUnitVersion
-  val chimneyVersion        = "1.8.2"
+  val chimneyVersion        = "1.9.0"
   // --- Implementations
   // 04-helper
   val sardineWebDavVersion  = "5.13"
@@ -45,8 +45,8 @@ object Dependencies {
   val scaffeineV            = "5.3.0"  // caching
   val zioVersion            = "2.1.24" // zio
   val zioHttpVersion        = "3.5.1"  // zio http
-  val zioLoggingVersion     = "2.5.1" // logging
-  val logbackVersion        = "1.5.26" // logging
+  val zioLoggingVersion     = "2.5.3" // logging
+  val logbackVersion        = "1.5.32" // logging
   // - sttpClient3
 
   // --- Experiments
@@ -71,7 +71,7 @@ object Dependencies {
   val groovyVersion         = "3.0.25"
 
   // sbt plugins
-  val sbtNativePackager = "1.11.4"
+  val sbtNativePackager = "1.11.7"
   val sbtCiRelease      = "1.11.2"
   val laikaSbt          = "1.3.2"
   val sbtBuildInfo      = "0.13.1"

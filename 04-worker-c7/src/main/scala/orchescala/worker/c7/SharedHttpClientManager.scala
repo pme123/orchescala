@@ -29,10 +29,10 @@ object SharedHttpClientManager:
       val defaultConnectionConfig = ConnectionConfig.custom()
         .setConnectTimeout(Timeout.ofSeconds(30))
         .setSocketTimeout(Timeout.ofSeconds(30))
-        // Increase TTL to reduce connection churn - set to 24 hours
-        .setTimeToLive(TimeValue.ofHours(24))
-        // Increase validation time to reduce connection churn
-        .setValidateAfterInactivity(Timeout.ofHours(1))
+        // OpenShift HAProxy closes idle connections after ~30s; keep TTL short to avoid stale connections
+        .setTimeToLive(TimeValue.ofMinutes(5))
+        // Validate connections after 20s of inactivity (below OpenShift HAProxy idle timeout)
+        .setValidateAfterInactivity(Timeout.ofSeconds(20))
         .build()
 
       // Create the connection manager with the builder

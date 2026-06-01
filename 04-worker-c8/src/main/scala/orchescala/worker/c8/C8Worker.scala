@@ -31,6 +31,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         processVariables  = worker.variableNames.map(k => processVariable(k, json))
         _                <- logDebug(s"processVariables: ${processVariables.size}")
         generalVariables <- extractGeneralVariables(json)
+                              .map(gv => gv.copy(
+                                _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
+                              ))
         _                <- logDebug(s"generalVariables: ${generalVariables.asJson}")
         _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
                               .executeWorker()

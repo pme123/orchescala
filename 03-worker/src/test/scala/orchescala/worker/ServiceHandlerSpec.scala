@@ -44,7 +44,7 @@ object ServiceHandlerSpec extends ZIOSpecDefault:
     apiUri = _ => uri"http://test.com/api",
     querySegments = _ => Seq.empty,
     inputMapper = _ => Some(ServiceIn()),
-    inputHeaders = _ => Map.empty,
+    inputHeaders = (_, _) => Map.empty,
     outputMapper = (serviceResponse, _) => Right(Out(serviceResponse.outputBody.result)),
     defaultServiceOutMock = MockedServiceResponse.success200(ServiceOut(true)),
     serviceInExample = ServiceIn()
