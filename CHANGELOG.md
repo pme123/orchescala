@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.10 - 2026-06-01
+### Changed 
+- Added way to set default Retries for C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/c8e733b6d8781c27d092fec2eb02dc4932f1c259)
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](git@github.com:pme123/orchescala/commit/bdb23ec36ee2e9df824898a20c6f99fdb8934667)
+- Updated TestApiCreator example. - see [Commit](git@github.com:pme123/orchescala/commit/0507de4b47859730951964318710dd4afd3ebc7b)
+
 ## 0.5.9 - 2026-05-27
 ### Changed 
 - Fixes not recovering from failure, in claiming tasks ind C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/3093ecfbb37f919ea710d91bd6c2ff76be0198f2)

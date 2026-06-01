@@ -1,6 +1,6 @@
 #!/usr/bin/env -S scala shebang
 
-//> using dep io.github.pme123::orchescala-helper:0.1.0-SNAPSHOT
+//> using dep io.github.pme123::orchescala-helper:0.6.0-SNAPSHOT
 
 import orchescala.helper.dev.publish.ChangeLogUpdater
 

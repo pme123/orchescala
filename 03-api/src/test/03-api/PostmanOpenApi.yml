@@ -1,0 +1,444 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: '1.0'
+  summary: "\n         |**This is for Postman - to have example requests. Be aware\
+    \ the Output is not provided!**\n         |\n         |\n\n\n\nCreated at 5/28/26,\
+    \ 10:07 AM\n\n**See the [Orchescala Documentation](https://pme123.github.io/orchescala/)**\n\
+    \n<details>\n<summary><b><i>Postman Instructions</i></b></summary>\n<p>\nYou can\
+    \ directly import this OpenApi YAML to [Postman](https://www.postman.com/).\n\n\
+    Only thing you need to adjust is in the Collection.\n- **Authorization**: `Bearer\
+    \ Token` with the `{{access_token}}` from the `GetToken` request.\n- **Variables**:\
+    \ `tenantId`: `{{bank}}`\n- **Scripts - Pre-Request**:\n\n```javascript\n// Refresh\
+    \ the OAuth token if necessary\nlet tokenDate = new Date(2010, 1, 1);\nconst tokenTimestamp\
+    \ = pm.environment.get(\"OAuth_Timestamp\");\nif (tokenTimestamp) {\n  tokenDate\
+    \ = Date.parse(tokenTimestamp);\n}\nlet expiresInTime = pm.environment.get(\"\
+    ExpiresInTime\");\nif (!expiresInTime) {\n  expiresInTime = 300000; // Set default\
+    \ expiration time to 5 minutes\n}\nif (new Date() - tokenDate >= expiresInTime)\
+    \ {\npm.sendRequest(\n{\n  url: `${pm.environment.get(\n      \"tokenService\"\
+    \n    )}/auth/realms/${pm.environment.get(\n      \"bank\"\n    )}/protocol/openid-connect/token`,\n\
+    \  method: \"POST\",\n  header: {\n    \"Content-Type\": \"application/x-www-form-urlencoded\"\
+    ,\n  },\n  body: {\n    mode: \"urlencoded\",\n    urlencoded: [\n      { key:\
+    \ \"grant_type\", value: \"password\" },\n      { key: \"client_id\", value: pm.environment.get(\"\
+    clientId\")},\n      { key: \"client_secret\", value: pm.environment.get(\"clientSecret\"\
+    )},\n      { key: \"username\", value: pm.environment.get(\"username\")},\n  \
+    \    { key: \"password\", value: pm.environment.get(\"pwd\") },\n      { key:\
+    \ \"scope\", value: pm.environment.get(\"scope\") },\n    ],\n  },\n},\n  (_,\
+    \ res) => {\n    pm.environment.set(\"access_token\", res.json().access_token);\n\
+    \    pm.environment.set(\"OAuth_Timestamp\", new Date());\n    // Set the ExpiresInTime\
+    \ variable to the time given in the response if it exists\n    if (res.json().expires_in)\
+    \ {\n      expiresInTime = res.json().expires_in * 1000;\n    }\n    pm.environment.set(\"\
+    ExpiresInTime\", expiresInTime);\n  });\n}\n  ```\n\n- **Scripts - Post-Response**:\n\
+    \n```javascript\n  // Collection-level test script\n  pm.test(\"Auto-set variables\"\
+    , function () {\n    const response = pm.response.json();\n\n    // Set processInstanceId\
+    \ if present\n    if (response.processInstanceId) {\n        const id = response.processInstanceId;\n\
+    \        pm.collectionVariables.set(\"processInstanceId\", id);\n        console.log(\"\
+    Set processInstanceId: \" + id);\n    }\n\n    // Set taskId for array responses\n\
+    \    if (pm.response.headers.get(\"userTaskId\")) {\n        const id = pm.response.headers.get(\"\
+    userTaskId\")\n        pm.collectionVariables.set(\"userTaskInstanceId\", id);\n\
+    \        console.log(\"userTaskInstanceId: \" + id)\n\n    }\n\n});\n  ```\n\n\
+    </p>\n</details>\n\n\n# Package Configuration\n**Check all dependency trees here:\
+    \ [orchescala](../../dependencies/orchescala.html)**\n\n### Dependencies:\n\n\
+    - _**[mastercompany-services](NOT FOUND)**_\n- _**[mycompany-commons](NOT FOUND)**_\n\
+    \n\n<details>\n<summary>PROJECT.conf</summary>\n<p>\n\n```\n\nprojectName: mycompany-myProject\n\
+    projectVersion: 1.0.0-SNAPSHOT\nsubProjects: [\n  subProject1\n  subProject2\n\
+    ]\ndependencies: [\n  mastercompany-services\n  mycompany-commons\n]\n\n```\n\n\
+    </p>\n</details>\n\n\nThere is no README.md in the Project.\n\n\n\n<p/>\n<details>\n\
+    <summary>\n<b><i>General Variables</i></b>\n</summary>\n\n<p>\n\n### Mocking\n\
+    \n**_servicesMocked**:\n\nMock all the _ServiceWorkers_ in your process with their\
+    \ default Mock:\n\n- DSL:\n```scala\nprocess(..)\n  .mockServices\n```\n\n- Json\n\
+    ```json\n...\n\"_servicesMocked\": true,\n...\n```\n\n\n**_mockedWorkers**:\n\n\
+    Mock any Process- and/or ExternalTask-Worker with their default Mocks.\nThis is\
+    \ a list of the _Worker topicNames or Process processNames_, you want to mock.\n\
+    It is also possible to use a _comma separated_ String,\nlike `\"mySubProcess,myOtherSubProcess,myService\"\
+    `\n\n_Be aware_: For Sub-Processes, this expects an _InitWorker_ where the _topicName_\
+    \ is equal to the _processName_.\n\n\n- DSL:\n```scala\nprocess(..)\n  .mockedWorkers(\"\
+    mySubProcess1\", \"mySubProcess2\") // creates a list with SubProcessess\n  .mockedWorker(\"\
+    myOtherSubProcess\") // adds a SubProcess\n```\n\n- Json\n```json\n...\n\"mockedWorkers\"\
+    : [\"mySubProcess\", \"myOtherSubProcess, myService\"],\n...\n```\n\n\n**_outputMock**:\n\
+    \nMock the Process or ExternalTask (`Out`)\n - You find an example in every _Process_\
+    \ and _ExternalTask_.\n\n\n- DSL:\n```scala\nprocess(..) // or serviceTask(..)/customTask(..)\n\
+    \  .mockWith(outputMock)\n```\n\n- Json\n```json\n...\n\"outputMock\": {..},\n\
+    ...\n```\n\n\n**_outputServiceMock**:\n\nMock the Inner-Service (`MockedServiceResponse[ServiceOut]`)\n\
+    \ - You find an example in every _ServiceTask_.\n\n\n- DSL:\n```scala\nserviceTask(..)\n\
+    \  .mockServiceWith(MockedServiceResponse\n     .success200(inOut.defaultServiceOutMock))\n\
+    ```\n\n- Json\n```json\n...\n\"outputServiceMock\": {\n  \"respStatus\" : 200,\n\
+    \  \"respBody\" : \"Example String Body\",\n  \"respHeaders\" : [\n  ]\n},\n...\n\
+    ```\n\n### Mapping\n**_outputVariables**:\n\nYou can filter the Output with a\
+    \ list of variable names you are interested in.\nThis list may include all variables\
+    \ from the output (`Out`). We included an example for each Process or ExternalTask.\n\
+    It is also possible to use a _comma separated_ String,\nlike `\"name,firstName\"\
+    `\n\n\n- DSL:\n```scala\nprocess(..) // or serviceTask(..)/customTask(..)\n  .withOutputVariables(\"\
+    name\", \"firstName\") // creates a list with outputVariables\n  .withOutputVariable(\"\
+    nickname\") // adds a outputVariable\n```\n\n- Json\n```json\n...\n\"_outputVariables\"\
+    : [\"name\", \"firstName\"],\n...\n```\n\n\n**_manualOutMapping**:\n\nBy default\
+    \ all output Variables (`Out`) are on the Process for _External Tasks_.\nIf the\
+    \ filter __outputVariables_ is not enough,\nyou can set this variable - every\
+    \ output variable is then local.\n\n_Be aware_ that you must then manually have\
+    \ _output mappings_ for each output variable!\n\n\n- DSL:\n```scala\nserviceTask(..)\
+    \ // or customTask(..)\n  .manualOutMapping\n```\n\n- Json\n```json\n...\n\"_manualOutMapping\"\
+    : true,\n...\n```\n\n### Mocking\n**_handledErrors**:\n\nA list of error codes\
+    \ that are handled (`BpmnError`)\nIt is also possible to use a _comma separated_\
+    \ String,\nlike `\"validation-failed,404\"`\n\nAt the moment only _ServiceTasks_\
+    \ supported.\n\n\n- DSL:\n```scala\nserviceTask(..)\n  .handleErrors(ErrorCodes.`validation-failed`,\
+    \ \"404\") // create a list of handledErrors\n  .handleError(\"404\") // add a\
+    \ handledError\n```\n\n- Json\n```json\n...\n\"_handledErrors\": [\"validation-failed\"\
+    , \"404\"],\n...\n```\n\n\n**_regexHandledErrors**:\n\nYou can further filter\
+    \ Handled Errors with a list of Regex expressions that the body error message\
+    \ must match.\nIt is also possible to use a _comma separated_ String,\nlike `\"\
+    SQL exception,\"errorNr\":\"20000\"\"`\n\nAt the moment only _ServiceTasks_ supported.\n\
+    \n\n- DSL:\n```scala\nserviceTask(..)\n  .handleErrorWithRegex(\"SQL exception\"\
+    )\n  .handleErrorWithRegex(\"\\\"errorNr\\\":\\\"20000\\\"\")\n```\n\n- Json\n\
+    ```json\n...\n\"_regexHandledErrors\": [\"SQL exception\", \"\"errorNr\":\"20000\"\
+    \"],\n...\n```\n\n### Authorization\n**_identityCorrelation**:\n\nIdentity correlation\
+    \ for binding user identity to the process instance using HMAC-SHA256 signatures.\n\
+    This prevents replay attacks and tampering by cryptographically binding the user\
+    \ identity to a specific process instance.\nThe correlation is automatically signed\
+    \ with the process instance ID when starting a process or completing a user task.\n\
+    Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY`\
+    \ or in `EngineConfig`.\n\n- DSL:\n```scala\nval identity = IdentityCorrelation(\n\
+    \  username = \"alice@example.com\",\n  email = Some(\"alice@example.com\"),\n\
+    \  impersonateProcessValue = Some(\"department-123\")\n)\nprocess(..) // or serviceTask(..)/customTask(..)\n\
+    \  .withIdentityCorrelation(identity)\n```\n\n- Json\n```json\n...\n\"_identityCorrelation\"\
+    : {\n  \"username\": \"alice@example.com\",\n  \"email\": \"alice@example.com\"\
+    ,\n  \"impersonateProcessValue\": \"department-123\",\n  \"issuedAt\": 1706371200000,\n\
+    \  \"processInstanceId\": \"12345\",\n  \"signature\": \"abc123...\"\n},\n...\n\
+    ```\n\n</p>\n</details>\n<p/>\n        \n\n> Created with:\n> - [orchescala-api\
+    \ v0.6.0-SNAPSHOT](https://github.com/pme123/orchescala)\n> - mycompany-orchescala-api\
+    \ 0.1.0\n> - mycompany-orchescala-helper\n\n\n         |"
+servers:
+- url: http://localhost:8080/engine-rest
+  description: Local Developer Server
+paths:
+  /process-definition/key/sample-process/start:
+    post:
+      tags:
+      - sample-process
+      summary: 'Bpmn: sample-process'
+      description: |2
+
+        This runs the Sample Process.
+
+
+        ---
+
+        - **Called Element**: `sample-process` (to define in the Call Activity)
+
+
+
+        ---
+
+
+
+
+        See API Doc: [Bpmn: sample-process](/DemoConfig/orchescala/OpenApi.html#operation/Bpmn:%20sample-process)
+      operationId: postProcess-definitionKeySample-processStart
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartProcessIn'
+            examples:
+              sample-process:
+                value:
+                  variables:
+                    dateOfBirth:
+                      value: '1734-12-04'
+                      type: String
+                    country:
+                      value: CH
+                      type: String
+                    lastName:
+                      value: Pan
+                      type: String
+                    firstName:
+                      value: Peter
+                      type: String
+                    nationality:
+                      value: CH
+                      type: String
+                    address:
+                      value: |-
+                        {
+                          "street" : "Merkurstrasse",
+                          "houseNumber" : "16",
+                          "place" : "Lenzburg",
+                          "postcode" : 5600,
+                          "country" : "CH"
+                        }
+                      type: Json
+                  businessKey: sample-process
+                  withVariablesInReturn: true
+        required: true
+      responses:
+        '200':
+          description: ''
+  /task/--REMOVE:myUserTask--:
+    post:
+      tags:
+      - sample-process
+      summary: 'UserTask variables: myUserTask'
+      description: |2
+
+
+        See API Doc: [UserTask variables: myUserTask](/DemoConfig/orchescala/OpenApi.html#operation/UserTask%20variables:%20myUserTask)
+      operationId: postTask--remove:myusertask--
+      responses:
+        '200':
+          description: ''
+  /task/{taskId}/form-variables/--REMOVE:myUserTask--:
+    get:
+      tags:
+      - sample-process
+      summary: 'UserTask variables: myUserTask'
+      description: |2
+
+
+        See API Doc: [UserTask variables: myUserTask](/DemoConfig/orchescala/OpenApi.html#operation/UserTask%20variables:%20myUserTask)
+      operationId: getTaskTaskidForm-variables--remove:myusertask--
+      parameters:
+      - name: taskId
+        in: path
+        description: |
+          The taskId of the Form.
+          > This is the result id of the `GetActiveTask`
+
+          Add in the _Tests_ panel of _Postman_:
+          ```
+          let result = pm.response.json()[0];
+          pm.collectionVariables.set("taskId", result.id)
+          ```
+        required: true
+        schema:
+          default: '{{taskId}}'
+          type: string
+      - name: variableNames
+        in: query
+        description: |-
+          A comma-separated list of variable names. Allows restricting the list of requested variables to the variable names in the list.
+          It is best practice to restrict the list of variables to the variables actually required by the form in order to minimize fetching of data. If the query parameter is ommitted all variables are fetched.
+          If the query parameter contains non-existent variable names, the variable names are ignored.
+        required: false
+        schema:
+          default: name,example
+          type: string
+      - name: deserializeValues
+        in: query
+        required: false
+        schema:
+          default: false
+          type: boolean
+      responses:
+        '200':
+          description: ''
+  /task/{taskId}/complete/--REMOVE:myUserTask--:
+    post:
+      tags:
+      - sample-process
+      summary: 'UserTask variables: myUserTask'
+      description: |2
+
+
+        See API Doc: [UserTask variables: myUserTask](/DemoConfig/orchescala/OpenApi.html#operation/UserTask%20variables:%20myUserTask)
+      operationId: postTaskTaskidComplete--remove:myusertask--
+      parameters:
+      - name: taskId
+        in: path
+        description: |
+          The taskId of the Form.
+          > This is the result id of the `GetActiveTask`
+
+          Add in the _Tests_ panel of _Postman_:
+          ```
+          let result = pm.response.json()[0];
+          pm.collectionVariables.set("taskId", result.id)
+          ```
+        required: true
+        schema:
+          default: '{{taskId}}'
+          type: string
+      responses:
+        '200':
+          description: ''
+  /process-definition/key/sample-process2/start:
+    post:
+      tags:
+      - sample-process2
+      summary: 'Bpmn: sample-process2'
+      description: |2
+
+
+        See API Doc: [Bpmn: sample-process2](/DemoConfig/orchescala/OpenApi.html#operation/Bpmn:%20sample-process2)
+      operationId: postProcess-definitionKeySample-process2Start
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartProcessIn'
+            examples:
+              sample-process2:
+                value:
+                  variables:
+                    dateOfBirth:
+                      value: '1734-12-04'
+                      type: String
+                    country:
+                      value: CH
+                      type: String
+                    lastName:
+                      value: Pan
+                      type: String
+                    firstName:
+                      value: Peter
+                      type: String
+                    nationality:
+                      value: CH
+                      type: String
+                    address:
+                      value: |-
+                        {
+                          "street" : "Merkurstrasse",
+                          "houseNumber" : "16",
+                          "place" : "Lenzburg",
+                          "postcode" : 5600,
+                          "country" : "CH"
+                        }
+                      type: Json
+                  businessKey: sample-process2
+                  withVariablesInReturn: true
+        required: true
+      responses:
+        '200':
+          description: ''
+components:
+  schemas:
+    CBoolean:
+      title: CBoolean
+      type: object
+      required:
+      - value
+      - type
+      properties:
+        value:
+          type: boolean
+        type:
+          type: string
+    CDouble:
+      title: CDouble
+      type: object
+      required:
+      - value
+      - type
+      properties:
+        value:
+          type: number
+          format: double
+        type:
+          type: string
+    CFile:
+      title: CFile
+      type: object
+      required:
+      - value
+      - valueInfo
+      - type
+      properties:
+        value:
+          description: The File's content as Base64 encoded String.
+          type: string
+        valueInfo:
+          $ref: '#/components/schemas/CFileValueInfo'
+        type:
+          type: string
+    CFileValueInfo:
+      title: CFileValueInfo
+      type: object
+      required:
+      - filename
+      properties:
+        filename:
+          type: string
+        mimetype:
+          type: string
+    CInteger:
+      title: CInteger
+      type: object
+      required:
+      - value
+      - type
+      properties:
+        value:
+          type: integer
+          format: int32
+        type:
+          type: string
+    CJson:
+      title: CJson
+      type: object
+      required:
+      - value
+      - type
+      properties:
+        value:
+          type: string
+        type:
+          type: string
+    CLong:
+      title: CLong
+      type: object
+      required:
+      - value
+      - type
+      properties:
+        value:
+          type: integer
+          format: int64
+        type:
+          type: string
+    CNull:
+      title: CNull
+      type: object
+    CString:
+      title: CString
+      type: object
+      required:
+      - value
+      - type
+      properties:
+        value:
+          type: string
+        type:
+          type: string
+    CamundaVariable:
+      title: CamundaVariable
+      oneOf:
+      - $ref: '#/components/schemas/CBoolean'
+      - $ref: '#/components/schemas/CDouble'
+      - $ref: '#/components/schemas/CFile'
+      - $ref: '#/components/schemas/CInteger'
+      - $ref: '#/components/schemas/CJson'
+      - $ref: '#/components/schemas/CLong'
+      - $ref: '#/components/schemas/CNull'
+      - $ref: '#/components/schemas/CString'
+    Map_CamundaVariable:
+      title: Map_CamundaVariable
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/CamundaVariable'
+    StartProcessIn:
+      title: StartProcessIn
+      description: 'A JSON object with the following properties: (at least an empty
+        JSON object {} or an empty request body)'
+      type: object
+      required:
+      - variables
+      - withVariablesInReturn
+      properties:
+        variables:
+          $ref: '#/components/schemas/Map_CamundaVariable'
+        businessKey:
+          description: The business key of the process instance.
+          type: string
+        withVariablesInReturn:
+          description: Set to false will not return the Process Variables.
+          type: boolean
