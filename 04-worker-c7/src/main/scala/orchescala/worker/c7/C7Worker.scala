@@ -15,6 +15,8 @@ import scala.jdk.CollectionConverters.*
 trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends BaseWorker[In, Out], camunda.ExternalTaskHandler:
 
+  protected def retries: Int = 2
+  
   protected def c7Context: C7Context
 
   def logger = c7Context.getLogger(getClass)
@@ -196,7 +198,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val taskId            = summon[camunda.ExternalTask].getId
       val processInstanceId = summon[camunda.ExternalTask].getProcessInstanceId
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
-      val retries           = C7Worker.calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
+      val retries           = calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
 
       logError(
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
@@ -230,10 +232,6 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   end extension
 
-end C7Worker
-
-object C7Worker:
-
   private[worker] def calcRetries(
       error: WorkerError,
       doRetryMsgs: Seq[String],
@@ -248,7 +246,7 @@ object C7Worker:
         .map:
           _ - 1
         .getOrElse:
-          2
+          retries
 
   end calcRetries
 end C7Worker

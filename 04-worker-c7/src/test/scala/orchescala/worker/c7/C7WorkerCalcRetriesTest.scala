@@ -1,22 +1,26 @@
 package orchescala.worker.c7
 
 import munit.FunSuite
+import orchescala.domain.{NoInput, NoOutput}
 import orchescala.engine.DefaultEngineConfig
 import orchescala.worker.WorkerError.*
-import orchescala.worker.{DefaultWorkerConfig, WorkerConfig, WorkerError}
+import orchescala.worker.{DefaultWorkerConfig, Worker, WorkerError}
 import org.camunda.bpm.client.task.ExternalTask
 import org.camunda.bpm.client.task.impl.ExternalTaskImpl
 
-// ignore tests that test the doRetryMsgs as not used at the moment
 class C7WorkerCalcRetriesTest extends FunSuite:
   lazy val externalTask = new ExternalTaskImpl()
 
   given ExternalTask = externalTask
 
+  lazy val testWorker: C7Worker[NoInput, NoOutput] = new C7Worker[NoInput, NoOutput]:
+    protected def c7Context: C7Context              = null
+    def worker: Worker[NoInput, NoOutput, ?]        = null
+
   // Simple test helper that replicates the calcRetries logic
   def calcRetries(error: WorkerError, currentRetries: Int, inTestMode: Boolean = false): Int = {
     externalTask.setRetries(currentRetries)
-    C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList, inTestMode)
+    testWorker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList, inTestMode)
   }
 
   test("calcRetries - in test mode"):
@@ -26,7 +30,7 @@ class C7WorkerCalcRetriesTest extends FunSuite:
 
   test("calcRetries - retries is null"):
     val error = UnexpectedError("Some unexpected error")
-    val result = C7Worker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList, false)
+    val result = testWorker.calcRetries(error, DefaultWorkerConfig(DefaultEngineConfig()).doRetryList, false)
     assertEquals(result, 2) // retries - 1
 
   test("calcRetries - normal error with retries > 0"):
@@ -39,65 +43,15 @@ class C7WorkerCalcRetriesTest extends FunSuite:
     val result = calcRetries(error, 0)
     assertEquals(result, -1) // retries - 1
 
-  test("calcRetries - retryable error with retries = 0".ignore):
-    val error = UnexpectedError("Entity was updated by another transaction concurrently")
-    val result = calcRetries(error, 0)
-    assertEquals(result, 2) // special case: reset to 2 retries
-
   test("calcRetries - retryable error with retries > 0"):
     val error = UnexpectedError("An exception occurred in the persistence layer")
     val result = calcRetries(error, 3)
     assertEquals(result, 2) // retries - 1
 
-  test("calcRetries - GET request error with retries = 0".ignore):
-    val error = UnexpectedError("Exception when sending request: GET /api/test")
-    val result = calcRetries(error, 0)
-    assertEquals(result, 2) // special case: reset to 2 retries
-
-  test("calcRetries - PUT request error with retries = 0".ignore):
-    val error = UnexpectedError("Exception when sending request: PUT /api/test")
-    val result = calcRetries(error, 0)
-    assertEquals(result, 2) // special case: reset to 2 retries
-
   test("calcRetries - POST request error with retries = 0 (should not retry)"):
     val error = UnexpectedError("Exception when sending request: POST /api/test")
     val result = calcRetries(error, 0)
     assertEquals(result, -1) // retries - 1, no special retry for POST
-
-  test("calcRetries - case insensitive matching".ignore):
-    val error = UnexpectedError("ENTITY WAS UPDATED BY ANOTHER TRANSACTION CONCURRENTLY")
-    val result = calcRetries(error, 0)
-    assertEquals(result, 2) // should match case-insensitively
-
-  test("calcRetries - partial message matching".ignore):
-    val error = UnexpectedError("Some error: An exception occurred in the persistence layer - details")
-    val result = calcRetries(error, 0)
-    assertEquals(result, 2) // should match partial message
-
-  test("calcRetries - negative retries with retryable error".ignore):
-    val error = UnexpectedError("Entity was updated by another transaction concurrently")
-    val result = calcRetries(error, -1)
-    assertEquals(result, 2) // special case: reset to 2 retries
-  test("calcRetries - Unexpected error while sending request: Exception when sending request: GET https://".ignore):
-    val error = UnexpectedError("Unexpected error while sending request: Exception when sending request: GET https://")
-    val result = calcRetries(error, -1)
-    assertEquals(result, 2) // special case: reset to 2 retries
-    
-  test("calcRetries - Unexpected error in Cause".ignore):
-    val error = CustomError("my error", causeError = Some(UnexpectedError("Unexpected error while sending request: Exception when sending request: GET https://")))
-    val result = calcRetries(error, -1)
-    assertEquals(result, 2) // special case: reset to 2 retries
-
-  test("calcRetries - multiple retry conditions".ignore):
-    val error1 = UnexpectedError("Entity was updated by another transaction concurrently")
-    val error2 = UnexpectedError("An exception occurred in the persistence layer")
-    val error3 = UnexpectedError("Exception when sending request: GET /api/test")
-    val error4 = UnexpectedError("Exception when sending request: PUT /api/test")
-
-    assertEquals(calcRetries(error1, 0), 2)
-    assertEquals(calcRetries(error2, 0), 2)
-    assertEquals(calcRetries(error3, 0), 2)
-    assertEquals(calcRetries(error4, 0), 2)
 
   test("calcRetries - non-retryable errors"):
     val error1 = UnexpectedError("Some random error")
