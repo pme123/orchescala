@@ -14,10 +14,13 @@ import scala.jdk.CollectionConverters.*
 
 trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends BaseWorker[In, Out], camunda.ExternalTaskHandler:
-
-  protected def retries: Int = 2
   
   protected def c7Context: C7Context
+
+  protected def retries(error: WorkerError): Int = error match
+    case _: ServiceError => 2
+    case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2
+    case _ => 0
 
   def logger = c7Context.getLogger(getClass)
 
@@ -246,7 +249,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         .map:
           _ - 1
         .getOrElse:
-          retries
+          retries(error)
 
   end calcRetries
 end C7Worker
