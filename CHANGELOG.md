@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.11 - 2026-06-02
+### Changed 
+- Added way to set default Retries as a function that only does more retries if it is a ServiceError for C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/f4c75e4ff02ef478530a6a273a531d0fd6902f5b)
+
 ## 0.5.10 - 2026-06-01
 ### Changed 
 - Added way to set default Retries for C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/c8e733b6d8781c27d092fec2eb02dc4932f1c259)
