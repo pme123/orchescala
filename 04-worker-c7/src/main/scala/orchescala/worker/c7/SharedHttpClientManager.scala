@@ -10,6 +10,8 @@ import org.apache.hc.core5.pool.{PoolConcurrencyPolicy, PoolReusePolicy}
 import org.apache.hc.core5.util.{TimeValue, Timeout}
 import zio.{Scope, Unsafe, ZIO}
 
+import java.util.concurrent.{Executors, TimeUnit}
+
 /**
  * Provides a shared HTTP connection manager for Camunda clients
  * to avoid creating new connections for each client
@@ -36,17 +38,45 @@ object SharedHttpClientManager:
         .build()
 
       // Create the connection manager with the builder
+      // maxConnPerRoute must comfortably exceed maxTasks (concurrent task complete/fail calls)
+      // plus 1 for the long-polling fetchAndLock connection, otherwise the pool gets exhausted
+      // and new requests block until connectionRequestTimeout (default 3 minutes) elapses.
       val manager = PoolingHttpClientConnectionManagerBuilder.create()
         .setDefaultConnectionConfig(defaultConnectionConfig)
-        .setMaxConnPerRoute(10)
-        .setMaxConnTotal(50)
+        .setMaxConnPerRoute(30)
+        .setMaxConnTotal(60)
         .setPoolConcurrencyPolicy(PoolConcurrencyPolicy.STRICT)
         // Use FIFO instead of LIFO to distribute load more evenly
         .setConnPoolPolicy(PoolReusePolicy.FIFO)
         .build()
 
+      startIdleConnectionMonitor(manager)
+
       manager
     }
+
+  /**
+   * Periodically evicts expired and long-idle connections from the pool.
+   * Without this, connections silently dropped by an intermediate proxy (e.g. OpenShift
+   * HAProxy) can accumulate in the pool as unusable, shrinking the effective pool size
+   * over time until fetchAndLock requests can no longer acquire a connection.
+   */
+  private def startIdleConnectionMonitor(manager: PoolingHttpClientConnectionManager): Unit =
+    val scheduler = Executors.newSingleThreadScheduledExecutor { r =>
+      val t = new Thread(r, "camunda-http-conn-evictor")
+      t.setDaemon(true)
+      t
+    }
+    scheduler.scheduleWithFixedDelay(
+      () =>
+        try
+          manager.closeExpired()
+          manager.closeIdle(TimeValue.ofSeconds(30))
+        catch case _: Throwable => (),
+      30,
+      30,
+      TimeUnit.SECONDS
+    )
 
   /**
    * ZIO finalizer to properly close the connection manager

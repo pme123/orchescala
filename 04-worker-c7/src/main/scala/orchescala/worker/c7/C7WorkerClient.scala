@@ -125,6 +125,11 @@ trait OAuth2PasswordWorkerClient extends C7WorkerClient:
                 httpClientBuilder
                   .addRequestInterceptorLast(addAccessToken())
                   .setConnectionManager(SharedHttpClientManager.connectionManager)
+                  .setDefaultRequestConfig(RequestConfig.custom()
+                    // fail fast on pool contention instead of blocking the default 3 minutes,
+                    // so Camunda's backoff strategy can retry quickly
+                    .setConnectionRequestTimeout(org.apache.hc.core5.util.Timeout.ofSeconds(10))
+                    .build())
                   .build()
               .build()
           .tap(_ => ZIO.logInfo("C7 ExternalTaskClient created successfully"))

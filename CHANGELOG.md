@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.12 - 2026-07-10
+### Changed 
+- Fixed possible Connection pool leak in C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/d439296c13884505b9085b43a99857f479e5ada8)
+
 ## 0.5.11 - 2026-06-02
 ### Changed 
 - Added way to set default Retries as a function that only does more retries if it is a ServiceError for C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/f4c75e4ff02ef478530a6a273a531d0fd6902f5b)
