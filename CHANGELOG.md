@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.13 - 2026-07-10
+### Changed 
+- Fixed differences in bpmn generation of ModelerTemplUpdater (adding color). - see [Commit](git@github.com:pme123/orchescala/commit/9f6c526b4aa527dd152f4043845346ffa0abd1ac)
+
 ## 0.5.12 - 2026-07-10
 ### Changed 
 - Fixed possible Connection pool leak in C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/d439296c13884505b9085b43a99857f479e5ada8)
