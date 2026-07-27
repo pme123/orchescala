@@ -13,11 +13,14 @@ object TokenCache:
   // expire before the token actually does, so requests never run with a token
   // that dies mid-flight
   private val safetyMargin = 30.seconds
-  private val minTtl       = 30.seconds
 
   def ttlFor(expiresIn: Option[Long]): FiniteDuration =
     expiresIn
-      .map(seconds => (seconds.seconds - safetyMargin).max(minTtl))
+      .map: seconds =>
+        val lifetime = seconds.seconds
+        // keep the safety margin, but for short-lived tokens fall back to half the
+        // lifetime - the cache must never serve a token past its actual expiry
+        (lifetime - safetyMargin).max(lifetime / 2).max(Duration.Zero)
       .getOrElse(defaultTtl)
 
   def get(key: String): Option[String] =

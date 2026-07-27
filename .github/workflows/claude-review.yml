@@ -10,9 +10,11 @@ on:
 
 jobs:
   claude-review:
-    # skip drafts and PRs explicitly opting out via label
+    # skip drafts, PRs explicitly opting out via label, and PRs from forks
+    # (fork PRs have no access to the token secret; skipping is cleaner than failing)
     if: |
       github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       !contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
     runs-on: ubuntu-latest
     permissions:

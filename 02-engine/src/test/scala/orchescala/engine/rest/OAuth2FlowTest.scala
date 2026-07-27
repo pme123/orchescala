@@ -40,8 +40,17 @@ class OAuth2FlowTest extends FunSuite:
   test("TokenCache.ttlFor uses expires_in minus safety margin"):
     assertEquals(TokenCache.ttlFor(Some(300L)), 270.seconds)
 
-  test("TokenCache.ttlFor never goes below the minimum ttl"):
-    assertEquals(TokenCache.ttlFor(Some(10L)), 30.seconds)
+  test("TokenCache.ttlFor uses half the lifetime for short-lived tokens"):
+    assertEquals(TokenCache.ttlFor(Some(10L)), 5.seconds)
+
+  test("TokenCache.ttlFor never caches beyond the actual token lifetime"):
+    for expiresIn <- List(1L, 10L, 29L, 30L, 60L, 300L, 3600L) do
+      val ttl = TokenCache.ttlFor(Some(expiresIn))
+      assert(ttl <= expiresIn.seconds, s"ttl $ttl exceeds lifetime ${expiresIn}s")
+      assert(ttl > Duration.Zero, s"ttl must be positive for expires_in=${expiresIn}s")
+
+  test("TokenCache.ttlFor is never negative"):
+    assertEquals(TokenCache.ttlFor(Some(0L)), Duration.Zero)
 
   test("TokenCache.ttlFor falls back to the default ttl without expires_in"):
     assertEquals(TokenCache.ttlFor(None), 4.minutes)
