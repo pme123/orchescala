@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.14 - 2026-07-27
+### Changed 
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](git@github.com:pme123/orchescala/commit/2262cc47816de77b547e77fff6b01c3393f373df)
+- Merge pull request #14 from pme123/stale-worker-problem - see [Commit](git@github.com:pme123/orchescala/commit/df4eb23dc06199cd749587d5b3b899ef3296d681)
+- Fixes for pull request. - see [Commit](git@github.com:pme123/orchescala/commit/54e892c2ed6f3b1264ab59e2a599c9abcee1f846)
+- Try fixing stale Workers. - see [Commit](git@github.com:pme123/orchescala/commit/820e3ded317535ec08079a07b0b34e6c02cff2cb)
+- Try fixing stale Workers. - see [Commit](git@github.com:pme123/orchescala/commit/08fe5fd6234d2f6bbd50e248afc653c132960f7a)
+- Fixed UserTask summmary for PostmanApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/9b92dd7bf85af7516e0d7be0b3133c09a57bdfbe)
+- Added /site to references. - see [Commit](git@github.com:pme123/orchescala/commit/32ddba5740680a89a16253e7ed7d54c62a9b079d)
+- Fixed initWorkerFromService - to only validate input message. - see [Commit](git@github.com:pme123/orchescala/commit/5713c5602f1004018320ca761e20d5f52bb55213)
+
 ## 0.5.13 - 2026-07-10
 ### Changed 
 - Fixed differences in bpmn generation of ModelerTemplUpdater (adding color). - see [Commit](git@github.com:pme123/orchescala/commit/9f6c526b4aa527dd152f4043845346ffa0abd1ac)
