@@ -35,7 +35,8 @@ import scala.util.Try
 class SharedHttpClientManagerPoolSizingTest extends FunSuite:
 
   private def withSlowServer(delayMillis: Long)(testCode: Int => Unit): Unit =
-    val server = HttpServer.create(new InetSocketAddress("localhost", 0), 0)
+    val server         = HttpServer.create(new InetSocketAddress("localhost", 0), 0)
+    val serverExecutor = Executors.newCachedThreadPool()
     server.createContext(
       "/",
       exchange =>
@@ -45,10 +46,14 @@ class SharedHttpClientManagerPoolSizingTest extends FunSuite:
         exchange.getResponseBody.write(response)
         exchange.getResponseBody.close()
     )
-    server.setExecutor(Executors.newCachedThreadPool())
+    server.setExecutor(serverExecutor)
     server.start()
     try testCode(server.getAddress.getPort)
-    finally server.stop(0)
+    finally
+      server.stop(0)
+      // otherwise its non-daemon threads keep a test JVM alive
+      serverExecutor.shutdownNow()
+      ()
 
   /** Fires `concurrentRequests` GET requests in parallel against the given port,
     * using a connection manager sized with `maxConnPerRoute`, and returns the number
@@ -130,6 +135,9 @@ class SharedHttpClientManagerPoolSizingTest extends FunSuite:
         .build()
       val httpClient    = HttpClients.custom()
         .setConnectionManager(SharedHttpClientManager.connectionManager)
+        // the shared manager must survive httpClient.close() - without this flag the test
+        // silently shut down the global pool for the rest of the JVM
+        .setConnectionManagerShared(true)
         .setDefaultRequestConfig(requestConfig)
         .build()
       val maxTasks      = 10

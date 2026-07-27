@@ -6,37 +6,86 @@ import sttp.client3.*
 import sttp.client3.circe.asJson
 import zio.ZIO
 
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import java.util.concurrent.{Executors, TimeUnit}
+import scala.concurrent.duration.*
+
 trait PasswordGrantFlowable extends OAuth2Flow:
   def config: OAuthConfig.PasswordGrant
   def retrieveTokenSync()(using logger: OrchescalaLogger): Either[ServiceError, String]
   def retrieveToken(): ZIO[SttpClientBackend, ServiceError, String]
-  
+
 class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordGrantFlowable:
 
+  /** Last successfully retrieved token. Kept even after the cache entry expired, so requests can
+    * still be authorized while the identity provider is down (the server may still accept the
+    * token - otherwise it answers 401 and the client backs off and retries).
+    */
+  private val lastToken = new AtomicReference[Option[String]](None)
+
+  private val refreshStarted = new AtomicBoolean(false)
+
+  /** Non-blocking token access - NO network I/O. Safe to call from HTTP request interceptors that
+    * hold a leased pool connection.
+    */
+  def cachedToken: Option[String] =
+    TokenCache.get(username).orElse(lastToken.get())
+
+  /** Starts a daemon thread that periodically refreshes the token, so [[cachedToken]] is always
+    * warm and no request thread ever has to fetch a token itself. Idempotent.
+    */
+  def startBackgroundRefresh(interval: FiniteDuration = 60.seconds)(using
+      logger: OrchescalaLogger
+  ): Unit =
+    if refreshStarted.compareAndSet(false, true) then
+      logger.info(s"Starting background token refresh for '$username' every $interval")
+      val scheduler = Executors.newSingleThreadScheduledExecutor { r =>
+        val t = new Thread(r, s"oauth2-token-refresh-$username")
+        t.setDaemon(true)
+        t
+      }
+      scheduler.scheduleWithFixedDelay(
+        () =>
+          refreshToken() match
+            case Right(_)  => () // success already logged
+            case Left(err) =>
+              logger.warn(s"Background token refresh for '$username' failed: ${err.errorMsg}")
+        ,
+        0,
+        interval.toMillis,
+        TimeUnit.MILLISECONDS
+      )
+      ()
+  end startBackgroundRefresh
+
+  /** Fetches a fresh token (ignoring the cache) and stores it in the cache and as last token. The
+    * call is bounded by [[tokenCallHardTimeout]] - it can never block indefinitely.
+    */
+  def refreshToken()(using logger: OrchescalaLogger): Either[ServiceError, String] =
+    withHardTimeout(authResponse)
+      .flatMap(_.body.left.map(_.toString))
+      .left
+      .map(err => ServiceError(s"Could not get a token for '$username'!\n$err"))
+      .map: tokenResponse =>
+        val token = tokenResponse.access_token
+        logger.info(
+          s"Added Token to Cache: $username - ${token.take(5)}...${token.takeRight(5)} " +
+            s"(expires_in: ${tokenResponse.expires_in.getOrElse("-")}s)"
+        )
+        TokenCache.put(username, token, tokenResponse.expires_in)
+        lastToken.set(Some(token))
+        token
+
   def retrieveTokenSync()(using logger: OrchescalaLogger): Either[ServiceError, String] =
-    TokenCache.cache.getIfPresent(username)
+    TokenCache.get(username)
       .map: token =>
         logger.debug(s"Admin Token from Cache: $username")
         Right(token)
       .getOrElse:
-        authResponse
-          .body
-          .map(t => t.access_token)
-          .left
-          .map(err =>
-            ServiceError(
-              s"Could not get a token for '$username'!\n$err"
-            )
-          )
-          .map: token =>
-            logger.info(
-              s"Added Admin Token to Cache self acquired: $username - ${token.take(5)}...${token.takeRight(5)}"
-            )
-            TokenCache.cache.put(username, token)
-            token
+        refreshToken()
 
   def retrieveToken(): ZIO[SttpClientBackend, ServiceError, String] =
-    ZIO.fromOption(TokenCache.cache.getIfPresent(username))
+    ZIO.fromOption(TokenCache.get(username))
       .zipLeft(ZIO.logDebug(s"Admin Token from Cache: $username"))
       .orElse:
         ZIO.serviceWithZIO[SttpClientBackend]: backend =>
@@ -44,17 +93,22 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
             tokenRequest.body(requestBody)
               .response(asJson[TokenResponse])
               .send(backend)
-              .map(_.body.map(t => t.access_token))
+              .map(_.body)
               .flatMap(ZIO.fromEither)
               .mapError(err =>
                 ServiceError(
                   s"Could not get a token for '$username'!\n$err"
                 )
               )
-              .tap: token =>
+              .flatMap: tokenResponse =>
+                val token = tokenResponse.access_token
                 ZIO.logInfo(
                   s"Added Admin Token to Cache: $username - ${token.take(5)}...${token.takeRight(5)}"
-                ).as(TokenCache.cache.put(username, token))
+                ).as {
+                  TokenCache.put(username, token, tokenResponse.expires_in)
+                  lastToken.set(Some(token))
+                  token
+                }
 
   protected def identityUrl    = config.identityUrl
   private lazy val username    = config.username
