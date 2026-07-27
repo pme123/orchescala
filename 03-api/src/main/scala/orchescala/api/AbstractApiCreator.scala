@@ -37,7 +37,7 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
       name: String,
       groupAnchor: Option[String] = None
   ): String =
-    val projName = s"${apiConfig.docBaseUrl.mkString}/${apiConfig.companyName}/$projectName"
+    val projName = s"${apiConfig.docBaseUrl.mkString}/site/${apiConfig.companyName}/$projectName"
     val anchor   = groupAnchor
       .map(_ =>
         s"operation/${name.replace(" ", "%20")}"

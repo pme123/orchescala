@@ -382,7 +382,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
 
   protected def dependencies: String =
 
-    def docPortal(projectName: String) =  s"${apiConfig.docBaseUrl.getOrElse("NOT_SET")}/$projectName/OpenApi.html"
+    def docPortal(projectName: String) =  s"${apiConfig.docBaseUrl.getOrElse("NOT_SET")}/site/${apiConfig.companyName}/$projectName/OpenApi.html"
 
     val projects       = apiConfig.projectsConfig.perGitRepoConfigs.flatMap(_.projects)
     println(s"Projects: $projects")
