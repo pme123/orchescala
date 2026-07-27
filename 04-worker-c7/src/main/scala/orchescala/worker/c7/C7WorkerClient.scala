@@ -98,15 +98,16 @@ trait OAuth2PasswordWorkerClient extends C7WorkerClient:
 
   private def addAccessToken() = new HttpRequestInterceptor:
     override def process(request: HttpRequest, entity: EntityDetails, context: HttpContext): Unit =
-      passwordFlow
-        .retrieveTokenSync() match
-          case Right(token) =>
-            logger.debug(s"Added Bearer Token to Request: ${token.take(5)}...${token.takeRight(5)}")
-            request.addHeader("Authorization", s"Bearer $token")
-          case Left(error)  =>
-            throw new org.apache.hc.core5.http.HttpException(
-              s"Cannot acquire OAuth2 token for TopicSubscriptionManager: $error"
-            )
+      // NO network I/O here: since httpclient5 5.4 request interceptors run AFTER a pooled
+      // connection is leased - a blocking token call here holds the lease and exhausts the pool
+      // (ConnectionRequestTimeoutException on fetchAndLock, worker never recovers)
+      passwordFlow.cachedToken match
+        case Some(token) =>
+          request.addHeader("Authorization", s"Bearer $token")
+        case None        =>
+          throw new org.apache.hc.core5.http.HttpException(
+            s"No OAuth2 token available for TopicSubscriptionManager (is the identity provider down?)"
+          )
 
   lazy val client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
     SharedC7ExternalClientManager.getOrCreateClient:
@@ -114,23 +115,26 @@ trait OAuth2PasswordWorkerClient extends C7WorkerClient:
         s"""Creating C7 ExternalTaskClient with OAuth2 for $camundaRestUrl
            |  - maxTasks: $maxTasks
            |  - lockDuration: ${lockDuration}ms (${lockDuration / 1000}s)
-           |  - asyncResponseTimeout: ${asyncResponseTimeout.toSeconds}s  
+           |  - asyncResponseTimeout: ${asyncResponseTimeout.toSeconds}s
            |  - maxTimeForAcquireJob: ${maxTimeForAcquireJob.toMillis}ms
            |""".stripMargin
       ) *>
         ZIO
           .attempt:
+            // keeps the token cache warm, so request interceptors never do network I/O
+            passwordFlow.startBackgroundRefresh()
             externalClient
               .customizeHttpClient: httpClientBuilder =>
                 httpClientBuilder
                   .addRequestInterceptorLast(addAccessToken())
                   .setConnectionManager(SharedHttpClientManager.connectionManager)
+                  // the manager is shared - closing this client must not close the manager
+                  .setConnectionManagerShared(true)
                   .setDefaultRequestConfig(RequestConfig.custom()
                     // fail fast on pool contention instead of blocking the default 3 minutes,
                     // so Camunda's backoff strategy can retry quickly
                     .setConnectionRequestTimeout(org.apache.hc.core5.util.Timeout.ofSeconds(10))
                     .build())
-                  .build()
               .build()
           .tap(_ => ZIO.logInfo("C7 ExternalTaskClient created successfully"))
           .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient: $err"))

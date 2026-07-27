@@ -23,7 +23,7 @@ trait ProcessReferenceCreator:
   protected def gitBasePath: os.Path                   = apiConfig.tempGitDir
   protected def docProjectUrl(project: String): String =
     val companyName = project.split("-").head
-    apiConfig.docBaseUrl.map(u => s"$u/$companyName/$project").getOrElse("NOT_SET")
+    apiConfig.docBaseUrl.map(u => s"$u/site/$companyName/$project").getOrElse("NOT_SET")
 
   private lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs

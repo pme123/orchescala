@@ -228,12 +228,11 @@ trait CamundaPostmanApiCreator extends PostmanApiCreator:
 
     def getActiveTask(tag: String): PublicEndpoint[?, Unit, ?, Any] =
       val path = "task" / s"--REMOVE:${api.id}--"
-
       val input =
         api
           .toPostmanInput(_ => GetActiveTaskIn())
       api
-        .postmanBaseEndpoint(tag, input, "GetActiveTask")
+        .postmanBaseEndpoint(tag, input, "GetActiveTask", typePostfix = " task")
         .in(path)
         .post
     end getActiveTask
@@ -243,7 +242,7 @@ trait CamundaPostmanApiCreator extends PostmanApiCreator:
         "task" / taskIdPath() / "form-variables" / s"--REMOVE:${api.id}--"
 
       api
-        .postmanBaseEndpoint(tag, None, "GetTaskFormVariables")
+        .postmanBaseEndpoint(tag, None, "GetTaskFormVariables", typePostfix = " variables")
         .in(path)
         .in(
           query[String]("variableNames")
@@ -274,7 +273,7 @@ trait CamundaPostmanApiCreator extends PostmanApiCreator:
         )
 
       api
-        .postmanBaseEndpoint(tag, input, "CompleteTask")
+        .postmanBaseEndpoint(tag, input, "CompleteTask", typePostfix = " complete")
         .in(path)
         .post
     end completeTask

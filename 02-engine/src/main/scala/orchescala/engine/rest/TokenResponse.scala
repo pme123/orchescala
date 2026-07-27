@@ -6,7 +6,8 @@ case class TokenResponse(
                           access_token: String,
                           scope: String,
                           token_type: String,
-                          refresh_token: Option[String]
+                          refresh_token: Option[String],
+                          expires_in: Option[Long] = None
                         )
 object TokenResponse:
   given InOutDecoder[TokenResponse] = deriveInOutDecoder[TokenResponse]
