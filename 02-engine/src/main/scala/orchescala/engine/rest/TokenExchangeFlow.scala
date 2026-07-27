@@ -27,8 +27,8 @@ class TokenExchangeFlow(
       s"TokenExchangeFlow: Requesting Token for: ${config.toString(username, clientCredToken)}"
     ) *>
       ZIO.fromEither(
-        authResponse(body)
-          .body
+        withHardTimeout(authResponse(body))
+          .flatMap(_.body.left.map(_.toString))
           .map(t => t.access_token)
       ).mapError: err =>
         ServiceError(
