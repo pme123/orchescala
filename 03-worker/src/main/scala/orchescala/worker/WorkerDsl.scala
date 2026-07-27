@@ -193,18 +193,17 @@ private trait InitProcessDsl[
     InConfig <: Product: InOutCodec
 ] extends ValidateDsl[In], WorkerDsl[In, Out]:
 
-  /** Execute with full WorkerExecutor functionality including mocking and inConfig merging */
+  /** Only validates the input (and merges the inConfig) - does NOT run customInit.
+    * customInit is run later when the InitWorker's external task is actually executed
+    * by the engine (see WorkerExecutor.Initializer.initVariables).
+    */
   def initWorkFromService(json: Json)(using
       context: EngineRunContext
   ): ZIO[SttpClientBackend, WorkerError, Json] =
     for
-      in               <- mergeInConfig(json)
-      validatedInput   <- ZIO.fromEither(worker.validationHandler.validate(in))
-      allOutputs: Json <-
-        customInitZIO(validatedInput)
-          .map:
-            mergeOutputs(validatedInput, _)
-    yield allOutputs
+      in             <- mergeInConfig(json)
+      validatedInput <- ZIO.fromEither(worker.validationHandler.validate(in))
+    yield mergeValidatedInput(validatedInput)
 
   private def mergeInConfig(json: Json): ZIO[Any, WorkerError, In] =
     ZIO.fromEither(json.as[In])
@@ -248,17 +247,14 @@ private trait InitProcessDsl[
       case (_, None)             =>
         ZIO.none
 
-  private def mergeOutputs(
-      initializedInput: In,
-      output: InitIn
+  private def mergeValidatedInput(
+      validatedInput: In
   )(using context: EngineRunContext): Json =
     val generalVarsJson = context.generalVariables.asJson.deepDropNullValues
-    val inJson          = initializedInput.asJson.deepDropNullValues
-    val outJson         = output.asJson.deepDropNullValues
+    val inJson          = validatedInput.asJson.deepDropNullValues
     generalVarsJson
       .deepMerge(inJson)
-      .deepMerge(outJson)
-  end mergeOutputs
+  end mergeValidatedInput
 
   private def filterOutput(
       allOutputs: Json,
