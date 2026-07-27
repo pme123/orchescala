@@ -1,6 +1,6 @@
 package orchescala.worker.c7
 
-import orchescala.engine.EngineRuntime
+import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import org.apache.hc.client5.http.config.ConnectionConfig
 import org.apache.hc.client5.http.impl.io.{
   PoolingHttpClientConnectionManager,
@@ -62,6 +62,7 @@ object SharedHttpClientManager:
    * over time until fetchAndLock requests can no longer acquire a connection.
    */
   private def startIdleConnectionMonitor(manager: PoolingHttpClientConnectionManager): Unit =
+    val logger = Slf4JLogger.logger(getClass.getName)
     val scheduler = Executors.newSingleThreadScheduledExecutor { r =>
       val t = new Thread(r, "camunda-http-conn-evictor")
       t.setDaemon(true)
@@ -70,8 +71,16 @@ object SharedHttpClientManager:
     scheduler.scheduleWithFixedDelay(
       () =>
         try
-          manager.closeExpired()
-          manager.closeIdle(TimeValue.ofSeconds(30))
+          val stats = manager.getTotalStats
+          // stay completely quiet while the pool is unused (e.g. after tests in a long-lived JVM)
+          if stats.getLeased + stats.getAvailable + stats.getPending > 0 then
+            manager.closeExpired()
+            manager.closeIdle(TimeValue.ofSeconds(30))
+            if stats.getLeased >= stats.getMax || stats.getPending > 0 then
+              logger.warn(s"Camunda HTTP connection pool saturated: $stats - " +
+                "requests are waiting for connections that are not released!")
+            else
+              logger.debug(s"Camunda HTTP connection pool: $stats")
         catch case _: Throwable => (),
       30,
       30,
