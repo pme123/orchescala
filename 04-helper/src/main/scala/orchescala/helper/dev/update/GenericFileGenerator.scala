@@ -1,6 +1,6 @@
 package orchescala.helper.dev.update
 
-import orchescala.helper.util.PipelineConfig
+import orchescala.helper.util.{PipelineConfig, RepoConfig, RepoCredentials}
 
 case class GenericFileGenerator()(using config: DevConfig):
 
@@ -147,6 +147,27 @@ case class GenericFileGenerator()(using config: DevConfig):
         |""".stripMargin
 
   private def gitLabPipeline(pipelineConfig: PipelineConfig) =
+    val mvnUserEnv     = pipelineConfig.companyMVNUserEnv
+      .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_USERNAME")
+    val mvnPasswordEnv = pipelineConfig.companyMVNPasswordEnv
+      .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_PASSWORD")
+
+    // route coursier (cs) through the company repos - Maven Central only as fallback -
+    // to avoid its HTTP 429 rate limiting on shared CI egress IPs
+    val artifactoryRepos    = config.sbtConfig.reposConfig.repos.collect:
+      case a: RepoConfig.Artifactory => s"${a.artifactoryApiUrl}/${a.repo}"
+    val coursierRepos       = ("ivy2Local" +: artifactoryRepos :+ "central").mkString("|")
+    val coursierCredentials = config.sbtConfig.reposConfig.credentials
+      .collectFirst:
+        case c: RepoCredentials.UserPassword =>
+          s"\n  COURSIER_CREDENTIALS: ${c.repoHost} $$$mvnUserEnv:$$$mvnPasswordEnv"
+      .getOrElse("")
+    // the JVM ignores the HTTP(S)_PROXY environment variables - sbt needs explicit flags
+    val proxyFlags          = proxyHostAndPort(pipelineConfig.baseProxy)
+      .map: (host, port) =>
+        s" -Dhttp.proxyHost=$host -Dhttp.proxyPort=$port -Dhttps.proxyHost=$host -Dhttps.proxyPort=$port"
+      .getOrElse("")
+
     s"""
        |# $helperDoNotAdjustText
        |stages:
@@ -164,27 +185,56 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  HTTP_PROXY: $$ALL_PROXY
        |  HTTPS_PROXY: $$ALL_PROXY
        |  SCALA_IMAGE: ${pipelineConfig.baseImage}
-       |  ${pipelineConfig.companyMVNUserEnv.getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_USERNAME")}: $$CI_REGISTRY_USER
-       |  ${pipelineConfig.companyMVNPasswordEnv.getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_PASSWORD")}: $$CI_REGISTRY_PASSWORD
+       |  $mvnUserEnv: $$CI_REGISTRY_USER
+       |  $mvnPasswordEnv: $$CI_REGISTRY_PASSWORD
+       |  COURSIER_CACHE: $$CI_PROJECT_DIR/.coursier-cache
+       |  COURSIER_REPOSITORIES: $coursierRepos$coursierCredentials
        |
        |worker-test:
        |  stage: test
        |  image:
        |    name: $$SCALA_IMAGE
+       |  retry: 2
        |  cache:
+       |    key: "$$CI_PROJECT_NAME-sbt"
        |    paths:
-       |      - ~/.sbt
-       |      - ~/.cache/coursier
+       |      - .coursier-cache/
+       |      - .sbt-boot/
+       |      - .cs-bin/
        |  variables:
        |    CI_DEBUG_SERVICES: false
+       |    SBT_OPTS: "-Dsbt.boot.directory=$$CI_PROJECT_DIR/.sbt-boot$proxyFlags"
        |  script:
-       |    - curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
-       |    - chmod +x ./cs
-       |    - export PATH=".:$$PATH"
-       |    - eval "$$(cs setup --env --jvm 21 --apps coursier)"
+       |    # the tests call `cs complete-dep` (VersionHelper.repoSearch) - install the native coursier binary
+       |    - |
+       |      if [ ! -x .cs-bin/cs ]; then
+       |        mkdir -p .cs-bin
+       |        curl -fL --retry 3 "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > .cs-bin/cs
+       |        chmod +x .cs-bin/cs
+       |      fi
+       |    - export PATH="$$PWD/.cs-bin:$$PATH"
+       |    # sbt launcher: resolve sbt itself from Maven Central only
+       |    # (the Artifactory answers unauthenticated requests with an SSO HTML page the launcher cannot parse)
+       |    - mkdir -p ~/.sbt
+       |    - |
+       |      cat > ~/.sbt/repositories <<EOF
+       |      [repositories]
+       |        local
+       |        maven-central
+       |      EOF
        |    - sbt "domain/test; worker/test"
        |
        |""".stripMargin
+  end gitLabPipeline
+
+  private def proxyHostAndPort(baseProxy: String): Option[(String, String)] =
+    Option(baseProxy)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .map: proxy =>
+        proxy.replaceFirst("^https?://", "").stripSuffix("/").split(":") match
+          case Array(host, port) => host -> port
+          case other             => other.head -> "8080"
 
   private lazy val workerTestAppVsCode   =
     s"""|// DO NOT ADJUST. This file is replaced by `./helper.scala update`.
