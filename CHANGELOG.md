@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.15 - 2026-07-28
+### Changed 
+- Adjusted gitlab action due to 419 error in GenericFileGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/66849245d0aff4fbb4461cd4c68263951ebd9b3b)
+
 ## 0.5.14 - 2026-07-27
 ### Changed 
 - Merge remote-tracking branch 'origin/develop' into develop - see [Commit](git@github.com:pme123/orchescala/commit/2262cc47816de77b547e77fff6b01c3393f373df)
