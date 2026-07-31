@@ -52,7 +52,9 @@ trait RestApiClient:
       .mapError(body =>
         ServiceRequestError(
           statusCode.code,
-          s"Non-2xx response with code $statusCode:\n$body"
+          s"""Non-2xx response with code $statusCode:
+             |$body
+             |${request.toCurl(Set("Authorization"))}""".stripMargin
         )
       )
   end readBody
