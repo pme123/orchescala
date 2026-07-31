@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.16 - 2026-07-31
+### Changed 
+- Added toCurl if the response from service is not 2**. - see [Commit](git@github.com:pme123/orchescala/commit/6833ce2e3245df9d7693fb5ebddfbb97b757ab59)
+- Adjusted gitlab action due to Error in container build: exit code: 137, reason: 'OOMKilled' in GenericFileGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/307f6f4b8ec6b8a0d61a97f37c68fcd951f996b9)
+
 ## 0.5.15 - 2026-07-28
 ### Changed 
 - Adjusted gitlab action due to 419 error in GenericFileGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/66849245d0aff4fbb4461cd4c68263951ebd9b3b)
