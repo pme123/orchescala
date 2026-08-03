@@ -33,6 +33,9 @@ case class CompanyGenerator(isInitCompany: Boolean = true)(using
     )
     // docs
     CompanyDocsGenerator(companyName, companyOrchescala).generate
+    // pipeline
+    config.pipelineConfig.foreach: pConfig => // only if configured
+      createOrUpdate(config.projectDir / ".gitlab-ci.yml", GenericFileGenerator().gitLabPipeline(pConfig))
   end generate
 
   lazy val createProject: Unit =

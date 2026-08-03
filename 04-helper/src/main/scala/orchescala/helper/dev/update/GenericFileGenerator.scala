@@ -146,7 +146,7 @@ case class GenericFileGenerator()(using config: DevConfig):
         |</component>
         |""".stripMargin
 
-  private def gitLabPipeline(pipelineConfig: PipelineConfig) =
+  def gitLabPipeline(pipelineConfig: PipelineConfig) =
     val mvnUserEnv     = pipelineConfig.companyMVNUserEnv
       .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_USERNAME")
     val mvnPasswordEnv = pipelineConfig.companyMVNPasswordEnv
