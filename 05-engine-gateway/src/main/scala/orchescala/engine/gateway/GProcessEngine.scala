@@ -26,5 +26,5 @@ class GProcessEngine()(
   lazy val signalService: SignalService                                   =
     GSignalService(using supportedEngines.map(_.signalService))
   lazy val userTaskService: UserTaskService                               =
-    GUserTaskService(processInstanceService)(using supportedEngines.map(_.userTaskService))
+    GUserTaskService()(using supportedEngines.map(_.userTaskService))
 end GProcessEngine

@@ -198,31 +198,6 @@ class C8ProcessInstanceService(using
       _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
 
-  private def filterVariables(variableFilter: Option[Seq[String]], variableDtos: Seq[Variable]) =
-    if variableFilter.isEmpty then variableDtos
-    else
-      variableDtos
-        .filter: v =>
-          v.getValue != null &&
-            variableFilter.toSeq.flatten.contains(v.getName)
-
-  private def toVariableValue(valueDto: Variable): IO[EngineError, JsonProperty] =
-    val value = valueDto.getValue
-    (value match
-      case null | "null" =>
-        ZIO.attempt(Json.Null)
-      case str           =>
-        ZIO.fromEither(parser.parse(str))
-    )
-      .map: v =>
-        JsonProperty(valueDto.getName, v)
-      .mapError: err =>
-        EngineError.ProcessError(
-          s"Problem converting VariableDto '${valueDto.getName} -> $value: $err"
-        )
-
-  end toVariableValue
-
   def startProcessByMessage(
       messageName: String,
       businessKey: Option[String] = None,

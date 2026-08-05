@@ -6,9 +6,7 @@ import sttp.tapir.Schema.annotations.description
 import zio.{IO, ZIO, durationInt}
 
 trait UserTaskService extends EngineService:
-
-  def processInstanceService: ProcessInstanceService
-
+  
   @description(
     """
       |Returns the user task for the current process instance. 
@@ -26,11 +24,17 @@ trait UserTaskService extends EngineService:
                 identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Unit]
 
+  def variables(
+                 taskId: String,
+                 processInstanceId: String,
+                 variableFilter: Option[Seq[String]]
+               ): IO[EngineError, Seq[JsonProperty]]
+
   @description(
     """
-      |Returns the userTaskId (used for completing the task)and the variables as Json for the current user task in a process instance.
+      |Returns a Seq of variables as JsonProperties for the current user task with the given taskDefinitionKey in a process instance.
       |
-      |Example: `(myUserTaskId, { "name": "John", "age": 30 })`
+      |Example: `[{ "name": "John"}, {"age": 30 }]`
       |""".stripMargin
   )
   def getUserTaskVariables(
@@ -48,8 +52,51 @@ trait UserTaskService extends EngineService:
       userTaskDefId: String,
       @description(
         """
+          |The object with the variables you are interested in.
+          |If not set, it will return all variables.
+          |""".stripMargin
+      )
+      variableFilter: Option[Product],
+      @description(
+        """
+          |The maximum number of seconds to wait for the user task to become active.
+          |If not provided, it will wait 10 seconds.
+          |""".stripMargin
+      )
+      timeoutInSec: Option[Int]
+  ): IO[EngineError, Seq[JsonProperty]] =
+    getUserTaskVariableJsonProps(
+      processInstanceId,
+      userTaskDefId,
+      variableFilter.map(_.productElementNames.map(_.trim).toSeq),
+      timeoutInSec.getOrElse(10)
+    ).map: (_, variables) =>
+      variables
+
+  @description(
+    """
+      |Returns the userTaskId (used for completing the task)and the variables as Json for the current user task in a process instance.
+      |
+      |Example: `(myUserTaskId, { "name": "John", "age": 30 })`
+      |""".stripMargin
+  )
+  def getUserTaskVariablesInternal(
+      @description(
+        """
+          |The id of the process instance.
+          |""".stripMargin
+      )
+      processInstanceId: String,
+      @description(
+        """
+          |The task definition key from the BPMN (used for API path differentiation in OpenAPI)
+          |""".stripMargin
+      )
+      userTaskDefId: String,
+      @description(
+        """
           |A comma-separated list of variable names. Allows restricting the list of requested variables to the variable names in the list.
-          |It is best practice to restrict the list of variables to the variables actually required by the form in order to minimize fetching of data. 
+          |It is best practice to restrict the list of variables to the variables actually required by the form in order to minimize fetching of data.
           |If the query parameter is ommitted all variables are fetched.
           |If the query parameter contains non-existent variable names, the variable names are ignored.
           |""".stripMargin
@@ -91,7 +138,7 @@ trait UserTaskService extends EngineService:
             timeoutInSec - 1
           ).delay(1.second)
         else
-          processInstanceService.getVariablesInternal(processInstanceId, variableFilter)
+          this.variables(userTask.get.id, processInstanceId, variableFilter)
             .map(userTask.get.id -> _)
     yield (userTaskId, variables)
 end UserTaskService

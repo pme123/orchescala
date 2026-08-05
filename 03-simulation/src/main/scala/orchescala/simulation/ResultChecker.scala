@@ -74,7 +74,7 @@ object ResultChecker:
                 checkJson(expectedValue.toJson, resultJson, key, scenarioData)
             .getOrElse:
               scenarioData.error(
-                s"$key does NOT exist in the result variables."
+                s"checkP: $key does NOT exist in the result variables."
               )
   end checkP
 
@@ -84,7 +84,7 @@ object ResultChecker:
       scenarioData: ScenarioData
   ): ScenarioData =
     if !checkExistsInResult(result, key) then
-      scenarioData.error(s"$key does NOT exist in the result variables.")
+      scenarioData.error(s"checkExistsInResult: $key does NOT exist in the result variables.")
     else
       scenarioData
   end checkExistsInResult
@@ -102,7 +102,7 @@ object ResultChecker:
       scenarioData: ScenarioData
   ): ScenarioData =
     if checkExistsInResult(result, key) then
-      scenarioData.error(s"$key does NOT exist in the result variables.")
+      scenarioData.error(s"checkExistsNotInResult: $key does NOT exist in the result variables.")
     else
       scenarioData
   end checkExistsNotInResult
@@ -166,7 +166,7 @@ object ResultChecker:
           )
       end match
     else
-      scenarioData.error(s"$key NOT exist in the result variables.")
+      scenarioData.error(s"checkHasSize: $key NOT exist in the result variables.")
 
   private def checkContains(
       key: String,
@@ -184,7 +184,7 @@ object ResultChecker:
       case Some(r)              =>
         scenarioData.error(s"$key is NOT an array in the result variables.")
       case None                 =>
-        scenarioData.error(s"$key does NOT exist in the result variables.")
+        scenarioData.error(s"checkContains: $key does NOT exist in the result variables.")
     end match
   end checkContains
 

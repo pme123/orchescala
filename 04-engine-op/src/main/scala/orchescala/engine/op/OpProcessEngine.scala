@@ -21,7 +21,7 @@ class OpProcessEngine()(
   lazy val jobService: JobService                                         = OpJobService()
   lazy val messageService: MessageService                                 = OpMessageService()
   lazy val signalService: SignalService                                   = OpSignalService()
-  lazy val userTaskService: UserTaskService                               = OpUserTaskService(OpProcessInstanceService())
+  lazy val userTaskService: UserTaskService                               = OpUserTaskService()
 end OpProcessEngine
 
 object OpProcessEngine:

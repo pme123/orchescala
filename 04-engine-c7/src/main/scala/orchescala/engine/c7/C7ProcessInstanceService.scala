@@ -205,17 +205,7 @@ class C7ProcessInstanceService(using
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
 
-  private def filterVariables(
-      variableFilter: Option[Seq[String]],
-      variableDtos: java.util.Map[String, VariableValueDto]
-  ) =
-    if variableFilter.isEmpty then variableDtos.asScala
-    else
-      variableDtos
-        .asScala
-        .filter: p =>
-          p._2.getValue != null &&
-            variableFilter.toSeq.flatten.contains(p._1)
+
 
   def startProcessByMessage(
       messageName: String,

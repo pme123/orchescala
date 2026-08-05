@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.17 - 2026-08-05
+### Changed 
+- Changed variables of UserTask to use the UserTaskService instead of ProcessInstanceService. - see [Commit](git@github.com:pme123/orchescala/commit/670f4a13d093fe84b1c87c1163664f1b4d3597e5)
+- Added .gitlab configuration to CompanyGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/ed67a625f0a1ac92e6e382cea13765e8d2200645)
+
 ## 0.5.16 - 2026-07-31
 ### Changed 
 - Added toCurl if the response from service is not 2**. - see [Commit](git@github.com:pme123/orchescala/commit/6833ce2e3245df9d7693fb5ebddfbb97b757ab59)
