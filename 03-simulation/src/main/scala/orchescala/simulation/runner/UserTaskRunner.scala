@@ -66,11 +66,12 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
   end task
 
   def checkForm: ResultType =
+    val taskId = summon[ScenarioData].context.taskId
     val processInstanceId = summon[ScenarioData].context.processInstanceId
     for
       variables          <-
-        processInstanceService
-          .getVariables(processInstanceId, Some(userTaskScenario.inOut.in))
+        userTaskService
+          .getUserTaskVariables(processInstanceId, userTaskScenario.id, Some(userTaskScenario.inOut.in), None)
           .mapError: err =>
             SimulationError.ProcessError(
               summon[ScenarioData].error(

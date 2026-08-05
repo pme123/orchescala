@@ -31,7 +31,7 @@ case class UserTaskRoutes(
           // Set the bearer token in AuthContext so it can be used by the engine services
           AuthContext.withBearerToken(validatedToken):
             userTaskService
-              .getUserTaskVariables(
+              .getUserTaskVariablesInternal(
                 processInstanceId,
                 taskDefinitionKey,
                 variableFilter,

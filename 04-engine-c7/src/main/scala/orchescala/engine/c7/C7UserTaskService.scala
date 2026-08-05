@@ -2,18 +2,13 @@ package orchescala.engine
 package c7
 
 import orchescala.domain.CamundaVariable.CNull
-import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineError.MappingError
 import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
 import org.camunda.community.rest.client.api.TaskApi
-import org.camunda.community.rest.client.dto.{
-  CompleteTaskDto,
-  TaskQueryDto,
-  TaskWithAttachmentAndCommentDto,
-  VariableValueDto
-}
+import org.camunda.community.rest.client.dto.{CompleteTaskDto, TaskQueryDto, TaskWithAttachmentAndCommentDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
@@ -21,7 +16,7 @@ import zio.{IO, ZIO}
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
 
-class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(using
+class C7UserTaskService() (using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
 ) extends UserTaskService, C7Service:
@@ -47,7 +42,36 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
                      )
       _         <- logDebug(s"TaskDtos found: $taskDtos")
     yield mapToUserTasks(taskDtos)
-
+  
+  def variables(
+      taskId: String,
+      processInstanceId: String,
+      variableFilter: Option[Seq[String]]
+              ): IO[EngineError, Seq[JsonProperty]] =
+    for
+      apiClient <- apiClientZIO
+      _ <- ZIO.logDebug(s"Getting Variables for UserTask '$taskId' of ProcessInstance '$processInstanceId' with variableFilter: ${variableFilter.toSeq.flatten.mkString(",")}")
+      variableDtos <-
+        ZIO
+          .attempt:
+            new TaskApi(apiClient)
+              .getFormVariables(taskId, variableFilter.map(_.mkString(",")).orNull, false)
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem getting Variables for UserTask '$taskId' of ProcessInstance '$processInstanceId': $err"
+            )
+      variables <-
+        ZIO
+          .foreach(filterVariables(variableFilter, variableDtos)):
+            case k -> dto =>
+              toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
+            )
+      _ <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+    yield variables.toSeq
+    
   def complete(
       taskId: String,
       processVariables: JsonObject,
