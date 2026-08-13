@@ -160,11 +160,13 @@ case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extend
   def upload(releaseTag: String): Unit =
     val sardine = startSession
     val docDir  = apiConfig.basePath / "site"
+    val redirectIndex = apiConfig.basePath / "redirect.html"
     if docDir.toIO.exists() then
       try
-        println(s"Delete $publishBaseUrl")
-        //   if sardine.exists(s"$publishBaseUrl") then
-        //    sardine.delete(s"$publishBaseUrl")
+
+        if os.exists(redirectIndex) then
+          println(s"Replace redirect index.html in ${publishConfig.documentationUrl} with $redirectIndex")
+          sardine.put(s"${publishConfig.documentationUrl}/index.html", os.read.bytes(redirectIndex))
 
         def uploadFiles(url: String, docFiles: Seq[os.Path]): Unit =
           docFiles.foreach {
