@@ -264,7 +264,8 @@ This is only working if you upload your BPMN- and DMN-diagrams to a Web server (
 
 ### Project dependencies
 To know where your process is used and what processes your process is using, is very helpful.
-It works for **BPMN**s and **DMN**s.
+It works for **BPMN**s and **DMN**s - and for **Worker**s that are composed of other Workers
+(see [Worker Dependency Resolution]).
 
 Orchescala will clone or update all configured projects:
 
@@ -310,6 +311,34 @@ For each Process (BPMN or DMN):
 
 - Extracts all referred ids of DMNs and BPMNs.
 - Lists the DMNs and BPMNs, grouped by their projects - Generic Service Processes are listed by their service name.
+
+#### Worker Dependency Resolution
+
+A Worker can also be composed of other Workers - it takes them as Constructor parameters:
+
+```scala
+class CancelCreateAndSignDocumentWorker(
+    getProcessInstanceWorker: GetProcessInstanceWorker,
+    postSignalWorker: PostSignalWorker
+) extends CompanyCustomWorkerDsl[In, Out]:
+```
+
+These Workers are added to the same lists - for the example above:
+
+- `CancelCreateAndSignDocument` _uses_ `GetProcessInstance` and `PostSignal`.
+- `PostSignal` is _used in_ `CancelCreateAndSignDocument`.
+
+For each Worker, the Scala sources of all configured projects are checked:
+
+- Takes all `*Worker.scala` classes of the `03-worker` module.
+- Extracts the Workers of their Constructor parameters (all parameters of a type ending with `Worker`).
+- The Topic of a Worker is taken from the Domain Object it imports (`topicName` / `processName`
+  of the `01-domain` module), so it can be linked to its documentation.
+
+@:callout(info)
+A Worker of a project that is not configured (e.g. a Worker of another company) has no
+documentation to link to - only its class name is listed.
+@:@
 
 @:callout(info)
 The BPMNs and DMNs are resolved by their ids. So it is essential that the ids are unique.
