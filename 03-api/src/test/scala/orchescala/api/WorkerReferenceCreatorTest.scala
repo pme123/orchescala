@@ -56,9 +56,20 @@ class WorkerReferenceCreatorTest extends munit.FunSuite:
     assertEquals(TestWorkerReferenceCreator.usedByWorkersOf(topic).map(_.className),
       Seq("CancelCreateAndSignDocumentWorker"))
 
+  test("the Scala sources are only read once - also for other ApiCreators of the run"):
+    TestWorkerReferenceCreator.usesWorkersOf(cancelTopic) // reads the sources
+    val out = java.io.ByteArrayOutputStream()
+    val workers = Console.withOut(out):
+      OtherTestWorkerReferenceCreator.usesWorkersOf(cancelTopic)
+    assertEquals(workers.map(_.className), Seq("GetClientWorker", "GetProcessInstanceWorker", "PostSignalWorker"))
+    assert(!out.toString.contains("Worker Reference Base Directory"), out.toString)
+
 end WorkerReferenceCreatorTest
 
-object TestWorkerReferenceCreator extends ProcessReferenceCreator:
+object OtherTestWorkerReferenceCreator extends TestReferenceCreator
+object TestWorkerReferenceCreator      extends TestReferenceCreator
+
+trait TestReferenceCreator extends ProcessReferenceCreator:
 
   lazy val apiConfig: ApiConfig =
     ApiConfig(
@@ -78,4 +89,4 @@ object TestWorkerReferenceCreator extends ProcessReferenceCreator:
   def usesWorkersOf(topicName: String): Seq[WorkerRef]   = usesWorkers(topicName)
   def usedByWorkersOf(topicName: String): Seq[WorkerRef] = usedByWorkers(topicName)
 
-end TestWorkerReferenceCreator
+end TestReferenceCreator
