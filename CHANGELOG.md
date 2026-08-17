@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.18 - 2026-08-17
+### Changed 
+- Added References to Composed Workers. - see [Commit](git@github.com:pme123/orchescala/commit/89f12c0544bfa3886e8d4477fae605f9bc02f2ea)
+- Added redirect index.html to WebDAV upload. - see [Commit](git@github.com:pme123/orchescala/commit/172ab086ed229d68c6362cb477f64187d73f0733)
+
 ## 0.5.17 - 2026-08-05
 ### Changed 
 - Changed variables of UserTask to use the UserTaskService instead of ProcessInstanceService. - see [Commit](git@github.com:pme123/orchescala/commit/670f4a13d093fe84b1c87c1163664f1b4d3597e5)
