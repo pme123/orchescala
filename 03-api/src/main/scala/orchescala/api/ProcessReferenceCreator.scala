@@ -1,6 +1,7 @@
 package orchescala.api
 
 import java.io.StringReader
+import scala.collection.concurrent.TrieMap
 import scala.xml.XML
 import orchescala.domain.{InOutType, shortenName}
 
@@ -25,35 +26,28 @@ trait ProcessReferenceCreator extends WorkerReferenceCreator:
     val companyName = project.split("-").head
     apiConfig.docBaseUrl.map(u => s"$u/site/$companyName/$project").getOrElse("NOT_SET")
 
-  private lazy val projectConfigs: Seq[ProjectConfig] =
-    apiConfig.projectsConfig.projectConfigs
-
+  // the BPMNs are the same for all ApiCreators of a run - so they are only read once
   lazy val allBpmns: Seq[(String, Seq[(os.Path, String)])] =
-    println(s"BPMN Reference Base Directory: $gitBasePath")
-    projectConfigs
-      .map { pc =>
+    ProcessReferenceCreator.allBpmns(cacheKey):
+      println(s"BPMN Reference Base Directory: $gitBasePath")
+      projectConfigs.map: pc =>
         val absBpmnPath = pc.absBpmnPath(gitBasePath)
-        pc.name ->
-          (if os.exists(absBpmnPath) then
-             os.walk(absBpmnPath)
-           else
-             println(s"THIS PATH DOES NOT EXIST: $absBpmnPath")
-             Seq.empty)
-
-      }
-      .map { case projectName -> path =>
-        println(s"Get BPMNs in $projectName")
-        projectName -> path
+        val paths       =
+          if os.exists(absBpmnPath) then
+            os.walk(absBpmnPath)
+          else
+            println(s"THIS PATH DOES NOT EXIST: $absBpmnPath")
+            Seq.empty
+        println(s"Get BPMNs in ${pc.name}")
+        pc.name -> paths
           .filterNot(
             _.toString.contains("/target")
           ) // TODO filter all Camunda 8 BPMNs - NOT SUPPORTED YET
           .filterNot(_.toString.contains("/camunda8"))
           .filter(_.toString.endsWith(".bpmn"))
-          .map(p =>
-            println(s"- ${p.last}")
-            p -> os.read(p)
-          )
-      }
+          .map: bpmnPath =>
+            println(s"- ${bpmnPath.last}")
+            bpmnPath -> os.read(bpmnPath)
   end allBpmns
 
   case class UsedByReferenceCreator(refId: String):
@@ -98,7 +92,7 @@ trait ProcessReferenceCreator extends WorkerReferenceCreator:
         .flatMap { case (processName, paths) =>
           paths
             .filter { case _ -> c =>
-              c.matches(s"""[\\s\\S]*(:|")$refId"[\\s\\S]*""") &&
+              (c.contains(s":$refId\"") || c.contains(s"\"$refId\"")) &&
               !c.contains(s"id=\"$refId\"")
             }
             .map { pc =>
@@ -254,4 +248,15 @@ trait ProcessReferenceCreator extends WorkerReferenceCreator:
       s"Uses $processCount Project(s)"
 
   end UsesReferenceCreator
+end ProcessReferenceCreator
+
+object ProcessReferenceCreator:
+
+  private lazy val allBpmnsCache = TrieMap[String, Seq[(String, Seq[(os.Path, String)])]]()
+
+  private def allBpmns(cacheKey: String)(
+      read: => Seq[(String, Seq[(os.Path, String)])]
+  ): Seq[(String, Seq[(os.Path, String)])] =
+    allBpmnsCache.getOrElseUpdate(cacheKey, read)
+
 end ProcessReferenceCreator

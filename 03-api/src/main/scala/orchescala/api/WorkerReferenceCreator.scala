@@ -2,6 +2,8 @@ package orchescala.api
 
 import orchescala.domain.{InOutType, shortenName}
 
+import scala.collection.concurrent.TrieMap
+
 /** Checks all Worker classes (Scala sources) of all Projects, if a Worker is composed of other
   * Workers. As result lists are created that can be included in the Documentation.
   *
@@ -127,22 +129,31 @@ trait WorkerReferenceCreator:
   private lazy val workerSourcesByClassName: Map[String, WorkerSource] =
     workerSources.map(ws => ws.fullClassName -> ws).toMap
 
+  // the Scala sources are the same for all ApiCreators of a run - so they are only read once.
+  // NO parallelization here - the ApiCreator is usually an object that creates the documentation
+  // in its constructor, so other threads would block on its class initialization.
   private lazy val workerSources: Seq[WorkerSource] =
-    println(s"Worker Reference Base Directory: $gitBasePath")
-    apiConfig.projectsConfig.projectConfigs
-      .flatMap: pc =>
-        println(s"Get Workers in ${pc.name}")
-        scalaFiles(pc.absGitPath(gitBasePath), workerModule)
-          .filter(_.last.endsWith("Worker.scala"))
-          .flatMap(parseWorker(pc.name, _))
+    WorkerReferenceCreator.workerSources(cacheKey):
+      println(s"Worker Reference Base Directory: $gitBasePath")
+      projectConfigs
+        .flatMap: pc =>
+          println(s"Get Workers in ${pc.name}")
+          scalaFiles(pc.absGitPath(gitBasePath), workerModule)
+            .filter(_.last.endsWith("Worker.scala"))
+            .flatMap(parseWorker(pc.name, _))
   end workerSources
 
   private lazy val domainIdentifiers: Map[String, DomainIdentifier] =
-    apiConfig.projectsConfig.projectConfigs
-      .flatMap: pc =>
-        scalaFiles(pc.absGitPath(gitBasePath), domainModule)
-          .flatMap(parseDomainIdentifiers(pc.name, _))
-      .toMap
+    WorkerReferenceCreator.domainIdentifiers(cacheKey):
+      projectConfigs
+        .flatMap: pc =>
+          scalaFiles(pc.absGitPath(gitBasePath), domainModule)
+            .flatMap(parseDomainIdentifiers(pc.name, _))
+        .toMap
+
+  protected def projectConfigs: Seq[ProjectConfig] = apiConfig.projectsConfig.projectConfigs
+  protected def cacheKey: String                   =
+    s"$gitBasePath - ${projectConfigs.map(_.name).mkString(",")}"
 
   private def parseWorker(projectName: String, path: os.Path): Option[WorkerSource] =
     val content     = os.read(path)
@@ -239,20 +250,6 @@ trait WorkerReferenceCreator:
         .filter(_.toString.contains("/src/main/scala/"))
   end scalaFiles
 
-  private case class WorkerSource(
-      projectName: String,
-      packageName: String,
-      className: String,
-      // class name -> full class name
-      imports: Map[String, String],
-      wildcardImports: Seq[String],
-      domainObjectRefs: Seq[String],
-      constructorWorkers: Seq[String]
-  ):
-    lazy val fullClassName: String = s"$packageName.$className"
-
-  private case class DomainIdentifier(projectName: String, identifier: String)
-
   private lazy val domainModule = "01-domain"
   private lazy val workerModule = "03-worker"
 
@@ -266,3 +263,32 @@ trait WorkerReferenceCreator:
   private lazy val identifierPattern    =
     """(?m)^\s*(?:final\s+)?(?:lazy\s+)?val\s+(?:topicName|processName)\s*(?::\s*String)?\s*=\s*"([^"]+)"""".r
 end WorkerReferenceCreator
+
+object WorkerReferenceCreator:
+
+  private lazy val workerSourcesCache     = TrieMap[String, Seq[WorkerSource]]()
+  private lazy val domainIdentifiersCache = TrieMap[String, Map[String, DomainIdentifier]]()
+
+  private def workerSources(cacheKey: String)(read: => Seq[WorkerSource]): Seq[WorkerSource] =
+    workerSourcesCache.getOrElseUpdate(cacheKey, read)
+
+  private def domainIdentifiers(cacheKey: String)(
+      read: => Map[String, DomainIdentifier]
+  ): Map[String, DomainIdentifier] =
+    domainIdentifiersCache.getOrElseUpdate(cacheKey, read)
+
+end WorkerReferenceCreator
+
+private[api] case class WorkerSource(
+    projectName: String,
+    packageName: String,
+    className: String,
+    // class name -> full class name
+    imports: Map[String, String],
+    wildcardImports: Seq[String],
+    domainObjectRefs: Seq[String],
+    constructorWorkers: Seq[String]
+):
+  lazy val fullClassName: String = s"$packageName.$className"
+
+private[api] case class DomainIdentifier(projectName: String, identifier: String)
