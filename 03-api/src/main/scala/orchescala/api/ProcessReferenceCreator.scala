@@ -7,7 +7,7 @@ import orchescala.domain.{InOutType, shortenName}
 /** Checks all BPMNs if a process is used in another process. As result a list is created that can
   * be included in the Documentation.
   */
-trait ProcessReferenceCreator:
+trait ProcessReferenceCreator extends WorkerReferenceCreator:
 
   println(s"ProcessReferenceCreator: ${getClass.getName}")
   protected def projectName: String =
@@ -59,11 +59,15 @@ trait ProcessReferenceCreator:
   case class UsedByReferenceCreator(refId: String):
 
     def create(): String =
-      val refs   = findUsagesInBpmn()
+      val refs   = (findUsagesInBpmn() ++ findUsagesInWorkers())
+        .distinct
+        .groupBy(_._1)
+        .toSeq
+        .sortBy(_._1)
       val refDoc = refs
-        .map { case k -> processes =>
+        .map { case k -> usages =>
           s"""_${k}_
-             |${processes.map(_._2).distinct.mkString("   - ", "\n   - ", "\n")}
+             |${usages.map(_._2).distinct.sorted.mkString("   - ", "\n   - ", "\n")}
              |""".stripMargin
         }
         .mkString("\n- ", "\n- ", "\n")
@@ -83,7 +87,12 @@ trait ProcessReferenceCreator:
       end if
     end create
 
-    private def findUsagesInBpmn(): Seq[(String, Seq[(String, String)])] =
+    /** The Workers this Worker is composed of (Constructor parameters). */
+    private def findUsagesInWorkers(): Seq[(String, String)] =
+      usedByWorkers(refId)
+        .map(worker => worker.projectName -> worker.asString)
+
+    private def findUsagesInBpmn(): Seq[(String, String)] =
       println(s"Find Used by References for $refId")
       allBpmns
         .flatMap { case (processName, paths) =>
@@ -97,9 +106,6 @@ trait ProcessReferenceCreator:
               docuPath(processName, pc._1, pc._2)
             }
         }
-        .groupBy(_._1)
-        .toSeq
-        .sortBy(_._1)
     end findUsagesInBpmn
 
     private def docuPath(
@@ -134,37 +140,47 @@ trait ProcessReferenceCreator:
 
     def create(): String =
       println(s"Uses for $processName")
-      findBpmn(processName)
-        .map { xmlStr =>
-          val refs   = extractUsesRefs(xmlStr)
-          val refDoc = refs
-            .map { case k -> processes =>
-              println(s"- $k:\n -- ${processes.map(_.asString).mkString("\n -- ")}")
-              s"""_${k}_
-                 |${processes
-                  .map(_.asString)
-                  .distinct
-                  .sorted
-                  .mkString("   - ", "\n   - ", "\n")}
-                 |""".stripMargin
-            }
-            .mkString("\n- ", "\n- ", "\n")
-          if refDoc.trim.length == 1 then
-            "\n**Uses no other Processes.**\n"
-          else
-            s"""
-               |<details>
-               |<summary><b>${usesTitle(refs.size)}</b></summary>
-               |<p>
-               |
-               |$refDoc
-               |</p>
-               |</details>
-               |""".stripMargin
-          end if
+      val refs   = (findUsesInBpmn() ++ findUsesInWorkers())
+        .distinct
+        .groupBy(_._1)
+        .toSeq
+        .sortBy(_._1)
+      val refDoc = refs
+        .map { case k -> uses =>
+          println(s"- $k:\n -- ${uses.map(_._2).mkString("\n -- ")}")
+          s"""_${k}_
+             |${uses
+              .map(_._2)
+              .distinct
+              .sorted
+              .mkString("   - ", "\n   - ", "\n")}
+             |""".stripMargin
         }
-        .getOrElse("\n**Uses no other Processes.**\n")
+        .mkString("\n- ", "\n- ", "\n")
+      if refDoc.trim.length == 1 then
+        "\n**Uses no other Processes.**\n"
+      else
+        s"""
+           |<details>
+           |<summary><b>${usesTitle(refs.size)}</b></summary>
+           |<p>
+           |
+           |$refDoc
+           |</p>
+           |</details>
+           |""".stripMargin
+      end if
     end create
+
+    private def findUsesInBpmn(): Seq[(String, String)] =
+      findBpmn(processName).toSeq
+        .flatMap(extractUsesRefs)
+        .map(ref => ref.project -> ref.asString)
+
+    /** The Workers this Worker is composed of (Constructor parameters). */
+    private def findUsesInWorkers(): Seq[(String, String)] =
+      usesWorkers(processName)
+        .map(worker => worker.projectName -> worker.asString)
 
     case class UsesRef(
         processRef: String,
@@ -219,10 +235,7 @@ trait ProcessReferenceCreator:
           UsesRef(decisionRef.toString, refType = InOutType.Dmn)
         }
 
-      (callActivities ++ businessRuleTasks ++ externalWorkers)
-        .groupBy(_.project)
-        .toSeq
-        .sortBy(_._1)
+      callActivities ++ businessRuleTasks ++ externalWorkers
     end extractUsesRefs
 
     private def findBpmn(
