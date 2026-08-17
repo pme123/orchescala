@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.19 - 2026-08-17
+### Changed 
+- Added parallel execution to speed up time. - see [Commit](git@github.com:pme123/orchescala/commit/88ac99b8b4c18e776e03507fc3d3c70219b0169f)
+
 ## 0.5.18 - 2026-08-17
 ### Changed 
 - Added References to Composed Workers. - see [Commit](git@github.com:pme123/orchescala/commit/89f12c0544bfa3886e8d4477fae605f9bc02f2ea)
