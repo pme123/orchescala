@@ -1,7 +1,7 @@
 package orchescala
-package dmn
+package dmntester
 
-import pme123.camunda.dmn.tester.shared.*
+import orchescala.dmntester.*
 import sttp.client3.*
 import sttp.client3.circe.*
 

@@ -195,10 +195,21 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val dmnWrapper =
     s"""package $companyName.orchescala.dmn
        |
-       |trait CompanyDmnTester extends DmnTesterConfigCreator:
+       |trait CompanyDmnTester extends DmnTesterApp:
        |
-       |  override def starterConfig: DmnTesterStarterConfig =
+       |  override protected def starterConfig: DmnTesterStarterConfig =
        |    DmnTesterStarterConfig(companyName = "$companyName")
+       |    // If your projects have DMNs of more than one platform, name the
+       |    // sources - the configurations then land in a sub directory each
+       |    // (dmnConfigs/c7, dmnConfigs/c8) and ONE tester shows them all:
+       |    //
+       |    // DmnTesterStarterConfig(
+       |    //   companyName = "$companyName",
+       |    //   dmnSources = Map(
+       |    //     "c7" -> projectBasePath / "src" / "main" / "resources" / "camunda",
+       |    //     "c8" -> projectBasePath / "c8" / "src" / "main" / "resources"
+       |    //   )
+       |    // )
        |
        |end CompanyDmnTester
        |""".stripMargin

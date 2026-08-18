@@ -13,14 +13,17 @@ case class DmnGenerator()(using config: DevConfig):
     s"""package ${config.projectPackage}
        |package dmn
        |
-       |//       |
-       |// dmn/run
+       |// Runs the DMN Tester of this project:
+       |//   dmn/runMain ${config.projectPackage}.dmn.ProjectDmnTester
+       |// It writes the configurations, starts the tester on
+       |// http://localhost:8883 and keeps it running until you stop it (Ctrl-C).
        |object ProjectDmnTester extends CompanyDmnTester:
        |
-       |  createDmnConfigs(
+       |  override protected def dmnTesterObjects = Seq(
        |    // myDmn
        |  )
-       |  /* example:
+       |  /* example - `.from("c8")` picks a named DMN source of your company
+       |     configuration and writes the config into `dmnConfigs/c8`:
        |  private lazy val myDmn =
        |    import myProcess.v1.*
        |

@@ -57,24 +57,47 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
   import sttp.tapir.json.circe.*
   protected def openApi(apiDoc: ApiDoc): OpenAPI =
     val endpoints = create(apiDoc)
-    openAPIDocsInterpreter
-      .toOpenAPI(
-        endpoints,
-        info(title, Some(description)),
-        docsExtensions = List(DocsExtension.of(
-          "tags",
-          apiDoc.groupTags.asJson
-        ))
-      )
+    removeCoproductTitles(
+      openAPIDocsInterpreter
+        .toOpenAPI(
+          endpoints,
+          info(title, Some(description)),
+          docsExtensions = List(DocsExtension.of(
+            "tags",
+            apiDoc.groupTags.asJson
+          ))
+        )
+    )
 
   end openApi
 
   protected def postmanOpenApi(apiDoc: ApiDoc): OpenAPI =
     val endpoints = createPostman(apiDoc)
-    openAPIDocsInterpreter
-      .toOpenAPI(endpoints, info(title, Some(postmanDescription)))
-      .servers(servers)
+    removeCoproductTitles(
+      openAPIDocsInterpreter
+        .toOpenAPI(endpoints, info(title, Some(postmanDescription)))
+        .servers(servers)
+    )
   end postmanOpenApi
+
+  /** Tapir adds a fallback `title` (the Schema name) to every named Component - also to the parent
+    * of a Coproduct (`oneOf`). Redoc then labels every `oneOf` Button with that parent title
+    * ("RentalParty or RentalParty or ...") instead of the titles of the referenced Components.
+    *
+    * So we remove the title on `oneOf` Schemas - the Components themselves keep theirs.
+    */
+  protected def removeCoproductTitles(openApi: OpenAPI): OpenAPI =
+    openApi.copy(components =
+      openApi.components.map: components =>
+        components.copy(schemas =
+          components.schemas.map:
+            case (name, schema: sttp.apispec.Schema) if schema.oneOf.nonEmpty =>
+              name -> schema.copy(title = None)
+            case other                                                        =>
+              other
+        )
+    )
+  end removeCoproductTitles
 
   protected def createChangeLog(): String =
     val changeLogFile = basePath / "CHANGELOG.md"

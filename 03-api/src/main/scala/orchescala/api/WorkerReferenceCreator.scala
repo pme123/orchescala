@@ -260,8 +260,9 @@ trait WorkerReferenceCreator:
   private lazy val importSinglePattern   = """(?m)^import\s+([\w.]+)\.(\w+)\s*$""".r
   private lazy val importMultiPattern    = """(?m)^import\s+([\w.]+)\.\{([^}]*)\}""".r
   private lazy val objectPattern         = """(?m)^object\s+(\w+)\b""".r
+  // the identifier can be declared as `val`, `final val` or `def` - with or without a type
   private lazy val identifierPattern    =
-    """(?m)^\s*(?:final\s+)?(?:lazy\s+)?val\s+(?:topicName|processName)\s*(?::\s*String)?\s*=\s*"([^"]+)"""".r
+    """(?m)^\s*(?:override\s+)?(?:final\s+)?(?:lazy\s+)?(?:val|def)\s+(?:topicName|processName)\s*(?::\s*String)?\s*=\s*"([^"]+)"""".r
 end WorkerReferenceCreator
 
 object WorkerReferenceCreator:

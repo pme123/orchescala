@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="Definitions_eval_error" name="eval-error"
+             namespace="http://camunda.org/schema/1.0/dmn">
+  <!-- UNIQUE, but two rules match "fall" - this must be reported as an error -->
+  <decision id="eval-error" name="eval-error">
+    <decisionTable id="eval-error_table" hitPolicy="UNIQUE">
+      <input id="input_1" label="Season">
+        <inputExpression id="inputExpression_1" typeRef="string">
+          <text>season</text>
+        </inputExpression>
+      </input>
+      <output id="output_1" label="Dish" name="dish" typeRef="string"/>
+      <rule id="rule_1">
+        <inputEntry id="inputEntry_1"><text>"fall"</text></inputEntry>
+        <outputEntry id="outputEntry_1"><text>"Spareribs"</text></outputEntry>
+      </rule>
+      <rule id="rule_2">
+        <inputEntry id="inputEntry_2"><text>"fall", "winter"</text></inputEntry>
+        <outputEntry id="outputEntry_2"><text>"Roastbeef"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

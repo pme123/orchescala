@@ -124,8 +124,17 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
             if dependencies.nonEmpty then dependencies.mkString("\n      ", ",\n      ", ",")
             else ""
           }
-           |      customer %% s"$$customer-orchescala-${ if isGateway then "worker" else name}" % customerOrchescalaV,
-           |      "io.github.pme123" %% "orchescala-$name" % orchescalaV
+           |      customer %% s"$$customer-orchescala-${ if isGateway then "worker" else name}" % customerOrchescalaV,${
+            moduleConfig.orchescalaArtifactNames
+              .map: artifact =>
+                val dep = s""""io.github.pme123" %% "orchescala-$artifact" % orchescalaV"""
+                if moduleConfig.exclusions.isEmpty then s"\n      $dep"
+                else
+                  moduleConfig.exclusions
+                    .map((org, name) => s"""\n        .exclude("$org", "$name")""")
+                    .mkString(s"\n      ($dep)", "", "")
+              .mkString(",")
+          }
            |    )
            |""".stripMargin
       .mkString

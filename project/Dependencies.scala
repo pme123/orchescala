@@ -25,7 +25,15 @@ object Dependencies {
   // 03-dmn
   // -> bpmn
   val sttpClient3Version    = "3.11.0"
-  val dmnTesterVersion      = "0.17.9"
+  // 03-dmn-tester-shared / 04-dmn-tester-server / 04-dmn-tester-client
+  val circeVersion          = "0.14.16"
+  // dmn-scala: the DMN engine embedded in Camunda 8 (Scala 2.13 jar, usable from Scala 3)
+  val dmnScalaVersion       = "1.11.0"
+  val http4sVersion         = "0.23.36"
+  val laminarVersion        = "17.2.1"
+  // java.time for Scala.js - the model uses LocalDateTime
+  val scalaJavaTimeVersion  = "2.6.0"
+  val scalaJsDomVersion     = "2.8.1"
   // - mUnitVersion
   // 03-simulation
   // -> bpmn
@@ -111,6 +119,25 @@ object Dependencies {
   )
   lazy val camunda7EngineDependencies    =
     Seq("org.camunda.community" % "camunda-engine-rest-client-openapi-java" % camundaVersion)
+
+  /** 03-dmn: the DMN Tester - engine, http server and config handling. */
+  lazy val dmnTesterDependencies = Seq(
+    // The DMN engine embedded in Camunda 8 - a Scala 2.13 jar, usable from
+    // Scala 3. Its FEEL parser (fastparse_2.13) drags in geny_2.13, while
+    // os-lib brings geny_3 - the same library, two cross versions. Excluding
+    // the 2.13 one leaves a single geny on the classpath; the exclusion is
+    // part of the published pom, so no company or project build has to deal
+    // with a cross-version clash. Covered by the engine tests, which parse
+    // FEEL (fastparse) and read DMNs via os-lib (geny) in one JVM.
+    ("org.camunda.bpm.extension.dmn.scala" % "dmn-engine" % dmnScalaVersion)
+      .exclude("com.lihaoyi", "geny_2.13"),
+    "org.http4s"                         %% "http4s-dsl"          % http4sVersion,
+    "org.http4s"                         %% "http4s-ember-server" % http4sVersion,
+    "org.http4s"                         %% "http4s-circe"        % http4sVersion,
+    "com.typesafe"                        % "config"              % typesafeConfigVersion,
+    zioDependency,
+    osLib
+  )
 
   lazy val sttpDependencies              = Seq(
     "com.softwaremill.sttp.client3" %% "circe"                            % sttpClient3Version,
