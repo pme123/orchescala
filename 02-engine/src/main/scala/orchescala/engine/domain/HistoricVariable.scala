@@ -6,7 +6,7 @@ import orchescala.domain.*
 case class HistoricVariable(
     id: String,
     name: String,
-    value: Option[CamundaVariable],
+    value: Option[Json],
     processDefinitionKey: Option[String] = None,
     processDefinitionId: Option[String] = None,
     processInstanceId: Option[String] = None,

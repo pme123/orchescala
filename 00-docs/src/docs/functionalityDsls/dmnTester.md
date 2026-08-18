@@ -10,8 +10,9 @@ The _DMN Tester_ gives you a UI, to configure a test for a DMN.
 As there is already some information in your domain model, we must only define the rest.
 And so we can directly run the tests, without configure them manually in the UI.
 
-See [Github](https://github.com/camunda-community-hub/camunda-dmn-tester) for more information
-on what the _DMN Tester_ is all about.
+The tester is part of orchescala (`orchescala-dmntester-server`): it brings the
+DMN engine of Camunda 8 (dmn-scala), an http server and the UI - and runs in
+the JVM of your project. No Docker, no image, no container.
 
 ## Get Started
 The _DMN Tester DSL_ use the DMNs you created - in this context I refer to the [Bpmn DSL](../bpmnDsl.md#business-rule-tasks-decision-dmns)
@@ -23,38 +24,48 @@ package orchescala.examples.invoice.dmn
 // import the projects bpmns (DMNs)
 import orchescala.examples.invoice.bpmn.*
 
-object ProjectDmnTester 
-  extends CompanyDmnTester:
-      
-      startDmnTester()
+object ProjectDmnTester extends CompanyDmnTester:
 
-      createDmnConfigs(
-          InvoiceAssignApproverDMN
-            .testValues(_.amount, 249, 250, 999, 1000, 1001),
-            .dmnPath("invoiceBusinessDecisions")
-          // for demonstration - created unit test - acceptMissingRules just for demo
-          InvoiceAssignApproverDmnUnit
-            .acceptMissingRules
-            .testUnit
-            .dmnPath("invoiceBusinessDecisions")
-            .inTestMode
-        )
+  override protected def dmnTesterObjects = Seq(
+    InvoiceAssignApproverDMN
+      .testValues(_.amount, 249, 250, 999, 1000, 1001)
+      .dmnPath("invoiceBusinessDecisions"),
+    // for demonstration - created unit test - acceptMissingRules just for demo
+    InvoiceAssignApproverDmnUnit
+      .acceptMissingRules
+      .testUnit
+      .dmnPath("invoiceBusinessDecisions")
+      .inTestMode
+  )
 
 end ProjectDmnTester
 ```
 
 ### Run the DMN Tester
 In your _sbt-console_:
- 
-  `dmn/run`
 
-This starts the Docker container and makes the whole process pretty nice and fast. 
+  `dmn/runMain mycompany.myproject.dmn.ProjectDmnTester`
+
 The following steps are done:
 
-- Check if the Container is already running.
-- If so - it checks if it is running for this project.
-- If it is running for another project - it stops the Container.
-- If not - the Container is started.
+- The configurations are written to `03-dmn/src/main/resources/dmnConfigs`.
+- The tester starts on `http://localhost:8883` - in this JVM.
+- It keeps running until you stop it with Ctrl-C.
+
+If the port is already taken by the tester of ANOTHER project, you are told
+which one - give this project its own `exposedPort` then.
+
+### Check the results - and accept what is correct
+
+Every input row of the result table has an **OK** checkbox; everything that
+matched a rule without a problem is pre-checked. **Save n Test Case(s)** writes
+those rows into the `*.conf` as `testCases`, so the evaluated outputs become
+the *expected* outputs. From then on every run compares against them - a DMN
+change that breaks a decision shows up red.
+
+A decision that is tested with its required decisions (`testUnit` is not set)
+shows one table per decision; only the main table is compared with your
+expectations.
 
 ## createDmnConfigs
 A DSL to create the DMN Tester configurations.
@@ -169,7 +180,8 @@ So it is a corner case if this is rather a test input.
 The output variable can be whatever you want.
 
 @:callout(info)
-Be aware that you must run the DMN Tester again, whenever you made changes (`sbt dmn/run`).
+Be aware that you must run the DMN Tester again, whenever you made changes
+(stop it with Ctrl-C and run `dmn/runMain ...ProjectDmnTester` again).
 @:@
 
 ## Configuration
@@ -177,10 +189,10 @@ See [03-dmn].
 
 ## Problem Handling
 
-The DMN Tester is run on Docker.
-So to find problems, you have:
+The DMN Tester runs in the JVM of your project. So to find problems, you have:
 
-- For the server: the Docker Console
+- For the server: your _sbt-console_ - it also prints which engine is used and
+  where it looks for the configurations.
 - For the client: the Browser Console
 
 If you are stuck, or find a problem, please create an issue on Github.

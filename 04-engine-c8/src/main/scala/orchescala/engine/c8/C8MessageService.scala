@@ -23,7 +23,7 @@ class C8MessageService(using
       timeToLiveInSec: Option[Int],
       businessKey: Option[String],
       processInstanceId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
 
     for
@@ -38,7 +38,7 @@ class C8MessageService(using
              |- tenantId: ${tenantId.getOrElse("-")}
              |""".stripMargin
         )
-      variablesMap  <- ZIO.succeed(mapToC8Variables(variables))
+      variablesMap  = variables.map(_.toVariablesMap).getOrElse(Map.empty)
       correlationKey = businessKey.orElse(processInstanceId)
       result        <- timeToLiveInSec
                          .map: ttl =>
@@ -56,7 +56,7 @@ class C8MessageService(using
                              name,
                              tenantId,
                              correlationKey,
-                             variablesMap
+                             variablesMap.asJava
                            )
       _             <- logInfo(s"Message '$name' sent successfully.")
     yield result
@@ -69,7 +69,7 @@ class C8MessageService(using
       variablesMap: java.util.Map[String, Any]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO
-      .attempt:
+      .fromFutureJava:
         val command = camundaClient.newCorrelateMessageCommand()
           .messageName(name)
 
@@ -83,7 +83,7 @@ class C8MessageService(using
         withCorrelationKey
           .tenantId(tenantId.orNull)
           .variables(variablesMap)
-          .send().join()
+          .send()
       .mapError: err =>
         EngineError.ProcessError(
           s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): $err"
@@ -107,10 +107,10 @@ class C8MessageService(using
       tenantId: Option[String],
       correlationKey: Option[String],
       timeToLiveInSec: Int,
-      variablesMap: java.util.Map[String, Any]
+      variablesMap: Map[String, Any]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO
-      .attempt:
+      .fromFutureJava:
         val command = camundaClient.newPublishMessageCommand()
           .messageName(name)
 
@@ -129,8 +129,8 @@ class C8MessageService(using
 
         withTenantId
           .timeToLive(java.time.Duration.ofSeconds(timeToLiveInSec))
-          .variables(variablesMap)
-          .send().join()
+          .variables(variablesMap.asJava)
+          .send()
       .mapError: err =>
         EngineError.ProcessError(
           s"Problem publishing Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}): $err"

@@ -11,24 +11,38 @@ case class CompanySbtGenerator()(using
   lazy val sbtGenerator   = SbtGenerator()
   lazy val generate: Unit =
     println("Generate Company Sbt")
-    createIfNotExists(buildSbtDir, buildSbt)
+    createOrUpdate(buildSbtDir, buildSbt)
     sbtGenerator.generateBuildProperties(helperCompanyDoNotAdjustText)
     createOrUpdate(config.sbtProjectDir / "plugins.sbt", pluginsSbt)
-    createOrUpdate(config.sbtProjectDir / "ProjectDef.scala", projectDev)
+    createIfNotExists(config.sbtProjectDir / "ProjectDef.scala", projectDev)
     createOrUpdate(config.sbtProjectDir / "Settings.scala", settings)
   end generate
 
-  private lazy val projectConf = config.apiProjectConfig
-  private lazy val buildSbtDir = config.projectDir / "build.sbt"
+  private lazy val projectConf      = config.apiProjectConfig
+  private lazy val buildSbtDir      = config.projectDir / "build.sbt"
   private lazy val companyNameUpper = companyName.toUpperCase()
 
   private lazy val projectDev =
-    s"""// $helperCompanyDoNotAdjustText
+    s"""import sbtbuildinfo.BuildInfoPlugin.autoImport.BuildInfoKey
        |
        |object ProjectDef {
        |  val org = "$companyName"
        |  val name = "$companyName-orchescala"
        |  val version = "0.1.0-SNAPSHOT"
+       |
+       |  // val myLibraryVersion = 1.2.3
+       |
+       |  def additionalBuildInfoKeys = Seq(
+       |     // BuildInfoKey("MyLibraryVersion", myLibraryVersion)
+       |  )
+       |
+       |  def additionalLoadingMessage = "" // "- MyLibraryVersion: $$myLibraryVersion"
+       |
+       |  def defaultReleaseRepo =
+       |    None // Some("https://artifactory.mycompany.com/releases")
+       |
+       |  def defaultDependencyRepo =
+       |    None // Some("https://artifactory.mycompany.com/dependencies")
        |}
        |""".stripMargin
 
@@ -36,11 +50,13 @@ case class CompanySbtGenerator()(using
     s"""$helperCompanyDoNotAdjustText
        |
        |import com.typesafe.config.ConfigFactory
+       |import com.typesafe.sbt.SbtNativePackager.Docker
+       |import com.typesafe.sbt.packager.Keys.*
        |import laika.ast.Path.Root
        |import laika.config.{LinkValidation, SyntaxHighlighting, Version, Versions}
        |import laika.format.Markdown.GitHubFlavor
        |import laika.helium.Helium
-       |import laika.helium.config.{Favicon, HeliumIcon, IconLink}
+       |import laika.helium.config.*
        |import laika.sbt.LaikaPlugin.autoImport.*
        |import sbt.*
        |import sbt.Keys.*
@@ -55,19 +71,23 @@ case class CompanySbtGenerator()(using
        |  val camundaV = "${BuildInfo.camundaVersion}"
        |  val mUnitVersion = "${BuildInfo.mUnitVersion}"
        |  val zioVersion = "${BuildInfo.zioVersion}"
+       |  val zioLoggingVersion = "${BuildInfo.zioLoggingVersion}"
+       |  val logbackVersion = "${BuildInfo.logbackVersion}"
+       |  val jaxbApiVersion = "${BuildInfo.jaxbApiVersion}"
+       |
        |  // project
        |  val projectOrg = ProjectDef.org
        |  val projectV = ProjectDef.version
        |  val projectName = ProjectDef.name
        |
-       |  def buildInfoSettings(additionalKeys: BuildInfoKey*) = Seq(
+       |  def buildInfoSettings() = Seq(
        |    buildInfoKeys := Seq[BuildInfoKey](
        |      BuildInfoKey("name", s"$$projectOrg-orchescala"),
        |      version,
        |      scalaVersion,
        |      sbtVersion,
        |      BuildInfoKey("orchescalaV", orchescalaV),
-       |    ) ++ additionalKeys,
+       |    ) ++ ProjectDef.additionalBuildInfoKeys,
        |    buildInfoPackage := s"$$projectOrg.orchescala"
        |  )
        |
@@ -108,7 +128,7 @@ case class CompanySbtGenerator()(using
        |      .topNavigationBar(
        |        homeLink = IconLink.internal(Root / "index.md", HeliumIcon.home),
        |        navLinks = Seq(
-       |          TextLink.external("../../index.html", "Catalogs"),
+       |          TextLink.external("/site/index.html", "Catalogs"),
        |          TextLink.external("https://pme123.github.io/orchescala", "Orchescala")
        |        )
        |      )
@@ -138,6 +158,7 @@ case class CompanySbtGenerator()(using
        |                          |- Orchescala: $$orchescalaV
        |                          |- Scala: $$scalaV
        |                          |- Camunda: $$camundaV
+       |                          |$${ProjectDef.additionalLoadingMessage}
        |                          |\"\"\".stripMargin
        |
        |  // dependencies
@@ -147,14 +168,21 @@ case class CompanySbtGenerator()(using
        |    "io.github.pme123" %% "orchescala-domain" % orchescalaV
        |  )
        |  lazy val engineDeps = Seq(
-       |    "io.github.pme123" %% "orchescala-engine-c7" % orchescalaV,
+       |    "io.github.pme123" %% "orchescala-engine-gateway" % orchescalaV,
        |  )
        |  lazy val apiDeps = Seq(
        |    "io.github.pme123" %% "orchescala-api" % orchescalaV,
        |    typesafeConfigDep
        |  )
        |  lazy val dmnDeps = Seq(
-       |    "io.github.pme123" %% "orchescala-dmn" % orchescalaV
+       |    // The DMN Tester - brings orchescala-dmn (the DSL) and
+       |    // orchescala-dmntester (the model) with it.
+       |    // The DMN engine is a Scala 2.13 jar whose FEEL parser drags in
+       |    // geny_2.13, while os-lib brings geny_3 - the same library in two
+       |    // cross versions, which sbt refuses. The engine works fine with
+       |    // geny_3, so the 2.13 one is excluded here as well as upstream.
+       |    ("io.github.pme123" %% "orchescala-dmntester-server" % orchescalaV)
+       |      .exclude("com.lihaoyi", "geny_2.13")
        |  )
        |  lazy val simulationDeps = Seq(
        |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV,
@@ -163,6 +191,13 @@ case class CompanySbtGenerator()(using
        |    "io.github.pme123" %% "orchescala-worker-c7" % orchescalaV,
        |    //"io.github.pme123" %% "orchescala-worker-c8" % orchescalaV,
        |  )
+       |
+       |  lazy val gatewayDeps = Seq(
+       |      "ch.qos.logback" % "logback-classic" % logbackVersion % Runtime,
+       |      "dev.zio" %% "zio-logging-slf4j2" % zioLoggingVersion,
+       |      "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion,
+       |      "io.github.pme123" %% "orchescala-gateway" % orchescalaV
+       |    )
        |
        |  lazy val helperDeps = apiDeps ++ Seq(
        |    "io.github.pme123" %% "orchescala-helper" % orchescalaV
@@ -187,14 +222,20 @@ case class CompanySbtGenerator()(using
        |  // REPOS
        |  lazy val releaseRepoStr: String = sys.env.getOrElse(
        |    "${companyNameUpper}_MVN_RELEASE_REPOSITORY",
-       |    throw new IllegalArgumentException(
-       |        "System Environment Variable ${companyNameUpper}_MVN_RELEASE_REPOSITORY is not set."
+       |    ProjectDef.defaultReleaseRepo
+       |      .getOrElse(
+       |        throw new IllegalArgumentException(
+       |          "System Environment Variable ${companyNameUpper}_MVN_RELEASE_REPOSITORY is not set."
+       |        )
        |      )
        |  )
        |  lazy val mavenRepoStr           = sys.env.getOrElse(
        |    "${companyNameUpper}_MVN_DEPENDENCY_REPOSITORY",
-       |    throw new IllegalArgumentException(
-       |        "System Environment Variable ${companyNameUpper}_MVN_DEPENDENCY_REPOSITORY is not set."
+       |    ProjectDef.defaultDependencyRepo
+       |      .getOrElse(
+       |        throw new IllegalArgumentException(
+       |          "System Environment Variable ${companyNameUpper}_MVN_DEPENDENCY_REPOSITORY is not set."
+       |        )
        |      )
        |  )
        |
@@ -230,17 +271,21 @@ case class CompanySbtGenerator()(using
        |    publishArtifact := false,
        |    publishLocal := {}
        |  )
+       |
+       |  // gateway
+       |  lazy val dockerSettings = ${config.sbtConfig.dockerGatewaySettings.getOrElse("preventPublication")}
        |}
        |""".stripMargin
 
   private lazy val buildSbt =
-    s"""// $helperCompanyHowToResetText
+    s"""// $helperCompanyDoNotAdjustText
        |import sbt.*
        |import sbt.Keys.*
        |import Settings.*
        |
        |ThisBuild / version := projectV
        |ThisBuild / organization := projectOrg
+       |ThisBuild / versionScheme := Some("early-semver")
        |ThisBuild / onLoadMessage := loadingMessage
        |
        |lazy val root = (project in file("."))
@@ -253,6 +298,7 @@ case class CompanySbtGenerator()(using
        |    dmn,
        |    simulation,
        |    worker,
+       |    gateway,
        |    helper,
        |    docs
        |  )
@@ -278,7 +324,7 @@ case class CompanySbtGenerator()(using
        |  .settings(publicationSettings)
        |  .settings(unitTestSettings)
        |  .settings(libraryDependencies ++= apiDeps)
-       |  .dependsOn(domain)
+       |  .dependsOn(engine)
        |
        |lazy val dmn = project
        |  .in(file("./03-dmn"))
@@ -299,8 +345,22 @@ case class CompanySbtGenerator()(using
        |  .settings(generalSettings(Some("worker")))
        |  .settings(publicationSettings)
        |  .settings(unitTestSettings)
+       |  .settings(zioTestSettings)
        |  .settings(libraryDependencies ++= workerDeps)
        |  .dependsOn(engine)
+       |
+       |lazy val gateway = project
+       |  .in(file("./04-gateway"))
+       |  .settings(generalSettings(Some("gateway")))
+       |  .settings(publicationSettings)
+       |  .settings(libraryDependencies ++= gatewayDeps)
+       |  .settings(
+       |    dockerSettings,
+       |    unitTestSettings,
+       |    zioTestSettings
+       |  )
+       |  .dependsOn(worker)
+       |  .enablePlugins(${config.sbtConfig.dockerGatewaySettings.map(_ => "DockerPlugin, ").mkString}JavaAppPackaging)
        |
        |lazy val helper = project
        |  .in(file("./04-helper"))
@@ -326,16 +386,14 @@ case class CompanySbtGenerator()(using
 
   private lazy val pluginsSbt =
     s"""$helperCompanyDoNotAdjustText
+       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "${BuildInfo.sbtNativePackager}")
+       |
+       |addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "${BuildInfo.sbtCiRelease}")
+       |addSbtPlugin("org.typelevel"  % "laika-sbt"      % "${BuildInfo.laikaSbt}")
+       |
+       |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "${BuildInfo.sbtBuildInfo}")
+       |
        |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
-       |
-       |addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.2")
-       |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.12.0")
-       |
-       |// docs
-       |addSbtPlugin("org.typelevel" % "laika-sbt" % "1.3.0")
-       |
-       |// docker (optional)
-       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.10.0")
        |""".stripMargin
 
 end CompanySbtGenerator

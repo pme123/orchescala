@@ -2,7 +2,8 @@ package orchescala
 package api
 
 import orchescala.domain.*
-import orchescala.domain.InOutType.Bpmn
+import orchescala.engine.PathUtils.*
+import orchescala.engine.domain.ProcessInfo
 import sttp.tapir.EndpointIO.Example
 
 trait TapirApiCreator extends AbstractApiCreator:
@@ -22,11 +23,10 @@ trait TapirApiCreator extends AbstractApiCreator:
       println(s"Start Grouped API: ${groupedApi.name}")
       groupedApi match
         case pa: ProcessApi[?, ?, ?] =>
-          val e = pa.createEndpoint(pa.id, false, pa.additionalDescr) ++
+          pa.createEndpoint(pa.id, false, pa.additionalDescr, InOutDocu.IN) ++
+            pa.createEndpoint(pa.id, false, inOutDocu = InOutDocu.OUT) ++
             pa.createInitEndpoint(pa.id) ++
             pa.apis.flatMap(_.create(pa.id, false))
-          println(s"Endpointsss: ${e.map(_.showShort).mkString("\n- ")}")
-          e
         case _: CApiGroup            =>
           groupedApi.apis.flatMap(_.create(groupedApi.name, true))
       end match
@@ -37,19 +37,27 @@ trait TapirApiCreator extends AbstractApiCreator:
   extension (cApi: CApi)
     def create(tag: String, tagIsFix: Boolean): Seq[PublicEndpoint[?, Unit, ?, Any]] =
       cApi match
-        case da @ DecisionDmnApi(_, _, _, _) =>
+        case da @ DecisionDmnApi(_, _, _, _)                                 =>
           da.createEndpoint(tag, tagIsFix, da.additionalDescr)
-        case aa @ ActivityApi(_, _, _)  if aa.inOutType == InOutType.UserTask     =>
-          aa. createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.OUT) ++
-            aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.IN) 
-        case aa @ ActivityApi(_, _, _)     =>
+        case aa @ ActivityApi(_, _, _) if aa.inOutType == InOutType.UserTask =>
+          aa.createEndpoint(
+            tag,
+            tagIsFix,
+            inOutDocu = InOutDocu.OUT
+          ) ++
+            aa.createEndpoint(tag, tagIsFix, inOutDocu = InOutDocu.IN)
+        case aa @ ActivityApi(_, _, _)                                       =>
           aa.createEndpoint(tag, tagIsFix)
         case pa @ ProcessApi(name, _, _, apis, _)
             if apis.isEmpty =>
-          pa.createEndpoint(tag, tagIsFix, pa.additionalDescr)
-        case spa: ExternalTaskApi[?, ?]      =>
+          pa.createEndpoint(
+            tag,
+            tagIsFix,
+            pa.additionalDescr
+          )
+        case spa: ExternalTaskApi[?, ?]                                      =>
           spa.createEndpoint(tag, tagIsFix, spa.additionalDescr)
-        case ga                              =>
+        case ga                                                              =>
           throw IllegalArgumentException(
             s"Sorry, only one level of GroupedApi is allowed!\n - $ga"
           )
@@ -118,51 +126,77 @@ trait TapirApiCreator extends AbstractApiCreator:
   extension (inOutApi: InOutApi[?, ?])
 
     def createEndpoint(
-                        tagFull: String,
-                        tagIsFix: Boolean,
-                        additionalDescr: Option[String] = None,
-                        inOutDocu: InOutDocu = InOutDocu.BOTH
+        tagFull: String,
+        tagIsFix: Boolean,
+        additionalDescr: Option[String] = None,
+        inOutDocu: InOutDocu = InOutDocu.BOTH
     ): Seq[PublicEndpoint[?, Unit, ?, Any]] =
       val eTag         = if tagIsFix then tagFull else shortenTag(tagFull)
       println(s"createEndpoint: $tagIsFix $tagFull >> $eTag")
-      val endpointName = (if inOutApi.name == tagFull then "Process" else inOutApi.endpointName(inOutDocu))
+      val endpointName =
+        (inOutApi.name, inOutDocu) match
+          case (n, InOutDocu.IN) if n == tagFull  =>
+            "Process start"
+          case (n, InOutDocu.OUT) if n == tagFull =>
+            "Process variables"
+          case _                                  =>
+            inOutApi.endpointName(inOutDocu)
+
       println(s"Endpoint: $endpointName")
+      val description = inOutApi.apiDescription(apiConfig.companyName, inOutDocu) +
+        additionalDescr.getOrElse("") +
+        generalInformation(inOutDocu)
       Seq(
         endpoint
           .name(endpointName)
           .tag(eTag)
           .in(endpointPath(inOutDocu))
           .summary(endpointName)
-          .description(
-            inOutApi.apiDescription(apiConfig.companyName) +
-              additionalDescr.getOrElse("") +
-              generalInformation(inOutDocu)
-          )
-          .post
-      ).map(ep => if inOutDocu != InOutDocu.OUT then inOutApi.toInput.map(ep.in).getOrElse(ep) else ep)
-        .map(ep => if inOutDocu != InOutDocu.IN then inOutApi.toOutput.map(ep.out).getOrElse(ep) else ep)
+          .description(description)
+      ).map: ep =>
+        if inOutDocu == InOutDocu.OUT
+        then ep.get // Process / UserTask variables
+        else ep.post
+      .map: ep =>
+        inOutDocu match
+          case InOutDocu.IN if inOutApi.inOutType == InOutType.UserTask => // UserTask complete
+            inOutApi.toInputForUserTask.map(ep.in).getOrElse(ep)
+          case _ if inOutApi.inOutType == InOutType.UserTask            => // UserTask variables
+            inOutApi.toOutputForUserTask.map(ep.out).getOrElse(ep)
+          case InOutDocu.IN if inOutApi.inOutType == InOutType.Bpmn     => // Process start
+            val inEp = inOutApi.toInput.map(ep.in).getOrElse(ep)
+            inEp.out(outputStartProcessEndpoint)
+          case _ if inOutApi.inOutType == InOutType.Bpmn                => // Process variables
+            inOutApi.toOutput.map(ep.out).getOrElse(ep)
+          case _                                                        =>
+            val inEp = inOutApi.toInput.map(ep.in).getOrElse(ep)
+            inOutApi.toOutput.map(inEp.out).getOrElse(inEp)
+
     end createEndpoint
 
     def endpointPath(inOutDoc: InOutDocu) =
       val id = inOutApi.id
       inOutApi.inOutType match
-        case InOutType.Bpmn                                          =>
-          "process" / id / "async"
-        case InOutType.Worker                                        =>
+        case InOutType.Bpmn if inOutDoc == InOutDocu.IN =>
+          "process" / id / "async" / tenantIdQuery / businessKeyQuery // process start
+        case InOutType.Bpmn =>
+          "process" / id / processInstanceIdPath / "variables" / variableFilterQuery(
+            inOutApi.inOut.out
+          ) // variables
+        case InOutType.Worker                               =>
           "worker" / id
         case InOutType.UserTask if inOutDoc == InOutDocu.IN => // complete
-          "process" / path[String]("processInstanceId") / "userTask" / id / path[String](
-            "userTaskInstanceId"
-          ) / "complete"
-        case InOutType.UserTask                                      => // variables
-          "process" / path[String]("processInstanceId") / "userTask" / id / "variables"
-        case InOutType.Signal                                        =>
-          "signal" / id
-        case InOutType.Message                                       =>
-          "message" / id
-        case InOutType.Timer                                         =>
+          "userTask" / id / userTaskInstanceIdPath / "complete"
+        case InOutType.UserTask                             => // variables
+          "process" / processInstanceIdPath / "userTask" / id / "variables" /
+            variableFilterQuery(inOutApi.inOut.in) / timeoutInSecQuery
+        case InOutType.Signal                               =>
+          "signal" / signalOrMessageNamePath(id) / tenantIdQuery
+        case InOutType.Message                              =>
+          "message" / signalOrMessageNamePath(id) / tenantIdQuery / timeToLiveInSecQuery / businessKeyQuery / processInstanceIdQuery
+        case InOutType.Timer                                =>
           "timer" / id / "NOT_IMPLEMENTED"
-        case InOutType.Dmn                                           =>
+        case InOutType.Dmn                                  =>
           "dmn" / id / "NOT_IMPLEMENTED"
       end match
     end endpointPath
@@ -170,24 +204,21 @@ trait TapirApiCreator extends AbstractApiCreator:
     def generalInformation(inOutDoc: InOutDocu) =
       val info =
         inOutApi.inOutType match
-          case InOutType.Bpmn                                          =>
+          case InOutType.Bpmn if inOutDoc == InOutDocu.IN     =>
             """
-              |This describes the <b>Input</b> and the <b>Output</b> of the Process.
+              |This describes the <b>Input</b> to start the Process with.
               |
               |Be aware that running this request with Postman,
               |you will not get the <b>Output</b> but the <i>processInstanceId</i>, as starting a process is asynchronous.
               |
-              |Example Output:
-              |```json
-              |{
-              |"processInstanceId": "f150c3f1-13f5-11ec-936e-0242ac1d0007",
-              |"businessKey": "ORDER-2025-12345",
-              |"status": "Active",
-              |"engineType": "C7"
-              |}
-              |```
+              |To get the <b>Output</b> you need to use the `Process variables` request.
               |""".stripMargin
-          case InOutType.Worker                                        =>
+          case InOutType.Bpmn                                 =>
+            """
+              |This describes the <b>Output</b> of the Process you get. Be aware this does not check if the process is finished (TODO).
+              |
+              |  """.stripMargin
+          case InOutType.Worker                               =>
             """
               |This describes the <b>Input</b> and the <b>Output</b> of the Worker.
               |
@@ -203,7 +234,7 @@ trait TapirApiCreator extends AbstractApiCreator:
               |The <b>Input</b> are the Variables you want to set when completing the task.
               |
               |""".stripMargin
-          case InOutType.UserTask                                      => // variables
+          case InOutType.UserTask                             => // variables
             """
               |A <b>UserTask</b> consists of two steps (variables and complete).
               |This is the <b>first step</b>:
@@ -213,22 +244,22 @@ trait TapirApiCreator extends AbstractApiCreator:
               |The <b>Output</b> are the Variables you want for your UserTask Form.
               |
               |""".stripMargin
-          case InOutType.Signal                                        =>
+          case InOutType.Signal                               =>
             """Send a Signal to the Process.
               |Process is waiting at a Signal Event, or has the possibility to interact with a Signal,
               |e.g. in a Boundary Event.""".stripMargin
-          case InOutType.Message                                       =>
+          case InOutType.Message                              =>
             """Send a Message to the Process.
               |Process is waiting at a Message Event, or has the possibility to interact with a Message,
               |e.g. in a Boundary Event.
               |""".stripMargin
-          case InOutType.Timer                                         =>
+          case InOutType.Timer                                =>
             """You can execute an intermediate timer event immediately.
               |
               |<b>NOT IMPLEMENTED in Gateway API!</b>
               |
               |This is done via the Job Execution API which is not part of Camunda 8!.""".stripMargin
-          case InOutType.Dmn                                           =>
+          case InOutType.Dmn                                  =>
             """You can emulate a DMN.
               |
               |<b>NOT IMPLEMENTED in Gateway API!</b>
@@ -254,43 +285,63 @@ trait TapirApiCreator extends AbstractApiCreator:
         case _: NoInput =>
           None
         case _          =>
-          Some(
-            inOutApi.inMapper
-              .examples(inOutApi.apiExamples.inputExamples.fetchExamples.map {
-                case InOutExample(label, ex) =>
-                  Example(
-                    ex,
-                    Some(label),
-                    None
-                  )
-              }.toList)
-          )
+          inputEndpoint(inOutApi)
+
+    private def toInputForUserTask: Option[EndpointInput[?]] =
+      inOutApi.inOut.out match
+        case _: NoOutput =>
+          None
+        case _           =>
+          outputEndpoint(inOutApi)
 
     private def toOutput: Option[EndpointOutput[?]] =
       inOutApi.inOut.out match
         case _: NoOutput =>
           None
         case _           =>
-          Some(
-            inOutApi.outMapper
-              .examples(inOutApi.apiExamples.outputExamples.fetchExamples.map {
-                case InOutExample(name, ex) =>
-                  Example(
-                    ex,
-                    Some(name),
-                    None
-                  )
-              }.toList)
-          )
+          outputEndpoint(inOutApi)
+
+    private def toOutputForUserTask: Option[EndpointOutput[?]] =
+      inOutApi.inOut.in match
+        case _: NoInput =>
+          None
+        case _          =>
+          inputEndpoint(inOutApi)
 
   end extension
 
+  private def inputEndpoint(inOutApi: InOutApi[?, ?]) =
+    Some(
+      inOutApi.inMapper
+        .examples(inOutApi.apiExamples.inputExamples.fetchExamples.map {
+          case InOutExample(label, ex) =>
+            Example(
+              ex,
+              Some(label),
+              None
+            )
+        }.toList)
+    )
+
+  private def outputEndpoint(inOutApi: InOutApi[?, ?]) =
+    Some(
+      inOutApi.outMapper
+        .examples(inOutApi.apiExamples.outputExamples.fetchExamples.map {
+          case InOutExample(label, ex) =>
+            Example(
+              ex,
+              Some(label),
+              None
+            )
+        }.toList)
+    )
+
+  private lazy val outputStartProcessEndpoint =
+    jsonBody[ProcessInfo]
+      .example(ProcessInfo.example)
+
   extension (pa: ProcessApi[?, ?, ?] | ExternalTaskApi[?, ?])
-    def processName: String =
-      pa.inOut.in match
-        case gs: GenericServiceIn =>
-          gs.serviceName
-        case _                    => pa.id
+    def processName: String = pa.id
 
     def additionalDescr: Option[String] =
       if apiConfig.projectsConfig.isConfigured then

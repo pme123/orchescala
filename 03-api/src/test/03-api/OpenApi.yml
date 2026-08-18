@@ -1,0 +1,759 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: '1.0'
+  summary: "\n\n\n\nCreated at 5/28/26, 10:07 AM\n\n**See the [Orchescala Documentation](https://pme123.github.io/orchescala/)**\n\
+    \n<details>\n<summary><b><i>Postman Instructions</i></b></summary>\n<p>\nYou can\
+    \ directly import this OpenApi YAML to [Postman](https://www.postman.com/).\n\n\
+    Only thing you need to adjust is in the Collection.\n- **Authorization**: `Bearer\
+    \ Token` with the `{{access_token}}` from the `GetToken` request.\n- **Variables**:\
+    \ `tenantId`: `{{bank}}`\n- **Scripts - Pre-Request**:\n\n```javascript\n// Refresh\
+    \ the OAuth token if necessary\nlet tokenDate = new Date(2010, 1, 1);\nconst tokenTimestamp\
+    \ = pm.environment.get(\"OAuth_Timestamp\");\nif (tokenTimestamp) {\n  tokenDate\
+    \ = Date.parse(tokenTimestamp);\n}\nlet expiresInTime = pm.environment.get(\"\
+    ExpiresInTime\");\nif (!expiresInTime) {\n  expiresInTime = 300000; // Set default\
+    \ expiration time to 5 minutes\n}\nif (new Date() - tokenDate >= expiresInTime)\
+    \ {\npm.sendRequest(\n{\n  url: `${pm.environment.get(\n      \"tokenService\"\
+    \n    )}/auth/realms/${pm.environment.get(\n      \"bank\"\n    )}/protocol/openid-connect/token`,\n\
+    \  method: \"POST\",\n  header: {\n    \"Content-Type\": \"application/x-www-form-urlencoded\"\
+    ,\n  },\n  body: {\n    mode: \"urlencoded\",\n    urlencoded: [\n      { key:\
+    \ \"grant_type\", value: \"password\" },\n      { key: \"client_id\", value: pm.environment.get(\"\
+    clientId\")},\n      { key: \"client_secret\", value: pm.environment.get(\"clientSecret\"\
+    )},\n      { key: \"username\", value: pm.environment.get(\"username\")},\n  \
+    \    { key: \"password\", value: pm.environment.get(\"pwd\") },\n      { key:\
+    \ \"scope\", value: pm.environment.get(\"scope\") },\n    ],\n  },\n},\n  (_,\
+    \ res) => {\n    pm.environment.set(\"access_token\", res.json().access_token);\n\
+    \    pm.environment.set(\"OAuth_Timestamp\", new Date());\n    // Set the ExpiresInTime\
+    \ variable to the time given in the response if it exists\n    if (res.json().expires_in)\
+    \ {\n      expiresInTime = res.json().expires_in * 1000;\n    }\n    pm.environment.set(\"\
+    ExpiresInTime\", expiresInTime);\n  });\n}\n  ```\n\n- **Scripts - Post-Response**:\n\
+    \n```javascript\n  // Collection-level test script\n  pm.test(\"Auto-set variables\"\
+    , function () {\n    const response = pm.response.json();\n\n    // Set processInstanceId\
+    \ if present\n    if (response.processInstanceId) {\n        const id = response.processInstanceId;\n\
+    \        pm.collectionVariables.set(\"processInstanceId\", id);\n        console.log(\"\
+    Set processInstanceId: \" + id);\n    }\n\n    // Set taskId for array responses\n\
+    \    if (pm.response.headers.get(\"userTaskId\")) {\n        const id = pm.response.headers.get(\"\
+    userTaskId\")\n        pm.collectionVariables.set(\"userTaskInstanceId\", id);\n\
+    \        console.log(\"userTaskInstanceId: \" + id)\n\n    }\n\n});\n  ```\n\n\
+    </p>\n</details>\n\n\n# Package Configuration\n**Check all dependency trees here:\
+    \ [orchescala](../../dependencies/orchescala.html)**\n\n### Dependencies:\n\n\
+    - _**[mastercompany-services](NOT FOUND)**_\n- _**[mycompany-commons](NOT FOUND)**_\n\
+    \n\n<details>\n<summary>PROJECT.conf</summary>\n<p>\n\n```\n\nprojectName: mycompany-myProject\n\
+    projectVersion: 1.0.0-SNAPSHOT\nsubProjects: [\n  subProject1\n  subProject2\n\
+    ]\ndependencies: [\n  mastercompany-services\n  mycompany-commons\n]\n\n```\n\n\
+    </p>\n</details>\n\n\nThere is no README.md in the Project.\n\n\n\n<p/>\n<details>\n\
+    <summary>\n<b><i>General Variables</i></b>\n</summary>\n\n<p>\n\n### Mocking\n\
+    \n**_servicesMocked**:\n\nMock all the _ServiceWorkers_ in your process with their\
+    \ default Mock:\n\n- DSL:\n```scala\nprocess(..)\n  .mockServices\n```\n\n- Json\n\
+    ```json\n...\n\"_servicesMocked\": true,\n...\n```\n\n\n**_mockedWorkers**:\n\n\
+    Mock any Process- and/or ExternalTask-Worker with their default Mocks.\nThis is\
+    \ a list of the _Worker topicNames or Process processNames_, you want to mock.\n\
+    It is also possible to use a _comma separated_ String,\nlike `\"mySubProcess,myOtherSubProcess,myService\"\
+    `\n\n_Be aware_: For Sub-Processes, this expects an _InitWorker_ where the _topicName_\
+    \ is equal to the _processName_.\n\n\n- DSL:\n```scala\nprocess(..)\n  .mockedWorkers(\"\
+    mySubProcess1\", \"mySubProcess2\") // creates a list with SubProcessess\n  .mockedWorker(\"\
+    myOtherSubProcess\") // adds a SubProcess\n```\n\n- Json\n```json\n...\n\"mockedWorkers\"\
+    : [\"mySubProcess\", \"myOtherSubProcess, myService\"],\n...\n```\n\n\n**_outputMock**:\n\
+    \nMock the Process or ExternalTask (`Out`)\n - You find an example in every _Process_\
+    \ and _ExternalTask_.\n\n\n- DSL:\n```scala\nprocess(..) // or serviceTask(..)/customTask(..)\n\
+    \  .mockWith(outputMock)\n```\n\n- Json\n```json\n...\n\"outputMock\": {..},\n\
+    ...\n```\n\n\n**_outputServiceMock**:\n\nMock the Inner-Service (`MockedServiceResponse[ServiceOut]`)\n\
+    \ - You find an example in every _ServiceTask_.\n\n\n- DSL:\n```scala\nserviceTask(..)\n\
+    \  .mockServiceWith(MockedServiceResponse\n     .success200(inOut.defaultServiceOutMock))\n\
+    ```\n\n- Json\n```json\n...\n\"outputServiceMock\": {\n  \"respStatus\" : 200,\n\
+    \  \"respBody\" : \"Example String Body\",\n  \"respHeaders\" : [\n  ]\n},\n...\n\
+    ```\n\n### Mapping\n**_outputVariables**:\n\nYou can filter the Output with a\
+    \ list of variable names you are interested in.\nThis list may include all variables\
+    \ from the output (`Out`). We included an example for each Process or ExternalTask.\n\
+    It is also possible to use a _comma separated_ String,\nlike `\"name,firstName\"\
+    `\n\n\n- DSL:\n```scala\nprocess(..) // or serviceTask(..)/customTask(..)\n  .withOutputVariables(\"\
+    name\", \"firstName\") // creates a list with outputVariables\n  .withOutputVariable(\"\
+    nickname\") // adds a outputVariable\n```\n\n- Json\n```json\n...\n\"_outputVariables\"\
+    : [\"name\", \"firstName\"],\n...\n```\n\n\n**_manualOutMapping**:\n\nBy default\
+    \ all output Variables (`Out`) are on the Process for _External Tasks_.\nIf the\
+    \ filter __outputVariables_ is not enough,\nyou can set this variable - every\
+    \ output variable is then local.\n\n_Be aware_ that you must then manually have\
+    \ _output mappings_ for each output variable!\n\n\n- DSL:\n```scala\nserviceTask(..)\
+    \ // or customTask(..)\n  .manualOutMapping\n```\n\n- Json\n```json\n...\n\"_manualOutMapping\"\
+    : true,\n...\n```\n\n### Mocking\n**_handledErrors**:\n\nA list of error codes\
+    \ that are handled (`BpmnError`)\nIt is also possible to use a _comma separated_\
+    \ String,\nlike `\"validation-failed,404\"`\n\nAt the moment only _ServiceTasks_\
+    \ supported.\n\n\n- DSL:\n```scala\nserviceTask(..)\n  .handleErrors(ErrorCodes.`validation-failed`,\
+    \ \"404\") // create a list of handledErrors\n  .handleError(\"404\") // add a\
+    \ handledError\n```\n\n- Json\n```json\n...\n\"_handledErrors\": [\"validation-failed\"\
+    , \"404\"],\n...\n```\n\n\n**_regexHandledErrors**:\n\nYou can further filter\
+    \ Handled Errors with a list of Regex expressions that the body error message\
+    \ must match.\nIt is also possible to use a _comma separated_ String,\nlike `\"\
+    SQL exception,\"errorNr\":\"20000\"\"`\n\nAt the moment only _ServiceTasks_ supported.\n\
+    \n\n- DSL:\n```scala\nserviceTask(..)\n  .handleErrorWithRegex(\"SQL exception\"\
+    )\n  .handleErrorWithRegex(\"\\\"errorNr\\\":\\\"20000\\\"\")\n```\n\n- Json\n\
+    ```json\n...\n\"_regexHandledErrors\": [\"SQL exception\", \"\"errorNr\":\"20000\"\
+    \"],\n...\n```\n\n### Authorization\n**_identityCorrelation**:\n\nIdentity correlation\
+    \ for binding user identity to the process instance using HMAC-SHA256 signatures.\n\
+    This prevents replay attacks and tampering by cryptographically binding the user\
+    \ identity to a specific process instance.\nThe correlation is automatically signed\
+    \ with the process instance ID when starting a process or completing a user task.\n\
+    Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY`\
+    \ or in `EngineConfig`.\n\n- DSL:\n```scala\nval identity = IdentityCorrelation(\n\
+    \  username = \"alice@example.com\",\n  email = Some(\"alice@example.com\"),\n\
+    \  impersonateProcessValue = Some(\"department-123\")\n)\nprocess(..) // or serviceTask(..)/customTask(..)\n\
+    \  .withIdentityCorrelation(identity)\n```\n\n- Json\n```json\n...\n\"_identityCorrelation\"\
+    : {\n  \"username\": \"alice@example.com\",\n  \"email\": \"alice@example.com\"\
+    ,\n  \"impersonateProcessValue\": \"department-123\",\n  \"issuedAt\": 1706371200000,\n\
+    \  \"processInstanceId\": \"12345\",\n  \"signature\": \"abc123...\"\n},\n...\n\
+    ```\n\n</p>\n</details>\n<p/>\n        \n\n> Created with:\n> - [orchescala-api\
+    \ v0.6.0-SNAPSHOT](https://github.com/pme123/orchescala)\n> - mycompany-orchescala-api\
+    \ 0.1.0\n> - mycompany-orchescala-helper\n\n"
+paths:
+  /process/sample-process/async:
+    post:
+      tags:
+      - Sample Process
+      summary: Process start
+      description: |2-
+
+        This runs the Sample Process.
+
+
+        ---
+
+        - **Called Element**: `sample-process` (to define in the Call Activity)
+
+
+
+        ---
+
+
+
+
+        - Input:  `orchescala.api.Sample > SampleIn`
+        - Output: `orchescala.api.Sample > SampleOut`
+
+
+
+
+        <div class="diagramCanvas">
+          <div class="diagram" id="sample-process-83456">
+            <img onLoad="openFromUrl('sample-process.bpmn', new BpmnJS({ container: $('#sample-process-83456'), height: '95%', width: '95%' }));" src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" />
+          </div>
+        </div>
+
+        Download: [sample-process.bpmn](diagrams/sample-process.bpmn)
+
+
+        <div>
+          <button onclick="downloadSVG('sample-process-83456')">Download Diagram as SVG</button>
+        </div>
+
+
+        <details>
+        <summary>
+        <b><i>General Variable(s)</i></b>
+        </summary>
+
+        <p>
+
+        **outputVariables**:
+
+        Just take the variable you need in your process!
+        ```json
+        ...
+        "outputVariables": "success,outputValue",
+        ...
+        ```
+
+        **outputMock**:
+
+        ```json
+        ...
+        "outputMock": {
+          "success" : 0,
+          "outputValue" : "Just some text"
+        },
+        ...
+        ```
+
+        </p>
+        </details>
+        </p>
+              <p/>
+        <details>
+        <summary><b><i>General Information</i></b></summary>
+        <p>
+
+        This describes the <b>Input</b> to start the Process with.
+
+        Be aware that running this request with Postman,
+        you will not get the <b>Output</b> but the <i>processInstanceId</i>, as starting a process is asynchronous.
+
+        To get the <b>Output</b> you need to use the `Process variables` request.
+
+        </p>
+        </details>
+      operationId: Process start
+      parameters:
+      - name: tenantId
+        in: query
+        description: If you have a multi tenant setup, you must specify the Tenant
+          ID.
+        required: false
+        schema:
+          default: '{{tenantId}}'
+          type: string
+      - name: businessKey
+        in: query
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
+        required: false
+        schema:
+          default: From Test Client
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleIn'
+            examples:
+              sample-process:
+                value:
+                  firstName: Peter
+                  lastName: Pan
+                  dateOfBirth: '1734-12-04'
+                  nationality: CH
+                  country: CH
+                  address:
+                    street: Merkurstrasse
+                    houseNumber: '16'
+                    place: Lenzburg
+                    postcode: 5600
+                    country: CH
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessInfo'
+              example:
+                processInstanceId: f150c3f1-13f5-11ec-936e-0242ac1d0007
+                businessKey: ORDER-2025-12345
+                status: Active
+                engineType: C7
+  /process/sample-process/{processInstanceId}/variables:
+    get:
+      tags:
+      - Sample Process
+      summary: Process variables
+      description: "\nThis runs the Sample Process.\n\n\n---\n\n- **Called Element**:\
+        \ `sample-process` (to define in the Call Activity)\n\n\n\n---\n\n\n\n\n-\
+        \ Input:  `orchescala.api.Sample > SampleIn`\n- Output: `orchescala.api.Sample\
+        \ > SampleOut`\n\n\n\n\n\n<details>\n<summary>\n<b><i>General Variable(s)</i></b>\n\
+        </summary>\n\n<p>\n\n**outputVariables**:\n\nJust take the variable you need\
+        \ in your process!\n```json\n...\n\"outputVariables\": \"success,outputValue\"\
+        ,\n...\n```\n\n**outputMock**:\n\n```json\n...\n\"outputMock\": {\n  \"success\"\
+        \ : 0,\n  \"outputValue\" : \"Just some text\"\n},\n...\n```\n\n</p>\n</details>\n\
+        </p>\n      <p/>\n<details>\n<summary><b><i>General Information</i></b></summary>\n\
+        <p>\n\nThis describes the <b>Output</b> of the Process you get. Be aware this\
+        \ does not check if the process is finished (TODO).\n\n  \n</p>\n</details>"
+      operationId: Process variables
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: |+
+          The processInstanceId of the Process.
+
+          > This is the result id of the `StartProcess`. And should automatically be set in Postman - see _Postman Instructions_.
+
+        required: true
+        schema:
+          default: '{{processInstanceId}}'
+          type: string
+      - name: variableFilter
+        in: query
+        description: A comma-separated String of variable names. E.g. `name,firstName`
+        required: false
+        schema:
+          type: string
+        example: success,outputValue
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleOut'
+              examples:
+                sample-process:
+                  value:
+                    success: 0
+                    outputValue: Just some text
+  /worker/sample-process:
+    post:
+      tags:
+      - Sample Process
+      summary: Init Worker
+      description: |2
+
+        <details>
+        <summary><b>General Information</b></summary>
+
+        The Init Worker has the following responsibilities:
+
+          - Validates the Process Input (`In`). -> by Orchescala
+          - Maps the Configuration to Process Variables (`InConfig`). -> by Orchescala
+          - Custom validation the Process Input (`In`, e.g. combining 2 variables). -> Process Specific
+          - Initializes the default Variables with `In` as input (see _Process_ description) and `InitIn` as output. -> Process Specific
+
+        The Input is the same as the `In` object of the _Process_.
+
+        `NoInput` means there is no initialization needed.
+        </details>
+      operationId: Init Worker
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleIn'
+            examples:
+              sample-process:
+                value:
+                  firstName: Peter
+                  lastName: Pan
+                  dateOfBirth: '1734-12-04'
+                  nationality: CH
+                  country: CH
+                  address:
+                    street: Merkurstrasse
+                    houseNumber: '16'
+                    place: Lenzburg
+                    postcode: 5600
+                    country: CH
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoInput'
+              examples:
+                InitIn:
+                  value: {}
+  /process/{processInstanceId}/userTask/myUserTask/variables:
+    get:
+      tags:
+      - Sample Process
+      summary: 'UserTask variables: myUserTask'
+      description: |2-
+
+
+        - Input:  `orchescala.domain.NoInput`
+        - Output: `orchescala.domain.NoOutput`
+
+        <p/>
+        <details>
+        <summary><b><i>General Information</i></b></summary>
+        <p>
+
+        A <b>UserTask</b> consists of two steps (variables and complete).
+        This is the <b>first step</b>:
+
+        1. Wait for the UserTask and get then the Variables.
+
+        The <b>Output</b> are the Variables you want for your UserTask Form.
+
+
+        </p>
+        </details>
+      operationId: 'UserTask variables: myUserTask'
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: |+
+          The processInstanceId of the Process.
+
+          > This is the result id of the `StartProcess`. And should automatically be set in Postman - see _Postman Instructions_.
+
+        required: true
+        schema:
+          default: '{{processInstanceId}}'
+          type: string
+      - name: variableFilter
+        in: query
+        description: A comma-separated String of variable names. E.g. `name,firstName`
+        required: false
+        schema:
+          type: string
+        example: ''
+      - name: timeoutInSec
+        in: query
+        description: The maximum number of seconds to wait for the user task to become
+          active. If not provided, it will wait 10 seconds.
+        required: false
+        schema:
+          type: integer
+          format: int32
+        example: 10
+      responses:
+        '200':
+          description: ''
+  /userTask/myUserTask/{userTaskInstanceId}/complete:
+    post:
+      tags:
+      - Sample Process
+      summary: 'UserTask complete: myUserTask'
+      description: |2-
+
+
+        - Input:  `orchescala.domain.NoInput`
+        - Output: `orchescala.domain.NoOutput`
+
+        <p/>
+        <details>
+        <summary><b><i>General Information</i></b></summary>
+        <p>
+
+        A <b>UserTask</b> consists of two steps (variables and complete).
+        This is the <b>second step</b>:
+
+        2. Complete the UserTask
+
+        The <b>Input</b> are the Variables you want to set when completing the task.
+
+
+        </p>
+        </details>
+      operationId: 'UserTask complete: myUserTask'
+      parameters:
+      - name: userTaskInstanceId
+        in: path
+        description: User task instance ID (obtained from getUserTaskVariables)
+        required: true
+        schema:
+          type: string
+        example: '{{userTaskInstanceId}}'
+      responses:
+        '200':
+          description: ''
+  /process/sample-process2/async:
+    post:
+      tags:
+      - Sample Process2
+      summary: Process start
+      description: |2-
+
+
+        - Input:  `orchescala.api.Sample > SampleIn`
+        - Output: `orchescala.api.Sample > SampleOut`
+
+
+
+
+        <div class="diagramCanvas">
+          <div class="diagram" id="sample-process2-26225">
+            <img onLoad="openFromUrl('sample-process2.bpmn', new BpmnJS({ container: $('#sample-process2-26225'), height: '95%', width: '95%' }));" src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" />
+          </div>
+        </div>
+
+        Download: [sample-process2.bpmn](diagrams/sample-process2.bpmn)
+
+
+        <div>
+          <button onclick="downloadSVG('sample-process2-26225')">Download Diagram as SVG</button>
+        </div>
+
+
+        <details>
+        <summary>
+        <b><i>General Variable(s)</i></b>
+        </summary>
+
+        <p>
+
+        **outputVariables**:
+
+        Just take the variable you need in your process!
+        ```json
+        ...
+        "outputVariables": "success,outputValue",
+        ...
+        ```
+
+        **outputMock**:
+
+        ```json
+        ...
+        "outputMock": {
+          "success" : 0,
+          "outputValue" : "Just some text"
+        },
+        ...
+        ```
+
+        </p>
+        </details>
+        </p>
+              <p/>
+        <details>
+        <summary><b><i>General Information</i></b></summary>
+        <p>
+
+        This describes the <b>Input</b> to start the Process with.
+
+        Be aware that running this request with Postman,
+        you will not get the <b>Output</b> but the <i>processInstanceId</i>, as starting a process is asynchronous.
+
+        To get the <b>Output</b> you need to use the `Process variables` request.
+
+        </p>
+        </details>
+      operationId: Process start
+      parameters:
+      - name: tenantId
+        in: query
+        description: If you have a multi tenant setup, you must specify the Tenant
+          ID.
+        required: false
+        schema:
+          default: '{{tenantId}}'
+          type: string
+      - name: businessKey
+        in: query
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
+        required: false
+        schema:
+          default: From Test Client
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleIn'
+            examples:
+              sample-process2:
+                value:
+                  firstName: Peter
+                  lastName: Pan
+                  dateOfBirth: '1734-12-04'
+                  nationality: CH
+                  country: CH
+                  address:
+                    street: Merkurstrasse
+                    houseNumber: '16'
+                    place: Lenzburg
+                    postcode: 5600
+                    country: CH
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessInfo'
+              example:
+                processInstanceId: f150c3f1-13f5-11ec-936e-0242ac1d0007
+                businessKey: ORDER-2025-12345
+                status: Active
+                engineType: C7
+  /process/sample-process2/{processInstanceId}/variables:
+    get:
+      tags:
+      - Sample Process2
+      summary: Process variables
+      description: "\n\n- Input:  `orchescala.api.Sample > SampleIn`\n- Output: `orchescala.api.Sample\
+        \ > SampleOut`\n\n\n\n\n\n<details>\n<summary>\n<b><i>General Variable(s)</i></b>\n\
+        </summary>\n\n<p>\n\n**outputVariables**:\n\nJust take the variable you need\
+        \ in your process!\n```json\n...\n\"outputVariables\": \"success,outputValue\"\
+        ,\n...\n```\n\n**outputMock**:\n\n```json\n...\n\"outputMock\": {\n  \"success\"\
+        \ : 0,\n  \"outputValue\" : \"Just some text\"\n},\n...\n```\n\n</p>\n</details>\n\
+        </p>\n      <p/>\n<details>\n<summary><b><i>General Information</i></b></summary>\n\
+        <p>\n\nThis describes the <b>Output</b> of the Process you get. Be aware this\
+        \ does not check if the process is finished (TODO).\n\n  \n</p>\n</details>"
+      operationId: Process variables
+      parameters:
+      - name: processInstanceId
+        in: path
+        description: |+
+          The processInstanceId of the Process.
+
+          > This is the result id of the `StartProcess`. And should automatically be set in Postman - see _Postman Instructions_.
+
+        required: true
+        schema:
+          default: '{{processInstanceId}}'
+          type: string
+      - name: variableFilter
+        in: query
+        description: A comma-separated String of variable names. E.g. `name,firstName`
+        required: false
+        schema:
+          type: string
+        example: success,outputValue
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleOut'
+              examples:
+                sample-process2:
+                  value:
+                    success: 0
+                    outputValue: Just some text
+  /worker/sample-process2:
+    post:
+      tags:
+      - Sample Process2
+      summary: Init Worker
+      description: |2
+
+        <details>
+        <summary><b>General Information</b></summary>
+
+        The Init Worker has the following responsibilities:
+
+          - Validates the Process Input (`In`). -> by Orchescala
+          - Maps the Configuration to Process Variables (`InConfig`). -> by Orchescala
+          - Custom validation the Process Input (`In`, e.g. combining 2 variables). -> Process Specific
+          - Initializes the default Variables with `In` as input (see _Process_ description) and `InitIn` as output. -> Process Specific
+
+        The Input is the same as the `In` object of the _Process_.
+
+        `NoInput` means there is no initialization needed.
+        </details>
+      operationId: Init Worker
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleIn'
+            examples:
+              sample-process2:
+                value:
+                  firstName: Peter
+                  lastName: Pan
+                  dateOfBirth: '1734-12-04'
+                  nationality: CH
+                  country: CH
+                  address:
+                    street: Merkurstrasse
+                    houseNumber: '16'
+                    place: Lenzburg
+                    postcode: 5600
+                    country: CH
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoInput'
+              examples:
+                InitIn:
+                  value: {}
+components:
+  schemas:
+    Address:
+      title: Address
+      type: object
+      required:
+      - street
+      - place
+      - postcode
+      - country
+      properties:
+        street:
+          type: string
+        houseNumber:
+          type: string
+        place:
+          type: string
+        postcode:
+          type: integer
+          format: int32
+        country:
+          description: Country as ISO Code
+          type: string
+    EngineType:
+      title: EngineType
+      description: Type of the engine
+      type: string
+      enum:
+      - C7
+      - C8
+      - Gateway
+      - Op
+    NoInput:
+      title: NoInput
+      type: object
+    ProcessInfo:
+      title: ProcessInfo
+      description: Contains information about a process instance or execution
+      type: object
+      required:
+      - processInstanceId
+      - status
+      - engineType
+      properties:
+        processInstanceId:
+          description: ID of the process instance
+          type: string
+        businessKey:
+          description: Optional business key associated with the process
+          type: string
+        status:
+          $ref: '#/components/schemas/ProcessStatus'
+        engineType:
+          $ref: '#/components/schemas/EngineType'
+    ProcessStatus:
+      title: ProcessStatus
+      description: Current status of the process
+      type: string
+      enum:
+      - Active
+      - Completed
+      - Failed
+    SampleIn:
+      title: SampleIn
+      description: My Sample input object to make the point.
+      type: object
+      required:
+      - firstName
+      - lastName
+      - dateOfBirth
+      - nationality
+      - country
+      - address
+      properties:
+        firstName:
+          description: Make sure it reflects the name of the Id.
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+        nationality:
+          type: string
+        country:
+          type: string
+        address:
+          $ref: '#/components/schemas/Address'
+    SampleOut:
+      title: SampleOut
+      type: object
+      required:
+      - success
+      - outputValue
+      properties:
+        success:
+          description: Indication if this was a success
+          type: integer
+          format: int32
+        outputValue:
+          type: string
+tags: []

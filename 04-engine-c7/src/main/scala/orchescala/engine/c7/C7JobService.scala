@@ -4,7 +4,7 @@ import orchescala.engine.EngineConfig
 import orchescala.engine.domain.{EngineError, Job}
 import orchescala.engine.services.JobService
 import org.camunda.community.rest.client.api.JobApi
-import org.camunda.community.rest.client.dto.JobDto
+import org.camunda.community.rest.client.dto.{JobDto, JobQueryDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.logInfo
 import zio.{IO, ZIO}
@@ -21,42 +21,12 @@ class C7JobService(using
   ): IO[EngineError, List[Job]] =
     for
       apiClient <- apiClientZIO
+      query     =  new JobQueryDto()
+                     .processInstanceId(processInstanceId.orNull)
       jobDtos   <-
         ZIO
           .attempt:
-            new JobApi(apiClient)
-              .getJobs(
-                null, // jobId
-                null, // jobIds
-                null, // jobDefinitionId
-                processInstanceId.orNull, // processInstanceId
-                null, // processInstanceIds
-                null, // executionId
-                null, // processDefinitionId
-                null, // processDefinitionKey
-                null, // activityId
-                null, // withRetriesLeft
-                null, // executable
-                null, // timers
-                null, // messages
-                null, // dueDates
-                null, // createTimes
-                null, // withException
-                null, // exceptionMessage
-                null, // failedActivityId
-                null, // noRetriesLeft
-                null, // active
-                null, // suspended
-                null, // priorityLowerThanOrEquals
-                null, // priorityHigherThanOrEquals
-                null, // tenantIdIn
-                null, // withoutTenantId
-                null, // includeJobsWithoutTenantId
-                null, // sortBy
-                null, // sortOrder
-                null, // firstResult
-                null  // maxResults
-              )
+            new JobApi(apiClient).queryJobs(null, null, query)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Jobs: $err"

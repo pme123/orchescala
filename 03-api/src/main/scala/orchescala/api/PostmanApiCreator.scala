@@ -4,6 +4,7 @@ package api
 import orchescala.domain.*
 import sttp.tapir.*
 
+@deprecated("Use TapirApiCreator instead - as soon you have the gateway operational.")
 trait PostmanApiCreator extends AbstractApiCreator:
 
   protected def createPostman(
@@ -38,10 +39,10 @@ trait PostmanApiCreator extends AbstractApiCreator:
     ): Seq[PublicEndpoint[?, Unit, ?, Any]] =
       cApi match
         case pa @ ProcessApi(name, inOut, _, apis, _) if apis.isEmpty =>
-          println(s"${inOut.getClass.getSimpleName}: $tag - $name")
+          println(s"ProcessApi: ${inOut.getClass.getSimpleName}: $tag - $name")
           createPostmanForProcess(pa, tag, isGroup)
         case aa @ ActivityApi(name, inOut, _)                         =>
-          println(s"${inOut.getClass.getSimpleName}: $tag - $name")
+          println(s"ActivityApi: ${inOut.getClass.getSimpleName}: $tag - $name")
           inOut match
             case _: UserTask[?, ?]    =>
               createPostmanForUserTask(aa, tag)
@@ -111,16 +112,18 @@ trait PostmanApiCreator extends AbstractApiCreator:
         tag: String,
         input: Option[EndpointInput[?]],
         label: String,
-        descr: Option[String] = None
-    ): PublicEndpoint[?, Unit, Unit, Any] =
+        descr: Option[String] = None,
+        typePostfix: String = ""
+    ): PublicEndpoint[?, Unit, Unit, Any] = {
+      val endpointName =  s"${api.inOutType}$typePostfix: ${api.inOutDescr.shortName}"
       Some(
         endpoint
           .tag(tag)
-          .summary(api.endpointName(InOutDocu.BOTH))
+          .summary(endpointName)
           .description(
             s"""${descr.getOrElse(api.descr)}
                |
-               |See API Doc: ${createLink(api.endpointName(InOutDocu.BOTH), Some(api.name))}
+               |See API Doc: ${createLink(endpointName, Some(api.name))}
                |""".stripMargin
           )
           // .securityIn(auth.bearer()(sttp.tapir.Codec.cookies)) could not be imported to Postman:(
@@ -130,14 +133,13 @@ trait PostmanApiCreator extends AbstractApiCreator:
           .map(ep.in)
           .getOrElse(ep)
       ).get
+    }
 
   end extension
 
   extension (inOutApi: InOutApi[?, ?])
     protected def endpointPath(isGroup: Boolean): EndpointInput[Unit] =
       inOutApi.inOut.in match
-        case gs: GenericServiceIn =>
-          inOutApi.id / s"--REMOVE${gs.serviceName}--"
         case _                    =>
           if isGroup then
             inOutApi.id / s"--REMOVE${inOutApi.name.replace(" ", "")}--"

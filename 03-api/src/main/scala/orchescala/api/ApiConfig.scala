@@ -2,14 +2,14 @@ package orchescala
 package api
 
 import orchescala.domain.*
+import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import sttp.apispec.openapi.Contact
 import zio.{Runtime, Unsafe, ZIO}
 
 case class ApiConfig(
+    engineConfig: EngineConfig,
     // your company name like 'mycompany'
     companyName: String,
-    // define tenant if you have one - used for the Postman OpenApi
-    tenantId: Option[String] = None,
     // contact email / phone, if there are questions
     contact: Option[Contact] = None,
     // REST endpoint (for testing API)
@@ -20,8 +20,6 @@ case class ApiConfig(
     jiraUrls: Map[String, String] = Map.empty,
     // Configure your project setup
     projectsConfig: ProjectsConfig = ProjectsConfig(),
-    // For generating references to other projects, your Workers/Processes are used in
-    otherProjectsConfig: ProjectsConfig = ProjectsConfig(),
     // Configure your template generation
     modelerTemplateConfigs: Seq[ModelerTemplateConfig] = Seq(
       ModelerTemplateConfig(),
@@ -39,11 +37,11 @@ case class ApiConfig(
 ):
   val catalogPath: os.Path = basePath / catalogFileName
 
-  lazy val openApiPath: os.Path            = basePath / ApiConfig.openApiPath
-  lazy val postmanOpenApiPath: os.Path     = basePath / ApiConfig.postmanOpenApiPath
-  lazy val openApiDocuPath: os.Path        = basePath / ApiConfig.openApiHtmlPath
-  lazy val postmanOpenApiDocuPath: os.Path = basePath / ApiConfig.postmanOpenApiHtmlPath
-
+  lazy val openApiPath: os.Path             = basePath / ApiConfig.openApiPath
+  lazy val postmanOpenApiPath: os.Path      = basePath / ApiConfig.postmanOpenApiPath
+  lazy val openApiDocuPath: os.Path         = basePath / ApiConfig.openApiHtmlPath
+  lazy val postmanOpenApiDocuPath: os.Path  = basePath / ApiConfig.postmanOpenApiHtmlPath
+  lazy val tenantId: Option[String]         = engineConfig.tenantId
   lazy val projectGroups: Seq[ProjectGroup] = projectsConfig.projectConfigs
     .map(_.group)
     .distinct
@@ -52,14 +50,13 @@ case class ApiConfig(
     Unsafe.unsafe:
       implicit unsafe =>
         Runtime.default.unsafe.run(
-          projectsConfig.init(tempGitDir, companyName) *>
-            otherProjectsConfig.init(tempGitDir, companyName)
+          projectsConfig.init(tempGitDir, companyName, engineConfig.parallelism)
         ).getOrThrow()
 
   end init
 
   def withTenantId(tenantId: String): ApiConfig =
-    copy(tenantId = Some(tenantId))
+    copy(engineConfig = engineConfig.withTenantId(tenantId))
 
   def withBasePath(path: os.Path): ApiConfig =
     copy(
@@ -77,9 +74,6 @@ case class ApiConfig(
 
   def withProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
     copy(projectsConfig = gitConfigs)
-
-  def withOtherProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
-    copy(otherProjectsConfig = gitConfigs)
 
   def withModelerTemplateConfig(modelerTemplateConfig: ModelerTemplateConfig): ApiConfig =
     copy(modelerTemplateConfigs = modelerTemplateConfigs :+ modelerTemplateConfig)
@@ -130,9 +124,10 @@ case class ProjectsConfig(
       .find(_.containsProject(projectName))
       .map(_.cloneBaseUrl)
 
-  def init(tempGitDir: os.Path, companyName: String) =
+  def init(tempGitDir: os.Path, companyName: String, parallelism: Int) =
     ZIO.logInfo(s"Init Projects in $tempGitDir") *>
       ZIO.foreachPar(perGitRepoConfigs)(_.init(tempGitDir, companyName))
+        .withParallelism(parallelism)
   end init
 
   def initProject(projectName: String, tempGitDir: os.Path, companyName: String): Unit =
@@ -212,7 +207,7 @@ case class ProjectsPerGitRepoConfig(
   def init(gitDir: os.Path, companyName: String) =
     if singleRepo then
       ZIO
-        .attempt :
+        .attempt:
           val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
           updateProject(gitDir / s"orchescala-$companyName", gitRepo)
         .flatMap: _ =>
@@ -224,21 +219,23 @@ case class ProjectsPerGitRepoConfig(
               if os.exists(projectGit) then
                 os.remove.all(projectGit)
               os.copy(gitTemp, projectGit)
+            .withParallelism(DefaultEngineConfig().parallelism)
     else
       ZIO.foreachPar(projects): project =>
         ZIO.attempt:
           val gitRepo = s"$cloneBaseUrl/${project.name}.git"
           updateProject(project.absGitPath(gitDir), gitRepo)
+        .withParallelism(DefaultEngineConfig().parallelism)
 
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
     if singleRepo then
       ZIO
-        .attempt :
+        .attempt:
           val gitRepo = s"$cloneBaseUrl/$companyName.git"
           updateProject(gitDir / companyName, gitRepo)
         .flatMap: _ =>
           ZIO.attempt:
-            val gitTemp = gitDir / s"orchescala-$companyName" / "projects" / projectName
+            val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / projectName
             val projectGit = gitDir / projectName
             println(s"Copy initProject $gitTemp to $projectGit")
             if os.exists(projectGit) then
@@ -292,11 +289,11 @@ case class ProjectGroup(
     fill: String = "#ddd"
 )
 enum SupportedEngine:
-  case C7, C8
+  case C7, C8, Op
 object SupportedEngine:
   given InOutCodec[SupportedEngine] = deriveEnumInOutCodec
   given ApiSchema[SupportedEngine]  = deriveApiSchema
-  
+
 case class ModelerTemplateConfig(
     supportedEngine: SupportedEngine = SupportedEngine.C7,
     templateRelativePath: os.RelPath = os.rel / ".camunda" / "element-templates",

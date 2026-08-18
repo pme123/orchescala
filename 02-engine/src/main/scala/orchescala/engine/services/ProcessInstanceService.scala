@@ -8,9 +8,27 @@ trait ProcessInstanceService extends EngineService:
 
   def startProcessAsync(
       processDefId: String,
-      in: Json,
+      in: JsonObject,
       businessKey: Option[String],
-      tenantId: Option[String]
+      tenantId: Option[String],
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, ProcessInfo]
+
+  @description(
+    """
+      |Starts a process instance by sending a message to a Message Start Event.
+      |This is used when a process is triggered by a message rather than being started directly.
+      |
+      |If identityCorrelation is provided, it will be signed with the resulting processInstanceId
+      |and stored as a process variable after the process is started.
+      |""".stripMargin
+  )
+  def startProcessByMessage(
+      messageName: String,
+      businessKey: Option[String] = None,
+      tenantId: Option[String] = None,
+      variables: Option[JsonObject] = None,
+      identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, ProcessInfo]
 
   def getVariablesInternal(

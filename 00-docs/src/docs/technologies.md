@@ -51,17 +51,32 @@ We use it to call the REST API from Camunda
 ## orchescala-dmn
 Depends on: _orchescala-bpmn_
 
-### Camunda DMN Tester
-_A little [DMN Table tester](https://github.com/camunda-community-hub/camunda-dmn-tester) with the following Goals:_
+### DMN Tester
+A little DMN Table tester with the following goals:
 
 - _As a developer I want to test the DMNs that I get from the Business, even not knowing the concrete rules._
 - _Business people can create their own tests._
 - _They can easily adjust the tests to the dynamic nature of DMN Tables._
 
-We generate Dmn Table Tester configurations from a DSL.
+`orchescala-dmn` is the DSL to describe the tests; the tester itself lives in
+_orchescala-dmntester-server_ and runs in your project's JVM.
 
-### sttp Client
-_see orchescala-simulation_
+## orchescala-dmntester
+Depends on: nothing (it is cross built for the JVM and for Scala.js)
 
-To use the DmnTester's REST API.
+The model of the DMN Tester: `DmnConfig` (the test definition, persisted as
+HOCON), `DmnTable` and `DmnEvalResult` (what a test run produced). Server and
+UI share it, JSON is the only contract between them.
+
+## orchescala-dmntester-server
+Depends on: _orchescala-dmn_, _orchescala-dmntester_
+
+The DMN Tester as an app - no Docker needed:
+
+- **dmn-scala** (`org.camunda.bpm.extension.dmn.scala:dmn-engine`) - the DMN
+  engine that is embedded in Camunda 8, so you test the FEEL semantics you get
+  in production. DMNs of the Camunda 7 family are covered too, as long as they
+  are FEEL only (JUEL and script expressions are out of scope).
+- **http4s** - serves the API and the UI on `http://localhost:8883`.
+- The UI (Scala.js + Laminar) ships inside the jar.
 

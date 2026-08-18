@@ -39,3 +39,7 @@ meta.json
 /**/.generated/
 
 /.scala-build/
+/test.js
+
+/04-dmntester-client/node_modules/
+/04-dmntester-client/dist/

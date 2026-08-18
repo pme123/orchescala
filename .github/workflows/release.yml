@@ -1,9 +1,7 @@
 name: Release
 on:
   push:
-    branches:
-    - master
-    tags: ["**"]
+    tags: ["v*"]
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -22,6 +20,18 @@ jobs:
           cache: sbt
       - name: Install sbt
         uses: sbt/setup-sbt@v1
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the DMN Tester UI
+        # sbt links the Scala.js output to 04-dmntester-client/target/scalajs,
+        # vite bundles it to 04-dmntester-client/dist/webapp - from where it is
+        # packaged into orchescala-dmntester-server
+        run: |
+          sbt dmnTesterClient/fullLinkJS
+          npm --prefix 04-dmntester-client ci
+          npm --prefix 04-dmntester-client run build
       - name: Publish
         run: sbt ci-release
         env:

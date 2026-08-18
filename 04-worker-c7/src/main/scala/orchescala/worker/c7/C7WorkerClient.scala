@@ -2,11 +2,11 @@ package orchescala.worker.c7
 
 import orchescala.domain.OrchescalaLogger
 import orchescala.engine.Slf4JLogger
-import orchescala.worker.oauth.OAuthPasswordFlow
+import orchescala.engine.rest.{OAuthConfig, PasswordGrantFlow, SttpClientBackend}
+import orchescala.worker.WorkerError
 import org.apache.hc.client5.http.config.RequestConfig
 import org.apache.hc.core5.http.*
 import org.apache.hc.core5.http.protocol.HttpContext
-import org.apache.hc.core5.util.Timeout
 import org.camunda.bpm.client.ExternalTaskClient
 import org.camunda.bpm.client.backoff.ExponentialBackoffStrategy
 import zio.ZIO
@@ -18,79 +18,126 @@ import scala.jdk.CollectionConverters.*
 trait C7WorkerClient:
   def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient]
 
+  protected def camundaRestUrl: String
+  protected def maxTimeForAcquireJob: Duration = 500.millis
+  protected def asyncResponseTimeout: Duration = 15.seconds
+  protected def lockDuration: Duration         = 30.seconds
+  protected def maxTasks: Int                  = 10
+
+  protected def externalClient = ExternalTaskClient.create()
+    .baseUrl(camundaRestUrl)
+    .maxTasks(maxTasks)
+    .asyncResponseTimeout(asyncResponseTimeout.toMillis)
+    .lockDuration(lockDuration.toMillis)
+    //  .disableBackoffStrategy()
+    .backoffStrategy(
+      new ExponentialBackoffStrategy(
+        100L, // Initial backoff time in milliseconds
+        2.0,  // Backoff factor
+        maxTimeForAcquireJob.toMillis
+      )
+    )
+end C7WorkerClient
+
 object C7NoAuthWorkerClient extends C7WorkerClient:
+
+  protected def camundaRestUrl: String = "http://localhost:8887/engine-rest"
 
   def client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
     SharedC7ExternalClientManager.getOrCreateClient:
-      ZIO.attempt:
-        ExternalTaskClient.create()
-          .baseUrl("http://localhost:8887/engine-rest")
-          .disableBackoffStrategy()
-          .customizeHttpClient: httpClientBuilder =>
-            httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
-              // .setResponseTimeout(Timeout.ofSeconds(15))
-              .build())
-          .build()
+      ZIO.logInfo(
+        "Creating C7 ExternalTaskClient (No Auth) for http://localhost:8887/engine-rest"
+      ) *>
+        ZIO
+          .attempt:
+            externalClient
+              .customizeHttpClient: httpClientBuilder =>
+                httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
+                  // .setResponseTimeout(Timeout.ofSeconds(15))
+                  .build())
+              .build()
+          .tap(_ => ZIO.logInfo("C7 ExternalTaskClient (No Auth) created successfully"))
+          .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient (No Auth): $err"))
 end C7NoAuthWorkerClient
 
 object C7BasicAuthWorkerClient extends C7WorkerClient:
 
+  protected def camundaRestUrl: String = "http://localhost:8080/engine-rest"
+
   lazy val client =
-    ZIO.attempt:
-      val encodedCredentials = encodeCredentials("admin", "admin")
-      val cl                 = ExternalTaskClient.create()
-        .baseUrl("http://localhost:8080/engine-rest")
-        .disableBackoffStrategy()
-        .customizeHttpClient: httpClientBuilder =>
-          httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
-            .setResponseTimeout(Timeout.ofSeconds(15))
-            .build())
-            .setDefaultHeaders(List(new org.apache.hc.core5.http.message.BasicHeader(
-              "Authorization",
-              s"Basic $encodedCredentials"
-            )).asJava)
-        .build()
-      cl
+    ZIO.logInfo(
+      s"Creating C7 ExternalTaskClient (Basic Auth) for $camundaRestUrl"
+    ) *>
+      ZIO.attempt:
+        val encodedCredentials = encodeCredentials("admin", "admin")
+        externalClient
+          .customizeHttpClient: httpClientBuilder =>
+            httpClientBuilder.setDefaultRequestConfig(RequestConfig.custom()
+              .build())
+              .setDefaultHeaders(List(new org.apache.hc.core5.http.message.BasicHeader(
+                "Authorization",
+                s"Basic $encodedCredentials"
+              )).asJava)
+          .build()
+      .tap(_ => ZIO.logInfo("C7 ExternalTaskClient (Basic Auth) created successfully"))
+        .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient (Basic Auth): $err"))
 
   private def encodeCredentials(username: String, password: String): String =
     val credentials = s"$username:$password"
     Base64.getEncoder.encodeToString(credentials.getBytes)
 end C7BasicAuthWorkerClient
 
-trait OAuth2WorkerClient extends C7WorkerClient, OAuthPasswordFlow:
-  given OrchescalaLogger   = Slf4JLogger.logger(getClass.getName)
-  def camundaRestUrl: String
-  def maxTimeForAcquireJob = 500.millis
-  def lockDuration: Long   = 30.seconds.toMillis
-  def maxTasks: Int        = 10
+trait OAuth2PasswordWorkerClient extends C7WorkerClient:
+  given logger: OrchescalaLogger = Slf4JLogger.logger(getClass.getName)
 
-  def addAccessToken = new HttpRequestInterceptor:
+  protected def oAuthConfig: OAuthConfig.PasswordGrant
+
+  def retrieveToken(): ZIO[SttpClientBackend, WorkerError.ServiceAuthError, String] =
+    passwordFlow.retrieveToken()
+      .mapError(err => WorkerError.ServiceAuthError(s"Problem retrieving token: $err"))
+
+  private def addAccessToken() = new HttpRequestInterceptor:
     override def process(request: HttpRequest, entity: EntityDetails, context: HttpContext): Unit =
-      val token = adminToken().toOption.getOrElse("NO TOKEN")
-      request.addHeader("Authorization", token)
+      // NO network I/O here: since httpclient5 5.4 request interceptors run AFTER a pooled
+      // connection is leased - a blocking token call here holds the lease and exhausts the pool
+      // (ConnectionRequestTimeoutException on fetchAndLock, worker never recovers)
+      passwordFlow.cachedToken match
+        case Some(token) =>
+          request.addHeader("Authorization", s"Bearer $token")
+        case None        =>
+          throw new org.apache.hc.core5.http.HttpException(
+            s"No OAuth2 token available for TopicSubscriptionManager (is the identity provider down?)"
+          )
 
   lazy val client: ZIO[SharedC7ExternalClientManager, Throwable, ExternalTaskClient] =
     SharedC7ExternalClientManager.getOrCreateClient:
-      ZIO
-        .attempt:
-          ExternalTaskClient.create()
-            .baseUrl(camundaRestUrl)
-            .maxTasks(maxTasks)
-            .asyncResponseTimeout(10.seconds.toMillis)
-            //  .disableBackoffStrategy()
-            .backoffStrategy(
-              new ExponentialBackoffStrategy(
-                100L, // Initial backoff time in milliseconds
-                2.0,  // Backoff factor
-                maxTimeForAcquireJob.toMillis
-              )
-            )
-            .lockDuration(lockDuration)
-            .customizeHttpClient: httpClientBuilder =>
-              httpClientBuilder
-                .addRequestInterceptorLast(addAccessToken)
-                .setConnectionManager(SharedHttpClientManager.connectionManager)
-                .build()
-            .build()
+      ZIO.logInfo(
+        s"""Creating C7 ExternalTaskClient with OAuth2 for $camundaRestUrl
+           |  - maxTasks: $maxTasks
+           |  - lockDuration: ${lockDuration}ms (${lockDuration / 1000}s)
+           |  - asyncResponseTimeout: ${asyncResponseTimeout.toSeconds}s
+           |  - maxTimeForAcquireJob: ${maxTimeForAcquireJob.toMillis}ms
+           |""".stripMargin
+      ) *>
+        ZIO
+          .attempt:
+            // keeps the token cache warm, so request interceptors never do network I/O
+            passwordFlow.startBackgroundRefresh()
+            externalClient
+              .customizeHttpClient: httpClientBuilder =>
+                httpClientBuilder
+                  .addRequestInterceptorLast(addAccessToken())
+                  .setConnectionManager(SharedHttpClientManager.connectionManager)
+                  // the manager is shared - closing this client must not close the manager
+                  .setConnectionManagerShared(true)
+                  .setDefaultRequestConfig(RequestConfig.custom()
+                    // fail fast on pool contention instead of blocking the default 3 minutes,
+                    // so Camunda's backoff strategy can retry quickly
+                    .setConnectionRequestTimeout(org.apache.hc.core5.util.Timeout.ofSeconds(10))
+                    .build())
+              .build()
+          .tap(_ => ZIO.logInfo("C7 ExternalTaskClient created successfully"))
+          .tapError(err => ZIO.logError(s"Failed to create C7 ExternalTaskClient: $err"))
 
-end OAuth2WorkerClient
+  private lazy val passwordFlow = new PasswordGrantFlow(oAuthConfig)
+end OAuth2PasswordWorkerClient

@@ -21,6 +21,6 @@ trait MessageService extends EngineService:
       timeToLiveInSec: Option[Int] = None,
       businessKey: Option[String] = None,
       processInstanceId: Option[String] = None,
-      variables: Option[Map[String, CamundaVariable]] = None
+      variables: Option[JsonObject] = None
   ): IO[EngineError, MessageCorrelationResult]
 end MessageService

@@ -21,7 +21,7 @@ class C7ProcessEngine()(
   lazy val jobService: JobService                                         = C7JobService()
   lazy val messageService: MessageService                                 = C7MessageService()
   lazy val signalService: SignalService                                   = C7SignalService()
-  lazy val userTaskService: UserTaskService                               = C7UserTaskService(C7ProcessInstanceService())
+  lazy val userTaskService: UserTaskService                               = C7UserTaskService()
 end C7ProcessEngine
 
 object C7ProcessEngine:
@@ -30,8 +30,7 @@ object C7ProcessEngine:
   def withClient(c7Client: C7Client)(using
                                      engineConfig: EngineConfig
   ): ZIO[SharedC7ClientManager, Nothing, C7ProcessEngine] =
-    C7Client.resolveClient(c7Client).map { resolvedClient =>
+    C7Client.resolveClient(c7Client).map : resolvedClient =>
       given IO[EngineError, ApiClient] = resolvedClient
 
-      C7ProcessEngine()
-    }
+        C7ProcessEngine()

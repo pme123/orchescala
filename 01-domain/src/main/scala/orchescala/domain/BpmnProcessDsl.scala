@@ -3,6 +3,7 @@ package orchescala.domain
 import orchescala.domain.*
 
 import scala.reflect.ClassTag
+import scala.language.implicitConversions
 
 trait BpmnProcessDsl extends BpmnDsl:
 

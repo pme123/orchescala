@@ -14,7 +14,7 @@ import java.util.Date
 import scala.util.matching.Regex
 import scala.jdk.CollectionConverters.*
 
-trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
+trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
 
   protected def companyProjectVersion: String
   protected def projectDescr: String
@@ -57,24 +57,47 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
   import sttp.tapir.json.circe.*
   protected def openApi(apiDoc: ApiDoc): OpenAPI =
     val endpoints = create(apiDoc)
-    openAPIDocsInterpreter
-      .toOpenAPI(
-        endpoints,
-        info(title, Some(description)),
-        docsExtensions = List(DocsExtension.of(
-          "tags",
-          apiDoc.groupTags.asJson
-        ))
-      )
+    removeCoproductTitles(
+      openAPIDocsInterpreter
+        .toOpenAPI(
+          endpoints,
+          info(title, Some(description)),
+          docsExtensions = List(DocsExtension.of(
+            "tags",
+            apiDoc.groupTags.asJson
+          ))
+        )
+    )
 
   end openApi
 
   protected def postmanOpenApi(apiDoc: ApiDoc): OpenAPI =
     val endpoints = createPostman(apiDoc)
-    openAPIDocsInterpreter
-      .toOpenAPI(endpoints, info(title, Some(postmanDescription)))
-      .servers(servers)
+    removeCoproductTitles(
+      openAPIDocsInterpreter
+        .toOpenAPI(endpoints, info(title, Some(postmanDescription)))
+        .servers(servers)
+    )
   end postmanOpenApi
+
+  /** Tapir adds a fallback `title` (the Schema name) to every named Component - also to the parent
+    * of a Coproduct (`oneOf`). Redoc then labels every `oneOf` Button with that parent title
+    * ("RentalParty or RentalParty or ...") instead of the titles of the referenced Components.
+    *
+    * So we remove the title on `oneOf` Schemas - the Components themselves keep theirs.
+    */
+  protected def removeCoproductTitles(openApi: OpenAPI): OpenAPI =
+    openApi.copy(components =
+      openApi.components.map: components =>
+        components.copy(schemas =
+          components.schemas.map:
+            case (name, schema: sttp.apispec.Schema) if schema.oneOf.nonEmpty =>
+              name -> schema.copy(title = None)
+            case other                                                        =>
+              other
+        )
+    )
+  end removeCoproductTitles
 
   protected def createChangeLog(): String =
     val changeLogFile = basePath / "CHANGELOG.md"
@@ -111,13 +134,13 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         |### Mocking
         |""".stripMargin +
       createGeneralVariable(
-        InputParams.servicesMocked,
+        InputParams._servicesMocked,
         "Mock all the _ServiceWorkers_ in your process with their default Mock:",
         "process(..)\n  .mockServices",
-        s"\"${InputParams.servicesMocked}\": true,"
+        s"\"${InputParams._servicesMocked}\": true,"
       ) +
       createGeneralVariable(
-        InputParams.mockedWorkers,
+        InputParams._mockedWorkers,
         s"""Mock any Process- and/or ExternalTask-Worker with their default Mocks.
            |This is a list of the _Worker topicNames or Process processNames_, you want to mock.
            |${listOfStringsOrCommaSeparated("mySubProcess,myOtherSubProcess,myService")}
@@ -130,7 +153,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"mockedWorkers": ["mySubProcess", "myOtherSubProcess, myService"],"""
       ) +
       createGeneralVariable(
-        InputParams.outputMock,
+        InputParams._outputMock,
         """Mock the Process or ExternalTask (`Out`)
           | - You find an example in every _Process_ and _ExternalTask_.
           |""".stripMargin,
@@ -139,7 +162,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """"outputMock": {..},"""
       ) +
       createGeneralVariable(
-        InputParams.outputServiceMock,
+        InputParams._outputServiceMock,
         """Mock the Inner-Service (`MockedServiceResponse[ServiceOut]`)
           | - You find an example in every _ServiceTask_.
           |""".stripMargin,
@@ -152,7 +175,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
       ) +
       "### Mapping" +
       createGeneralVariable(
-        InputParams.outputVariables,
+        InputParams._outputVariables,
         s"""You can filter the Output with a list of variable names you are interested in.
            |This list may include all variables from the output (`Out`). We included an example for each Process or ExternalTask.
            |${listOfStringsOrCommaSeparated("name,firstName")}
@@ -160,22 +183,22 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """process(..) // or serviceTask(..)/customTask(..)
           |  .withOutputVariables("name", "firstName") // creates a list with outputVariables
           |  .withOutputVariable("nickname") // adds a outputVariable""".stripMargin,
-        """"outputVariables": ["name", "firstName"],"""
+        """"_outputVariables": ["name", "firstName"],"""
       ) +
       createGeneralVariable(
-        InputParams.manualOutMapping,
+        InputParams._manualOutMapping,
         s"""By default all output Variables (`Out`) are on the Process for _External Tasks_.
-           |If the filter _${InputParams.outputVariables}_ is not enough,
+           |If the filter _${InputParams._outputVariables}_ is not enough,
            |you can set this variable - every output variable is then local.
            |
            |_Be aware_ that you must then manually have _output mappings_ for each output variable!
            |""".stripMargin,
         """serviceTask(..) // or customTask(..)
           |  .manualOutMapping""".stripMargin,
-        """"manualOutMapping": true,"""
+        """"_manualOutMapping": true,"""
       ) + "### Mocking" +
       createGeneralVariable(
-        InputParams.handledErrors,
+        InputParams._handledErrors,
         s"""A list of error codes that are handled (`BpmnError`)
            |${listOfStringsOrCommaSeparated("validation-failed,404")}
            |
@@ -184,10 +207,10 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """serviceTask(..)
           |  .handleErrors(ErrorCodes.`validation-failed`, "404") // create a list of handledErrors
           |  .handleError("404") // add a handledError""".stripMargin,
-        s""""handledErrors": ["validation-failed", "404"],""".stripMargin
+        s""""_handledErrors": ["validation-failed", "404"],""".stripMargin
       ) +
       createGeneralVariable(
-        InputParams.regexHandledErrors,
+        InputParams._regexHandledErrors,
         s"""You can further filter Handled Errors with a list of Regex expressions that the body error message must match.
            |${listOfStringsOrCommaSeparated(
             "SQL exception,\"errorNr\":\"20000\""
@@ -198,17 +221,30 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
         """serviceTask(..)
           |  .handleErrorWithRegex("SQL exception")
           |  .handleErrorWithRegex("\"errorNr\":\"20000\"")""".stripMargin,
-        s""""regexHandledErrors": ["SQL exception", "\"errorNr\":\"20000\""],""".stripMargin
+        s""""_regexHandledErrors": ["SQL exception", "\"errorNr\":\"20000\""],""".stripMargin
       ) +
       "### Authorization" +
       createGeneralVariable(
-        InputParams.impersonateUserId,
-        """User-ID of a User that should be taken to authenticate to the services.
-          |This must be supported by your implementation. *Be caution: this may be a security issue!*.
-          |It is helpful if you have Tokens that expire, but long running Processes.""".stripMargin,
-        """process(..) // or serviceTask(..)/customTask(..)
-          |  .withImpersonateUserId(impersonateUserId)""".stripMargin,
-        """"impersonateUserId": "myUserName","""
+        InputParams._identityCorrelation,
+        """Identity correlation for binding user identity to the process instance using HMAC-SHA256 signatures.
+          |This prevents replay attacks and tampering by cryptographically binding the user identity to a specific process instance.
+          |The correlation is automatically signed with the process instance ID when starting a process or completing a user task.
+          |Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY` or in `EngineConfig`.""".stripMargin,
+        """val identity = IdentityCorrelation(
+          |  username = "alice@example.com",
+          |  email = Some("alice@example.com"),
+          |  impersonateProcessValue = Some("department-123")
+          |)
+          |process(..) // or serviceTask(..)/customTask(..)
+          |  .withIdentityCorrelation(identity)""".stripMargin,
+        """"_identityCorrelation": {
+          |  "username": "alice@example.com",
+          |  "email": "alice@example.com",
+          |  "impersonateProcessValue": "department-123",
+          |  "issuedAt": 1706371200000,
+          |  "processInstanceId": "12345",
+          |  "signature": "abc123..."
+          |},"""
       ) +
       """</p>
         |</details>
@@ -280,9 +316,96 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
          |""".stripMargin
     else ""
 
+  protected def postmanInstructions =
+      s"""<details>
+         |<summary><b><i>Postman Instructions</i></b></summary>
+         |<p>
+         |You can directly import this OpenApi YAML to [Postman](https://www.postman.com/).
+         |
+         |Only thing you need to adjust is in the Collection.
+         |- **Authorization**: `Bearer Token` with the `{{access_token}}` from the `GetToken` request.
+         |- **Variables**: `tenantId`: `{{bank}}`
+         |- **Scripts - Pre-Request**:
+         |
+         |```javascript
+         |// Refresh the OAuth token if necessary
+         |let tokenDate = new Date(2010, 1, 1);
+         |const tokenTimestamp = pm.environment.get("OAuth_Timestamp");
+         |if (tokenTimestamp) {
+         |  tokenDate = Date.parse(tokenTimestamp);
+         |}
+         |let expiresInTime = pm.environment.get("ExpiresInTime");
+         |if (!expiresInTime) {
+         |  expiresInTime = 300000; // Set default expiration time to 5 minutes
+         |}
+         |if (new Date() - tokenDate >= expiresInTime) {
+         |pm.sendRequest(
+         |{
+         |  url: `$${pm.environment.get(
+         |      "tokenService"
+         |    )}/auth/realms/$${pm.environment.get(
+         |      "bank"
+         |    )}/protocol/openid-connect/token`,
+         |  method: "POST",
+         |  header: {
+         |    "Content-Type": "application/x-www-form-urlencoded",
+         |  },
+         |  body: {
+         |    mode: "urlencoded",
+         |    urlencoded: [
+         |      { key: "grant_type", value: "password" },
+         |      { key: "client_id", value: pm.environment.get("clientId")},
+         |      { key: "client_secret", value: pm.environment.get("clientSecret")},
+         |      { key: "username", value: pm.environment.get("username")},
+         |      { key: "password", value: pm.environment.get("pwd") },
+         |      { key: "scope", value: pm.environment.get("scope") },
+         |    ],
+         |  },
+         |},
+         |  (_, res) => {
+         |    pm.environment.set("access_token", res.json().access_token);
+         |    pm.environment.set("OAuth_Timestamp", new Date());
+         |    // Set the ExpiresInTime variable to the time given in the response if it exists
+         |    if (res.json().expires_in) {
+         |      expiresInTime = res.json().expires_in * 1000;
+         |    }
+         |    pm.environment.set("ExpiresInTime", expiresInTime);
+         |  });
+         |}
+         |  ```
+         |
+         |- **Scripts - Post-Response**:
+         |
+         |```javascript
+         |  // Collection-level test script
+         |  pm.test("Auto-set variables", function () {
+         |    const response = pm.response.json();
+         |
+         |    // Set processInstanceId if present
+         |    if (response.processInstanceId) {
+         |        const id = response.processInstanceId;
+         |        pm.collectionVariables.set("processInstanceId", id);
+         |        console.log("Set processInstanceId: " + id);
+         |    }
+         |
+         |    // Set taskId for array responses
+         |    if (pm.response.headers.get("userTaskId")) {
+         |        const id = pm.response.headers.get("userTaskId")
+         |        pm.collectionVariables.set("userTaskInstanceId", id);
+         |        console.log("userTaskInstanceId: " + id)
+         |
+         |    }
+         |
+         |});
+         |  ```
+         |
+         |</p>
+         |</details>
+         |""".stripMargin
+
   protected def dependencies: String =
 
-    def docPortal(projectName: String) =  s"${apiConfig.docBaseUrl.getOrElse("NOT_SET")}/$projectName/OpenApi.html"
+    def docPortal(projectName: String) =  s"${apiConfig.docBaseUrl.getOrElse("NOT_SET")}/site/${apiConfig.companyName}/$projectName/OpenApi.html"
 
     val projects       = apiConfig.projectsConfig.perGitRepoConfigs.flatMap(_.projects)
     println(s"Projects: $projects")
@@ -315,6 +438,8 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator, App:
        |Created at ${SimpleDateFormat().format(new Date())}
        |
        |**See the [Orchescala Documentation](https://pme123.github.io/orchescala/)**
+       |
+       |$postmanInstructions
        |
        |$packageConf
        |

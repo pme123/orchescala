@@ -2,8 +2,9 @@ package orchescala.worker.c8
 
 import io.camunda.client.api.response.ActivatedJob
 import io.camunda.client.api.worker.{JobClient, JobHandler}
-import orchescala.engine.c8.jsonToVariablesMap
 import orchescala.domain.*
+import orchescala.engine.c8.jsonToVariablesMap
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
 import zio.*
@@ -30,6 +31,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         processVariables  = worker.variableNames.map(k => processVariable(k, json))
         _                <- logDebug(s"processVariables: ${processVariables.size}")
         generalVariables <- extractGeneralVariables(json)
+                              .map(gv => gv.copy(
+                                _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
+                              ))
         _                <- logDebug(s"generalVariables: ${generalVariables.asJson}")
         _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
                               .executeWorker()
@@ -78,7 +82,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         generalVariables: GeneralVariables,
         businessKey: String
     ): URIO[Any, WorkerError] =
-      val errorMsg          = error.errorMsg.replace("\n", "")
+      val errorMsg          = error.toString.replace("\n", "")
       val errorHandled      = isErrorHandled(error, generalVariables.handledErrorSeq)
       val errorRegexHandled =
         error.isMock || (errorHandled && generalVariables.regexHandledErrorSeq.forall(regex =>
@@ -157,8 +161,8 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         filteredGeneralVariables: Map[String, Any]
     ): URIO[Any, Unit] =
       val errorVars = Map(
-        "errorCode" -> error.errorCode,
-        "errorMsg"  -> error.errorMsg
+        "errorCode" -> error.errorCode.toString,
+        "errorMsg"  -> error.toString
       )
       val variables =
         (filteredGeneralVariables ++
@@ -167,7 +171,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       attempt:
         client.newThrowErrorCommand(job)
           .errorCode(error.errorCode.toString)
-          .errorMessage(error.errorMsg)
+          .errorMessage(error.toString)
           .variables(variables)
           .send()
           .exceptionally(t =>
@@ -175,7 +179,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           )
       .catchAll: err =>
         handleFailure(
-          UnexpectedError(s"Problem handling BpmnError to C7: $err."),
+          UnexpectedError(s"Problem handling BpmnError to C8: $err."),
           doRetry = true
         )
       .ignore
@@ -197,8 +201,8 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 .retries(job.getRetries - 1)
                                 .retryBackoff(time.Duration.ofSeconds(60))
                                 .variables(Map(
-                                  "errorCode"          -> error.errorCode,
-                                  "errorMsg"           -> error.errorMsg,
+                                  "errorCode"          -> error.errorCode.toString,
+                                  "errorMsg"           -> error.toString,
                                   "businessKey"        -> businessKey,
                                   "processInstanceKey" -> job.getProcessInstanceKey
                                 ).asJava)
@@ -222,8 +226,8 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 .unit
             else
               val errorVars = Map(
-                "errorCode" -> error.errorCode,
-                "errorMsg"  -> error.errorMsg
+                "errorCode" -> error.errorCode.toString,
+                "errorMsg"  -> error.toString
               )
               logError(
                 s"handleError: ${error.causeMsg} ${error.isMock} ${!generalVariables.handledErrorSeq.contains(
@@ -236,7 +240,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                     .retries(job.getRetries - 1)
                     .retryBackoff(time.Duration.ofSeconds(60))
                     .variables(variables)
-                    .errorMessage(error.causeMsg)
+                    .errorMessage(error.toString)
                     .send().join()
             end if
           case (true, false, generalVariables) =>

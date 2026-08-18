@@ -7,12 +7,12 @@ object Dependencies {
   // 00-docs
   // - Laika Plugin
   // 04-helper
-  val osLibVersion          = "0.11.4"
+  val osLibVersion          = "0.11.8"
   // 01-domain
   val openapiCirceVersion   = "0.11.10"
-  val tapirVersion          = "1.11.50"
-  val ironCirceVersion      = "3.2.0"
-  val mUnitVersion          = "1.1.0"
+  val tapirVersion          = "1.13.15"
+  val ironCirceVersion      = "3.3.1"
+  val mUnitVersion          = "1.2.4"
   val scala3MockVersion     = "0.6.6"
   // 02-bpmn
   // -> domain
@@ -25,7 +25,15 @@ object Dependencies {
   // 03-dmn
   // -> bpmn
   val sttpClient3Version    = "3.11.0"
-  val dmnTesterVersion      = "0.17.9"
+  // 03-dmn-tester-shared / 04-dmn-tester-server / 04-dmn-tester-client
+  val circeVersion          = "0.14.16"
+  // dmn-scala: the DMN engine embedded in Camunda 8 (Scala 2.13 jar, usable from Scala 3)
+  val dmnScalaVersion       = "1.11.0"
+  val http4sVersion         = "0.23.36"
+  val laminarVersion        = "17.2.1"
+  // java.time for Scala.js - the model uses LocalDateTime
+  val scalaJavaTimeVersion  = "2.6.0"
+  val scalaJsDomVersion     = "2.8.1"
   // - mUnitVersion
   // 03-simulation
   // -> bpmn
@@ -34,38 +42,47 @@ object Dependencies {
   // 03-worker
   // -> bpmn
   // -mUnitVersion
-  val chimneyVersion        = "1.8.2"
+  val chimneyVersion        = "1.9.0"
   // --- Implementations
   // 04-helper
   val sardineWebDavVersion  = "5.13"
   // 04-worker-c7spring
   // -> worker
-  val camundaVersion        = "7.23.0" // external task client
+  val camundaVersion        = "7.24.0" // external task client
   val jaxbApiVersion        = "4.0.2"  // needed by the camunda client 7.21?!
   val scaffeineV            = "5.3.0"  // caching
-  val zioVersion            = "2.1.22" // zio
+  val zioVersion            = "2.1.24" // zio
   val zioHttpVersion        = "3.5.1"  // zio http
-  val zioLoggingVersion     = "2.5.1" // logging
-  val logbackVersion        = "1.4.14" // logging
+  val zioLoggingVersion     = "2.5.3" // logging
+  val logbackVersion        = "1.5.32" // logging
   // - sttpClient3
 
   // --- Experiments
   // 04-c7-spring
   // -> bpmn
-  val camundaSpinVersion    = "7.23.0"
+  val camundaSpinVersion    = "7.24.0"
   // camunda // server spring-boot
   // 04-c8-spring
   // -> bpmn
   val scalaJacksonVersion   = "2.20.0"
   val camunda8Version       = "8.8.0-alpha8-rc3"
-  val springBootVersion     = "3.3.9"
+  val springBootVersion     = "3.4.13"
   val nettyVersion          = "4.2.0.Final"
   val swaggerOpenAPIVersion = "2.1.34"
   val testcontainersVersion = "1.20.4"
+  // 06-gateway
+  val oauth2Version = "4.5.0"
+
   // examples
   val h2Version             = "2.3.232"
   val twitter4jVersion      = "4.1.2"
   val groovyVersion         = "3.0.25"
+
+  // sbt plugins
+  val sbtNativePackager = "1.11.7"
+  val sbtCiRelease      = "1.11.2"
+  val laikaSbt          = "1.3.2"
+  val sbtBuildInfo      = "0.13.1"
 
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
   lazy val scaffeineDependency = // token caching
@@ -95,8 +112,32 @@ object Dependencies {
   lazy val camunda7ZioWorkerDependencies = Seq(
     "org.camunda.bpm" % "camunda-external-task-client" % camundaVersion
   )
+
+  val opVersion = "1.1.0"
+  lazy val opWorkerDependencies = Seq(
+    "org.operaton.bpm" % "operaton-external-task-client" % opVersion
+  )
   lazy val camunda7EngineDependencies    =
     Seq("org.camunda.community" % "camunda-engine-rest-client-openapi-java" % camundaVersion)
+
+  /** 03-dmn: the DMN Tester - engine, http server and config handling. */
+  lazy val dmnTesterDependencies = Seq(
+    // The DMN engine embedded in Camunda 8 - a Scala 2.13 jar, usable from
+    // Scala 3. Its FEEL parser (fastparse_2.13) drags in geny_2.13, while
+    // os-lib brings geny_3 - the same library, two cross versions. Excluding
+    // the 2.13 one leaves a single geny on the classpath; the exclusion is
+    // part of the published pom, so no company or project build has to deal
+    // with a cross-version clash. Covered by the engine tests, which parse
+    // FEEL (fastparse) and read DMNs via os-lib (geny) in one JVM.
+    ("org.camunda.bpm.extension.dmn.scala" % "dmn-engine" % dmnScalaVersion)
+      .exclude("com.lihaoyi", "geny_2.13"),
+    "org.http4s"                         %% "http4s-dsl"          % http4sVersion,
+    "org.http4s"                         %% "http4s-ember-server" % http4sVersion,
+    "org.http4s"                         %% "http4s-circe"        % http4sVersion,
+    "com.typesafe"                        % "config"              % typesafeConfigVersion,
+    zioDependency,
+    osLib
+  )
 
   lazy val sttpDependencies              = Seq(
     "com.softwaremill.sttp.client3" %% "circe"                            % sttpClient3Version,
@@ -124,6 +165,7 @@ object Dependencies {
 
   val zioSlf4jDependency = "dev.zio"       %% "zio-logging-slf4j" % zioLoggingVersion
   val logbackDependency  = "ch.qos.logback" % "logback-classic"   % logbackVersion % Runtime
+  val oauth2Dependency   = "com.auth0" % "java-jwt" % oauth2Version
 
   // examples
   val camundaDependencies = Seq(

@@ -68,10 +68,11 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |    version := ProjectDef.version,
        |    scalaVersion := scalaV,
        |    scalacOptions ++= Seq(
-       |      // "-deprecation", // Emit warning and location for usages of deprecated APIs.
-       |      // "-feature", // Emit warning and location for usages of features that should be imported explicitly.
+       |      "-deprecation", // Emit warning and location for usages of deprecated APIs.
+       |      "-feature", // Emit warning and location for usages of features that should be imported explicitly.
+       |      "-Xmax-inlines:200", // is declared as erased, but is in fact used
+       |      "-language:implicitConversions", // allow feature - as the DSLs use it - otherwise there are feature warnings
        |      // "-rewrite", "-source", "3.4-migration", // migrate automatically to scala 3.4
-       |      "-Xmax-inlines:200" // is declared as erased, but is in fact used
        |      // "-Vprofile",
        |    ),
        |    javaOptions ++= Seq(
@@ -85,9 +86,10 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |    credentials ++= Seq(${repoConfig.sbtCredentials}),
        |    resolvers ++= Seq(${repoConfig.sbtRepos}),
        |    autoImportSetting(
-       |      (postfix orElse module).toSeq.flatMap(x =>
-       |         Seq(s"orchescala.$$x", s"$$customer.orchescala.$$x")
-       |      )
+       |      (postfix orElse module).toSeq.flatMap{ x =>
+       |         val proj = ${if isGateway then "\"engine\"" else "x"}
+       |         Seq(s"orchescala.$$x", s"$$customer.orchescala.$$proj")
+       |      }
        |    )
        |  )
        |""".stripMargin
@@ -122,8 +124,17 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
             if dependencies.nonEmpty then dependencies.mkString("\n      ", ",\n      ", ",")
             else ""
           }
-           |      customer %% s"$$customer-orchescala-$name" % customerOrchescalaV,
-           |      "io.github.pme123" %% "orchescala-$name" % orchescalaV
+           |      customer %% s"$$customer-orchescala-${ if isGateway then "worker" else name}" % customerOrchescalaV,${
+            moduleConfig.orchescalaArtifactNames
+              .map: artifact =>
+                val dep = s""""io.github.pme123" %% "orchescala-$artifact" % orchescalaV"""
+                if moduleConfig.exclusions.isEmpty then s"\n      $dep"
+                else
+                  moduleConfig.exclusions
+                    .map((org, name) => s"""\n        .exclude("$org", "$name")""")
+                    .mkString(s"\n      ($dep)", "", "")
+              .mkString(",")
+          }
            |    )
            |""".stripMargin
       .mkString

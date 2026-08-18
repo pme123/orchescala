@@ -1,13 +1,14 @@
 package orchescala.api
 
 import java.io.StringReader
+import scala.collection.concurrent.TrieMap
 import scala.xml.XML
 import orchescala.domain.{InOutType, shortenName}
 
 /** Checks all BPMNs if a process is used in another process. As result a list is created that can
   * be included in the Documentation.
   */
-trait ProcessReferenceCreator:
+trait ProcessReferenceCreator extends WorkerReferenceCreator:
 
   println(s"ProcessReferenceCreator: ${getClass.getName}")
   protected def projectName: String =
@@ -23,47 +24,44 @@ trait ProcessReferenceCreator:
   protected def gitBasePath: os.Path                   = apiConfig.tempGitDir
   protected def docProjectUrl(project: String): String =
     val companyName = project.split("-").head
-    apiConfig.docBaseUrl.map(u => s"$u/$companyName/$project").getOrElse("NOT_SET")
+    apiConfig.docBaseUrl.map(u => s"$u/site/$companyName/$project").getOrElse("NOT_SET")
 
-  private lazy val projectConfigs: Seq[ProjectConfig] =
-    apiConfig.projectsConfig.projectConfigs ++ apiConfig.otherProjectsConfig.projectConfigs
-
+  // the BPMNs are the same for all ApiCreators of a run - so they are only read once
   lazy val allBpmns: Seq[(String, Seq[(os.Path, String)])] =
-    println(s"BPMN Reference Base Directory: $gitBasePath")
-    projectConfigs
-      .map { pc =>
+    ProcessReferenceCreator.allBpmns(cacheKey):
+      println(s"BPMN Reference Base Directory: $gitBasePath")
+      projectConfigs.map: pc =>
         val absBpmnPath = pc.absBpmnPath(gitBasePath)
-        pc.name ->
-          (if os.exists(absBpmnPath) then
-             os.walk(absBpmnPath)
-           else
-             println(s"THIS PATH DOES NOT EXIST: $absBpmnPath")
-             Seq.empty)
-
-      }
-      .map { case projectName -> path =>
-        println(s"Get BPMNs in $projectName")
-        projectName -> path
+        val paths       =
+          if os.exists(absBpmnPath) then
+            os.walk(absBpmnPath)
+          else
+            println(s"THIS PATH DOES NOT EXIST: $absBpmnPath")
+            Seq.empty
+        println(s"Get BPMNs in ${pc.name}")
+        pc.name -> paths
           .filterNot(
             _.toString.contains("/target")
           ) // TODO filter all Camunda 8 BPMNs - NOT SUPPORTED YET
           .filterNot(_.toString.contains("/camunda8"))
           .filter(_.toString.endsWith(".bpmn"))
-          .map(p =>
-            println(s"- ${p.last}")
-            p -> os.read(p)
-          )
-      }
+          .map: bpmnPath =>
+            println(s"- ${bpmnPath.last}")
+            bpmnPath -> os.read(bpmnPath)
   end allBpmns
 
   case class UsedByReferenceCreator(refId: String):
 
     def create(): String =
-      val refs   = findUsagesInBpmn()
+      val refs   = (findUsagesInBpmn() ++ findUsagesInWorkers())
+        .distinct
+        .groupBy(_._1)
+        .toSeq
+        .sortBy(_._1)
       val refDoc = refs
-        .map { case k -> processes =>
+        .map { case k -> usages =>
           s"""_${k}_
-             |${processes.map(_._2).distinct.mkString("   - ", "\n   - ", "\n")}
+             |${usages.map(_._2).distinct.sorted.mkString("   - ", "\n   - ", "\n")}
              |""".stripMargin
         }
         .mkString("\n- ", "\n- ", "\n")
@@ -83,13 +81,18 @@ trait ProcessReferenceCreator:
       end if
     end create
 
-    private def findUsagesInBpmn(): Seq[(String, Seq[(String, String)])] =
+    /** The Workers this Worker is composed of (Constructor parameters). */
+    private def findUsagesInWorkers(): Seq[(String, String)] =
+      usedByWorkers(refId)
+        .map(worker => worker.projectName -> worker.asString)
+
+    private def findUsagesInBpmn(): Seq[(String, String)] =
       println(s"Find Used by References for $refId")
       allBpmns
         .flatMap { case (processName, paths) =>
           paths
             .filter { case _ -> c =>
-              c.matches(s"""[\\s\\S]*(:|")$refId"[\\s\\S]*""") &&
+              (c.contains(s":$refId\"") || c.contains(s"\"$refId\"")) &&
               !c.contains(s"id=\"$refId\"")
             }
             .map { pc =>
@@ -97,9 +100,6 @@ trait ProcessReferenceCreator:
               docuPath(processName, pc._1, pc._2)
             }
         }
-        .groupBy(_._1)
-        .toSeq
-        .sortBy(_._1)
     end findUsagesInBpmn
 
     private def docuPath(
@@ -121,7 +121,7 @@ trait ProcessReferenceCreator:
 
       val refId                  = refIdentShort(extractId, projectName)
       lazy val identShortProcess = shortenTag(extractId)
-      val anchor                 = s"#tag/${identShortProcess}"
+      val anchor                 = s"#tag/${identShortProcess.replace(" ", "-")}"
       projectName -> s"[${InOutType.Bpmn}: $refId](${docProjectUrl(projectName)}/OpenApi.html$anchor)"
     end docuPath
 
@@ -134,37 +134,47 @@ trait ProcessReferenceCreator:
 
     def create(): String =
       println(s"Uses for $processName")
-      findBpmn(processName)
-        .map { xmlStr =>
-          val refs   = extractUsesRefs(xmlStr)
-          val refDoc = refs
-            .map { case k -> processes =>
-              println(s"- $k:\n -- ${processes.map(_.asString).mkString("\n -- ")}")
-              s"""_${k}_
-                 |${processes
-                  .map(_.asString)
-                  .distinct
-                  .sorted
-                  .mkString("   - ", "\n   - ", "\n")}
-                 |""".stripMargin
-            }
-            .mkString("\n- ", "\n- ", "\n")
-          if refDoc.trim.length == 1 then
-            "\n**Uses no other Processes.**\n"
-          else
-            s"""
-               |<details>
-               |<summary><b>${usesTitle(refs.size)}</b></summary>
-               |<p>
-               |
-               |$refDoc
-               |</p>
-               |</details>
-               |""".stripMargin
-          end if
+      val refs   = (findUsesInBpmn() ++ findUsesInWorkers())
+        .distinct
+        .groupBy(_._1)
+        .toSeq
+        .sortBy(_._1)
+      val refDoc = refs
+        .map { case k -> uses =>
+          println(s"- $k:\n -- ${uses.map(_._2).mkString("\n -- ")}")
+          s"""_${k}_
+             |${uses
+              .map(_._2)
+              .distinct
+              .sorted
+              .mkString("   - ", "\n   - ", "\n")}
+             |""".stripMargin
         }
-        .getOrElse("\n**Uses no other Processes.**\n")
+        .mkString("\n- ", "\n- ", "\n")
+      if refDoc.trim.length == 1 then
+        "\n**Uses no other Processes.**\n"
+      else
+        s"""
+           |<details>
+           |<summary><b>${usesTitle(refs.size)}</b></summary>
+           |<p>
+           |
+           |$refDoc
+           |</p>
+           |</details>
+           |""".stripMargin
+      end if
     end create
+
+    private def findUsesInBpmn(): Seq[(String, String)] =
+      findBpmn(processName).toSeq
+        .flatMap(extractUsesRefs)
+        .map(ref => ref.project -> ref.asString)
+
+    /** The Workers this Worker is composed of (Constructor parameters). */
+    private def findUsesInWorkers(): Seq[(String, String)] =
+      usesWorkers(processName)
+        .map(worker => worker.projectName -> worker.asString)
 
     case class UsesRef(
         processRef: String,
@@ -219,10 +229,7 @@ trait ProcessReferenceCreator:
           UsesRef(decisionRef.toString, refType = InOutType.Dmn)
         }
 
-      (callActivities ++ businessRuleTasks ++ externalWorkers)
-        .groupBy(_.project)
-        .toSeq
-        .sortBy(_._1)
+      callActivities ++ businessRuleTasks ++ externalWorkers
     end extractUsesRefs
 
     private def findBpmn(
@@ -241,4 +248,15 @@ trait ProcessReferenceCreator:
       s"Uses $processCount Project(s)"
 
   end UsesReferenceCreator
+end ProcessReferenceCreator
+
+object ProcessReferenceCreator:
+
+  private lazy val allBpmnsCache = TrieMap[String, Seq[(String, Seq[(os.Path, String)])]]()
+
+  private def allBpmns(cacheKey: String)(
+      read: => Seq[(String, Seq[(os.Path, String)])]
+  ): Seq[(String, Seq[(os.Path, String)])] =
+    allBpmnsCache.getOrElseUpdate(cacheKey, read)
+
 end ProcessReferenceCreator

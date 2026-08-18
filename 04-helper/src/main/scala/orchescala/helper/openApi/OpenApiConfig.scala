@@ -41,7 +41,7 @@ case class OpenApiConfig(
       .toMap
 
   def superClassName(version: String) =
-    subProjectName.map(n => s"${n.head.toUpper + n.tail}$version")
+    subProjectName.map(n => s"${n.head.toUpper}${n.tail}$version")
 
   private def path(moduleConfig: ModuleConfig, versionTag: String) =
     outputPath(moduleConfig.nameWithLevel) / projectName.split(

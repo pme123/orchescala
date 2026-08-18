@@ -11,7 +11,7 @@ sealed trait OpenApiElem:
   def name: String
   def descr: Option[String]
 
-  lazy val className = name.head.toUpper + name.tail
+  lazy val className = s"${name.head.toUpper}${name.tail}"
   lazy val niceName: String = // e.g `Authorization Check Get`
     className.foldLeft(""):
       case result -> ch if ch.isUpper =>
@@ -40,7 +40,7 @@ case class BpmnSuperClass(
     .replace(' ', '-')
     .split('-')
     .map: n =>
-      n.head.toUpper + n.tail
+      s"${n.head.toUpper}${n.tail}"
     .filterNot: n =>
       Seq("api", "rest").contains(n.toLowerCase())
     .mkString
@@ -72,7 +72,7 @@ case class BpmnArray(
                       descr: Option[String],
                       arrayType: String
                     ) extends BpmnClassOrEnum, IsFieldType:
-  lazy val arrayClassName = arrayType.head.toUpper + arrayType.tail
+  lazy val arrayClassName = s"${arrayType.head.toUpper}${arrayType.tail}"
 
 case class BpmnServiceObject(
     name: String,

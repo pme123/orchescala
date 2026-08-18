@@ -19,7 +19,7 @@ trait CreatorHelper:
         optExamples: Option[java.util.Map[String, Example]] = None
     ): ConstrField =
       val fromType = extractType(optKey.getOrElse("fieldKeyFromType"))
-      val tpe = fromType.head.toUpper + fromType.tail
+      val tpe = s"${fromType.head.toUpper}${fromType.tail}"
       val key = optKey.getOrElse(fromType)
       val isOptional: Boolean =
         (Option(schema.getNullable), optIsRequired) match
@@ -41,7 +41,7 @@ trait CreatorHelper:
         enumCases
           .map: _ =>
             key.split("-").map(k =>
-              k.head.toUpper + k.tail
+              s"${k.head.toUpper}${k.tail}"
             ).mkString // uppercase for enum metrics-name -> MetricsName
           .getOrElse:
             tpe

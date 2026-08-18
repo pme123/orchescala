@@ -11,4 +11,5 @@ enum SimulationError extends RuntimeException:
   case ProcessError(scenarioData: ScenarioData)
   case MappingError(scenarioData: ScenarioData)
   case WaitingError(scenarioData: ScenarioData)
+  case EngineError(override val msg: String, scenarioData: ScenarioData = ScenarioData("UnexpectedError"))
 end SimulationError

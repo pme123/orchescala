@@ -17,8 +17,8 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
 
     os.proc("sbt", "publishLocal").callOnConsole()
 
-    val fssoBaseUrl = sys.env.getOrElse("FSSO_BASE_URL", s"http://host.lima.internal:8090")
-    println(s"FSSO_BASE_URL = $fssoBaseUrl")
+    val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", s"http://host.lima.internal:8090")
+    println(s"SSO_BASE_URL = $ssoBaseUrl")
 
 
     // Base Newman command
@@ -34,8 +34,8 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
       s"developer=${System.getProperty("user.name").toUpperCase}"
     ) ++ 
       Seq(
-        "--env-var", s"tokenService=$fssoBaseUrl",
-        "--env-var", s"tokenServiceTemp=$fssoBaseUrl"
+        "--env-var", s"tokenService=$ssoBaseUrl",
+        "--env-var", s"tokenServiceTemp=$ssoBaseUrl"
       )
     
 

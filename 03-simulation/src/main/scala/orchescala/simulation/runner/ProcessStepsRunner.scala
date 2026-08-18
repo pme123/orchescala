@@ -83,7 +83,8 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
         historicVariableService
           .getVariables(
             variableName = None,
-            processInstanceId = Some(processInstanceId)
+            processInstanceId = Some(processInstanceId),
+            variableFilter = None
           ).mapError: err =>
             SimulationError.ProcessError(
               summon[ScenarioData].error(err.errorMsg)
@@ -104,5 +105,5 @@ class ProcessStepsRunner(hasProcessSteps: HasProcessSteps)(using
   ): Seq[JsonProperty] =
     variables
       .map: v =>
-        JsonProperty(v.name, v.value.map(_.toJson).getOrElse(Json.Null))
+        JsonProperty(v.name, v.value.getOrElse(Json.Null))
 end ProcessStepsRunner

@@ -1,16 +1,20 @@
 package orchescala.engine
 package c7
 
+import orchescala.domain.*
 import orchescala.domain.CamundaVariable.*
-import orchescala.domain.{CamundaProperty, CamundaVariable, JsonProperty}
 import orchescala.engine.*
-import orchescala.engine.domain.EngineType.C7
-import orchescala.engine.domain.{EngineError, ProcessInfo}
+import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import org.camunda.community.rest.client.api.{ProcessDefinitionApi, ProcessInstanceApi}
-import org.camunda.community.rest.client.dto.{StartProcessInstanceDto, VariableValueDto}
+import org.camunda.community.rest.client.dto.{
+  PatchVariablesDto,
+  ProcessInstanceWithVariablesDto,
+  StartProcessInstanceDto,
+  VariableValueDto
+}
 import org.camunda.community.rest.client.invoker.ApiClient
-import zio.ZIO.{logDebug, logInfo}
+import zio.ZIO.{logInfo, logWarning}
 import zio.{IO, ZIO}
 
 import scala.jdk.CollectionConverters.*
@@ -18,28 +22,128 @@ import scala.jdk.CollectionConverters.*
 class C7ProcessInstanceService(using
     apiClientZIO: IO[EngineError, ApiClient],
     engineConfig: EngineConfig
-) extends ProcessInstanceService, C7Service:
+) extends ProcessInstanceService, C7Service, C7EventService:
 
   override def startProcessAsync(
       processDefId: String,
-      in: Json,
+      in: JsonObject,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, ProcessInfo] =
+    identityCorrelation match
+      case None =>
+        // No identity correlation - start process normally
+        startProcessWithoutCorrelation(processDefId, in, businessKey, tenantId)
+
+      case Some(correlation) =>
+        // Two-step flow: start process, then set signed correlation
+        startProcessWithSignedCorrelation(processDefId, in, businessKey, tenantId, correlation)
+  end startProcessAsync
+
+  /** Start process without identity correlation (simple flow)
+    */
+  private def startProcessWithoutCorrelation(
+      processDefId: String,
+      in: JsonObject,
       businessKey: Option[String],
       tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
-
     for
+      _                <- ZIO.logDebug(s"Starting Process without Correlation '$processDefId' with variables: $in")
       apiClient        <- apiClientZIO
-      _                <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      processVariables <- C7VariableMapper.toC7Variables(in)
-      _                <- logDebug(s"Starting Process '$processDefId' with variables: $processVariables")
-      instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
+      processVariables <- C7VariableMapper.toC7Variables(in.asJson)
+      instance         <-
+        callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
+      _                <- logInfo(s"Process without Correlation started: ${instance.getId}")
     yield ProcessInfo(
       processInstanceId = instance.getId,
       businessKey = Option(instance.getBusinessKey),
       status = ProcessInfo.ProcessStatus.Active,
-      engineType = C7
+      engineType = engineType
     )
-  end startProcessAsync
+  end startProcessWithoutCorrelation
+
+  /** Start process with signed identity correlation (two-step flow) Step 1: Start process without
+    * correlation Step 2: Sign correlation with processInstanceId and set as variable
+    */
+  private def startProcessWithSignedCorrelation(
+      processDefId: String,
+      in: JsonObject,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      correlation: IdentityCorrelation
+  ): IO[EngineError, ProcessInfo] =
+    for
+      _         <- ZIO.logDebug(s"Starting Process with Correlation '$processDefId' with variables: $in")
+      apiClient <- apiClientZIO
+      // Step 1: Start process WITHOUT correlation
+      _                 <- ZIO.logDebug(s"Starting Process '$processDefId' (will sign correlation after): ${in.asJson}")
+      processVariables  <- C7VariableMapper.toC7Variables(in.asJson)
+      instance          <-
+        callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
+      processInstanceId  = instance.getId
+      _                 <- logInfo(s"Process started: $processInstanceId")
+      // Step 2: Sign correlation with processInstanceId
+      signedCorrelation <- signCorrelation(correlation, processInstanceId)
+      _                 <- ZIO.logDebug(s"Signed correlation: $signedCorrelation")
+      // Step 3: Set signed correlation as process variable
+      _                 <- setCorrelationVariable(apiClient, processInstanceId, signedCorrelation)
+      _                 <- ZIO.logDebug(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
+    yield ProcessInfo(
+      processInstanceId = processInstanceId,
+      businessKey = Option(instance.getBusinessKey),
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = engineType
+    )
+  end startProcessWithSignedCorrelation
+
+  /** Sign the identity correlation with the process instance ID
+    */
+  private def signCorrelation(
+      correlation: IdentityCorrelation,
+      processInstanceId: String
+  ): IO[EngineError, IdentityCorrelation] =
+    engineConfig.identitySigningKey match
+      case None            =>
+        logWarning("No identitySigningKey configured - correlation will not be signed!").as(
+          correlation.copy(processInstanceId = Some(processInstanceId))
+        )
+      case Some(secretKey) =>
+        ZIO.succeed(
+          IdentityCorrelationSigner.sign(correlation, processInstanceId, secretKey)
+        )
+  end signCorrelation
+
+  /** Set the signed correlation as a process variable using Camunda REST API
+    */
+  private def setCorrelationVariable(
+      apiClient: ApiClient,
+      processInstanceId: String,
+      signedCorrelation: IdentityCorrelation
+  ): IO[EngineError, Unit] =
+    for
+      correlationJson <- ZIO.succeed(signedCorrelation.asJson.deepDropNullValues)
+      correlationVar  <- ZIO.succeed(CJson(correlationJson.toString))
+      correlationDto  <- C7VariableMapper.toC7VariableValue(correlationVar)
+      _               <- ZIO
+                           .attempt:
+                             val modifications = new PatchVariablesDto()
+                               .modifications(Map(InputParams._identityCorrelation.toString -> correlationDto).asJava)
+                             new ProcessInstanceApi(apiClient)
+                               .modifyProcessInstanceVariables(processInstanceId, modifications)
+                           .catchAll:
+                             case err if err.getMessage.contains("doesn't exist: execution is null") =>
+                               ZIO.logWarning(
+                                 s"Process $processInstanceId has already ended - correlation not set."
+                               )
+                             case err                                                                =>
+                               ZIO.fail:
+                                 EngineError.ProcessError(
+                                   s"Problem setting identityCorrelation variable for process '$processInstanceId': $err"
+                                 )
+    yield ()
+  end setCorrelationVariable
 
   private def callStartProcessAsync(
       processDefId: String,
@@ -47,31 +151,32 @@ class C7ProcessInstanceService(using
       tenantId: Option[String],
       apiClient: ApiClient,
       processVariables: Map[String, VariableValueDto]
-  ) =
+  ): ZIO[Any, EngineError.ProcessError, ProcessInstanceWithVariablesDto] =
+    val effectiveTenantId = tenantId.orElse(engineConfig.tenantId)
     ZIO
       .attempt:
-        tenantId.orElse(engineConfig.tenantId)
+        val api = new ProcessDefinitionApi(apiClient)
+        effectiveTenantId
           .map: tenantId =>
-            new ProcessDefinitionApi(apiClient)
-              .startProcessInstanceByKeyAndTenantId(
-                processDefId,
-                tenantId,
-                new StartProcessInstanceDto()
-                  .variables(processVariables.asJava)
-                  .businessKey(businessKey.orNull)
-              )
+            api.startProcessInstanceByKeyAndTenantId(
+              processDefId,
+              tenantId,
+              new StartProcessInstanceDto()
+                .variables(processVariables.asJava)
+                .businessKey(businessKey.orNull)
+            )
           .getOrElse:
-            new ProcessDefinitionApi(apiClient)
-              .startProcessInstanceByKey(
-                processDefId,
-                new StartProcessInstanceDto()
-                  .variables(processVariables.asJava)
-                  .businessKey(businessKey.orNull)
-              )
+            api.startProcessInstanceByKey(
+              processDefId,
+              new StartProcessInstanceDto()
+                .variables(processVariables.asJava)
+                .businessKey(businessKey.orNull)
+            )
       .mapError: err =>
         EngineError.ProcessError(
-          s"Problem starting Process '$processDefId': $err"
+          s"Problem starting Process '$processDefId': ${err.getMessage}"
         )
+  end callStartProcessAsync
 
   def getVariablesInternal(
       processInstanceId: String,
@@ -100,34 +205,144 @@ class C7ProcessInstanceService(using
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
 
-  private def filterVariables(
-      variableFilter: Option[Seq[String]],
-      variableDtos: java.util.Map[String, VariableValueDto]
-  ) =
-    if variableFilter.isEmpty then variableDtos.asScala
-    else
-      variableDtos
-        .asScala
-        .filter: p =>
-          p._2.getValue != null &&
-            variableFilter.toSeq.flatten.contains(p._1)
 
-  private def toVariableValue(valueDto: VariableValueDto): IO[EngineError, CamundaVariable] =
-    val value = valueDto.getValue
-    (valueDto.getType.toLowerCase match
-      case "null"            => ZIO.attempt(CNull)
-      case "string"          => ZIO.attempt(CString(value.toString))
-      case "integer" | "int" => ZIO.attempt(CInteger(value.toString.toInt))
-      case "long"            => ZIO.attempt(CLong(value.toString.toLong))
-      case "double"          => ZIO.attempt(CDouble(value.toString.toDouble))
-      case "boolean"         => ZIO.attempt(CBoolean(value.toString.toBoolean))
-      case "json"            => ZIO.attempt(CJson(value.toString))
-      case "file"            => ZIO.attempt(CFile(value.toString, CFileValueInfo("not_set", None)))
-      case _                 => ZIO.attempt(CString(value.toString))
-    ).mapError: err =>
-      EngineError.ProcessError(
-        s"Problem converting VariableDto '${valueDto.getType} -> $value: $err"
-      )
-  end toVariableValue
+
+  def startProcessByMessage(
+      messageName: String,
+      businessKey: Option[String] = None,
+      tenantId: Option[String] = None,
+      variables: Option[JsonObject] = None,
+      identityCorrelation: Option[IdentityCorrelation] = None
+  ): IO[EngineError, ProcessInfo] =
+    identityCorrelation match
+      case None =>
+        // No identity correlation - just send message
+        startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
+
+      case Some(correlation) =>
+        // Two-step flow: send message to start process, then set signed correlation
+        startProcessByMessageWithSignedCorrelation(
+          messageName,
+          businessKey,
+          tenantId,
+          variables,
+          correlation
+        )
+  end startProcessByMessage
+
+  /** Start process by message without identity correlation (simple flow)
+    */
+  private def startProcessByMessageWithoutCorrelation(
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[JsonObject]
+  ): IO[EngineError, ProcessInfo] =
+    for
+      _                 <- logInfo(s"Starting process by message '$messageName'")
+      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      processInstanceId  = correlationResult.processInstanceId
+      _                 <- logInfo(
+                             s"Process started by message '$messageName' with processInstanceId: $processInstanceId"
+                           )
+    yield ProcessInfo(
+      processInstanceId = processInstanceId,
+      businessKey = businessKey,
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = engineType
+    )
+  end startProcessByMessageWithoutCorrelation
+
+  /** Start process by message with signed identity correlation (two-step flow) Step 1: Send message
+    * to start process Step 2: Sign correlation with processInstanceId and set as variable
+    */
+  private def startProcessByMessageWithSignedCorrelation(
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[JsonObject],
+      correlation: IdentityCorrelation
+  ): IO[EngineError, ProcessInfo] =
+    for
+      apiClient <- apiClientZIO
+
+      // Step 1: Send message to start process
+      _                 <- logInfo(s"Starting process by message '$messageName' (will sign correlation after)")
+      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      processInstanceId  = correlationResult.processInstanceId
+
+      // Step 2: Sign correlation with processInstanceId
+      signedCorrelation <- signCorrelation(correlation, processInstanceId)
+
+      // Step 3: Set signed correlation as process variable
+      _ <- setCorrelationVariable(apiClient, processInstanceId, signedCorrelation)
+      _ <- logInfo(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
+    yield ProcessInfo(
+      processInstanceId = processInstanceId,
+      businessKey = businessKey,
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = engineType
+    )
+  end startProcessByMessageWithSignedCorrelation
+
+  /** Send message to start a process (via Message Start Event)
+    */
+  private def sendMessageToStartProcess(
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[JsonObject]
+  ): IO[EngineError, MessageCorrelationResult] =
+    for
+      apiClient <- apiClientZIO
+      response  <-
+        ZIO
+          .attempt:
+            new org.camunda.community.rest.client.api.MessageApi(apiClient)
+              .deliverMessage(
+                new org.camunda.community.rest.client.dto.CorrelationMessageDto()
+                  .messageName(messageName)
+                  .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
+                  .businessKey(businessKey.orNull)
+                  .processVariables(mapToC7Variables(variables))
+                  .resultEnabled(true)
+              )
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem sending message '$messageName' to start process: $err"
+            )
+      result    <- mapMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
+    yield result
+  end sendMessageToStartProcess
+
+  /** Map Camunda message correlation result to our domain model
+    */
+  private def mapMessageCorrelationResult(
+      response: Seq[org.camunda.community.rest.client.dto.MessageCorrelationResultWithVariableDto]
+  ): IO[EngineError, MessageCorrelationResult] =
+    response.headOption
+      .flatMap:
+        case result if result.getResultType.getValue == "Execution"         =>
+          Some:
+            MessageCorrelationResult.Execution(
+              result.getExecution.getId,
+              result.getExecution.getProcessInstanceId,
+              engineType
+            )
+        case result if result.getResultType.getValue == "ProcessDefinition" =>
+          Some:
+            MessageCorrelationResult.ProcessInstance(
+              result.getProcessInstance.getId,
+              result.getProcessInstance.getId,
+              engineType
+            )
+        case _                                                              =>
+          None
+      .map:
+        ZIO.succeed
+      .getOrElse:
+        ZIO.logInfo(s"No valid MessageCorrelationResult found: $response") *>
+          ZIO.fail(EngineError.ProcessError(s"No valid MessageCorrelationResult found: $response"))
+  end mapMessageCorrelationResult
 
 end C7ProcessInstanceService

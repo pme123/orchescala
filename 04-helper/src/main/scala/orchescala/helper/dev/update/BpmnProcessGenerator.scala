@@ -13,6 +13,7 @@ case class BpmnProcessGenerator(processType: BpmnProcessType)(using config: DevC
       processType match
         case _ : BpmnProcessType.C7 => bpmnC7(setupElement)
         case _ : BpmnProcessType.C8 => bpmnC8(setupElement)
+        case _ : BpmnProcessType.Op => bpmnC7(setupElement)
     )
   end createBpmn
 

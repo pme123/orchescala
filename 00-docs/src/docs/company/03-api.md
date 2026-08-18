@@ -28,7 +28,10 @@ trait CompanyApiCreator extends ApiCreator, ApiDsl, CamundaPostmanApiCreator:
     lazy val companyProjectVersion = BuildInfo.version
     
 object CompanyApiCreator:
-    lazy val apiConfig = ApiConfig(companyName = "mycompany")
+    lazy val apiConfig = ApiConfig(
+      engineConfig = DefaultEngineConfig(),
+      companyName = "mycompany"
+    )
 end CompanyApiCreator
 ```
 
@@ -39,21 +42,25 @@ Here an example:
 
 ```scala mdoc
 import orchescala.api.ApiConfig
+import orchescala.engine.DefaultEngineConfig
 
 lazy val apiConfig: ApiConfig =
-  ApiConfig("mycompany")
+  ApiConfig(
+    engineConfig = DefaultEngineConfig(),
+    companyName = "mycompany"
+  )
     .withTenantId("mycompany")
     .withDocBaseUrl(s"http://mycompany.ch/bpmnDocs")
-    .withJiraUrls("COM" -> "https://issue.mycompany.ch/browse")  
+    .withJiraUrls("COM" -> "https://issue.mycompany.ch/browse")
 ```
 
 ### Default ApiConfig
 This is the default Configuration:
 ```scala
+// Engine configuration (includes tenant, parallelism, validation, etc.)
+engineConfig: EngineConfig,
 // your company name like 'mycompany'
 companyName: String,
-// define tenant if you have one - used for the Postman OpenApi
-tenantId: Option[String] = None,
 // contact email / phone, if there are questions
 contact: Option[Contact] = None,
 // REST endpoint (for testing API)
@@ -64,14 +71,62 @@ basePath: os.Path = os.pwd,
 jiraUrls: Map[String, String] = Map.empty,
 // Configure your project setup
 projectsConfig: ProjectsConfig = ProjectsConfig(),
-// Configure your template generation
-modelerTemplateConfig: ModelerTemplateConfig = ModelerTemplateConfig(),
+// For generating references to other projects, your Workers/Processes are used in
+otherProjectsConfig: ProjectsConfig = ProjectsConfig(),
+// Configure your template generation (supports multiple configs for C7 and C8)
+modelerTemplateConfigs: Seq[ModelerTemplateConfig] = Seq(
+  ModelerTemplateConfig(),
+  ModelerTemplateConfig(
+    supportedEngine = SupportedEngine.C8,
+    templateRelativePath = os.rel / ".camunda" / "element-templates" / "c8"
+  )
+),
 // The URL of your published documentations
 // s"http://myCompany/bpmnDocs"
 docBaseUrl: Option[String] = None,
 // Path, where the Git Projects are cloned - for dependency check.
 // the default is for the structure: dev-myCompany/projects/myProject
 tempGitDir: os.Path = os.pwd / os.up / os.up /  os.up / "git-temp"
+```
+
+### EngineConfig
+The `EngineConfig` controls engine behavior and parallelism:
+
+```scala
+case class DefaultEngineConfig(
+    // define tenant if you have one
+    tenantId: Option[String] = None,
+    // The key of the process variable that contains an additional value to verify the impersonate User
+    impersonateProcessKey: Option[String] = None,
+    // Secret key for signing IdentityCorrelation (HMAC-SHA256). Should be set from environment variable.
+    identitySigningKey: Option[String] = sys.env.get("ORCHESCALA_IDENTITY_SIGNING_KEY"),
+    // Base path for worker apps
+    workersBasePath: String = WorkerForwardUtil.localWorkerAppUrl,
+    // Validate input variables before starting a process instance
+    validateInput: Boolean = true,
+    // Parallelism limit for concurrent fiber execution in parallel operations
+    // Controls how many workers, simulations, and API operations run concurrently
+    parallelism: Int = 4
+)
+```
+
+You can customize the engine config:
+
+```scala mdoc:reset
+import orchescala.api.ApiConfig
+import orchescala.engine.DefaultEngineConfig
+
+lazy val customEngineConfig = DefaultEngineConfig(
+  tenantId = Some("mycompany"),
+  parallelism = 8,  // Increase parallelism for better performance
+  validateInput = true
+)
+
+lazy val apiConfig: ApiConfig =
+  ApiConfig(
+    engineConfig = customEngineConfig,
+    companyName = "mycompany"
+  )
 ```
 
 ## ProjectsConfig
@@ -142,17 +197,17 @@ By default, the following Variables are supported:
 ```scala mdoc
 enum InputParams:
   // mocking
-  case servicesMocked
-  case mockedWorkers
-  case outputMock
-  case outputServiceMock
+  case _servicesMocked
+  case _mockedWorkers
+  case _outputMock
+  case _outputServiceMock
   // mapping
-  case manualOutMapping
-  case outputVariables
-  case handledErrors
-  case regexHandledErrors
+  case _manualOutMapping
+  case _outputVariables
+  case _handledErrors
+  case _regexHandledErrors
   // authorization
-  case impersonateUserId
+  case _identityCorrelation
   // ..
 end InputParams
 ```
@@ -166,12 +221,12 @@ If you only want to support some of them, you can override them:
 
 ```scala
   override def supportedVariables: Seq[InputParams] = Seq(
-    servicesMocked,
-    outputMock,
-    outputServiceMock,
-    handledErrors,
-    regexHandledErrors,
-    impersonateUserId
+    _servicesMocked,
+    _outputMock,
+    _outputServiceMock,
+    _handledErrors,
+    _regexHandledErrors,
+    _identityCorrelation
   )
 ```
 
@@ -209,7 +264,8 @@ This is only working if you upload your BPMN- and DMN-diagrams to a Web server (
 
 ### Project dependencies
 To know where your process is used and what processes your process is using, is very helpful.
-It works for **BPMN**s and **DMN**s.
+It works for **BPMN**s and **DMN**s - and for **Worker**s that are composed of other Workers
+(see [Worker Dependency Resolution]).
 
 Orchescala will clone or update all configured projects:
 
@@ -255,6 +311,34 @@ For each Process (BPMN or DMN):
 
 - Extracts all referred ids of DMNs and BPMNs.
 - Lists the DMNs and BPMNs, grouped by their projects - Generic Service Processes are listed by their service name.
+
+#### Worker Dependency Resolution
+
+A Worker can also be composed of other Workers - it takes them as Constructor parameters:
+
+```scala
+class CancelCreateAndSignDocumentWorker(
+    getProcessInstanceWorker: GetProcessInstanceWorker,
+    postSignalWorker: PostSignalWorker
+) extends CompanyCustomWorkerDsl[In, Out]:
+```
+
+These Workers are added to the same lists - for the example above:
+
+- `CancelCreateAndSignDocument` _uses_ `GetProcessInstance` and `PostSignal`.
+- `PostSignal` is _used in_ `CancelCreateAndSignDocument`.
+
+For each Worker, the Scala sources of all configured projects are checked:
+
+- Takes all `*Worker.scala` classes of the `03-worker` module.
+- Extracts the Workers of their Constructor parameters (all parameters of a type ending with `Worker`).
+- The Topic of a Worker is taken from the Domain Object it imports (`topicName` / `processName`
+  of the `01-domain` module), so it can be linked to its documentation.
+
+@:callout(info)
+A Worker of a project that is not configured (e.g. a Worker of another company) has no
+documentation to link to - only its class name is listed.
+@:@
 
 @:callout(info)
 The BPMNs and DMNs are resolved by their ids. So it is essential that the ids are unique.

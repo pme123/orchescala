@@ -50,7 +50,7 @@ case class PublishHelper()(using
   def publishGateway(version: String): Unit =
     println(s"Publishing Gateway: $version")
     verifyVersion(version)
-    // TODO verifySnapshots()
+    verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     // not used setApiVersion(version)
@@ -72,7 +72,6 @@ case class PublishHelper()(using
       else
         Seq.empty
 
-    println(s"workerAppFile ${os.exists(gatewayAppFile)}: $gatewayAppFile")
     println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
     os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
 
@@ -90,7 +89,7 @@ case class PublishHelper()(using
     if apiFile.toIO.exists() then
       val apiFileStr = os.read(apiFile)
 
-      val pattern     = """ version = "(\d+\..*\d+(-.+)?)""""
+      val pattern     = """ version\s*=\s*"(\d+\..*\d+(-.+)?)""""
       val updatedFile =
         apiFileStr.replaceFirst(pattern, s""" version = "$newVersion"""")
 

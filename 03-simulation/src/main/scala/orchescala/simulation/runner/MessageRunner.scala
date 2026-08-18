@@ -47,7 +47,7 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
                                   tenantId = tenantId,
                                   processInstanceId = processInstanceId,
                                   businessKey = businessKey,
-                                  variables = Some(messageScenario.inOut.camundaInMap)
+                                  variables = messageScenario.inOut.inAsJson.asObject
                                 )
                                 .as:
                                   summon[ScenarioData]

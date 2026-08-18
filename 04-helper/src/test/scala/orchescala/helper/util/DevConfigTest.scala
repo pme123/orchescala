@@ -25,7 +25,7 @@ class DevConfigTest extends munit.FunSuite:
   test("dependsOn with level higher than available modules"):
     assertEquals(
       testConfig.dependsOn(5),
-      ".dependsOn(helper)"
+      ".dependsOn(api, dmn, simulation, worker)"
     )
 
 end DevConfigTest

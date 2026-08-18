@@ -17,7 +17,7 @@ case class DocProjectConfig(
   lazy val version: String                    = projectVersion.toString
   lazy val versionAsInt: Int                  = projectVersion.versionAsInt
 
-  lazy val dependencies: Seq[DependencyConfig] = apiProjectConfig.dependencies ++ apiProjectConfig.workerDependencies
+  lazy val dependencies: Seq[DependencyConfig] = apiProjectConfig.allDependencies
 
   lazy val isNew                =
     projectVersion.isMajor(versionPreviousConf) || projectVersion.isMinor(versionPreviousConf)

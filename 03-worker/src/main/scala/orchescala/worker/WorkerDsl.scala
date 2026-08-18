@@ -2,8 +2,9 @@ package orchescala
 package worker
 
 import orchescala.domain.*
-import orchescala.worker.WorkerError.{RunWorkError, *}
-import zio.{IO, UIO, ZIO}
+import orchescala.engine.rest.SttpClientBackend
+import orchescala.worker.WorkerError.*
+import zio.{IO, ZIO}
 
 import scala.concurrent.duration.*
 import scala.reflect.ClassTag
@@ -14,37 +15,6 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   def worker: Worker[In, Out, ?]
   def topic: String     = worker.topic
   def timeout: Duration = 10.seconds
-
-  def runWorkFromWorker(json: Json)(using
-                                EngineRunContext
-  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
-    ZIO.fromEither(json.as[In])
-      .mapError: err =>
-        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
-      .flatMap(runWorkFromWorker)
-      .map :
-        case NoOutput() => None
-        case out => Some(out.asInstanceOf[Out].asJson.deepDropNullValues)
-
-  def runWorkFromWorker(in: In)(using
-      EngineRunContext
-  ): ZIO[SttpClientBackend, WorkerError, Out | NoOutput] =
-    for
-      validatedInput            <- ZIO.fromEither(
-                                     worker.validationHandler.validate(in)
-                                   )
-      mockedOutput: Option[Out] <- OutMocker(worker).mockedOutput(validatedInput)
-      out                       <-
-        if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
-        else ZIO.succeed(mockedOutput.get)
-    yield out
-
-  /*
-    Only call this if it is NOT an InitWorker
-   */
-  def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[WorkerError, Out] =
-    runWorkFromWorker(in)
-      .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
 
   protected def regexMatchesAll(
       errorHandled: Boolean,
@@ -97,9 +67,7 @@ trait InitWorkerDsl[
     Out <: Product: InOutCodec,
     InitIn <: Product: InOutCodec,
     InConfig <: Product: InOutCodec
-] extends WorkerDsl[In, Out],
-      ValidateDsl[In],
-      InitProcessDsl[In, InitIn, InConfig]:
+] extends InitProcessDsl[In, Out, InitIn, InConfig]:
 
   protected def inOutExample: Process[In, Out, InitIn]
 
@@ -165,13 +133,16 @@ trait ServiceWorkerDsl[
   protected def serviceTask: ServiceTask[In, Out, ServiceIn, ServiceOut]
   protected def apiUri(in: In): Uri // input must be valid - so no errors
   // optional
-  protected def method: Method                                  = Method.GET
-  protected def querySegments(in: In): Seq[QuerySegmentOrParam] =
+  protected def method: Method                                                                = Method.GET
+  protected def querySegments(in: In): Seq[QuerySegmentOrParam]                               =
     Seq.empty // input must be valid - so no errors
     // mocking out from outService and headers
-  protected def inputMapper(in: In): Option[ServiceIn]          = None // input must be valid - so no errors
-  protected def inputHeaders(in: In): Map[String, String]       =
+  protected def inputMapper(in: In): Option[ServiceIn]                                        = None // input must be valid - so no errors
+  protected def inputHeaders(in: In): Map[String, String]                                     =
     Map.empty // input must be valid - so no errors
+  protected def inputHeaders(in: In, idempotentId: Option[IdempotentId]): Map[String, String] =
+    inputHeaders(in)
+
   protected def outputMapper(
       serviceOut: ServiceResponse[ServiceOut],
       in: In
@@ -204,7 +175,7 @@ trait ServiceWorkerDsl[
 
   protected def queryValues(vs: Any*): Seq[QuerySegmentOrParam] =
     vs.map(v => QuerySegmentOrParam.Value(s"$v"))
-
+    
 end ServiceWorkerDsl
 
 private trait ValidateDsl[
@@ -217,9 +188,138 @@ end ValidateDsl
 
 private trait InitProcessDsl[
     In <: Product: InOutCodec,
+    Out <: Product: InOutCodec,
     InitIn <: Product: InOutCodec,
     InConfig <: Product: InOutCodec
-]:
+] extends ValidateDsl[In], WorkerDsl[In, Out]:
+
+  /** Only validates the input (and merges the inConfig) - does NOT run customInit.
+    * customInit is run later when the InitWorker's external task is actually executed
+    * by the engine (see WorkerExecutor.Initializer.initVariables).
+    */
+  def initWorkFromService(json: Json)(using
+      context: EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Json] =
+    for
+      in             <- mergeInConfig(json)
+      validatedInput <- ZIO.fromEither(worker.validationHandler.validate(in))
+    yield mergeValidatedInput(validatedInput)
+
+  private def mergeInConfig(json: Json): ZIO[Any, WorkerError, In] =
+    ZIO.fromEither(json.as[In])
+      .mapError: err =>
+        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
+      .flatMap:
+        case i: WithConfig[?] =>
+          val jsonObj                = json.asObject.get
+          val inputVariables         = jsonObj.toMap
+          val configJson: JsonObject =
+            inputVariables.getOrElse("inConfig", i.defaultConfigAsJson).asObject.get
+          val newJsonConfig          = worker.inConfigVariableNames
+            .foldLeft(configJson): (configJson, n) =>
+              if jsonObj.contains(n)
+              then configJson.add(n, jsonObj(n).get)
+              else configJson
+          val newJsonObj             = jsonObj.add("inConfig", newJsonConfig.asJson)
+          ZIO.fromEither(newJsonObj.asJson.as[In])
+            .mapError: err =>
+              WorkerError.ValidatorError(
+                s"Problem parsing merged inConfig Json to ${nameOfType[In]}: $err"
+              )
+        case in               =>
+          ZIO.succeed(in)
+
+  private def mockOutput(validatedInput: In)(using
+      context: EngineRunContext
+  ): IO[MockerError, Option[InitIn]] =
+    (
+      context.generalVariables.isMockedWorker(worker.topic),
+      context.generalVariables._outputMock
+    ) match
+      case (_, Some(outputMock)) =>
+        ZIO.fromEither(outputMock.as[InitIn])
+          .map(Some(_))
+          .mapError: error =>
+            MockerError(errorMsg = s"$error:\n- $outputMock")
+      case (true, None)          =>
+        // For init workers, use the Out mock as InitIn (they should be compatible)
+        worker.defaultMock(validatedInput).map(_.asInstanceOf[InitIn]).map(Some(_))
+      case (_, None)             =>
+        ZIO.none
+
+  private def mergeValidatedInput(
+      validatedInput: In
+  )(using context: EngineRunContext): Json =
+    val generalVarsJson = context.generalVariables.asJson.deepDropNullValues
+    val inJson          = validatedInput.asJson.deepDropNullValues
+    generalVarsJson
+      .deepMerge(inJson)
+  end mergeValidatedInput
+
+  private def filterOutput(
+      allOutputs: Json,
+      outputVariables: Seq[String]
+  ): Json =
+    if outputVariables.isEmpty then
+      allOutputs
+    else
+      allOutputs
+        .asObject.get.toMap
+        .filter:
+          case k -> _ => outputVariables.contains(k)
+        .filterNot:
+          case k -> _ =>
+            k == "inConfig" // Remove inConfig as it's only used for input merging, not output
+        .asJson
+
+  private def jsonToEngineValue(json: Json): Any =
+    json match
+      case j if j.isNull    => null
+      case j if j.isNumber  =>
+        j.asNumber.get.toBigDecimal.get match
+          case n if n.isValidInt  => n.toInt
+          case n if n.isValidLong => n.toLong
+          case n                  => n.toDouble
+      case j if j.isBoolean => j.asBoolean.get
+      case j if j.isString  => j.asString.get
+      case j if j.isArray   =>
+        j.asArray.get.map(jsonToEngineValue)
+      case j                =>
+        j.asObject.get.toMap
+          .map { case (k, v) => k -> jsonToEngineValue(v) }
+
+  private def mapToJson(map: Map[String, Any]): Json =
+    Json.obj(
+      map.map { case k -> v =>
+        k -> (v match
+          case j: Json      => j
+          case null         => Json.Null
+          case s: String    => Json.fromString(s)
+          case n: Number    => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
+          case b: Boolean   => Json.fromBoolean(b)
+          case m: Map[?, ?] => mapToJson(m.asInstanceOf[Map[String, Any]])
+          case seq: Seq[?]  => Json.arr(seq.map {
+              case j: Json    => j
+              case null       => Json.Null
+              case s: String  => Json.fromString(s)
+              case n: Number  => Json.fromJsonNumber(JsonNumber.fromDecimalStringUnsafe(n.toString))
+              case b: Boolean => Json.fromBoolean(b)
+              case other      => Json.fromString(other.toString)
+            }*)
+          case other        => Json.fromString(other.toString))
+      }.toSeq*
+    )
+
+  def runWorkFromWorker(in: In)(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, InitIn] =
+    for
+      validatedInput <- ZIO.fromEither(
+                          worker.validationHandler.validate(in)
+                        )
+      out            <-
+        customInitZIO(validatedInput)
+    yield out
 
   protected def customInitZIO(
       inputObject: In
@@ -234,7 +334,7 @@ private trait InitProcessDsl[
   // by default the InConfig is initialized
   final def initProcessZIO(in: In): EngineRunContext ?=> IO[InitProcessError, Map[String, Any]] =
     given EngineContext = summon[EngineRunContext].engineContext
-    val inConfigZIO = in match
+    val inConfigZIO     = in match
       case i: WithConfig[?] =>
         ZIO
           .attempt:
@@ -245,11 +345,11 @@ private trait InitProcessDsl[
           .mapError: err =>
             InitProcessError(s"Error initializing InConfig: $err")
       case _                => ZIO.succeed(Map.empty)
-    for 
-      initIn <- customInitZIO(in)
+    for
+      initIn   <- customInitZIO(in)
       inConfig <- inConfigZIO
     yield inConfig ++ summon[EngineRunContext].toEngineObject(initIn)
-    
+
   end initProcessZIO
 
   /** initialize the config of the form of:
@@ -306,9 +406,46 @@ end InitProcessDsl
 private trait RunWorkDsl[
     In <: Product: InOutCodec,
     Out <: Product: InOutCodec
-]:
-  type RunWorkOutput    =
+] extends ValidateDsl[In], WorkerDsl[In, Out]:
+  type RunWorkOutput =
     Either[CustomError, Out]
+
+  def runWorkFromService(json: Json)(using
+      EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Option[Json]] =
+    ZIO.fromEither(json.as[In])
+      .mapError: err =>
+        WorkerError.ValidatorError(s"Problem parsing input Json to ${nameOfType[In]}: $err")
+      .flatMap(runWorkFromWorker)
+      .map:
+        case NoOutput() => None
+        case out        => Some(out.asInstanceOf[Out].asJson.deepDropNullValues)
+
+  def runWorkFromWorker(in: In)(using
+      context: EngineRunContext
+  ): ZIO[SttpClientBackend, WorkerError, Out | NoOutput] =
+    for
+      validatedInput            <- ZIO.fromEither(
+                                     worker.validationHandler.validate(in)
+                                   )
+      mockedOutput: Option[Out] <-
+        OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
+      out                       <-
+        if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
+        else ZIO.logInfo(s"Mocked output used: ${mockedOutput.get.asJson}").as(mockedOutput.get)
+    yield out
+
+  /*
+    Only call this if it is NOT an InitWorker
+   */
+  def runWorkFromWorkerUnsafe(in: In)(using EngineRunContext): IO[WorkerError, Out] =
+    runWorkFromWorker(in)
+      .asInstanceOf[IO[RunWorkError, Out]] // only if you are sure that there is a handler
+      .catchAllDefect: defect =>
+        ZIO.logError(s"DEFECT runWorkFromWorkerUnsafe: ${defect.toString}") *>
+          ZIO.fail(UnexpectedRunError(
+            s"Unexpected error runWorkFromWorkerUnsafe. Defect: ${defect.getMessage}"
+          ))
 
   protected def runWorkZIO(
       inputObject: In

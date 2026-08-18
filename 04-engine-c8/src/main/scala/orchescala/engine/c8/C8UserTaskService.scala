@@ -6,17 +6,18 @@ import io.camunda.client.api.search.response.Variable
 import orchescala.engine.domain.EngineError
 
 import java.time.OffsetDateTime
-import orchescala.domain.{CamundaVariable, Json, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams, Json, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.UserTask
 import orchescala.engine.services.UserTaskService
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 import io.circe.parser
+import orchescala.domain.CamundaVariable.CJson
 
 import scala.jdk.CollectionConverters.*
 
-class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(using
+class C8UserTaskService()(using
     camundaClientZIO: IO[EngineError, CamundaClient],
     engineConfig: EngineConfig
 ) extends UserTaskService, C8Service:
@@ -52,7 +53,11 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
             )
     yield userTask
 
-  def complete(taskId: String, out: Map[String, CamundaVariable]): IO[EngineError, Unit] =
+  def complete(
+      taskId: String,
+      processVariables: JsonObject,
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Unit] =
     for
       camundaClient <- camundaClientZIO
       taskKey       <-
@@ -60,14 +65,27 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
           EngineError.ProcessError(
             s"Problem completingUserTask converting taskId '$taskId' to Long: $err"
           )
-      userTaskDtos  <-
+
+      // Get processInstanceId from task
+      processInstanceId <- getProcessInstanceIdFromTask(taskKey)
+
+      // Sign the correlation with processInstanceId if provided
+      signedCorr      <- identityCorrelation match
+                           case Some(corr) => signCorrelation(corr, processInstanceId)
+                           case None       => ZIO.none
+      jsonVariables =
+        signedCorr
+          .map: s =>
+            processVariables.add(InputParams._identityCorrelation.toString, s.asJson.deepDropNullValues)
+          .getOrElse(processVariables)
+      camundaVariables = jsonToVariablesMap(jsonVariables.toMap)
+      _               <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             camundaClient
               .newCompleteUserTaskCommand(taskKey)
-              .variables(mapToC8Variables(Some(out)))
+              .variables(camundaVariables.asJava)
               .send()
-              .join()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem completing UserTask '$taskKey': $err"
@@ -96,5 +114,69 @@ class C8UserTaskService(val processInstanceService: C8ProcessInstanceService)(us
         taskState = Option(taskDto.getState).map(_.toString)
       )
   end mapToUserTask
+
+  private def getProcessInstanceIdFromTask(taskKey: Long): IO[EngineError, String] =
+    for
+      camundaClient     <- camundaClientZIO
+      userTask          <- ZIO
+                             .attempt:
+                               camundaClient
+                                 .newUserTaskGetRequest(taskKey)
+                                 .send()
+                                 .join()
+                             .mapError(err =>
+                               EngineError.ProcessError(s"Problem getting user task: $err")
+                             )
+      processInstanceId <- ZIO
+                             .fromOption(Option(userTask.getProcessInstanceKey).map(_.toString))
+                             .mapError(_ =>
+                               EngineError.ProcessError(s"Task $taskKey has no processInstanceId")
+                             )
+    yield processInstanceId
+
+  private def signCorrelation(
+      correlation: IdentityCorrelation,
+      processInstanceId: String
+  ): IO[EngineError, Option[IdentityCorrelation]] =
+    engineConfig.identitySigningKey match
+      case Some(key) =>
+        ZIO.some:
+          orchescala.domain.IdentityCorrelationSigner.sign(
+            correlation.copy(processInstanceId = Some(processInstanceId)),
+            processInstanceId,
+            key
+          )
+      case None      =>
+        ZIO.logWarning(
+          "No identity signing key configured - correlation will not be signed"
+        ).as:
+          Some(correlation.copy(processInstanceId = Some(processInstanceId)))
+
+  def variables(taskId: String, processInstanceId: String, variableFilter: Option[Seq[String]]): IO[EngineError, Seq[JsonProperty]] =
+    for
+      camundaClient <- camundaClientZIO
+      variableDtos  <-
+        ZIO
+          .fromFutureJava:
+            camundaClient
+              .newUserTaskVariableSearchRequest(taskId.toLong)
+              .filter(_.name(variableFilter.toSeq.flatten.contains(_)))
+              .send()
+          .map:
+            _.items()
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem getting Variables for Process Instance '$processInstanceId': $err"
+            )
+      variables     <-
+        ZIO
+          .foreach(filterVariables(variableFilter, variableDtos.asScala.toSeq)): dto =>
+            toVariableValue(dto)
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
+            )
+      _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+    yield variables
 
 end C8UserTaskService

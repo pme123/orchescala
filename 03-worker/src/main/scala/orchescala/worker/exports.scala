@@ -1,14 +1,17 @@
 package orchescala
 package worker
 
-import orchescala.domain.*
-import orchescala.worker.WorkerError.*
 import io.circe.*
-import sttp.client3.{HttpClientSyncBackend, Identity, SttpBackend}
-import zio.{Executor, IO, ZIO, ZLayer}
+import io.github.iltotore.iron.constraint.string.ValidUUID
+import io.github.iltotore.iron.refineEither
+import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
+import orchescala.worker.WorkerError.*
+import zio.{IO, ZIO}
 
+import java.nio.charset.StandardCharsets
 import java.util.Date
-import java.util.concurrent.{Executors, ThreadPoolExecutor}
+import java.util.UUID
 
 export sttp.model.Uri.UriContext
 export sttp.model.Method
@@ -48,7 +51,7 @@ end decodeTo
 type HandledErrorCodes = Seq[ErrorCodeType]
 
 sealed trait WorkerError extends OrchescalaError:
-  def isMock = false
+  def isMock                                     = false
   def generalVariables: Option[GeneralVariables] = None
 
 sealed trait ErrorWithOutput extends WorkerError:
@@ -72,6 +75,14 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`output-mocked`
     override val isMock       = true
   end MockedOutput
+
+  case class MockedOutputJson(
+      output: Json,
+      errorMsg: String = "Output mocked as Json"
+  ) extends WorkerError:
+    val errorCode: ErrorCodes = ErrorCodes.`output-mocked`
+    override val isMock       = true
+  end MockedOutputJson
 
   case object AlreadyHandledError extends WorkerError:
     val errorMsg: String      = "Error already handled."
@@ -103,8 +114,7 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`error-handledRegexNotMatched`
 
   object HandledRegexNotMatchedError:
-    def apply(error: WorkerError, regexHandledErrors: Seq[String]
-    ): HandledRegexNotMatchedError =
+    def apply(error: WorkerError, regexHandledErrors: Seq[String]): HandledRegexNotMatchedError =
       HandledRegexNotMatchedError(
         s"""The error was handled, but did not match the defined 'regexHandledErrors'.
            |Original Error: ${error.errorCode} - ${error.errorMsg}
@@ -120,6 +130,11 @@ object WorkerError:
 
   sealed trait RunWorkError extends WorkerError
 
+  case class BadSignatureError(
+      errorMsg: String
+  ) extends RunWorkError:
+    val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
+
   case class MissingHandlerError(
       errorMsg: String
   ) extends RunWorkError:
@@ -132,6 +147,11 @@ object WorkerError:
   ) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
   end CustomError
+
+  case class UnexpectedRunError(
+      errorMsg: String
+  ) extends RunWorkError:
+    val errorCode: ErrorCodes = ErrorCodes.`error-unexpected`
 
   trait ServiceError extends RunWorkError
 
@@ -155,6 +175,11 @@ object WorkerError:
   ) extends ServiceError:
     val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
 
+  object ServiceAuthError:
+    def apply(ex: WorkerError): ServiceAuthError =
+      ServiceAuthError(s"Problem authenticating request: $ex")
+  end ServiceAuthError
+
   case class ServiceBadBodyError(
       errorMsg: String
   ) extends ServiceError:
@@ -169,6 +194,28 @@ object WorkerError:
       errorCode: Int,
       errorMsg: String
   ) extends ServiceError
+
+  object ServiceRequestError:
+    given InOutCodec[ServiceRequestError] = deriveCodec
+    given ApiSchema[ServiceRequestError]  = deriveApiSchema
+
+    def apply(err: WorkerError): ServiceRequestError =
+      err match
+        case ValidatorError(msg)            => ServiceRequestError(400, msg)
+        case ServiceAuthError(msg)          => ServiceRequestError(401, msg)
+        case ServiceBadBodyError(msg)       => ServiceRequestError(400, msg)
+        case ServiceBadPathError(msg)       => ServiceRequestError(404, msg)
+        case ServiceMappingError(msg)       => ServiceRequestError(400, msg)
+        case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
+        case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
+        case err                            => ServiceRequestError(500, err.errorMsg)
+    end apply
+  end ServiceRequestError
+
+  case class TokenValidationError(
+      errorMsg: String,
+      errorCode: ErrorCodes = ErrorCodes.`mapping-error`
+  ) extends WorkerError
 
   def requestMsg[ServiceIn: InOutEncoder](
       runnableRequest: RunnableRequest[ServiceIn]
@@ -204,3 +251,27 @@ def printTimeOnConsole(start: Date) =
   s"($color$time ms${Console.RESET})"
 end printTimeOnConsole
 
+def extractGeneralVariables(json: Json) =
+  ZIO.fromEither(
+    customDecodeAccumulating[GeneralVariables](json.hcursor)
+  ).mapError(ex =>
+    ValidatorError(
+      s"Problem extract general variables from $json\n" + ex.getMessage
+    )
+  )
+
+def idempotentIdToUUID(
+    idempotentId: Option[IdempotentId],
+    // if idempotentId is not provided - use the whole input as basis for the UUID - this assumes the input is unique for each call.
+    in: Product
+): String =
+  idempotentId
+    .map: id =>
+      id.refineEither[ValidUUID]
+        .fold(
+          _ => UUID.nameUUIDFromBytes(id.getBytes(StandardCharsets.UTF_8)).toString,
+          _ => id
+        )
+    .getOrElse:
+      UUID.nameUUIDFromBytes(in.toString.getBytes(StandardCharsets.UTF_8)).toString
+end idempotentIdToUUID

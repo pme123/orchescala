@@ -1,7 +1,7 @@
 package orchescala.helper.util
 
 import orchescala.BuildInfo
-import orchescala.api.{ApiProjectConfig, DocProjectConfig, defaultProjectConfigPath}
+import orchescala.api.{ApiProjectConfig, DocProjectConfig, defaultProjectConfigPath, ModuleType}
 import orchescala.domain.BpmnProcessType
 import os.RelPath
 
@@ -21,14 +21,16 @@ case class DevConfig(
     // general project structure -  do not change if possible -
     modules: Seq[ModuleConfig] = DevConfig.modules,
     // processType to create new BPMN diagrams - default is Camunda 7
-    bpmnProcessType: BpmnProcessType = BpmnProcessType.C7()
+    bpmnProcessType: BpmnProcessType = BpmnProcessType.C7(),
+    // GitLab pipeline config
+    pipelineConfig: Option[PipelineConfig] = None
 ):
   lazy val baseDir: os.Path               = os.pwd
   lazy val projectName: String            = apiProjectConfig.projectName
   lazy val companyName: String            = apiProjectConfig.companyName
-  lazy val companyClassName: String       = companyName.head.toUpper + companyName.tail
+  lazy val companyClassName: String       = s"${companyName.head.toUpper}${companyName.tail}"
   lazy val projectShortName: String       = projectName.split("-").tail.mkString("-")
-  lazy val projectClassNames: Seq[String] = projectName.split("-").map(n => n.head.toUpper + n.tail)
+  lazy val projectClassNames: Seq[String] = projectName.split("-").toSeq.map(n => s"${n.head.toUpper}${n.tail}")
   lazy val projectShortClassName: String  = projectClassNames.last
   lazy val projectClassName: String       = projectClassNames.mkString
 
@@ -41,7 +43,7 @@ case class DevConfig(
   lazy val sbtProjectDir: os.Path  = projectDir / "project"
 
   def dependsOn(level: Int): String =
-    val aboveLevel =
+    val bLevel =
       modules
         .sortBy(_.level)
         .span(_.level < level)
@@ -49,12 +51,22 @@ case class DevConfig(
         .map(_.level)
         .getOrElse(0)
 
-    val depsOn = modules
-      .filter(_.level == aboveLevel)
-      .map(_.name)
-    if depsOn.nonEmpty
-    then depsOn.mkString(".dependsOn(", ", ", ")")
-    else ""
+    def dependsOn(belowLevel: Int): String =
+      val depsOn = modules
+        .filter: m =>
+          apiProjectConfig.modules.contains(m.moduleType)
+        .filter(_.level == belowLevel)
+        .map(_.name)
+      if depsOn.nonEmpty
+      then depsOn.mkString(".dependsOn(", ", ", ")")
+      else if belowLevel > 1
+      then
+        dependsOn(belowLevel - 1)
+      else
+        ""
+      end if
+    end dependsOn
+    dependsOn(bLevel)
   end dependsOn
 
   def withVersionConfig(versionConfig: CompanyVersionConfig): DevConfig =
@@ -112,7 +124,7 @@ object DevConfig:
 end DevConfig
 
 case class ModuleConfig(
-    name: String,
+    moduleType: ModuleType,
     level: Int,
     testType: TestType = TestType.None,
     generateSubModule: Boolean = false,
@@ -121,8 +133,18 @@ case class ModuleConfig(
     sbtPlugins: Seq[String] = Seq.empty,
     sbtDependencies: Seq[String] = Seq.empty,
     hasProjectDependencies: Boolean = false,
-    projectDependenciesTestOnly: Boolean = false
+    projectDependenciesTestOnly: Boolean = false,
+    // the orchescala artifact this module needs - usually `orchescala-<name>`,
+    // but the dmn module needs the DMN Tester implementation as well.
+    orchescalaArtifacts: Seq[String] = Seq.empty,
+    // transitive artifacts that must be kept out of this module
+    exclusions: Seq[(String, String)] = Seq.empty
 ):
+  lazy val name: String          = moduleType.toString.toLowerCase
+
+  /** the `orchescala-*` artifacts a project's module depends on */
+  lazy val orchescalaArtifactNames: Seq[String] =
+    if orchescalaArtifacts.isEmpty then Seq(name) else orchescalaArtifacts
   lazy val nameWithLevel: String =
     s"${"%02d".format(level)}-$name"
 
@@ -153,28 +175,35 @@ end ModuleConfig
 
 object ModuleConfig:
   lazy val domainModule     = ModuleConfig(
-    "domain",
+    ModuleType.domain,
     level = 1,
     testType = TestType.MUnit,
     generateSubModule = true,
     hasProjectDependencies = true
   )
   lazy val engineModule     = ModuleConfig(
-    "engine",
+    ModuleType.engine,
     level = 2,
     testType = TestType.MUnit
   )
   lazy val apiModule        = ModuleConfig(
-    "api",
+    ModuleType.api,
     level = 3
   )
   lazy val dmnModule        = ModuleConfig(
-    "dmn",
+    ModuleType.dmn,
     level = 3,
-    doPublish = false
+    doPublish = false,
+    // `dmn` is the DSL, `dmntester-server` runs the tester (and brings the DSL
+    // and the model with it)
+    orchescalaArtifacts = Seq("dmntester-server"),
+    // the DMN engine's FEEL parser is a Scala 2.13 jar and drags in geny_2.13,
+    // while os-lib brings geny_3 - sbt refuses two cross versions of the same
+    // library. The engine works with geny_3.
+    exclusions = Seq("com.lihaoyi" -> "geny_2.13")
   )
   lazy val simulationModule = ModuleConfig(
-    "simulation",
+    ModuleType.simulation,
     level = 3,
     testType = TestType.Simulation,
     doPublish = false,
@@ -183,7 +212,7 @@ object ModuleConfig:
     )
   )
   lazy val workerModule     = ModuleConfig(
-    "worker",
+    ModuleType.worker,
     level = 3,
     testType = TestType.ZIO,
     sbtSettings = Seq("dockerSettings"),
@@ -195,12 +224,12 @@ object ModuleConfig:
     hasProjectDependencies = true
   )
   lazy val helperModule     = ModuleConfig(
-    "helper",
+    ModuleType.helper,
     level = 4
   )
   // only used for gateway project
-  lazy val gatewayModule = ModuleConfig(
-    "gateway",
+  lazy val gatewayModule    = ModuleConfig(
+    ModuleType.gateway,
     level = 4,
     testType = TestType.ZIO,
     sbtSettings = Seq("dockerSettings"),

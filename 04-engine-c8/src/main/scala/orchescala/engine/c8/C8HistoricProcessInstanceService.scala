@@ -24,11 +24,10 @@ class C8HistoricProcessInstanceService(using
       c8Client        <- c8ClientZIO
       searchResponse  <-
         ZIO
-          .attempt:
+          .fromFutureJava:
             c8Client
               .newProcessInstanceGetRequest(processInstanceId.toLong)
               .send()
-              .join()
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"

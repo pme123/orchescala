@@ -1,9 +1,10 @@
 package orchescala.helper.openApi
 
 // helper/test:run
-object ProjectApiGenerator extends App:
+object ProjectApiGenerator:
 
-  OpenApiGenerator().generate
+  def main(args: Array[String]): Unit =
+    OpenApiGenerator().generate
 
   private given OpenApiConfig = camundaConf
   private lazy val typeMappers =

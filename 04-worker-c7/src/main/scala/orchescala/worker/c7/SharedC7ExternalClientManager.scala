@@ -10,16 +10,12 @@ type SharedC7ExternalClientManager = SharedClientManager[ExternalTaskClient, Thr
 object SharedC7ExternalClientManager:
 
   /** ZLayer that provides SharedC7ExternalClientManager service */
-  val layer: ZLayer[Any, Nothing, SharedC7ExternalClientManager] =
+  lazy val layer: ZLayer[Any, Nothing, SharedC7ExternalClientManager] =
     SharedClientManager.createLayer[ExternalTaskClient, Throwable](
       "C7 ExternalTask",
       client =>
         ZIO
           .attempt(client.stop())
-          .tapBoth(
-            err => ZIO.logError(s"Error closing shared C7 client: $err"),
-            _ => ZIO.logInfo("Shared C7 client closed successfully")
-          ).ignore
     )
 
   /** Convenience method to access the service */

@@ -4,6 +4,13 @@ import Settings.*
 
 ThisBuild / versionScheme          := Some("early-semver")
 
+// Try the DMN Tester with the examples of this repository:
+//   sbt dmnTester   ->   http://localhost:8883
+addCommandAlias(
+  "dmnTester",
+  "dmnTesterServer/Test/runMain orchescala.dmntester.ExampleDmnTesterApp"
+)
+
 ThisBuild / evictionErrorLevel     := Level.Warn
 //Problems in Scala 3.5.0: ThisBuild / usePipelining := true
 
@@ -20,16 +27,22 @@ lazy val root = project
     domain,
     engine,
     api,
+    dmnTester.jvm,
+    dmnTester.js,
     dmn,
+    dmnTesterServer,
+    dmnTesterClient,
     simulation,
     worker,
     helper,
     engineC7,
     engineC8,
+    engineOp,
     engineGateway,
     gateway,
     workerC7,
-    workerC8
+    workerC8,
+    workerOp
   )
 
 // general independent
@@ -43,7 +56,7 @@ lazy val docs =
       mdocSettings
     )
     .enablePlugins(LaikaPlugin, MdocPlugin)
-    .dependsOn(helper)
+    .dependsOn(helper, gateway)
 
 // layer 01
 lazy val domain = project
@@ -70,8 +83,13 @@ lazy val domain = project
       BuildInfoKey("osLibVersion", osLibVersion),
       BuildInfoKey("mUnitVersion", mUnitVersion),
       BuildInfoKey("zioVersion", zioVersion),
+      BuildInfoKey("zioLoggingVersion", zioLoggingVersion),
       BuildInfoKey("logbackVersion", logbackVersion),
-      BuildInfoKey("dmnTesterVersion", dmnTesterVersion)
+      // plugins
+      BuildInfoKey("sbtNativePackager", sbtNativePackager),
+      BuildInfoKey("sbtCiRelease", sbtCiRelease),
+      BuildInfoKey("laikaSbt", laikaSbt),
+      BuildInfoKey("sbtBuildInfo", sbtBuildInfo)
     )
   ).enablePlugins(BuildInfoPlugin)
 // layer 02
@@ -82,12 +100,35 @@ lazy val engine = project
   .settings(unitTestSettings)
   .settings(
     autoImportSetting,
-    libraryDependencies ++= Seq(
+    libraryDependencies ++= sttpDependencies ++ Seq(
+      scaffeineDependency,
       zioDependency,
       zioSlf4jDependency
     )
   )
   .dependsOn(domain)
+
+/** The DMN Tester's model - cross built, because the Scala.js client of the
+  * tester uses the very same model (JSON is the only contract between them).
+  */
+lazy val dmnTester =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("./02-dmntester"))
+    .settings(publicationSettings)
+    .settings(projectSettings("dmntester"))
+    .settings(
+      libraryDependencies ++= Seq(
+        "io.circe" %%% "circe-core"    % circeVersion,
+        "io.circe" %%% "circe-generic" % circeVersion,
+        "io.circe" %%% "circe-parser"  % circeVersion
+      )
+    )
+    .jsSettings(
+      // the model uses java.time.LocalDateTime, which Scala.js does not have
+      libraryDependencies +=
+        "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTimeVersion
+    )
 
 // layer 03
 lazy val api = project
@@ -105,18 +146,16 @@ lazy val api = project
         "com.typesafe"            % "config"    % typesafeConfigVersion
       )
   )
-  .dependsOn(domain)
+  .dependsOn(engine)
 
+/** The DSL a project uses to describe its DMN test configurations. */
 lazy val dmn = project
   .in(file("./03-dmn"))
   .settings(publicationSettings)
   .settings(projectSettings("dmn"))
   .settings(unitTestSettings)
-  .settings(
-    libraryDependencies ++= sttpDependencies :+
-      "io.github.pme123" %% "camunda-dmn-tester-shared" % dmnTesterVersion
-  )
-  .dependsOn(domain)
+  .settings(autoImportSetting)
+  .dependsOn(domain, dmnTester.jvm)
 
 lazy val simulation = project
   .in(file("./03-simulation"))
@@ -137,10 +176,10 @@ lazy val worker = project
     projectSettings("worker"),
     unitTestSettings,
     autoImportSetting,
-    libraryDependencies ++= sttpDependencies ++ Seq(
+    libraryDependencies ++= Seq(
       scaffeineDependency,
       logbackDependency
-    ) ++ zioTestDependencies
+    ) ++ zioTestDependencies ++ zioHttpDependencies
   )
   .dependsOn(engine)
 
@@ -177,6 +216,75 @@ lazy val engineC8 = project
   )
   .dependsOn(engine)
 
+lazy val checkClientBundle = taskKey[Unit]("Fails if the DMN Tester UI was not built")
+
+/** The DMN Tester itself: the DMN engine, the http server and everything that
+  * writes configurations or starts the tester.
+  */
+lazy val dmnTesterServer = project
+  .in(file("./04-dmntester-server"))
+  .settings(publicationSettings)
+  .settings(projectSettings("dmntester-server"))
+  .settings(unitTestSettings)
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++= sttpDependencies ++ dmnTesterDependencies,
+    // the tester is a singleton per JVM (a project runs ONE) - suites that
+    // start and stop it must not run at the same time
+    Test / parallelExecution := false,
+    // the tester's UI: vite bundles it into 04-dmntester-client/dist/webapp,
+    // from where it lands in this jar as `webapp/...`. ONLY that directory -
+    // the client's target/ (classes, tasty, linked js) must never end up here,
+    // it would also break scaladoc.
+    Compile / unmanagedResourceDirectories +=
+      (LocalRootProject / baseDirectory).value / "04-dmntester-client" / "dist",
+    checkClientBundle := {
+      val bundle = (LocalRootProject / baseDirectory).value /
+        "04-dmntester-client" / "dist" / "webapp" / "index.html"
+      if (!bundle.exists())
+        sys.error(
+          s"""The DMN Tester UI was not built - $bundle is missing.
+             |Run it before packaging/publishing:
+             |  cd 04-dmntester-client && npm ci && npm run build""".stripMargin
+        )
+    },
+    // never publish a tester without its UI
+    Compile / packageBin := (Compile / packageBin).dependsOn(checkClientBundle).value
+  )
+  .dependsOn(domain, dmn, dmnTester.jvm)
+
+/** The tester's UI - Scala.js + Laminar, bundled by vite into
+  * `target/webapp`, which the server serves from its jar.
+  */
+lazy val dmnTesterClient = project
+  .in(file("./04-dmntester-client"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(preventPublication)
+  .settings(projectSettings("dmntester-client"))
+  .settings(
+    scalaJSUseMainModuleInitializer := true,
+    scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+        .withModuleSplitStyle(
+          _root_.org.scalajs.linker.interface.ModuleSplitStyle
+            .SmallModulesFor(List("orchescala.dmntester"))
+        )
+    },
+    scalacOptions ++= Seq("-Xmax-inlines", "128"),
+    // vite must know where the linked JS is. Asking sbt from vite.config.js
+    // is fragile (it silently produced an empty path on CI), so the linker
+    // writes to a fixed directory that vite simply points at.
+    Compile / fastLinkJS / scalaJSLinkerOutputDirectory :=
+      target.value / "scalajs" / "dev",
+    Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
+      target.value / "scalajs" / "prod",
+    libraryDependencies ++= Seq(
+      "org.scala-js" %%% "scalajs-dom" % scalaJsDomVersion,
+      "com.raquo"    %%% "laminar"     % laminarVersion
+    )
+  )
+  .dependsOn(dmnTester.js)
+
 // Task to generate OpenAPI YAML file
 lazy val generateOpenApi = taskKey[Unit]("Generate OpenAPI specification YAML file")
 
@@ -192,7 +300,7 @@ lazy val engineGateway = project
       logbackDependency
     )
   )
-  .dependsOn(engineC7, engineC8, worker)
+  .dependsOn(engineC7, engineC8, engineOp, worker)
 
 // layer 06
 lazy val gateway = project
@@ -202,9 +310,8 @@ lazy val gateway = project
   .settings(
     autoImportSetting,
     unitTestSettings,
-    libraryDependencies ++= zioTestDependencies ++ zioHttpDependencies ++ tapirDependencies ++ Seq(
-      scaffeineDependency,
-      logbackDependency
+    libraryDependencies ++= zioTestDependencies ++ zioHttpDependencies ++ Seq(
+      oauth2Dependency
     ),
     // Task to generate OpenAPI specification (run manually with: sbt "project gateway" generateOpenApi)
     generateOpenApi := {
@@ -238,3 +345,26 @@ lazy val workerC8 = project
     ) ++ zioTestDependencies
   )
   .dependsOn(worker, engineC8)
+
+lazy val engineOp = project
+  .in(file("./04-engine-op"))
+  .settings(publicationSettings)
+  .settings(projectSettings("engine-op"))
+  .settings(
+    autoImportSetting,
+    unitTestSettings,
+    libraryDependencies ++= camunda7EngineDependencies ++ zioTestDependencies
+  )
+  .dependsOn(engineC7)
+
+lazy val workerOp = project
+  .in(file("./04-worker-op"))
+  .settings(publicationSettings)
+  .settings(projectSettings("worker-op"))
+  .settings(unitTestSettings)
+  .settings(
+    autoImportSetting,
+    libraryDependencies ++=
+      opWorkerDependencies ++ zioTestDependencies
+  )
+  .dependsOn(worker, engineOp)

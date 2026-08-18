@@ -30,7 +30,7 @@ class SignalRunner(val signalScenario: SSignalEvent)(using
                               .sendSignal(
                                 name = messageName,
                                 tenantId = config.tenantId,
-                                variables = Some(signalScenario.inOut.camundaInMap)
+                                variables = signalScenario.inOut.inAsJson.asObject
                               )
                               .as:
                                 summon[ScenarioData]

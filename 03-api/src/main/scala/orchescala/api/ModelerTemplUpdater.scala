@@ -8,6 +8,7 @@ import templates.*
 
 import java.io.StringReader
 import scala.language.postfixOps
+import scala.util.matching.Regex
 import scala.xml.*
 import scala.xml.transform.{RewriteRule, RuleTransformer}
 
@@ -119,7 +120,8 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
         case (xmlResult, project -> color -> id) =>
           println(s"  -> $project > $id -- $color")
           new RuleTransformer(changeColor(project, id)).apply(xmlResult)
-    os.write.over(bpmnPath, xmlNew.toString)
+    val xmlDeclaration = """<?xml version="1.0" encoding="UTF-8"?>""" + "\n"
+    os.write.over(bpmnPath, xmlDeclaration + CamundaXmlPrinter.toCamundaXmlString(xmlNew) + "\n")
   end extractUsesRefs
 
   private def changeColor(project: String, id: String) = new RewriteRule:
@@ -129,3 +131,59 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
       case x                                                                    => x
 
 end ModelerTemplUpdater
+
+// Serializes the XML the same way the Camunda Modeler does, so re-saving in the
+// Modeler does not produce a huge diff:
+// - self-closing tags get a space before `/>` (e.g. `<foo />` instead of `<foo/>`)
+// - `"` in attribute values is encoded as `&#34;` instead of `&quot;` (text content is untouched)
+// - `'` in attribute values is encoded as `&#39;` instead of being left as-is
+// - `xmlns:*` attributes are placed before the other attributes on a tag
+object CamundaXmlPrinter:
+  def toCamundaXmlString(node: Node): String =
+    val sb = new StringBuilder
+    Utility.serialize(node, minimizeTags = MinimizeMode.Always, sb = sb)
+    val withFixedQuoting = fixQuoting(sb.toString)
+    val withReorderedNs  = reorderNamespacesFirst(withFixedQuoting)
+    withReorderedNs.replaceAll("(?<!\\s)/>", " />")
+  end toCamundaXmlString
+
+  // scala-xml escapes `"` as `&quot;` everywhere, including plain element text content, and never
+  // escapes `'`. The Camunda Modeler only escapes `"`/`'` within attribute values (as `&#34;`/`&#39;`)
+  // and leaves text content untouched. This walks the string, treating `="..."` matches as attribute
+  // values and everything else as text/markup.
+  private val attrValuePattern: Regex = "=\"([^\"]*)\"".r
+
+  private def fixQuoting(xmlStr: String): String =
+    val sb      = new StringBuilder
+    var lastEnd = 0
+    attrValuePattern.findAllMatchIn(xmlStr).foreach { m =>
+      sb.append(xmlStr.substring(lastEnd, m.start).replace("&quot;", "\""))
+      val escapedValue = m.group(1).replace("&quot;", "&#34;").replace("'", "&#39;")
+      sb.append("=\"").append(escapedValue).append("\"")
+      lastEnd = m.end
+    }
+    sb.append(xmlStr.substring(lastEnd).replace("&quot;", "\""))
+    sb.toString
+  end fixQuoting
+
+  private val startTagPattern: Regex  = """<(?!/)([\w.:-]+)((?:\s+[\w.:-]+="[^"]*")*)(\s*/?)>""".r
+  private val singleAttrPattern: Regex = """([\w.:-]+)="([^"]*)"""".r
+
+  private def reorderNamespacesFirst(xmlStr: String): String =
+    startTagPattern.replaceAllIn(
+      xmlStr,
+      m =>
+        val tagName  = m.group(1)
+        val attrsStr = m.group(2)
+        val closing  = m.group(3)
+        val attrs    = singleAttrPattern.findAllMatchIn(attrsStr).map(a => a.group(1) -> a.group(2)).toList
+        if attrs.isEmpty then Regex.quoteReplacement(m.matched)
+        else
+          val (nsAttrs, otherAttrs) = attrs.partition(_._1.startsWith("xmlns"))
+          val reordered             = (nsAttrs ++ otherAttrs)
+            .map { case (k, v) => s""" $k="$v"""" }
+            .mkString
+          Regex.quoteReplacement(s"<$tagName$reordered$closing>")
+    )
+  end reorderNamespacesFirst
+end CamundaXmlPrinter

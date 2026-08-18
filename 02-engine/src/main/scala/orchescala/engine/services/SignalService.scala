@@ -21,6 +21,6 @@ trait SignalService extends EngineService:
       @description(
         """A JSON object containing variable key-value pairs. Each key is a variable name and each value a JSON variable value object."""
       )
-      variables: Option[Map[String, CamundaVariable]] = None
+      variables: Option[JsonObject] = None
   ): IO[EngineError, Unit]
 end SignalService

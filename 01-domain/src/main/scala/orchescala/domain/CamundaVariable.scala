@@ -8,26 +8,26 @@ import java.time.{LocalDate, LocalDateTime}
 import scala.annotation.tailrec
 
 sealed trait CamundaVariable:
-  
+
   def value: Any
   def `type`: String
 
   def toJson: Json =
     import CamundaVariable.*
     this match
-      case CNull =>
+      case CNull              =>
         Json.Null
-      case CString(value, _) =>
+      case CString(value, _)  =>
         Json.fromString(value)
       case CInteger(value, _) =>
         Json.fromInt(value)
-      case CLong(value, _) =>
+      case CLong(value, _)    =>
         Json.fromLong(value)
       case CBoolean(value, _) =>
         Json.fromBoolean(value)
-      case CDouble(value, _) =>
+      case CDouble(value, _)  =>
         Json.fromDoubleOrNull(value)
-      case file: CFile =>
+      case file: CFile        =>
         file.asJson
       case CJson(value, _) =>
         parser.parse(value).getOrElse(Json.obj())
@@ -37,41 +37,41 @@ object CamundaVariable:
 
   given InOutEncoder[CamundaVariable] =
     Encoder.instance {
-      case v: CString => v.asJson
+      case v: CString  => v.asJson
       case v: CInteger => v.asJson
-      case v: CLong => v.asJson
-      case v: CDouble => v.asJson
+      case v: CLong    => v.asJson
+      case v: CDouble  => v.asJson
       case v: CBoolean => v.asJson
-      case v: CFile => v.asJson
-      case v: CJson => v.asJson.deepDropNullValues
-      case CNull => Json.Null
+      case v: CFile    => v.asJson
+      case v: CJson    => v.asJson.deepDropNullValues
+      case CNull       => Json.Null
     }
 
   given ApiSchema[CamundaVariable] =
     deriveApiSchema
 
-  given ApiSchema[CString] = deriveApiSchema
+  given ApiSchema[CString]  = deriveApiSchema
   given InOutCodec[CString] = deriveInOutCodec
 
-  given ApiSchema[CInteger] = deriveApiSchema
+  given ApiSchema[CInteger]  = deriveApiSchema
   given InOutCodec[CInteger] = deriveInOutCodec
 
-  given ApiSchema[CLong] = deriveApiSchema
+  given ApiSchema[CLong]  = deriveApiSchema
   given InOutCodec[CLong] = deriveInOutCodec
 
-  given ApiSchema[CDouble] = deriveApiSchema
+  given ApiSchema[CDouble]  = deriveApiSchema
   given InOutCodec[CDouble] = deriveInOutCodec
 
-  given ApiSchema[CBoolean] = deriveApiSchema
+  given ApiSchema[CBoolean]  = deriveApiSchema
   given InOutCodec[CBoolean] = deriveInOutCodec
 
-  given ApiSchema[CFile] = deriveApiSchema
+  given ApiSchema[CFile]  = deriveApiSchema
   given InOutCodec[CFile] = deriveInOutCodec
 
-  given ApiSchema[CFileValueInfo] = deriveApiSchema
+  given ApiSchema[CFileValueInfo]  = deriveApiSchema
   given InOutCodec[CFileValueInfo] = deriveInOutCodec
 
-  given ApiSchema[CJson] = deriveApiSchema
+  given ApiSchema[CJson]  = deriveApiSchema
   given InOutCodec[CJson] = deriveInOutCodec
 
   def toCamunda[T <: Product: InOutEncoder](
@@ -89,7 +89,6 @@ object CamundaVariable:
           k -> objectToCamunda(product, k, v)
       .toMap
 
-
   @tailrec
   def objectToCamunda[T <: Product: InOutEncoder](
       product: T,
@@ -97,9 +96,9 @@ object CamundaVariable:
       value: Any
   ): CamundaVariable =
     value match
-      case None => CNull
-      case Some(v) => objectToCamunda(product, key, v)
-      case f @ FileInOut(fileName, _, mimeType) =>
+      case None                                   => CNull
+      case Some(v)                                => objectToCamunda(product, key, v)
+      case f @ FileInOut(fileName, _, mimeType)   =>
         CFile(
           f.contentAsBase64,
           CFileValueInfo(
@@ -120,23 +119,23 @@ object CamundaVariable:
 
   def valueToCamunda(value: Any): CamundaVariable =
     value match
-      case v: String =>
+      case v: String              =>
         CString(v)
-      case v: Int =>
+      case v: Int                 =>
         CInteger(v)
-      case v: Long =>
+      case v: Long                =>
         CLong(v)
-      case v: Boolean =>
+      case v: Boolean             =>
         CBoolean(v)
-      case v: Float =>
+      case v: Float               =>
         CDouble(v.toDouble)
-      case v: Double =>
+      case v: Double              =>
         CDouble(v)
-      case v: scala.reflect.Enum =>
+      case v: scala.reflect.Enum  =>
         CString(v.toString)
-      case ld: LocalDate =>
+      case ld: LocalDate          =>
         CString(ld.toString)
-      case ldt: LocalDateTime =>
+      case ldt: LocalDateTime     =>
         CString(ldt.toString)
       case other if other == null =>
         CNull
@@ -146,7 +145,7 @@ object CamundaVariable:
         throwErr(s"Unexpected Value to map to CamundaVariable: $other / ${other.getClass}")
 
   case object CNull extends CamundaVariable:
-    val value: Null = null
+    val value: Null    = null
     val `type`: String = "String"
   end CNull
   case class CString(value: String, val `type`: String = "String")
@@ -180,8 +179,8 @@ object CamundaVariable:
     (c: HCursor) =>
       for
         valueType <- c.downField("type").as[String]
-        anyValue = c.downField("value")
-        value <- decodeValue(valueType, anyValue, c.downField("valueInfo"))
+        anyValue   = c.downField("value")
+        value     <- decodeValue(valueType, anyValue, c.downField("valueInfo"))
       yield value
 
   def decodeValue(
@@ -190,7 +189,7 @@ object CamundaVariable:
       valueInfo: ACursor
   ): Either[DecodingFailure, CamundaVariable] =
     valueType match
-      case "Null" => Right(CNull)
+      case "Null"    => Right(CNull)
       case "Boolean" => anyValue.as[Boolean].map(CBoolean(_))
       case "Integer" => anyValue.as[Int].map(CInteger(_))
       case "Long" => anyValue.as[Long].map(CLong(_))
@@ -198,7 +197,7 @@ object CamundaVariable:
       case "Json" => anyValue.as[String].map(CJson(_))
       case "File" =>
         valueInfo.as[CFileValueInfo].map(vi => CFile("not_set", vi))
-      case _ => anyValue.as[String].map(CString(_))
+      case _         => anyValue.as[String].map(CString(_))
 
   type JsonToCamundaValue = CamundaVariable | Map[String, CamundaVariable] |
     Seq[Any]
@@ -214,9 +213,9 @@ object CamundaVariable:
         def onNumber(value: JsonNumber): CamundaVariable =
           value.toBigDecimal
             .map {
-              case v if v.isValidInt => CInteger(v.intValue)
+              case v if v.isValidInt  => CInteger(v.intValue)
               case v if v.isValidLong => CLong(v.longValue)
-              case v => CDouble(v.doubleValue)
+              case v                  => CDouble(v.doubleValue)
             }
             .getOrElse(CDouble(value.toDouble))
 

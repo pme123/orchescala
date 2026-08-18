@@ -20,6 +20,8 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
     Server(apiConfig.endpoint).description("Local Developer Server")
   )
 
+  def main(args: Array[String]): Unit = () // starts the app
+
   /** You can adjust the OpenApi for Postman, e.g. to replace some values with placeholders.
     *
     * @param api
@@ -35,7 +37,7 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
       name: String,
       groupAnchor: Option[String] = None
   ): String =
-    val projName = s"${apiConfig.docBaseUrl.mkString}/${apiConfig.companyName}/$projectName"
+    val projName = s"${apiConfig.docBaseUrl.mkString}/site/${apiConfig.companyName}/$projectName"
     val anchor   = groupAnchor
       .map(_ =>
         s"operation/${name.replace(" ", "%20")}"
@@ -46,13 +48,10 @@ trait AbstractApiCreator extends ProcessReferenceCreator:
 
   extension (inOutApi: InOutApi[?, ?])
     def endpointName(inOutDocu: InOutDocu): String =
-      val name        = (inOutApi, inOutApi.inOut.in) match
-        case (_: ServiceWorkerApi[?, ?, ?, ?], _) => inOutApi.inOutDescr.shortName
-        case (_, gs: GenericServiceIn)            => gs.shortServiceName
-        case _                                    => inOutApi.inOutDescr.shortName
+      val name        = inOutApi.inOutDescr.shortName
       val typePostfix = (inOutDocu, inOutApi.inOutType) match
         case (InOutDocu.IN, InOutType.UserTask) => " complete"
-        case (_, InOutType.UserTask)            => s" variables"
+        case (_, InOutType.UserTask)            => " variables"
         case _                                  => ""
       s"${inOutApi.inOutType}$typePostfix: $name"
   end extension

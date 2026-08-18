@@ -2,6 +2,7 @@ package orchescala.engine.c7
 
 import orchescala.engine.SharedClientManager
 import orchescala.engine.domain.EngineError
+import orchescala.engine.rest.SttpClientBackend
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.*
 
@@ -11,10 +12,11 @@ type SharedC7ClientManager = SharedClientManager[ApiClient, EngineError]
 object SharedC7ClientManager:
 
   /** ZLayer that provides SharedC7ClientManager service */
-  val layer: ZLayer[Any, Nothing, SharedC7ClientManager] =
+  lazy val layer: ZLayer[Any, Nothing, SharedC7ClientManager] =
     SharedClientManager.createLayer[ApiClient, EngineError](
-      "C7 API",
-      client => ZIO.attempt(client.getHttpClient.close()).ignore
+      "C7 Client",
+      client => ZIO
+        .attempt(client.getHttpClient.close())
     )
 
   /** Convenience method to access the service */

@@ -2,7 +2,8 @@ package orchescala.worker
 
 import io.circe.Decoder.Result
 import orchescala.domain.*
-import orchescala.engine.EngineRuntime
+import orchescala.engine.{EngineConfig, EngineRuntime}
+import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.{BadVariableError, ValidatorError}
 import zio.*
@@ -10,36 +11,33 @@ import zio.*
 trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends WorkerDsl[In, Out]:
 
+  /** Maximum time a worker is allowed to execute before being interrupted.
+    * Override this in your worker if you need a different timeout.
+    * Default is 5 minutes.
+    */
+  protected def workerTimeout: Duration = 5.minutes
+
   protected def executeWithScope[T](jobId: String)(
       execution: ZIO[SttpClientBackend, Throwable, T]
   ): Unit =
     Unsafe.unsafe:
       implicit unsafe =>
         EngineRuntime.zioRuntime.unsafe.fork:
-          ZIO.scoped:
-            for
-              fiber  <-
-                execution
-                  .provideLayer(
-                    EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger
-                  )
-                  .fork
-              _      <- ZIO.addFinalizer:
-                          fiber.status.flatMap: status =>
-                            fiber.interrupt.when(!status.isDone)
-              result <- fiber.join
-            yield result
-          .ensuring:
-            ZIO.logDebug(s"Worker execution for job $jobId completed and resources cleaned up")
-
-  protected def extractGeneralVariables(json: Json) =
-    ZIO.fromEither(
-      customDecodeAccumulating[GeneralVariables](json.hcursor)
-    ).mapError(ex =>
-      ValidatorError(
-        s"Problem extract general variables from $json\n" + ex.getMessage
-      )
-    )
+          execution
+            .provideLayer(
+              EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live ++ EngineRuntime.logger
+            )
+            .timeout(workerTimeout)
+            .flatMap:
+              case Some(value) =>
+                ZIO.logDebug(s"Worker execution for job $jobId completed successfully").as(value)
+              case None =>
+                ZIO.logError(s"Worker execution for job $jobId timed out after $workerTimeout") *>
+                  ZIO.fail(new RuntimeException(s"Worker execution timed out after $workerTimeout"))
+                    .tapError(err => ZIO.logError(s"Worker execution for job $jobId failed: $err"))
+            .catchAll: ex =>
+              ZIO.logError(s"Worker execution for job $jobId failed: $ex\n${ex.getStackTrace.mkString("\n")}")
+                .unit // Return unit instead of failing
 
   protected def extractBusinessKey(json: Json) =
     ZIO.fromEither(json.as[BusinessKey].map(_.businessKey.getOrElse("no businessKey")))

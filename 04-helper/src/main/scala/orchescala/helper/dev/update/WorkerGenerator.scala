@@ -36,13 +36,18 @@ case class WorkerGenerator()(using config: DevConfig):
     createWorkerApp("WorkerApp")
 
   private lazy val workerTestApp =
-    createWorkerApp("WorkerTestApp", Some(config.apiProjectConfig.dependencies))
+    createWorkerApp(
+      "WorkerTestApp",
+      Some(config.apiProjectConfig.allDependencies),
+      helperDoNotAdjustText
+    )
 
   private def createWorkerApp(
       objName: String,
-      dependencies: Option[Seq[DependencyConfig]] = None
+      dependencies: Option[Seq[DependencyConfig]] = None,
+      resetText: String = helperHowToResetText
   ) =
-    s"""$helperDoNotAdjustText
+    s"""$resetText
        |package ${config.projectPackage}.worker
        |
        |// sbt worker/${dependencies.map(_ => "test:").getOrElse("")}run
@@ -55,7 +60,7 @@ case class WorkerGenerator()(using config: DevConfig):
         dependencies
           .map:
             _.map(_.projectPackage + ".worker.WorkerApp")
-              .mkString("WorkerApp,\n    ",",\n    ", "")
+              .mkString("WorkerApp,\n    ", ",\n    ", "")
           .getOrElse("")
       }
        |  )
@@ -114,7 +119,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |end ${workerName}Worker""".stripMargin
   end processElement
 
-  private def workerContent(label: String) =
+  private def workerContent(label: String)                  =
     if label == "CustomTask"
     then
       """  lazy val customTask = example
@@ -280,7 +285,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |<configuration>
        |    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
        |        <encoder>
-       |            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+       |            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
        |        </encoder>
        |    </appender>
        |

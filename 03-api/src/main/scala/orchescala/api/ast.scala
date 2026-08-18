@@ -72,10 +72,9 @@ sealed trait InOutApi[
     inOut.inVariableNames
 
   lazy val variableNamesOut: Seq[String] =
-    println(s"inOut.outVariableNames: ${inOut.outVariableNames} - ${inOut.otherEnumOutExamples}")
     inOut.outVariableNames
 
-  def apiDescription(companyName: String): String =
+  def apiDescription(companyName: String, inOutDocu: InOutDocu): String =
     s"""$descr
        |
        |- Input:  `${inOut.in.getClass.getName.replace("$", " > ")}`
@@ -87,7 +86,7 @@ sealed trait InOutApi[
 
   protected def diagramFrame(companyName: String): String =
     val postfix         = if typeName == "Process" then "bpmn" else "dmn"
-    val postfixUpper    = postfix.head.toUpper + postfix.tail
+    val postfixUpper    = s"${postfix.head.toUpper}${postfix.tail}"
     val pureDiagramName = diagramName.getOrElse(id)
     val name            = pureDiagramName.replaceFirst(s"$companyName-", "")
     val fileName        = s"$name.$postfix"
@@ -129,13 +128,13 @@ case class ProcessApi[
   ): InOutApi[In, Out] =
     copy(apiExamples = examples)
 
-  override def apiDescription(companyName: String): String =
-    s"""${super.apiDescription(companyName)}
+  override def apiDescription(companyName: String, inOutDocu: InOutDocu): String =
+    s"""${super.apiDescription(companyName, inOutDocu)}
        |
        |${inOut.in match
-        case _: GenericServiceIn => "" // no diagram if generic
-        case _                   =>
+        case _   if inOutDocu == InOutDocu.IN                =>
           diagramFrame(companyName)
+        case _ => ""
       }
        |${generalVariablesDescr(inOut.out, "")}""".stripMargin
 
@@ -198,11 +197,11 @@ sealed trait ExternalTaskApi[
   def processName: String = inOut.processName
   lazy val topicName      = inOut.topicName
 
-  override def apiDescription(companyName: String): String =
+  override def apiDescription(companyName: String, inOutDocu: InOutDocu): String =
     s"""
        |**Topic:** `$topicName` (to define in the _**Topic**_ of the _**External Task**_ > _Service Task_ of type _External_)
        |
-       |${super.apiDescription(companyName)}
+       |${super.apiDescription(companyName, inOutDocu)}
        |
        |You can test this worker using the generic process _**$GenericExternalTaskProcessName**_ (e.g. with Postman).
        |""".stripMargin
@@ -224,10 +223,10 @@ case class ServiceWorkerApi[
   ): InOutApi[In, Out] =
     copy(apiExamples = examples)
 
-  override def apiDescription(companyName: String): String =
+  override def apiDescription(companyName: String, inOutDocu: InOutDocu): String =
     s"""
        |
-       |${super.apiDescription(companyName)}
+       |${super.apiDescription(companyName, inOutDocu)}
        |- ServiceOut:  `$serviceOutDescr`
        |${generalVariablesDescr(
         inOut.out,
@@ -309,8 +308,8 @@ case class DecisionDmnApi[
   def toActivityApi: ActivityApi[In, Out] =
     ActivityApi(name, inOut)
 
-  override def apiDescription(companyName: String): String =
-    s"""${super.apiDescription(companyName)}
+  override def apiDescription(companyName: String, inOutDocu: InOutDocu): String =
+    s"""${super.apiDescription(companyName, inOutDocu)}
        |${diagramFrame(companyName: String)}""".stripMargin
 end DecisionDmnApi
 

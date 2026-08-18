@@ -1,34 +1,26 @@
 package orchescala.helper.dev.update
 
-import orchescala.api.DependencyConfig
+import orchescala.api.ModuleType
 
 case class GatewayGenerator()(using config: DevConfig):
 
   lazy val generate: Unit =
-    createOrUpdate(gatewayPath / "GatewayServerApp.scala", gatewayApp)
-    createOrUpdate(gatewayConfigPath / "logback.xml", logbackXml)
+    if config.apiProjectConfig.modules.contains(ModuleType.gateway) then
+      createOrUpdate(gatewayPath / "GatewayServerApp.scala", gatewayApp)
+      createOrUpdate(gatewayConfigPath / "logback.xml", logbackXml)
   end generate
 
   private lazy val companyName = config.companyName
   private lazy val gatewayApp  =
     val objName      = "GatewayServerApp"
-    val dependencies = (config.apiProjectConfig.dependencies ++ config.apiProjectConfig.workerDependencies).toSet
+    val dependencies = config.apiProjectConfig.allDependencies
 
     s"""$helperDoNotAdjustText
        |package ${config.projectPackage}
        |
-       |import ${companyName}.orchescala.gateway.CompanyGatewayServerApp
-       |
        |// sbt gateway/run
-       |object $objName extends CompanyGatewayServerApp:
-       |  // You can add single workers, lists of workers or even complete WorkerApps. And a mix of all of them.
-       |  supportedWorkers(
-       |    ${dependencies
-        .map:
-          _.projectPackage + ".worker.WorkerApp"
-        .mkString("", ",\n    ", "")}
-       |  )
-       |end $objName""".stripMargin
+       |object $objName extends GatewayServer, CompanyEngineGApp
+       |""".stripMargin
   end gatewayApp
 
   lazy val logbackXml =
@@ -36,7 +28,7 @@ case class GatewayGenerator()(using config: DevConfig):
        |<configuration>
        |    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
        |        <encoder>
-       |            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+       |            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
        |        </encoder>
        |    </appender>
        |

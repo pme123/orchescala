@@ -2,26 +2,24 @@ package orchescala.engine
 package c7
 
 import orchescala.domain.CamundaVariable.CNull
-import orchescala.domain.{CamundaVariable, InOutDecoder, InOutEncoder, Json, JsonProperty}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineError.MappingError
 import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
-import org.camunda.community.rest.client.api.{ProcessInstanceApi, TaskApi}
-import org.camunda.community.rest.client.dto.{
-  CompleteTaskDto,
-  TaskWithAttachmentAndCommentDto,
-  VariableValueDto
-}
+import org.camunda.community.rest.client.api.TaskApi
+import org.camunda.community.rest.client.dto.{CompleteTaskDto, TaskQueryDto, TaskWithAttachmentAndCommentDto, VariableValueDto}
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
-import io.circe.parser
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
 
-class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(using apiClientZIO: IO[EngineError, ApiClient], engineConfig: EngineConfig)
-    extends UserTaskService, C7Service:
+class C7UserTaskService() (using
+    apiClientZIO: IO[EngineError, ApiClient],
+    engineConfig: EngineConfig
+) extends UserTaskService, C7Service:
 
   def getUserTask(
       processInstanceId: String,
@@ -33,121 +31,77 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
         logInfo(
           s"Getting UserTask for processInstanceId: $processInstanceId - userTaskDefId: $userTaskDefId"
         )
+      query     =  new TaskQueryDto()
+                     .processInstanceId(processInstanceId)
+                     .taskDefinitionKey(userTaskDefId)
       taskDtos  <- ZIO
                      .attempt:
-                       new TaskApi(apiClient)
-                         .getTasks(
-                           null,              // taskId,
-                           null,              // taskIdIn,
-                           processInstanceId, // processInstanceId,
-                           null,              // processInstanceIdIn,
-                           null,              // processInstanceBusinessKey,
-                           null,              // processInstanceBusinessKeyExpression,
-                           null,              // processInstanceBusinessKeyIn,
-                           null,              // processInstanceBusinessKeyLike,
-                           null,              // processInstanceBusinessKeyLikeExpression,
-                           null,              // processDefinitionId,
-                           null,              // processDefinitionKey,
-                           null,              // processDefinitionKeyIn,
-                           null,              // processDefinitionName,
-                           null,              // processDefinitionNameLike,
-                           null,              // executionId,
-                           null,              // caseInstanceId,
-                           null,              // caseInstanceBusinessKey,
-                           null,              // caseInstanceBusinessKeyLike,
-                           null,              // caseDefinitionId,
-                           null,              // caseDefinitionKey,
-                           null,              // caseDefinitionName,
-                           null,              // caseDefinitionNameLike,
-                           null,              // caseExecutionId,
-                           null,              // activityInstanceIdIn,
-                           null,              // tenantIdIn,
-                           null,              // withoutTenantId,
-                           null,              // assignee,
-                           null,              // assigneeExpression,
-                           null,              // assigneeLike,
-                           null,              // assigneeLikeExpression,
-                           null,              // assigneeIn,
-                           null,              // assigneeNotIn,
-                           null,              // owner,
-                           null,              // ownerExpression,
-                           null,              // candidateGroup,
-                           null,              // candidateGroupLike,
-                           null,              // candidateGroupExpression,
-                           null,              // candidateUser,
-                           null,              // candidateUserExpression,
-                           null,              // includeAssignedTasks,
-                           null,              // involvedUser,
-                           null,              // involvedUserExpression,
-                           null,              // assigned,
-                           null,              // unassigned,
-                           userTaskDefId,     // taskDefinitionKey,
-                           null,              // taskDefinitionKeyIn,
-                           null,              // taskDefinitionKeyLike,
-                           null,              // name,
-                           null,              // nameNotEqual,
-                           null,              // nameLike,
-                           null,              // nameNotLike,
-                           null,              // description,
-                           null,              // descriptionLike,
-                           null,              // priority,
-                           null,              // maxPriority,
-                           null,              // minPriority,
-                           null,              // dueDate,
-                           null,              // dueDateExpression,
-                           null,              // dueAfter,
-                           null,              // dueAfterExpression,
-                           null,              // dueBefore,
-                           null,              // dueBeforeExpression,
-                           null,              // withoutDueDate,
-                           null,              // followUpDate,
-                           null,              // followUpDateExpression,
-                           null,              // followUpAfter,
-                           null,              // followUpAfterExpression,
-                           null,              // followUpBefore,
-                           null,              // followUpBeforeExpression,
-                           null,              // followUpBeforeOrNotExistent,
-                           null,              // followUpBeforeOrNotExistentExpression,
-                           null,              // createdOn,
-                           null,              // createdOnExpression,
-                           null,              // createdAfter,
-                           null,              // createdAfterExpression,
-                           null,              // createdBefore,
-                           null,              // createdBeforeExpression,
-                           null,              // updatedAfter,
-                           null,              // updatedAfterExpression,
-                           null,              // delegationState,
-                           null,              // candidateGroups,
-                           null,              // candidateGroupsExpression,
-                           null,              // withCandidateGroups,
-                           null,              // withoutCandidateGroups,
-                           null,              // withCandidateUsers,
-                           null,              // withoutCandidateUsers,
-                           null,              // active,
-                           null,              // suspended,
-                           null,              // taskVariables,
-                           null,              // processVariables,
-                           null,              // caseInstanceVariables,
-                           null,              // variableNamesIgnoreCase,
-                           null,              // variableValuesIgnoreCase,
-                           null,              // parentTaskId,
-                           null,              // withCommentAttachmentInfo,
-                           null,              // sortBy,
-                           null,              // sortOrder,
-                           null,              // firstResult,
-                           null               // maxResults) throws ApiException {
-                         )
+                       new TaskApi(apiClient).queryTasks(null, null, query)
                      .mapError(err =>
                        EngineError.ProcessError(s"Problem getting tasks: $err")
                      )
       _         <- logDebug(s"TaskDtos found: $taskDtos")
     yield mapToUserTasks(taskDtos)
-
-  def complete(taskId: String, variables: Map[String, CamundaVariable]): IO[EngineError, Unit] =
+  
+  def variables(
+      taskId: String,
+      processInstanceId: String,
+      variableFilter: Option[Seq[String]]
+              ): IO[EngineError, Seq[JsonProperty]] =
     for
-      apiClient    <- apiClientZIO
-      _            <- logDebug(s"Completing UserTask: $taskId - $variables")
-      variableDtos <- toC7Variables(variables)
+      apiClient <- apiClientZIO
+      _ <- ZIO.logDebug(s"Getting Variables for UserTask '$taskId' of ProcessInstance '$processInstanceId' with variableFilter: ${variableFilter.toSeq.flatten.mkString(",")}")
+      variableDtos <-
+        ZIO
+          .attempt:
+            new TaskApi(apiClient)
+              .getFormVariables(taskId, variableFilter.map(_.mkString(",")).orNull, false)
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem getting Variables for UserTask '$taskId' of ProcessInstance '$processInstanceId': $err"
+            )
+      variables <-
+        ZIO
+          .foreach(filterVariables(variableFilter, variableDtos)):
+            case k -> dto =>
+              toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
+          .mapError: err =>
+            EngineError.ProcessError(
+              s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
+            )
+      _ <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+    yield variables.toSeq
+    
+  def complete(
+      taskId: String,
+      processVariables: JsonObject,
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Unit] =
+    for
+      apiClient <- apiClientZIO
+      _         <- logInfo(s"Completing UserTask: $taskId")
+
+      // Get existing correlation from process or use provided one
+      existingCorr <- getOrUpdateCorrelation(taskId, identityCorrelation)
+      _            <- logInfo(s"existingCorr existingCorr: $taskId")
+
+      // Get processInstanceId from task
+      processInstanceId <- getProcessInstanceIdFromTask(taskId)
+
+      // Sign the correlation with processInstanceId if provided
+      signedCorr <- existingCorr match
+                      case Some(corr) => signCorrelation(corr, processInstanceId)
+                      case None       => ZIO.succeed(None)
+      _          <- logInfo(s"existingCorr $signedCorr: $taskId")
+
+      // Build variables with signed correlation
+      jsonObj = processVariables.add(
+                  InputParams._identityCorrelation.toString,
+                  signedCorr.asJson.deepDropNullValues
+                )
+      _      <- logInfo(s"complete UserTask: $taskId - $jsonObj")
+
+      variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
       _            <- ZIO
                         .attempt:
                           new TaskApi(apiClient)
@@ -159,6 +113,7 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
                         .mapError(err =>
                           EngineError.ProcessError(s"Problem completing task: $err")
                         )
+      _            <- logInfo(s"UserTask completed: $taskId")
     yield ()
 
   private def mapToUserTasks(taskDtos: java.util.List[TaskWithAttachmentAndCommentDto])
@@ -198,7 +153,115 @@ class C7UserTaskService(val processInstanceService: C7ProcessInstanceService)(us
         MappingError(
           s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: $err"
         )
-  
 
+  private def getOrUpdateCorrelation(
+      taskId: String,
+      identityCorrelation: Option[IdentityCorrelation]
+  ): IO[EngineError, Option[IdentityCorrelation]] =
+    for
+      apiClient <- apiClientZIO
+      variables <-
+        ZIO
+          .attempt:
+            new TaskApi(apiClient)
+              .getFormVariables(
+                taskId,
+                s"identityCorrelation,doOverrideImpersonation,$impersonateProcessKeyLabel",
+                false
+              ).asScala
+          .mapError: err =>
+            EngineError.ProcessError(s"Problem getting form variables: $err")
+
+      doOverrideImpersonation <- checkOverride(variables)
+      impersonateProcessValue <- impersonateProcessValue(variables)
+      idCorrelation           <-
+        if doOverrideImpersonation then
+          // impersonateProcessValue is not set in the identityCorrelation, but maybe in the existing Correlation
+          ZIO.succeed(identityCorrelation.map(_.copy(impersonateProcessValue =
+            impersonateProcessValue
+          )))
+        else
+          variables
+            .get(InputParams._identityCorrelation.toString)
+            .map: dto =>
+              toVariableValue(dto)
+                .map: v =>
+                  val json = v.toJson
+                  Some(
+                    IdentityCorrelation(
+                      username =
+                        json.hcursor.downField("username").as[String].getOrElse("BAD_USERNAME"),
+                      email = json.hcursor.downField("email").as[Option[String]].getOrElse(None),
+                      impersonateProcessValue = json.hcursor.downField(
+                        "impersonateProcessValue"
+                      ).as[Option[String]].getOrElse(None),
+                      issuedAt = json.hcursor.downField(
+                        "issuedAt"
+                      ).as[Long].getOrElse(System.currentTimeMillis()),
+                      processInstanceId = json.hcursor.downField(
+                        "processInstanceId"
+                      ).as[Option[String]].getOrElse(None),
+                      signature =
+                        json.hcursor.downField("signature").as[Option[String]].getOrElse(None)
+                    )
+                  )
+            .getOrElse(ZIO.none)
+    yield idCorrelation
+
+  private def checkOverride(variables: mutable.Map[String, VariableValueDto])
+      : ZIO[Any, Nothing, Boolean] =
+    ZIO
+      .attempt:
+        variables.get("doOverrideImpersonation").forall(v => Boolean.unbox(v.getValue))
+      .catchAll: err =>
+        ZIO.logError(s"Problem getting doOverrideImpersonation: $err")
+          .as(true)
+
+  private def impersonateProcessValue(variables: mutable.Map[String, VariableValueDto])
+      : ZIO[Any, Nothing, Option[String]] =
+    ZIO
+      .attempt:
+        variables.get(impersonateProcessKeyLabel).map(v => String.valueOf(v.getValue))
+      .catchAll: err =>
+        ZIO.logError(s"Problem getting impersonateProcessValue: $err")
+          .as(None)
+
+  private lazy val impersonateProcessKeyLabel = engineConfig.impersonateProcessKey.getOrElse("NONE")
+
+  private def getProcessInstanceIdFromTask(taskId: String): IO[EngineError, String] =
+    for
+      apiClient         <- apiClientZIO
+      task              <- ZIO
+                             .attempt:
+                               new TaskApi(apiClient).getTask(taskId)
+                             .mapError(err =>
+                               EngineError.ProcessError(s"Problem getting task: $err")
+                             )
+      processInstanceId <- ZIO
+                             .fromOption(Option(task.getProcessInstanceId))
+                             .mapError(_ =>
+                               EngineError.ProcessError(s"Task $taskId has no processInstanceId")
+                             )
+    yield processInstanceId
+
+  private def signCorrelation(
+      correlation: IdentityCorrelation,
+      processInstanceId: String
+  ): IO[EngineError, Option[IdentityCorrelation]] =
+    engineConfig.identitySigningKey match
+      case Some(key) =>
+        ZIO.succeed:
+          Some(
+            orchescala.domain.IdentityCorrelationSigner.sign(
+              correlation.copy(processInstanceId = Some(processInstanceId)),
+              processInstanceId,
+              key
+            )
+          )
+      case None      =>
+        ZIO.logWarning(
+          "No identity signing key configured - correlation will not be signed"
+        ) *>
+          ZIO.succeed(Some(correlation.copy(processInstanceId = Some(processInstanceId))))
 
 end C7UserTaskService

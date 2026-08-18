@@ -29,7 +29,7 @@ case class BpmnGenerator()(using config: DevConfig):
     )
     if setupElement.label == "ServiceTask"
     then
-      val superTrait = processName.head.toUpper + processName.tail + s"V${version.getOrElse(1)}"
+      val superTrait = s"${processName.head.toUpper}${processName.tail}V${version.getOrElse(1)}"
       createOrUpdate(
         domainPath(
           processName,
@@ -59,7 +59,7 @@ case class BpmnGenerator()(using config: DevConfig):
        |
        |object $domainName extends ${
         if label == "ServiceTask"
-        then processName.head.toUpper + processName.tail + s"${version.versionLabel}:"
+        then s"${processName.head.toUpper}${processName.tail}${version.versionLabel}:"
         else s"CompanyBpmn${label}Dsl:"
       }
        |
@@ -108,7 +108,7 @@ case class BpmnGenerator()(using config: DevConfig):
        |object $superTrait:
        |
        |  final val serviceVersion = "${version.getOrElse(1)}.0"
-       |  final val serviceLabel = s"${processName.head.toUpper + processName.tail} $$serviceVersion"
+       |  final val serviceLabel = s"${s"${processName.head.toUpper}${processName.tail}"} $$serviceVersion"
        |
        |  val description = ""
        |  val externalDoc = ""
@@ -154,7 +154,7 @@ case class BpmnGenerator()(using config: DevConfig):
         if label == "Timer" then ""
         else inClass
       }
-       |  lazy val example = ${label.head.toLower + label.tail}Event(${
+       |  lazy val example = ${s"${label.head.toLower}${label.tail}"}Event(${
         if label == "Timer" then ""
         else "In()"
       })
@@ -251,7 +251,7 @@ case class BpmnGenerator()(using config: DevConfig):
         |    Out.example // Seq[Out] for collectEntries or  or resultList
         | """.stripMargin
     else
-      s"""${label.head.toLower + label.tail}(
+      s"""${s"${label.head.toLower}${label.tail}"}(
          |    In.example${if isMinimal then "Minimal" else ""},
          |    Out.example${if isMinimal then "Minimal" else ""}${
           if isProcess then ",\n    InitIn()" else ""

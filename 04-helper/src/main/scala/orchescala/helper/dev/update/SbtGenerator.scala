@@ -15,7 +15,7 @@ case class SbtGenerator()(using
   end generate
 
   lazy val generateForGateway: Unit =
-    println(s"Generate Sbt for Gateway: ${config.modules}")
+    println(s"Generate Sbt for Gateway: $modulesTypes")
     createOrUpdate(buildSbtDir, buildSbtForGateway)
     generateBuildProperties()
     generatePluginsSbt
@@ -61,7 +61,7 @@ case class SbtGenerator()(using
        |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
        |
        |// docker image
-       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.10.0")
+       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.11.4")
        |
        |""".stripMargin
 
@@ -78,6 +78,8 @@ case class SbtGenerator()(using
        |
        |${
         config.modules
+          .filter: m =>
+            modulesTypes.contains(m.moduleType)
           .filter(_.hasProjectDependencies)
           .map: moduleConfig =>
             val moduleName: String = moduleConfig.name
@@ -100,7 +102,7 @@ case class SbtGenerator()(using
        |    sourcesInBase := false,
        |    projectSettings(),
        |    publicationSettings, //Camunda artifacts
-       |  ).aggregate(${config.modules.map(_.name).mkString(", ")})
+       |  ).aggregate(${modulesTypes.mkString(", ")})
        |""".stripMargin
 
   lazy val sbtRootForGateway =
@@ -116,6 +118,8 @@ case class SbtGenerator()(using
 
   lazy val sbtModules =
     config.modules
+      .filter: m =>
+        modulesTypes.contains(m.moduleType)
       .map: modC =>
         sbtModule(modC)
       .mkString
@@ -126,7 +130,7 @@ case class SbtGenerator()(using
     val sbtSettings = modC.sbtSettings
 
     def sbtSubProjectName(subProject: String) =
-      name + subProject.head.toUpper + subProject.tail
+      s"$name${subProject.head.toUpper}${subProject.tail}"
 
     val (subProjects, aggregateSubProjects) =
       if modC.generateSubModule then
@@ -197,4 +201,5 @@ case class SbtGenerator()(using
       case TestType.Simulation =>
         s""",
            |    simulationSettings""".stripMargin
+  private lazy val modulesTypes = config.apiProjectConfig.modules
 end SbtGenerator

@@ -12,17 +12,22 @@ def shortenTag(refIdentShort: String) =
   tag.replace(".", " ").replace("-", " ").replace("_", " ").replace("  ", " ")
     .split(" ")
     .map: n =>
-      n.head.toUpper + n.tail
+      s"${n.head.toUpper}${n.tail
         .map :
           case c: Char if c.isUpper => s" $c"
           case c => s"$c"
-        .mkString
-    .mkString(" ")  
+        .mkString}"
+    .mkString(" ")
 end shortenTag
 
 enum InOutDocu:
   case IN, OUT, BOTH
-  
+
+enum ModuleType:
+  case domain, engine, api, dmn, simulation, worker, helper, gateway
+object ModuleType:
+  def projectModules: Seq[ModuleType] = Seq(domain, api, dmn, simulation, worker)
+end ModuleType
 extension (proc: os.proc)
   def callOnConsole(path: os.Path = os.pwd): CommandResult =
     proc.call(cwd = path, stdout = os.Inherit)

@@ -1,18 +1,21 @@
 package orchescala.helper.dev.update
 
+import orchescala.api.ModuleType
+
 case class ApiGenerator()(using config: DevConfig):
 
-  private lazy val companyNameNice = config.companyName.head.toUpper + config.companyName.tail
+  private lazy val companyNameNice = s"${config.companyName.head.toUpper}${config.companyName.tail}"
 
   lazy val generate: Unit =
-    createIfNotExists(
-      config.projectDir / ModuleConfig.apiModule.packagePath(
-        config.projectPath
-      ) / "ApiProjectCreator.scala",
-      api
-    )
-    createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", openApiHtml)
-    createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", postmanOpenApiHtml)
+    if config.apiProjectConfig.modules.contains(ModuleType.api) then
+      createIfNotExists(
+        config.projectDir / ModuleConfig.apiModule.packagePath(
+          config.projectPath
+        ) / "ApiProjectCreator.scala",
+        api
+      )
+      createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", openApiHtml)
+      createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", postmanOpenApiHtml)
   end generate
 
   lazy val api =
@@ -62,6 +65,9 @@ case class ApiGenerator()(using config: DevConfig):
        |    <link rel="stylesheet" href="https://unpkg.com/dmn-js@14.1.0/dist/assets/dmn-js-decision-table.css">
        |    <link rel="stylesheet" href="https://unpkg.com/dmn-js@14.1.0/dist/assets/dmn-js-literal-expression.css">
        |    <link rel="stylesheet" href="https://unpkg.com/dmn-js@14.1.0/dist/assets/dmn-font/css/dmn.css">
+       |
+       |    <!-- Mermaid.js for diagram rendering -->
+       |    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
        |
        |    <!--
        |    ReDoc doesn't change outer page styles
@@ -124,7 +130,7 @@ case class ApiGenerator()(using config: DevConfig):
        |<body>
        |<header id="myHeader">
        |    <p class="homeLink">
-       |        <a href="../index.html">
+       |        <a href="/site/${config.companyName}/index.html">
        |            <svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" width="24px" height="24px"
        |                 viewBox="0 0 391.08 391.08">
        |                <title>$companyNameNice Documentation Home</title>
@@ -185,7 +191,7 @@ case class ApiGenerator()(using config: DevConfig):
        |
        |    function openFromUrl(url, viewer) {
        |        console.log('attempting to open <' + url + '>');
-       |        $$.ajax("src/main/resources/camunda/" + url, {dataType: 'text'}).done(async function (xml) {
+       |        $$.ajax("diagrams/" + url, {dataType: 'text'}).done(async function (xml) {
        |
        |            try {
        |                await viewer.importXML(xml);
@@ -200,8 +206,8 @@ case class ApiGenerator()(using config: DevConfig):
        |        });
        |    }
        |</script>
-       |<redoc class="content" spec-url='./OpenApi.yml'></redoc>
-       |<script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"></script>
+       |<redoc class="content" spec-url='OpenApi.yml'></redoc>
+       |<script src="https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js"></script>
        |</body>
        |</html>
        |""".stripMargin
@@ -229,7 +235,7 @@ case class ApiGenerator()(using config: DevConfig):
        |</head>
        |<body>
        |<redoc spec-url='./postmanOpenApi.yml'></redoc>
-       |<script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"> </script>
+       |<script src="https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js"> </script>
        |</body>
        |</html>""".stripMargin
 end ApiGenerator

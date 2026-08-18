@@ -4,6 +4,7 @@ package worker
 import orchescala.domain.*
 import orchescala.worker.WorkerError.*
 import io.circe.syntax.*
+import orchescala.engine.rest.SttpClientBackend
 import zio.*
 import zio.ZIO.*
 
@@ -25,7 +26,7 @@ case class WorkerExecutor[
       _                            <- logDebug(s"- validatedInput: $validatedInput")
       initializedOutput            <- Initializer.initVariables(validatedInput)
       _                            <- logDebug(s"- initializedOutput: $initializedOutput")
-      mockedOutput                 <- OutMocker(worker).mockedOutput(validatedInput)
+      mockedOutput                 <- OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
       _                            <- logDebug(s"- mockedOutput: $mockedOutput")
       // only run the work if it is not mocked
       output                       <-
@@ -46,7 +47,7 @@ case class WorkerExecutor[
     lazy val validationHandler = worker.validationHandler
 
     def validate(
-        inputParamsAsJson: Seq[IO[Any, (String, Option[Json])]]
+        inputParamsAsJson: Seq[IO[OrchescalaError, (String, Option[Json])]]
     ): IO[ValidatorError, In] =
 
       val jsonResult: IO[ValidatorError, Seq[(String, Option[Json])]] =
@@ -59,7 +60,7 @@ case class WorkerExecutor[
               ZIO.fail(
                 ValidatorError(
                   failures
-                    .collect { case Left(value) => value }
+                    .map(_.toString())
                     .mkString("Validator Error(s):\n - ", " - ", "\n")
                 )
               )
@@ -107,18 +108,16 @@ case class WorkerExecutor[
   end InputValidator
 
   object Initializer:
-    private val defaultVariables = Map(
-      "serviceName" -> "NOT-USED" // serviceName is not needed anymore
-    )
-
+    
     def initVariables(
         validatedInput: In
     )(using EngineContext): IO[InitProcessError, Map[String, Any]] =
-      worker.initProcessHandler
+      worker
+        .initProcessHandler
         .map: vi =>
-          vi.init(validatedInput).map(_ ++ defaultVariables)
+          vi.init(validatedInput)
         .getOrElse:
-          ZIO.succeed(defaultVariables)
+          ZIO.succeed(Map.empty[String, Any])
   end Initializer
 
   private def camundaOutputs(

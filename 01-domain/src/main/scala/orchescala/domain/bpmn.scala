@@ -1,8 +1,9 @@
 package orchescala.domain
 
+import io.github.iltotore.iron.:|
+import io.github.iltotore.iron.constraint.string.*
 import orchescala.domain.*
 
-import scala.compiletime.{constValue, constValueTuple}
 import scala.reflect.Enum
 
 // sttp
@@ -22,21 +23,32 @@ inline def nameOfType[A]: String                           = ${ NameOf.nameOfTyp
 
 enum InputParams:
   // mocking
-  case servicesMocked
-  case mockedWorkers
-  case outputMock
-  case outputServiceMock
+  case _servicesMocked
+  case _mockedWorkers
+  case _outputMock
+  case _outputServiceMock
   // mapping
-  case manualOutMapping
-  case outputVariables
-  case handledErrors
-  case regexHandledErrors
+  case _manualOutMapping
+  case _outputVariables
+  case _handledErrors
+  case _regexHandledErrors
   // authorization
-  case impersonateUserId
-  // special cases
-  case topicName
-  case inConfig
+  case _identityCorrelation
+  // idempotency
+  case _idempotentId
+  @deprecated("Use `identityCorrelation`") case impersonateUserId
+  @deprecated("Use `_servicesMocked`") case servicesMocked
+  @deprecated("Use `_mockedWorkers`") case mockedWorkers
+  @deprecated("Use `_outputMock`") case outputMock
+  @deprecated("Use `_outputServiceMock`") case outputServiceMock
+  @deprecated("Use `_manualOutMapping`") case manualOutMapping
+  @deprecated("Use `_outputVariables`") case outputVariables
+  @deprecated("Use `_handledErrors`") case handledErrors
+  @deprecated("Use `_regexHandledErrors`") case regexHandledErrors
+
 end InputParams
+
+type IdempotentId = String | String :| ValidUUID
 
 type ErrorCodeType = ErrorCodes | String | Int
 
@@ -89,71 +101,6 @@ case class NoInConfig()
 object NoInConfig:
   given InOutCodec[NoInConfig] = deriveCodec
   given ApiSchema[NoInConfig]  = deriveApiSchema
-
-// ApiCreator that describes these variables
-case class GeneralVariables(
-    // mocking
-    servicesMocked: Boolean = false,             // Process only
-    mockedWorkers: StringOrSeq = Seq.empty,      // Process only
-    outputMock: Option[Json] = None,
-    outputServiceMock: Option[Json] = None,      // Service only
-    // mapping
-    manualOutMapping: Boolean = false,           // Service only
-    outputVariables: StringOrSeq = Seq.empty,    // Service only
-    handledErrors: StringOrSeq = Seq.empty,      // Service only
-    regexHandledErrors: StringOrSeq = Seq.empty, // Service only
-    // authorization
-    impersonateUserId: Option[String] = None
-):
-
-  lazy val mockedWorkerSeq: Seq[String]      = asSeq(mockedWorkers)
-  lazy val outputVariableSeq: Seq[String]    = asSeq(outputVariables)
-  lazy val handledErrorSeq: Seq[String]      = asSeq(handledErrors)
-  lazy val regexHandledErrorSeq: Seq[String] = asSeq(regexHandledErrors)
-
-  def isMockedService: Boolean                         = servicesMocked
-  def isMockedWorker(workerTopicName: String): Boolean =
-    mockedWorkerSeq.contains(workerTopicName)
-
-  private def asSeq(value: StringOrSeq): Seq[String] =
-    value match
-      case s: String        => s.split(",").toSeq
-      case seq: Seq[String] => seq
-end GeneralVariables
-
-object GeneralVariables:
-  given InOutCodec[GeneralVariables] = CirceCodec.from(decoder, deriveInOutEncoder)
-  given ApiSchema[GeneralVariables]  = deriveApiSchema
-
-  lazy val decoder: Decoder[GeneralVariables] = new Decoder[GeneralVariables]:
-    final def apply(c: HCursor): Decoder.Result[GeneralVariables] =
-      for
-        servicesMocked     <- c.downField("servicesMocked").as[Option[Boolean]].map(_.getOrElse(false))
-        mockedWorkers      <-
-          c.downField("mockedWorkers").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        outputMock         <- c.downField("outputMock").as[Option[Json]]
-        outputServiceMock  <- c.downField("outputServiceMock").as[Option[Json]]
-        manualOutMapping   <-
-          c.downField("manualOutMapping").as[Option[Boolean]].map(_.getOrElse(false))
-        outputVariables    <-
-          c.downField("outputVariables").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        handledErrors      <-
-          c.downField("handledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        regexHandledErrors <-
-          c.downField("regexHandledErrors").as[Option[StringOrSeq]].map(_.getOrElse(Seq.empty))
-        impersonateUserId  <- c.downField("impersonateUserId").as[Option[String]]
-      yield GeneralVariables(
-        servicesMocked,
-        mockedWorkers,
-        outputMock,
-        outputServiceMock,
-        manualOutMapping,
-        outputVariables,
-        handledErrors,
-        regexHandledErrors,
-        impersonateUserId
-      )
-end GeneralVariables
 
 def typeDescription(obj: AnyRef) =
   s"The type of an Enum -> '**${enumType(obj)}**'. Just use the the enum type. This is needed for simple unmarshalling the JSON"
@@ -242,20 +189,27 @@ def shortenName(name: String): String =
       println("NewName: " + n)
       n
     case OldName2(_, n)                           =>
+      println("OldName2: " + n)
       n
     case OldName31(_, n)                          =>
+      println("OldName31: " + n)
       n
     case OldName32(_, n)                          =>
+      println("OldName32: " + n)
       n
     case OldName4(n)                              =>
+      println("OldName4: " + n)
       n
     case _                                        => // something else
+      println("OtherName: " + name)
       name
 
 enum BpmnProcessType:
   def diagramPath: os.RelPath
   case C7(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
   case C8(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda8")
+  case Op(diagramPath: os.RelPath = os.rel / "src" / "main" / "resources" / "camunda")
+end BpmnProcessType
 
 object BpmnProcessType:
   def diagramPaths: Seq[os.RelPath] =

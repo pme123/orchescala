@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
 import orchescala.domain.CamundaVariable
-import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
+import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
 import orchescala.engine.EngineConfig
 import org.camunda.community.rest.client.api.MessageApi
@@ -27,7 +27,7 @@ class C7MessageService(using
       timeToLiveInSec: Option[Int],
       businessKey: Option[String],
       processInstanceId: Option[String],
-      variables: Option[Map[String, CamundaVariable]]
+      variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     val theBusinessKey = if processInstanceId.isDefined then None else businessKey
     val theTenantId    = if processInstanceId.isDefined then None else tenantId
@@ -74,14 +74,14 @@ class C7MessageService(using
             MessageCorrelationResult.Execution(
               result.getExecution.getId,
               result.getExecution.getProcessInstanceId,
-              EngineType.C7
+              engineType
             )
         case result if result.getResultType.getValue == "ProcessDefinition" =>
           Some:
             MessageCorrelationResult.ProcessInstance(
               result.getProcessInstance.getId,
               result.getProcessInstance.getId,
-              EngineType.C7
+              engineType
             )
         case _                                                              =>
           None

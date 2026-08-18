@@ -4,10 +4,7 @@ case class DevStatisticsCreator(gitBasePath: os.Path, basePath: os.Path, company
 
   def create(): Unit =
     val statistics =
-      s"""{%
-         |// auto generated - do not change!
-         |helium.site.pageNavigation.depth = 1
-         |%}
+      s"""
          |## Development Statistics
          |
          |Goes throw all projects and counts files and lines of code.

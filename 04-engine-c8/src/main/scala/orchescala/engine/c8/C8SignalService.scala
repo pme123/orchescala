@@ -19,22 +19,20 @@ class C8SignalService(using
       name: String,
       tenantId: Option[String] = None,
       withoutTenantId: Option[Boolean] = None,
-      variables: Option[Map[String, CamundaVariable]] = None
+      variables: Option[JsonObject] = None
   ): IO[EngineError, Unit] =
     for
       camundaClient <- camundaClientZIO
       _           <- logInfo(s"Sending Signal '$name'.")
-      variablesMap = mapToC8Variables(variables)
+      variablesMap = variables.map(_.toVariablesMap).getOrElse(Map.empty)
       _           <-
         ZIO
-          .attempt {
+          .fromFutureJava :
             camundaClient
               .newBroadcastSignalCommand()
               .signalName(name)
               .variables(variablesMap)
               .send()
-              .join()
-          }
           .mapError { err =>
             EngineError.ProcessError(
               s"Problem sending Signal '$name': $err"

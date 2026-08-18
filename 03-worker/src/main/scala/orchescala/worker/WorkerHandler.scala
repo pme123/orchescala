@@ -3,37 +3,12 @@ package worker
 
 import io.circe
 import orchescala.domain.*
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.WorkerError.*
 import sttp.model.{Method, Uri}
 import zio.{IO, ZIO}
 
 import scala.reflect.ClassTag
-
-trait WorkerHandler[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
-  def worker: Worker[In, Out, ?]
-  def topic: String
-
-  type RunnerOutput =
-    EngineRunContext ?=> IO[RunWorkError, Out]
-
-  def applicationName: String
-  def registerHandler(register: => Unit): Unit =
-    val appPackageName = applicationName.replace("-", ".")
-    val testMode       = sys.env.get("WORKER_TEST_MODE").contains("true") // did not work with lazy val
-    if testMode || getClass.getName.startsWith(appPackageName)
-    then
-      register
-      logger.info(s"Old Worker registered: $topic -> ${worker.getClass.getSimpleName}")
-      logger.debug(prettyString(worker))
-    else
-      logger.info(
-        s"Worker NOT registered: $topic -> ${worker.getClass.getSimpleName} (class starts not with $appPackageName)"
-      )
-    end if
-  end registerHandler
-
-  protected lazy val logger: OrchescalaLogger
-end WorkerHandler
 
 /** handler for Custom Validation (next to the automatic Validation of the In Object.
   *
@@ -109,7 +84,7 @@ object InitProcessHandler:
   def apply[
       In <: Product: InOutCodec
   ](
-      funct: In => EngineRunContext ?=> IO[InitProcessError, Map[String, Any]],
+      funct: In => InitProcessFunction,
       processLabels: ProcessLabels
   ): InitProcessHandler[In] =
     new InitProcessHandler[In]:
@@ -144,7 +119,7 @@ case class ServiceHandler[
     apiUri: In => Uri,
     querySegments: In => Seq[QuerySegmentOrParam],
     inputMapper: In => Option[ServiceIn],
-    inputHeaders: In => Map[String, String],
+    inputHeaders: (In, Option[IdempotentId]) => Map[String, String],
     outputMapper: (ServiceResponse[ServiceOut], In) => Either[ServiceMappingError, Out],
     defaultServiceOutMock: MockedServiceResponse[ServiceOut],
     dynamicServiceOutMock: Option[In => MockedServiceResponse[ServiceOut]] = None,
@@ -156,6 +131,8 @@ case class ServiceHandler[
   ): RunnerOutputZIO =
     for
       _                  <- ZIO.logDebug(s"Running Service: ${niceClassName(this.getClass)}")
+      // Verify identity correlation signature if present (for ServiceWorkers only)
+      _                  <- verifyIdentityCorrelation()
       rRequest           <-
         ZIO.attempt(runnableRequest(inputObject))
           .mapError: err =>
@@ -174,16 +151,60 @@ case class ServiceHandler[
     end for
   end runWorkZIO
 
+  /** Verify the identity correlation signature if present. This is called automatically at the
+    * start of every ServiceWorker execution.
+    */
+  private[worker] def verifyIdentityCorrelation()(using
+      context: EngineRunContext
+  ): ZIO[Any, BadSignatureError, Unit] =
+    val engineConfig     = context.engineContext.engineConfig
+    val workerConfig     = context.engineContext.workerConfig
+    val generalVariables = context.generalVariables
+
+    (generalVariables._identityCorrelation, workerConfig.identityVerification) match
+      case (None, false) =>
+        // No identity correlation present - skip verification
+        ZIO.unit
+      case (None, true)  =>
+        ZIO.fail(
+          WorkerError.BadSignatureError(
+            "IdentityCorrelation verification is required but no correlation was provided"
+          )
+        )
+
+      case (Some(correlation), false) =>
+        // Get processInstanceId from context
+        correlation.processInstanceId match
+          case None                    =>
+            // Correlation exists but has no processInstanceId - log warning
+            ZIO.logWarning(
+              "IdentityCorrelation present but not bound to a process instance - skipping verification"
+            )
+          case Some(processInstanceId) =>
+            // Verify signature using optional verification (logs warnings but doesn't fail)
+            IdentityVerification.verifySignatureOptional(
+              correlation,
+              engineConfig.identitySigningKey
+            )
+      case (Some(correlation), true)  =>
+        // Verify signature using optional verification (logs warnings but doesn't fail)
+        IdentityVerification.verifySignature(
+          correlation,
+          engineConfig.identitySigningKey
+        )
+    end match
+  end verifyIdentityCorrelation
+
   private def runnableRequest(
       inputObject: In
-  ): RunnableRequest[ServiceIn] =
+  )(using ctx: EngineRunContext): RunnableRequest[ServiceIn] =
     RunnableRequest(
       inputObject,
       httpMethod,
       apiUri(inputObject),
       querySegments(inputObject),
       inputMapper(inputObject),
-      inputHeaders(inputObject)
+      inputHeaders(inputObject, ctx.generalVariables._idempotentId)
     )
 
   private def withServiceMock(
@@ -191,8 +212,8 @@ case class ServiceHandler[
       in: In
   )(using context: EngineRunContext): IO[ServiceError, Option[Out]] =
     (
-      context.generalVariables.servicesMocked,
-      context.generalVariables.outputServiceMock
+      context.generalVariables.isMockedService,
+      context.generalVariables._outputServiceMock
     ) match
       case (_, Some(json)) =>
         (for

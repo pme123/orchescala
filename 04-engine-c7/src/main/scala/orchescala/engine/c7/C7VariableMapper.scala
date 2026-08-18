@@ -22,7 +22,7 @@ object C7VariableMapper:
         toC7VariableValue(v).map(k -> _)
     yield dtos
 
-  private[c7] def toC7VariableValue(cValue: CamundaVariable): ZIO[Any, MappingError, VariableValueDto] = {
+  def toC7VariableValue(cValue: CamundaVariable): ZIO[Any, MappingError, VariableValueDto] = {
     ZIO
       .attempt:
         new VariableValueDto()

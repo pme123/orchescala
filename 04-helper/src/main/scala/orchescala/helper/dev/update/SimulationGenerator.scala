@@ -1,9 +1,12 @@
 package orchescala.helper.dev.update
 
+import orchescala.api.ModuleType
+
 case class SimulationGenerator()(using config: DevConfig):
 
   def generate: Unit =
-    createOrUpdate(simulationConfigTestPath / "logback.xml", WorkerGenerator().logbackXml)
+    if config.apiProjectConfig.modules.contains(ModuleType.simulation) then
+      createOrUpdate(simulationConfigTestPath / "logback.xml", WorkerGenerator().logbackXml)
   end generate
 
   def createSimulation(setupElement: SetupElement): Unit =
@@ -73,5 +76,6 @@ case class SimulationGenerator()(using config: DevConfig):
     )
     os.makeDir.all(dir)
     dir
+  end simulationConfigTestPath
 
 end SimulationGenerator

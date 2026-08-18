@@ -13,7 +13,7 @@ class MyCustomTaskWorker extends CompanyCustomWorkerDsl[In, Out]:
 
   lazy val customTask = example
 
-  override def runWorkZIO(in: In): EngineRunContext ?=> IO[CustomError, Out] =
+  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
     // your business logic
     ???
 ```
@@ -41,7 +41,7 @@ Let's look at an Example:
     @Autowired
     var createSetModulesOtherWorker: CreateSetModulesOtherWorker = uninitialized
     
-    override def runWorkZIO(in: In): EngineRunContext ?=> IO[CustomError, Out] =
+    override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
       for
         client <- getProcessInstances(in)
         result <- createSetModulesOther(in, client)
@@ -67,7 +67,7 @@ Running in parallel can also be achieved easily:
 Error Handling:
 
 ```scala
-    private[v3] def getAccounts(in: In): EngineRunContext ?=> IO[CustomError, Seq[Account]] =
+    private[v3] def getAccounts(in: In): RunWorkZIOOutput[Seq[Account]] =
       getAccountsWorker
         .runWorkFromWorkerUnsafe(GetAccounts.In.minimalExample.copy(
           clientKey = in.clientKey

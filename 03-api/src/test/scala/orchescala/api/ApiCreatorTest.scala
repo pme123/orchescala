@@ -1,11 +1,12 @@
 package orchescala.api
 
+import orchescala.engine.DefaultEngineConfig
 import org.junit.*
 import org.junit.Assert.*
 
 class ApiCreatorTest extends munit.FunSuite, DefaultApiCreator:
 
-  lazy val apiConfig = ApiConfig("DemoConfig")
+  lazy val apiConfig = ApiConfig(DefaultEngineConfig(), "DemoConfig")
 
   def jiraUrls: Map[String, String] = Map(
     "MAP"   -> "https://myJira.ch/browse",

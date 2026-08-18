@@ -15,6 +15,320 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.19 - 2026-08-17
+### Changed 
+- Added parallel execution to speed up time. - see [Commit](git@github.com:pme123/orchescala/commit/88ac99b8b4c18e776e03507fc3d3c70219b0169f)
+
+## 0.5.18 - 2026-08-17
+### Changed 
+- Added References to Composed Workers. - see [Commit](git@github.com:pme123/orchescala/commit/89f12c0544bfa3886e8d4477fae605f9bc02f2ea)
+- Added redirect index.html to WebDAV upload. - see [Commit](git@github.com:pme123/orchescala/commit/172ab086ed229d68c6362cb477f64187d73f0733)
+
+## 0.5.17 - 2026-08-05
+### Changed 
+- Changed variables of UserTask to use the UserTaskService instead of ProcessInstanceService. - see [Commit](git@github.com:pme123/orchescala/commit/670f4a13d093fe84b1c87c1163664f1b4d3597e5)
+- Added .gitlab configuration to CompanyGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/ed67a625f0a1ac92e6e382cea13765e8d2200645)
+
+## 0.5.16 - 2026-07-31
+### Changed 
+- Added toCurl if the response from service is not 2**. - see [Commit](git@github.com:pme123/orchescala/commit/6833ce2e3245df9d7693fb5ebddfbb97b757ab59)
+- Adjusted gitlab action due to Error in container build: exit code: 137, reason: 'OOMKilled' in GenericFileGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/307f6f4b8ec6b8a0d61a97f37c68fcd951f996b9)
+
+## 0.5.15 - 2026-07-28
+### Changed 
+- Adjusted gitlab action due to 419 error in GenericFileGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/66849245d0aff4fbb4461cd4c68263951ebd9b3b)
+
+## 0.5.14 - 2026-07-27
+### Changed 
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](git@github.com:pme123/orchescala/commit/2262cc47816de77b547e77fff6b01c3393f373df)
+- Merge pull request #14 from pme123/stale-worker-problem - see [Commit](git@github.com:pme123/orchescala/commit/df4eb23dc06199cd749587d5b3b899ef3296d681)
+- Fixes for pull request. - see [Commit](git@github.com:pme123/orchescala/commit/54e892c2ed6f3b1264ab59e2a599c9abcee1f846)
+- Try fixing stale Workers. - see [Commit](git@github.com:pme123/orchescala/commit/820e3ded317535ec08079a07b0b34e6c02cff2cb)
+- Try fixing stale Workers. - see [Commit](git@github.com:pme123/orchescala/commit/08fe5fd6234d2f6bbd50e248afc653c132960f7a)
+- Fixed UserTask summmary for PostmanApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/9b92dd7bf85af7516e0d7be0b3133c09a57bdfbe)
+- Added /site to references. - see [Commit](git@github.com:pme123/orchescala/commit/32ddba5740680a89a16253e7ed7d54c62a9b079d)
+- Fixed initWorkerFromService - to only validate input message. - see [Commit](git@github.com:pme123/orchescala/commit/5713c5602f1004018320ca761e20d5f52bb55213)
+
+## 0.5.13 - 2026-07-10
+### Changed 
+- Fixed differences in bpmn generation of ModelerTemplUpdater (adding color). - see [Commit](git@github.com:pme123/orchescala/commit/9f6c526b4aa527dd152f4043845346ffa0abd1ac)
+
+## 0.5.12 - 2026-07-10
+### Changed 
+- Fixed possible Connection pool leak in C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/d439296c13884505b9085b43a99857f479e5ada8)
+
+## 0.5.11 - 2026-06-02
+### Changed 
+- Added way to set default Retries as a function that only does more retries if it is a ServiceError for C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/f4c75e4ff02ef478530a6a273a531d0fd6902f5b)
+
+## 0.5.10 - 2026-06-01
+### Changed 
+- Added way to set default Retries for C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/c8e733b6d8781c27d092fec2eb02dc4932f1c259)
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](git@github.com:pme123/orchescala/commit/bdb23ec36ee2e9df824898a20c6f99fdb8934667)
+- Updated TestApiCreator example. - see [Commit](git@github.com:pme123/orchescala/commit/0507de4b47859730951964318710dd4afd3ebc7b)
+
+## 0.5.9 - 2026-05-27
+### Changed 
+- Fixes not recovering from failure, in claiming tasks ind C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/3093ecfbb37f919ea710d91bd6c2ff76be0198f2)
+- Updated patched version updates. - see [Commit](git@github.com:pme123/orchescala/commit/cff8f45fdef48228fca7e1c940cc61d3cdb3c8c5)
+- Logs error with every retry not just the last. - see [Commit](git@github.com:pme123/orchescala/commit/da6c6f1d9d5ec0678ef997c133bd3574cedc5276)
+
+## 0.5.8 - 2026-05-06
+### Changed 
+- Merge pull request #13 from pme123/feature/add_idempotency - see [Commit](git@github.com:pme123/orchescala/commit/4c364cbeb85a37fa61036758347be58b00cc4078)
+- Changed AnyRef to Product in idempotentIdToUUID. - see [Commit](git@github.com:pme123/orchescala/commit/3943f39156c7dfd0ccc958dd43af7ca570d2a017)
+- Added idempotency to other engines. - see [Commit](git@github.com:pme123/orchescala/commit/0c18569c339b39d5bdc407833f6108fb34b39e14)
+- Removed TODO in verifySnapshot. - see [Commit](git@github.com:pme123/orchescala/commit/8524cb081115aee23190e7d0656489db35552cb5)
+- Added _idempotency to GeneralVariables. - see [Commit](git@github.com:pme123/orchescala/commit/4e10a1d6eca9adbcd1ded1348ff2f8a9f42f851a)
+- Fixed missing day in generated lockback configs. - see [Commit](git@github.com:pme123/orchescala/commit/6686e374eb7c90391765d58c1a07ec8d48479b27)
+- Fixed missing escape $ in pipeline config. - see [Commit](git@github.com:pme123/orchescala/commit/bc4f1d4de692a80155fdef2c456cf1bf2fac636a)
+- Adjustments in pipeline config. - see [Commit](git@github.com:pme123/orchescala/commit/4ffbb15411b05999c819da4d76567a2469b8cca2)
+
+## 0.5.7 - 2026-04-07
+### Changed 
+- Changed symlinks to relative path that it works for other developers. - see [Commit](git@github.com:pme123/orchescala/commit/22064b11e32211347f901b871280791da78b13d2)
+
+## 0.5.6 - 2026-04-07
+### Changed 
+- Adjusted PipelineConfig after KI review made standard default. - see [Commit](git@github.com:pme123/orchescala/commit/f38e2eb736707f19d70e0d2fe4e781b277049c8e)
+- Optional adding diagrams folder if exists. - see [Commit](git@github.com:pme123/orchescala/commit/24b1b8cfc14c7066b9873ef5dbbe6c1fa1123c97)
+- Fixed docker for gateway if no gateway is configured. - see [Commit](git@github.com:pme123/orchescala/commit/0fcabe33bcc0c0d87dedfdd4161be4e43f4678be)
+
+## 0.5.5 - 2026-04-06
+### Changed 
+- Fixed bad publish action. - see [Commit](git@github.com:pme123/orchescala/commit/732a5a7807cf6435f8fa39f0b5a61624c273fc29)
+
+## 0.5.4 - 2026-04-06
+### Changed 
+- Merge pull request #11 from pme123/feature/gitlab-pipeline - see [Commit](git@github.com:pme123/orchescala/commit/f8eab66a1af89e7b3d541b996001695c4e3e3dd2)
+- Fixes in gitlab Pipeline. - see [Commit](git@github.com:pme123/orchescala/commit/4cd880c3f4f09061f8c04560b321610a4b87f105)
+- Merge branch 'develop' into feature/gitlab-pipeline - see [Commit](git@github.com:pme123/orchescala/commit/b77e7f540c31ca6d5d56e39099749cc701a1ea0e)
+
+## 0.5.3 - 2026-04-02
+### Changed 
+- Used error.toString to get more error information in Cockpit. - see [Commit](git@github.com:pme123/orchescala/commit/8a6316e1e57b2ebd04916ed9d74ed9ede4666629)
+- Added debug info in OpenApiRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/f1105c5198163373ee85ab3d13e4cbb4c66f4025)
+- Fixed customer data in log - now only if set to debug mode - the content of the request is shown. - see [Commit](git@github.com:pme123/orchescala/commit/26bd6c784e79c3e28d9f517530b1dfdb3485fed4)
+- Fixed bad links in Gateway. - see [Commit](git@github.com:pme123/orchescala/commit/1083d6dedaccdf0999b3e6810b01ab4ab3591864)
+- Moved api Configs in company directory. - see [Commit](git@github.com:pme123/orchescala/commit/dfac5e1011dd622817913e80d2e8f5feac3cb8d1)
+- Adding pullOtherProjects for documentation / adjusted WebDAV. - see [Commit](git@github.com:pme123/orchescala/commit/c2218ac6da8da723e4c5a3f4b0fc1dfa0db3605c)
+- Adding dependeny company projects. - see [Commit](git@github.com:pme123/orchescala/commit/1fe2aff616df4a1b5122169971e5784b155e3e32)
+- Adjustments to create docs. - see [Commit](git@github.com:pme123/orchescala/commit/f594b78f4c4f8e9f3d3f0a20bb64eb1736601861)
+- Fixed auto forwarding / to /index.html. - see [Commit](git@github.com:pme123/orchescala/commit/dffb20b5a1ff7930fb4c84a6510f4116705b37b2)
+- Working version showing documentation in gateway. - see [Commit](git@github.com:pme123/orchescala/commit/caf1dc8850cca96fa1b875a2538fe041edb3953b)
+- Working OAuth login for documentation. - see [Commit](git@github.com:pme123/orchescala/commit/ab5ffe1b73312816fd2b039b6fd1beada36ddb06)
+- Added worker apiDocs diagrams forwarding to gateway. - see [Commit](git@github.com:pme123/orchescala/commit/589adad8d8897134f502979d43afb43f70649bab)
+- Added worker apiDocs forwarding to gateway. - see [Commit](git@github.com:pme123/orchescala/commit/d4b28e2f5d1524f60461f5fc21218d1e3ed3e886)
+- Added diagrams and OpenApi.yml to OpenApiRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/9db942a0aa195b2cb5fab031712e328b3d111bc8)
+- Adjusted OpenApiRoutes - updated company creation. - see [Commit](git@github.com:pme123/orchescala/commit/16fafa7cdd544b56f77970ed766552f3c4110bd5)
+- Fixed bad link in onboarding. - see [Commit](git@github.com:pme123/orchescala/commit/d9433041eaeea2c54eec8cfa87c6ab289744305d)
+- Adjusted onboarding.md documentation / added script to setup existing file structure. - see [Commit](git@github.com:pme123/orchescala/commit/9ab2786e15fc119dde0269d276a42098c2dd4ab6)
+- Adjusted onboarding.md documentation / added script to setup existing file structure. - see [Commit](git@github.com:pme123/orchescala/commit/2efec62ebd1fc3d7e7d768c9ebdb0ade507dc2bc)
+- Added onboarding to onboard a member to the team. - see [Commit](git@github.com:pme123/orchescala/commit/4928c38c97dae8f77bc356165475cbe9c88cdf7d)
+- Added check for completing UserTask if encoding of Out does not work. - see [Commit](git@github.com:pme123/orchescala/commit/3337600aa2328cc3878d4737bc95ec5e548b1cb5)
+- Fixed Error Handling - so the gateway forwards the correct HTTP status. - see [Commit](git@github.com:pme123/orchescala/commit/3cd9d0ac929ed6a8912345bf3014cb00d56b6b2c)
+- Added Documentation for Engine support. - see [Commit](git@github.com:pme123/orchescala/commit/02e395b94d9c925dc8052cb09868dc1cb7da2a8e)
+
+## 0.5.2 - 2026-03-02
+### Changed 
+- Fix in default DevConfig - for generating build.sbt. - see [Commit](git@github.com:pme123/orchescala/commit/bebc3fcaaac500bf930c046e3500e767c8f9a8af)
+- Merge pull request #7 from pme123/add-operaton-engine-support - see [Commit](git@github.com:pme123/orchescala/commit/5117182649495d5f8f7947474fe6743b9a84b9bf)
+- Logging less of the token. - see [Commit](git@github.com:pme123/orchescala/commit/49cc021ec1dda05bb09b2c50b0ed3ad2399d0a32)
+- Updated Gateway Docs. - see [Commit](git@github.com:pme123/orchescala/commit/566879ed2d4fe2766390134024b2487bf117adf7)
+- Fixed pool shut down in OpClient. - see [Commit](git@github.com:pme123/orchescala/commit/689c3aeaa4e75d5be77bbb31183898fbb3a9f499)
+- Renamed Operaton to Op. - see [Commit](git@github.com:pme123/orchescala/commit/00d741e107ed30a58da059d9e5f8dba3e9da1704)
+- Renamed Operaton to Op. - see [Commit](git@github.com:pme123/orchescala/commit/53a8ed4a771250419edded6ee989d48c4e2841ea)
+- Fixes in simulation missing _identityCorrelation. - see [Commit](git@github.com:pme123/orchescala/commit/52bee95bd91946f59e2e3df4b2285cc472e892f7)
+- Fixes in simulation / _identityCorrelation. - see [Commit](git@github.com:pme123/orchescala/commit/d4da1b0c6e0776207e9cdd082956ca2ab79fc1e3)
+- Merge branch 'develop' into add-operaton-engine-support - see [Commit](git@github.com:pme123/orchescala/commit/adb48dfdf95bbbba842cc379d1e9e08bbb62a036)
+
+## 0.5.1 - 2026-02-27
+### Changed 
+- Increased MaxConnectionsPerHost from 10 to 25. - see [Commit](git@github.com:pme123/orchescala/commit/9701e8fcf4a830b671c095b9385e831b52d742b4)
+
+## 0.5.0 - 2026-02-26
+### Changed 
+- Merge pull request #8 from pme123/fix-problem-simulation - see [Commit](git@github.com:pme123/orchescala/commit/92ab640a7b02b5b9bbc8afc0c03c672295a14875)
+- Cleanup Resource finalizers. - see [Commit](git@github.com:pme123/orchescala/commit/7a902ee5891f04e2c5170d1ce358e3c7b06c2f95)
+- Fixed problem of not running the failureHandling at all. - see [Commit](git@github.com:pme123/orchescala/commit/d4ff5826d1803276e9cb8e5c89e90ebd0f5589dc)
+- Fixed compile problems added EnvironmentDetector for generice workerapp forward url. - see [Commit](git@github.com:pme123/orchescala/commit/23076a55b0820cb2a410fe4eb46c0a4f34eded2e)
+- Merge branch 'develop' into fix-problem-simulation - see [Commit](git@github.com:pme123/orchescala/commit/c3b736d7148f09da9df1e5ea96afd8d12c891e5a)
+- Fixed retry behavior in case of a failure in C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/bd0ba8447c55dd9e2e7d0218efa263149eeeea50)
+- Changed workerAppUrl to variable. - see [Commit](git@github.com:pme123/orchescala/commit/88f9c66cff4d23558371f9f55dbfdc84bb7f44a3)
+- Cleanup forward to worker logic in ProcessInstanceRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/58a96a4b06ea2ad6fb6defa6d5950a59c485cb1d)
+- Cleanup client/engine creation for GatewayServer. - see [Commit](git@github.com:pme123/orchescala/commit/96289b759636d74cb171b7037b190bd00b28a65d)
+- Removed engineConnectionManagerFinalizer. - see [Commit](git@github.com:pme123/orchescala/commit/9012b768c09d68e99298f38b9a7cda2e06a4bbf2)
+- Working version without closing finalizer - see [Commit](git@github.com:pme123/orchescala/commit/c5ea71634ac8cec25e8acdfef2577cce354698b4)
+- Added logging for finalizer creation - see [Commit](git@github.com:pme123/orchescala/commit/d6f0c575d6d0da160905c132571ebdc49301f7e9)
+- Simulations working. - see [Commit](git@github.com:pme123/orchescala/commit/c64db9cfc0c43403bf3e3f403e4c8c0571807856)
+- Only bootstrap in Apps. - see [Commit](git@github.com:pme123/orchescala/commit/3df25e8156ffe13e8d300fbd381f7d7fafb36996)
+- Added logging in bootstrap in WorkerApp. - see [Commit](git@github.com:pme123/orchescala/commit/fb42c3462fc6fab0d6de74dea2026653f7244b50)
+- Cleanup Routes - see [Commit](git@github.com:pme123/orchescala/commit/456359a018f01915b01b4b59f5b38a64318d9b12)
+- Fixed problem with logging format. - see [Commit](git@github.com:pme123/orchescala/commit/202945e3da36e1edf2f2cc96b4dfde6787bfc8a5)
+- Adjustments after deploying Gateway to Openshift. - see [Commit](git@github.com:pme123/orchescala/commit/0f91f5577c389c18014509f81d794a6612504850)
+- Cosmetics logs comments. - see [Commit](git@github.com:pme123/orchescala/commit/b10956a74fef1a311e1a44c8ad872ecc6ad1e0d0)
+- Added check before forwarding initProcess. - see [Commit](git@github.com:pme123/orchescala/commit/5aa3c941f9a1003831892474ac8570f38fef2c44)
+- Removed helper from standard projectModules. - see [Commit](git@github.com:pme123/orchescala/commit/239fcd6432672074474219a0f2316eb48a806313)
+- Added mermaid support in Api documentations. - see [Commit](git@github.com:pme123/orchescala/commit/520d36fb04b0640870a1be5d2ffea610572756e9)
+- Removed Helper from modules, as it is only needed by service packages. - see [Commit](git@github.com:pme123/orchescala/commit/8b2d5ecedd8724687286e7e14d329970f7477f84)
+- Fixed compile error in tests. - see [Commit](git@github.com:pme123/orchescala/commit/a8521e0132e88af47aab541d9989877ac7fd68d3)
+- Updated Plugin versions in SbtGenerators. - see [Commit](git@github.com:pme123/orchescala/commit/0931453fc304b7afdb98dd117dc4b07bc4dc790f)
+
+## 0.4.0 - 2026-02-04
+### Changed 
+- Fixed bad deserialization in C7HistoricVariableService. - see [Commit](git@github.com:pme123/orchescala/commit/dab527fdd9a6b4f5b1775cc39db60660f9237f35)
+- Fixed deprecated App inheritance with main def. - see [Commit](git@github.com:pme123/orchescala/commit/ec5ddfdbc5e5be4d65b4b8bc4e53b954bf2a3da8)
+- Fixed bad encoding in Camunda Vars. - see [Commit](git@github.com:pme123/orchescala/commit/072db233ccf81aa4e7b3ab0c9e17589c6ba77a15)
+- Removed deprecations where possible. - see [Commit](git@github.com:pme123/orchescala/commit/85c2992e8c246025dc64ff7a07cca4a582b3661d)
+- Changed C7 Services to queries where possible. - see [Commit](git@github.com:pme123/orchescala/commit/738c00acd6cb6408dc5c212765407870d850c97d)
+- Updated dependencies. - see [Commit](git@github.com:pme123/orchescala/commit/87fc5b917459ff092a9f42db2959f440afbd9d5a)
+- Adjusted scalacOptions in SbtSettingsGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/ae02aa938fea220d836151de0eab3acba2573fa6)
+
+## 0.3.4 - 2026-02-02
+### Changed 
+- Fixed double diagrams in apiDescription for processes. - see [Commit](git@github.com:pme123/orchescala/commit/8ad4a1b7e6569234be3ca44946f707a7182336ad)
+
+## 0.3.3 - 2026-01-30
+### Changed 
+- Merge pull request #6 from pme123/feature/worker-endpoint - see [Commit](git@github.com:pme123/orchescala/commit/eeabff376290700564b3e0d023477c895456adee)
+- Small adjustment in DefaultEngineContext. - see [Commit](git@github.com:pme123/orchescala/commit/25fc610992060932c5a7f39df2c2e5eb1902e99b)
+- Fixed bad Error handling in ProcessInstanceRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/5976603d11c28a587f68498c4b35b7f0a55af05c)
+- Cleanup running InitWorker from WorkerRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/80070a65b27b4d66c899b3ce05388587715b92f6)
+- Added tenantId in C7MessageService. - see [Commit](git@github.com:pme123/orchescala/commit/7b223460dfb1fa61fbd843f60a6fbeac29498958)
+- Adjusted gateway dependecy to worker. - see [Commit](git@github.com:pme123/orchescala/commit/6f4fa7711e3ca376b8b30a168d530956c03f909d)
+- Adjustments running Worker from WorkerRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/b71823d6e797096d2e8aeb3b049e6e3e702a8d16)
+- Fixed timing side channels in IdentityCorrelationSigner. - see [Commit](git@github.com:pme123/orchescala/commit/081044ef4bcfeb11a5ccca0311911fdf365545a8)
+- Fixed bad foldLeft in WorkerForwardUtil. - see [Commit](git@github.com:pme123/orchescala/commit/3eeaa93ded23fb77541fe408b727e4dbc10b88f9)
+- Added types in C7WorkerClient. - see [Commit](git@github.com:pme123/orchescala/commit/224ed427a3c1509cf887cac4fe5ee4227f84c9b6)
+- Cleanup IdentityVerification. - see [Commit](git@github.com:pme123/orchescala/commit/d6fb01c65510d91d4cc7e264dc2a9e152d85ffdb)
+- Added documentation for gateway. - see [Commit](git@github.com:pme123/orchescala/commit/a9c655a0f7c49cf2d6739e77b6131460bd0a0bb7)
+- Changed general variables to _. - see [Commit](git@github.com:pme123/orchescala/commit/12aaba76e72f074c52de03548f0b0f19484c916f)
+- Changed documentation general variables to _. - see [Commit](git@github.com:pme123/orchescala/commit/393515d7205fd0db30a83d3be4540371f16e53a0)
+- Added example for IdentityCorrelation. - see [Commit](git@github.com:pme123/orchescala/commit/ece4fbf8dfb95d8cf65acf5fcb37dd9dc7b7f0ee)
+- Cleanup C7WorkerClient configuration. - see [Commit](git@github.com:pme123/orchescala/commit/261dd30b470ff35dca3da5cfd687623ff08f4d0a)
+- Fixed WorkerTestApp generation / outputVariables in TemplateGenerator / added context to InitProcessZIOOutput / used retries from Camunda in C7Worker. - see [Commit](git@github.com:pme123/orchescala/commit/3843dd88dc6e1d63b52349920741dc08c709b554)
+- Fixed Error in extractGeneralVariables. - see [Commit](git@github.com:pme123/orchescala/commit/ac95ef93673af51a5b53b3b7fe3437d357214827)
+- Added maximum parallelism adjusted configs. - see [Commit](git@github.com:pme123/orchescala/commit/7de6e0486dbe085effaffef994e58a9d83633a09)
+- Working version for using initProcess also from the simulations. - see [Commit](git@github.com:pme123/orchescala/commit/a122f6876c9564043320f02337ddcf89ce6d5413)
+- Clean up and alignment of Api-/Gateway-paths. - see [Commit](git@github.com:pme123/orchescala/commit/82cd817327c4b1c9ca644b3cc37d5bd9c66d07a2)
+- Changed all GeneralVariables to optional to minimize process variables. - see [Commit](git@github.com:pme123/orchescala/commit/35008a6c68f2be858b166a074908b9dcfaf63881)
+- Added generalVariables to initFunction. - see [Commit](git@github.com:pme123/orchescala/commit/877371d2c806b4c9400d894de9ec0ea2208b239a)
+- Fixed startProcess with new initializedInput. - see [Commit](git@github.com:pme123/orchescala/commit/784272065b03386e9b6389ae2fb33ab3c78a874b)
+- Removed inConfig. - see [Commit](git@github.com:pme123/orchescala/commit/1e96627a06b5357018567a9fb084ff17e20e5cf1)
+- Added mocking and inConfig in runWorkFromServiceWithMocking. - see [Commit](git@github.com:pme123/orchescala/commit/90268a5f45695c452d9f3b2c7907d81a58a9b6a6)
+- Cleanup Endpoint definitions. - see [Commit](git@github.com:pme123/orchescala/commit/9b7d4b596de27ca66d45654fbcf55269f581cf06)
+- Fixed Simulations with C7 and C8 - start with Message. - see [Commit](git@github.com:pme123/orchescala/commit/9cef850987eb395b4aff3f632efa0aa1d8673f52)
+- Adjusted Error Handling in WorkerRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/81c5eedbe65e34dfdc7e34992262573defb58fc9)
+- Split the Routes to specific routes in Gateway. - see [Commit](git@github.com:pme123/orchescala/commit/47a7a4a1073553a51da725515ae8b80ae1590e42)
+- Merge branch 'develop' into feature/worker-endpoint - see [Commit](git@github.com:pme123/orchescala/commit/925240115c7cd2e603eabb9cbc7608dcad49d319)
+- Fix: handle error in setCorrelationVariable if the process is only 'short lived'. - see [Commit](git@github.com:pme123/orchescala/commit/aa49565c9c9f1cc539f9680131ef781b0cb86123)
+
+## 0.3.2 - 2026-01-08
+### Changed 
+- Fixed bad variable name filters in WorkerRegistries. - see [Commit](git@github.com:pme123/orchescala/commit/fe156b65f243cf26f32725c32efd4d78713449f7)
+
+## 0.3.1 - 2026-01-05
+### Changed 
+- Fixes for Demo setup new project. - see [Commit](git@github.com:pme123/orchescala/commit/a1ffba8cc3cc07901eb084b4a1f07bdc781fab11)
+
+## 0.3.0 - 2025-12-19
+### Changed 
+- Merge pull request #5 from pme123/feature/moduleType - see [Commit](git@github.com:pme123/orchescala/commit/7cee161976e392b14332d67f5d27440f5c50f7f4)
+- Fixed pull request comments. - see [Commit](git@github.com:pme123/orchescala/commit/4ec0f522594a43a0b93bb32d57b4cb79d4478300)
+- Added ModuleType to the ApiProjectConfig, so you can have different project layouts (service only). - see [Commit](git@github.com:pme123/orchescala/commit/fa16c27849b6fde662bd55bab35cd9dea291dd14)
+- Merge pull request #4 from pme123/feature/changedVariablesToJson - see [Commit](git@github.com:pme123/orchescala/commit/1f43c088e1a7f9eb1bfe2ad3d5f039e90195bd9d)
+- Fixing Pull Request comments. - see [Commit](git@github.com:pme123/orchescala/commit/db7b258a9f91ca52d70188b1d4604435d9775e1a)
+- Fixing Pull Request comments. - see [Commit](git@github.com:pme123/orchescala/commit/fa35fa618a9e7f0405e4529d1808a57d954a7fa3)
+- Cleanup WorkerHandler. - see [Commit](git@github.com:pme123/orchescala/commit/8beef3dca886b28df256ef039ce7f340b1e36758)
+- Changed C8 Camunda API calls to async. - see [Commit](git@github.com:pme123/orchescala/commit/222e3fb1396bf6afcf7c6d13957db039a0f6a302)
+- Changed variables to JsonObject from CamundaVariables in Engine Services. - see [Commit](git@github.com:pme123/orchescala/commit/45b46bd6de8b21eb491d195872450ffc7c282ec1)
+- Fixing identity correlation problem - not working. - see [Commit](git@github.com:pme123/orchescala/commit/8ce1a602ac7dea7a95f47b6a7af2bd310191a846)
+- Fixed naming to sso. - see [Commit](git@github.com:pme123/orchescala/commit/f7de24a57172e0614f2494914dc8780d8f9a99c4)
+
+## 0.2.31 - 2025-12-06
+### Changed 
+- Added ProcessInstanceEndpoints.startProcessByMessage. - see [Commit](git@github.com:pme123/orchescala/commit/33f3150f76f2d7c5ce6100f5ce23f6a57ab73cb6)
+
+## 0.2.30 - 2025-12-06
+### Changed 
+- Added EngineConfig to EngineContext to verify signature in ServiceHandler only. - see [Commit](git@github.com:pme123/orchescala/commit/aa95a2f50d8a85ca4b2aae2141b5db5b613df5e2)
+- Added IdentityCorrelation signing. - see [Commit](git@github.com:pme123/orchescala/commit/0ff561089e59c642c8fa62445042a6130236f937)
+- Added IdentityCorrelation to UserTask Complete. - see [Commit](git@github.com:pme123/orchescala/commit/c89654cb0ab1616805a240de09a109032b4a36df)
+- Made it compatible with old solution. - see [Commit](git@github.com:pme123/orchescala/commit/401ed0e2155cf6d56afc3c3a05358b282a148394)
+- Added IdentityCorrelation to the Gateway start process. - see [Commit](git@github.com:pme123/orchescala/commit/1486b9a6bdfc207ec88d06d87319a42d6ee79e4f)
+- Added traits for OAuth2 flows for testability. - see [Commit](git@github.com:pme123/orchescala/commit/047954750df5803be8afbeae451ba351ba07176e)
+- Refactored OAuth2Flow - tested with project. - see [Commit](git@github.com:pme123/orchescala/commit/e4cf0deaffef932d1c29ffc7f6a8c3bc5546f526)
+- Adjusted GatewayServer with default run method. - see [Commit](git@github.com:pme123/orchescala/commit/67fe96932632bbc29805c2e206de7e8939a5fbaa)
+
+## 0.2.29 - 2025-11-26
+### Changed 
+- Added catchall to handle unexpected errors in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/7b976b4a2f724a3a7022167993ec93596aaeaf49)
+- Added ZIO versions to get tokens. - see [Commit](git@github.com:pme123/orchescala/commit/17b969f2338a35a62de2bd60a6b6a9baf9a1df4a)
+- Removed second fork in BaseWorker. - see [Commit](git@github.com:pme123/orchescala/commit/4855e48e48606614601b456e3a022c9ee3ff8bb7)
+- Added more logging for worker registry. - see [Commit](git@github.com:pme123/orchescala/commit/2138435deb6b17142d63d595548cf76d62551adf)
+- Added timeout for running the worker. - see [Commit](git@github.com:pme123/orchescala/commit/2dc7a73ea352a4ac59386da5d44c153dd914d6ec)
+- Made regex to match version easier in PublishHelper. - see [Commit](git@github.com:pme123/orchescala/commit/309fdf6814b8a60c62adab4a381b3a82691813d6)
+
+## 0.2.28 - 2025-11-20
+### Changed 
+- Fixed classcastexception in GatewayRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/0c6f62b81d92db9662c0b9ea3da81ba956694ceb)
+
+## 0.2.27 - 2025-11-19
+### Changed 
+- Adjusted UserTask complete endpoint for Api Documentation - removed process. - see [Commit](git@github.com:pme123/orchescala/commit/3ad6cb56072a75333b96ec476b48de1bfc106752)
+- Added process getVariable endpoint for Api Documentation / cleanup paths. - see [Commit](git@github.com:pme123/orchescala/commit/def151ea44ae4e5ea92423fccfbcca9f7288a41a)
+- Fixed Api Documentation. - see [Commit](git@github.com:pme123/orchescala/commit/d3d50b93142d2a9727dec327de2323773b24db34)
+
+## 0.2.26 - 2025-11-19
+### Changed 
+- Fixed bad error messages in WorkerExecutor.validate. - see [Commit](git@github.com:pme123/orchescala/commit/1d4086a24dc86c3a0a496ee021434c86771e4498)
+- Adjusted redoc url as the old link was broken. - see [Commit](git@github.com:pme123/orchescala/commit/5a820b46e432f4e03ccfa5032ec4fbc674ef0763)
+
+## 0.2.25 - 2025-11-17
+### Changed 
+- Fixed bad grant_type_impersonate. - see [Commit](git@github.com:pme123/orchescala/commit/06b5302f06cfbf4b4efe1ce07ba325e1487e493f)
+
+## 0.2.24 - 2025-11-06
+### Changed 
+- Switched  in getVariables to HistoricVariableService in GatewayRoutes. - see [Commit](git@github.com:pme123/orchescala/commit/243aaee618a2212c533f848fa978b022cdf64478)
+- Added variableFilter in HistoricVariableService.getVariables. - see [Commit](git@github.com:pme123/orchescala/commit/518a1b8134cc6a4b67cb0cb2883a8fcf2527f00d)
+- Adjusted the process endpoints descriptions. - see [Commit](git@github.com:pme123/orchescala/commit/26312462f21270cd979fc822f43f48aacb9fac39)
+- Added get variables endpoint in ProcessInstanceEndpoints. - see [Commit](git@github.com:pme123/orchescala/commit/deb6c92edd2d301adec1c87333d7790cb67f7720)
+- Added Postman Instructions in ApiCreator. Deprecated PostmanApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/771eec9b8be07d1d6d1ab20ec54c225d97c54f8e)
+- Fixed all query parameters. - see [Commit](git@github.com:pme123/orchescala/commit/e9a1883e3f1b4094ee281eb3db58de0acbd4f0b1)
+- Added query parameters incl. descr. in TapirApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/53e57c271798a15a8c97267c17d11d7b8712e16c)
+- Added default values for path variables in TapirApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/b20a5105b65d9b847f4a702c7a11b3a0a8c67990)
+- Fixed mixup with In/Out in UserTasks in TapirApiCreator. - see [Commit](git@github.com:pme123/orchescala/commit/f7f2a2cd65c4ae2e200a6e582d57f9a28e0f6fbb)
+- Clean up new api generation. - see [Commit](git@github.com:pme123/orchescala/commit/6be7cb71d1acfa9ba3e122d3f28155cd9702fd7c)
+- Fixed bad tests. - see [Commit](git@github.com:pme123/orchescala/commit/caf2eee6216f037a9a940d7b2cdb349f797fd404)
+- Fixed bad UserTask endpoint generation. - see [Commit](git@github.com:pme123/orchescala/commit/4ed5feaa2abab67d3ec830c13ee97723c5743bba)
+- Adjustments for description of elements and tag adjustments. - see [Commit](git@github.com:pme123/orchescala/commit/99fb4c775595cbe328af0ed75bc5fef967ef74e5)
+- Removed run: sbt "compile; project engineGateway; generateOpenApi" in github pipelines. - see [Commit](git@github.com:pme123/orchescala/commit/900fce10f7681b1448d4cf91d79821e5a38f8e9c)
+- Adjusted paths for gateway. - see [Commit](git@github.com:pme123/orchescala/commit/aa1b5ccade00caa5b5737b574a74a6df89493680)
+- Update for dockerGateway in local docker-compose. - see [Commit](git@github.com:pme123/orchescala/commit/114d06388a7b2f7a2c942906b2ca6a82f79135f5)
+- Working version with gateway project. - see [Commit](git@github.com:pme123/orchescala/commit/c5600918ce36048e65743ff2c114f22fd970b79c)
+- Working version with gateway project. - see [Commit](git@github.com:pme123/orchescala/commit/87d49fadf3d50308ae668bf8c25110ebf99a7472)
+- Added Worker Endpoint to run Worker in a generic Way without starting a Process. - see [Commit](git@github.com:pme123/orchescala/commit/87b06c594eff63a945f99dbff1ed27e805b68716)
+- Using EngineError in Gateway. - see [Commit](git@github.com:pme123/orchescala/commit/4c1719c1358f2221627326af01c71761d4a64ef5)
+- Reusing error examples. - see [Commit](git@github.com:pme123/orchescala/commit/fbeb926790a5c753c46a865f16b8bbf2a11f4c5a)
+- Adjusted GatewayServer, to work also for C8. - see [Commit](git@github.com:pme123/orchescala/commit/5dfaa8decb88b42eb5e9723d1fba01008a98a667)
+- Cleanup ExampleGatewayServer. - see [Commit](git@github.com:pme123/orchescala/commit/8fef1c9ee2082758637c0f38e843fe288046cb59)
+- Added sendMessage. - see [Commit](git@github.com:pme123/orchescala/commit/0529d5f55978945509d5eeb571b8d7bfbdbf201a)
+- Refactoring splitted endpoints. - see [Commit](git@github.com:pme123/orchescala/commit/2ec774a68b4a0a2a74a1679fb53b2735cff41e8d)
+- Added tenantId if needed. - see [Commit](git@github.com:pme123/orchescala/commit/13d93bb240adb20c676c3b291b55ea9d49d7a531)
+- Added sendSignal. - see [Commit](git@github.com:pme123/orchescala/commit/c628c218fc24d6872adabb0eee118cb9ab7966fb)
+- Added completeUserTask. - see [Commit](git@github.com:pme123/orchescala/commit/b9a6acd7a2babced02686b4da014fc1bf1e4f7e3)
+- Fixes and cleanup in GatewayEndpoints. - see [Commit](git@github.com:pme123/orchescala/commit/b48097ed6e4f31879febb90752d6b4c5887583b7)
+- Added example ExampleGatewayServer. - see [Commit](git@github.com:pme123/orchescala/commit/aad795be71a23ccbbe22ba94e8801a316bd24c55)
+- Added getUserTaskVariable of current Process Instance. - see [Commit](git@github.com:pme123/orchescala/commit/6b70beee921745b13ac505bc14e693033cda664d)
+- Working Gateway Version with C7 without authentication. - see [Commit](git@github.com:pme123/orchescala/commit/3a1c4e12397af9cf3260829632ec4e6902d28332)
+- Working documentation is shown on Gateway Server. - see [Commit](git@github.com:pme123/orchescala/commit/7cec12826d78b9b64c5f336e399e4ab3f30409a6)
+- Added automatic generation of OpenApi specification in github actions. - see [Commit](git@github.com:pme123/orchescala/commit/69018580162975ee5d4bafc4954d975ea795a033)
+- Added OpenApi documentation for the server. - see [Commit](git@github.com:pme123/orchescala/commit/a763ae6d0decc58267cc8671d8007f4d8a7b47e9)
+- First version of a gateway http server. - see [Commit](git@github.com:pme123/orchescala/commit/2ac75cc52096ba305e6f02335531ddb485808e78)
+- Added Alias for InitProcess Return Type. - see [Commit](git@github.com:pme123/orchescala/commit/17f4ab3e134c77363bd20a7007ed7e53b8df5f9a)
+- Fix in ServiceClassesCreator / added debug info to TimerRunner. - see [Commit](git@github.com:pme123/orchescala/commit/a96c4727b5197e939f5dcd05c6a6cb6bd05fde3a)
+
 ## 0.2.23 - 2025-10-03
 ### Changed 
 - Fixed Links in References - added company. - see [Commit](git@github.com:pme123/orchescala/commit/9202c9b73326788f59adf2bcf8600616ebbf8236)
@@ -135,12 +449,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.2.8 - 2025-07-07
 ### Changed 
-- Adjusted FSSO_BASE_URL - as the path may be different on local and remote environments. - see [Commit](git@github.com:pme123/orchescala/commit/066f211af177d4a4bf37c7158aef3c13619780b5)
+- Adjusted SSO_BASE_URL - as the path may be different on local and remote environments. - see [Commit](git@github.com:pme123/orchescala/commit/066f211af177d4a4bf37c7158aef3c13619780b5)
 - Fixed workerModule.srcPath in CompanyWrapperGenerator. - see [Commit](git@github.com:pme123/orchescala/commit/544e744529fe542a509cdb06ab7ae9f978b8d143)
 
 ## 0.2.7 - 2025-07-04
 ### Changed 
-- Added /auth to default FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/b7e9e3f274c5a0d399f8021db7591cb1ec4e7610)
+- Added /auth to default SSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/b7e9e3f274c5a0d399f8021db7591cb1ec4e7610)
 - Adjusted Generators, to generate in-out Examples. - see [Commit](git@github.com:pme123/orchescala/commit/db947c58b8727127f0be41194a927dc890377265)
 
 ## 0.2.6 - 2025-07-03
@@ -149,8 +463,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.2.5 - 2025-07-03
 ### Changed 
-- Adjusted Generation files for FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/f1ed0c1558b7fd55e0e30fd44dc1e95dcc03a995)
-- Changed DOCKER_INTERNAL_HOST to FSSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/11aa3413acd4a0f364a2becec1046dac207da3bf)
+- Adjusted Generation files for SSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/f1ed0c1558b7fd55e0e30fd44dc1e95dcc03a995)
+- Changed DOCKER_INTERNAL_HOST to SSO_BASE_URL. - see [Commit](git@github.com:pme123/orchescala/commit/11aa3413acd4a0f364a2becec1046dac207da3bf)
 
 ## 0.2.4 - 2025-07-02
 ### Changed 

@@ -13,7 +13,7 @@ object OpenApiGenerator:
     * @return
     *   OpenAPI specification in YAML format
     */
-  def generateYaml: String =
+  lazy val generateYaml: String =
     val openApi = generate
     openApi.toYaml
 
@@ -26,6 +26,9 @@ object OpenApiGenerator:
     val endpoints = List(
       MessageEndpoints.sendMessage,
       ProcessInstanceEndpoints.startProcessAsync,
+      ProcessInstanceEndpoints.startProcessByMessage,
+      ProcessInstanceEndpoints.getProcessVariables,
+      ProcessInstanceEndpoints.getProcessVariablesForApi,
       SignalEndpoints.sendSignal,
       UserTaskEndpoints.getUserTaskVariables,
       UserTaskEndpoints.completeUserTask,
