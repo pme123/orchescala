@@ -1,30 +1,23 @@
-import { spawnSync } from "child_process";
+import { existsSync } from "fs";
+import { resolve } from "path";
 import { defineConfig } from "vite";
 
 function isDev() {
   return process.env.NODE_ENV !== "production";
 }
 
-/** asks sbt where it linked the Scala.js output to */
-function printSbtTask(task) {
-  const args = ["--error", `print ${task}`];
-  const options = { stdio: ["pipe", "pipe", "inherit"], cwd: ".." };
-  const result =
-    process.platform === "win32"
-      ? spawnSync("sbt.bat", args.map((x) => `"${x}"`), { shell: true, ...options })
-      : spawnSync("sbt", args, options);
-  if (result.error) throw result.error;
-  if (result.status !== 0)
-    throw new Error(`sbt process failed with exit code ${result.status}`);
-  const output = result.stdout.toString("utf8").trim().split("\n");
-  const path = output[output.length - 1].trim();
-  console.log("Scala.js output path: " + path);
-  return path;
-}
+// Where sbt links the Scala.js output to - see build.sbt (dmnTesterClient):
+//   fastLinkJS -> target/scalajs/dev      fullLinkJS -> target/scalajs/prod
+const stage = isDev() ? "dev" : "prod";
+const scalaJSOutput = resolve(__dirname, "target", "scalajs", stage);
 
-const scalaJSOutput = printSbtTask(
-  isDev() ? "dmnTesterClient/fastLinkJSOutput" : "dmnTesterClient/fullLinkJSOutput"
-);
+if (!existsSync(resolve(scalaJSOutput, "main.js"))) {
+  throw new Error(
+    `The Scala.js output is missing: ${scalaJSOutput}/main.js\n` +
+      `Link it first:  sbt dmnTesterClient/${isDev() ? "fastLinkJS" : "fullLinkJS"}`
+  );
+}
+console.log(`Scala.js output: ${scalaJSOutput}`);
 
 export default defineConfig({
   // the server packages this into its jar (see build.sbt: dmnTesterServer).

@@ -271,6 +271,13 @@ lazy val dmnTesterClient = project
         )
     },
     scalacOptions ++= Seq("-Xmax-inlines", "128"),
+    // vite must know where the linked JS is. Asking sbt from vite.config.js
+    // is fragile (it silently produced an empty path on CI), so the linker
+    // writes to a fixed directory that vite simply points at.
+    Compile / fastLinkJS / scalaJSLinkerOutputDirectory :=
+      target.value / "scalajs" / "dev",
+    Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
+      target.value / "scalajs" / "prod",
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalaJsDomVersion,
       "com.raquo"    %%% "laminar"     % laminarVersion

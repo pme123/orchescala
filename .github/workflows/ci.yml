@@ -31,10 +31,13 @@ jobs:
         with:
           node-version: 22
       - name: Build the DMN Tester UI
-        # the bundle ends up in 04-dmntester-client/target/webapp and is
+        # sbt links the Scala.js output to 04-dmntester-client/target/scalajs,
+        # vite bundles it to 04-dmntester-client/dist/webapp - from where it is
         # packaged into orchescala-dmntester-server
-        working-directory: 04-dmntester-client
-        run: npm ci && npm run build
+        run: |
+          sbt dmnTesterClient/fullLinkJS
+          npm --prefix 04-dmntester-client ci
+          npm --prefix 04-dmntester-client run build
       - name: Compile
         run: sbt compile
       - name: Test

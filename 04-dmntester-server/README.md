@@ -10,8 +10,10 @@ the outputs are the ones you expected.
 ## Try it
 
 ```bash
-cd 04-dmntester-client && npm ci && npm run build   # once - builds the UI
-cd .. && sbt dmnTester                              # -> http://localhost:8883
+sbt dmnTesterClient/fullLinkJS                       # links the Scala.js UI
+npm --prefix 04-dmntester-client ci                  # once
+npm --prefix 04-dmntester-client run build           # bundles it
+sbt dmnTester                                        # -> http://localhost:8883
 ```
 
 `sbt dmnTester` runs [`ExampleDmnTesterApp`](src/test/scala/orchescala/dmntester/ExampleDmnTesterApp.scala)
@@ -151,12 +153,15 @@ expectations.
 ## Developing
 
 ```bash
-sbt dmnTesterServer/test                 # engine, config handling, http api
-sbt "~dmnTesterClient/fastLinkJS"        # UI, terminal 1
-cd 04-dmntester-client && npm run dev    # UI on :5173, proxies /api to :8883
+sbt dmnTesterServer/test                     # engine, config handling, http api
+sbt "~dmnTesterClient/fastLinkJS"            # UI, terminal 1
+npm --prefix 04-dmntester-client run dev     # UI on :5173, proxies /api to :8883
 ```
 
-The UI bundle is built by vite into `04-dmntester-client/dist/webapp` and
-packaged into `orchescala-dmntester-server` as `webapp/...` resources.
+sbt links the Scala.js output to `04-dmntester-client/target/scalajs/{dev,prod}`
+(`fastLinkJS` / `fullLinkJS`); vite bundles it into
+`04-dmntester-client/dist/webapp`, which is packaged into
+`orchescala-dmntester-server` as `webapp/...` resources. If the link step is
+missing, the vite build says so instead of producing a broken bundle.
 `packageBin` fails if it is missing, so a published tester always has its UI -
 CI builds it (see `.github/workflows`).
