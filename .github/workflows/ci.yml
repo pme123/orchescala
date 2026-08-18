@@ -26,10 +26,19 @@ jobs:
           cache: sbt
       - name: Install sbt
         uses: sbt/setup-sbt@v1
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the DMN Tester UI
+        # the bundle ends up in 04-dmntester-client/target/webapp and is
+        # packaged into orchescala-dmntester-server
+        working-directory: 04-dmntester-client
+        run: npm ci && npm run build
       - name: Compile
         run: sbt compile
       - name: Test
-        run: sbt -v "test:compile; domain/test; api/test"
+        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
       - name: Test Report

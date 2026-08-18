@@ -9,6 +9,9 @@ See [Documentation](https://pme123.github.io/orchescala/)
 
 For details on Bearer token authentication, see the [Gateway README](06-gateway/README.md#authentication).
 
+Test your DMN tables with the [DMN Tester](04-dmntester-server/README.md) -
+`sbt dmnTester` starts it with the examples of this repository.
+
 # Development
 
 ## Update Dependencies
