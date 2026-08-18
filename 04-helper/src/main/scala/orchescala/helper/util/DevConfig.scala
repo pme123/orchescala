@@ -133,9 +133,18 @@ case class ModuleConfig(
     sbtPlugins: Seq[String] = Seq.empty,
     sbtDependencies: Seq[String] = Seq.empty,
     hasProjectDependencies: Boolean = false,
-    projectDependenciesTestOnly: Boolean = false
+    projectDependenciesTestOnly: Boolean = false,
+    // the orchescala artifact this module needs - usually `orchescala-<name>`,
+    // but the dmn module needs the DMN Tester implementation as well.
+    orchescalaArtifacts: Seq[String] = Seq.empty,
+    // transitive artifacts that must be kept out of this module
+    exclusions: Seq[(String, String)] = Seq.empty
 ):
   lazy val name: String          = moduleType.toString.toLowerCase
+
+  /** the `orchescala-*` artifacts a project's module depends on */
+  lazy val orchescalaArtifactNames: Seq[String] =
+    if orchescalaArtifacts.isEmpty then Seq(name) else orchescalaArtifacts
   lazy val nameWithLevel: String =
     s"${"%02d".format(level)}-$name"
 
@@ -184,7 +193,14 @@ object ModuleConfig:
   lazy val dmnModule        = ModuleConfig(
     ModuleType.dmn,
     level = 3,
-    doPublish = false
+    doPublish = false,
+    // `dmn` is the DSL, `dmntester-server` runs the tester (and brings the DSL
+    // and the model with it)
+    orchescalaArtifacts = Seq("dmntester-server"),
+    // the DMN engine's FEEL parser is a Scala 2.13 jar and drags in geny_2.13,
+    // while os-lib brings geny_3 - sbt refuses two cross versions of the same
+    // library. The engine works with geny_3.
+    exclusions = Seq("com.lihaoyi" -> "geny_2.13")
   )
   lazy val simulationModule = ModuleConfig(
     ModuleType.simulation,

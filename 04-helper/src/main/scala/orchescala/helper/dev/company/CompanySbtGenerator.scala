@@ -175,7 +175,14 @@ case class CompanySbtGenerator()(using
        |    typesafeConfigDep
        |  )
        |  lazy val dmnDeps = Seq(
-       |    "io.github.pme123" %% "orchescala-dmn" % orchescalaV
+       |    // The DMN Tester - brings orchescala-dmn (the DSL) and
+       |    // orchescala-dmntester (the model) with it.
+       |    // The DMN engine is a Scala 2.13 jar whose FEEL parser drags in
+       |    // geny_2.13, while os-lib brings geny_3 - the same library in two
+       |    // cross versions, which sbt refuses. The engine works fine with
+       |    // geny_3, so the 2.13 one is excluded here as well as upstream.
+       |    ("io.github.pme123" %% "orchescala-dmntester-server" % orchescalaV)
+       |      .exclude("com.lihaoyi", "geny_2.13")
        |  )
        |  lazy val simulationDeps = Seq(
        |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV,

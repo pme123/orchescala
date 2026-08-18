@@ -1,42 +1,37 @@
-package orchescala
-package dmn
+package orchescala.dmn
 
 import orchescala.domain.*
-import pme123.camunda.dmn.tester.shared.*
+import orchescala.dmntester.*
 
-import java.io.FileNotFoundException
 import java.time.LocalDateTime
-import scala.reflect.Selectable.reflectiveSelectable
 import scala.reflect.ClassTag
+import scala.reflect.Selectable.reflectiveSelectable
 
-trait DmnTesterConfigCreator extends DmnConfigWriter, DmnTesterStarter:
+/** The DSL to describe WHAT shall be tested:
+  *
+  * {{{
+  * DocumentInfoDmn.example.testUnit
+  *   .testValues(_.docId, "Basisvertrag", "QR-Rechnung")
+  *   .acceptMissingRules
+  * }}}
+  *
+  * Pure - it only turns `DecisionDmn`s into `DmnConfig`s. Writing them and
+  * starting the tester is the job of `orchescala-dmntester-server`.
+  */
+trait DmnTesterDsl:
 
-  // the path where the DMNs are
-  protected def dmnBasePath: os.Path = starterConfig.dmnPaths.head
-  // the path where the DMN Configs are
-  protected def dmnConfigPath: os.Path = starterConfig.dmnConfigPaths.head
-  // creating the Path to the DMN - by default the _dmnName_ is `decisionDmn.decisionDefinitionKey`.
-  protected def defaultDmnPath(dmnName: String): os.Path =
-    val dmnPath = dmnBasePath / s"${dmnName.replace(s"${starterConfig.companyName}-", "")}.dmn"
-    if (!dmnPath.toIO.exists())
-      throw FileNotFoundException(s"There is no DMN in $dmnPath")
-    dmnPath
+  /** the path where the DMN of a decision lives - `source` selects one of the
+    * named DMN sources of the project (e.g. "c7" / "c8")
+    */
+  protected def dmnPathOf(dmnName: String, source: Option[String]): os.Path
 
-  protected def createDmnConfigs(dmnTesterObjects: DmnTesterObject[?]*): Unit =
-    startDmnTester
-    dmnConfigs(dmnTesterObjects)
-      .foreach(updateConfig(_, dmnConfigPath))
-    println("Check it on http://localhost:8883")
-  end createDmnConfigs
+  /** paths in a DmnConfig are relative to the project */
+  protected def projectBasePath: os.Path = os.pwd
 
   given [In <: Product]: Conversion[DecisionDmn[In, ?], DmnTesterObject[In]] =
-    decisionDmn =>
-      DmnTesterObject(
-        decisionDmn,
-        defaultDmnPath(decisionDmn.decisionDefinitionKey)
-      )
+    decisionDmn => DmnTesterObject(decisionDmn)
 
-  private def dmnConfigs(
+  protected def dmnConfigs(
       dmnTesterObjects: Seq[DmnTesterObject[?]]
   ): Seq[DmnConfig] =
     dmnTesterObjects
@@ -122,12 +117,23 @@ trait DmnTesterConfigCreator extends DmnConfigWriter, DmnTesterStarter:
 
   case class DmnTesterObject[In <: Product](
       dDmn: DecisionDmn[In, ?],
-      dmnPath: os.Path,
+      // set explicitly with `.dmnPath(...)` - otherwise it is derived from the
+      // decision id and the source, lazily: `.from("c8")` may still change it.
+      maybeDmnPath: Option[os.Path] = None,
       addTestValues: Map[String, List[TesterValue]] = Map.empty,
+      // which named DMN source this table comes from - the configuration is
+      // written into the sub directory of the same name
+      source: Option[String] = None,
       _testUnit: Boolean = false,
       _acceptMissingRules: Boolean = false,
       _inTestMode: Boolean = false
-  )
+  ):
+    lazy val dmnPath: os.Path =
+      maybeDmnPath.getOrElse(dmnPathOf(dDmn.decisionDefinitionKey, source))
+
+    /** the same table, taken from this concrete DMN file */
+    def withDmnPath(path: os.Path): DmnTesterObject[In] =
+      copy(maybeDmnPath = Some(path))
 
   private def toTesterValue(value: Any) =
     value match
@@ -138,10 +144,17 @@ trait DmnTesterConfigCreator extends DmnConfigWriter, DmnTesterStarter:
   extension [In <: Product](dmnTO: DmnTesterObject[In])
 
     def dmnPath(path: os.Path): DmnTesterObject[In] =
-      dmnTO.copy(dmnPath = path)
+      dmnTO.copy(maybeDmnPath = Some(path))
 
     def dmnPath(dmnName: String): DmnTesterObject[In] =
-      dmnPath(defaultDmnPath(dmnName))
+      dmnTO.copy(maybeDmnPath = Some(dmnPathOf(dmnName, dmnTO.source)))
+
+    /** takes the DMN from the named source of the project and writes the
+      * configuration into the sub directory of that name:
+      * {{{ DocumentInfoDmn.example.testUnit.from("c8") }}}
+      */
+    def from(source: String): DmnTesterObject[In] =
+      dmnTO.copy(source = Some(source))
 
     def testUnit: DmnTesterObject[In] =
       dmnTO.copy(_testUnit = true)
@@ -164,4 +177,4 @@ trait DmnTesterConfigCreator extends DmnConfigWriter, DmnTesterStarter:
       )
     end testValues
   end extension
-end DmnTesterConfigCreator
+end DmnTesterDsl

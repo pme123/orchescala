@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="z9nai.png" />
+    <title>Orchescala DMN Tester</title>
+    <script>
+      // set the theme before the first paint - no flash of the wrong theme
+      (() => {
+        const stored = localStorage.getItem("orchescala.dmnTester.theme");
+        const dark =
+          stored === "dark" ||
+          (stored === null &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+        document.documentElement.classList.toggle("light", !dark);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="dmnTester"></div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

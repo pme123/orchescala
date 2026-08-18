@@ -1,0 +1,439 @@
+/* z9nai Corporate Identity - monospace, warm off-white / near black,
+   thin borders, small type, pill badges. Same tokens as z9nai/arch-review. */
+
+* {
+  box-sizing: border-box;
+}
+
+:root,
+html.light {
+  --bg: #f5f4f0;
+  --bg-top: #eae9e5;
+  --fg: #1a1a1a;
+  --fg-strong: #000000;
+  --muted: rgba(0, 0, 0, 0.4);
+  --muted-2: rgba(0, 0, 0, 0.55);
+  --border: rgba(0, 0, 0, 0.08);
+  --border-2: rgba(0, 0, 0, 0.15);
+  --border-3: rgba(0, 0, 0, 0.3);
+  --card: rgba(0, 0, 0, 0.02);
+  --card-2: rgba(0, 0, 0, 0.04);
+  --hover: rgba(0, 0, 0, 0.04);
+  --btn-primary-bg: #000000;
+  --btn-primary-fg: #ffffff;
+
+  --ok-bg: #ecfdf5;
+  --ok-fg: #047857;
+  --ok-border: #6ee7b7;
+  --warn-bg: #fffbeb;
+  --warn-fg: #b45309;
+  --warn-border: #fcd34d;
+  --err-bg: #fff1f2;
+  --err-fg: #be123c;
+  --err-border: #fda4af;
+  --info-bg: #eff6ff;
+  --info-fg: #1d4ed8;
+  --info-border: #93c5fd;
+}
+
+html.dark {
+  --bg: #0e0f11;
+  --bg-top: #0c0d0f;
+  --fg: #e8e8e8;
+  --fg-strong: #ffffff;
+  --muted: rgba(255, 255, 255, 0.4);
+  --muted-2: rgba(255, 255, 255, 0.55);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-2: rgba(255, 255, 255, 0.15);
+  --border-3: rgba(255, 255, 255, 0.3);
+  --card: rgba(255, 255, 255, 0.02);
+  --card-2: rgba(255, 255, 255, 0.04);
+  --hover: rgba(255, 255, 255, 0.05);
+  --btn-primary-bg: #ffffff;
+  --btn-primary-fg: #000000;
+
+  --ok-bg: rgba(16, 185, 129, 0.15);
+  --ok-fg: #6ee7b7;
+  --ok-border: rgba(16, 185, 129, 0.3);
+  --warn-bg: rgba(245, 158, 11, 0.15);
+  --warn-fg: #fcd34d;
+  --warn-border: rgba(245, 158, 11, 0.3);
+  --err-bg: rgba(244, 63, 94, 0.15);
+  --err-fg: #fda4af;
+  --err-border: rgba(244, 63, 94, 0.3);
+  --info-bg: rgba(59, 130, 246, 0.15);
+  --info-fg: #93c5fd;
+  --info-border: rgba(59, 130, 246, 0.3);
+}
+
+body {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Courier New", monospace;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* --- top bar ------------------------------------------------------------ */
+
+.topbar {
+  padding: 0.5rem 0;
+  background: var(--bg-top);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar .logo {
+  width: 1.5rem;
+  height: 1.5rem;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.topbar .logo:hover {
+  opacity: 1;
+}
+
+.topbar .sponsor {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-decoration: none;
+  margin-right: 0.75rem;
+}
+
+.topbar .brand {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--muted-2);
+  text-transform: none;
+}
+
+.topbar .spacer {
+  margin-left: auto;
+}
+
+/* --- layout ------------------------------------------------------------- */
+
+/* one centered container - top bar, content and footer share it, so the logo
+   stays aligned with the cards on wide screens */
+.content,
+.bar-inner {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.content {
+  padding: 1rem 1rem 3rem 1rem;
+}
+
+.bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  /* same inset as .content, so the logo lines up with the cards */
+  padding: 0 1rem;
+}
+
+.card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--muted-2);
+  margin: 0 0 0.75rem 0;
+}
+
+.sub-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin: 1rem 0 0.4rem 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mono-break {
+  word-break: break-all;
+}
+
+/* --- controls ----------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: inherit;
+  font-size: 11px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border-2);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-3);
+  color: var(--fg-strong);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  border-color: transparent;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  font-weight: 600;
+}
+
+.btn.primary:hover:not(:disabled) {
+  opacity: 0.85;
+  color: var(--btn-primary-fg);
+}
+
+.btn.icon {
+  padding: 0.35rem;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn.icon:hover {
+  color: var(--fg-strong);
+  border-color: transparent;
+}
+
+select,
+input[type="text"] {
+  font: inherit;
+  font-size: 11px;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-2);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  min-width: 22rem;
+  outline: none;
+}
+
+select:focus,
+input[type="text"]:focus {
+  border-color: var(--border-3);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--fg);
+  cursor: pointer;
+}
+
+/* --- tables ------------------------------------------------------------- */
+
+.tableScroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+
+th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border-2);
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: var(--hover);
+}
+
+td.index {
+  text-align: right;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+tr.missing td {
+  background: var(--warn-bg);
+}
+
+/* --- badges & values ---------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  white-space: nowrap;
+  color: var(--muted-2);
+  background: var(--card-2);
+}
+
+.badge.INFO {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+}
+
+.badge.WARN {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+
+.badge.ERROR {
+  background: var(--err-bg);
+  color: var(--err-fg);
+  border-color: var(--err-border);
+}
+
+.success {
+  color: var(--ok-fg);
+  font-weight: 600;
+}
+
+.failure {
+  color: var(--err-fg);
+}
+
+.notTested {
+  color: var(--muted);
+}
+
+.note {
+  font-size: 11px;
+  line-height: 1.6;
+  border: 1px solid var(--border-2);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.note.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+
+.note.error {
+  background: var(--err-bg);
+  color: var(--err-fg);
+  border-color: var(--err-border);
+}
+
+.note.info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+  border-color: var(--info-border);
+}
+
+.note pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+}
+
+/* --- busy --------------------------------------------------------------- */
+
+.busy {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--border-2);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- footer ------------------------------------------------------------- */
+
+footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.35rem 0;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--bg-top);
+  border-top: 1px solid var(--border);
+}
+
+footer .bar-inner {
+  justify-content: space-between;
+}
+
+/* --- scrollbars (thin, like the rest of the CI) ------------------------- */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
