@@ -138,6 +138,41 @@ To support different naming schemes, you can adjust the DMN file name the follow
       .dmnPath(os.pwd / "mySpecial.dmn")
     ``` 
   
+### .createC7Dmn / .createC8Dmn
+Everything a DMN table needs is already in your domain object -
+so let the tester create the DMN, as long as there is none:
+
+```scala
+  StaticDocumentsDmn.example.testUnit
+    .testValues(_.docId, "Basisvertrag")
+    .createC7Dmn
+```
+
+This is what is taken from the domain object:
+
+- the **input columns** - the fields of the `In`, with their types
+  (a `DmnVariable` is no column - it is a variable of the expressions).
+- the **output columns** - one for a `singleEntry` / `collectEntries`,
+  one per field of the result for a `singleResult` / `resultList`.
+- the **hit policy** - `COLLECT` if the result is a `Seq`, else `UNIQUE`.
+- one **rule** that matches every input and returns the example output.
+
+So you start with a DMN that is correct and works - in the DMN Tester as well
+as in the Camunda Modeler, where you then model your rules.
+
+The DMN is created in the DMN source of that platform (`c7` / `c8`), if your
+company configuration has named sources - otherwise in the configured
+`dmnPaths` directory. `.from("c8")` and `.dmnPath(...)` win, if you set them.
+
+Use `.createC8Dmn` for a DMN of Camunda 8 - it only differs in the flavour of
+the XML (`number` instead of `integer` / `long` / `double`, no
+`historyTimeToLive`), not in the table.
+
+@:callout(info)
+An existing DMN is NEVER overwritten - the rules you modelled are safe.
+If you want it created again, delete it first.
+@:@
+
 ### .acceptMissingRules
 Sometimes you have a lot of rules that you don't want to test all.
 Adding `.acceptMissingRules` will allow missing rules in your test.

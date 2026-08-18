@@ -40,6 +40,9 @@ case class DmnGenerator()(using config: DevConfig):
        |        65,
        |        66
        |      )
+       |      // creates the DMN from the domain object, if there is none yet
+       |      // (`.createC8Dmn` for a Camunda 8 DMN)
+       |      .createC7Dmn
        |  */
        |
        |end ProjectDmnTester""".stripMargin

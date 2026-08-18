@@ -1,8 +1,6 @@
 package orchescala.dmntester
 
-import orchescala.dmn.DmnTesterDsl
-
-import java.io.FileNotFoundException
+import orchescala.dmn.{DmnFlavor, DmnTesterDsl, InitialDmnCreator}
 
 /** What a project extends: describe the DMNs with the DSL, then
   * `createDmnConfigs` starts the tester and writes the configurations.
@@ -20,15 +18,15 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
   override protected def dmnPathOf(dmnName: String, source: Option[String]): os.Path =
     defaultDmnPath(dmnName, source)
 
+  /** A DMN that is not there is no error here - `createDmnConfigs` reports it
+    * (or creates it, see `.createC7Dmn`).
+    */
   protected def defaultDmnPath(
       dmnName: String,
       source: Option[String] = None
   ): os.Path =
-    val dmnPath = testerConfig.dmnSource(source) /
+    testerConfig.dmnSource(source) /
       s"${dmnName.replace(s"${testerConfig.companyName}-", "")}.dmn"
-    if (!dmnPath.toIO.exists())
-      throw FileNotFoundException(s"There is no DMN in $dmnPath")
-    dmnPath
 
   /** Writes a configuration for every DMN source that HAS this decision.
     *
@@ -42,6 +40,9 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
     *   - a DMN in a source that no decision covers.
     */
   protected def createDmnConfigs(dmnTesterObjects: DmnTesterObject[?]*): Unit =
+    // `.createC7Dmn` / `.createC8Dmn` - so a decision that has no DMN yet is
+    // found in the source below, like every other one
+    dmnTesterObjects.foreach(createDmnIfMissing)
     startDmnTester
     val sources = testerConfig.sources
     val covered = scala.collection.mutable.Set.empty[os.Path]
@@ -50,9 +51,14 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
       val matching = sourcesOf(dmnTO, sources)
       covered ++= matching.map(_._2)
       if matching.isEmpty then
+        val where = dmnTO.maybeDmnPath
+          .map(path => s"'$path'")
+          .getOrElse(
+            s"'${dmnFileName(dmnTO)}' in any DMN source (${sources.map(_._2).mkString(", ")})"
+          )
         println(
-          s"WARNING: There is no DMN '${dmnFileName(dmnTO)}' in any DMN source " +
-            s"(${sources.map(_._2).mkString(", ")}) - '${dmnTO.dDmn.decisionDefinitionKey}' is not tested."
+          s"WARNING: There is no DMN $where - " +
+            s"'${dmnTO.dDmn.decisionDefinitionKey}' is not tested."
         )
       else if !dmnTO._inTestMode then
         // ONE configuration per decision, referencing every DMN it exists in -
@@ -66,6 +72,40 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
     warnAboutUncoveredDmns(sources, covered.toSet)
     println(s"Check it on $testerUrl")
   end createDmnConfigs
+
+  /** `.createC7Dmn` / `.createC8Dmn`: the DMN of the decision is created from
+    * the domain object - the inputs, the outputs, their types and the hit
+    * policy are all described there.
+    *
+    * An existing DMN is NEVER overwritten - only what is missing is created.
+    */
+  private def createDmnIfMissing(dmnTO: DmnTesterObject[?]): Unit =
+    dmnTO._createDmn.foreach: flavor =>
+      val dmnFile = dmnTO.maybeDmnPath
+        .getOrElse(dmnSourceOf(dmnTO, flavor) / dmnFileName(dmnTO))
+      if os.exists(dmnFile) then
+        println(
+          s"The DMN of '${dmnTO.dDmn.decisionDefinitionKey}' exists already - " +
+            s"not created: $dmnFile"
+        )
+      else
+        os.write.over(
+          dmnFile,
+          InitialDmnCreator.dmnXml(dmnTO.dDmn, flavor),
+          createFolders = true
+        )
+        println(
+          s"Created the ${flavor.sourceName.toUpperCase} DMN of " +
+            s"'${dmnTO.dDmn.decisionDefinitionKey}' from its domain object: $dmnFile"
+        )
+
+  /** where a created DMN goes to - the source it was pinned to (`.from(...)`),
+    * the source that is named like the flavor (`c7` / `c8`), or the only one.
+    */
+  private def dmnSourceOf(dmnTO: DmnTesterObject[?], flavor: DmnFlavor): os.Path =
+    val source = dmnTO.source
+      .orElse(Option.when(testerConfig.dmnSources.contains(flavor.sourceName))(flavor.sourceName))
+    testerConfig.dmnSource(source)
 
   /** every source that has the DMN of this decision - or the one source the
     * decision was pinned to with `.from(...)` / `.dmnPath(...)`.

@@ -124,6 +124,8 @@ trait DmnTesterDsl:
       // which named DMN source this table comes from - the configuration is
       // written into the sub directory of the same name
       source: Option[String] = None,
+      // create the DMN from the domain object, if there is none yet
+      _createDmn: Option[DmnFlavor] = None,
       _testUnit: Boolean = false,
       _acceptMissingRules: Boolean = false,
       _inTestMode: Boolean = false
@@ -155,6 +157,23 @@ trait DmnTesterDsl:
       */
     def from(source: String): DmnTesterObject[In] =
       dmnTO.copy(source = Some(source))
+
+    /** Creates the DMN from the domain object - as Camunda 7 DMN - if there
+      * is none yet:
+      * {{{ StaticDocumentsDmn.example.testUnit.createC7Dmn }}}
+      *
+      * The inputs, the outputs, their types and the hit policy are all in your
+      * domain object - so you can start with a DMN that is correct and works,
+      * and only have to fill in the rules (Camunda Modeler).
+      *
+      * An existing DMN is NEVER touched - your rules are safe.
+      */
+    def createC7Dmn: DmnTesterObject[In] =
+      dmnTO.copy(_createDmn = Some(DmnFlavor.C7))
+
+    /** like [[createC7Dmn]], but the DMN is created for Camunda 8 */
+    def createC8Dmn: DmnTesterObject[In] =
+      dmnTO.copy(_createDmn = Some(DmnFlavor.C8))
 
     def testUnit: DmnTesterObject[In] =
       dmnTO.copy(_testUnit = true)
