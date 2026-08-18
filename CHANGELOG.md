@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.6.0 - 2026-08-18
+### Changed 
+- Added filter to remove title for enums to show correct enum values. - see [Commit](git@github.com:pme123/orchescala/commit/3d1d17001cbad2fb03fbbad6707e9d0b5c7f3aa3)
+- Merge pull request #15 from pme123/feature/dmn-tester-integration - see [Commit](git@github.com:pme123/orchescala/commit/e2a596f8f6ebc4e9ce7f56112ab983ccc0ae51d8)
+- fix(ci): link the Scala.js UI with sbt instead of asking sbt from vite - see [Commit](git@github.com:pme123/orchescala/commit/176cb106456a7683536b61ac27c4c6a8d85c941f)
+- Added dmntester to orchescala. - see [Commit](git@github.com:pme123/orchescala/commit/4e8d91f8383886f8945609775e7f5a33d4f18fd3)
+- Added reference also as def. - see [Commit](git@github.com:pme123/orchescala/commit/4a50ab2761c95d5da845f65282fc80a9814609dc)
+
 ## 0.5.19 - 2026-08-17
 ### Changed 
 - Added parallel execution to speed up time. - see [Commit](git@github.com:pme123/orchescala/commit/88ac99b8b4c18e776e03507fc3d3c70219b0169f)
