@@ -6,6 +6,8 @@ import zio.{Console, UIO}
   * working directory (that is where a project starts the tester), absolute
   * paths are taken as they are.
   */
+def osPath(path: String): os.Path = osPath(List(path))
+
 def osPath(path: List[String]): os.Path =
   val segments = path
     .map(_.trim)

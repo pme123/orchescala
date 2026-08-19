@@ -62,9 +62,18 @@ end DmnConfigHandler
 /** HOCON <-> [[DmnConfig]].
   *
   * The format is the one of the existing `*.conf` files - values may be given
-  * as HOCON string, number, boolean or null; a string is interpreted with
-  * [[TesterValue.fromString]], so `"12"` becomes a `NumberValue`, an ISO date
-  * time a `DateValue` and `_NULL_` the `NullValue`.
+  * as HOCON string, number, boolean, null or object; a string is interpreted
+  * with [[TesterValue.fromString]], so `"12"` becomes a `NumberValue`, an ISO
+  * date time a `DateValue` and `_NULL_` the `NullValue`. An object becomes an
+  * [[TesterValue.ObjectValue]]:
+  * {{{
+  * values=[
+  *     {
+  *         id=11393215
+  *         percentage=50
+  *     }
+  * ]
+  * }}}
   */
 object hocon:
 
@@ -76,17 +85,15 @@ object hocon:
           data =
             if config.hasPath("data") then testerData(config.getConfig("data"))
             else TesterData(),
-          dmnPath = config.getStringList("dmnPath").asScala.toList,
+          // either the single path or the named ones - see `render`
+          dmnPath =
+            if config.hasPath("dmnPath") then config.getString("dmnPath") else "",
           dmnPaths =
             if config.hasPath("dmnPaths") then
               config
                 .getObject("dmnPaths")
                 .asScala
-                .map: (name, value) =>
-                  name -> config
-                    .getStringList(s"dmnPaths.\"$name\"")
-                    .asScala
-                    .toList
+                .map((name, value) => name -> value.unwrapped().toString)
                 .toMap
             else Map.empty,
           isActive = boolean(config, "isActive", default = false),
@@ -104,20 +111,29 @@ object hocon:
       case NonFatal(ex) => Left(s"${ex.getClass.getSimpleName}: ${ex.getMessage}")
 
   def render(dmnConfig: DmnConfig): String =
-    ConfigValueFactory
-      .fromMap(
-        map(
-          "decisionId" -> dmnConfig.decisionId,
-          "dmnPath" -> dmnConfig.dmnPath.asJava,
+    // a path is written exactly once: either the single `dmnPath` or the
+    // named `dmnPaths` - never both
+    val paths: Seq[(String, Object)] =
+      if dmnConfig.dmnPaths.nonEmpty then
+        Seq(
           "dmnPaths" -> map(
             dmnConfig.dmnPaths.toSeq
               .sortBy(_._1)
-              .map((name, path) => name -> (path.asJava: Object))*
-          ),
+              .map((name, path) => name -> (path: Object))*
+          )
+        )
+      else Seq("dmnPath" -> (dmnConfig.dmnPath: Object))
+    ConfigValueFactory
+      .fromMap(
+        map(
+          Seq("decisionId" -> (dmnConfig.decisionId: Object)) ++
+            paths ++
+            Seq(
           "isActive" -> Boolean.box(dmnConfig.isActive),
           "testUnit" -> Boolean.box(dmnConfig.testUnit),
           "acceptMissingRules" -> Boolean.box(dmnConfig.acceptMissingRules),
           "data" -> dataMap(dmnConfig.data)
+            )*
         )
       )
       .render(
@@ -182,6 +198,15 @@ object hocon:
       case ConfigValueType.NULL   => NullValue
       case ConfigValueType.STRING =>
         TesterValue.fromString(value.unwrapped().asInstanceOf[String])
+      // an object Input - the DMN addresses its fields, e.g. `myObject.myField`
+      case ConfigValueType.OBJECT =>
+        ObjectValue(
+          value
+            .asInstanceOf[ConfigObject]
+            .asScala
+            .map((key, nested) => key -> testerValue(nested))
+            .toMap
+        )
       case other =>
         throw new IllegalArgumentException(
           s"Not expected value type: $other (${value.render()})"
@@ -234,6 +259,8 @@ object hocon:
       case BooleanValue(value) => Boolean.box(value)
       case StringValue(value)  => value
       case v: DateValue        => v.valueStr
+      case ObjectValue(fields) =>
+        map(fields.toSeq.map((key, value) => key -> configValue(value))*)
       case NullValue           => NullValue.constant
 
   private def map(entries: (String, Object)*): java.util.Map[String, Object] =

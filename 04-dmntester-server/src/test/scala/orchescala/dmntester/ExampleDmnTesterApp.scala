@@ -23,9 +23,9 @@ object ExampleDmnTesterApp extends DmnTesterApp:
       companyName = "orchescala",
       // ONE config path - the tester shows a group per sub directory (c7/c8)
       dmnConfigPaths = Seq(examples / "dmn-config-migration"),
-      dmnSources = Map(
-        "c7" -> examples / "dmn" / "c7",
-        "c8" -> examples / "dmn" / "c8"
+      dmnSources = Seq(
+        DmnSource("c7", examples / "dmn" / "c7"),
+        DmnSource("c8", examples / "dmn" / "c8")
       )
     )
 

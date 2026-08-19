@@ -71,9 +71,9 @@ class MigrationDslTest extends FunSuite:
       DmnTesterStarterConfig(
         companyName = "acme",
         dmnConfigPaths = Seq(target),
-        dmnSources = Map(
-          "c7" -> resources / "dmn-sources" / "c7",
-          "c8" -> resources / "dmn-sources" / "c8"
+        dmnSources = Seq(
+          DmnSource("c7", resources / "dmn-sources" / "c7"),
+          DmnSource("c8", resources / "dmn-sources" / "c8")
         ),
         exposedPort = freePort
       )
@@ -111,7 +111,7 @@ class MigrationDslTest extends FunSuite:
       .parse(os.read(target / "c8-dish.conf")).fold(fail(_), identity)
     assertEquals(dish.dmnPaths.keySet, Set("c8"))
     assert(
-      dish.dmnPaths("c8").mkString("/").endsWith("dmn-sources/c8/c8-dish.dmn"),
+      dish.dmnPaths("c8").endsWith("dmn-sources/c8/c8-dish.dmn"),
       dish.dmnPaths
     )
 

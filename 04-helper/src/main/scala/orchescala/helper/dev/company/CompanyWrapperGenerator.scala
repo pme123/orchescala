@@ -199,15 +199,15 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |
        |  override protected def starterConfig: DmnTesterStarterConfig =
        |    DmnTesterStarterConfig(companyName = "$companyName")
-       |    // If your projects have DMNs of more than one platform, name the
-       |    // sources - the configurations then land in a sub directory each
-       |    // (dmnConfigs/c7, dmnConfigs/c8) and ONE tester shows them all:
+       |    // Where the DMNs of a project are - name the sources if your
+       |    // projects have DMNs of more than one platform. A decision is then
+       |    // looked up in every source and tested against all of them:
        |    //
        |    // DmnTesterStarterConfig(
        |    //   companyName = "$companyName",
-       |    //   dmnSources = Map(
-       |    //     "c7" -> projectBasePath / "src" / "main" / "resources" / "camunda",
-       |    //     "c8" -> projectBasePath / "c8" / "src" / "main" / "resources"
+       |    //   dmnSources = Seq(
+       |    //     DmnSource("c7", projectBasePath / "src" / "main" / "resources" / "camunda"),
+       |    //     DmnSource("c8", projectBasePath / "c8" / "src" / "main" / "resources")
        |    //   )
        |    // )
        |

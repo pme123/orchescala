@@ -11,7 +11,7 @@ import java.io.InputStream
 case class DmnTester(dmnConfig: DmnConfig, engine: DmnEvalEngine):
 
   private val decisionId = dmnConfig.decisionId
-  private val dmnPath = dmnConfig.dmnPath
+  private val dmnPath = dmnConfig.allDmnPaths.head._2
 
   /** one result per DMN the configuration references (e.g. c7 and c8) */
   def runAll(): IO[EvalException, Seq[DmnEvalResult]] =
@@ -21,13 +21,13 @@ case class DmnTester(dmnConfig: DmnConfig, engine: DmnEvalEngine):
     run(dmnConfig.allDmnPaths.head)
 
   def run(
-      source: (Option[String], List[String])
+      source: (Option[String], String)
   ): IO[EvalException, DmnEvalResult] =
     val (name, path) = source
     for
       _ <- printLine(
         s"Testing $decisionId${name.map(n => s" [$n]").getOrElse("")}: " +
-          s"${dmnConfig.dmnPathStr(path)}"
+          path
       )
       model <- parsedDmn(path)
       result <- DmnTableEngine(engine, model, dmnConfig).evalDecision(name, path)
@@ -38,20 +38,20 @@ case class DmnTester(dmnConfig: DmnConfig, engine: DmnEvalEngine):
 
   def parsedDmn(): IO[EvalException, ParsedDmnModel] = parsedDmn(dmnPath)
 
-  def parsedDmn(dmnPath: List[String]): IO[EvalException, ParsedDmnModel] =
+  def parsedDmn(dmnPath: String): IO[EvalException, ParsedDmnModel] =
     ZIO
       .attempt(os.read.inputStream(osPath(dmnPath)))
       .orElseFail(
         EvalException(
           decisionId,
-          s"There was no DMN in ${dmnPath.mkString("/")} (${osPath(dmnPath)})."
+          s"There was no DMN in $dmnPath (${osPath(dmnPath)})."
         )
       )
       .flatMap(is => parsedDmn(is).ensuring(ZIO.succeed(is.close())))
 
   def parsedDmn(streamToTest: InputStream): IO[EvalException, ParsedDmnModel] =
     ZIO
-      .fromEither(engine.parse(streamToTest, dmnPath.mkString("/")))
+      .fromEither(engine.parse(streamToTest, dmnPath))
       .mapError(parseError)
 
   private def parseError(error: EvalError): EvalException = error match

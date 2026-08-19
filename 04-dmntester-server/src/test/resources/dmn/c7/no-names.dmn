@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" id="drd_no-names" name="DRD" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="4.7.0">
+  <!-- A valid DMN where everything optional is left out: the input clause has
+       no label and the single output neither a name nor a label - dmn-scala
+       hands all of them out as `null`. -->
+  <decision id="no-names" name="no names">
+    <decisionTable id="DecisionTable_no_names">
+      <input id="InputClause_season">
+        <inputExpression id="LiteralExpression_season" typeRef="string">
+          <text>season</text>
+        </inputExpression>
+      </input>
+      <output id="OutputClause_dish" typeRef="string" />
+      <rule id="DecisionRule_fall">
+        <inputEntry id="UnaryTests_fall">
+          <text>"Fall"</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_fall">
+          <text>"Spareribs"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_winter">
+        <inputEntry id="UnaryTests_winter">
+          <text>"Winter"</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_winter">
+          <text>"Roastbeef"</text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram id="DMNDiagram_no_names">
+      <dmndi:DMNShape id="DMNShape_no_names" dmnElementRef="no-names">
+        <dc:Bounds height="80" width="180" x="207" y="81" />
+      </dmndi:DMNShape>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>

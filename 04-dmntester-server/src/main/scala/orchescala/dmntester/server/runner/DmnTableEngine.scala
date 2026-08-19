@@ -28,7 +28,7 @@ case class DmnTableEngine(
 
   def evalDecision(
       source: Option[String] = None,
-      dmnPath: List[String] = List.empty
+      dmnPath: String = ""
   ): IO[EvalException, DmnEvalResult] =
     for
       tables <- evalError(engine.decisionTables(model, decisionId, testUnit))
@@ -68,10 +68,19 @@ case class DmnTableEngine(
       evalResult = EvalResult(perTable)
     yield DmnEvalRowResult(
       evalResult.status,
-      inputMap.view.mapValues(v => if v == null then "null" else v.toString).toMap,
+      inputMap.view.mapValues(inputStr).toMap,
       perTable,
       evalResult.failed
     )
+
+  /** the input value as the UI shows it - an object Input is a Map (a FEEL
+    * Context), which reads better as `{key: value}` than as `Map(key -> value)`
+    */
+  private def inputStr(value: Any): String =
+    value match
+      case null           => "null"
+      case map: Map[?, ?] => TesterValue.fromAny(map).valueStr
+      case v              => v.toString
 
   /** adds the comparison with the configured test case to a matched rule. */
   private def matchedRule(

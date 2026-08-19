@@ -83,5 +83,17 @@ object BackendClient:
       .map(_.getMessage)
       .flatMap: body =>
         decode[A](body).left.map: failure =>
-          s"Could not read the answer of the server: ${failure.getMessage}\n$body"
+          // a 4xx / 5xx has the body `{"msg": "..."}` - show THAT message, not
+          // that the expected answer could not be read (see DmnTesterServer)
+          decode[ServerError](body)
+            .map(_.msg)
+            .getOrElse(
+              s"Could not read the answer of the server: ${failure.getMessage}\n$body"
+            )
+
+  /** the error body of the server - see `DmnTesterServer.respond` */
+  private case class ServerError(msg: String)
+
+  private object ServerError:
+    given Decoder[ServerError] = io.circe.generic.semiauto.deriveDecoder
 end BackendClient

@@ -11,7 +11,7 @@ class DmnConfigHandlerTest extends FunSuite:
     os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn-config" / "c8"
   )
 
-  /** exactly the shape a project (valiant-documents) has on disk today */
+  /** the shape a project has on disk - one readable path per DMN */
   private val projectConfig =
     """acceptMissingRules="true"
       |data {
@@ -31,13 +31,7 @@ class DmnConfigHandlerTest extends FunSuite:
       |    variables=[]
       |}
       |decisionId=valiant-documents-documentInfo
-      |dmnPath=[
-      |    c8,
-      |    src,
-      |    main,
-      |    resources,
-      |    "documents-documentInfo.dmn"
-      |]
+      |dmnPath="c8/src/main/resources/documents-documentInfo.dmn"
       |isActive="false"
       |testUnit="true"
       |""".stripMargin
@@ -89,7 +83,55 @@ class DmnConfigHandlerTest extends FunSuite:
           )
         )
       ),
-      dmnPath = List("dmn", "c7", "dates.dmn")
+      dmnPath = "dmn/c7/dates.dmn"
+    )
+    val reread = hocon.parse(hocon.render(config)).fold(fail(_), identity)
+    assertEquals(reread, config)
+
+  test("an object Input is read with its typed fields"):
+    val config = hocon
+      .parse(os.read(
+        os.pwd / "04-dmntester-server" / "src" / "test" / "resources" /
+          "dmn-config" / "c7" / "selected-fond.conf"
+      ))
+      .fold(fail(_), identity)
+    assertEquals(
+      config.data.inputs.head.values,
+      List[TesterValue](
+        ObjectValue("id" -> NumberValue(11393215L), "percentage" -> NumberValue(10)),
+        ObjectValue("id" -> NumberValue(11393215L), "percentage" -> NumberValue(50))
+      )
+    )
+    assertEquals(
+      config.data.inputs.head.valuesAsString,
+      "{id: 11393215, percentage: 10}, {id: 11393215, percentage: 50}"
+    )
+
+  test("an object Input survives the write -> read round trip"):
+    val config = DmnConfig(
+      decisionId = "selected-fond",
+      data = TesterData(
+        inputs = List(
+          TesterInput(
+            "selectedFond",
+            values = List(
+              ObjectValue(
+                "id" -> NumberValue(11393215L),
+                "percentage" -> NumberValue(50),
+                "name" -> StringValue("Fondsdepot"),
+                "nested" -> ObjectValue("flag" -> BooleanValue(true))
+              )
+            )
+          )
+        ),
+        testCases = List(
+          TestCase(
+            Map("selectedFond" -> ObjectValue("percentage" -> NumberValue(50))),
+            List(TestResult(1, Map("share" -> StringValue("big"))))
+          )
+        )
+      ),
+      dmnPath = "dmn/c7/selected-fond.dmn"
     )
     val reread = hocon.parse(hocon.render(config)).fold(fail(_), identity)
     assertEquals(reread, config)

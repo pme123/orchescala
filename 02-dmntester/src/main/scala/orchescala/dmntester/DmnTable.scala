@@ -11,11 +11,9 @@ case class AllDmnTables(
     tables: Seq[DmnTable],
     // which of the config's DMNs was evaluated - e.g. "c7" or "c8"
     source: Option[String] = None,
-    // the path of that DMN
-    dmnPath: List[String] = List.empty
+    // the path of that DMN, relative to the project
+    dmnPath: String = ""
 ):
-  lazy val dmnPathStr: String =
-    dmnPath.map(_.trim).filter(_.nonEmpty).mkString("/")
 
   lazy val mainTable: DmnTable = tables.head
   lazy val requiredTables: Seq[DmnTable] = tables.tail

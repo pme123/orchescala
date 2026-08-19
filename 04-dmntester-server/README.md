@@ -48,9 +48,9 @@ Name your DMN sources and one tester covers them all:
 ```scala
 DmnTesterStarterConfig(
   companyName = "mycompany",
-  dmnSources = Map(
-    "c7" -> projectBasePath / "src" / "main" / "resources" / "camunda",
-    "c8" -> projectBasePath / "c8" / "src" / "main" / "resources"
+  dmnSources = Seq(
+    DmnSource("c7", projectBasePath / "src" / "main" / "resources" / "camunda"),
+    DmnSource("c8", projectBasePath / "c8" / "src" / "main" / "resources")
   )
 )
 
@@ -58,9 +58,8 @@ DmnTesterStarterConfig(
 MyDmn.example.testUnit
 ```
 
-A decision is looked up in every source; each source that has the DMN gets its
-own configuration (`dmnConfigs/c7/...`, `dmnConfigs/c8/...`), and the tester
-shows one group per sub directory. So the same test inputs run against both
+A decision is looked up in every source and gets ONE configuration that
+references every DMN it was found in. So the same test inputs run against both
 versions of a DMN - the migration case.
 
 What is missing is reported, not guessed: a decision whose DMN is in no source,
@@ -75,8 +74,8 @@ references both DMNs:
 ```hocon
 decisionId = documents-documentInfo
 dmnPaths {
-  c7 = [src, main, resources, camunda, "documents-documentInfo.dmn"]
-  c8 = [c8, src, main, resources, "documents-documentInfo.dmn"]
+  c7 = "src/main/resources/camunda/documents-documentInfo.dmn"
+  c8 = "c8/src/main/resources/documents-documentInfo.dmn"
 }
 ```
 
@@ -116,7 +115,7 @@ could be added without touching the tester. `org.camunda.*` appears only in
 
 ```hocon
 decisionId = c8-dish
-dmnPath = [04-dmntester-server, src, test, resources, dmn, c8, "c8-dish.dmn"]
+dmnPath = "04-dmntester-server/src/test/resources/dmn/c8/c8-dish.dmn"
 isActive = true
 testUnit = true             # ignore required decisions - test this table alone
 acceptMissingRules = false  # true: rules that no input reaches are fine
@@ -132,6 +131,9 @@ data {
   ]
 }
 ```
+
+A configuration names its DMN **once**: `dmnPath` for a single one, `dmnPaths`
+for several (see the migration section above) - never both.
 
 `values` may be strings, numbers, booleans, ISO date-times
 (`2021-12-23T00:00:00`) or `_NULL_`; `nullValue = true` adds `null` as an extra

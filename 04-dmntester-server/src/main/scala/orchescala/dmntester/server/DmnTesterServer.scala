@@ -9,6 +9,7 @@ import org.http4s.*
 import org.http4s.circe.CirceEntityDecoder.*
 import org.http4s.circe.*
 import org.http4s.dsl.io.*
+import org.http4s.headers.`Cache-Control`
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.server.Router
@@ -137,8 +138,20 @@ object DmnTesterServer:
     */
   private def static(file: String, request: Request[CatsIO]): CatsIO[Response[CatsIO]] =
     val resource = file.stripPrefix("/")
+    // `index.html` names the hashed bundle, so it MUST NOT be cached: in a jar
+    // every resource carries the same date (reproducible builds), so a browser
+    // would keep the page of an older orchescala - and with it a UI that does
+    // not match this server any more. The files in `assets` have their content
+    // in the name, so they stay cacheable.
+    val isIndex = resource.isEmpty || resource.endsWith(".html")
     StaticFile
-      .fromResource[CatsIO](s"webapp/$resource", Some(request))
+      .fromResource[CatsIO](
+        s"webapp/$resource",
+        Option.unless(isIndex)(request)
+      )
+      .map: response =>
+        if isIndex then response.putHeaders(`Cache-Control`(CacheDirective.`no-store`))
+        else response
       .getOrElseF(NotFound(s"Not found: $resource"))
 
   private def decodePath(path: Option[String]): Seq[String] =
@@ -146,14 +159,38 @@ object DmnTesterServer:
       val decoded = URLDecoder.decode(p, StandardCharsets.UTF_8)
       decoded.split("/").map(_.trim).filter(_.nonEmpty).toSeq
 
-  /** runs a ZIO and turns a domain error into a `400` with its message. */
+  /** Runs a ZIO: a domain error becomes a `400`, an unexpected defect a `500` -
+    * both with their message in the body.
+    *
+    * Without the defect handling the request dies with an empty body (a bug in
+    * a library, an NPE, ...) - and nothing in the UI says what happened.
+    */
   private def respond[E <: HandledTesterException, A: Encoder](
       body: ZIO[Any, E, A]
   ): CatsIO[Response[CatsIO]] =
-    unsafeRun(body.either).flatMap:
-      case Right(value) => Ok(value.asJson)
-      case Left(error)  =>
-        BadRequest(Json.obj("msg" -> Json.fromString(error.msg)))
+    unsafeRun(
+      body
+        .mapBoth(error => Failed(Status.BadRequest, error.msg), _.asJson)
+        .catchAllDefect: defect =>
+          // the stack trace only makes sense on the server - the UI gets the message
+          ZIO.succeed(defect.printStackTrace()) *>
+            ZIO.fail(
+              Failed(
+                Status.InternalServerError,
+                s"Unexpected ${defect.getClass.getSimpleName}: ${defect.getMessage}"
+              )
+            )
+        .either
+    ).flatMap:
+      case Right(json)  => Ok(json)
+      case Left(failed) =>
+        CatsIO.pure(
+          Response[CatsIO](failed.status)
+            .withEntity(Json.obj("msg" -> Json.fromString(failed.msg)))
+        )
+
+  /** a request that did not succeed - see [[respond]] */
+  private case class Failed(status: Status, msg: String)
 
   private def unsafeRun[A](body: ZIO[Any, Nothing, A]): CatsIO[A] =
     CatsIO.fromFuture(CatsIO(Unsafe.unsafe { implicit unsafe =>

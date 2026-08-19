@@ -216,6 +216,9 @@ lazy val engineC8 = project
   )
   .dependsOn(engine)
 
+lazy val bundleClient = taskKey[Seq[File]](
+  "Links the DMN Tester UI (Scala.js) and bundles it with vite into 04-dmntester-client/dist/webapp"
+)
 lazy val checkClientBundle = taskKey[Unit]("Fails if the DMN Tester UI was not built")
 
 /** The DMN Tester itself: the DMN engine, the http server and everything that
@@ -238,14 +241,25 @@ lazy val dmnTesterServer = project
     // it would also break scaladoc.
     Compile / unmanagedResourceDirectories +=
       (LocalRootProject / baseDirectory).value / "04-dmntester-client" / "dist",
+    // The UI is built BEFORE the resources are collected - so packaging,
+    // publishing and `sbt dmnTester` always take a UI that matches the model.
+    // `bundleClient` is cached: if nothing changed, this costs nothing.
+    Compile / unmanagedResources := (Compile / unmanagedResources)
+      .dependsOn(dmnTesterClient / bundleClient)
+      .value,
     checkClientBundle := {
+      // build it first - the check is only about the case where that was not
+      // possible (no Node.js on this machine)
+      val _      = (dmnTesterClient / bundleClient).value
       val bundle = (LocalRootProject / baseDirectory).value /
         "04-dmntester-client" / "dist" / "webapp" / "index.html"
       if (!bundle.exists())
         sys.error(
-          s"""The DMN Tester UI was not built - $bundle is missing.
-             |Run it before packaging/publishing:
-             |  cd 04-dmntester-client && npm ci && npm run build""".stripMargin
+          s"""The DMN Tester UI is missing: $bundle
+             |`bundleClient` builds it as part of this build - but that needs
+             |Node.js. Install it, or build the UI yourself:
+             |  npm --prefix 04-dmntester-client ci
+             |  npm --prefix 04-dmntester-client run build""".stripMargin
         )
     },
     // never publish a tester without its UI
@@ -281,7 +295,35 @@ lazy val dmnTesterClient = project
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalaJsDomVersion,
       "com.raquo"    %%% "laminar"     % laminarVersion
-    )
+    ),
+    bundleClient := {
+      val log       = streams.value.log
+      val clientDir = baseDirectory.value
+      // vite reads the linked Scala.js output - so link it first
+      val _         = (Compile / fullLinkJS).value
+      val linkedDir = (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+      val bundleDir = clientDir / "dist" / "webapp"
+      val inputs    = (linkedDir.allPaths.get() ++
+        Seq("index.html", "main.js", "style.css", "package.json", "package-lock.json", "vite.config.js")
+          .map(clientDir / _) ++
+        (clientDir / "public").allPaths.get()).filter(_.isFile).toSet
+      def bundled = bundleDir.allPaths.get().filter(_.isFile).toSet
+      if (!DmnTesterUi.hasNpm) {
+        DmnTesterUi.warnMissingNpm(clientDir, log)
+        bundled.toSeq
+      } else {
+        // only run vite if an input changed or the bundle is gone
+        val bundle = FileFunction.cached(
+          streams.value.cacheDirectory / "bundleClient",
+          FilesInfo.hash,
+          FilesInfo.exists
+        ) { _ =>
+          DmnTesterUi.build(clientDir, log)
+          bundled
+        }
+        bundle(inputs).toSeq
+      }
+    }
   )
   .dependsOn(dmnTester.js)
 

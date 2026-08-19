@@ -59,15 +59,15 @@ trait CompanyDmnTester extends DmnTesterApp:
   override protected def starterConfig: DmnTesterStarterConfig =
     DmnTesterStarterConfig(
       companyName = "mycompany",
-      dmnSources = Map(
-        "c7" -> projectBasePath / "src" / "main" / "resources" / "camunda",
-        "c8" -> projectBasePath / "c8" / "src" / "main" / "resources"
+      dmnSources = Seq(
+        DmnSource("c7", projectBasePath / "src" / "main" / "resources" / "camunda"),
+        DmnSource("c8", projectBasePath / "c8" / "src" / "main" / "resources")
       )
     )
 ```
 
 A project describes each decision **once** - the tester looks it up in every
-source and writes a configuration for each source that has the DMN:
+source and writes ONE configuration that references every DMN it found:
 
 ```scala
 override protected def dmnTesterObjects = Seq(
@@ -76,10 +76,19 @@ override protected def dmnTesterObjects = Seq(
 )
 ```
 
-If `documents-documentInfo.dmn` exists in both sources, you get
-`dmnConfigs/c7/...conf` **and** `dmnConfigs/c8/...conf` from that one line -
-which is what you want while migrating: the same test inputs run against both
-versions, and the tester shows one group per sub directory.
+If `documents-documentInfo.dmn` exists in both sources, that one line yields a
+configuration with both DMNs:
+
+```hocon
+decisionId=mycompany-documentInfo
+dmnPaths {
+    c7="src/main/resources/camunda/documents-documentInfo.dmn"
+    c8="c8/src/main/resources/documents-documentInfo.dmn"
+}
+```
+
+A run evaluates both and shows one result per platform - the same test inputs
+against both versions, which is what you want while migrating.
 
 Nothing is guessed - what is missing is reported:
 
@@ -90,10 +99,8 @@ WARNING: 2 DMN(s) in 'c8' …/c8/src/main/resources have no test configuration: 
 
 Use `.from("c8")` if a decision shall be tested on ONE platform only.
 
-A decision that exists on both platforms gets **one** configuration that
-references both DMNs. A run then evaluates both and shows one result per
-platform - and because both share the same `testCases`, you can accept what
-Camunda 7 does and immediately see where Camunda 8 differs.
+Because both DMNs share the same `testCases`, you can accept what Camunda 7
+does and immediately see where Camunda 8 differs.
 
 **One tester per project** - no second app and no second port any more.
 
@@ -103,25 +110,25 @@ You can customize the DmnTester Configuration.
 ```scala
 DmnTesterStarterConfig(
   companyName = "valiant",
-  dmnPaths = Seq(localDmnPath)
+  dmnSources = Seq(DmnSource(localDmnPath))
 )
 ```
 
 ### Default Config
 
 Except for the `companyName` all other values are optional and preconfigured,
-and **should not be adjusted**. 
+and **should not be adjusted**.
 
-Especially the `dmnPaths` might change in the future.
+Especially the `dmnSources` might change in the future.
 
 ```scala
 // path to where the configs should be created in
 dmnConfigPaths: Seq[os.Path] = Seq(
   projectBasePath / "03-dmn" / "src" / "main" / "resources" / "dmnConfigs"
 ),
-// paths where the DMNs are (could be in different places)
-dmnPaths: Seq[os.Path] = Seq(
-  projectBasePath / "src" / "main" / "resources"
+// where the DMNs are - name a source if there is more than one platform
+dmnSources: Seq[DmnSource] = Seq(
+  DmnSource(projectBasePath / "src" / "main" / "resources")
 ),
 // the port the DMN Tester is started - e.g. http://localhost:8883
 exposedPort: Int = 8883

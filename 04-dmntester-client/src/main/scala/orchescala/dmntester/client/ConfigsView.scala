@@ -100,7 +100,7 @@ object ConfigsView:
         dmnConfig.allDmnPaths.map: (source, path) =>
           div(
             source.map(s => span(cls := "badge", marginRight := "0.4rem", s)),
-            span(dmnConfig.dmnPathStr(path))
+            span(path)
           )
       ),
       td(cls := "muted", if dmnConfig.testUnit then "yes" else "no"),

@@ -17,43 +17,46 @@ import scala.util.Random
 case class DmnConfig(
     decisionId: String = "",
     data: TesterData = TesterData(),
-    dmnPath: List[String] = List.empty,
+    // the DMN of this decision, relative to the project - e.g.
+    // "src/main/resources/camunda/documents-documentInfo.dmn"
+    dmnPath: String = "",
     isActive: Boolean = false,
     testUnit: Boolean = true,
     // if you have lots of inputs, and you don't want to cover all of them
     acceptMissingRules: Boolean = false,
     /** The SAME decision in more than one place - e.g. the Camunda 7 DMN and
       * the one migrated to Camunda 8:
-      * {{{ dmnPaths { c7 = [src, main, ...], c8 = [c8, src, ...] } }}}
+      * {{{
+      * dmnPaths {
+      *   c7 = "src/main/resources/camunda/documents-documentInfo.dmn"
+      *   c8 = "c8/src/main/resources/documents-documentInfo.dmn"
+      * }
+      * }}}
       * One configuration, one set of test cases - the tester runs them against
       * every DMN, so a difference between the versions shows up as a failure.
       */
-    dmnPaths: Map[String, List[String]] = Map.empty
+    dmnPaths: Map[String, String] = Map.empty
 ):
 
   /** every DMN this configuration is tested against - the named ones, or the
     * single `dmnPath` of a project with one platform.
     */
-  lazy val allDmnPaths: Seq[(Option[String], List[String])] =
+  lazy val allDmnPaths: Seq[(Option[String], String)] =
     if dmnPaths.nonEmpty then
       dmnPaths.toSeq.sortBy(_._1).map((name, path) => Some(name) -> path)
     else Seq(None -> dmnPath)
 
-  def withDmnPaths(paths: Seq[(Option[String], List[String])]): DmnConfig =
-    paths match
-      case Seq((None, single)) => copy(dmnPath = single, dmnPaths = Map.empty)
-      case named               =>
-        copy(
-          dmnPath = named.headOption.map(_._2).getOrElse(List.empty),
-          dmnPaths = named.collect { case (Some(name), path) => name -> path }.toMap
-        )
+  /** Either ONE unnamed DMN (`dmnPath`) or named ones (`dmnPaths`) - never
+    * both, so a configuration says a path exactly once.
+    */
+  def withDmnPaths(paths: Seq[(Option[String], String)]): DmnConfig =
+    paths.collect { case (Some(name), path) => name -> path } match
+      case Nil   =>
+        copy(dmnPath = paths.headOption.map(_._2).getOrElse(""), dmnPaths = Map.empty)
+      case named =>
+        copy(dmnPath = "", dmnPaths = named.toMap)
 
-
-  lazy val dmnPathStr: String =
-    dmnPath.map(_.trim).filter(_.nonEmpty).mkString("/")
-
-  def dmnPathStr(path: List[String]): String =
-    path.map(_.trim).filter(_.nonEmpty).mkString("/")
+  lazy val dmnPathStr: String = allDmnPaths.headOption.map(_._2).getOrElse("")
 
   lazy val dmnConfigPathStr: String =
     s"$decisionId${if testUnit then "" else "-INT"}.conf"
@@ -71,11 +74,11 @@ case class DmnConfig(
 
   lazy val dmnPathError: Option[String] =
     val regex = """^([^\\/?%*:|"<>.])+(/[^\\/?%*:|"<>.]+)*\.dmn$""".r
-    if regex.matches(dmnPathStr) then None
-    else
-      Some(
-        s"This must be a correct Path e.g 'myDmns/countryTable.dmn' (regex: $regex)"
-      )
+    allDmnPaths
+      .collectFirst:
+        case (name, path) if !regex.matches(path) =>
+          s"${name.map(n => s"[$n] ").getOrElse("")}This must be a correct Path " +
+            s"e.g 'myDmns/countryTable.dmn' (regex: $regex)"
 
   lazy val hasErrors: Boolean =
     decisionIdError.nonEmpty || dmnPathError.nonEmpty

@@ -61,6 +61,44 @@ class DmnScalaEngineTest extends FunSuite:
     assertEquals(table.matchedRules.map(_.ruleId), Seq("DecisionRule_2"))
     assertEquals(table.matchedRules.head.outputs, Seq("desiredDish" -> "Roastbeef"))
 
+  test("an object input is a FEEL context - the DMN addresses its fields"):
+    val model = parse("c7", "selected-fond.dmn")
+    val results = engine
+      .evalRow(
+        model,
+        "selected-fond",
+        testUnit = true,
+        Map(
+          "selectedFond" ->
+            Map("id" -> BigDecimal(11393215L), "percentage" -> BigDecimal(50))
+        )
+      )
+      .fold(e => fail(e.msg), identity)
+    assertEquals(results.head.matchedRules.map(_.ruleId), Seq("DecisionRule_big"))
+    assertEquals(results.head.matchedRules.head.outputs, Seq("share" -> "big"))
+
+  test("names are optional in a DMN - the tester falls back, it does not die"):
+    val model = parse("c7", "no-names.dmn")
+    val table = engine
+      .decisionTables(model, "no-names", testUnit = true)
+      .fold(e => fail(e.msg), identity)
+      .head
+    // no input label -> the FEEL expression of the column;
+    // no output name / label -> the id of the output clause
+    assertEquals(table.inputCols.map(_.name), Seq("season"))
+    assertEquals(table.outputCols.map(_.name), Seq("OutputClause_dish"))
+    assertEquals(table.ruleRows.head.inputs, Seq("season" -> "\"Fall\""))
+    assertEquals(table.ruleRows.head.outputs, Seq("OutputClause_dish" -> "\"Spareribs\""))
+
+  test("a row of a DMN without names is evaluated with the same names"):
+    val model = parse("c7", "no-names.dmn")
+    val results = engine
+      .evalRow(model, "no-names", testUnit = true, Map("season" -> "Winter"))
+      .fold(e => fail(e.msg), identity)
+    val rule = results.head.matchedRules.head
+    assertEquals(rule.inputs, Seq("season" -> "Winter"))
+    assertEquals(rule.outputs, Seq("OutputClause_dish" -> "Roastbeef"))
+
   test("evaluate a row that matches no rule"):
     val model = parse("c7", "collect-numbers.dmn")
     val results = engine
