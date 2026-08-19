@@ -102,9 +102,9 @@ final class DmnScalaEngine(engine: DmnEngine) extends DmnEvalEngine:
     decision.logic match
       case ParsedDecisionTable(inputs, outputs, rules, hitPolicy, aggregation) =>
         val inputCols = inputs.toSeq.map: in =>
-          InputColumn(in.name, expressionText(in.expression))
+          InputColumn(inputName(in), expressionText(in.expression))
         val outputCols = outputs.toSeq.map: out =>
-          OutputColumn(out.name, out.value)
+          OutputColumn(outputName(out), out.value)
         HitPolicy
           .fromString(hitPolicy.toString)
           .toRight(
@@ -129,8 +129,15 @@ final class DmnScalaEngine(engine: DmnEngine) extends DmnEvalEngine:
                     inputCols
                       .map(_.name)
                       .zipAll(inputEntries.toSeq.map(expressionText), "", ""),
-                    outputEntries.toSeq.map: (name, expr) =>
-                      name -> expressionText(expr)
+                    // the keys of the rule are the ones of the header - the
+                    // names dmn-scala puts into the entries may be null
+                    outputCols
+                      .map(_.name)
+                      .zipAll(
+                        outputEntries.toSeq.map((_, expr) => expressionText(expr)),
+                        "",
+                        ""
+                      )
                   )
             )
       case other =>
@@ -151,7 +158,7 @@ final class DmnScalaEngine(engine: DmnEngine) extends DmnEvalEngine:
         entry.result match
           case DecisionTableEvaluationResult(inputs, matchedRules, result) =>
             val evaluatedInputs =
-              inputs.toSeq.map(in => in.input.name -> unwrap(in.value))
+              inputs.toSeq.map(in => inputName(in.input) -> unwrap(in.value))
             Some(
               TableRowResult(
                 entry.id,
@@ -160,7 +167,7 @@ final class DmnScalaEngine(engine: DmnEngine) extends DmnEvalEngine:
                     rule.rule.id,
                     evaluatedInputs,
                     rule.outputs.toSeq.map: out =>
-                      out.output.name -> unwrap(out.value)
+                      outputName(out.output) -> unwrap(out.value)
                   ),
                 evalError(result, evaluated)
               )
@@ -194,6 +201,26 @@ final class DmnScalaEngine(engine: DmnEngine) extends DmnEvalEngine:
       evaluated: Either[DmnEngine.Failure, Val]
   ): Option[EvalError] =
     evaluated.left.toOption.map(failure => EvalError(failure.message))
+
+  /** The name of an Input Column is the LABEL of the DMN, the one of an Output
+    * Column its `name` - both are OPTIONAL in a DMN, so dmn-scala hands out a
+    * `null`. A valid DMN must not kill the tester, so a name falls back to
+    * something that is always there.
+    *
+    * The fallbacks are used for the header AND for the rules / evaluated rows,
+    * so a column is called the same everywhere.
+    */
+  private def inputName(input: ParsedInput): String =
+    nonEmpty(input.name, expressionText(input.expression), input.id)
+
+  private def outputName(output: ParsedOutput): String =
+    nonEmpty(output.name, output.label, output.id)
+
+  /** the first candidate that is neither null nor blank */
+  private def nonEmpty(candidates: String*): String =
+    candidates
+      .find(candidate => candidate != null && candidate.trim.nonEmpty)
+      .getOrElse("")
 
   /** dmn-scala 1.11 has no `ParsedExpression#text` any more. */
   private def expressionText(expression: ParsedExpression): String =

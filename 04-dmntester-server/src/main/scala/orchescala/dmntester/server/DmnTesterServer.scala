@@ -159,14 +159,38 @@ object DmnTesterServer:
       val decoded = URLDecoder.decode(p, StandardCharsets.UTF_8)
       decoded.split("/").map(_.trim).filter(_.nonEmpty).toSeq
 
-  /** runs a ZIO and turns a domain error into a `400` with its message. */
+  /** Runs a ZIO: a domain error becomes a `400`, an unexpected defect a `500` -
+    * both with their message in the body.
+    *
+    * Without the defect handling the request dies with an empty body (a bug in
+    * a library, an NPE, ...) - and nothing in the UI says what happened.
+    */
   private def respond[E <: HandledTesterException, A: Encoder](
       body: ZIO[Any, E, A]
   ): CatsIO[Response[CatsIO]] =
-    unsafeRun(body.either).flatMap:
-      case Right(value) => Ok(value.asJson)
-      case Left(error)  =>
-        BadRequest(Json.obj("msg" -> Json.fromString(error.msg)))
+    unsafeRun(
+      body
+        .mapBoth(error => Failed(Status.BadRequest, error.msg), _.asJson)
+        .catchAllDefect: defect =>
+          // the stack trace only makes sense on the server - the UI gets the message
+          ZIO.succeed(defect.printStackTrace()) *>
+            ZIO.fail(
+              Failed(
+                Status.InternalServerError,
+                s"Unexpected ${defect.getClass.getSimpleName}: ${defect.getMessage}"
+              )
+            )
+        .either
+    ).flatMap:
+      case Right(json)  => Ok(json)
+      case Left(failed) =>
+        CatsIO.pure(
+          Response[CatsIO](failed.status)
+            .withEntity(Json.obj("msg" -> Json.fromString(failed.msg)))
+        )
+
+  /** a request that did not succeed - see [[respond]] */
+  private case class Failed(status: Status, msg: String)
 
   private def unsafeRun[A](body: ZIO[Any, Nothing, A]): CatsIO[A] =
     CatsIO.fromFuture(CatsIO(Unsafe.unsafe { implicit unsafe =>

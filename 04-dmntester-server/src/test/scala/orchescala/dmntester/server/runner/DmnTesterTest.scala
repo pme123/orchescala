@@ -122,6 +122,17 @@ class DmnTesterTest extends FunSuite:
     )
     assertEquals(second.maxEvalStatus, EvalStatus.INFO)
 
+  test("a DMN without names runs through - to the JSON of the answer"):
+    val res = result("c7", "no-names")
+    assertEquals(res.outputKeys, Seq("OutputClause_dish"))
+    assertEquals(
+      res.evalResults.flatMap(_.matchedRulesPerTable).flatMap(_.matchedRules)
+        .flatMap(_.outputs.map(_._2.value)),
+      Seq("Spareribs", "Roastbeef")
+    )
+    // the names land in the answer of the server - a null would blow up here
+    assert(io.circe.syntax.EncoderOps(res).asJson.noSpaces.contains("OutputClause_dish"))
+
   test("a wrong DMN path is an EvalException - the run does not blow up"):
     val res = run(DmnTester(config("c7", "bad-path"), engine).run())
     assert(res.isLeft)
