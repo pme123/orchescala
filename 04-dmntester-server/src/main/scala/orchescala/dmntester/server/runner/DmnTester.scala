@@ -11,7 +11,7 @@ import java.io.InputStream
 case class DmnTester(dmnConfig: DmnConfig, engine: DmnEvalEngine):
 
   private val decisionId = dmnConfig.decisionId
-  private val dmnPath = dmnConfig.dmnPath
+  private val dmnPath = dmnConfig.allDmnPaths.head._2
 
   /** one result per DMN the configuration references (e.g. c7 and c8) */
   def runAll(): IO[EvalException, Seq[DmnEvalResult]] =

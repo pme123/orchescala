@@ -39,18 +39,19 @@ case class DmnConfig(
       dmnPaths.toSeq.sortBy(_._1).map((name, path) => Some(name) -> path)
     else Seq(None -> dmnPath)
 
+  /** Either ONE unnamed DMN (`dmnPath`) or named ones (`dmnPaths`) - never
+    * both, so a configuration says a path exactly once.
+    */
   def withDmnPaths(paths: Seq[(Option[String], List[String])]): DmnConfig =
-    paths match
-      case Seq((None, single)) => copy(dmnPath = single, dmnPaths = Map.empty)
-      case named               =>
-        copy(
-          dmnPath = named.headOption.map(_._2).getOrElse(List.empty),
-          dmnPaths = named.collect { case (Some(name), path) => name -> path }.toMap
-        )
+    paths.collect { case (Some(name), path) => name -> path } match
+      case Nil   =>
+        copy(dmnPath = paths.headOption.map(_._2).getOrElse(List.empty), dmnPaths = Map.empty)
+      case named =>
+        copy(dmnPath = List.empty, dmnPaths = named.toMap)
 
 
   lazy val dmnPathStr: String =
-    dmnPath.map(_.trim).filter(_.nonEmpty).mkString("/")
+    allDmnPaths.headOption.map((_, path) => dmnPathStr(path)).getOrElse("")
 
   def dmnPathStr(path: List[String]): String =
     path.map(_.trim).filter(_.nonEmpty).mkString("/")
@@ -71,11 +72,12 @@ case class DmnConfig(
 
   lazy val dmnPathError: Option[String] =
     val regex = """^([^\\/?%*:|"<>.])+(/[^\\/?%*:|"<>.]+)*\.dmn$""".r
-    if regex.matches(dmnPathStr) then None
-    else
-      Some(
-        s"This must be a correct Path e.g 'myDmns/countryTable.dmn' (regex: $regex)"
-      )
+    allDmnPaths
+      .map((name, path) => name -> dmnPathStr(path))
+      .collectFirst:
+        case (name, path) if !regex.matches(path) =>
+          s"${name.map(n => s"[$n] ").getOrElse("")}This must be a correct Path " +
+            s"e.g 'myDmns/countryTable.dmn' (regex: $regex)"
 
   lazy val hasErrors: Boolean =
     decisionIdError.nonEmpty || dmnPathError.nonEmpty

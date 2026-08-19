@@ -76,7 +76,11 @@ object hocon:
           data =
             if config.hasPath("data") then testerData(config.getConfig("data"))
             else TesterData(),
-          dmnPath = config.getStringList("dmnPath").asScala.toList,
+          // either the single path or the named ones - see `render`
+          dmnPath =
+            if config.hasPath("dmnPath") then
+              config.getStringList("dmnPath").asScala.toList
+            else List.empty,
           dmnPaths =
             if config.hasPath("dmnPaths") then
               config
@@ -104,20 +108,29 @@ object hocon:
       case NonFatal(ex) => Left(s"${ex.getClass.getSimpleName}: ${ex.getMessage}")
 
   def render(dmnConfig: DmnConfig): String =
-    ConfigValueFactory
-      .fromMap(
-        map(
-          "decisionId" -> dmnConfig.decisionId,
-          "dmnPath" -> dmnConfig.dmnPath.asJava,
+    // a path is written exactly once: either the single `dmnPath` or the
+    // named `dmnPaths` - never both
+    val paths: Seq[(String, Object)] =
+      if dmnConfig.dmnPaths.nonEmpty then
+        Seq(
           "dmnPaths" -> map(
             dmnConfig.dmnPaths.toSeq
               .sortBy(_._1)
               .map((name, path) => name -> (path.asJava: Object))*
-          ),
+          )
+        )
+      else Seq("dmnPath" -> dmnConfig.dmnPath.asJava)
+    ConfigValueFactory
+      .fromMap(
+        map(
+          Seq("decisionId" -> (dmnConfig.decisionId: Object)) ++
+            paths ++
+            Seq(
           "isActive" -> Boolean.box(dmnConfig.isActive),
           "testUnit" -> Boolean.box(dmnConfig.testUnit),
           "acceptMissingRules" -> Boolean.box(dmnConfig.acceptMissingRules),
           "data" -> dataMap(dmnConfig.data)
+            )*
         )
       )
       .render(

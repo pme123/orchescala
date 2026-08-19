@@ -133,6 +133,9 @@ data {
 }
 ```
 
+A configuration names its DMN **once**: `dmnPath` for a single one, `dmnPaths`
+for several (see the migration section above) - never both.
+
 `values` may be strings, numbers, booleans, ISO date-times
 (`2021-12-23T00:00:00`) or `_NULL_`; `nullValue = true` adds `null` as an extra
 input value. A config with `testUnit = false` is stored as `<decisionId>-INT.conf`.
