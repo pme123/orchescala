@@ -35,6 +35,23 @@ object TesterValue:
       case s: String if s.trim.matches(dateRegex) => DateValue(s)
       case s: String                              => StringValue(s)
       case o if o == null                         => NullValue
+      case e: scala.reflect.Enum                  => StringValue(e.toString)
+      case m: Map[?, ?]                           =>
+        ObjectValue(m.map((k, v) => k.toString -> fromAny(v)).toMap)
+      case Some(v)                                => fromAny(v)
+      case None                                   => NullValue
+      case i: Iterable[?]                         =>
+        throw new IllegalArgumentException(
+          s"Collections are not supported as DMN Input value: $i"
+        )
+      // a case class - the DMN addresses its fields (e.g. `myObject.myField`)
+      case p: Product                             =>
+        ObjectValue(
+          p.productElementNames
+            .zip(p.productIterator)
+            .map((key, value) => key -> fromAny(value))
+            .toMap
+        )
       case o                                      =>
         throw new IllegalArgumentException(
           s"Not expected value type: ${o.getClass} ($o)"
@@ -96,6 +113,27 @@ object TesterValue:
           case _: format.DateTimeParseException =>
             LocalDateTime.parse(dateStr.trim)
       )
+
+  /** An Input that is an object - the DMN input expression addresses its
+    * fields, e.g. `selectedFond.percentage`:
+    * {{{ In(SelectedFond(id = 11393215, percentage = 50)) }}}
+    *
+    * The DMN engine gets it as a `Map[String, Any]`, which FEEL evaluates as a
+    * Context.
+    */
+  case class ObjectValue(fields: Map[String, TesterValue]) extends TesterValue:
+    lazy val value: Any = fields.view.mapValues(_.value).toMap
+    // sorted by key - a Map has no order, and HOCON renders sorted as well
+    lazy val valueStr: String =
+      fields.toSeq
+        .sortBy(_._1)
+        .map((key, value) => s"$key: ${value.valueStr}")
+        .mkString("{", ", ", "}")
+    val valueType: String = "Object"
+
+  object ObjectValue:
+    def apply(fields: (String, TesterValue)*): ObjectValue =
+      ObjectValue(fields.toMap)
 
   case object NullValue extends TesterValue:
     val valueStr: String = "null"

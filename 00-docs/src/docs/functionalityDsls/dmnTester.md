@@ -112,6 +112,50 @@ This makes sure the compiler checks if there is such an attribute.
 ```
 @:@
 
+### Object Inputs
+An input does not have to be a simple value - it may be an object, whose fields
+the DMN addresses:
+
+```scala
+  case class SelectedFond(id: Long, percentage: Int)
+
+  case class In(selectedFond: SelectedFond)
+  object In:
+    lazy val example = In(SelectedFond(id = 11393215, percentage = 50))
+```
+
+The example of your DMN is the default test value - additional ones as usual:
+
+```scala
+  SelectedFondDmn.example
+    .testValues(
+      _.selectedFond,
+      SelectedFond(id = 11393215, percentage = 10),
+      SelectedFond(id = 11393215, percentage = 50)
+    )
+```
+
+In the configuration each field keeps its type:
+
+```conf
+values=[
+    {
+        id=11393215
+        percentage=50
+    }
+]
+```
+
+The DMN engine gets such a value as a FEEL Context - so the input expressions
+of your table address the fields: `selectedFond.id` / `selectedFond.percentage`.
+
+@:callout(info)
+Objects may be nested and optional fields (_Option_) are the value itself or
+_null_.
+
+Collections are **not** supported as an input value.
+@:@
+
 ### .testUnit
 By default, a DMN Test is integrated - meaning that it will take all dependent inputs into account.
 

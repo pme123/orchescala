@@ -62,9 +62,18 @@ end DmnConfigHandler
 /** HOCON <-> [[DmnConfig]].
   *
   * The format is the one of the existing `*.conf` files - values may be given
-  * as HOCON string, number, boolean or null; a string is interpreted with
-  * [[TesterValue.fromString]], so `"12"` becomes a `NumberValue`, an ISO date
-  * time a `DateValue` and `_NULL_` the `NullValue`.
+  * as HOCON string, number, boolean, null or object; a string is interpreted
+  * with [[TesterValue.fromString]], so `"12"` becomes a `NumberValue`, an ISO
+  * date time a `DateValue` and `_NULL_` the `NullValue`. An object becomes an
+  * [[TesterValue.ObjectValue]]:
+  * {{{
+  * values=[
+  *     {
+  *         id=11393215
+  *         percentage=50
+  *     }
+  * ]
+  * }}}
   */
 object hocon:
 
@@ -189,6 +198,15 @@ object hocon:
       case ConfigValueType.NULL   => NullValue
       case ConfigValueType.STRING =>
         TesterValue.fromString(value.unwrapped().asInstanceOf[String])
+      // an object Input - the DMN addresses its fields, e.g. `myObject.myField`
+      case ConfigValueType.OBJECT =>
+        ObjectValue(
+          value
+            .asInstanceOf[ConfigObject]
+            .asScala
+            .map((key, nested) => key -> testerValue(nested))
+            .toMap
+        )
       case other =>
         throw new IllegalArgumentException(
           s"Not expected value type: $other (${value.render()})"
@@ -241,6 +259,8 @@ object hocon:
       case BooleanValue(value) => Boolean.box(value)
       case StringValue(value)  => value
       case v: DateValue        => v.valueStr
+      case ObjectValue(fields) =>
+        map(fields.toSeq.map((key, value) => key -> configValue(value))*)
       case NullValue           => NullValue.constant
 
   private def map(entries: (String, Object)*): java.util.Map[String, Object] =

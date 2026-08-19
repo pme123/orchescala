@@ -50,6 +50,27 @@ class ProjectStyleDslTest extends FunSuite:
     lazy val example = singleResult(In.example, Out.example)
   end StaticDocumentsDmn
 
+  /** an Input that is not a simple value, but an object - the DMN addresses its
+    * fields (`selectedFond.percentage`)
+    */
+  object SelectedFondDmn extends BpmnDecisionDsl:
+    val decisionId = "selected-fond"
+    val descr = "The share of a selected fond."
+
+    case class SelectedFond(id: Long, percentage: Int)
+    object SelectedFond:
+      given ApiSchema[SelectedFond] = deriveApiSchema
+      given InOutCodec[SelectedFond] = deriveInOutCodec
+
+    case class In(selectedFond: SelectedFond)
+    object In:
+      given ApiSchema[In] = deriveApiSchema
+      given InOutCodec[In] = deriveInOutCodec
+      lazy val example = In(SelectedFond(id = 11393215, percentage = 50))
+
+    lazy val example = singleEntry(In.example, "big")
+  end SelectedFondDmn
+
   // --- company level -----------------------------------------------------
   private val freePort =
     val socket = new java.net.ServerSocket(0)
@@ -92,7 +113,13 @@ class ProjectStyleDslTest extends FunSuite:
           2,
           3
         )
-        .inTestMode
+        .inTestMode,
+      SelectedFondDmn.example.testUnit
+        .testValues(
+          _.selectedFond,
+          SelectedFondDmn.SelectedFond(id = 11393215, percentage = 10),
+          SelectedFondDmn.SelectedFond(id = 11393215, percentage = 50)
+        )
     )
   end ProjectDmnTester
 
@@ -103,7 +130,7 @@ class ProjectStyleDslTest extends FunSuite:
     ProjectDmnTester.main(Array.empty)
     assertEquals(
       os.list(target).map(_.last).toSet,
-      Set("country-risk.conf"),
+      Set("country-risk.conf", "selected-fond.conf"),
       "inTestMode keeps the hand maintained config"
     )
     val config = server.runner.hocon
@@ -117,5 +144,17 @@ class ProjectStyleDslTest extends FunSuite:
     assertEquals(inputs("currentCountry"), "CH, DE, OTHER")
     assertEquals(inputs("targetCountry"), "DE")
     assert(DmnTesterServer.isRunning)
+
+  test("an object Input keeps its fields - as the example and as testValues"):
+    val config = server.runner.hocon
+      .parse(os.read(target / "selected-fond.conf"))
+      .fold(fail(_), identity)
+    assertEquals(
+      config.data.inputs.map(i => i.key -> i.valuesAsString).toMap,
+      Map(
+        "selectedFond" ->
+          "{id: 11393215, percentage: 10}, {id: 11393215, percentage: 50}"
+      )
+    )
 
 end ProjectStyleDslTest

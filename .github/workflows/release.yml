@@ -25,13 +25,12 @@ jobs:
         with:
           node-version: 22
       - name: Build the DMN Tester UI
-        # sbt links the Scala.js output to 04-dmntester-client/target/scalajs,
-        # vite bundles it to 04-dmntester-client/dist/webapp - from where it is
-        # packaged into orchescala-dmntester-server
-        run: |
-          sbt dmnTesterClient/fullLinkJS
-          npm --prefix 04-dmntester-client ci
-          npm --prefix 04-dmntester-client run build
+        # links the Scala.js output and lets vite bundle it to
+        # 04-dmntester-client/dist/webapp - from where it is packaged into
+        # orchescala-dmntester-server. Packaging/publishing does this by itself
+        # (see build.sbt: bundleClient) - here it is an own step, so a broken UI
+        # build is easy to spot.
+        run: sbt dmnTesterClient/bundleClient
       - name: Publish
         run: sbt ci-release
         env:

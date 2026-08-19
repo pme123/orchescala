@@ -24,7 +24,8 @@ export default defineConfig({
   // `dist` is the resource directory, so ONLY `webapp` ends up in the jar -
   // never the rest of target/. It is next to target/ on purpose: `sbt clean`
   // must not throw the built UI away.
-  build: { outDir: "dist/webapp", emptyOutDir: true },
+  // a Scala.js bundle is ~1MB - that is expected, no need to warn about it
+  build: { outDir: "dist/webapp", emptyOutDir: true, chunkSizeWarningLimit: 1500 },
   server: {
     proxy: { "/api": "http://localhost:8883", "/info": "http://localhost:8883" }
   },

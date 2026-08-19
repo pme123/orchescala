@@ -94,6 +94,34 @@ class DmnTesterTest extends FunSuite:
     )
     assertEquals(second.evalResults.map(_.status).distinct, Seq(EvalStatus.INFO))
 
+  test("an object Input is tested like any other - one row per object"):
+    val res = result("c7", "selected-fond")
+    assertEquals(res.inputKeys, Seq("selectedFond"))
+    assertEquals(res.outputKeys, Seq("share"))
+    assertEquals(
+      res.evalResults.map(_.testInputs("selectedFond")),
+      Seq("{id: 11393215, percentage: 10}", "{id: 11393215, percentage: 50}")
+    )
+    assertEquals(
+      res.evalResults.flatMap(_.matchedRulesPerTable).flatMap(_.matchedRules)
+        .flatMap(_.outputs.map(_._2.value)),
+      Seq("small", "big")
+    )
+    assertEquals(res.missingRules, Seq.empty)
+
+  test("accepted rows of an object Input are found again as test cases"):
+    val fresh = result("c7", "selected-fond")
+    val accepted = fresh.configWithTestCases(fresh.correctRowIndexes)
+    assertEquals(accepted.data.testCases.size, 2)
+    val second = run(DmnTester(accepted, engine).run()).fold(e => fail(e.msg), identity)
+    assert(
+      second.evalResults.flatMap(_.matchedRulesPerTable).flatMap(_.matchedRules)
+        .forall(_.rowIndex.isInstanceOf[TestSuccess]),
+      second.evalResults.flatMap(_.matchedRulesPerTable).flatMap(_.matchedRules)
+        .map(_.rowIndex)
+    )
+    assertEquals(second.maxEvalStatus, EvalStatus.INFO)
+
   test("a wrong DMN path is an EvalException - the run does not blow up"):
     val res = run(DmnTester(config("c7", "bad-path"), engine).run())
     assert(res.isLeft)

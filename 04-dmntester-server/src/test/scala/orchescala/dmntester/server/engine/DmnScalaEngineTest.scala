@@ -61,6 +61,22 @@ class DmnScalaEngineTest extends FunSuite:
     assertEquals(table.matchedRules.map(_.ruleId), Seq("DecisionRule_2"))
     assertEquals(table.matchedRules.head.outputs, Seq("desiredDish" -> "Roastbeef"))
 
+  test("an object input is a FEEL context - the DMN addresses its fields"):
+    val model = parse("c7", "selected-fond.dmn")
+    val results = engine
+      .evalRow(
+        model,
+        "selected-fond",
+        testUnit = true,
+        Map(
+          "selectedFond" ->
+            Map("id" -> BigDecimal(11393215L), "percentage" -> BigDecimal(50))
+        )
+      )
+      .fold(e => fail(e.msg), identity)
+    assertEquals(results.head.matchedRules.map(_.ruleId), Seq("DecisionRule_big"))
+    assertEquals(results.head.matchedRules.head.outputs, Seq("share" -> "big"))
+
   test("evaluate a row that matches no rule"):
     val model = parse("c7", "collect-numbers.dmn")
     val results = engine

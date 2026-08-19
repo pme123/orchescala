@@ -97,6 +97,13 @@ trait DmnTesterDsl:
           isNullable,
           addTestValues.getOrElse(k, e.values.map(v => toTesterValue(v)).toList)
         )
+      // an object Input - the DMN addresses its fields, e.g. `myObject.myField`
+      case v: Product =>
+        TesterInput(
+          k,
+          isNullable,
+          addTestValues.getOrElse(k, List(toTesterValue(v)))
+        )
       case v =>
         throw new IllegalArgumentException(
           s"Not supported for DMN Input ($k -> $v)"
@@ -166,11 +173,15 @@ trait DmnTesterDsl:
       dmnTO.copy(_acceptMissingRules = true)
 
     inline def testValues(
-        inline key: In => DmnValueType | Option[DmnValueType],
+        inline key: In => DmnValueType | Option[DmnValueType] | Product,
         values: Any*
     ): DmnTesterObject[In] =
       val testerValues = values
-        .map(v => toTesterValue(v.toString))
+        .map:
+          // an object keeps its typed fields - anything else is taken as it
+          // is written (its `toString`), which is what makes Enums work
+          case v: Product if !v.isInstanceOf[Option[?]] => toTesterValue(v)
+          case v                                        => toTesterValue(v.toString)
         .toList
       dmnTO.copy(addTestValues =
         dmnTO.addTestValues + (nameOfVariable(key) -> testerValues)

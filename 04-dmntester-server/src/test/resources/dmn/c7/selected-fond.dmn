@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" id="drd_selected-fond" name="DRD" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="4.7.0">
+  <decision id="selected-fond" name="selected fond">
+    <decisionTable id="DecisionTable_selected_fond">
+      <input id="InputClause_percentage" label="percentage">
+        <inputExpression id="LiteralExpression_percentage" typeRef="integer">
+          <text>selectedFond.percentage</text>
+        </inputExpression>
+      </input>
+      <input id="InputClause_id" label="fond id">
+        <inputExpression id="LiteralExpression_id" typeRef="long">
+          <text>selectedFond.id</text>
+        </inputExpression>
+      </input>
+      <output id="OutputClause_share" label="share" name="share" typeRef="string" />
+      <rule id="DecisionRule_small">
+        <inputEntry id="UnaryTests_small_percentage">
+          <text>&lt;= 25</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_small_id">
+          <text>11393215</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_small">
+          <text>"small"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_big">
+        <inputEntry id="UnaryTests_big_percentage">
+          <text>&gt; 25</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_big_id">
+          <text>11393215</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_big">
+          <text>"big"</text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram id="DMNDiagram_selected_fond">
+      <dmndi:DMNShape id="DMNShape_selected_fond" dmnElementRef="selected-fond">
+        <dc:Bounds height="80" width="180" x="207" y="81" />
+      </dmndi:DMNShape>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>
