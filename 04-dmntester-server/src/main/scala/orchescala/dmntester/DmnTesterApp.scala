@@ -11,7 +11,7 @@ import orchescala.dmntester.server.DmnTesterServer
   *     DmnTesterStarterConfig(
   *       companyName = "valiant",
   *       dmnConfigPaths = Seq(projectBasePath / "03-dmn" / "src" / "main" / "resources" / "dmnConfigs"),
-  *       dmnPaths = Seq(projectBasePath / "src" / "main" / "resources" / "camunda")
+  *       dmnSources = Seq(DmnSource(projectBasePath / "src" / "main" / "resources" / "camunda"))
   *     )
   *
   * // project level

@@ -101,4 +101,9 @@ class DmnTesterServerTest extends FunSuite:
       s"${response.code}: ${response.body.take(200)}"
     )
 
+  test("the page is never cached - it names the bundle of THIS server"):
+    val response = client.send(basicRequest.get(uri"${url + "/"}").response(asStringAlways))
+    if response.code.code == 200 then
+      assertEquals(response.header("Cache-Control"), Some("no-store"), response.headers.toString)
+
 end DmnTesterServerTest

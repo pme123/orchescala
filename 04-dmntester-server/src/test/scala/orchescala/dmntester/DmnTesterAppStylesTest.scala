@@ -21,14 +21,16 @@ class DmnTesterAppStylesTest extends FunSuite:
       DmnTesterStarterConfig(
         companyName = "acme",
         dmnConfigPaths = Seq(target / configDir),
-        dmnPaths = Seq(
-          os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn" / "c7"
+        dmnSources = Seq(
+          DmnSource(
+            os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn" / "c7"
+          )
         ),
         exposedPort = port
       )
     override protected def keepRunning: Boolean = false
     override protected def dmnPathOf(dmnName: String, source: Option[String]): os.Path =
-      starterConfig.dmnPaths.head / s"$dmnName.dmn"
+      starterConfig.dmnSources.head.path / s"$dmnName.dmn"
     protected def configDir: String
     protected def port: Int
 

@@ -61,14 +61,16 @@ class ProjectStyleDslTest extends FunSuite:
       DmnTesterStarterConfig(
         companyName = "valiant",
         dmnConfigPaths = Seq(target),
-        dmnPaths = Seq(
-          os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn" / "c7"
+        dmnSources = Seq(
+          DmnSource(
+            os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn" / "c7"
+          )
         ),
         exposedPort = freePort
       )
     override protected def keepRunning: Boolean = false
     override protected def dmnPathOf(dmnName: String, source: Option[String]): os.Path =
-      starterConfig.dmnPaths.head / s"$dmnName.dmn"
+      starterConfig.dmnSources.head.path / s"$dmnName.dmn"
 
   // --- project level - the code of this ticket ---------------------------
   object ProjectDmnTester extends CompanyDmnTester:

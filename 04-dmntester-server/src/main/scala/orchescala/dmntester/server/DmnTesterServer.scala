@@ -9,6 +9,7 @@ import org.http4s.*
 import org.http4s.circe.CirceEntityDecoder.*
 import org.http4s.circe.*
 import org.http4s.dsl.io.*
+import org.http4s.headers.`Cache-Control`
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.server.Router
@@ -137,8 +138,20 @@ object DmnTesterServer:
     */
   private def static(file: String, request: Request[CatsIO]): CatsIO[Response[CatsIO]] =
     val resource = file.stripPrefix("/")
+    // `index.html` names the hashed bundle, so it MUST NOT be cached: in a jar
+    // every resource carries the same date (reproducible builds), so a browser
+    // would keep the page of an older orchescala - and with it a UI that does
+    // not match this server any more. The files in `assets` have their content
+    // in the name, so they stay cacheable.
+    val isIndex = resource.isEmpty || resource.endsWith(".html")
     StaticFile
-      .fromResource[CatsIO](s"webapp/$resource", Some(request))
+      .fromResource[CatsIO](
+        s"webapp/$resource",
+        Option.unless(isIndex)(request)
+      )
+      .map: response =>
+        if isIndex then response.putHeaders(`Cache-Control`(CacheDirective.`no-store`))
+        else response
       .getOrElseF(NotFound(s"Not found: $resource"))
 
   private def decodePath(path: Option[String]): Seq[String] =

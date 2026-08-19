@@ -23,8 +23,10 @@ class DmnTesterAppTest extends FunSuite:
       DmnTesterStarterConfig(
         companyName = "acme",
         dmnConfigPaths = Seq(target),
-        dmnPaths = Seq(
-          os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn" / "c8"
+        dmnSources = Seq(
+          DmnSource(
+            os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn" / "c8"
+          )
         ),
         exposedPort = freePort
       )
@@ -34,7 +36,7 @@ class DmnTesterAppTest extends FunSuite:
   /** ---- project level --------------------------------------------------- */
   object ProjectDmnTester extends CompanyDmnTester:
     override protected def dmnPathOf(dmnName: String, source: Option[String]): os.Path =
-      starterConfig.dmnPaths.head / s"$dmnName.dmn"
+      starterConfig.dmnSources.head.path / s"$dmnName.dmn"
 
     // this is where a project describes its DMNs - with the DSL
     override protected def dmnTesterObjects: Seq[DmnTesterObject[?]] = Seq(

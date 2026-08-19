@@ -12,8 +12,6 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
   // both the DSL and the starter know the project root - it is the same one
   override protected def projectBasePath: os.Path = os.pwd
 
-  // the path where the DMNs are
-  protected def dmnBasePath: os.Path = testerConfig.dmnPaths.head
   // the path where the DMN Configs are
   protected def dmnConfigPath: os.Path = testerConfig.dmnConfigPaths.head
   // creating the Path to the DMN - by default the _dmnName_ is `decisionDmn.decisionDefinitionKey`.
@@ -48,18 +46,18 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
 
     dmnTesterObjects.foreach: dmnTO =>
       val matching = sourcesOf(dmnTO, sources)
-      covered ++= matching.map(_._2)
+      covered ++= matching.map(_.path)
       if matching.isEmpty then
         println(
           s"WARNING: There is no DMN '${dmnFileName(dmnTO)}' in any DMN source " +
-            s"(${sources.map(_._2).mkString(", ")}) - '${dmnTO.dDmn.decisionDefinitionKey}' is not tested."
+            s"(${sources.map(_.path).mkString(", ")}) - '${dmnTO.dDmn.decisionDefinitionKey}' is not tested."
         )
       else if !dmnTO._inTestMode then
         // ONE configuration per decision, referencing every DMN it exists in -
         // so the same test cases run against all versions (c7 / c8).
-        val paths = matching.map: (sourceName, dmnFile) =>
-          sourceName -> dmnFile.relativeTo(projectBasePath).toString
-        dmnConfigs(Seq(dmnTO.withDmnPath(matching.head._2)))
+        val paths = matching.map: source =>
+          source.name -> source.path.relativeTo(projectBasePath).toString
+        dmnConfigs(Seq(dmnTO.withDmnPath(matching.head.path)))
           .map(_.withDmnPaths(paths))
           .foreach(updateConfig(_, dmnConfigPath))
 
@@ -72,29 +70,30 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
     */
   private def sourcesOf(
       dmnTO: DmnTesterObject[?],
-      sources: Seq[(Option[String], os.Path)]
-  ): Seq[(Option[String], os.Path)] =
+      sources: Seq[DmnSource]
+  ): Seq[DmnSource] =
     dmnTO.maybeDmnPath match
       case Some(path) =>
         // an explicit path wins - the source is the one it lies in
-        Seq(sources.find((_, dir) => path.startsWith(dir)).map(_._1).flatten -> path)
-          .filter((_, p) => os.exists(p))
+        Seq(DmnSource(sources.find(s => path.startsWith(s.path)).flatMap(_.name), path))
+          .filter(s => os.exists(s.path))
       case None =>
         val fileName = dmnFileName(dmnTO)
         sources
-          .filter((name, _) => dmnTO.source.forall(name.contains))
-          .map((name, dir) => name -> (dir / fileName))
-          .filter((_, file) => os.exists(file))
+          .filter(s => dmnTO.source.forall(s.name.contains))
+          .map(s => s.copy(path = s.path / fileName))
+          .filter(s => os.exists(s.path))
 
   private def dmnFileName(dmnTO: DmnTesterObject[?]): String =
     s"${dmnTO.dDmn.decisionDefinitionKey.replace(s"${testerConfig.companyName}-", "")}.dmn"
 
   /** a DMN nobody tests is worth knowing about */
   private def warnAboutUncoveredDmns(
-      sources: Seq[(Option[String], os.Path)],
+      sources: Seq[DmnSource],
       covered: Set[os.Path]
   ): Unit =
-    sources.foreach: (name, dir) =>
+    sources.foreach: source =>
+      val dir = source.path
       if os.exists(dir) then
         val uncovered = os
           .list(dir)
@@ -102,7 +101,7 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
           .filterNot(covered.contains)
         if uncovered.nonEmpty then
           println(
-            s"WARNING: ${uncovered.size} DMN(s) in ${name.map(n => s"'$n' ").getOrElse("")}$dir " +
+            s"WARNING: ${uncovered.size} DMN(s) in ${source.name.map(n => s"'$n' ").getOrElse("")}$dir " +
               s"have no test configuration: ${uncovered.map(_.last).mkString(", ")}"
           )
 

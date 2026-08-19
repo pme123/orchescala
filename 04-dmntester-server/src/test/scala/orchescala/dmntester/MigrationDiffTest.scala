@@ -49,9 +49,9 @@ class MigrationDiffTest extends FunSuite:
       DmnTesterStarterConfig(
         companyName = "acme",
         dmnConfigPaths = Seq(target),
-        dmnSources = Map(
-          "c7" -> resources / "dmn-sources" / "c7",
-          "c8" -> resources / "dmn-sources" / "c8"
+        dmnSources = Seq(
+          DmnSource("c7", resources / "dmn-sources" / "c7"),
+          DmnSource("c8", resources / "dmn-sources" / "c8")
         ),
         exposedPort = freePort
       )

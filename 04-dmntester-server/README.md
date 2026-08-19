@@ -48,9 +48,9 @@ Name your DMN sources and one tester covers them all:
 ```scala
 DmnTesterStarterConfig(
   companyName = "mycompany",
-  dmnSources = Map(
-    "c7" -> projectBasePath / "src" / "main" / "resources" / "camunda",
-    "c8" -> projectBasePath / "c8" / "src" / "main" / "resources"
+  dmnSources = Seq(
+    DmnSource("c7", projectBasePath / "src" / "main" / "resources" / "camunda"),
+    DmnSource("c8", projectBasePath / "c8" / "src" / "main" / "resources")
   )
 )
 
@@ -58,9 +58,8 @@ DmnTesterStarterConfig(
 MyDmn.example.testUnit
 ```
 
-A decision is looked up in every source; each source that has the DMN gets its
-own configuration (`dmnConfigs/c7/...`, `dmnConfigs/c8/...`), and the tester
-shows one group per sub directory. So the same test inputs run against both
+A decision is looked up in every source and gets ONE configuration that
+references every DMN it was found in. So the same test inputs run against both
 versions of a DMN - the migration case.
 
 What is missing is reported, not guessed: a decision whose DMN is in no source,
