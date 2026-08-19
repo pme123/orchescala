@@ -15,6 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+
+## 0.6.1 - 2026-08-19
+### Changed 
+- Added fallback for optional input column label and output column name. - see [Commit](git@github.com:pme123/orchescala/commit/de13e7421834d6defb3412da0e30b9e85cf6326d)
+- Fixing broken ci pipeline. - see [Commit](git@github.com:pme123/orchescala/commit/42e7de608aaf0d2b267f3b3ec00c7bc483a23cbb)
+- Added case classes to DMN Inputs. - see [Commit](git@github.com:pme123/orchescala/commit/91ba95b69cf24b37ad7d2d624c2234de39bbcf45)
+- Removed redundancies in DmnTester. - see [Commit](git@github.com:pme123/orchescala/commit/c37f60c94a03c48a2777f172cd6d5dd26c6929f5)
+- feat(dmntester)!: DMN paths are relative path strings - see [Commit](git@github.com:pme123/orchescala/commit/894077e963fc9996084179918a021fc06b86e90a)
+- refactor(dmntester): a config names its DMN exactly once - see [Commit](git@github.com:pme123/orchescala/commit/7a0bde7f2968415acc47f89bef002c2c05cd33d7)
+
 ## 0.6.0 - 2026-08-18
 ### Changed 
 - Added filter to remove title for enums to show correct enum values. - see [Commit](git@github.com:pme123/orchescala/commit/3d1d17001cbad2fb03fbbad6707e9d0b5c7f3aa3)
