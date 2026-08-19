@@ -14,7 +14,7 @@ class ConfigGroupsTest extends FunSuite:
   private def write(dir: Option[String], decisionId: String): Unit =
     val config = DmnConfig(
       decisionId = decisionId,
-      dmnPath = List("some", "where", s"$decisionId.dmn")
+      dmnPath = s"some/where/$decisionId.dmn"
     )
     os.write.over(
       dir.map(target / _).getOrElse(target) / s"$decisionId.conf",

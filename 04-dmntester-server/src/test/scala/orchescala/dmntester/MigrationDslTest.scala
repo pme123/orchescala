@@ -111,7 +111,7 @@ class MigrationDslTest extends FunSuite:
       .parse(os.read(target / "c8-dish.conf")).fold(fail(_), identity)
     assertEquals(dish.dmnPaths.keySet, Set("c8"))
     assert(
-      dish.dmnPaths("c8").mkString("/").endsWith("dmn-sources/c8/c8-dish.dmn"),
+      dish.dmnPaths("c8").endsWith("dmn-sources/c8/c8-dish.dmn"),
       dish.dmnPaths
     )
 

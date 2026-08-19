@@ -75,8 +75,8 @@ references both DMNs:
 ```hocon
 decisionId = documents-documentInfo
 dmnPaths {
-  c7 = [src, main, resources, camunda, "documents-documentInfo.dmn"]
-  c8 = [c8, src, main, resources, "documents-documentInfo.dmn"]
+  c7 = "src/main/resources/camunda/documents-documentInfo.dmn"
+  c8 = "c8/src/main/resources/documents-documentInfo.dmn"
 }
 ```
 
@@ -116,7 +116,7 @@ could be added without touching the tester. `org.camunda.*` appears only in
 
 ```hocon
 decisionId = c8-dish
-dmnPath = [04-dmntester-server, src, test, resources, dmn, c8, "c8-dish.dmn"]
+dmnPath = "04-dmntester-server/src/test/resources/dmn/c8/c8-dish.dmn"
 isActive = true
 testUnit = true             # ignore required decisions - test this table alone
 acceptMissingRules = false  # true: rules that no input reaches are fine

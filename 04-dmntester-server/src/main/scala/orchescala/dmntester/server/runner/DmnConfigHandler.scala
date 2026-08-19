@@ -78,19 +78,13 @@ object hocon:
             else TesterData(),
           // either the single path or the named ones - see `render`
           dmnPath =
-            if config.hasPath("dmnPath") then
-              config.getStringList("dmnPath").asScala.toList
-            else List.empty,
+            if config.hasPath("dmnPath") then config.getString("dmnPath") else "",
           dmnPaths =
             if config.hasPath("dmnPaths") then
               config
                 .getObject("dmnPaths")
                 .asScala
-                .map: (name, value) =>
-                  name -> config
-                    .getStringList(s"dmnPaths.\"$name\"")
-                    .asScala
-                    .toList
+                .map((name, value) => name -> value.unwrapped().toString)
                 .toMap
             else Map.empty,
           isActive = boolean(config, "isActive", default = false),
@@ -116,10 +110,10 @@ object hocon:
           "dmnPaths" -> map(
             dmnConfig.dmnPaths.toSeq
               .sortBy(_._1)
-              .map((name, path) => name -> (path.asJava: Object))*
+              .map((name, path) => name -> (path: Object))*
           )
         )
-      else Seq("dmnPath" -> dmnConfig.dmnPath.asJava)
+      else Seq("dmnPath" -> (dmnConfig.dmnPath: Object))
     ConfigValueFactory
       .fromMap(
         map(

@@ -11,7 +11,7 @@ class DmnConfigHandlerTest extends FunSuite:
     os.pwd / "04-dmntester-server" / "src" / "test" / "resources" / "dmn-config" / "c8"
   )
 
-  /** exactly the shape a project (valiant-documents) has on disk today */
+  /** the shape a project has on disk - one readable path per DMN */
   private val projectConfig =
     """acceptMissingRules="true"
       |data {
@@ -31,13 +31,7 @@ class DmnConfigHandlerTest extends FunSuite:
       |    variables=[]
       |}
       |decisionId=valiant-documents-documentInfo
-      |dmnPath=[
-      |    c8,
-      |    src,
-      |    main,
-      |    resources,
-      |    "documents-documentInfo.dmn"
-      |]
+      |dmnPath="c8/src/main/resources/documents-documentInfo.dmn"
       |isActive="false"
       |testUnit="true"
       |""".stripMargin
@@ -89,7 +83,7 @@ class DmnConfigHandlerTest extends FunSuite:
           )
         )
       ),
-      dmnPath = List("dmn", "c7", "dates.dmn")
+      dmnPath = "dmn/c7/dates.dmn"
     )
     val reread = hocon.parse(hocon.render(config)).fold(fail(_), identity)
     assertEquals(reread, config)

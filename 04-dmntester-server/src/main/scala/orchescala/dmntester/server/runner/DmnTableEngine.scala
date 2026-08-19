@@ -28,7 +28,7 @@ case class DmnTableEngine(
 
   def evalDecision(
       source: Option[String] = None,
-      dmnPath: List[String] = List.empty
+      dmnPath: String = ""
   ): IO[EvalException, DmnEvalResult] =
     for
       tables <- evalError(engine.decisionTables(model, decisionId, testUnit))

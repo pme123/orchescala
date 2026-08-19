@@ -44,7 +44,7 @@ trait DmnTesterDsl:
         DmnConfig(
           dmn.decisionDefinitionKey,
           TesterData(inputs, variables),
-          dmnTO.dmnPath.relativeTo(projectBasePath).segments.toList,
+          dmnTO.dmnPath.relativeTo(projectBasePath).toString,
           testUnit = dmnTO._testUnit,
           acceptMissingRules = dmnTO._acceptMissingRules
         )

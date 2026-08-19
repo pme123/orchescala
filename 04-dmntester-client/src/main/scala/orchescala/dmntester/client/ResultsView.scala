@@ -58,7 +58,7 @@ object ResultsView:
         span(cls := "muted", s"${result.evalResults.size} input combination(s)"),
         span(cls := "muted", s"${mainTable.ruleRows.size} rule(s)"),
         Option.when(tables.dmnPath.nonEmpty)(
-          span(cls := "muted mono-break", tables.dmnPathStr)
+          span(cls := "muted mono-break", tables.dmnPath)
         ),
         Option.when(tables.hasRequiredTables)(
           span(cls := "muted", s"${tables.requiredTables.size} required decision(s)")

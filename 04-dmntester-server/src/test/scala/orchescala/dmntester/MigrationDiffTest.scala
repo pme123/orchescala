@@ -73,16 +73,16 @@ class MigrationDiffTest extends FunSuite:
     assertEquals(config.dmnPaths.keySet, Set("c7", "c8"))
     assertEquals(os.list(target).map(_.last).toSet, Set("country-risk.conf"))
     // no redundancy: a path is in the file exactly once
-    assertEquals(config.dmnPath, List.empty)
+    assertEquals(config.dmnPath, "")
     val written = os.read(target / "country-risk.conf")
     assert(!written.contains("dmnPath="), written)
     assertEquals(written.split("country-risk.dmn").length - 1, 2, written)
     assert(
-      config.dmnPaths("c7").mkString("/").endsWith("dmn-sources/c7/country-risk.dmn"),
+      config.dmnPaths("c7").endsWith("dmn-sources/c7/country-risk.dmn"),
       config.dmnPaths
     )
     assert(
-      config.dmnPaths("c8").mkString("/").endsWith("dmn-sources/c8/country-risk.dmn"),
+      config.dmnPaths("c8").endsWith("dmn-sources/c8/country-risk.dmn"),
       config.dmnPaths
     )
 

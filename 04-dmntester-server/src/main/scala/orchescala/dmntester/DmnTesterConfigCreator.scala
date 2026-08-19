@@ -58,7 +58,7 @@ trait DmnTesterConfigCreator extends DmnTesterDsl, DmnConfigWriter, DmnTesterSta
         // ONE configuration per decision, referencing every DMN it exists in -
         // so the same test cases run against all versions (c7 / c8).
         val paths = matching.map: (sourceName, dmnFile) =>
-          sourceName -> dmnFile.relativeTo(projectBasePath).segments.toList
+          sourceName -> dmnFile.relativeTo(projectBasePath).toString
         dmnConfigs(Seq(dmnTO.withDmnPath(matching.head._2)))
           .map(_.withDmnPaths(paths))
           .foreach(updateConfig(_, dmnConfigPath))

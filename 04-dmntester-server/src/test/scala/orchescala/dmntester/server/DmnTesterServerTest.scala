@@ -77,7 +77,7 @@ class DmnTesterServerTest extends FunSuite:
     val config = DmnConfig(
       decisionId = "written-by-the-dsl",
       data = TesterData(inputs = List(TesterInput("season", values = List(TesterValue.StringValue("Fall"))))),
-      dmnPath = List("04-dmntester-server", "src", "test", "resources", "dmn", "c8", "c8-dish.dmn")
+      dmnPath = "04-dmntester-server/src/test/resources/dmn/c8/c8-dish.dmn"
     )
     val path = target.relativeTo(os.pwd).toString
     val response = client.send(
