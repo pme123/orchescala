@@ -17,11 +17,6 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   
   protected def c7Context: C7Context
 
-  protected def retries(error: WorkerError): Int = error match
-    case _: ServiceError => 2
-    case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2
-    case _ => 0
-
   def logger = c7Context.getLogger(getClass)
 
   override def execute(
@@ -240,16 +235,17 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       doRetryMsgs: Seq[String],
       inTestMode: Boolean
   ): HelperContext[Int] =
-    // TODO not used at the moment as every failed
-    // val doRetry = doRetryMsgs.exists(error.toString.toLowerCase.contains)
-    if inTestMode then
-      0
-    else
-      Option(summon[camunda.ExternalTask].getRetries)
-        .map:
-          _ - 1
-        .getOrElse:
-          retries(error)
+    Option(summon[camunda.ExternalTask].getRetries)
+      .map:
+        _ - 1 // counts down normally like any other error, so it is retried at most twice total.
+      .getOrElse: // on the first failure (getRetries is still null) an error matching doRetryMsgs
+        error match
+          case _ if inTestMode => 0
+          case _: ServiceError => 2 // ServiceError gets 2 retries on initial attempt
+          case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2 // CustomError wrapping ServiceError gets 2 retries on initial attempt
+          case e if doRetryMsgs.exists(error.toString.toLowerCase.contains) => 2 // (e.g. transient Camunda/DB races) gets the same one-off retry budget as an error
+          case _ => 0   
+
 
   end calcRetries
 end C7Worker
