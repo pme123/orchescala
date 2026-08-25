@@ -1,10 +1,11 @@
 package orchescala.helper.dev
 
+import orchescala.api.VersionHelper
 import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
 import orchescala.helper.dev.publish.PublishHelper.*
-import orchescala.helper.util.{DevConfig, PublishConfig}
+import orchescala.helper.util.{DevConfig, PublishConfig, RepoConfig}
 
 import scala.util.{Failure, Success, Try}
 
@@ -14,6 +15,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
   def devConfig: DevConfig
 
   def runForCompany(command: String, arguments: String*): Unit =
+    registerPrivateRepoLookup()
     val args = arguments.toSeq
     println(s"Running for Company command: $command with args: $args")
     Try(Command.valueOf(command)) match
@@ -27,6 +29,18 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
 
   protected def publishConfig: Option[PublishConfig] = devConfig.publishConfig
 
+  // `cs complete-dep` only sees Maven Central - fall back to the company's own Artifactory
+  // repos (if configured) for private packages before defaulting to a placeholder version.
+  private def registerPrivateRepoLookup(): Unit =
+    val artifactoryRepos = devConfig.sbtConfig.reposConfig.repos.collect:
+      case a: RepoConfig.Artifactory => a
+    if artifactoryRepos.nonEmpty then
+      VersionHelper.registerPrivateRepoLookup: (project, org) =>
+        artifactoryRepos.iterator
+          .flatMap(_.versionLookup(project, org))
+          .nextOption()
+  end registerPrivateRepoLookup
+
   private def runCommand(command: Command, args: Seq[String]): Unit =
     command match
       case Command.update =>
@@ -39,9 +53,11 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
         prepareDocs()
       case Command.publishDocs =>
         publishDocs()
+      case Command.previewDocs =>
+        previewDocs()
 
   private enum Command:
-    case update, publish, prepareDocs, publishDocs
+    case update, publish, prepareDocs, publishDocs, previewDocs
 
   def update(): Unit =
     given EngineConfig = engineConfig

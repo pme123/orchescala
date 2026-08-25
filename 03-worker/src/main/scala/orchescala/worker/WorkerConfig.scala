@@ -10,8 +10,8 @@ trait WorkerConfig:
   @description("Flag, if `true` identity correlation is required.")
   def identityVerification: Boolean
   @description(
-    """List of error messages that should always be retried (2 retries),
-      |even if the normal per-task retry count is already exhausted.
+    """List of error messages that get 2 retries on the first failure of a task,
+      |instead of the default of 0 (like ServiceError).
       |""".stripMargin)
   def doRetryList: Seq[String]
 

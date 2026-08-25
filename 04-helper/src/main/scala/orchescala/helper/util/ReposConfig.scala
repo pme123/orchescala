@@ -66,19 +66,26 @@ object RepoConfig:
          |    .withCredentials(Credentials.of(sys.env("$usernameEnv"),
          |      sys.env("$passwordEnv")))""".stripMargin
 
-    lazy val repoSearch: (String, String) => String =
-      val username = sys.env(usernameEnv)
-      val password = sys.env(passwordEnv)
-
+    /** looks up a package's latest version via Artifactory's search API - None if not found there
+      * (e.g. a third-party dependency that only exists on Maven Central), so callers can fall
+      * back. None (rather than throwing) if the credentials env vars are not set.
+      */
+    lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
-        val result = os.proc(
-          "curl",
-          s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo",
-          "-u",
-          s"$username:$password"
-        ).call()
-        result.out.text()
-    end repoSearch
+        for
+          username <- sys.env.get(usernameEnv)
+          password <- sys.env.get(passwordEnv)
+          result    = os.proc(
+                        "curl",
+                        "--silent",
+                        s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo",
+                        "-u",
+                        s"$username:$password"
+                      ).call()
+          version   = result.out.text().trim
+          if version.matches("""\d+\.\d+\.\d+(-.+)?""")
+        yield version
+    end versionLookup
   end Artifactory
 
 end RepoConfig

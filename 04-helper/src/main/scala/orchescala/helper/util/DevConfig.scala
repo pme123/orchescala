@@ -118,7 +118,8 @@ object DevConfig:
     dmnModule,
     simulationModule,
     workerModule,
-    helperModule
+    helperModule,
+    gatewayModule
   )
 
 end DevConfig
@@ -227,7 +228,6 @@ object ModuleConfig:
     ModuleType.helper,
     level = 4
   )
-  // only used for gateway project
   lazy val gatewayModule    = ModuleConfig(
     ModuleType.gateway,
     level = 4,

@@ -10,6 +10,10 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
 
   private lazy val versionConfig = config.versionConfig
   private lazy val repoConfig    = config.sbtConfig.reposConfig
+  // only the modules this project has - the others have no `ProjectDef.*Dependencies`
+  private lazy val projectModules =
+    config.modules.filter: m =>
+      config.apiProjectConfig.modules.contains(m.moduleType)
 
   private lazy val settingsSbt =
     s"""$helperDoNotAdjustText
@@ -53,7 +57,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |  - org: $${ProjectDef.org}
        |  - name: $${ProjectDef.name}
        |  - version: $${ProjectDef.version}
-       |  - dependencies: $${ProjectDef.${config.modules.head.name}Dependencies.map(_.toString()).sorted.mkString("\\n    - ", "\\n    - ", "")}
+       |  - dependencies: $${ProjectDef.${projectModules.head.name}Dependencies.map(_.toString()).sorted.mkString("\\n    - ", "\\n    - ", "")}
        |  \"\"\"
        |$sbtAutoImportSetting
        |}""".stripMargin
@@ -112,7 +116,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |  )""".stripMargin
 
   lazy val sbtDependencies =
-    config.modules
+    projectModules
       .map: moduleConfig =>
         val name         = moduleConfig.name
         val dependencies = moduleConfig.sbtDependencies

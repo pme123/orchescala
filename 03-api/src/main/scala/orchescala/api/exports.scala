@@ -27,6 +27,8 @@ enum ModuleType:
   case domain, engine, api, dmn, simulation, worker, helper, gateway
 object ModuleType:
   def projectModules: Seq[ModuleType] = Seq(domain, api, dmn, simulation, worker)
+  // a company project has all the modules - it wraps every one of them
+  def companyModules: Seq[ModuleType] = ModuleType.values.toSeq
 end ModuleType
 extension (proc: os.proc)
   def callOnConsole(path: os.Path = os.pwd): CommandResult =
