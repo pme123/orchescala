@@ -115,7 +115,8 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
             contentTypeHtml
           )
           val assetsUrl = s"${projectUrl.stripSuffix("/")}/assets"
-          sardine.createDirectory(assetsUrl)
+          // no explicit createDirectory - see uploadDir; assets/ is a brand-new path for
+          // old-style projects that only ever had a static OpenApi.html before
           uploadDir(sardine, distDir / "assets", assetsUrl)
           val favicon   = distDir / "favicon.png"
           if os.exists(favicon) then
