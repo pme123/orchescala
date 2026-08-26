@@ -40,6 +40,10 @@ object HttpClientProvider:
       ZIO.attempt {
         val config = new DefaultAsyncHttpClientConfig.Builder()
           .setThreadPoolName("async-http-client")
+          // daemon threads: without this the Netty HashedWheelTimer ("async-http-client-timer")
+          // is non-daemon and keeps a test JVM alive after the tests finished -
+          // the application itself is kept alive by the blocking main thread, not by this client
+          .setThreadFactory(new io.netty.util.concurrent.DefaultThreadFactory("async-http-client", true))
           .setIoThreadsCount(1)
           .setUseNativeTransport(false)
           .setMaxConnections(50)

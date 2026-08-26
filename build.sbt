@@ -297,7 +297,8 @@ lazy val dmnTesterClient = project
       "com.raquo"    %%% "laminar"     % laminarVersion
     ),
     bundleClient := {
-      val log       = streams.value.log
+      val s         = streams.value
+      val log       = s.log
       val clientDir = baseDirectory.value
       // vite reads the linked Scala.js output - so link it first
       val _         = (Compile / fullLinkJS).value
@@ -314,7 +315,7 @@ lazy val dmnTesterClient = project
       } else {
         // only run vite if an input changed or the bundle is gone
         val bundle = FileFunction.cached(
-          streams.value.cacheDirectory / "bundleClient",
+          s.cacheDirectory / "bundleClient",
           FilesInfo.hash,
           FilesInfo.exists
         ) { _ =>
