@@ -5,6 +5,7 @@ import orchescala.engine.rest.SttpClientBackend
 import orchescala.engine.{EngineRuntime, Slf4JLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.*
+import org.camunda.bpm.client.exception.NotFoundException
 import org.camunda.bpm.client.task as camunda
 import zio.*
 import zio.ZIO.*
@@ -14,7 +15,7 @@ import scala.jdk.CollectionConverters.*
 
 trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     extends BaseWorker[In, Out], camunda.ExternalTaskHandler:
-  
+
   protected def c7Context: C7Context
 
   def logger = c7Context.getLogger(getClass)
@@ -197,21 +198,33 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val processInstanceId = summon[camunda.ExternalTask].getProcessInstanceId
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
       val retries           = calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
-
-      logError(
+      val logMsg            =
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
-      ) *>
+
+      logInfo(s"Start: $logMsg") *>
         ZIO.attempt(
           externalTaskService.handleFailure(
             taskId,
             error.causeMsg,
             error.toString,
-            Math.max(retries, 0), // < 0 not allowed
+            Math.max(retries, 0),
             10.seconds.toMillis
           )
-        ).flatMapError: throwable =>
-          logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
-        .ignore
+        ).foldZIO(
+          {
+            case _: NotFoundException =>
+              logInfo(
+                s"External Task $taskId does not exist anymore - cancelled concurrently. Dropped error: $error"
+              )
+            case throwable            =>
+              logError(logMsg) *> logError(
+                s"Problem handling Failure to C7: ${throwable.getMessage}."
+              )
+          },
+          _ =>
+            if retries > 0 then logWarning(s"$logMsg (will be retried)")
+            else logError(logMsg)
+        ).ignore
 
     end handleFailure
 
@@ -240,12 +253,14 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         _ - 1 // counts down normally like any other error, so it is retried at most twice total.
       .getOrElse: // on the first failure (getRetries is still null) an error matching doRetryMsgs
         error match
-          case _ if inTestMode => 0
-          case _: ServiceError => 2 // ServiceError gets 2 retries on initial attempt
-          case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2 // CustomError wrapping ServiceError gets 2 retries on initial attempt
-          case e if doRetryMsgs.exists(error.toString.toLowerCase.contains) => 2 // (e.g. transient Camunda/DB races) gets the same one-off retry budget as an error
-          case _ => 0   
-
+          case _ if inTestMode                                                     => 0
+          case _: ServiceError                                                     => 2 // ServiceError gets 2 retries on initial attempt
+          case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) =>
+            2 // CustomError wrapping ServiceError gets 2 retries on initial attempt
+          case e
+              if doRetryMsgs.exists(msg => error.errorMsg.toLowerCase.contains(msg.toLowerCase)) =>
+            2 // (e.g. transient Camunda/DB races) gets the same one-off retry budget as an error
+          case _                                                                   => 0
 
   end calcRetries
 end C7Worker
