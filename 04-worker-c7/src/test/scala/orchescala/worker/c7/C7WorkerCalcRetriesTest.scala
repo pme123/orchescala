@@ -35,7 +35,7 @@ class C7WorkerCalcRetriesTest extends FunSuite:
   test("calcRetries - in test mode"):
     val error = UnexpectedError("Some unexpected error")
     val result = calcRetries(error, 3, inTestMode = true)
-    assertEquals(result, 0) // retries - 1
+    assertEquals(result, 2) // test mode forces 0 if in case there is no retry set what is normally the case
 
   test("calcRetries - retries is null"):
     val error = UnexpectedError("Some unexpected error")
@@ -52,10 +52,20 @@ class C7WorkerCalcRetriesTest extends FunSuite:
     val result = calcRetries(error, 0)
     assertEquals(result, -1) // retries - 1
 
-  test("calcRetries - retryable error with retries > 0"):
+  test("calcRetries - retryable error (doRetryList) on initial attempt"):
+    val error = UnexpectedError("Entity was updated by another transaction concurrently")
+    val result = calcRetriesInitial(error)
+    assertEquals(result, 2) // doRetryList match gets 2 retries on initial attempt, like ServiceError
+
+  test("calcRetries - retryable error (doRetryList) with retries > 0 decrements normally"):
     val error = UnexpectedError("An exception occurred in the persistence layer")
     val result = calcRetries(error, 3)
-    assertEquals(result, 2) // retries - 1
+    assertEquals(result, 2) // normal decrement - doRetryList only affects the initial attempt
+
+  test("calcRetries - retryable error (doRetryList) with retries = 0 is NOT retried again"):
+    val error = UnexpectedError("Entity was updated by another transaction concurrently")
+    val result = calcRetries(error, 0)
+    assertEquals(result, -1) // must fail permanently, not loop forever by resetting to 2
 
   test("calcRetries - POST request error with retries = 0 (should not retry)"):
     val error = UnexpectedError("Exception when sending request: POST /api/test")
@@ -81,20 +91,20 @@ class C7WorkerCalcRetriesTest extends FunSuite:
     val result = calcRetriesInitial(error)
     assertEquals(result, 0) // non-ServiceError gets 0 retries on initial attempt
 
-  test("calcRetries - ServiceError with retries > 0 decrements"):
+  test("calcRetries - ServiceError with retries > 0 decrements normally"):
     val error = ServiceUnexpectedError("Some service error")
     val result = calcRetries(error, 3)
-    assertEquals(result, 2) // decrements normally regardless of error type
+    assertEquals(result, 2) // normal decrement - the 2 retries only apply on the initial attempt
 
-  test("calcRetries - ServiceError with retries = 0"):
+  test("calcRetries - ServiceError with retries = 0 is NOT retried again"):
     val error = ServiceUnexpectedError("Some service error")
     val result = calcRetries(error, 0)
-    assertEquals(result, -1) // decrements normally regardless of error type
+    assertEquals(result, -1) // must fail permanently after its 2 retries are used up
 
   test("calcRetries - ServiceError in test mode"):
     val error = ServiceUnexpectedError("Some service error")
     val result = calcRetries(error, 3, inTestMode = true)
-    assertEquals(result, 0) // test mode forces 0 regardless of error type
+    assertEquals(result, 2) // test mode forces 0 if in case there is no retry set what is normally the case
 
   test("calcRetries - CustomError wrapping ServiceError on initial attempt"):
     val error = CustomError("wrapper", causeError = Some(ServiceUnexpectedError("inner service error")))
@@ -111,9 +121,9 @@ class C7WorkerCalcRetriesTest extends FunSuite:
     val result = calcRetriesInitial(error)
     assertEquals(result, 0) // CustomError without cause gets 0 retries
 
-  test("calcRetries - CustomError wrapping ServiceError with retries > 0 decrements"):
+  test("calcRetries - CustomError wrapping ServiceError with retries > 0 decrements normally"):
     val error = CustomError("wrapper", causeError = Some(ServiceUnexpectedError("inner service error")))
     val result = calcRetries(error, 3)
-    assertEquals(result, 2) // decrements normally regardless of error type
+    assertEquals(result, 2) // normal decrement - the 2 retries only apply on the initial attempt
 
 end C7WorkerCalcRetriesTest

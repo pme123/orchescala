@@ -40,7 +40,7 @@ def createOrUpdate(file: os.Path, contentNew: String): Unit =
   if contentExisting.contains(doNotAdjust)
   then
     println(s"${Console.BLUE}Updated - $file${Console.RESET}")
-    os.write.over(file, contentNew)
+    os.write.over(file, contentNew, createFolders = true)
   else
     println(s"${Console.RED}NOT Updated - $file${Console.RESET}")
   end if
@@ -50,7 +50,7 @@ end createOrUpdate
 def createIfNotExists(file: os.Path, contentNew: String): Unit =
   if !os.exists(file) then
     println(s"${Console.BLUE} - NEW: $file${Console.RESET}")
-    os.write.over(file, contentNew)
+    os.write.over(file, contentNew, createFolders = true)
   else
     println(s"EXISTS: $file")
   end if

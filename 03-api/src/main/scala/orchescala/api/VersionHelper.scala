@@ -60,11 +60,29 @@ object VersionHelper:
   lazy val orchescalaVersion: String =
     repoSearch("orchescala-domain_3", "io.github.pme123")
 
+  /** `cs complete-dep` only ever sees Maven Central - a company's private packages live in their
+    * own Artifactory instead. 04-helper knows about that (ReposConfig) and registers a lookup
+    * here once it does, so private packages resolve before falling back to Maven Central.
+    */
+  @volatile private var privateRepoLookup: (String, String) => Option[String] = (_, _) => None
+
+  def registerPrivateRepoLookup(lookup: (String, String) => Option[String]): Unit =
+    privateRepoLookup = lookup
+
   // this expects a projectName in this pattern mycompany-myproject
   def repoSearch(projectName: String): String =
     repoSearch(projectName, projectName.split("-").head)
-    
+
   def repoSearch(project: String, org: String): String =
+    privateRepoLookup(project, org) match
+      case Some(version) =>
+        println(s"- Last Version of $org:$project: $version (private repo)")
+        version
+      case None =>
+        centralRepoSearch(project, org)
+  end repoSearch
+
+  private def centralRepoSearch(project: String, org: String): String =
     val searchResult = os.proc(
       "cs",
       "complete-dep",
@@ -96,6 +114,6 @@ object VersionHelper:
 
     println(s"- Last Version of $org:$project: $version")
     version
-  end repoSearch
+  end centralRepoSearch
 
 end VersionHelper

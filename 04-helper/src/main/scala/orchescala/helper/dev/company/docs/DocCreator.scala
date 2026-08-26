@@ -7,7 +7,7 @@ import orchescala.api.{
   ProjectGroup,
   catalogFileName
 }
-import orchescala.helper.dev.publish.{CatalogWebDAV, DocsWebDAV}
+import orchescala.helper.dev.publish.{CatalogWebDAV, DocsWebDAV, OrchDocBuilder, PreviewWebDAV}
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
 
@@ -43,6 +43,27 @@ trait DocCreator extends DependencyCreator, Helpers:
   def publishDocs(): Unit =
     createDynamicConf()
     println(s"Releasing Docs started")
+
+    if publishConfig.isEmpty then println("No Publish Config found")
+
+    // old (laikaSite -> /site) and new (orch-doc -> /preview) are fully independent - different
+    // subprocesses, different output dirs, only read the already-generated markdown in common -
+    // so build+upload both at once instead of one after the other.
+    import scala.concurrent.{blocking, Await, ExecutionContext, Future}
+    import scala.concurrent.duration.Duration
+    import scala.util.{Failure, Try}
+    given ExecutionContext = ExecutionContext.global
+
+    val oldSite = Future(blocking(Try(publishOldSite())))
+    val newSite = Future(blocking(Try(publishNewSite())))
+
+    val failures = Await.result(Future.sequence(Seq(oldSite, newSite)), Duration.Inf)
+      .collect { case Failure(ex) => ex }
+    failures.foreach(_.printStackTrace())
+    failures.headOption.foreach(throw _)
+  end publishDocs
+
+  private def publishOldSite(): Unit =
     os.proc(
       "sbt",
       "-J-Xmx3G",
@@ -57,13 +78,36 @@ trait DocCreator extends DependencyCreator, Helpers:
       mergeFolders = true
     )
     pullOtherProjects()
-  
-    publishConfig
-      .map: config =>
-        DocsWebDAV(apiConfig, config).upload(releaseConfig.releaseTag)
-      //  CatalogWebDAV(apiConfig, config).upload()
-      .getOrElse(println("No Publish Config found")) 
-  end publishDocs
+    publishConfig.foreach: config =>
+      DocsWebDAV(apiConfig, config).upload(releaseConfig.releaseTag)
+    //  CatalogWebDAV(apiConfig, config).upload()
+  end publishOldSite
+
+  private def publishNewSite(): Unit =
+    for
+      config      <- publishConfig
+      orchDocPath <- config.apiDocPath
+    do
+      val builder = OrchDocBuilder(orchDocPath)
+      builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogHtmlPath))
+      val out = builder.buildPreview(allCompanyDocsDirs())
+      PreviewWebDAV(apiConfig, config).upload(out)
+  end publishNewSite
+
+  /** Assembles the new orch-doc-based site and serves it locally (like `npm run site --serve`) -
+    * no WebDAV involved, old and new build side by side. Prints the URL once the server actually
+    * answers. Requires PublishConfig.apiDocPath (a local orch-doc checkout) to be set.
+    */
+  def previewDocs(): Unit =
+    prepareDocs()
+    publishConfig.flatMap(_.apiDocPath) match
+      case Some(orchDocPath) =>
+        val builder = OrchDocBuilder(orchDocPath)
+        builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogHtmlPath))
+        builder.serveLocally(allCompanyDocsDirs())
+      case None               =>
+        println("No PublishConfig.apiDocPath configured - cannot build the orch-doc preview.")
+  end previewDocs
 
   protected def createCatalog(): Unit =
 
@@ -470,8 +514,12 @@ trait DocCreator extends DependencyCreator, Helpers:
     else
       s"[$jiraTicket](https://issue.swisscom.ch/browse/$jiraTicket)"
 
-  private def pullOtherProjects(): Unit =
-    val otherProjects: Seq[(String, String)] =
+  /** Discovers sibling company-orchescala repos and clones/pulls them into gitBasePath - shared
+    * by pullOtherProjects (the classic /site flow) and the orch-doc preview build, which both
+    * need the other companies' data alongside this one's.
+    */
+  private def otherCompanyRepos(): Seq[(String, os.Path)] =
+    val otherGroups: Seq[(String, String)] =
       apiConfig.projectsConfig
         .perGitRepoConfigs
         .flatMap: pc =>
@@ -480,25 +528,53 @@ trait DocCreator extends DependencyCreator, Helpers:
             .distinct
             .filterNot(_ == apiConfig.companyName)
             .map(_ -> pc.cloneBaseUrl)
-    otherProjects.foreach:
+    otherGroups.map:
       case (group, baseUrl) =>
-        if !os.exists(gitBasePath / s"$group-orchescala") then
-          os.proc(
-            "git",
-            "clone",
-            s"$baseUrl/$group-orchescala.git",
-            gitBasePath / s"$group-orchescala"
-          )
+        val repoDir = gitBasePath / s"$group-orchescala"
+        if !os.exists(repoDir) then
+          os.proc("git", "clone", s"$baseUrl/$group-orchescala.git", repoDir)
             .callOnConsole(gitBasePath)
         else
-          os.proc("git", "checkout", "develop")
-            .callOnConsole(gitBasePath / s"$group-orchescala")
-          os.proc("git", "pull", "origin", "develop")
-            .callOnConsole(gitBasePath / s"$group-orchescala")
+          os.proc("git", "checkout", "develop").callOnConsole(repoDir)
+          os.proc("git", "pull", "origin", "develop").callOnConsole(repoDir)
         end if
+        group -> repoDir
+  end otherCompanyRepos
+
+  /** This company's `00-docs` plus every sibling company's - what the orch-doc preview needs to
+    * assemble a complete, multi-company site (matching a plain local `npm run site`).
+    */
+  private def allCompanyDocsDirs(): Seq[os.Path] =
+    apiConfig.basePath +: otherCompanyRepos().map { case (_, repoDir) => repoDir / "00-docs" }
+
+  /** Where publishOldSite's laikaSite step leaves catalog.html, if it has run - used to enrich
+    * the orch-spec catalog with call activities. Missing is fine (generateSpecCatalog skips it).
+    */
+  private def specCatalogHtmlPath: os.Path =
+    apiConfig.basePath / "site" / apiConfig.companyName / "catalog.html"
+
+  /** Every project this company's config lists, checked out - governance: only what
+    * projectsConfig lists goes into the orch-spec catalog, not everything ever cloned into
+    * gitBasePath (which also holds orphaned/unreleased checkouts and, via pullOtherProjects,
+    * entire sibling companies' doc sites). No name-prefix filter: projectsConfig can and does
+    * deliberately list projects from another company's namespace as real dependencies (e.g.
+    * valiant's config lists swisscom-fil-is directly, same repo, same list, not through the
+    * separate sibling-company mechanism) - excluding those would silently drop catalog entries
+    * (services, classes) that this company's own processes actually depend on.
+    * prepareDocs()'s fetchConf already checks each one out at its released tag (VERSIONS.conf),
+    * so this always reflects what's actually released, never an unreleased working tree.
+    */
+  private def ownProjectDirs(): Seq[os.Path] =
+    projectConfigs
+      .map(_.absGitPath(gitBasePath))
+      .filter(os.exists)
+
+  private def pullOtherProjects(): Unit =
+    otherCompanyRepos().foreach:
+      case (group, repoDir) =>
         os.makeDir.all(apiConfig.basePath / "site" / group)
         os.copy(
-          gitBasePath / s"$group-orchescala" / "00-docs" / "site" / group,
+          repoDir / "00-docs" / "site" / group,
           apiConfig.basePath / "site" / group,
           replaceExisting = true,
           createFolders = true,

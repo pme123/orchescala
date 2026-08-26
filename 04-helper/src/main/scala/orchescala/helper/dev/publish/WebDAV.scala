@@ -2,7 +2,7 @@ package orchescala.helper.dev.publish
 
 import orchescala.api.ApiConfig
 import orchescala.helper.util.{Helpers, PublishConfig}
-import com.github.sardine.SardineFactory
+import com.github.sardine.{Sardine, SardineFactory}
 import com.github.sardine.impl.SardineException
 import orchescala.domain.BpmnProcessType
 
@@ -36,6 +36,18 @@ abstract class WebDAV:
       )
     sardine
   end startSession
+
+  // no explicit createDirectory for new folders - like DocsWebDAV.uploadFiles below, PUT alone
+  // creates missing ancestor collections on this server; an explicit MKCOL right before the
+  // first PUT into it causes a 409 (seen with PreviewWebDAV's brand-new /preview path).
+  protected def uploadDir(sardine: Sardine, dir: os.Path, url: String): Unit =
+    os.list(dir).foreach:
+      case f if os.isDir(f) =>
+        uploadDir(sardine, f, s"$url/${f.last}")
+      case f =>
+        println(s"Uploading $url/${f.last}")
+        sardine.put(s"$url/${f.last}", os.read.bytes(f))
+  end uploadDir
 end WebDAV
 
 case class CatalogWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
@@ -92,7 +104,24 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
       end try
       // create new
       sardine.createDirectory(projectUrl)
-      sardine.put(s"$projectUrl/OpenApi.html", openApiHtml, contentTypeHtml)
+      publishConfig.apiDocPath match
+        case Some(orchDocPath) =>
+          // orch-doc's standalone API page (dist/api.html) replaces the static Redoc shell -
+          // see orch-doc README "Standalone API page per project"
+          val distDir = OrchDocBuilder(orchDocPath).build()
+          sardine.put(
+            s"$projectUrl/OpenApi.html",
+            os.read.inputStream(distDir / "api.html"),
+            contentTypeHtml
+          )
+          val assetsUrl = s"${projectUrl.stripSuffix("/")}/assets"
+          sardine.createDirectory(assetsUrl)
+          uploadDir(sardine, distDir / "assets", assetsUrl)
+          val favicon   = distDir / "favicon.png"
+          if os.exists(favicon) then
+            sardine.put(s"$projectUrl/favicon.png", os.read.bytes(favicon))
+        case None               =>
+          sardine.put(s"$projectUrl/OpenApi.html", openApiHtml, contentTypeHtml)
       sardine.put(s"$projectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
       postmanApiYml.foreach(pApi =>
         sardine.put(
@@ -154,6 +183,36 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
   end postmanApiYml
 
 end ProjectWebDAV
+
+/** Uploads the orch-doc preview build under `/preview` - entirely separate from `/site` (see
+  * DocsWebDAV), so the live, Laika-rendered site is never touched while the new one is tested.
+  */
+case class PreviewWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
+  // trailing slash matters for MKCOL on this WebDAV server - matches ProjectWebDAV's projectUrl
+  val previewUrl = s"${publishConfig.documentationUrl}/preview/"
+
+  def upload(localDir: os.Path): Unit =
+    println(s"Start: upload preview to $previewUrl")
+    val sardine = startSession
+    try
+      try
+        val existingFiles = sardine.list(previewUrl)
+        if !existingFiles.isEmpty then
+          println("Delete existing preview")
+          sardine.delete(previewUrl)
+      catch
+        case ex: SardineException
+            if ex.getMessage.contains("Unexpected response (404 Not Found)") =>
+          println("/preview will be created.")
+      end try
+      // no explicit createDirectory - see uploadDir
+      uploadDir(sardine, localDir, previewUrl.stripSuffix("/"))
+      println(s"Finished: upload preview to $previewUrl")
+    finally sardine.shutdown()
+    end try
+  end upload
+
+end PreviewWebDAV
 
 case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV
     with Helpers:

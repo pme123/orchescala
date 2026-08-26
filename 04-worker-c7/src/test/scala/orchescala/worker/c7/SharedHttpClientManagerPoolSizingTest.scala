@@ -7,7 +7,7 @@ import org.apache.hc.client5.http.config.{ConnectionConfig, RequestConfig}
 import org.apache.hc.client5.http.impl.classic.HttpClients
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder
 import org.apache.hc.core5.pool.{PoolConcurrencyPolicy, PoolReusePolicy}
-import org.apache.hc.core5.util.Timeout
+import org.apache.hc.core5.util.{TimeValue, Timeout}
 
 import java.net.InetSocketAddress
 import java.util.concurrent.{CountDownLatch, Executors, TimeUnit}
@@ -167,7 +167,13 @@ class SharedHttpClientManagerPoolSizingTest extends FunSuite:
               "concurrent task completions plus the fetchAndLock long-poll connection"
           )
         finally pool.shutdown()
-      finally Try(httpClient.close())
+      finally
+        Try(httpClient.close())
+        // drain the shared pool: otherwise the 11 keep-alive connections to the (stopped)
+        // test server linger in the global singleton and the conn-evictor logs them
+        // every 30s for the rest of the sbt session
+        Try(SharedHttpClientManager.connectionManager.closeIdle(TimeValue.ZERO_MILLISECONDS))
+        ()
     }
 
 end SharedHttpClientManagerPoolSizingTest

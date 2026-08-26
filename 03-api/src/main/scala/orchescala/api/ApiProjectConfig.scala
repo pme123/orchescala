@@ -77,6 +77,7 @@ object ApiProjectConfig:
     )
   end apply
 
+  /** the config of a company project - it has no PROJECT.conf and wraps every module */
   def apply(projectName: String, projectVersion: String): ApiProjectConfig =
     ApiProjectConfig(
       projectName = projectName,
@@ -84,7 +85,7 @@ object ApiProjectConfig:
       subProjects = Seq.empty,
       dependencies = Seq.empty,
       workerDependencies = Seq.empty,
-      modules = ModuleType.projectModules
+      modules = ModuleType.companyModules
     )
 end ApiProjectConfig
 

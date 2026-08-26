@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## 0.6.2 - 2026-08-26
+### Changed 
+- Fixed not stopping sbt test clean / fixed warning in build.sbt. - see [Commit](git@github.com:pme123/orchescala/commit/873685c824167cb515c1d6e1277d0de083bb585e)
+- Adjusted calcRetries to lowerCase in doRetryMsgs / logged after -befor just info for cases like timeouterrors. - see [Commit](git@github.com:pme123/orchescala/commit/7a8cc36a71197426bdc879b6be8e27b062a6a24f)
+- Added new documentation using orch-doc. - see [Commit](git@github.com:pme123/orchescala/commit/e6c5ac694871a1574ef55213230b62a6bc6d97ca)
+- Activated doRetryMsgs for calculating retries of completion of an external task. - see [Commit](git@github.com:pme123/orchescala/commit/6f02a4f7071305d3dd062688f737fda71c4f8578)
+- Activated doRetryMsgs for calculating retries of completion of an external task. - see [Commit](git@github.com:pme123/orchescala/commit/265e8a6836f57e2b31780ff552aa08a82b3b395c)
+
 ## 0.6.1 - 2026-08-19
 ### Changed 
 - Added fallback for optional input column label and output column name. - see [Commit](git@github.com:pme123/orchescala/commit/de13e7421834d6defb3412da0e30b9e85cf6326d)
