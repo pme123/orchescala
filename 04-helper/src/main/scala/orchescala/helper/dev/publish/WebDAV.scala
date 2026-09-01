@@ -83,7 +83,9 @@ end CatalogWebDAV
 case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfig: PublishConfig)
     extends WebDAV:
 
-  val projectUrl = s"$publishBaseUrl/${apiConfig.companyName}/$projectName/"
+  val projectUrl        = s"$publishBaseUrl/${apiConfig.companyName}/$projectName/"
+  val previewProjectUrl =
+    s"${publishConfig.documentationUrl}/preview/${apiConfig.companyName}/$projectName/"
 
   def upload(): Unit =
     println(s"Start $projectName: upload Documentation to ${publishConfig.documentationUrl}")
@@ -167,9 +169,32 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
           println(s"No Diagrams in this project: $diagramDir")
         end if
 
+      mirrorToPreview(sardine)
     finally sardine.shutdown()
     end try
   end upload
+
+  /** Mirrors OpenApi.yml + diagrams into /preview - the orch-doc app's in-app API view
+    * (#/<company>/api/<project>) fetches these directly at runtime, independent of docs.json, so
+    * a single project's own publish keeps its /preview page current without a full company-wide
+    * previewDocs/publishDocs run. Best-effort: never fails the (production-critical) /site
+    * upload above - /preview is still the experimental side of this.
+    */
+  private def mirrorToPreview(sardine: Sardine): Unit =
+    try
+      println(s"Mirroring OpenApi.yml + diagrams to $previewProjectUrl")
+      sardine.put(s"$previewProjectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
+      BpmnProcessType.diagramPaths
+        .map(os.pwd / _)
+        .filter(os.exists)
+        .flatMap(os.list)
+        .filter(p => p.toString.endsWith(".bpmn") || p.toString.endsWith(".dmn"))
+        .foreach: f =>
+          sardine.put(s"$previewProjectUrl/diagrams/${f.last}", os.read.bytes(f))
+    catch
+      case ex: Throwable =>
+        println(s"Mirroring to /preview failed (non-fatal): ${ex.getMessage}")
+  end mirrorToPreview
 
   private lazy val openApiHtml   =
     os.read.inputStream(publishConfig.openApiHtmlPath)

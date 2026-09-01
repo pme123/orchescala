@@ -299,8 +299,6 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
       s"""# Package Configuration
          |**Check all dependency trees here: [$projectName](../../dependencies/$projectName.html)**
          |
-         |$dependencies
-         |
          |<details>
          |<summary>${apiConfig.projectsConfig.projectConfPath}</summary>
          |<p>
@@ -403,29 +401,16 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
          |</details>
          |""".stripMargin
 
-  protected def dependencies: String =
-
-    def docPortal(projectName: String) =  s"${apiConfig.docBaseUrl.getOrElse("NOT_SET")}/site/${apiConfig.companyName}/$projectName/OpenApi.html"
-
-    val projects       = apiConfig.projectsConfig.perGitRepoConfigs.flatMap(_.projects)
-    println(s"Projects: $projects")
-    def documentations =
-      projects.map(pc => pc.name -> docPortal(pc.name)).toMap
-
-    s"""|### Dependencies:
-        |
-        |${
-         docProjectConfig.dependencies
-           .map(dep => s"- _**[${dep.projectName}](${documentations.getOrElse(dep.projectName, "NOT FOUND")})**_")
-           .mkString("\n")
-       }
-        |""".stripMargin
-  end dependencies
+  private val developmentSection =
+    """(?s)<details>\s*<summary><b>Development</b></summary>.*?</details>""".r
 
   protected def createReadme(): String =
     val readme = basePath / "README.md"
     if readme.toIO.exists() then
-      os.read.lines(readme).tail.mkString("\n")
+      val content = os.read.lines(readme).tail.mkString("\n")
+      // the internal dev-setup instructions (Artifactory credentials etc.) don't belong in
+      // API documentation - strip that collapsible section, keep the rest of the README as is.
+      developmentSection.replaceAllIn(content, "").trim
     else
       "There is no README.md in the Project."
   end createReadme
