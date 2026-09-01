@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.6.3 - 2026-09-01
+### Changed 
+- Pushed it to new docs preview. - see [Commit](git@github.com:pme123/orchescala/commit/0e802efb32e421d9ae6e51cc5f9cc89b543e73e9)
+- Fixed publish in projects upload WebDAV. - see [Commit](git@github.com:pme123/orchescala/commit/036d607de9d547b755597e0cabd00859c72db674)
 
 ## 0.6.2 - 2026-08-26
 ### Changed 
