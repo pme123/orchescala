@@ -18,12 +18,13 @@ To update this project, use `cd ..` and then `./helperCompany init` - see  [Init
 ```bash
 ./helper.scala update
 ```
-Updates the company project itself. If `PublishConfig.apiDocPath` points to a local
-[orch-doc](https://github.com/z9nai/orch-doc) checkout, it also builds orch-doc's single-file
-API page and stores it as `04-helper/src/main/resources/OrchDocApi.html` (`PublishConfig.apiHtmlResource`).
-Once the company helper is published with it, every project's `./helper.scala update` writes this
-page as `03-api/OpenApi.html` and `03-api/PostmanOpenApi.html` instead of the Redoc shells - the
-page loads the yml named like itself - and `./helper.scala publish` uploads exactly these files.
+Updates the company project itself (build files, wrappers, `00-docs` scaffolding).
+
+The API page every project ships (`03-api/OpenApi.html` and `03-api/PostmanOpenApi.html`, written
+by the project's `./helper.scala update` and uploaded by its `publish`) comes with orchescala:
+the documentation app in `04-orch-doc` is built into the `orchescala-orch-doc` jar, a dependency
+of the helper - nothing to build or configure in the company. The page loads the yml named like
+itself.
 
 ## publish
 
@@ -79,12 +80,13 @@ Prepare the company documentation.
 Be aware that this overwrites `release.md`
 @:@
 
-If `PublishConfig.apiDocPath` points to a local [orch-doc](https://github.com/z9nai/orch-doc)
-checkout, `prepareDocs` ends with a local preview of the new documentation site: the orch-spec
-catalog is regenerated, the site assembled (this company and its siblings) and served - the URL
-is printed at the end (`Preview ready: http://localhost:3004/`). The server keeps running after
-the command; the next `prepareDocs` replaces it. A failure in the catalog or the sibling
-repos does not stop the preview, it is printed and the preview continues with what is available.
+`prepareDocs` ends with a local preview of the documentation site: the site is assembled into
+`00-docs/site` (this company and its siblings, the project APIs at their released versions,
+orch-spec with its catalog) and served - the URL is printed (`Preview ready: http://localhost:3004/`)
+and the command keeps running until you stop it with Ctrl-C. A failure in the spec catalog or
+the sibling repos does not stop the preview, it is printed and the preview continues with what is
+available. Everything needed ships with orchescala; Node.js is only used for the orch-spec
+catalog (skipped without it).
 
 - Manually adjust the Release Notes _release.md_ - and check the result in the local preview
   (run `prepareDocs` again, or `npm run site` in orch-doc).
@@ -100,6 +102,6 @@ Builds the documentation site (this company and its siblings, the project APIs a
 versions, orch-spec) into `00-docs/site` and uploads it to `/site` on the WebDAV server. `/site`
 is never deleted as a whole: the projects' own folders (`/site/<company>/<project>/`, published
 by each project) and the classic sites of older releases (`/site/<company>/<tag>/`) stay - only
-`assets/` and `spec/` are replaced. Needs `PublishConfig.apiDocPath` (the orch-doc checkout).
+`assets/` and `spec/` are replaced. Needs Java and git only - Node.js just for the orch-spec catalog.
 
 - Check the result on your Company Documentation Page (`<documentationUrl>/site/#/<company>`).

@@ -35,6 +35,7 @@ lazy val root = project
     simulation,
     worker,
     helper,
+    orchDocClient,
     engineC7,
     engineC8,
     engineOp,
@@ -191,7 +192,7 @@ lazy val helper = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav)
-  ).dependsOn(api, simulation)
+  ).dependsOn(api, simulation, orchDocClient) // orchDocClient: OrchDocApi.html for the projects' update
 
 lazy val engineC7 = project
   .in(file("./04-engine-c7"))
@@ -327,6 +328,94 @@ lazy val dmnTesterClient = project
   )
   .dependsOn(dmnTester.js)
 
+lazy val bundleDocClient = taskKey[Seq[File]](
+  "Builds the documentation apps (orch-doc: site app + single-file API page, orch-spec) with vite into 04-orch-doc/bundle"
+)
+lazy val checkDocBundle = taskKey[Unit]("Fails if the documentation apps were not built")
+
+/** The documentation apps - orch-doc (the company documentation site and the standalone API
+  * page every project ships as its OpenApi.html) and orch-spec (process specifications).
+  * React + vite in `04-orch-doc` / `04-orch-spec`; the vite builds are part of the sbt build,
+  * so nobody has to remember `npm run build`. Published as `orchescala-orch-doc` - resources
+  * only: `OrchDocApi.html` (the single-file API page, read by the helper's ApiGenerator and
+  * served by the gateway at /docs) and `orch-doc-site/` (the site app incl. orch-spec).
+  */
+lazy val orchDocClient = project
+  .in(file("./04-orch-doc"))
+  .settings(publicationSettings)
+  .settings(projectSettings("orch-doc"))
+  .settings(
+    // no Scala sources - the jar carries the bundles only
+    Compile / unmanagedSourceDirectories := Seq.empty,
+    Test / unmanagedSourceDirectories := Seq.empty,
+    Compile / unmanagedResourceDirectories := Seq(baseDirectory.value / "bundle"),
+    // built BEFORE the resources are collected - packaging, publishing and the helper's
+    // tests always take a page that matches the code. `bundleDocClient` is cached.
+    Compile / unmanagedResources := (Compile / unmanagedResources)
+      .dependsOn(bundleDocClient)
+      .value,
+    bundleDocClient := {
+      val s         = streams.value
+      val log       = s.log
+      val clientDir = baseDirectory.value
+      val specDir   = (LocalRootProject / baseDirectory).value / "04-orch-spec"
+      val bundleDir = clientDir / "bundle"
+      val apps      = Seq(clientDir, specDir)
+      val inputs    = (apps.flatMap(d => Seq("src", "public", "tools").map(d / _)).flatMap(_.allPaths.get()) ++
+        apps.flatMap(d =>
+          Seq("index.html", "api.html", "package.json", "package-lock.json", "vite.config.ts", "vite.single.config.ts", "tsconfig.json")
+            .map(d / _)
+        )).filter(_.isFile).toSet
+      def bundled = bundleDir.allPaths.get().filter(_.isFile).toSet
+      if (!NpmBuild.hasNpm) {
+        NpmBuild.warnMissingNpm("the documentation apps", clientDir, Seq("build:all", "build:single"), log)
+        bundled.toSeq
+      } else {
+        // only run vite if an input changed or the bundle is gone
+        val bundle = FileFunction.cached(
+          s.cacheDirectory / "bundleDocClient",
+          FilesInfo.hash,
+          FilesInfo.exists
+        ) { _ =>
+          // orch-spec is built from orch-doc's `build:spec` - it needs its own node_modules
+          if (!(specDir / "node_modules" / ".bin" / "vite").exists())
+            NpmBuild.run("orch-spec", "npm ci", specDir, log)
+          NpmBuild.build("the documentation apps", clientDir, Seq("build:all", "build:single"), log)
+          // orch-spec's catalog tools as standalone node scripts - the helper runs them (if
+          // Node.js is there) to generate the spec catalog of a company's site
+          NpmBuild.run("orch-spec", "npm run build:tools", specDir, log)
+          IO.delete(bundleDir)
+          IO.copyDirectory(clientDir / "dist", bundleDir / "orch-doc-site")
+          IO.copyFile(clientDir / "dist-single" / "api.html", bundleDir / "OrchDocApi.html")
+          IO.copyDirectory(specDir / "dist-tools", bundleDir / "orch-doc-tools")
+          // a jar cannot be listed - the helper copies the site app by this index
+          val siteDir = bundleDir / "orch-doc-site"
+          val files   = siteDir.allPaths.get().filter(_.isFile)
+            .map(f => IO.relativize(siteDir, f).get.replace(java.io.File.separatorChar, '/')).sorted
+          IO.write(siteDir / "files.txt", files.mkString("", "\n", "\n"))
+          bundled
+        }
+        bundle(inputs).toSeq
+      }
+    },
+    checkDocBundle := {
+      val _    = bundleDocClient.value
+      val page = baseDirectory.value / "bundle" / "OrchDocApi.html"
+      if (!page.exists())
+        sys.error(
+          s"""The documentation apps are missing: $page
+             |`bundleDocClient` builds them as part of this build - but that needs Node.js.
+             |Install it, or build them yourself:
+             |  npm --prefix 04-orch-doc ci
+             |  npm --prefix 04-orch-spec ci
+             |  npm --prefix 04-orch-doc run build:all
+             |  npm --prefix 04-orch-doc run build:single""".stripMargin
+        )
+    },
+    // never publish without the apps
+    Compile / packageBin := (Compile / packageBin).dependsOn(checkDocBundle).value
+  )
+
 // Task to generate OpenAPI YAML file
 lazy val generateOpenApi = taskKey[Unit]("Generate OpenAPI specification YAML file")
 
@@ -362,7 +451,7 @@ lazy val gateway = project
       (Compile / runMain).toTask(" orchescala.gateway.GenerateOpenApiYaml").value
     }
   )
-  .dependsOn(engineGateway)
+  .dependsOn(engineGateway, orchDocClient) // orchDocClient: OrchDocApi.html served at /docs
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))

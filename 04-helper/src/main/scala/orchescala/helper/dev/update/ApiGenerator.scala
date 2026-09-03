@@ -20,9 +20,9 @@ case class ApiGenerator()(using config: DevConfig):
           createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", html)
         case None       =>
           println(
-            s"${Console.RED}NOT Updated - 03-api/OpenApi.html + PostmanOpenApi.html: the company helper " +
-              s"ships no ${apiHtmlResource.segments.last} (run the company's `./helper.scala update` " +
-              s"with PublishConfig.apiDocPath set and publish the company helper).${Console.RESET}"
+            s"${Console.RED}NOT Updated - 03-api/OpenApi.html + PostmanOpenApi.html: no " +
+              s"${apiHtmlResource.segments.last} on the classpath - the orchescala-orch-doc jar " +
+              s"(a dependency of orchescala-helper) is missing or was built without Node.js.${Console.RESET}"
           )
   end generate
 
@@ -55,12 +55,11 @@ case class ApiGenerator()(using config: DevConfig):
        |""".stripMargin
   end api
 
-  private lazy val apiHtmlResource: os.ResourcePath =
-    config.publishConfig.map(_.apiHtmlResource).getOrElse(os.resource / "OrchDocApi.html")
+  // orch-doc's single-file API page - built into the orchescala-orch-doc jar (see build.sbt,
+  // `bundleDocClient`), a dependency of the helper
+  private lazy val apiHtmlResource: os.ResourcePath = os.resource / "OrchDocApi.html"
 
-  /** The company helper's orch-doc page (PublishConfig.apiHtmlResource, put there by the company's
-    * `update`) - with the do-not-adjust marker in front, so the next `update` replaces it again.
-    */
+  /** The API page with the do-not-adjust marker in front, so the next `update` replaces it. */
   private lazy val orchDocApiHtml: Option[String] =
     scala.util.Try(os.read(apiHtmlResource)).toOption
       .map(html => s"<!-- $helperDoNotAdjustText -->\n$html")

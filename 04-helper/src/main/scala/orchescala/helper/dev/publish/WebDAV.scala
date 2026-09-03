@@ -72,7 +72,7 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
       // create new
       sardine.createDirectory(projectUrl)
       // The project's own OpenApi.html / PostmanOpenApi.html as written by `./helper.scala update`
-      // (orch-doc's single-file page, see PublishConfig.apiHtmlResource). Publishing never builds
+      // (orch-doc's single-file page from the orchescala-orch-doc jar). Publishing never builds
       // orch-doc - no checkout needed here.
       Seq("OpenApi.html", "PostmanOpenApi.html").foreach: name =>
         val local = os.pwd / "03-api" / name

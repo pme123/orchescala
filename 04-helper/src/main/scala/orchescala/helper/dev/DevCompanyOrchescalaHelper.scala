@@ -4,7 +4,6 @@ import orchescala.api.VersionHelper
 import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
-import orchescala.helper.dev.publish.OrchDocBuilder
 import orchescala.helper.dev.publish.PublishHelper.*
 import orchescala.helper.util.{DevConfig, PublishConfig, RepoConfig}
 
@@ -74,30 +73,17 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     updateApiHtml()
   end update
 
-  /** orch-doc's single-file API page -> resource of THIS company's helper (see
-    * PublishConfig.apiHtmlResource). Built from the local orch-doc checkout (`apiDocPath`), so
-    * only the company's `update` needs orch-doc - every project's `update` then gets the page
-    * from the company helper jar and writes it as its OpenApi.html / PostmanOpenApi.html.
+  /** The API page (`OrchDocApi.html`) ships in the orchescala-orch-doc jar - a dependency of
+    * helper and gateway. Copies an earlier integration step put into THIS company's resources
+    * would shadow it on the classpath - remove them.
     */
   private def updateApiHtml(): Unit =
-    publishConfig match
-      case Some(config) =>
-        config.apiDocPath match
-          case Some(orchDocPath) =>
-            val html = OrchDocBuilder(orchDocPath).buildSingleFile()
-            // the helper: for every project's `update`; the gateway: served at /docs for its own API
-            Seq("04-helper", "04-gateway")
-              .map(os.pwd / _)
-              .filter(os.exists)
-              .foreach: module =>
-                val target = module / "src" / "main" / "resources" / config.apiHtmlResource.segments.last
-                os.copy.over(html, target, createFolders = true)
-                println(s"${Console.BLUE}Updated - $target (${os.size(target) / 1024} KB)${Console.RESET}")
-          case None               =>
-            println(
-              "No PublishConfig.apiDocPath - the projects' OpenApi.html / PostmanOpenApi.html are NOT updated."
-            )
-      case None         => ()
+    Seq("04-helper", "04-gateway")
+      .map(os.pwd / _ / "src" / "main" / "resources" / "OrchDocApi.html")
+      .filter(os.exists)
+      .foreach: legacy =>
+        println(s"Removing $legacy - the page now ships in the orchescala jars")
+        os.remove(legacy)
   end updateApiHtml
 
   private def publish(newVersion: String): Unit =

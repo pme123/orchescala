@@ -5,7 +5,7 @@ import orchescala.helper.dev.update.createIfNotExists
 import java.time.LocalDate
 
 /** The company's `00-docs`: the hand-written markdown pages (rendered by the documentation
-  * app - orch-doc - from `src/docs`, see `PublishConfig.apiDocPath`), the release configuration
+  * app - orch-doc, shipped in the orchescala jars - from `src/docs`), the release configuration
   * and the `site` folder the built site goes into (uploaded by publishDocs, served by the
   * company gateway).
   */
@@ -35,10 +35,10 @@ case class CompanyDocsGenerator(companyName: String, companyOrchescala: os.Path)
     * folder and styles the documentation app neither needs nor understands.
     */
   private def removeLegacySiteGenerator(): Unit =
+    // NOT favicon.ico - that is the company's logo (see DocsJson), untouched
     val legacy = Seq(
       docsSrc / "helium",
       docsSrc / "style.css",
-      docsSrc / "favicon.ico",
       docsBase / "site" / "style.css"
     ) ++ os.walk(docsSrc).filter(_.last == "directory.conf")
     legacy.filter(os.exists).foreach: p =>

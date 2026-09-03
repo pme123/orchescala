@@ -43,3 +43,15 @@ meta.json
 
 /04-dmntester-client/node_modules/
 /04-dmntester-client/dist/
+# the documentation app (orch-doc) and the process specification app (orch-spec)
+/04-orch-doc/node_modules/
+/04-orch-doc/dist/
+/04-orch-doc/dist-site/
+/04-orch-doc/dist-single/
+/04-orch-doc/bundle/
+/04-orch-doc/sample-data/
+/04-orch-spec/node_modules/
+/04-orch-spec/dist/
+/04-orch-spec/dist-tools/
+/04-orch-spec/sample-data/
+/04-orch-spec/public/catalog.generated.json

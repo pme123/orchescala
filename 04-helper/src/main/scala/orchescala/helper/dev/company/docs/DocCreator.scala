@@ -7,7 +7,8 @@ import orchescala.api.{
   ProjectGroup,
   catalogFileName
 }
-import orchescala.helper.dev.publish.{OrchDocBuilder, SiteWebDAV}
+import orchescala.helper.dev.company.docs.site.{LocalSiteServer, SiteAssembler}
+import orchescala.helper.dev.publish.SiteWebDAV
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
 
@@ -29,13 +30,12 @@ trait DocCreator extends DependencyCreator, Helpers:
   lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs
 
-  /** Generates the docs data (catalog, statistics, release page) and - if
-    * PublishConfig.apiDocPath points to an orch-doc checkout - ends with the local preview: the
-    * orch-spec catalog is regenerated, the site assembled and served, the URL printed.
-    * The preview is best-effort: neither the spec catalog nor the sibling companies' repos (git
-    * pull over SSH) may prevent the server from starting - a failure is printed and the preview
-    * goes on with what is available (at least this company's own docs). Both are only fatal in
-    * publishDocs.
+  /** Generates the docs data (catalog, statistics, release page) and ends with the local
+    * preview: the site is assembled into `00-docs/site` and served, the URL printed (the command
+    * keeps running - Ctrl-C stops the server). The preview is best-effort: neither the spec
+    * catalog nor the sibling companies' repos (git pull over SSH) may prevent it - a failure is
+    * printed and the preview goes on with what is available (at least this company's own docs).
+    * Both are only fatal in publishDocs.
     */
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
@@ -48,25 +48,22 @@ trait DocCreator extends DependencyCreator, Helpers:
   end prepareDocs
 
   private def previewLocally(): Unit =
-    publishConfig.flatMap(_.apiDocPath) match
-      case Some(orchDocPath) =>
-        val builder = OrchDocBuilder(orchDocPath)
-        scala.util.Try(builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogMdPath)))
-          .failed.foreach: ex =>
-            println(s"Spec catalog skipped (non-fatal for preview): ${ex.getMessage}")
-        val docsDirs = scala.util.Try(allCompanyDocsDirs()).recover:
-          case ex =>
-            println(s"Sibling companies skipped (non-fatal for preview): ${ex.getMessage}")
-            Seq(apiConfig.basePath)
-        .get
-        builder.serveLocally(docsDirs)
-      case None               =>
-        println("No PublishConfig.apiDocPath configured - no local preview.")
+    val docsDirs = scala.util.Try(allCompanyDocsDirs()).recover:
+      case ex =>
+        println(s"Sibling companies skipped (non-fatal for preview): ${ex.getMessage}")
+        Seq(apiConfig.basePath)
+    .get
+    val site = scala.util.Try(assembleSite(docsDirs)).recover:
+      case ex =>
+        println(s"Spec catalog / APIs incomplete (non-fatal for preview): ${ex.getMessage}")
+        siteDir
+    .get
+    LocalSiteServer.serve(site)
   end previewLocally
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released
     * versions, orch-spec) into `00-docs/site` - what the company gateway serves - and uploads it
-    * to `/site` (see SiteWebDAV). Needs PublishConfig.apiDocPath (the orch-doc checkout).
+    * to `/site` (see SiteWebDAV). Needs Java and git only; Node.js for the spec catalog.
     */
   def publishDocs(): Unit =
     createDynamicConf()
@@ -75,16 +72,12 @@ trait DocCreator extends DependencyCreator, Helpers:
       case None         =>
         throw new IllegalStateException("No Publish Config found - nothing published.")
       case Some(config) =>
-        val orchDocPath = config.apiDocPath.getOrElse(
-          throw new IllegalStateException(
-            "PublishConfig.apiDocPath is not set - the documentation site is built with orch-doc."
-          )
-        )
-        val builder = OrchDocBuilder(orchDocPath)
-        builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogMdPath))
-        val site = builder.buildSite(allCompanyDocsDirs(), siteDir)
+        val site = assembleSite(allCompanyDocsDirs())
         SiteWebDAV(apiConfig, config).upload(site)
   end publishDocs
+
+  private def assembleSite(docsDirs: Seq[os.Path]): os.Path =
+    SiteAssembler(docsDirs, gitBasePath, siteDir).assemble(ownProjectDirs(), Some(specCatalogMdPath))
 
   /** The built site: `00-docs/site` - the company gateway serves it from its classpath (the
     * `04-gateway/src/main/resources/site` symlink set by the company's `update`).

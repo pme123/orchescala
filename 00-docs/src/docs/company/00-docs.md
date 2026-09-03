@@ -2,7 +2,7 @@
 This provides a template or starting point for the documentation of your company project.
 
 The documentation is plain markdown in `00-docs/src/docs`, rendered by the documentation app
-([orch-doc](https://github.com/z9nai/orch-doc), see `PublishConfig.apiDocPath`) - no static-site
+(orch-doc, orchescala's `04-orch-doc`, shipped in the orchescala jars) - no static-site
 generator, no front matter.
 
 The following files you need to adjust:

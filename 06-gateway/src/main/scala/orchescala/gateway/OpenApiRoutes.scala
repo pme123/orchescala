@@ -45,8 +45,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * @return
     *   ZIO HTTP routes for documentation
     */
-  /** The gateway's own API doc page: orch-doc's single-file page `OrchDocApi.html`, put into the
-    * company gateway's resources by the company's `./helper.scala update` (PublishConfig.apiDocPath).
+  /** The gateway's own API doc page: orch-doc's single-file page `OrchDocApi.html` from the
+    * orchescala-orch-doc jar (a dependency of this gateway).
     */
   private lazy val apiDocPage =
     ZIO.attempt {
@@ -57,8 +57,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     }.catchAll { error =>
       ZIO.succeed(
         Response.text(
-          s"No API documentation page (OrchDocApi.html) in this gateway - run the company's " +
-            s"`./helper.scala update` with PublishConfig.apiDocPath set. (${error.getMessage})"
+          s"No API documentation page (OrchDocApi.html) on the classpath - the orchescala-orch-doc " +
+            s"jar is missing or was built without Node.js. (${error.getMessage})"
         ).status(Status.NotFound)
       )
     }

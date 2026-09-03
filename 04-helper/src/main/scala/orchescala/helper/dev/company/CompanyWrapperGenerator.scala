@@ -38,7 +38,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     createIfNotExists(helperCompanyDevConfigPath, helperCompanyDevConfigWrapper)
     createIfNotExists(helperCompanyOrchescalaDevHelperPath, helperCompanyOrchescalaDevHelperWrapper)
     // the former Redoc CompanyOpenApi.html resource is gone - the API page is orch-doc's
-    // OrchDocApi.html, built by DevCompanyOrchescalaHelper.update (PublishConfig.apiDocPath)
+    // OrchDocApi.html from the orchescala-orch-doc jar
     os.remove(helperCompanyOpenApiHtmlPath)
   end generate
 
