@@ -7,7 +7,7 @@ import orchescala.api.{
   ProjectGroup,
   catalogFileName
 }
-import orchescala.helper.dev.publish.{CatalogWebDAV, DocsWebDAV, OrchDocBuilder, PreviewWebDAV}
+import orchescala.helper.dev.publish.{OrchDocBuilder, SiteWebDAV}
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
 
@@ -31,7 +31,7 @@ trait DocCreator extends DependencyCreator, Helpers:
 
   /** Generates the docs data (catalog, statistics, release page) and - if
     * PublishConfig.apiDocPath points to an orch-doc checkout - ends with the local preview: the
-    * orch-spec catalog is regenerated, the orch-doc site assembled and served, the URL printed.
+    * orch-spec catalog is regenerated, the site assembled and served, the URL printed.
     * The preview is best-effort: neither the spec catalog nor the sibling companies' repos (git
     * pull over SSH) may prevent the server from starting - a failure is printed and the preview
     * goes on with what is available (at least this company's own docs). Both are only fatal in
@@ -51,7 +51,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     publishConfig.flatMap(_.apiDocPath) match
       case Some(orchDocPath) =>
         val builder = OrchDocBuilder(orchDocPath)
-        scala.util.Try(builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogHtmlPath)))
+        scala.util.Try(builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogMdPath)))
           .failed.foreach: ex =>
             println(s"Spec catalog skipped (non-fatal for preview): ${ex.getMessage}")
         val docsDirs = scala.util.Try(allCompanyDocsDirs()).recover:
@@ -61,71 +61,39 @@ trait DocCreator extends DependencyCreator, Helpers:
         .get
         builder.serveLocally(docsDirs)
       case None               =>
-        println("No PublishConfig.apiDocPath configured - no local orch-doc preview.")
+        println("No PublishConfig.apiDocPath configured - no local preview.")
   end previewLocally
 
-  // noinspection ScalaUnusedExpression
+  /** Builds the documentation site (this company and its siblings, the APIs at their released
+    * versions, orch-spec) into `00-docs/site` - what the company gateway serves - and uploads it
+    * to `/site` (see SiteWebDAV). Needs PublishConfig.apiDocPath (the orch-doc checkout).
+    */
   def publishDocs(): Unit =
     createDynamicConf()
     println(s"Releasing Docs started")
-
-    if publishConfig.isEmpty then println("No Publish Config found")
-
-    // old (laikaSite -> /site) and new (orch-doc -> /preview) are fully independent - different
-    // subprocesses, different output dirs, only read the already-generated markdown in common -
-    // so build+upload both at once instead of one after the other.
-    import scala.concurrent.{blocking, Await, ExecutionContext, Future}
-    import scala.concurrent.duration.Duration
-    import scala.util.{Failure, Try}
-    given ExecutionContext = ExecutionContext.global
-
-    val oldSite = Future(blocking(Try(publishOldSite())))
-    val newSite = Future(blocking(Try(publishNewSite())))
-
-    val failures = Await.result(Future.sequence(Seq(oldSite, newSite)), Duration.Inf)
-      .collect { case Failure(ex) => ex }
-    failures.foreach(_.printStackTrace())
-    failures.headOption.foreach(throw _)
+    publishConfig match
+      case None         =>
+        throw new IllegalStateException("No Publish Config found - nothing published.")
+      case Some(config) =>
+        val orchDocPath = config.apiDocPath.getOrElse(
+          throw new IllegalStateException(
+            "PublishConfig.apiDocPath is not set - the documentation site is built with orch-doc."
+          )
+        )
+        val builder = OrchDocBuilder(orchDocPath)
+        builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogMdPath))
+        val site = builder.buildSite(allCompanyDocsDirs(), siteDir)
+        SiteWebDAV(apiConfig, config).upload(site)
   end publishDocs
 
-  private def publishOldSite(): Unit =
-    os.proc(
-      "sbt",
-      "-J-Xmx3G",
-      "clean",
-      "laikaSite" // generate HTML pages from Markup
-    ).callOnConsole()
-    os.copy(
-      apiConfig.basePath / "target" / "docs" / "site",
-      apiConfig.basePath / "site" / apiConfig.companyName,
-      replaceExisting = true,
-      createFolders = true,
-      mergeFolders = true
-    )
-    pullOtherProjects()
-    publishConfig.foreach: config =>
-      DocsWebDAV(apiConfig, config).upload(releaseConfig.releaseTag)
-    //  CatalogWebDAV(apiConfig, config).upload()
-  end publishOldSite
-
-  private def publishNewSite(): Unit =
-    for
-      config      <- publishConfig
-      orchDocPath <- config.apiDocPath
-    do
-      val builder = OrchDocBuilder(orchDocPath)
-      builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogHtmlPath))
-      val out = builder.buildPreview(allCompanyDocsDirs())
-      PreviewWebDAV(apiConfig, config).upload(out)
-  end publishNewSite
+  /** The built site: `00-docs/site` - the company gateway serves it from its classpath (the
+    * `04-gateway/src/main/resources/site` symlink set by the company's `update`).
+    */
+  private def siteDir: os.Path = apiConfig.basePath / "site"
 
   protected def createCatalog(): Unit =
 
-    val catalogs    = s"""{%
-                      |// auto generated - do not change!
-                      |helium.site.pageNavigation.depth = 1
-                      |helium.site.pageNavigation.enabled = true
-                      |%}
+    val catalogs    = s"""<!-- auto generated - do not change! -->
                       |## Catalog
                       |${projectConfigs
                        .collect:
@@ -148,30 +116,17 @@ trait DocCreator extends DependencyCreator, Helpers:
       os.write(catalogPath, catalogs, createFolders = true)
   end createCatalog
 
+  /** `src/docs/directory.conf`: the release tag and the generation day - read by the
+    * documentation app's data tool (orch-doc `tools/docs2json.ts`).
+    */
   protected def createDynamicConf(): Unit =
     val table =
       s"""// auto generated - do not change!
-         |laika.versioned = false
          |release.tag = "${releaseConfig.releaseTag}"
          |created.day = "${LocalDate
           .now()
           .format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}"
-         |laika.navigationOrder = [
-         |  index.md
-         |  release.md
-         |  overviewDependencies.md
-         |  pattern.md
-         |  statistics.md
-         |  devStatistics.md
-         |  catalog.md
-         |  contact.md
-         |  development
-         |  dependencies
-         |]
-         |
-         |helium.site.pageNavigation.enabled = false
-         |
-         """.stripMargin
+         |""".stripMargin
     os.write.over(apiConfig.basePath / "src" / "docs" / "directory.conf", table)
   end createDynamicConf
 
@@ -192,10 +147,7 @@ trait DocCreator extends DependencyCreator, Helpers:
       "(\\*) New in this Release / (\\*\\*) Patched in this Release - check below for the details"
     val table                            =
       s"""
-         |{%
-         |// auto generated - do not change!
-         |laika.versioned = true
-         |%}
+         |<!-- auto generated - do not change! -->
          |
          |# Release ${releaseConfig.releaseTag}
          | ${releaseConfig.releasedLabel}
@@ -524,9 +476,8 @@ trait DocCreator extends DependencyCreator, Helpers:
     else
       s"[$jiraTicket](https://issue.swisscom.ch/browse/$jiraTicket)"
 
-  /** Discovers sibling company-orchescala repos and clones/pulls them into gitBasePath - shared
-    * by pullOtherProjects (the classic /site flow) and the orch-doc preview build, which both
-    * need the other companies' data alongside this one's.
+  /** Discovers sibling company-orchescala repos and clones/pulls them into gitBasePath - the
+    * site is one for all companies, so their `00-docs` are assembled alongside this one's.
     */
   private def otherCompanyRepos(): Seq[(String, os.Path)] =
     val otherGroups: Seq[(String, String)] =
@@ -557,11 +508,12 @@ trait DocCreator extends DependencyCreator, Helpers:
   private def allCompanyDocsDirs(): Seq[os.Path] =
     apiConfig.basePath +: otherCompanyRepos().map { case (_, repoDir) => repoDir / "00-docs" }
 
-  /** Where publishOldSite's laikaSite step leaves catalog.html, if it has run - used to enrich
-    * the orch-spec catalog with call activities. Missing is fine (generateSpecCatalog skips it).
+  /** The generated `catalog.md` (createCatalog) - its links name every process, worker, … of
+    * this company; orch-spec reads the call activities from it. Missing is fine
+    * (generateSpecCatalog skips it).
     */
-  private def specCatalogHtmlPath: os.Path =
-    apiConfig.basePath / "site" / apiConfig.companyName / "catalog.html"
+  private def specCatalogMdPath: os.Path =
+    apiConfig.basePath / "src" / "docs" / catalogFileName
 
   /** Every project this company's config lists, checked out - governance: only what
     * projectsConfig lists goes into the orch-spec catalog, not everything ever cloned into
@@ -578,19 +530,6 @@ trait DocCreator extends DependencyCreator, Helpers:
     projectConfigs
       .map(_.absGitPath(gitBasePath))
       .filter(os.exists)
-
-  private def pullOtherProjects(): Unit =
-    otherCompanyRepos().foreach:
-      case (group, repoDir) =>
-        os.makeDir.all(apiConfig.basePath / "site" / group)
-        os.copy(
-          repoDir / "00-docs" / "site" / group,
-          apiConfig.basePath / "site" / group,
-          replaceExisting = true,
-          createFolders = true,
-          mergeFolders = true
-        )
-  end pullOtherProjects
 
   private enum ChangeLogGroup:
     case Added, Changed, Fixed, Deprecated, Removed, Security, Other

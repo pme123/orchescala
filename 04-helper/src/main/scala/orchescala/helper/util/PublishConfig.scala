@@ -6,11 +6,6 @@ case class PublishConfig(
     documentationUrl: String,
     documentationEnvUsername: String = "DOCUMENTATION_USERNAME",
     documentationEnvPassword: String = "DOCUMENTATION_PASSWORD",
-    openApiHtmlPath: os.ResourcePath = os.resource / "OpenApi.html",
-    @description(
-      "Path to the home.html - if you want to publish a home page - the base page for all catalogs. Contains links to all Catalogs."
-    )
-    homeHtmlPath: Option[os.ResourcePath] = None,
     @description(
       "Local checkout path of the orch-doc app (z9nai/orch-doc) - needed on the machine that runs the company's `update` (builds the single-file API page into `apiHtmlResource`), `prepareDocs` and `publishDocs`."
     )

@@ -84,12 +84,19 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       case Some(config) =>
         config.apiDocPath match
           case Some(orchDocPath) =>
-            val html   = OrchDocBuilder(orchDocPath).buildSingleFile()
-            val target = os.pwd / "04-helper" / "src" / "main" / "resources" / config.apiHtmlResource.segments.last
-            os.copy.over(html, target, createFolders = true)
-            println(s"${Console.BLUE}Updated - $target (${os.size(target) / 1024} KB)${Console.RESET}")
+            val html = OrchDocBuilder(orchDocPath).buildSingleFile()
+            // the helper: for every project's `update`; the gateway: served at /docs for its own API
+            Seq("04-helper", "04-gateway")
+              .map(os.pwd / _)
+              .filter(os.exists)
+              .foreach: module =>
+                val target = module / "src" / "main" / "resources" / config.apiHtmlResource.segments.last
+                os.copy.over(html, target, createFolders = true)
+                println(s"${Console.BLUE}Updated - $target (${os.size(target) / 1024} KB)${Console.RESET}")
           case None               =>
-            println("No PublishConfig.apiDocPath - the projects keep their Redoc OpenApi.html.")
+            println(
+              "No PublishConfig.apiDocPath - the projects' OpenApi.html / PostmanOpenApi.html are NOT updated."
+            )
       case None         => ()
   end updateApiHtml
 

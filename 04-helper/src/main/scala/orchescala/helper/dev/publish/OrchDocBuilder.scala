@@ -2,10 +2,9 @@ package orchescala.helper.dev.publish
 
 import orchescala.helper.util.Helpers
 
-/** Builds the orch-doc app (z9nai/orch-doc) from a local checkout and hands back the built
-  * `dist/` directory - to be uploaded as a project's API doc instead of the static Redoc shell.
-  *
-  * First, non-final integration step - see PublishConfig.apiDocPath.
+/** Builds the orch-doc app (z9nai/orch-doc) from a local checkout - the company docs site
+  * (buildSite / serveLocally), the orch-spec catalog and the projects' single-file API page
+  * (buildSingleFile). See PublishConfig.apiDocPath.
   */
 case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
 
@@ -19,8 +18,8 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
 
   /** The standalone API page as ONE self-contained html (`npm run build:single` -
     * JS, CSS, fonts and favicon inlined, no assets folder). This is what a project ships as its
-    * `03-api/OpenApi.html` / `PostmanOpenApi.html` instead of the Redoc shells - the page loads
-    * the yml named like itself. Returns the built file.
+    * `03-api/OpenApi.html` / `PostmanOpenApi.html` - the page loads the yml named like itself.
+    * Returns the built file.
     */
   def buildSingleFile(): os.Path =
     println(s"Building orch-doc single-file API page: $orchDocPath")
@@ -33,21 +32,24 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
     html
   end buildSingleFile
 
-  /** Assembles the full orch-doc site (app + docs.json + versioned APIs + orch-spec) for one or
-    * more companies' `00-docs` folders - the same tool used for local preview (`npm run site`).
-    * Pass every company's `00-docs` (this one's and its siblings') to get all of them in the
-    * result, matching what a plain local `npm run site` produces. Writes to a fresh temp dir, so
-    * it never touches `dist-site/` or a previous preview build.
+  /** Assembles the full documentation site (app + docs.json + the APIs at their released
+    * versions + orch-spec) for one or more companies' `00-docs` folders - the same tool used
+    * for the local preview (`npm run site`). Pass every company's `00-docs` (this one's and its
+    * siblings') to get all of them in the result. Writes into `out` (the company's `00-docs/site`
+    * - what publishDocs uploads to /site and the company gateway serves from its classpath);
+    * the classic sites of older releases already in there (`<company>/<tag>/`) are kept.
     */
-  def buildPreview(docsPaths: Seq[os.Path]): os.Path =
-    println(s"Assembling orch-doc preview for ${docsPaths.mkString(", ")}")
+  def buildSite(docsPaths: Seq[os.Path], out: os.Path): os.Path =
+    println(s"Assembling the documentation site for ${docsPaths.mkString(", ")} -> $out")
     if !os.exists(orchDocPath / "node_modules") then
       os.proc("npm", "install").callOnConsole(orchDocPath)
-    val out = os.temp.dir(prefix = "orchescala-preview")
-    os.proc("node", "tools/assemble.ts", docsPaths.map(_.toString), "--out", out.toString)
-      .callOnConsole(orchDocPath)
+    os.makeDir.all(out)
+    os.proc(
+      "node", "tools/assemble.ts", docsPaths.map(_.toString),
+      "--out", out.toString, "--old-releases"
+    ).callOnConsole(orchDocPath)
     out
-  end buildPreview
+  end buildSite
 
   /** Assembles the site and serves it locally in the background (same as `npm run site
     * --serve`) - no WebDAV involved. Returns once the server actually answers, so the printed
@@ -108,15 +110,15 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
     * sources (openapi2catalog alone only sees classes reachable from an exposed operation - a
     * project whose OpenApi.yml has none, e.g. a pure domain module, would otherwise contribute no
     * classes at all - domain2catalog reads the sources directly and catches those too), and, if
-    * `catalogHtml` exists, call activities from a locally-rendered catalog.html - no network/auth
-    * needed anywhere in this. Writes into orch-spec's OWN `public/` folder (sibling checkout
+    * `catalogMd` exists, call activities from the company's generated `catalog.md` (the same
+    * links the site shows) - no network/auth needed anywhere in this. Writes into orch-spec's OWN `public/` folder (sibling checkout
     * `../orch-spec`, same convention as orch-doc's build:spec), so `catalog.generated.json` ships
     * with orch-spec's client build itself - same-origin, no shared folder, no CORS. Read-only
     * from the user's point of view: every build overwrites it.
     */
   def generateSpecCatalog(
       sourceDirs: Seq[os.Path],
-      catalogHtml: Option[os.Path],
+      catalogMd: Option[os.Path],
       // only for tests - the real pipeline always writes into orch-spec's public/ folder
       outFile: Option[os.Path] = None
   ): Unit =
@@ -136,8 +138,8 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
         .callOnConsole(orchSpecPath)
       os.proc("node", "tools/domain2catalog.ts", sourceDirs.map(_.toString), "--out", out.toString)
         .callOnConsole(orchSpecPath)
-      catalogHtml.filter(os.exists).foreach: html =>
-        os.proc("node", "tools/site2catalog.ts", html.toString, "--out", out.toString)
+      catalogMd.filter(os.exists).foreach: md =>
+        os.proc("node", "tools/site2catalog.ts", md.toString, "--out", out.toString)
           .callOnConsole(orchSpecPath)
     end if
   end generateSpecCatalog

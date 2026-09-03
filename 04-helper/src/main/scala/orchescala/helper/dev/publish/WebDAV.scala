@@ -1,14 +1,12 @@
 package orchescala.helper.dev.publish
 
 import orchescala.api.ApiConfig
-import orchescala.helper.util.{Helpers, PublishConfig}
+import orchescala.helper.util.PublishConfig
 import com.github.sardine.{Sardine, SardineFactory}
 import com.github.sardine.impl.SardineException
 import orchescala.domain.BpmnProcessType
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 abstract class WebDAV:
   def publishConfig: PublishConfig
@@ -16,7 +14,6 @@ abstract class WebDAV:
   val publishBaseUrl  = s"${publishConfig.documentationUrl}/site"
   val contentTypeHtml = "text/html"
   val contentTypeYaml = "text/yaml"
-  val contentTypeIcon = "image/x-icon"
 
   protected def startSession =
     val sardine = SardineFactory.begin
@@ -37,9 +34,9 @@ abstract class WebDAV:
     sardine
   end startSession
 
-  // no explicit createDirectory for new folders - like DocsWebDAV.uploadFiles below, PUT alone
-  // creates missing ancestor collections on this server; an explicit MKCOL right before the
-  // first PUT into it causes a 409 (seen with PreviewWebDAV's brand-new /preview path).
+  // no explicit createDirectory for new folders - PUT alone creates missing ancestor
+  // collections on this server; an explicit MKCOL right before the first PUT into it causes
+  // a 409.
   protected def uploadDir(sardine: Sardine, dir: os.Path, url: String): Unit =
     os.list(dir).foreach:
       case f if os.isDir(f) =>
@@ -48,73 +45,41 @@ abstract class WebDAV:
         println(s"Uploading $url/${f.last}")
         sardine.put(s"$url/${f.last}", os.read.bytes(f))
   end uploadDir
+
+  /** Deletes a collection if it exists - a missing one is fine (404). */
+  protected def deleteIfExists(sardine: Sardine, url: String, what: String): Unit =
+    try
+      if !sardine.list(url).isEmpty then // sardine.exists does not work (is not allowed)
+        println(s"Delete existing $what")
+        sardine.delete(url)
+    catch
+      case ex: SardineException
+          if ex.getMessage.contains("Unexpected response (404 Not Found)") =>
+        println(s"$what does not exist yet.")
+  end deleteIfExists
 end WebDAV
-
-case class CatalogWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
-  def upload(): Unit =
-    println(s"Start: upload Home HTML to ${publishConfig.documentationUrl}")
-    publishConfig.homeHtmlPath
-      .map: homeHtmlPath =>
-        println(
-          s"Start $homeHtmlPath: upload Home HTML to ${publishConfig.documentationUrl}/index.html"
-        )
-        val sardine = startSession
-        try
-          sardine.delete(s"${publishConfig.documentationUrl}/favicon.ico")
-          sardine.delete(s"${publishConfig.documentationUrl}/index.html")
-          // create new
-          sardine.put(
-            s"${publishConfig.documentationUrl}/favicon.ico",
-            os.read.inputStream(os.resource / "favicon.ico"),
-            contentTypeIcon
-          )
-          sardine.put(
-            s"${publishConfig.documentationUrl}/index.html",
-            os.read.inputStream(homeHtmlPath),
-            contentTypeHtml
-          )
-        finally sardine.shutdown()
-        end try
-      .getOrElse(println("No home page defined."))
-  end upload
-
-end CatalogWebDAV
 
 case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfig: PublishConfig)
     extends WebDAV:
 
-  val projectUrl        = s"$publishBaseUrl/${apiConfig.companyName}/$projectName/"
-  val previewProjectUrl =
-    s"${publishConfig.documentationUrl}/preview/${apiConfig.companyName}/$projectName/"
+  val projectUrl = s"$publishBaseUrl/${apiConfig.companyName}/$projectName/"
 
   def upload(): Unit =
     println(s"Start $projectName: upload Documentation to ${publishConfig.documentationUrl}")
     val sardine = startSession
     try
-      // remove existing project if exists
-      try
-        val existingFiles = sardine.list(
-          projectUrl
-        ) // sardine.exists does not work (is not allowed)
-        if !existingFiles.isEmpty then
-          println("Delete existing")
-          sardine.delete(projectUrl)
-      catch
-        case ex: SardineException
-            if ex.getMessage.contains("Unexpected response (404 Not Found)") =>
-          println(s"New Project will be created.")
-      end try
+      deleteIfExists(sardine, projectUrl, s"project $projectName")
       // create new
       sardine.createDirectory(projectUrl)
-      // The project's own OpenApi.html / PostmanOpenApi.html as written by `./helper.scala update`:
-      // orch-doc's single-file page if the company ships it (PublishConfig.apiHtmlResource), the
-      // Redoc shell otherwise. Publishing never builds orch-doc - no checkout needed here.
+      // The project's own OpenApi.html / PostmanOpenApi.html as written by `./helper.scala update`
+      // (orch-doc's single-file page, see PublishConfig.apiHtmlResource). Publishing never builds
+      // orch-doc - no checkout needed here.
       Seq("OpenApi.html", "PostmanOpenApi.html").foreach: name =>
         val local = os.pwd / "03-api" / name
         if os.exists(local) then
           sardine.put(s"$projectUrl/$name", os.read.bytes(local), contentTypeHtml)
-        else if name == "OpenApi.html" then
-          sardine.put(s"$projectUrl/$name", openApiHtml, contentTypeHtml)
+        else
+          println(s"No 03-api/$name in this project - run `./helper.scala update` first. Not uploaded.")
       sardine.put(s"$projectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
       // the company gateway's variant - linked from "<Company> Postman Instructions"
       postmanOpenApiYml.foreach(yml =>
@@ -162,39 +127,10 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
         else
           println(s"No Diagrams in this project: $diagramDir")
         end if
-
-      mirrorToPreview(sardine)
     finally sardine.shutdown()
     end try
   end upload
 
-  /** Mirrors OpenApi.yml + diagrams into /preview - the orch-doc app's in-app API view
-    * (#/<company>/api/<project>) fetches these directly at runtime, independent of docs.json, so
-    * a single project's own publish keeps its /preview page current without a full company-wide
-    * prepareDocs/publishDocs run. Best-effort: never fails the (production-critical) /site
-    * upload above - /preview is still the experimental side of this.
-    */
-  private def mirrorToPreview(sardine: Sardine): Unit =
-    try
-      println(s"Mirroring OpenApi.yml + diagrams to $previewProjectUrl")
-      sardine.put(s"$previewProjectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
-      postmanOpenApiYml.foreach(yml =>
-        sardine.put(s"$previewProjectUrl/PostmanOpenApi.yml", yml, contentTypeYaml)
-      )
-      BpmnProcessType.diagramPaths
-        .map(os.pwd / _)
-        .filter(os.exists)
-        .flatMap(os.list)
-        .filter(p => p.toString.endsWith(".bpmn") || p.toString.endsWith(".dmn"))
-        .foreach: f =>
-          sardine.put(s"$previewProjectUrl/diagrams/${f.last}", os.read.bytes(f))
-    catch
-      case ex: Throwable =>
-        println(s"Mirroring to /preview failed (non-fatal): ${ex.getMessage}")
-  end mirrorToPreview
-
-  private lazy val openApiHtml   =
-    os.read.inputStream(publishConfig.openApiHtmlPath)
   private lazy val openApiYml    = os
     .read(apiConfig.openApiPath)
     .getBytes(StandardCharsets.UTF_8)
@@ -211,104 +147,29 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
 
 end ProjectWebDAV
 
-/** Uploads the orch-doc preview build under `/preview` - entirely separate from `/site` (see
-  * DocsWebDAV), so the live, Laika-rendered site is never touched while the new one is tested.
+/** Uploads the documentation site (the orch-doc build in the company's `00-docs/site`) to
+  * `/site`. /site is never deleted as a whole: the projects' own folders
+  * (`/site/<company>/<project>/`, published by each project) and the classic sites of older
+  * releases (`/site/<company>/<tag>/`) live there too. Only what the build fully regenerates -
+  * `assets/` and `spec/` (hashed file names, old ones would pile up) - is replaced; everything
+  * else is written over.
   */
-case class PreviewWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
-  // trailing slash matters for MKCOL on this WebDAV server - matches ProjectWebDAV's projectUrl
-  val previewUrl = s"${publishConfig.documentationUrl}/preview/"
+case class SiteWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV:
+  // trailing slash matters for MKCOL / DELETE on this WebDAV server
+  val siteUrl = s"$publishBaseUrl/"
 
   def upload(localDir: os.Path): Unit =
-    println(s"Start: upload preview to $previewUrl")
+    println(s"Start: upload documentation site $localDir to $siteUrl")
     val sardine = startSession
     try
-      try
-        val existingFiles = sardine.list(previewUrl)
-        if !existingFiles.isEmpty then
-          println("Delete existing preview")
-          sardine.delete(previewUrl)
-      catch
-        case ex: SardineException
-            if ex.getMessage.contains("Unexpected response (404 Not Found)") =>
-          println("/preview will be created.")
-      end try
+      Seq("assets", "spec").foreach: dir =>
+        if os.exists(localDir / dir) then
+          deleteIfExists(sardine, s"$siteUrl$dir/", s"/site/$dir")
       // no explicit createDirectory - see uploadDir
-      uploadDir(sardine, localDir, previewUrl.stripSuffix("/"))
-      println(s"Finished: upload preview to $previewUrl")
+      uploadDir(sardine, localDir, siteUrl.stripSuffix("/"))
+      println(s"Finished: upload documentation site to $siteUrl")
     finally sardine.shutdown()
     end try
   end upload
 
-end PreviewWebDAV
-
-case class DocsWebDAV(apiConfig: ApiConfig, publishConfig: PublishConfig) extends WebDAV
-    with Helpers:
-  def upload(releaseTag: String): Unit =
-    val sardine = startSession
-    val docDir  = apiConfig.basePath / "site"
-    val redirectIndex = apiConfig.basePath / "redirect.html"
-    if docDir.toIO.exists() then
-      try
-
-        if os.exists(redirectIndex) then
-          println(s"Replace redirect index.html in ${publishConfig.documentationUrl} with $redirectIndex")
-          sardine.put(s"${publishConfig.documentationUrl}/index.html", os.read.bytes(redirectIndex))
-
-        def uploadFiles(url: String, docFiles: Seq[os.Path]): Unit =
-          docFiles.foreach {
-            case f if f.toIO.isDirectory && f.toIO.exists() =>
-              println(s"Create Directory $url/${f.toIO.getName}")
-              // sardine.createDirectory(s"$url/${f.toIO.getName}")
-              uploadFiles(s"$url/${f.toIO.getName}", os.list(f))
-            case f if f.toIO.exists()                       =>
-              println(s"Uploading $url/${f.toIO.getName}")
-              sardine.put(s"$url/${f.toIO.getName}", os.read.bytes(f))
-            case f                                          =>
-              println(s"Not supported file: $f")
-          }
-
-        def addBaseFiles =
-          // create top level files for versioned root pages / directories
-          println(s"Create redirect of versioned: $releaseTag")
-          val content =
-            s"""<!DOCTYPE html>
-               |<html lang="en-CH">
-               |<head>
-               |  <meta charset="utf-8">
-               |  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-               |  <title>Redirecting to ${apiConfig.companyName} Documentation…</title>
-               |  <meta http-equiv="refresh" content="0; url=./$releaseTag/">
-               |  <link rel="canonical" href="./$releaseTag/">
-               |  <script>
-               |    window.location.replace("./$releaseTag/");
-               |  </script>
-               |</head>
-               |<body>
-               |  <p>Redirecting to the ${apiConfig.companyName} documentation… <a href="./$releaseTag/">Open documentation</a></p>
-               |</body>
-               |</html>""".stripMargin
-          os.write.over((docDir / apiConfig.companyName / "index.html"), content)
-        end addBaseFiles
-
-        addBaseFiles
-        if sardine.exists(s"$publishBaseUrl/index.html") then
-          uploadFiles(s"$publishBaseUrl/${apiConfig.companyName}", os.list(docDir / apiConfig.companyName))
-        else
-          uploadFiles(s"$publishBaseUrl", os.list(docDir))
-
-        println(s"Finished upload Documentation")
-      catch
-        case ex: SardineException
-            if ex.getMessage == "Unexpected response (404 Not Found)" =>
-          println(s"New Project will be created.")
-      finally
-        sardine.shutdown()
-      end try
-    else
-      throw new IllegalStateException(
-        "This Task is only possible for company-docs project."
-      )
-    end if
-  end upload
-
-end DocsWebDAV
+end SiteWebDAV

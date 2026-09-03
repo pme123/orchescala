@@ -49,20 +49,11 @@ case class CompanySbtGenerator()(using
   private lazy val settings =
     s"""$helperCompanyDoNotAdjustText
        |
-       |import com.typesafe.config.ConfigFactory
        |import com.typesafe.sbt.SbtNativePackager.Docker
        |import com.typesafe.sbt.packager.Keys.*
-       |import laika.ast.Path.Root
-       |import laika.config.{LinkValidation, SyntaxHighlighting, Version, Versions}
-       |import laika.format.Markdown.GitHubFlavor
-       |import laika.helium.Helium
-       |import laika.helium.config.*
-       |import laika.sbt.LaikaPlugin.autoImport.*
        |import sbt.*
        |import sbt.Keys.*
        |import sbtbuildinfo.BuildInfoPlugin.autoImport.{BuildInfoKey, buildInfoKeys, buildInfoPackage}
-       |
-       |import scala.jdk.CollectionConverters.asScalaBufferConverter
        |
        |object Settings {
        |
@@ -111,47 +102,6 @@ case class CompanySbtGenerator()(using
        |          "io.circe.generic.semiauto", "io.circe.derivation", "io.circe.syntax", "sttp.tapir",
        |          "sttp.tapir.json.circe"
        |        )).mkString(start = "-Yimports:", sep = ",", end = "")
-       |
-       |  // docs
-       |  lazy val laikaSettings = Seq(
-       |    sourcesInBase := false,
-       |    laikaConfig := LaikaConfig.defaults
-       |      .withConfigValue(LinkValidation.Local)
-       |      .withConfigValue("orchescala.docs", "https://pme123.github.io/orchescala/")
-       |      .withRawContent,
-       |    Laika / sourceDirectories := Seq(baseDirectory.value / "src" / "docs")
-       |    //  .failOnMessages(MessageFilter.None)
-       |    //  .renderMessages(MessageFilter.None)
-       |    ,
-       |    laikaExtensions := Seq(GitHubFlavor, SyntaxHighlighting),
-       |    laikaTheme := Helium.defaults.site
-       |      .topNavigationBar(
-       |        homeLink = IconLink.internal(Root / "index.md", HeliumIcon.home),
-       |        navLinks = Seq(
-       |          TextLink.external("/site/index.html", "Catalogs"),
-       |          TextLink.external("https://pme123.github.io/orchescala", "Orchescala")
-       |        )
-       |      )
-       |      .site
-       |      .favIcons(
-       |        Favicon.internal(Root / "favicon.ico", sizes = "32x32")
-       |      )
-       |      .site
-       |      .versions(versions)
-       |      .build
-       |  )
-       |
-       |  lazy val config = ConfigFactory.parseFile(new File("00-docs/CONFIG.conf"))
-       |  lazy val currentVersion = config.getString("release.tag")
-       |  lazy val released = config.getBoolean("released")
-       |  lazy val olderVersions = config.getList("releases.older").asScala
-       |  lazy val versions = Versions
-       |    .forCurrentVersion(Version(currentVersion, currentVersion).withLabel(if (released)
-       |      "Stable"
-       |    else "Dev"))
-       |    .withOlderVersions(
-       |      olderVersions.map(_.unwrapped().toString).map(v => Version(v, v)) *
-       |    )
        |
        |  def loadingMessage = s\"\"\"Successfully started.
        |                          |- Project: $$projectOrg : $$projectName : $$projectV
@@ -299,8 +249,7 @@ case class CompanySbtGenerator()(using
        |    simulation,
        |    worker,
        |    gateway,
-       |    helper,
-       |    docs
+       |    helper
        |  )
        |
        |lazy val domain = project
@@ -369,18 +318,6 @@ case class CompanySbtGenerator()(using
        |  .settings(libraryDependencies ++= helperDeps)
        |  .dependsOn(api, simulation)
        |
-       |lazy val docs = project
-       |  .in(file("./00-docs"))
-       |  .settings(
-       |    name := s"$$projectName-docs"
-       |  )
-       |  .settings(generalSettings())
-       |  .settings(preventPublication)
-       |  .dependsOn(helper)
-       |  .settings(laikaSettings)
-       |  .enablePlugins(LaikaPlugin)
-       |
-       |
        |""".stripMargin
   end buildSbt
 
@@ -389,7 +326,6 @@ case class CompanySbtGenerator()(using
        |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "${BuildInfo.sbtNativePackager}")
        |
        |addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "${BuildInfo.sbtCiRelease}")
-       |addSbtPlugin("org.typelevel"  % "laika-sbt"      % "${BuildInfo.laikaSbt}")
        |
        |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "${BuildInfo.sbtBuildInfo}")
        |

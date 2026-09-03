@@ -86,9 +86,8 @@ is printed at the end (`Preview ready: http://localhost:3004/`). The server keep
 the command; the next `prepareDocs` replaces it. A failure in the catalog or the sibling
 repos does not stop the preview, it is printed and the preview continues with what is available.
 
-- Manually adjust the Release Notes _release.md_.
-    - You can check the result, using the _Sbt_ command _laikaPreview_ on [localhost](http://localhost:4242/index.html)
-    - If you change the Versions you need to reload _SBT_.
+- Manually adjust the Release Notes _release.md_ - and check the result in the local preview
+  (run `prepareDocs` again, or `npm run site` in orch-doc).
 
 ### publishDocs
 Release the company documentation.
@@ -97,4 +96,10 @@ Release the company documentation.
 ./helper.scala publishDocs
 ```
 
-- Check the result on your Company Documentation Page.
+Builds the documentation site (this company and its siblings, the project APIs at their released
+versions, orch-spec) into `00-docs/site` and uploads it to `/site` on the WebDAV server. `/site`
+is never deleted as a whole: the projects' own folders (`/site/<company>/<project>/`, published
+by each project) and the classic sites of older releases (`/site/<company>/<tag>/`) stay - only
+`assets/` and `spec/` are replaced. Needs `PublishConfig.apiDocPath` (the orch-doc checkout).
+
+- Check the result on your Company Documentation Page (`<documentationUrl>/site/#/<company>`).

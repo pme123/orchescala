@@ -88,7 +88,6 @@ lazy val domain = project
       // plugins
       BuildInfoKey("sbtNativePackager", sbtNativePackager),
       BuildInfoKey("sbtCiRelease", sbtCiRelease),
-      BuildInfoKey("laikaSbt", laikaSbt),
       BuildInfoKey("sbtBuildInfo", sbtBuildInfo)
     )
   ).enablePlugins(BuildInfoPlugin)

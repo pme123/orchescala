@@ -26,7 +26,6 @@ class OpenApiRoutes()(using config: GatewayConfig):
   private val oauth2StateCookieName       = "orchescala_oauth_state"
   private val oauth2TargetCookieName      = "orchescala_oauth_target"
   private val defaultOAuth2Target         = "/docs"
-  private val siteVersionSegmentPattern   = raw"\d{4}-\d{2}".r
 
   /** Creates routes for serving OpenAPI documentation and company documentation.
     *
@@ -46,6 +45,24 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * @return
     *   ZIO HTTP routes for documentation
     */
+  /** The gateway's own API doc page: orch-doc's single-file page `OrchDocApi.html`, put into the
+    * company gateway's resources by the company's `./helper.scala update` (PublishConfig.apiDocPath).
+    */
+  private lazy val apiDocPage =
+    ZIO.attempt {
+      val htmlContent = scala.io.Source
+        .fromResource("OrchDocApi.html")
+        .mkString
+      Response.text(htmlContent).addHeader(Header.ContentType(MediaType.text.html))
+    }.catchAll { error =>
+      ZIO.succeed(
+        Response.text(
+          s"No API documentation page (OrchDocApi.html) in this gateway - run the company's " +
+            s"`./helper.scala update` with PublishConfig.apiDocPath set. (${error.getMessage})"
+        ).status(Status.NotFound)
+      )
+    }
+
   def routes: Routes[Any, Response] =
     val protectedRoutes = Routes(
       // Canonicalize only the exact /site path so relative links like ./valiant/... resolve
@@ -58,13 +75,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
             serveClasspathFile("site/index.html")
       },
 
-      // Serve company documentation index and static files (e.g. /site/, /site/valiant/index.html)
+      // Serve the documentation site (the orch-doc app + its data, e.g. /site/, /site/index.json,
+      // /site/valiant/docs.json) and the classic sites of older releases (/site/valiant/2026-04/)
       Method.GET / "site" / trailing -> handler { (path: Path, request: Request) =>
         val relativePath = path.segments.mkString("/")
-        siteFolderRedirectLocation(relativePath, request.url.path.toString)
-          .flatMap: location =>
-            versionedSiteRedirect(location.stripPrefix("/site/")).orElse(Some(location))
-          .orElse(versionedSiteRedirect(relativePath)) match
+        companySiteRedirect(relativePath)
+          .orElse(siteFolderRedirectLocation(relativePath, request.url.path.toString)) match
           case Some(location) => ZIO.succeed(siteVersionRedirectResponse(location))
           case None           => serveClasspathFile(siteResourcePath(relativePath))
       },
@@ -101,19 +117,15 @@ class OpenApiRoutes()(using config: GatewayConfig):
           forwardDocsRequest(projectName, s"docs/diagrams/$diagramName", MediaType.application.xml)
       },
 
-      // Serve HTML documentation page
-      Method.GET / "docs" -> handler {
-        ZIO.attempt {
-          val htmlContent = scala.io.Source
-            .fromResource("OpenApi.html")
-            .mkString
-          Response.text(htmlContent).addHeader(Header.ContentType(MediaType.text.html))
-        }.catchAll { error =>
-          ZIO.succeed(
-            Response.text(s"Error loading documentation: ${error.getMessage}")
-              .status(Status.InternalServerError)
-          )
-        }
+      // The gateway's own API doc: orch-doc's single-file page (`OrchDocApi.html`, put into the
+      // company gateway's resources by the company's `./helper.scala update`). The page loads the
+      // yml named like itself - so it is served as /docs/OpenApi.html (-> /docs/OpenApi.yml);
+      // /docs is the same page and needs the yml at the root for that.
+      Method.GET / "docs" -> handler(apiDocPage),
+      Method.GET / "docs" / "OpenApi.html" -> handler(apiDocPage),
+      Method.GET / "OpenApi.yml" -> handler {
+        val yaml = OpenApiGenerator.generateYaml
+        Response.text(yaml).addHeader(Header.ContentType(MediaType.text.yaml))
       }
     )
 
@@ -424,29 +436,27 @@ class OpenApiRoutes()(using config: GatewayConfig):
           Option.when(resourceExists(s"site/$indexPath"))(s"/site/$indexPath")
         .flatten
 
-  private[gateway] def versionedSiteRedirect(relativePath: String): Option[String] =
-    versionedSiteRedirect(relativePath, availableSiteVersions)
+  private[gateway] def companySiteRedirect(relativePath: String): Option[String] =
+    companySiteRedirect(relativePath, classpathDirectoryEntries)
 
-  private[gateway] def versionedSiteRedirect(
+  /** `/site/<company>`, `/site/<company>/` and `/site/<company>/index.html` -> the company's page
+    * in the documentation app (`/site/#/<company>`). The app is one page for all companies; a
+    * company folder only holds its data (docs.json, pages/, the project APIs) and the classic
+    * sites of older releases (`<company>/<tag>/`, still served as they are).
+    */
+  private[gateway] def companySiteRedirect(
       relativePath: String,
-      availableVersions: String => Seq[String]
+      directoryEntries: String => Seq[String]
   ): Option[String] =
     Option(relativePath)
       .map(_.trim)
       .filter(_.nonEmpty)
       .flatMap: path =>
         path.split('/').filter(_.nonEmpty).toList match
-          case company :: "index.html" :: Nil =>
-            availableVersions(company)
-              .filter(isSiteVersionSegment)
-              .sorted
-              .lastOption
-              .map(version => s"/site/$company/$version/index.html")
-          case _                               =>
+          case company :: rest if rest.isEmpty || rest == List("index.html") =>
+            Option.when(directoryEntries(s"site/$company").nonEmpty)(s"/site/#/$company")
+          case _                                                             =>
             None
-
-  private[gateway] def availableSiteVersions(company: String): Seq[String] =
-    classpathDirectoryEntries(s"site/$company")
 
   private[gateway] def classpathDirectoryEntries(resourceDirectory: String): Seq[String] =
     Option(getClass.getClassLoader.getResource(resourceDirectory.stripSuffix("/"))) match
@@ -477,9 +487,6 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
           case _ =>
             Seq.empty
-
-  private[gateway] def isSiteVersionSegment(segment: String): Boolean =
-    siteVersionSegmentPattern.matches(segment)
 
   private[gateway] def classpathResourceExists(resourcePath: String): Boolean =
     Option(getClass.getClassLoader.getResource(resourcePath.stripSuffix("/"))).nonEmpty
@@ -594,8 +601,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
   /** Serves a static file from the classpath, detecting the content type from the file extension.
     *
-    * Used to serve the company documentation site (generated by Laika/publishDocs) which is
-    * placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/valiant/...`).
+    * Used to serve the documentation site (the orch-doc build, see the company's publishDocs)
+    * which is placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/valiant/...`).
     */
   private def serveClasspathFile(resourcePath: String): ZIO[Any, Nothing, Response] =
     ZIO.attempt {

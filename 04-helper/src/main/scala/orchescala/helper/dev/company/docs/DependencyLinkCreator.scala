@@ -39,10 +39,6 @@ case class DependencyLinkCreator()(using
          |""".stripMargin
 
     s"""
-       |{%
-       |laika.versioned = true
-       |%}
-       |
        |# $title
        |${releaseConfig.releasedLabel}
        |

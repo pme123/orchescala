@@ -49,16 +49,21 @@ class OrchDocBuilderTest extends FunSuite:
     .map(os.Path(_))
     .getOrElse(os.Path("/Users/pme/dev-valiant/valiant-orchescala/00-docs"))
 
-  test("buildPreview assembles the same layout /site has, in a fresh temp dir"):
+  test("buildSite assembles the layout /site has into the given dir"):
     if !os.exists(orchDocPath) || !os.exists(valiantDocsPath) then
       println(s"Skipping: orch-doc ($orchDocPath) or 00-docs ($valiantDocsPath) not available")
     else
-      val out = OrchDocBuilder(orchDocPath).buildPreview(Seq(valiantDocsPath))
+      // a temp dir, never the real 00-docs/site
+      val out = OrchDocBuilder(orchDocPath).buildSite(Seq(valiantDocsPath), os.temp.dir(prefix = "site-test"))
 
       assert(os.exists(out / "index.html"), s"missing ${out / "index.html"}")
       assert(os.isDir(out / "assets"), s"missing ${out / "assets"}")
       assert(os.exists(out / "index.json"), s"missing ${out / "index.json"}")
       assert(os.exists(out / "valiant" / "docs.json"), s"missing ${out / "valiant" / "docs.json"}")
+      // every project API gets the single-file page - there is no Redoc shell any more
+      val apiHtml = os.walk(out / "valiant").filter(_.last == "OpenApi.html")
+      assert(apiHtml.nonEmpty, "no project OpenApi.html in the site")
+      assert(apiHtml.forall(os.size(_) > 500 * 1024), "a project's OpenApi.html is not the single-file page")
 
   test("serveLocally starts a background server that actually answers"):
     if !os.exists(orchDocPath) || !os.exists(valiantDocsPath) then
@@ -104,8 +109,9 @@ class OrchDocBuilderTest extends FunSuite:
   private val gitTempPath = sys.env.get("GIT_TEMP_PATH")
     .map(os.Path(_))
     .getOrElse(os.Path("/Users/pme/git-temp"))
-  private val catalogHtmlPath =
-    valiantDocsPath / "site" / "valiant" / "catalog.html"
+  // the generated catalog.md - the call activities for orch-spec come from its links
+  private val catalogMdPath =
+    valiantDocsPath / "src" / "docs" / "catalog.md"
 
   test("generateSpecCatalog takes an explicit project list, not a directory scan"):
     val orchSpecPath  = orchDocPath / os.up / "orch-spec"
@@ -123,7 +129,7 @@ class OrchDocBuilderTest extends FunSuite:
       // exist yet - the tools read an existing --out as JSON, and an empty file is not JSON.
       val out = os.temp.dir(prefix = "catalog-test") / "catalog.json"
       OrchDocBuilder(orchDocPath)
-        .generateSpecCatalog(Seq(filIsPath), Some(catalogHtmlPath), outFile = Some(out))
+        .generateSpecCatalog(Seq(filIsPath), Some(catalogMdPath), outFile = Some(out))
 
       assert(os.exists(out), s"missing $out")
       val json = os.read(out)
