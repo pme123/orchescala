@@ -14,9 +14,25 @@ case class ApiGenerator()(using config: DevConfig):
         ) / "ApiProjectCreator.scala",
         api
       )
-      createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", openApiHtml)
-      createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", postmanOpenApiHtml)
+      orchDocApiHtml match
+        case Some(html) =>
+          // orch-doc's single-file page: the same html for both - it loads the yml named like
+          // its own file (OpenApi.yml / PostmanOpenApi.yml)
+          createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", html)
+          createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", html)
+        case None       =>
+          createOrUpdate(config.projectDir / "03-api" / "OpenApi.html", openApiHtml)
+          createOrUpdate(config.projectDir / "03-api" / "PostmanOpenApi.html", postmanOpenApiHtml)
   end generate
+
+  /** The company helper's orch-doc page (PublishConfig.apiHtmlResource, put there by the company's
+    * `update`) - with the do-not-adjust marker in front, so the next `update` replaces it again.
+    * None if the company does not ship it (yet): then the Redoc shells below are used.
+    */
+  private lazy val orchDocApiHtml: Option[String] =
+    val resource = config.publishConfig.map(_.apiHtmlResource).getOrElse(os.resource / "OrchDocApi.html")
+    scala.util.Try(os.read(resource)).toOption
+      .map(html => s"<!-- $helperDoNotAdjustText -->\n$html")
 
   lazy val api =
     s"""package ${config.projectPackage}

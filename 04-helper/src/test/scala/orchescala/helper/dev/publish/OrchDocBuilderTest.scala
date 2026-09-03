@@ -31,6 +31,20 @@ class OrchDocBuilderTest extends FunSuite:
         s"api.html does not reference favicon.png with a relative path:\n$apiHtml"
       )
 
+  // what a project ships as 03-api/OpenApi.html + PostmanOpenApi.html (ApiGenerator) and uploads
+  // as is (ProjectWebDAV): one file, nothing loaded from an assets/ folder next to it
+  test("buildSingleFile produces one self-contained html"):
+    if !os.exists(orchDocPath) then
+      println(s"Skipping: no orch-doc checkout at $orchDocPath")
+    else
+      val html = OrchDocBuilder(orchDocPath).buildSingleFile()
+      assertEquals(html.last, "api.html")
+      val content = os.read(html)
+      assert(os.size(html) > 500 * 1024, s"suspiciously small: ${os.size(html)} bytes")
+      assert(!content.contains("""src="./assets/"""), "still references an assets/ folder")
+      assert(!content.contains("""href="./assets/"""), "still references an assets/ folder")
+      assert(content.contains("data:image/png"), "favicon not inlined")
+
   private val valiantDocsPath = sys.env.get("VALIANT_DOCS_PATH")
     .map(os.Path(_))
     .getOrElse(os.Path("/Users/pme/dev-valiant/valiant-orchescala/00-docs"))
@@ -60,6 +74,33 @@ class OrchDocBuilderTest extends FunSuite:
         os.proc("lsof", "-ti", s"tcp:$port").call().out.lines()
           .foreach(pid => os.proc("kill", pid).call())
 
+  // The server outlives the JVM on purpose, so every prepareDocs run finds the previous one on
+  // the port. serveLocally must replace our own old server instead of dying with EADDRINUSE.
+  test("serveLocally replaces its own previous server on the port"):
+    if !os.exists(orchDocPath) || !os.exists(valiantDocsPath) then
+      println(s"Skipping: orch-doc ($orchDocPath) or 00-docs ($valiantDocsPath) not available")
+    else
+      val port     = 34043
+      def pidsOn   = os.proc("lsof", "-ti", s"tcp:$port", "-sTCP:LISTEN").call(check = false)
+        .out.lines().map(_.trim).filter(_.nonEmpty)
+      val oldLog   = os.temp(prefix = "old-preview-", suffix = ".log")
+      os.proc("node", "tools/assemble.ts", valiantDocsPath.toString, "--out", "dist-site",
+        "--serve", port.toString).spawn(cwd = orchDocPath, stdout = oldLog, stderr = oldLog)
+      val deadline = System.currentTimeMillis() + 60000
+      while pidsOn.isEmpty && System.currentTimeMillis() < deadline do Thread.sleep(500)
+      val oldPid   = pidsOn.headOption
+      assert(oldPid.nonEmpty, s"old server never listened:\n${os.read(oldLog)}")
+      try
+        OrchDocBuilder(orchDocPath).serveLocally(Seq(valiantDocsPath), port)
+        val newPids = pidsOn
+        assert(newPids.nonEmpty, "no server listening after serveLocally")
+        assert(!newPids.contains(oldPid.get), s"old server ${oldPid.get} still listening")
+        val body = os.proc("curl", "--silent", "--max-time", "5", s"http://localhost:$port/")
+          .call().out.text()
+        assert(body.contains("Orchescala"), body)
+      finally
+        pidsOn.foreach(pid => os.proc("kill", pid).call(check = false))
+
   private val gitTempPath = sys.env.get("GIT_TEMP_PATH")
     .map(os.Path(_))
     .getOrElse(os.Path("/Users/pme/git-temp"))
@@ -77,9 +118,13 @@ class OrchDocBuilderTest extends FunSuite:
       // only ONE explicit project dir, not the whole git-temp - proves generateSpecCatalog works
       // off a caller-supplied list (DocCreator.ownProjectDirs), not an implicit directory walk
       // that would also pick up sibling companies / orphaned checkouts.
-      OrchDocBuilder(orchDocPath).generateSpecCatalog(Seq(filIsPath), Some(catalogHtmlPath))
+      // Written to a temp path: the default target is orch-spec's REAL public/catalog.generated.json,
+      // and a single-project test catalog must never overwrite the shipped one. The path must not
+      // exist yet - the tools read an existing --out as JSON, and an empty file is not JSON.
+      val out = os.temp.dir(prefix = "catalog-test") / "catalog.json"
+      OrchDocBuilder(orchDocPath)
+        .generateSpecCatalog(Seq(filIsPath), Some(catalogHtmlPath), outFile = Some(out))
 
-      val out  = orchSpecPath / "public" / "catalog.generated.json"
       assert(os.exists(out), s"missing $out")
       val json = os.read(out)
       assert(json.contains(""""services": ["""), s"no services in catalog.generated.json:\n$json")

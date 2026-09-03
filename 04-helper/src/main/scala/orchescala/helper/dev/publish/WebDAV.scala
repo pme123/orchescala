@@ -106,26 +106,20 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
       end try
       // create new
       sardine.createDirectory(projectUrl)
-      publishConfig.apiDocPath match
-        case Some(orchDocPath) =>
-          // orch-doc's standalone API page (dist/api.html) replaces the static Redoc shell -
-          // see orch-doc README "Standalone API page per project"
-          val distDir = OrchDocBuilder(orchDocPath).build()
-          sardine.put(
-            s"$projectUrl/OpenApi.html",
-            os.read.inputStream(distDir / "api.html"),
-            contentTypeHtml
-          )
-          val assetsUrl = s"${projectUrl.stripSuffix("/")}/assets"
-          // no explicit createDirectory - see uploadDir; assets/ is a brand-new path for
-          // old-style projects that only ever had a static OpenApi.html before
-          uploadDir(sardine, distDir / "assets", assetsUrl)
-          val favicon   = distDir / "favicon.png"
-          if os.exists(favicon) then
-            sardine.put(s"$projectUrl/favicon.png", os.read.bytes(favicon))
-        case None               =>
-          sardine.put(s"$projectUrl/OpenApi.html", openApiHtml, contentTypeHtml)
+      // The project's own OpenApi.html / PostmanOpenApi.html as written by `./helper.scala update`:
+      // orch-doc's single-file page if the company ships it (PublishConfig.apiHtmlResource), the
+      // Redoc shell otherwise. Publishing never builds orch-doc - no checkout needed here.
+      Seq("OpenApi.html", "PostmanOpenApi.html").foreach: name =>
+        val local = os.pwd / "03-api" / name
+        if os.exists(local) then
+          sardine.put(s"$projectUrl/$name", os.read.bytes(local), contentTypeHtml)
+        else if name == "OpenApi.html" then
+          sardine.put(s"$projectUrl/$name", openApiHtml, contentTypeHtml)
       sardine.put(s"$projectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
+      // the company gateway's variant - linked from "<Company> Postman Instructions"
+      postmanOpenApiYml.foreach(yml =>
+        sardine.put(s"$projectUrl/PostmanOpenApi.yml", yml, contentTypeYaml)
+      )
       postmanApiYml.foreach(pApi =>
         sardine.put(
           s"$projectUrl/postmanCollection.json",
@@ -177,13 +171,16 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
   /** Mirrors OpenApi.yml + diagrams into /preview - the orch-doc app's in-app API view
     * (#/<company>/api/<project>) fetches these directly at runtime, independent of docs.json, so
     * a single project's own publish keeps its /preview page current without a full company-wide
-    * previewDocs/publishDocs run. Best-effort: never fails the (production-critical) /site
+    * prepareDocs/publishDocs run. Best-effort: never fails the (production-critical) /site
     * upload above - /preview is still the experimental side of this.
     */
   private def mirrorToPreview(sardine: Sardine): Unit =
     try
       println(s"Mirroring OpenApi.yml + diagrams to $previewProjectUrl")
       sardine.put(s"$previewProjectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
+      postmanOpenApiYml.foreach(yml =>
+        sardine.put(s"$previewProjectUrl/PostmanOpenApi.yml", yml, contentTypeYaml)
+      )
       BpmnProcessType.diagramPaths
         .map(os.pwd / _)
         .filter(os.exists)
@@ -201,6 +198,10 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
   private lazy val openApiYml    = os
     .read(apiConfig.openApiPath)
     .getBytes(StandardCharsets.UTF_8)
+  // only projects generated with a company gateway config have (and link) it
+  private lazy val postmanOpenApiYml: Option[Array[Byte]] =
+    Option.when(apiConfig.companyPostmanInstructions.isDefined && os.exists(apiConfig.postmanOpenApiPath)):
+      os.read(apiConfig.postmanOpenApiPath).getBytes(StandardCharsets.UTF_8)
   private lazy val postmanApiYml =
     val path = os.pwd / "postmanCollection.json"
     if path.toIO.exists() then

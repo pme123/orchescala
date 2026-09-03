@@ -17,6 +17,22 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
     orchDocPath / "dist"
   end build
 
+  /** The standalone API page as ONE self-contained html (`npm run build:single` -
+    * JS, CSS, fonts and favicon inlined, no assets folder). This is what a project ships as its
+    * `03-api/OpenApi.html` / `PostmanOpenApi.html` instead of the Redoc shells - the page loads
+    * the yml named like itself. Returns the built file.
+    */
+  def buildSingleFile(): os.Path =
+    println(s"Building orch-doc single-file API page: $orchDocPath")
+    if !os.exists(orchDocPath / "node_modules") then
+      os.proc("npm", "install").callOnConsole(orchDocPath)
+    os.proc("npm", "run", "build:single").callOnConsole(orchDocPath)
+    val html = orchDocPath / "dist-single" / "api.html"
+    if !os.exists(html) then
+      throw new IllegalStateException(s"orch-doc build:single produced no $html")
+    html
+  end buildSingleFile
+
   /** Assembles the full orch-doc site (app + docs.json + versioned APIs + orch-spec) for one or
     * more companies' `00-docs` folders - the same tool used for local preview (`npm run site`).
     * Pass every company's `00-docs` (this one's and its siblings') to get all of them in the
@@ -39,11 +55,32 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
     * (`lsof -nP -iTCP:<port>` + kill) when done.
     */
   def serveLocally(docsPaths: Seq[os.Path], port: Int = 3004): String =
+    val url = s"http://localhost:$port/"
     println(s"Assembling orch-doc preview for ${docsPaths.mkString(", ")}")
     if !os.exists(orchDocPath / "node_modules") then
       os.proc("npm", "install").callOnConsole(orchDocPath)
+
+    // The server outlives the JVM on purpose - so the previous prepareDocs run is still bound
+    // to the port. Replace our own old server; never touch a foreign process on that port.
+    val listeners = os.proc("lsof", "-ti", s"tcp:$port", "-sTCP:LISTEN").call(check = false)
+      .out.lines().map(_.trim).filter(_.nonEmpty)
+    val foreign   = listeners.filterNot: pid =>
+      val cmd = os.proc("ps", "-o", "command=", "-p", pid).call(check = false).out.text()
+      val ours = cmd.contains("tools/assemble.ts")
+      if ours then
+        println(s"Stopping previous preview server (pid $pid)")
+        os.proc("kill", pid).call(check = false)
+      ours
+    if foreign.nonEmpty then
+      println(
+        s"\nPort $port is used by another process (pid ${foreign.mkString(", ")}) - " +
+          s"stop it or use another port. Preview NOT started.\n"
+      )
+      return url
+    end if
+
     val logFile = os.temp(prefix = "orchescala-preview-server-", suffix = ".log")
-    os.proc(
+    val server  = os.proc(
       "node",
       "tools/assemble.ts",
       docsPaths.map(_.toString),
@@ -53,14 +90,16 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
       port.toString
     ).spawn(cwd = orchDocPath, stdout = logFile, stderr = logFile)
 
-    val url      = s"http://localhost:$port/"
     val deadline = System.currentTimeMillis() + 60000
-    while !os.read(logFile).contains("Serving") && System.currentTimeMillis() < deadline do
+    def log      = os.read(logFile)
+    def failed   = !server.isAlive() || log.contains("EADDRINUSE")
+    while !log.contains("Serving") && !failed && System.currentTimeMillis() < deadline do
       Thread.sleep(500)
-    if os.read(logFile).contains("Serving") then
+    if log.contains("Serving") then
       println(s"\nPreview ready: $url\n")
     else
-      println(s"\nServer did not report ready within 60s - check $logFile\n")
+      val why = if failed then "Server exited" else "Server did not report ready within 60s"
+      println(s"\n$why - last lines of $logFile:\n${log.linesIterator.toSeq.takeRight(15).mkString("\n")}\n")
     url
   end serveLocally
 
@@ -75,13 +114,23 @@ case class OrchDocBuilder(orchDocPath: os.Path) extends Helpers:
     * with orch-spec's client build itself - same-origin, no shared folder, no CORS. Read-only
     * from the user's point of view: every build overwrites it.
     */
-  def generateSpecCatalog(sourceDirs: Seq[os.Path], catalogHtml: Option[os.Path]): Unit =
+  def generateSpecCatalog(
+      sourceDirs: Seq[os.Path],
+      catalogHtml: Option[os.Path],
+      // only for tests - the real pipeline always writes into orch-spec's public/ folder
+      outFile: Option[os.Path] = None
+  ): Unit =
     val orchSpecPath = orchDocPath / os.up / "orch-spec"
     if !os.exists(orchSpecPath) then
       println(s"Skipping spec catalog - no orch-spec checkout at $orchSpecPath")
     else
-      val out = orchSpecPath / "public" / "catalog.generated.json"
+      val out = outFile.getOrElse(orchSpecPath / "public" / "catalog.generated.json")
       os.makeDir.all(out / os.up)
+      // the tools merge into an existing --out and parse it as JSON - an empty leftover of an
+      // interrupted run would fail every following run ("Unexpected end of JSON input")
+      if os.exists(out) && os.size(out) == 0 then
+        println(s"Removing empty leftover $out")
+        os.remove(out)
       println(s"Generating spec catalog from ${sourceDirs.mkString(", ")} -> $out")
       os.proc("node", "tools/openapi2catalog.ts", sourceDirs.map(_.toString), "--out", out.toString)
         .callOnConsole(orchSpecPath)

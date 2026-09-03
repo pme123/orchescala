@@ -29,15 +29,40 @@ trait DocCreator extends DependencyCreator, Helpers:
   lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs
 
+  /** Generates the docs data (catalog, statistics, release page) and - if
+    * PublishConfig.apiDocPath points to an orch-doc checkout - ends with the local preview: the
+    * orch-spec catalog is regenerated, the orch-doc site assembled and served, the URL printed.
+    * The preview is best-effort: neither the spec catalog nor the sibling companies' repos (git
+    * pull over SSH) may prevent the server from starting - a failure is printed and the preview
+    * goes on with what is available (at least this company's own docs). Both are only fatal in
+    * publishDocs.
+    */
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
     apiConfig.init
     createCatalog()
     DevStatisticsCreator(gitBasePath, apiConfig.basePath, apiConfig.companyName).create()
     createDynamicConf()
-    // println(s"Preparing Docs Started")
     createReleasePage()
+    previewLocally()
   end prepareDocs
+
+  private def previewLocally(): Unit =
+    publishConfig.flatMap(_.apiDocPath) match
+      case Some(orchDocPath) =>
+        val builder = OrchDocBuilder(orchDocPath)
+        scala.util.Try(builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogHtmlPath)))
+          .failed.foreach: ex =>
+            println(s"Spec catalog skipped (non-fatal for preview): ${ex.getMessage}")
+        val docsDirs = scala.util.Try(allCompanyDocsDirs()).recover:
+          case ex =>
+            println(s"Sibling companies skipped (non-fatal for preview): ${ex.getMessage}")
+            Seq(apiConfig.basePath)
+        .get
+        builder.serveLocally(docsDirs)
+      case None               =>
+        println("No PublishConfig.apiDocPath configured - no local orch-doc preview.")
+  end previewLocally
 
   // noinspection ScalaUnusedExpression
   def publishDocs(): Unit =
@@ -93,21 +118,6 @@ trait DocCreator extends DependencyCreator, Helpers:
       val out = builder.buildPreview(allCompanyDocsDirs())
       PreviewWebDAV(apiConfig, config).upload(out)
   end publishNewSite
-
-  /** Assembles the new orch-doc-based site and serves it locally (like `npm run site --serve`) -
-    * no WebDAV involved, old and new build side by side. Prints the URL once the server actually
-    * answers. Requires PublishConfig.apiDocPath (a local orch-doc checkout) to be set.
-    */
-  def previewDocs(): Unit =
-    prepareDocs()
-    publishConfig.flatMap(_.apiDocPath) match
-      case Some(orchDocPath) =>
-        val builder = OrchDocBuilder(orchDocPath)
-        builder.generateSpecCatalog(ownProjectDirs(), Some(specCatalogHtmlPath))
-        builder.serveLocally(allCompanyDocsDirs())
-      case None               =>
-        println("No PublishConfig.apiDocPath configured - cannot build the orch-doc preview.")
-  end previewDocs
 
   protected def createCatalog(): Unit =
 

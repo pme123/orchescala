@@ -4,6 +4,7 @@ import orchescala.api.VersionHelper
 import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
+import orchescala.helper.dev.publish.OrchDocBuilder
 import orchescala.helper.dev.publish.PublishHelper.*
 import orchescala.helper.util.{DevConfig, PublishConfig, RepoConfig}
 
@@ -53,11 +54,9 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
         prepareDocs()
       case Command.publishDocs =>
         publishDocs()
-      case Command.previewDocs =>
-        previewDocs()
 
   private enum Command:
-    case update, publish, prepareDocs, publishDocs, previewDocs
+    case update, publish, prepareDocs, publishDocs
 
   def update(): Unit =
     given EngineConfig = engineConfig
@@ -72,6 +71,27 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       os.pwd / "04-gateway" / "src" / "main" / "resources" / "site",
       os.pwd / "00-docs" / "site"
     )
+    updateApiHtml()
+  end update
+
+  /** orch-doc's single-file API page -> resource of THIS company's helper (see
+    * PublishConfig.apiHtmlResource). Built from the local orch-doc checkout (`apiDocPath`), so
+    * only the company's `update` needs orch-doc - every project's `update` then gets the page
+    * from the company helper jar and writes it as its OpenApi.html / PostmanOpenApi.html.
+    */
+  private def updateApiHtml(): Unit =
+    publishConfig match
+      case Some(config) =>
+        config.apiDocPath match
+          case Some(orchDocPath) =>
+            val html   = OrchDocBuilder(orchDocPath).buildSingleFile()
+            val target = os.pwd / "04-helper" / "src" / "main" / "resources" / config.apiHtmlResource.segments.last
+            os.copy.over(html, target, createFolders = true)
+            println(s"${Console.BLUE}Updated - $target (${os.size(target) / 1024} KB)${Console.RESET}")
+          case None               =>
+            println("No PublishConfig.apiDocPath - the projects keep their Redoc OpenApi.html.")
+      case None         => ()
+  end updateApiHtml
 
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")
