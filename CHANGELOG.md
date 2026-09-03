@@ -15,6 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.7.0 - 2026-09-03
+### Changed 
+- Integrated orch-spec into orchescala (part of orch-docs). - see [Commit](git@github.com:pme123/orchescala/commit/a0fdad14b1d6e44f9c2e6544bdeb098a39791948)
+- Integrated orch-docs into orchescala. - see [Commit](git@github.com:pme123/orchescala/commit/64a99720476953eaad4ca9c735b753386a42ab30)
+- Removed old laika documentation for projects. - see [Commit](git@github.com:pme123/orchescala/commit/d40edc291ddf58b3c4471851a244a1c0b3b369f2)
+- Updates for new documentation and improvements. - see [Commit](git@github.com:pme123/orchescala/commit/bb7d436e7fb1c1e198779ddc6a9e67da53671cf6)
+
 ## 0.6.3 - 2026-09-01
 ### Changed 
 - Pushed it to new docs preview. - see [Commit](git@github.com:pme123/orchescala/commit/0e802efb32e421d9ae6e51cc5f9cc89b543e73e9)
