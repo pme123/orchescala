@@ -33,7 +33,23 @@ case class ApiConfig(
     docBaseUrl: Option[String] = None,
     // Path, where the Git Projects are cloned - for dependency check.
     // the default is for the structure: dev-myCompany/projects/myProject
-    tempGitDir: os.Path = os.pwd / os.up / os.up / os.up / "git-temp"
+    tempGitDir: os.Path = os.pwd / os.up / os.up / os.up / "git-temp",
+    // Projects that are NOT part of this company's own catalog/docs, but must be scanned for
+    // usages ("Used in ..." / "Uses ..." and worker compositions) - e.g. another company's
+    // projects that call this company's workers (valiant-* calling swisscom-fil-is). They are
+    // cloned into tempGitDir like the own projects, but never show up in catalog or docs.
+    referenceProjectsConfigs: Seq[ProjectsConfig] = Seq.empty,
+    // Additionally scan every project checkout found in tempGitDir for usages - so another
+    // company's projects calling this company's workers are found WITHOUT either company having
+    // to list the other's projects in its config (no mutual config dependency). Only the usage
+    // scans see them; catalog and docs stay strictly config-driven. Company meta-repos
+    // (`*-orchescala`, `orchescala-*`) are skipped.
+    scanTempGitDirForUsages: Boolean = true,
+    // Markdown instructions for the company's own gateway (e.g. Valiant's BPF instead of the
+    // Orchescala gateway). If set, every project API gets a second collapsible
+    // "<Company> Postman Instructions" with this text and a link to its PostmanOpenApi.yml -
+    // and PostmanOpenApi.yml is published next to OpenApi.yml.
+    companyPostmanInstructions: Option[String] = None
 ):
   val catalogPath: os.Path = basePath / catalogFileName
 
@@ -50,13 +66,19 @@ case class ApiConfig(
     Unsafe.unsafe:
       implicit unsafe =>
         Runtime.default.unsafe.run(
-          projectsConfig.init(tempGitDir, companyName, engineConfig.parallelism)
+          projectsConfig.init(tempGitDir, companyName, engineConfig.parallelism) *>
+            ZIO.foreachDiscard(referenceProjectsConfigs)(
+              _.init(tempGitDir, companyName, engineConfig.parallelism)
+            )
         ).getOrThrow()
 
   end init
 
   def withTenantId(tenantId: String): ApiConfig =
     copy(engineConfig = engineConfig.withTenantId(tenantId))
+
+  def withCompanyPostmanInstructions(markdown: String): ApiConfig =
+    copy(companyPostmanInstructions = Some(markdown))
 
   def withBasePath(path: os.Path): ApiConfig =
     copy(
@@ -74,6 +96,12 @@ case class ApiConfig(
 
   def withProjectsConfig(gitConfigs: ProjectsConfig): ApiConfig =
     copy(projectsConfig = gitConfigs)
+
+  /** Projects scanned for usages only (see referenceProjectsConfigs) - e.g. the other company's
+    * projects that call this company's workers. Not part of catalog or docs.
+    */
+  def withReferenceProjectsConfigs(configs: ProjectsConfig*): ApiConfig =
+    copy(referenceProjectsConfigs = referenceProjectsConfigs ++ configs)
 
   def withModelerTemplateConfig(modelerTemplateConfig: ModelerTemplateConfig): ApiConfig =
     copy(modelerTemplateConfigs = modelerTemplateConfigs :+ modelerTemplateConfig)

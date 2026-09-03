@@ -64,9 +64,114 @@ class WorkerReferenceCreatorTest extends munit.FunSuite:
     assertEquals(workers.map(_.className), Seq("GetClientWorker", "GetProcessInstanceWorker", "PostSignalWorker"))
     assert(!out.toString.contains("Worker Reference Base Directory"), out.toString)
 
+  // The cross-company case: test-services is the own (and only) project - like swisscom-fil-is -
+  // and test-cms, which calls its PostSignal worker, belongs to another company - like valiant.
+  test("a reference project's usages are found, although it is not an own project"):
+    val workers = ReferenceTestWorkerReferenceCreator.usedByWorkersOf(postSignalTopic)
+    assertEquals(workers.map(_.className), Seq("CancelCreateAndSignDocumentWorker"))
+    val doc = ReferenceTestWorkerReferenceCreator.UsedByReferenceCreator(postSignalTopic).create()
+    assert(doc.contains("<b>Used in 1 Project(s)</b>"), doc)
+    assert(doc.contains("/site/test/test-cms/OpenApi.html"), doc)
+
+  test("without the reference project the same usage stays invisible"):
+    assertEquals(NoReferenceTestWorkerReferenceCreator.usedByWorkersOf(postSignalTopic), Seq.empty)
+    val doc = NoReferenceTestWorkerReferenceCreator.UsedByReferenceCreator(postSignalTopic).create()
+    assert(doc.contains("Used in no other Process."), doc)
+
+  test("a project listed as own and as reference is scanned once"):
+    assertEquals(
+      DuplicateReferenceTestWorkerReferenceCreator.projectNames,
+      Seq("test-services", "test-cms")
+    )
+
+  // No config knows about test-cms at all - it is found only because its checkout is in git-temp.
+  // That is the cross-company case without any mutual config dependency.
+  test("a checkout in git-temp is scanned for usages without being configured anywhere"):
+    val workers = GitTempTestWorkerReferenceCreator.usedByWorkersOf(postSignalTopic)
+    assertEquals(workers.map(_.className), Seq("CancelCreateAndSignDocumentWorker"))
+    val doc = GitTempTestWorkerReferenceCreator.UsedByReferenceCreator(postSignalTopic).create()
+    assert(doc.contains("<b>Used in 1 Project(s)</b>"), doc)
+    assert(doc.contains("/site/test/test-cms/OpenApi.html"), doc)
+
+  test("git-temp discovery appends the unconfigured checkouts after the own projects"):
+    assertEquals(GitTempTestWorkerReferenceCreator.projectNames, Seq("test-services", "test-cms"))
+
 end WorkerReferenceCreatorTest
 
 object OtherTestWorkerReferenceCreator extends TestReferenceCreator
+
+/** Own project: test-services only. Reference project: test-cms (the "other company"). */
+object ReferenceTestWorkerReferenceCreator extends ProcessReferenceCreator:
+  lazy val apiConfig: ApiConfig =
+    ApiConfig(
+      DefaultEngineConfig(),
+      companyName = "test",
+      projectsConfig = TestProjects.config("test-services"),
+      docBaseUrl = Some("https://docs.test.com"),
+      tempGitDir = TestProjects.gitDir
+    ).withReferenceProjectsConfigs(TestProjects.config("test-cms"))
+
+  def usedByWorkersOf(topicName: String): Seq[WorkerRef] = usedByWorkers(topicName)
+end ReferenceTestWorkerReferenceCreator
+
+/** Own project: test-services only, no reference projects, no git-temp scan - the usage from
+  * test-cms is invisible.
+  */
+object NoReferenceTestWorkerReferenceCreator extends ProcessReferenceCreator:
+  lazy val apiConfig: ApiConfig =
+    ApiConfig(
+      DefaultEngineConfig(),
+      companyName = "test",
+      projectsConfig = TestProjects.config("test-services"),
+      docBaseUrl = Some("https://docs.test.com"),
+      tempGitDir = TestProjects.gitDir,
+      scanTempGitDirForUsages = false
+    )
+
+  def usedByWorkersOf(topicName: String): Seq[WorkerRef] = usedByWorkers(topicName)
+end NoReferenceTestWorkerReferenceCreator
+
+/** Own project: test-services only, NO reference config - test-cms is found purely because its
+  * checkout sits in tempGitDir (the default scanTempGitDirForUsages = true).
+  */
+object GitTempTestWorkerReferenceCreator extends ProcessReferenceCreator:
+  lazy val apiConfig: ApiConfig =
+    ApiConfig(
+      DefaultEngineConfig(),
+      companyName = "test",
+      projectsConfig = TestProjects.config("test-services"),
+      docBaseUrl = Some("https://docs.test.com"),
+      tempGitDir = TestProjects.gitDir
+    )
+
+  def usedByWorkersOf(topicName: String): Seq[WorkerRef] = usedByWorkers(topicName)
+  def projectNames: Seq[String]                          = projectConfigs.map(_.name)
+end GitTempTestWorkerReferenceCreator
+
+/** test-services is own AND reference - it must not be scanned twice. */
+object DuplicateReferenceTestWorkerReferenceCreator extends ProcessReferenceCreator:
+  lazy val apiConfig: ApiConfig =
+    ApiConfig(
+      DefaultEngineConfig(),
+      companyName = "test",
+      projectsConfig = TestProjects.config("test-services"),
+      tempGitDir = TestProjects.gitDir
+    ).withReferenceProjectsConfigs(TestProjects.config("test-services", "test-cms"))
+
+  def projectNames: Seq[String] = projectConfigs.map(_.name)
+end DuplicateReferenceTestWorkerReferenceCreator
+
+object TestProjects:
+  val gitDir: os.Path = os.pwd / "03-api" / "src" / "test" / "resources" / "worker-refs"
+
+  def config(names: String*): ProjectsConfig =
+    ProjectsConfig(perGitRepoConfigs =
+      Seq(ProjectsPerGitRepoConfig(
+        cloneBaseUrl = "https://git.test.com",
+        projects = names.map(name => ProjectConfig(name, ProjectGroup("test")))
+      ))
+    )
+end TestProjects
 object TestWorkerReferenceCreator      extends TestReferenceCreator
 
 trait TestReferenceCreator extends ProcessReferenceCreator:

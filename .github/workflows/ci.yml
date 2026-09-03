@@ -37,6 +37,11 @@ jobs:
         # (see build.sbt: bundleClient) - here it is an own step, so a broken UI
         # build is easy to spot.
         run: sbt dmnTesterClient/bundleClient
+      - name: Build the documentation apps
+        # vite builds orch-doc (site app + single-file API page) and orch-spec to
+        # 04-orch-doc/bundle - packaged into orchescala-orch-doc, which helper and gateway
+        # ship. Same reason for an own step as above.
+        run: sbt orchDocClient/bundleDocClient
       - name: Compile
         run: sbt compile
       - name: Test

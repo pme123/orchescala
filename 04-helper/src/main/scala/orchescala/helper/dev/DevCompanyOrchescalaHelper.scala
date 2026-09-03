@@ -53,11 +53,9 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
         prepareDocs()
       case Command.publishDocs =>
         publishDocs()
-      case Command.previewDocs =>
-        previewDocs()
 
   private enum Command:
-    case update, publish, prepareDocs, publishDocs, previewDocs
+    case update, publish, prepareDocs, publishDocs
 
   def update(): Unit =
     given EngineConfig = engineConfig
@@ -72,6 +70,21 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       os.pwd / "04-gateway" / "src" / "main" / "resources" / "site",
       os.pwd / "00-docs" / "site"
     )
+    updateApiHtml()
+  end update
+
+  /** The API page (`OrchDocApi.html`) ships in the orchescala-orch-doc jar - a dependency of
+    * helper and gateway. Copies an earlier integration step put into THIS company's resources
+    * would shadow it on the classpath - remove them.
+    */
+  private def updateApiHtml(): Unit =
+    Seq("04-helper", "04-gateway")
+      .map(os.pwd / _ / "src" / "main" / "resources" / "OrchDocApi.html")
+      .filter(os.exists)
+      .foreach: legacy =>
+        println(s"Removing $legacy - the page now ships in the orchescala jars")
+        os.remove(legacy)
+  end updateApiHtml
 
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")

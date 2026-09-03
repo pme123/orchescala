@@ -1,18 +1,10 @@
 package orchescala.helper.util
 
-import sttp.tapir.Schema.annotations.description
-
+/** Where the documentation is published (WebDAV) and the credentials for it. Everything the site
+  * is built from - the documentation app, orch-spec, its tools - ships in the orchescala jars.
+  */
 case class PublishConfig(
     documentationUrl: String,
     documentationEnvUsername: String = "DOCUMENTATION_USERNAME",
-    documentationEnvPassword: String = "DOCUMENTATION_PASSWORD",
-    openApiHtmlPath: os.ResourcePath = os.resource / "OpenApi.html",
-    @description(
-      "Path to the home.html - if you want to publish a home page - the base page for all catalogs. Contains links to all Catalogs."
-    )
-    homeHtmlPath: Option[os.ResourcePath] = None,
-    @description(
-      "Local checkout path of the orch-doc app (z9nai/orch-doc). When set, its build replaces the static OpenApi.html as the per-project API doc. First, non-final integration step."
-    )
-    apiDocPath: Option[os.Path] = None
+    documentationEnvPassword: String = "DOCUMENTATION_PASSWORD"
 )

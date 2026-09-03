@@ -151,7 +151,33 @@ trait WorkerReferenceCreator:
             .flatMap(parseDomainIdentifiers(pc.name, _))
         .toMap
 
-  protected def projectConfigs: Seq[ProjectConfig] = apiConfig.projectsConfig.projectConfigs
+  /** Own projects plus the reference projects (ApiConfig.referenceProjectsConfigs): the usage
+    * scans ("Used in ..." / "Uses ..." / worker compositions) must see another company's
+    * projects that call this company's workers, even though those never appear in catalog or
+    * docs. Both BPMN (ProcessReferenceCreator.allBpmns) and Scala scans go through this.
+    */
+  protected def projectConfigs: Seq[ProjectConfig] =
+    (apiConfig.projectsConfig.projectConfigs ++
+      apiConfig.referenceProjectsConfigs.flatMap(_.projectConfigs) ++
+      discoveredProjectConfigs)
+      .distinctBy(_.name)
+
+  /** Every project checkout in gitBasePath that is not configured - the other company's projects
+    * end up there through their own prepareDocs, so their usages of this company's workers are
+    * found without a mutual config dependency (ApiConfig.scanTempGitDirForUsages). Company
+    * meta-repos are not projects and are skipped.
+    */
+  private def discoveredProjectConfigs: Seq[ProjectConfig] =
+    if !apiConfig.scanTempGitDirForUsages || !os.exists(gitBasePath) then Seq.empty
+    else
+      os.list(gitBasePath)
+        .filter(os.isDir)
+        .map(_.last)
+        .filterNot: name =>
+          name.startsWith(".") || name.endsWith("-orchescala") || name.startsWith("orchescala-")
+        .sorted
+        .map(name => ProjectConfig(name, ProjectGroup("git-temp")))
+  end discoveredProjectConfigs
   protected def cacheKey: String                   =
     s"$gitBasePath - ${projectConfigs.map(_.name).mkString(",")}"
 

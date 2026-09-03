@@ -13,6 +13,19 @@ chmod +x helper.scala
 To update this project, use `cd ..` and then `./helperCompany init` - see  [Init Company].
 @:@
 
+## update
+
+```bash
+./helper.scala update
+```
+Updates the company project itself (build files, wrappers, `00-docs` scaffolding).
+
+The API page every project ships (`03-api/OpenApi.html` and `03-api/PostmanOpenApi.html`, written
+by the project's `./helper.scala update` and uploaded by its `publish`) comes with orchescala:
+the documentation app in `04-orch-doc` is built into the `orchescala-orch-doc` jar, a dependency
+of the helper - nothing to build or configure in the company. The page loads the yml named like
+itself.
+
 ## publish
 
 Creates a new Release for the Company project (`company-orchescala`) and publishes to the repository(e.g. Artifactory)
@@ -67,9 +80,16 @@ Prepare the company documentation.
 Be aware that this overwrites `release.md`
 @:@
 
-- Manually adjust the Release Notes _release.md_.
-    - You can check the result, using the _Sbt_ command _laikaPreview_ on [localhost](http://localhost:4242/index.html)
-    - If you change the Versions you need to reload _SBT_.
+`prepareDocs` ends with a local preview of the documentation site: the site is assembled into
+`00-docs/site` (this company and its siblings, the project APIs at their released versions,
+orch-spec with its catalog) and served - the URL is printed (`Preview ready: http://localhost:3004/`)
+and the command keeps running until you stop it with Ctrl-C. A failure in the spec catalog or
+the sibling repos does not stop the preview, it is printed and the preview continues with what is
+available. Everything needed ships with orchescala; Node.js is only used for the orch-spec
+catalog (skipped without it).
+
+- Manually adjust the Release Notes _release.md_ - and check the result in the local preview
+  (run `prepareDocs` again, or `npm run site` in orch-doc).
 
 ### publishDocs
 Release the company documentation.
@@ -78,4 +98,10 @@ Release the company documentation.
 ./helper.scala publishDocs
 ```
 
-- Check the result on your Company Documentation Page.
+Builds the documentation site (this company and its siblings, the project APIs at their released
+versions, orch-spec) into `00-docs/site` and uploads it to `/site` on the WebDAV server. `/site`
+is never deleted as a whole: the projects' own folders (`/site/<company>/<project>/`, published
+by each project) and the classic sites of older releases (`/site/<company>/<tag>/`) stay - only
+`assets/` and `spec/` are replaced. Needs Java and git only - Node.js just for the orch-spec catalog.
+
+- Check the result on your Company Documentation Page (`<documentationUrl>/site/#/<company>`).

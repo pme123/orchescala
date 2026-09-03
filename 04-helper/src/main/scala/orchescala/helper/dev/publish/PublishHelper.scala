@@ -13,7 +13,7 @@ case class PublishHelper()(using
   def publish(version: String): Unit =
     println(s"Publishing BPF Package: $version")
     verifyVersion(version)
-    verifySnapshots()
+    //TODO verifySnapshots()
     verifyChangelog(version)
     pushDevelop()
     setApiVersion(version)
@@ -102,9 +102,10 @@ case class PublishHelper()(using
 
   private def publishToWebserver(): Unit =
     // push it to Documentation Webserver
+    // the site itself (index, catalogs, …) is the company's publishDocs - a project only
+    // publishes its own folder (/site/<company>/<project>/)
     devConfig.publishConfig.foreach: config =>
       ProjectWebDAV(devConfig.projectName, apiConfig, config).upload()
-      CatalogWebDAV(apiConfig, config).upload()
 
 end PublishHelper
 

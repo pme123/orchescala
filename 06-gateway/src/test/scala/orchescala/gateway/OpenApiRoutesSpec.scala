@@ -29,12 +29,14 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         openApiRoutes.siteResourcePath("   ") == "site/index.html"
       )
     },
-    test("siteResourcePath preserves nested Laika assets under /site") {
+    test("siteResourcePath preserves nested files under /site") {
       assertTrue(
-        openApiRoutes.siteResourcePath("valiant/helium/site/icofont.min.css") ==
-          "site/valiant/helium/site/icofont.min.css",
-        openApiRoutes.siteResourcePath("valiant/development/catalog.html") ==
-          "site/valiant/development/catalog.html"
+        openApiRoutes.siteResourcePath("assets/index-abc123.js") ==
+          "site/assets/index-abc123.js",
+        openApiRoutes.siteResourcePath("valiant/docs.json") ==
+          "site/valiant/docs.json",
+        openApiRoutes.siteResourcePath("valiant/2026-04/catalog.html") ==
+          "site/valiant/2026-04/catalog.html"
       )
     },
     test("siteFolderRedirectLocation resolves nested folder URLs to index.html") {
@@ -78,30 +80,24 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         ).isEmpty
       )
     },
-    test("versionedSiteRedirect forwards a generic company index to the newest available release") {
-      val redirect = openApiRoutes.versionedSiteRedirect(
-        "valiant/index.html",
-        company =>
-          if company == "valiant" then Seq("2025-11", "2026-04", "notes")
-          else Seq.empty
-      )
+    test("companySiteRedirect forwards a company folder / index to the app's company page") {
+      val entries: String => Seq[String] =
+        dir => if dir == "site/valiant" then Seq("docs.json", "pages", "2026-04") else Seq.empty
 
-      assertTrue(redirect.contains("/site/valiant/2026-04/index.html"))
-    },
-    test("versionedSiteRedirect ignores already-versioned or unrelated paths") {
       assertTrue(
-        openApiRoutes.versionedSiteRedirect(
-          "valiant/2026-04/index.html",
-          _ => Seq("2026-04")
-        ).isEmpty,
-        openApiRoutes.versionedSiteRedirect(
-          "valiant/assets/app.css",
-          _ => Seq("2026-04")
-        ).isEmpty,
-        openApiRoutes.versionedSiteRedirect(
-          "unknown/index.html",
-          _ => Seq.empty
-        ).isEmpty
+        openApiRoutes.companySiteRedirect("valiant/index.html", entries).contains("/site/#/valiant"),
+        openApiRoutes.companySiteRedirect("valiant/", entries).contains("/site/#/valiant"),
+        openApiRoutes.companySiteRedirect("valiant", entries).contains("/site/#/valiant")
+      )
+    },
+    test("companySiteRedirect ignores older-release sites, files and unknown companies") {
+      val entries: String => Seq[String] =
+        dir => if dir == "site/valiant" then Seq("2026-04") else Seq.empty
+      assertTrue(
+        openApiRoutes.companySiteRedirect("valiant/2026-04/index.html", entries).isEmpty,
+        openApiRoutes.companySiteRedirect("valiant/docs.json", entries).isEmpty,
+        openApiRoutes.companySiteRedirect("assets/app.css", entries).isEmpty,
+        openApiRoutes.companySiteRedirect("unknown/index.html", entries).isEmpty
       )
     },
     test("sanitizeOAuth2Target keeps protected docs and site routes") {

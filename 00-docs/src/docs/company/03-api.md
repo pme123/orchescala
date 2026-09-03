@@ -52,7 +52,16 @@ lazy val apiConfig: ApiConfig =
     .withTenantId("mycompany")
     .withDocBaseUrl(s"http://mycompany.ch/bpmnDocs")
     .withJiraUrls("COM" -> "https://issue.mycompany.ch/browse")
+    // only if your company runs its own gateway instead of the Orchescala gateway
+    .withCompanyPostmanInstructions(
+      """Import the _PostmanOpenApi.yml_ below into Postman - it has the endpoints of our gateway.
+        |""".stripMargin
+    )
 ```
+
+`withCompanyPostmanInstructions` adds a second collapsible _Mycompany Postman Instructions_ to
+every project API (markdown), with a link to the project's `PostmanOpenApi.yml` - which then is
+published next to `OpenApi.yml`. The regular _Postman Instructions_ always link the `OpenApi.yml`.
 
 ### Default ApiConfig
 This is the default Configuration:

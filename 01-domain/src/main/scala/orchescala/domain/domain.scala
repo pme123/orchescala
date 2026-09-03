@@ -89,7 +89,28 @@ type ApiSchema[T] = Schema[T]
 inline def deriveApiSchema[T](using
     m: Mirror.Of[T]
 ): Schema[T] =
-  Schema.derived[T]
+  requireSeqFields(Schema.derived[T])
+
+/** Tapir marks every collection field as optional (an empty collection "could be absent"), so
+  * `Seq[A]` and `Option[Seq[A]]` end up identical in the OpenAPI - neither is `required`. Here
+  * the TYPE decides: a plain `Seq[A]` is required, only `Option[Seq[A]]` is optional - a default
+  * value (`= Seq.empty`) does not change that (it only serves the process-variable
+  * initialisation, e.g. in `InitIn`).
+  */
+def requireSeqFields[T](schema: Schema[T]): Schema[T] =
+  import sttp.tapir.SchemaType.{SArray, SOption, SProduct, SProductField}
+  def fix[A](s: Schema[A]): Schema[A] = s.schemaType match
+    case p: SProduct[A]   => s.copy(schemaType = SProduct(p.fields.map(fixField)))
+    case a: SArray[A, e]  => s.copy(schemaType = SArray[A, e](fix(a.element))(a.toIterable))
+    case o: SOption[A, e] => s.copy(schemaType = SOption[A, e](fix(o.element))(o.toOption))
+    case _                => s
+  def fixField[A](f: SProductField[A]): SProductField[A] =
+    val fs = f.schema.schemaType match
+      case _: SArray[?, ?] => fix(f.schema).copy(isOptional = false)
+      case _               => fix(f.schema)
+    SProductField[A, f.FieldType](f.name, fs, f.get)
+  fix(schema)
+end requireSeqFields
 
 inline def deriveSeqApiSchema[T](using
     m: Mirror.Of[T]

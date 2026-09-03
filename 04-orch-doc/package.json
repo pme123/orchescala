@@ -1,0 +1,37 @@
+{
+  "name": "orch-doc",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "site": "node tools/assemble.ts ${ORCH_DOCS:-../../00-docs} --old-releases --serve",
+    "sample": "node tools/assemble.ts ${ORCH_DOCS:-../../00-docs} --out sample-data/site --no-build",
+    "build:spec": "cd ../04-orch-spec && npx vite build --base=./ --outDir ../04-orch-doc/dist/spec --emptyOutDir",
+    "build:all": "npm run build && npm run build:spec",
+    "build:single": "tsc --noEmit && vite build -c vite.single.config.ts"
+  },
+  "dependencies": {
+    "bpmn-js": "^18.25.1",
+    "dmn-js": "^17.10.1",
+    "lucide-react": "^0.546.0",
+    "marked": "^18.0.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}

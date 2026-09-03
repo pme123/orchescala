@@ -31,6 +31,8 @@ jobs:
         # (see build.sbt: bundleClient) - here it is an own step, so a broken UI
         # build is easy to spot.
         run: sbt dmnTesterClient/bundleClient
+      - name: Build the documentation apps
+        run: sbt orchDocClient/bundleDocClient
       - name: Publish
         run: sbt ci-release
         env:

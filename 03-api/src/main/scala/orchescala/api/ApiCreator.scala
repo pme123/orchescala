@@ -52,8 +52,29 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
 
   protected lazy val openAPIDocsInterpreter      =
     OpenAPIDocsInterpreter(docsOptions =
-      OpenAPIDocsOptions.default.copy(defaultDecodeFailureOutput = _ => None)
+      OpenAPIDocsOptions.default.copy(
+        defaultDecodeFailureOutput = _ => None,
+        schemaName = schemaName
+      )
     )
+
+  /** Tapir names a Component by the short class name - so the `In` / `Out` / `InitIn` of every
+    * process, worker and mock collapse to `In`, `In1`, `In2`, … and a mock field of type
+    * `GetClientSearch.Out` reads as `Out12` in the doc. These generated names get their owner
+    * (the enclosing object - the last PascalCase segment) as prefix: `GetClientSearch.Out`.
+    * Everything else keeps Tapir's default (`ProductGroup`, `RentalParty`, …).
+    */
+  protected def schemaName(name: Schema.SName): String =
+    val segments = name.fullName.split("[.$]").filter(_.nonEmpty).toSeq
+    val short    = segments.lastOption.getOrElse(name.fullName)
+    val owner    = segments.dropRight(1).lastOption.filter(_.headOption.exists(_.isUpper))
+    val base     =
+      if ownedShortNames(short) then owner.map(o => s"$o.$short").getOrElse(short)
+      else short
+    (base +: name.typeParameterShortNames).mkString("_")
+  end schemaName
+
+  protected def ownedShortNames: Set[String] = Set("In", "Out", "InitIn", "InConfig")
   import sttp.tapir.json.circe.*
   protected def openApi(apiDoc: ApiDoc): OpenAPI =
     val endpoints = create(apiDoc)
@@ -318,7 +339,8 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
       s"""<details>
          |<summary><b><i>Postman Instructions</i></b></summary>
          |<p>
-         |You can directly import this OpenApi YAML to [Postman](https://www.postman.com/).
+         |You can directly import this OpenApi YAML to [Postman](https://www.postman.com/):
+         |**[OpenApi.yml](OpenApi.yml)**
          |
          |Only thing you need to adjust is in the Collection.
          |- **Authorization**: `Bearer Token` with the `{{access_token}}` from the `GetToken` request.
@@ -401,6 +423,27 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
          |</details>
          |""".stripMargin
 
+  /** The company's own gateway (e.g. Valiant's BPF) - only if `ApiConfig.companyPostmanInstructions`
+    * is set: the configured markdown plus a link to the PostmanOpenApi.yml (published next to
+    * OpenApi.yml, see ProjectWebDAV). Same collapsible layout as the Postman Instructions, so
+    * Redoc and orch-doc render it the same way.
+    */
+  protected def companyPostmanInstructions: String =
+    apiConfig.companyPostmanInstructions
+      .map: instructions =>
+        s"""<details>
+           |<summary><b><i>${docProjectConfig.companyName.capitalize} Postman Instructions</i></b></summary>
+           |<p>
+           |${instructions.trim}
+           |
+           |Import this OpenApi YAML to [Postman](https://www.postman.com/):
+           |**[PostmanOpenApi.yml](PostmanOpenApi.yml)**
+           |
+           |</p>
+           |</details>
+           |""".stripMargin
+      .getOrElse("")
+
   private val developmentSection =
     """(?s)<details>\s*<summary><b>Development</b></summary>.*?</details>""".r
 
@@ -426,6 +469,8 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
        |
        |$postmanInstructions
        |
+       |$companyPostmanInstructions
+       |
        |$packageConf
        |
        |${createReadme()}
@@ -443,10 +488,10 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
 
   protected def postmanDescription: String =
     s"""
-         |**This is for Postman - to have example requests. Be aware the Output is not provided!**
-         |
-         |$description
-         |"""
+       |**This is for Postman - to have example requests. Be aware the Output is not provided!**
+       |
+       |$description
+       |""".stripMargin
 
   private def writeOpenApi(
       path: os.Path,

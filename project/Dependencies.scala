@@ -81,7 +81,6 @@ object Dependencies {
   // sbt plugins
   val sbtNativePackager = "1.11.7"
   val sbtCiRelease      = "1.11.2"
-  val laikaSbt          = "1.3.2"
   val sbtBuildInfo      = "0.13.1"
 
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
@@ -91,7 +90,6 @@ object Dependencies {
   lazy val tapirDependencies = Seq(
     "com.softwaremill.sttp.tapir"   %% "tapir-openapi-docs" % tapirVersion,
     "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"   % tapirVersion,
-    "com.softwaremill.sttp.tapir"   %% "tapir-redoc-bundle" % tapirVersion,
     "com.softwaremill.sttp.apispec" %% "openapi-circe-yaml" % openapiCirceVersion,
     // "io.circe" %% "circe-generic" % circeVersion,
     "io.github.iltotore"            %% "iron-circe"         % ironCirceVersion,
