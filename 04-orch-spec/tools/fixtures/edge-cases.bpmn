@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Prüffall für den Import: paralleles Gateway ohne Namen, leere name-Attribute,
+     unbeschriftete Zweige, nicht-unterbrechender Nebenpfad ohne Namen. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_edge" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="test-edgeCasesV1" name="Kantenfälle" isExecutable="true">
+    <bpmn:startEvent id="Start" name=""><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:parallelGateway id="Fork" name="">
+      <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:serviceTask id="TaskA" name="Aufgabe A" camunda:type="external" camunda:topic="a">
+      <bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="TaskB" name="Aufgabe B">
+      <bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="SideB" cancelActivity="false" attachedToRef="TaskB">
+      <bpmn:outgoing>f8</bpmn:outgoing>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="TaskSide" name="Nebenaufgabe" camunda:type="external" camunda:topic="side">
+      <bpmn:incoming>f8</bpmn:incoming><bpmn:outgoing>f9</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="EndSide" name="Nebenpfad fertig"><bpmn:incoming>f9</bpmn:incoming></bpmn:endEvent>
+    <bpmn:parallelGateway id="Join" name="">
+      <bpmn:incoming>f4</bpmn:incoming><bpmn:incoming>f5</bpmn:incoming><bpmn:outgoing>f6</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:endEvent id="End" name=""><bpmn:incoming>f6</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="Start" targetRef="Fork" />
+    <bpmn:sequenceFlow id="f2" sourceRef="Fork" targetRef="TaskA" name="" />
+    <bpmn:sequenceFlow id="f3" sourceRef="Fork" targetRef="TaskB" />
+    <bpmn:sequenceFlow id="f4" sourceRef="TaskA" targetRef="Join" />
+    <bpmn:sequenceFlow id="f5" sourceRef="TaskB" targetRef="Join" />
+    <bpmn:sequenceFlow id="f6" sourceRef="Join" targetRef="End" />
+    <bpmn:sequenceFlow id="f8" sourceRef="SideB" targetRef="TaskSide" />
+    <bpmn:sequenceFlow id="f9" sourceRef="TaskSide" targetRef="EndSide" />
+  </bpmn:process>
+</bpmn:definitions>

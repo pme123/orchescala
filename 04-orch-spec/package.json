@@ -1,0 +1,36 @@
+{
+  "name": "orch-spec",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3002",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "build:tools": "esbuild tools/openapi2catalog.ts tools/domain2catalog.ts tools/site2catalog.ts --bundle --platform=node --format=esm --outdir=dist-tools --log-level=warning"
+  },
+  "dependencies": {
+    "@azure/msal-browser": "^5.19.0",
+    "bpmn-js": "^18.25.1",
+    "camunda-bpmn-moddle": "^7.0.1",
+    "lucide-react": "^0.546.0",
+    "marked": "^18.0.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/wicg-file-system-access": "^2023.10.5",
+    "@vitejs/plugin-react": "^5.0.4",
+    "js-yaml": "^5.3.0",
+    "linkedom": "^0.18.13",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
