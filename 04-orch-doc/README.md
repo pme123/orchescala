@@ -18,6 +18,12 @@ is published as the `orchescala-orch-doc` jar:
   (`./helper.scala update`), the gateway serves it at `/docs`.
 - `orch-doc-site/` — the site app incl. orch-spec (`npm run build:all`).
 
+## License
+
+Business Source License 1.1 (see [LICENSE](LICENSE)) — unlike the rest of orchescala (MIT).
+Non-production use is free; production use needs a license from z9nai GmbH. Four years after a
+version is published it becomes MIT.
+
 ## See it now
 
 ```bash

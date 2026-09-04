@@ -46,14 +46,17 @@ class SiteAssemblerTest extends FunSuite:
     val site = os.temp.dir(prefix = "site-serve")
     os.write(site / "index.html", "<html><title>Orchescala</title></html>")
     os.write(site / "a" / "docs.json", """{"x":1}""", createFolders = true)
-    val port = 34045
-    val url  = LocalSiteServer.start(site, port).getOrElse(fail(s"port $port in use"))
-    assertEquals(url, s"http://localhost:$port/")
-    val index = os.proc("curl", "--silent", "--max-time", "5", url).call().out.text()
-    assert(index.contains("Orchescala"), index)
-    val json  = os.proc("curl", "--silent", "--max-time", "5", s"${url}a/docs.json").call().out.text()
-    assertEquals(json, """{"x":1}""")
-    val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
-    assertEquals(code, "404")
+    // port 0: any free port - the test must not depend on what else runs on this machine
+    val running = LocalSiteServer.start(site, 0).getOrElse(fail("could not start the server"))
+    try
+      val url   = running.url
+      assert(url.matches("http://localhost:\\d+/"), url)
+      val index = os.proc("curl", "--silent", "--max-time", "5", url).call().out.text()
+      assert(index.contains("Orchescala"), index)
+      val json  = os.proc("curl", "--silent", "--max-time", "5", s"${url}a/docs.json").call().out.text()
+      assertEquals(json, """{"x":1}""")
+      val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
+      assertEquals(code, "404")
+    finally running.stop()
 
 end SiteAssemblerTest

@@ -104,4 +104,11 @@ is never deleted as a whole: the projects' own folders (`/site/<company>/<projec
 by each project) and the classic sites of older releases (`/site/<company>/<tag>/`) stay - only
 `assets/` and `spec/` are replaced. Needs Java and git only - Node.js just for the orch-spec catalog.
 
+@:callout(info)
+The documentation apps (Orch Doc, Orch Spec) are licensed under the
+[Business Source License 1.1](https://github.com/pme123/orchescala/blob/master/04-orch-doc/LICENSE):
+non-production use is free, production use - publishing the site for a company - needs a license
+from z9nai GmbH.
+@:@
+
 - Check the result on your Company Documentation Page (`<documentationUrl>/site/#/<company>`).

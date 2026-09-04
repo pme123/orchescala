@@ -345,6 +345,9 @@ lazy val orchDocClient = project
   .settings(publicationSettings)
   .settings(projectSettings("orch-doc"))
   .settings(
+    // NOT MIT like the rest: Business Source License 1.1 (see 04-orch-doc/LICENSE) - the apps
+    // and this artifact are z9nai's, production use with a license key (LicenseKey)
+    licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
     // no Scala sources - the jar carries the bundles only
     Compile / unmanagedSourceDirectories := Seq.empty,
     Test / unmanagedSourceDirectories := Seq.empty,
