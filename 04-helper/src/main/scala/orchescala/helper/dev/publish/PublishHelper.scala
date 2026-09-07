@@ -12,9 +12,7 @@ case class PublishHelper()(using
 
   def publish(version: String): Unit =
     println(s"Publishing BPF Package: $version")
-    verifyVersion(version)
-    //TODO verifySnapshots()
-    verifyChangelog(version)
+    verify(version)
     pushDevelop()
     setApiVersion(version)
     replaceVersion(version)
@@ -49,9 +47,7 @@ case class PublishHelper()(using
 
   def publishGateway(version: String): Unit =
     println(s"Publishing Gateway: $version")
-    verifyVersion(version)
-    verifySnapshots()
-    verifyChangelog(version)
+    verify(version)
     pushDevelop()
     // not used setApiVersion(version)
     replaceVersion(version)
@@ -111,6 +107,15 @@ end PublishHelper
 
 object PublishHelper extends Helpers:
   val projectFile: os.Path = workDir / "project" / "ProjectDef.scala"
+
+  /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
+    * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).
+    */
+  def verify(newVersion: String): Unit =
+    verifySnapshots()
+    verifyChangelog(newVersion)
+    verifyVersion(newVersion)
+  end verify
 
   def verifyVersion(newVersion: String): Unit =
     val releaseVersion = """^(\d+)\.(\d+)\.(\d+)(-.*)?$"""
