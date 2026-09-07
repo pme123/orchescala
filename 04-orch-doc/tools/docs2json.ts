@@ -104,7 +104,9 @@ if (existsSync(depDir)) for (const f of readdirSync(depDir).filter(f => f.endsWi
   dependencies.push({
     project: head[1], version: head[2],
     preview: /Preview to the next Release/.test(md) || undefined,
-    dependsOn: [...deps.matchAll(/([\w-]+):([\w.]+)/g)].map(m => ({ project: m[1], version: m[2] })),
+    // the graph block names the project itself too (its own node) - not a dependency
+    dependsOn: [...deps.matchAll(/([\w-]+):([\w.]+)/g)].map(m => ({ project: m[1], version: m[2] }))
+      .filter((d, i, all) => d.project !== head[1] && all.findIndex(x => x.project === d.project) === i),
   });
   if (!projects.some(p => p.name === head[1])) projects.push({
     name: head[1], group: 'projects', color: 'white', apiDocUrl: `${head[1]}/OpenApi.html`, hasDependencies: true,
