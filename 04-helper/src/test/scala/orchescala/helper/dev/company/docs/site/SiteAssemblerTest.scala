@@ -41,6 +41,13 @@ class SiteAssemblerTest extends FunSuite:
       assert(apiPages.nonEmpty, "no project OpenApi.html")
       assert(apiPages.forall(os.size(_) > 500 * 1024), "a project's OpenApi.html is not the single-file page")
       assert(apiPages.forall(p => os.exists(p / os.up / "OpenApi.yml")), "OpenApi.yml missing next to a page")
+      // the search index: every operation, workers with their topic
+      val search = docs.map(d => d / "search.json").filter(os.exists)
+      assert(search.nonEmpty, "no <company>/search.json")
+      val entries = search.flatMap(f => io.circe.parser.parse(os.read(f)).toOption.flatMap(_.asArray).getOrElse(Vector.empty))
+      assert(entries.size > 50, s"only ${entries.size} search entries")
+      assert(entries.exists(_.hcursor.get[String]("topic").toOption.exists(_.contains("."))), "no worker topic in the search index")
+      assert(entries.forall(e => e.hcursor.get[String]("id").isRight && e.hcursor.get[String]("project").isRight), "entry without id/project")
 
   test("LocalSiteServer serves an assembled site"):
     val site = os.temp.dir(prefix = "site-serve")

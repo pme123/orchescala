@@ -1,6 +1,6 @@
 // Loading the generated data, relative to the page — works at any base URL.
 import { useEffect, useMemo, useState } from 'react';
-import type { CompanyDocs, Project, SiteIndex } from './types';
+import type { CompanyDocs, Project, SearchEntry, SiteIndex } from './types';
 
 export type Loaded<T> = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ok'; data: T };
 
@@ -31,6 +31,24 @@ export function useCompanyDocs(company: string | undefined): Loaded<CompanyDocs>
       .catch(e => alive && setV({ state: 'error', message: String(e.message ?? e) }));
     return () => { alive = false; };
   }, [company]);
+  return v;
+}
+
+// The search index of every company (`<company>/search.json`) - loaded once, on demand (the
+// search box asks for it when it is first used), companies without one are simply skipped.
+const searchCache = new Map<string, Promise<SearchEntry[]>>();
+export function useSearchIndex(companies: string[] | undefined, enabled: boolean): SearchEntry[] | undefined {
+  const [v, setV] = useState<SearchEntry[]>();
+  const key = companies?.join(',');
+  useEffect(() => {
+    if (!enabled || !companies?.length) return;
+    let alive = true;
+    Promise.all(companies.map(co => {
+      if (!searchCache.has(co)) searchCache.set(co, fetchJson<SearchEntry[]>(`${co}/search.json`).catch(() => []));
+      return searchCache.get(co)!;
+    })).then(all => alive && setV(all.flat()));
+    return () => { alive = false; };
+  }, [key, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   return v;
 }
 
