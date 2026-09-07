@@ -18,14 +18,6 @@ case class GenericFileGenerator()(using config: DevConfig):
       createOrUpdate(config.projectDir / ".gitlab-ci.yml", gitLabPipeline(pConfig))
   end generate
 
-  lazy val generateForGateway: Unit =
-    createScalaFmt
-    createGitIgnore
-    createOrUpdate(config.projectDir / "helper.scala", ScriptCreator().projectHelperForGateway)
-    os.proc("chmod", "+x", config.projectDir / "helper.scala").call()
-    createIfNotExists(config.projectDir / "CHANGELOG.md", changeLog)
-  end generateForGateway
-
   lazy val createScalaFmt  =
     createOrUpdate(config.projectDir / ".scalafmt.conf", scalafmt)
   lazy val createGitIgnore =

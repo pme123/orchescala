@@ -45,39 +45,6 @@ case class PublishHelper()(using
     end if
   end publish
 
-  def publishGateway(version: String): Unit =
-    println(s"Publishing Gateway: $version")
-    verify(version)
-    pushDevelop()
-    // not used setApiVersion(version)
-    replaceVersion(version)
-
-    lazy val sbtProcs = Seq(
-      "sbt",
-      "publish"
-    )
-
-    lazy val gatewayAppFile: os.Path =
-      workDir / "04-gateway" / "src" / "main" / "scala" /
-        devConfig.projectPath / "GatewayServerApp.scala"
-    lazy val sbtDockerProcs          =
-      if os.exists(gatewayAppFile) then
-        Seq(
-          "gateway / Docker / publish"
-        )
-      else
-        Seq.empty
-
-    println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
-    os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
-
-    val isSnapshot = version.contains("-")
-    if !isSnapshot then
-      git(version, replaceVersion)
-
-    end if
-  end publishGateway
-
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
 
