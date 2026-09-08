@@ -33,7 +33,8 @@ object OpenApiGenerator:
       UserTaskEndpoints.getUserTaskVariables,
       UserTaskEndpoints.completeUserTask,
       UserTaskEndpoints.completeUserTaskForApi,
-      WorkerEndpoints.triggerWorker
+      WorkerEndpoints.triggerWorker,
+      DeploymentEndpoints.deployManifest
     )
 
     OpenAPIDocsInterpreter()

@@ -979,6 +979,84 @@ paths:
                 $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
+  /deployment/manifest:
+    post:
+      tags:
+      - Deployment
+      summary: Deploy a manifest
+      description: |
+        Deploys the resources described by the manifest to the selected or auto-detected engine.
+      operationId: Deploy Manifest
+      parameters:
+      - name: targetEngine
+        in: query
+        description: 'Optional target engine: C7, C8, Op, Gateway'
+        required: false
+        schema:
+          type: string
+        example: C8
+      requestBody:
+        description: Deployment manifest
+        content:
+          application/json:
+            schema: {}
+            example:
+              deployments:
+              - company: mycompany
+                project: mycompany-myproject
+                version: 1.2.0
+        required: true
+      responses:
+        '200':
+          description: List of deployment results
+          content:
+            application/json:
+              schema: {}
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 404
+                errorMsg: Not Found
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 500
+                errorMsg: Internal Server Error
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+      security:
+      - httpAuth: []
 components:
   schemas:
     EngineType:

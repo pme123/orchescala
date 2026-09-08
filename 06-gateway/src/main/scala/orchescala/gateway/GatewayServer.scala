@@ -83,6 +83,9 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
         ).routes ++
         MessageRoutes(
           gatewayEngine.messageService
+        ).routes ++
+        DeploymentRoutes(
+          gatewayEngine.deploymentService
         ).routes
     ) ++
       OpenApiRoutes().routes
