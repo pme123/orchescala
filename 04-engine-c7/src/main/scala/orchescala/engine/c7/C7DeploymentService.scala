@@ -2,7 +2,7 @@ package orchescala.engine.c7
 
 import orchescala.engine.domain.*
 import orchescala.engine.EngineConfig
-import orchescala.engine.services.DeploymentService
+import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver}
 import org.camunda.community.rest.client.api.DeploymentApi
 import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, ProcessDefinitionDto}
 import org.camunda.community.rest.client.invoker.ApiClient
@@ -20,6 +20,8 @@ class C7DeploymentService(using
     engineConfig: EngineConfig
 ) extends DeploymentService,
       C7Service:
+
+  override protected lazy val manifestResolver: ManifestResolver = ClasspathManifestResolver()
 
   override def deploy(
       name: String,

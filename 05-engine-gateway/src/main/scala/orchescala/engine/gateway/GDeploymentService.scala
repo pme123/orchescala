@@ -1,6 +1,6 @@
 package orchescala.engine.gateway
 
-import orchescala.engine.domain.{DeploymentInfo, DeploymentResource, DeploymentResult, EngineError, EngineType}
+import orchescala.engine.domain.{DeploymentInfo, DeploymentManifest, DeploymentResource, DeploymentResult, EngineError, EngineType}
 import orchescala.engine.services.DeploymentService
 import zio.{IO, ZIO}
 
@@ -72,5 +72,26 @@ class GDeploymentService(using
           "deleteDeployment"
         )
   end deleteDeployment
+
+  override def deployManifest(
+      manifest: DeploymentManifest,
+      targetEngine: Option[EngineType] = None
+  ): IO[EngineError, Seq[DeploymentResult]] =
+    targetEngine match
+      case Some(engineType) =>
+        ZIO
+          .fromOption(services.find(_.engineType == engineType))
+          .orElseFail(
+            EngineError.ProcessError(
+              s"No deployment service found for engine type $engineType"
+            )
+          )
+          .flatMap(_.deployManifest(manifest, Some(engineType)))
+      case None             =>
+        tryServicesWithErrorCollection[DeploymentService, Seq[DeploymentResult]](
+          _.deployManifest(manifest, None),
+          "deployManifest"
+        )
+  end deployManifest
 
 end GDeploymentService

@@ -3,7 +3,7 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import orchescala.engine.EngineConfig
 import orchescala.engine.domain.*
-import orchescala.engine.services.DeploymentService
+import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver}
 import zio.ZIO.{logDebug, logWarning}
 import zio.{IO, ZIO}
 
@@ -15,6 +15,8 @@ class C8DeploymentService(using
     engineConfig: EngineConfig
 ) extends DeploymentService,
       C8Service:
+
+  override protected lazy val manifestResolver: ManifestResolver = ClasspathManifestResolver()
 
   override def deploy(
       name: String,

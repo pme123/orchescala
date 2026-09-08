@@ -31,3 +31,13 @@ case class ProcessDefinitionInfo(id: String, key: String, version: Int)
 case class DecisionDefinitionInfo(id: String, key: String, version: Int)
 case class FormInfo(id: String, key: String, version: Int)
 case class ScriptInfo(id: String, resourceName: String)
+
+case class DeploymentEntry(
+    company: String,
+    project: String,
+    version: String
+):
+  def deploymentName: String = s"$company-$project-$version"
+end DeploymentEntry
+
+case class DeploymentManifest(deployments: Seq[DeploymentEntry])
