@@ -11,6 +11,7 @@ trait ProcessEngine:
   def messageService: MessageService
   def signalService: SignalService
   def userTaskService: UserTaskService
+  def deploymentService: DeploymentService
 
 end ProcessEngine
 
