@@ -75,7 +75,7 @@ class C8DeploymentService(using
                 case Some(tenantId) => withResources.tenantId(tenantId)
                 case None           => withResources
 
-              val result = mapDeploymentResult(name, finalBuilder.send().join())
+              val result = mapDeploymentResult(name, EngineType.C8, finalBuilder.send().join())
               if result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty && result.deployedForms.isEmpty then
                 throw RuntimeException(
                   s"C8 accepted deployment '$name' but returned no deployed process, decision or form definitions"
@@ -122,11 +122,13 @@ class C8DeploymentService(using
 
   private def mapDeploymentResult(
       name: String,
+      engineType: EngineType,
       event: io.camunda.client.api.response.DeploymentEvent
   ): DeploymentResult =
     DeploymentResult(
       deploymentId = event.getKey.toString,
       name = name,
+      engineType = engineType,
       deploymentTime = Instant.now(),
       deployedProcesses = event.getProcesses.asScala.toSeq.map: p =>
         ProcessDefinitionInfo(

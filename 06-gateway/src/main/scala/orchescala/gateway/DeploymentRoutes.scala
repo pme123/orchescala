@@ -70,6 +70,7 @@ case class DeploymentRoutes(deploymentService: DeploymentService)(using config: 
     Json.obj(
       "deploymentId"    -> Json.fromString(result.deploymentId),
       "name"            -> Json.fromString(result.name),
+      "engineType"      -> Json.fromString(result.engineType.toString),
       "deploymentTime"  -> Json.fromString(result.deploymentTime.toString),
       "deployedProcesses" -> Json.arr(
         result.deployedProcesses.map: p =>

@@ -86,12 +86,22 @@ class GDeploymentService(using
               s"No deployment service found for engine type $engineType"
             )
           )
-          .flatMap(_.deployManifest(manifest, Some(engineType)))
+          .flatMap(service =>
+            service
+              .deployManifest(manifest, Some(engineType))
+              .map(_.map(_.copy(engineType = service.engineType)))
+          )
       case None             =>
-        tryServicesWithErrorCollection[DeploymentService, Seq[DeploymentResult]](
-          _.deployManifest(manifest, None),
-          "deployManifest"
-        )
+        if services.isEmpty then
+          ZIO.fail(EngineError.ProcessError("No deployment services available"))
+        else
+          ZIO
+            .foreach(services): service =>
+              ZIO.logInfo(s"Deploying manifest to ${service.engineType}") *>
+                service
+                  .deployManifest(manifest, Some(service.engineType))
+                  .map(_.map(_.copy(engineType = service.engineType)))
+            .map(_.flatten)
   end deployManifest
 
 end GDeploymentService

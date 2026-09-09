@@ -1,6 +1,7 @@
 package orchescala.engine.domain
 
 import java.time.Instant
+import orchescala.engine.domain.EngineType
 
 case class DeploymentResource(
     name: String,
@@ -14,6 +15,7 @@ enum DeploymentResourceType:
 case class DeploymentResult(
     deploymentId: String,
     name: String,
+    engineType: EngineType,
     deploymentTime: Instant,
     deployedProcesses: Seq[ProcessDefinitionInfo],
     deployedDecisions: Seq[DecisionDefinitionInfo],

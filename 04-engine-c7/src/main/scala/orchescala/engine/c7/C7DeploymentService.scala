@@ -168,6 +168,7 @@ class C7DeploymentService(using
     DeploymentResult(
       deploymentId = deployment.getId,
       name = deployment.getName,
+      engineType = engineType,
       deploymentTime = Option(deployment.getDeploymentTime)
         .map(_.toInstant)
         .getOrElse(Instant.now()),

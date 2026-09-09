@@ -27,7 +27,7 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
       deployCalls = (name, resources, targetEngine) :: deployCalls
       if shouldFail then
         ZIO.fail(EngineError.ProcessError(s"$engineType deploy failed"))
-      else ZIO.succeed(deploymentResult(name))
+      else ZIO.succeed(deploymentResult(name, engineType))
 
     override def getDeployments(
         targetEngine: Option[EngineType]
@@ -53,13 +53,14 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
       manifestCalls = (manifest, targetEngine) :: manifestCalls
       if shouldFail then
         ZIO.fail(EngineError.ProcessError(s"$engineType deployManifest failed"))
-      else ZIO.succeed(Seq(deploymentResult(s"$engineType-manifest")))
+      else ZIO.succeed(Seq(deploymentResult(s"$engineType-manifest", engineType)))
   end MockDeploymentService
 
-  private def deploymentResult(name: String): DeploymentResult =
+  private def deploymentResult(name: String, engineType: EngineType): DeploymentResult =
     DeploymentResult(
       deploymentId = "test-id",
       name = name,
+      engineType = engineType,
       deploymentTime = Instant.EPOCH,
       deployedProcesses = Seq.empty,
       deployedDecisions = Seq.empty,
@@ -122,17 +123,31 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
         c8Service.manifestCalls.head._2.contains(EngineType.C8)
       )
     },
-    test("deployManifest falls back when no targetEngine is given") {
+    test("deployManifest fails when a supported engine deployment fails") {
       val c7Service = MockDeploymentService(EngineType.C7, shouldFail = true)
+      val c8Service = MockDeploymentService(EngineType.C8, shouldFail = false)
+      val gService  = GDeploymentService(using Seq(c7Service, c8Service))
+      val manifest  = DeploymentManifest(Seq(DeploymentEntry("mycompany", "myproject", "1.2.0")))
+      for
+        exit <- gService.deployManifest(manifest, None).exit
+      yield assertTrue(
+        exit.isFailure,
+        c7Service.manifestCalls.length == 1,
+        c8Service.manifestCalls.isEmpty
+      )
+    },
+    test("deployManifest deploys to all services when no targetEngine is given") {
+      val c7Service = MockDeploymentService(EngineType.C7, shouldFail = false)
       val c8Service = MockDeploymentService(EngineType.C8, shouldFail = false)
       val gService  = GDeploymentService(using Seq(c7Service, c8Service))
       val manifest  = DeploymentManifest(Seq(DeploymentEntry("mycompany", "myproject", "1.2.0")))
       for
         results <- gService.deployManifest(manifest, None)
       yield assertTrue(
-        results.size == 1,
-        c7Service.manifestCalls.length == 1,
-        c8Service.manifestCalls.length == 1
+        results.size == 2,
+        results.map(_.engineType).toSet == Set(EngineType.C7, EngineType.C8),
+        c7Service.manifestCalls == List((manifest, Some(EngineType.C7))),
+        c8Service.manifestCalls == List((manifest, Some(EngineType.C8)))
       )
     },
     test("getDeployments routes to the requested engine") {
