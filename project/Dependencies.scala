@@ -43,6 +43,7 @@ object Dependencies {
   // -> bpmn
   // -mUnitVersion
   val chimneyVersion        = "1.9.0"
+  val coursierVersion       = "1.0.28"
   // --- Implementations
   // 04-helper
   val sardineWebDavVersion  = "5.13"
@@ -84,6 +85,7 @@ object Dependencies {
   val sbtBuildInfo      = "0.13.1"
 
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
+  lazy val coursierDependency = "io.get-coursier" % "interface" % coursierVersion
   lazy val scaffeineDependency = // token caching
     "com.github.blemale" %% "scaffeine" % scaffeineV // caching
 

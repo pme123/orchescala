@@ -1,9 +1,6 @@
 import Dependencies.*
 import Settings.*
 
-
-ThisBuild / versionScheme          := Some("early-semver")
-
 // Try the DMN Tester with the examples of this repository:
 //   sbt dmnTester   ->   http://localhost:8883
 addCommandAlias(
@@ -101,6 +98,7 @@ lazy val engine = project
   .settings(
     autoImportSetting,
     libraryDependencies ++= sttpDependencies ++ Seq(
+      coursierDependency,
       scaffeineDependency,
       zioDependency,
       zioSlf4jDependency

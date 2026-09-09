@@ -1,4 +1,6 @@
-package orchescala.helper.util
+package orchescala.engine.config
+
+import java.net.URI
 
 case class ReposConfig(
     credentials: Seq[RepoCredentials] = Seq.empty,
@@ -12,6 +14,14 @@ case class ReposConfig(
   def sbtRepos: String =
     repos.map(r => s"${r.name}Repo").mkString(", ")
 
+  /** Repositories that can be used to resolve deployment artifacts. */
+  def deploymentRepositories: Seq[URI] =
+    repos.map(_.repoUrl).filterNot(_ == "???").map(URI.create)
+
+  /** Maven-style pattern to locate the deployment artifact inside a repository. */
+  def deploymentArtifactPattern: String =
+    "<repo>/<company>/<project>/<version>/<project>-<version>.jar"
+
 end ReposConfig
 object ReposConfig:
   lazy val dummyRepos = ReposConfig(
@@ -24,6 +34,7 @@ end ReposConfig
 
 sealed trait RepoConfig:
   def name: String
+  def repoUrl: String
   def sbtContent: String
   def ammoniteRepo: String
 end RepoConfig
@@ -35,9 +46,10 @@ object RepoConfig:
       descr: String = "",
       realm: String = "gitlab"
   ) extends RepoConfig:
+    lazy val repoUrl: String = repo
     lazy val sbtContent =
       s"""  // $descr
-         |  lazy val ${name}RepoStr = 
+         |  lazy val ${name}RepoStr =
          |    "$repo"
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
@@ -53,6 +65,7 @@ object RepoConfig:
       descr: String = "",
       realm: String = "Artifactory Realm"
   ) extends RepoConfig:
+    lazy val repoUrl: String = s"$artifactoryApiUrl/$repo"
 
     lazy val sbtContent =
       s""" // $descr

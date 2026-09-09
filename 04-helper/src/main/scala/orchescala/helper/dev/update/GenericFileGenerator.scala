@@ -1,6 +1,7 @@
 package orchescala.helper.dev.update
 
-import orchescala.helper.util.{PipelineConfig, RepoConfig, RepoCredentials}
+import orchescala.engine.config.{RepoConfig, RepoCredentials}
+import orchescala.helper.util.PipelineConfig
 
 case class GenericFileGenerator()(using config: DevConfig):
 

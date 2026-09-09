@@ -1,18 +1,18 @@
 package orchescala.engine.c7
 
+import com.fasterxml.jackson.core.`type`.TypeReference
 import orchescala.engine.domain.*
 import orchescala.engine.EngineConfig
-import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver}
+import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver, RepositoryManifestResolver}
+import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
+import org.camunda.community.rest.client.invoker.{ApiClient, Pair}
 import org.camunda.community.rest.client.api.DeploymentApi
-import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, ProcessDefinitionDto}
-import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logDebug, logWarning}
 import zio.{IO, ZIO}
 
-import java.io.ByteArrayOutputStream
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths}
 import java.time.Instant
-import java.util.zip.{ZipEntry, ZipOutputStream}
+import java.util.{ArrayList, HashMap, StringJoiner}
 import scala.jdk.CollectionConverters.*
 
 class C7DeploymentService(using
@@ -21,7 +21,16 @@ class C7DeploymentService(using
 ) extends DeploymentService,
       C7Service:
 
-  override protected lazy val manifestResolver: ManifestResolver = ClasspathManifestResolver()
+  override protected lazy val manifestResolver: ManifestResolver =
+    ManifestResolver.firstNonEmpty:
+      Seq(
+        RepositoryManifestResolver(
+          "camunda",
+          fallbackToRoot = true,
+          repositories = engineConfig.deploymentRepositories
+        ),
+        ClasspathManifestResolver("camunda", fallbackToRoot = true)
+      )
 
   override def deploy(
       name: String,
@@ -41,34 +50,50 @@ class C7DeploymentService(using
       apiClient <- apiClientZIO
       result    <-
         if deployableResources.isEmpty then
-          ZIO.succeed(
-            DeploymentResult(
-              deploymentId = "0",
-              name = name,
-              deploymentTime = Instant.now(),
-              deployedProcesses = Seq.empty,
-              deployedDecisions = Seq.empty,
-              deployedForms = Seq.empty,
-              deployedScripts = Seq.empty
+          ZIO.fail(
+            EngineError.ProcessError(
+              s"No deployable resources found for deployment '$name'"
             )
           )
         else
           ZIO.scoped:
             ZIO
-              .acquireRelease(createTempZip(deployableResources))(deleteTempFile)
-              .flatMap: path =>
+              .acquireRelease(createTempResources(deployableResources))(deleteTempResources)
+              .flatMap: resourceFiles =>
                 ZIO.attempt:
-                  val deployment = new DeploymentApi(apiClient)
-                    .createDeployment(
-                      engineConfig.tenantId.orNull,
-                      "orchescala-deployment",
-                      false,
-                      false,
-                      name,
-                      null,
-                      path.toFile
+                  val formParams = new HashMap[String, Object]()
+                  Option(engineConfig.tenantId.orNull).foreach(formParams.put("tenant-id", _))
+                  formParams.put("deployment-source", "orchescala-deployment")
+                  formParams.put("deploy-changed-only", Boolean.box(false))
+                  formParams.put("enable-duplicate-filtering", Boolean.box(false))
+                  formParams.put("deployment-name", name)
+                  resourceFiles.zipWithIndex.foreach: (file, index) =>
+                    formParams.put(s"data-$index", file.toFile)
+
+                  val deployment = apiClient.invokeAPI(
+                    "/deployment/create",
+                    "POST",
+                    new ArrayList[Pair](),
+                    new ArrayList[Pair](),
+                    new StringJoiner("&").toString,
+                    null,
+                    new HashMap[String, String](),
+                    new HashMap[String, String](),
+                    formParams,
+                    "application/json",
+                    "multipart/form-data",
+                    Array("basicAuth"),
+                    new TypeReference[DeploymentWithDefinitionsDto]() {}
+                  )
+                  val result = mapDeploymentResult(deployment)
+                  val expectedDefinitions = deployableResources.exists: resource =>
+                    resource.resourceType == DeploymentResourceType.Bpmn ||
+                      resource.resourceType == DeploymentResourceType.Dmn
+                  if expectedDefinitions && result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty then
+                    throw RuntimeException(
+                      s"C7 accepted deployment '$name' but returned no deployed process or decision definitions"
                     )
-                  mapDeploymentResult(deployment)
+                  result
               .mapError: err =>
                 EngineError.ProcessError(s"Problem deploying '$name' to C7: $err")
     yield result
@@ -123,24 +148,21 @@ class C7DeploymentService(using
         )
       case _ => ZIO.unit
 
-  private def createTempZip(resources: Seq[DeploymentResource]): IO[EngineError, Path] =
+  private def createTempResources(resources: Seq[DeploymentResource]): IO[EngineError, Seq[Path]] =
     ZIO.attempt:
-      val path   = Files.createTempFile("orchescala-deploy-", ".zip")
-      val buffer = new ByteArrayOutputStream()
-      val zipOut = new ZipOutputStream(buffer)
-      resources.foreach: resource =>
-        val entry = new ZipEntry(resource.name)
-        zipOut.putNextEntry(entry)
-        zipOut.write(resource.content)
-        zipOut.closeEntry()
-      zipOut.close()
-      Files.write(path, buffer.toByteArray)
-      path
+      val directory = Files.createTempDirectory("orchescala-deploy-")
+      resources.map: resource =>
+        val fileName = Paths.get(resource.name).getFileName.toString
+        val path     = directory.resolve(fileName)
+        Files.write(path, resource.content)
     .mapError: err =>
-      EngineError.ProcessError(s"Problem creating deployment zip: $err")
+      EngineError.ProcessError(s"Problem creating temporary deployment resources: $err")
 
-  private def deleteTempFile(path: Path): IO[Nothing, Unit] =
-    ZIO.attempt(Files.deleteIfExists(path)).ignore
+  private def deleteTempResources(paths: Seq[Path]): IO[Nothing, Unit] =
+    ZIO.attempt:
+      paths.foreach(Files.deleteIfExists)
+      paths.headOption.map(_.getParent).foreach(Files.deleteIfExists)
+    .ignore
 
   private def mapDeploymentResult(deployment: org.camunda.community.rest.client.dto.DeploymentWithDefinitionsDto): DeploymentResult =
     DeploymentResult(

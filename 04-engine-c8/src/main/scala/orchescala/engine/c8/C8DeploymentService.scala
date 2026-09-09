@@ -3,10 +3,11 @@ package orchescala.engine.c8
 import io.camunda.client.CamundaClient
 import orchescala.engine.EngineConfig
 import orchescala.engine.domain.*
-import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver}
+import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver, RepositoryManifestResolver}
 import zio.ZIO.{logDebug, logWarning}
 import zio.{IO, ZIO}
 
+import java.nio.file.Paths
 import java.time.Instant
 import scala.jdk.CollectionConverters.*
 
@@ -16,7 +17,16 @@ class C8DeploymentService(using
 ) extends DeploymentService,
       C8Service:
 
-  override protected lazy val manifestResolver: ManifestResolver = ClasspathManifestResolver()
+  override protected lazy val manifestResolver: ManifestResolver =
+    ManifestResolver.firstNonEmpty:
+      Seq(
+        RepositoryManifestResolver(
+          "camunda8",
+          fallbackToRoot = true,
+          repositories = engineConfig.deploymentRepositories
+        ),
+        ClasspathManifestResolver("camunda8", fallbackToRoot = true)
+      )
 
   override def deploy(
       name: String,
@@ -45,15 +55,9 @@ class C8DeploymentService(using
       camundaClient <- camundaClientZIO
       result        <-
         if deployableResources.isEmpty then
-          ZIO.succeed(
-            DeploymentResult(
-              deploymentId = "0",
-              name = name,
-              deploymentTime = Instant.now(),
-              deployedProcesses = Seq.empty,
-              deployedDecisions = Seq.empty,
-              deployedForms = Seq.empty,
-              deployedScripts = Seq.empty
+          ZIO.fail(
+            EngineError.ProcessError(
+              s"No deployable resources found for deployment '$name'"
             )
           )
         else
@@ -64,13 +68,13 @@ class C8DeploymentService(using
 
               val first             = deployableResources.head
               val withFirstResource = builder
-                .addResourceBytes(first.content, first.name)
+                .addResourceBytes(first.content, Paths.get(first.name).getFileName.toString)
               val withTenant = engineConfig.tenantId match
                 case Some(tenantId) => withFirstResource.tenantId(tenantId)
                 case None           => withFirstResource
               val finalBuilder = deployableResources.tail.foldLeft(withTenant):
                 (acc, resource) =>
-                  acc.addResourceBytes(resource.content, resource.name)
+                  acc.addResourceBytes(resource.content, Paths.get(resource.name).getFileName.toString)
 
               mapDeploymentResult(name, finalBuilder.send().join())
             .mapError: err =>
