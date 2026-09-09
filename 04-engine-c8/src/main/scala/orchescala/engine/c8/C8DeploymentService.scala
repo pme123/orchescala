@@ -34,17 +34,14 @@ class C8DeploymentService(using
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, DeploymentResult] =
     val deployableResources = resources.filter: resource =>
-      resource.resourceType != DeploymentResourceType.Form &&
-        resource.resourceType != DeploymentResourceType.Script
+      resource.resourceType != DeploymentResourceType.Script
 
     for
       _             <- validateTargetEngine(targetEngine)
       _             <- logDebug(s"Deploying '$name' to C8 with ${resources.size} resources")
-      _             <- ZIO
-                          .when(resources.exists(_.resourceType == DeploymentResourceType.Form)):
-                            logWarning(
-                              "Form resources are ignored for C8 deployments in the current implementation"
-                            )
+      _             <- logDebug(
+                           s"C8 deployment resources: ${deployableResources.map(_.name).mkString(", ")}"
+                         )
       _             <- ZIO
                           .when(resources.exists(_.resourceType == DeploymentResourceType.Script)):
                             ZIO.fail(
@@ -62,21 +59,28 @@ class C8DeploymentService(using
           )
         else
           ZIO
-            .attempt:
+            .attemptBlocking:
               val builder = camundaClient
                 .newDeployResourceCommand()
 
-              val first             = deployableResources.head
-              val withFirstResource = builder
-                .addResourceBytes(first.content, Paths.get(first.name).getFileName.toString)
-              val withTenant = engineConfig.tenantId match
-                case Some(tenantId) => withFirstResource.tenantId(tenantId)
-                case None           => withFirstResource
-              val finalBuilder = deployableResources.tail.foldLeft(withTenant):
+              val firstResource = deployableResources.head
+              val withFirstResource = builder.addResourceBytes(
+                firstResource.content,
+                Paths.get(firstResource.name).getFileName.toString
+              )
+              val withResources = deployableResources.tail.foldLeft(withFirstResource):
                 (acc, resource) =>
                   acc.addResourceBytes(resource.content, Paths.get(resource.name).getFileName.toString)
+              val finalBuilder = engineConfig.tenantId match
+                case Some(tenantId) => withResources.tenantId(tenantId)
+                case None           => withResources
 
-              mapDeploymentResult(name, finalBuilder.send().join())
+              val result = mapDeploymentResult(name, finalBuilder.send().join())
+              if result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty && result.deployedForms.isEmpty then
+                throw RuntimeException(
+                  s"C8 accepted deployment '$name' but returned no deployed process, decision or form definitions"
+                )
+              result
             .mapError: err =>
               EngineError.ProcessError(
                 s"Problem deploying '$name' to C8: $err"

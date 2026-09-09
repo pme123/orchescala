@@ -41,6 +41,10 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
       ZIO.scoped:
         for
           _ <- ZIO.logInfo(banner("Engine Gateway Server"))
+          _ <- config.engineConfig.supportedEngines match
+                 case Seq()   => ZIO.logWarning("Configured process engines: none")
+                 case engines =>
+                   ZIO.logInfo(s"Configured process engines: ${engines.distinct.mkString(", ")}")
           _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
 
           // Create gateway engine (with shared client layers provided)

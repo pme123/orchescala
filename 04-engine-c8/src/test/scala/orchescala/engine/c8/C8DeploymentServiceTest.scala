@@ -47,14 +47,8 @@ object C8DeploymentServiceTest extends ZIOSpecDefault:
       yield assertTrue(exit.isFailure)
     },
     test("deploy fails when no deployable resources are provided") {
-      val service = C8DeploymentService(using neverClient, config)
-      val resources = Seq(
-        DeploymentResource(
-          "my-form.form",
-          Array.emptyByteArray,
-          DeploymentResourceType.Form
-        )
-      )
+      val service   = C8DeploymentService(using neverClient, config)
+      val resources = Seq.empty[DeploymentResource]
       for
         exit <- service.deploy("test", resources, Some(EngineType.C8)).exit
       yield assertTrue(exit.isFailure)

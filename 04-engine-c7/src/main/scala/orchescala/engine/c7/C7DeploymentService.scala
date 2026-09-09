@@ -140,10 +140,10 @@ class C7DeploymentService(using
 
   private def validateTargetEngine(targetEngine: Option[EngineType]): IO[EngineError, Unit] =
     targetEngine match
-      case Some(engineType) if engineType != EngineType.C7 =>
+      case Some(target) if target != engineType =>
         ZIO.fail(
           EngineError.UnexpectedError(
-            s"C7DeploymentService only supports EngineType.C7, got $engineType"
+            s"${getClass.getSimpleName} only supports EngineType.$engineType, got $target"
           )
         )
       case _ => ZIO.unit
