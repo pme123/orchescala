@@ -57,13 +57,11 @@ trait EngineConfig:
       |""".stripMargin
   )
   def deploymentRepositories: Seq[URI] =
-    reposConfig.deploymentRepositories match
-      case Seq() =>
-        Seq(
-          Paths.get(System.getProperty("user.home"), ".m2", "repository").toUri,
-          URI.create("https://repo1.maven.org/maven2")
-        )
+    val mavenLocal = Paths.get(System.getProperty("user.home"), ".m2", "repository").toUri
+    val configuredOrDefault = reposConfig.deploymentRepositories match
+      case Seq() => Seq(URI.create("https://repo1.maven.org/maven2"))
       case repos => repos
+    (mavenLocal +: configuredOrDefault).distinct
 
   @description(
     """Pattern used to build the artifact URI inside a repository.

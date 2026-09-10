@@ -21,16 +21,36 @@ class RepositoryManifestResolver(
     else
       for
         _ <- ZIO.logDebug(
-               s"Resolving Maven artifact ${entry.company}:${entry.project}:${entry.version} with Coursier from repositories=${repositories.mkString(", ")}"
+               s"Resolving repository artifact ${entry.company}:${entry.project}:${entry.version} from Ivy local or with Coursier from repositories=${repositories.mkString(", ")}"
              )
         artifact <- fetchArtifact(entry)
-        _        <- ZIO.logDebug(s"Coursier resolved ${entry.deploymentName} to $artifact")
+        _        <- ZIO.logDebug(s"Resolved ${entry.deploymentName} to ${artifact.toAbsolutePath} from ${if ivyLocalArtifact(entry).isDefined then "Ivy local" else "Coursier"}")
         resources <- readJar(artifact, entry)
         _         <- ZIO.logDebug(s"Resolved ${resources.size} resource(s) from $artifact")
       yield resources
   end resolve
 
   private def fetchArtifact(entry: DeploymentEntry): IO[EngineError, Path] =
+    ivyLocalArtifact(entry) match
+      case Some(artifact) =>
+        ZIO.logDebug(s"Resolved ${entry.deploymentName} from Ivy local: $artifact").as(artifact)
+      case None           =>
+        fetchMavenArtifact(entry)
+
+  private def ivyLocalArtifact(entry: DeploymentEntry): Option[Path] =
+    val artifact = Paths.get(
+      System.getProperty("user.home"),
+      ".ivy2",
+      "local",
+      entry.company,
+      entry.project,
+      entry.version,
+      "jars",
+      s"${entry.project}.jar"
+    )
+    Option.when(Files.isRegularFile(artifact))(artifact)
+
+  private def fetchMavenArtifact(entry: DeploymentEntry): IO[EngineError, Path] =
     ZIO.attemptBlocking:
       val dependency = Dependency
         .of(entry.company, entry.project, entry.version)
@@ -52,7 +72,7 @@ class RepositoryManifestResolver(
           )
     .mapError: err =>
       EngineError.ProcessError(
-        s"Problem resolving Maven artifact ${entry.company}:${entry.project}:${entry.version} with Coursier: ${err.getMessage}"
+        s"Problem resolving repository artifact ${entry.company}:${entry.project}:${entry.version}: ${err.getMessage}"
       )
 
   private def readJar(

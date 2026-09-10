@@ -3,7 +3,7 @@ package orchescala.engine.c7
 import com.fasterxml.jackson.core.`type`.TypeReference
 import orchescala.engine.domain.*
 import orchescala.engine.EngineConfig
-import orchescala.engine.services.{ClasspathManifestResolver, DeploymentService, ManifestResolver, RepositoryManifestResolver}
+import orchescala.engine.services.{DeploymentService, ManifestResolver, RepositoryManifestResolver}
 import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
 import org.camunda.community.rest.client.invoker.{ApiClient, Pair}
 import org.camunda.community.rest.client.api.DeploymentApi
@@ -22,15 +22,11 @@ class C7DeploymentService(using
       C7Service:
 
   override protected lazy val manifestResolver: ManifestResolver =
-    ManifestResolver.firstNonEmpty:
-      Seq(
-        RepositoryManifestResolver(
-          "camunda",
-          fallbackToRoot = true,
-          repositories = engineConfig.deploymentRepositories
-        ),
-        ClasspathManifestResolver("camunda", fallbackToRoot = true)
-      )
+    RepositoryManifestResolver(
+      "camunda",
+      fallbackToRoot = true,
+      repositories = engineConfig.deploymentRepositories
+    )
 
   override def deploy(
       name: String,
