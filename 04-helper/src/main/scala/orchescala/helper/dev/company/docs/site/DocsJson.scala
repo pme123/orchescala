@@ -107,8 +107,10 @@ object DocsJson:
             "project" -> head.group(1).asJson,
             "version" -> head.group(2).asJson,
             "preview" -> (if preview then Json.True else Json.Null),
+            // the graph block names the project itself too (its own node) - not a dependency
             "dependsOn" -> """([\w-]+):([\w.]+)""".r.findAllMatchIn(deps).toSeq
-              .map(m => Json.obj("project" -> m.group(1).asJson, "version" -> m.group(2).asJson)).asJson
+              .map(m => m.group(1) -> m.group(2)).filter(_._1 != head.group(1)).distinctBy(_._1)
+              .map((p, v) => Json.obj("project" -> p.asJson, "version" -> v.asJson)).asJson
           )
           val name = head.group(1)
           if !projects.exists(_.name == name) then

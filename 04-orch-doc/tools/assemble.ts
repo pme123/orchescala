@@ -24,7 +24,8 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import type { CompanyDocs, SiteIndex } from '../src/types.ts';
+import { parse as parseYaml } from 'yaml';
+import type { CompanyDocs, SearchEntry, SiteIndex } from '../src/types.ts';
 
 const rootDir = resolve(dirname(new URL(import.meta.url).pathname), '..');
 const args = process.argv.slice(2);
@@ -83,6 +84,26 @@ if (!noBuild || !existsSync(singlePage)) run('npx', ['vite', 'build', '-c', 'vit
 const apiPage = readFileSync(singlePage, 'utf8');
 
 let apiOk = 0, apiHead = 0, apiMissing = 0;
+// the search index (`<company>/search.json`): every operation of every API, a project listed by
+// two companies indexed once - see src/types.ts SearchEntry (Scala twin: SiteAssembler.searchEntries)
+const searchEntries = new Map<string, SearchEntry>();
+const indexApi = (company: string, project: string, yml: string) => {
+  let doc: { paths?: Record<string, Record<string, { operationId?: string; tags?: string[]; summary?: string }>> };
+  try { doc = parseYaml(yml); } catch { return; }
+  const ops = Object.entries(doc.paths ?? {}).flatMap(([path, item]) =>
+    // old-style projects (pre 03-api) declare their processes with `head`
+    Object.entries(item).filter(([m]) => /^(get|post|put|delete|patch|head|options|trace)$/.test(m)).map(([, op]) => ({
+      path, operationId: op.operationId ?? path, tag: op.tags?.[0] ?? 'General', summary: op.summary,
+    })));
+  const counts = new Map<string, number>();
+  for (const o of ops) counts.set(o.operationId, (counts.get(o.operationId) ?? 0) + 1);
+  for (const o of ops) {
+    const id = (counts.get(o.operationId) ?? 0) > 1 ? `${o.tag} · ${o.operationId}` : o.operationId;
+    const topic = o.path.startsWith('/worker/') ? o.path.slice('/worker/'.length) || undefined : undefined;
+    const key = `${company}/${project}/${id}`;
+    if (!searchEntries.has(key)) searchEntries.set(key, { company, project, id, operationId: o.operationId, tag: o.tag, path: o.path, topic, summary: o.summary });
+  }
+};
 for (const co of siteIndex.companies) {
   const docs: CompanyDocs = JSON.parse(readFileSync(join(out, co.id, 'docs.json'), 'utf8'));
   for (const p of docs.projects) {
@@ -116,6 +137,7 @@ for (const co of siteIndex.companies) {
     if (!yml) { console.warn(`  ✗ ${p.name}: no OpenApi.yml at ${ref}`); apiMissing++; continue; }
     mkdirSync(join(target, 'diagrams'), { recursive: true });
     writeFileSync(join(target, 'OpenApi.yml'), yml);
+    indexApi(targetCo, p.name, yml.toString());
     writeFileSync(join(target, 'OpenApi.html'), apiPage);
     // the company gateway's Postman variant (only projects generated with that config have it)
     const postmanYml = git(repo, 'show', `${ref}:03-api/PostmanOpenApi.yml`);
@@ -133,6 +155,17 @@ for (const co of siteIndex.companies) {
     }
     console.log(`  ✓ ${p.name} @ ${ref}`);
     ref === 'HEAD' && version ? apiHead++ : apiOk++;
+  }
+}
+
+// the search index, one file per company
+{
+  const byCompany = new Map<string, SearchEntry[]>();
+  for (const e of searchEntries.values()) byCompany.set(e.company, [...(byCompany.get(e.company) ?? []), e]);
+  for (const [co, entries] of byCompany) {
+    mkdirSync(join(out, co), { recursive: true });
+    writeFileSync(join(out, co, 'search.json'), JSON.stringify(entries, null, 2));
+    console.log(`  ✓ search index ${co}: ${entries.length} operations`);
   }
 }
 

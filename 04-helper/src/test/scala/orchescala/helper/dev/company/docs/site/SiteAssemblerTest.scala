@@ -41,19 +41,29 @@ class SiteAssemblerTest extends FunSuite:
       assert(apiPages.nonEmpty, "no project OpenApi.html")
       assert(apiPages.forall(os.size(_) > 500 * 1024), "a project's OpenApi.html is not the single-file page")
       assert(apiPages.forall(p => os.exists(p / os.up / "OpenApi.yml")), "OpenApi.yml missing next to a page")
+      // the search index: every operation, workers with their topic
+      val search = docs.map(d => d / "search.json").filter(os.exists)
+      assert(search.nonEmpty, "no <company>/search.json")
+      val entries = search.flatMap(f => io.circe.parser.parse(os.read(f)).toOption.flatMap(_.asArray).getOrElse(Vector.empty))
+      assert(entries.size > 50, s"only ${entries.size} search entries")
+      assert(entries.exists(_.hcursor.get[String]("topic").toOption.exists(_.contains("."))), "no worker topic in the search index")
+      assert(entries.forall(e => e.hcursor.get[String]("id").isRight && e.hcursor.get[String]("project").isRight), "entry without id/project")
 
   test("LocalSiteServer serves an assembled site"):
     val site = os.temp.dir(prefix = "site-serve")
     os.write(site / "index.html", "<html><title>Orchescala</title></html>")
     os.write(site / "a" / "docs.json", """{"x":1}""", createFolders = true)
-    val port = 34045
-    val url  = LocalSiteServer.start(site, port).getOrElse(fail(s"port $port in use"))
-    assertEquals(url, s"http://localhost:$port/")
-    val index = os.proc("curl", "--silent", "--max-time", "5", url).call().out.text()
-    assert(index.contains("Orchescala"), index)
-    val json  = os.proc("curl", "--silent", "--max-time", "5", s"${url}a/docs.json").call().out.text()
-    assertEquals(json, """{"x":1}""")
-    val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
-    assertEquals(code, "404")
+    // port 0: any free port - the test must not depend on what else runs on this machine
+    val running = LocalSiteServer.start(site, 0).getOrElse(fail("could not start the server"))
+    try
+      val url   = running.url
+      assert(url.matches("http://localhost:\\d+/"), url)
+      val index = os.proc("curl", "--silent", "--max-time", "5", url).call().out.text()
+      assert(index.contains("Orchescala"), index)
+      val json  = os.proc("curl", "--silent", "--max-time", "5", s"${url}a/docs.json").call().out.text()
+      assertEquals(json, """{"x":1}""")
+      val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
+      assertEquals(code, "404")
+    finally running.stop()
 
 end SiteAssemblerTest

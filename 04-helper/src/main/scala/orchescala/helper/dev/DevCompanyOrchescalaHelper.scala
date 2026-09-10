@@ -5,7 +5,8 @@ import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
 import orchescala.helper.dev.publish.PublishHelper.*
-import orchescala.helper.util.{DevConfig, PublishConfig, RepoConfig}
+import orchescala.engine.config.RepoConfig
+import orchescala.helper.util.{DevConfig, PublishConfig}
 
 import scala.util.{Failure, Success, Try}
 

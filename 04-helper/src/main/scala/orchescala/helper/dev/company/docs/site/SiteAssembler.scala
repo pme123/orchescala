@@ -34,6 +34,9 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
       .flatMap(_.hcursor.get[String]("id").toOption)
     // ── 2. referenced APIs at the defined versions ────────────────────────────
     var apiOk = 0; var apiHead = 0; var apiMissing = 0
+    // the search index (`<company>/search.json`): every operation of every API - a project listed
+    // by two companies (swisscom-fil-is in valiant's docs) is indexed once, under its own company
+    val searchEntries = scala.collection.mutable.LinkedHashMap.empty[String, io.circe.Json]
     companies.foreach: co =>
       val docs     = parse(os.read(out / co / "docs.json")).toOption.get
       val projects = docs.hcursor.downField("projects").as[Seq[io.circe.Json]].getOrElse(Seq.empty)
@@ -65,6 +68,8 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
             case Some(yml) =>
               os.makeDir.all(target / "diagrams")
               os.write.over(target / "OpenApi.yml", yml)
+              SiteAssembler.searchEntries(targetCo, name, new String(yml, java.nio.charset.StandardCharsets.UTF_8))
+                .foreach(e => searchEntries.getOrElseUpdate(s"$targetCo/$name/${e.hcursor.get[String]("id").getOrElse("")}", e))
               // the API page: always the CURRENT one from the jar, not what the project shipped at that tag
               os.write.over(target / "OpenApi.html", apiPage)
               // the company gateway's Postman variant (only projects generated with that config have it)
@@ -78,6 +83,9 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
                       git(repo, "show", s"$ref:$f").foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
               println(s"  ✓ $name @ $ref")
               if ref == "HEAD" && newest.isDefined then apiHead += 1 else apiOk += 1
+    searchEntries.values.groupBy(_.hcursor.get[String]("company").getOrElse("")).foreach: (co, entries) =>
+      os.write.over(out / co / "search.json", io.circe.Json.arr(entries.toSeq*).spaces2, createFolders = true)
+      println(s"  ✓ search index $co: ${entries.size} operations")
     // ── 3. older releases (classic static sites) ──────────────────────────────
     companies.foreach: co =>
       val docs  = parse(os.read(out / co / "docs.json")).toOption.get
@@ -126,5 +134,36 @@ object SiteAssembler:
       os.write.over(target, os.read.bytes(base / os.RelPath(rel)))
     println(s"  ✓ documentation app (${files.size} files) from the orchescala-orch-doc jar")
   end copySiteApp
+
+  /** The search index entries of one project API (see orch-doc `types.ts` SearchEntry): every
+    * operation with its path - for workers `/worker/<topic>`, the topic being unique across all
+    * projects, which is what people search for. The `id` is what the API view selects: the
+    * operationId, qualified with its tag when the id repeats within the project (`Process start`
+    * of several processes) - the same rule the app uses.
+    */
+  def searchEntries(company: String, project: String, yml: String): Seq[io.circe.Json] =
+    import io.circe.syntax.*
+    import scala.jdk.CollectionConverters.*
+    val parsed = scala.util.Try(io.swagger.v3.parser.OpenAPIV3Parser().readContents(yml, null, null)).toOption
+    val paths  = parsed.flatMap(p => Option(p.getOpenAPI)).flatMap(o => Option(o.getPaths)).map(_.asScala.toSeq).getOrElse(Seq.empty)
+    val ops    = paths.flatMap: (path, item) =>
+      item.readOperationsMap().asScala.values.toSeq.map: op =>
+        val operationId = Option(op.getOperationId).getOrElse(path)
+        val tag         = Option(op.getTags).map(_.asScala).flatMap(_.headOption).getOrElse("General")
+        (path, operationId, tag, Option(op.getSummary))
+    val counts = ops.groupBy(_._2).view.mapValues(_.size).toMap
+    ops.map: (path, operationId, tag, summary) =>
+      val topic = Option.when(path.startsWith("/worker/"))(path.stripPrefix("/worker/")).filter(_.nonEmpty)
+      io.circe.Json.obj(
+        "company" -> company.asJson,
+        "project" -> project.asJson,
+        "id" -> (if counts(operationId) > 1 then s"$tag · $operationId" else operationId).asJson,
+        "operationId" -> operationId.asJson,
+        "tag" -> tag.asJson,
+        "path" -> path.asJson,
+        "topic" -> topic.asJson,
+        "summary" -> summary.asJson
+      ).deepDropNullValues
+  end searchEntries
 
 end SiteAssembler

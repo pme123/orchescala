@@ -14,14 +14,6 @@ case class SbtGenerator()(using
     createOrUpdate(config.sbtProjectDir / "ProjectDef.scala", projectDefSbt)
   end generate
 
-  lazy val generateForGateway: Unit =
-    println(s"Generate Sbt for Gateway: $modulesTypes")
-    createOrUpdate(buildSbtDir, buildSbtForGateway)
-    generateBuildProperties()
-    generatePluginsSbt
-    createOrUpdate(config.sbtProjectDir / "ProjectDef.scala", projectDefSbt)
-  end generateForGateway
-
   def generateBuildProperties(replaceStr: String = helperDoNotAdjustText) =
     createOrUpdate(config.sbtProjectDir / "build.properties", buildProperties(replaceStr))
   lazy val generatePluginsSbt                                             =
@@ -36,11 +28,6 @@ case class SbtGenerator()(using
        |$sbtModules
        |""".stripMargin
   end buildSbt
-  private lazy val buildSbtForGateway =
-    s"""$buildSbtHeader
-       |$sbtRootForGateway
-       |$sbtModules
-       |""".stripMargin
   private val buildSbtHeader          =
     s"""// $doNotAdjust. This file is replaced by `./helper.scala update`.
        |import Settings.*
@@ -103,17 +90,6 @@ case class SbtGenerator()(using
        |    projectSettings(),
        |    publicationSettings, //Camunda artifacts
        |  ).aggregate(${modulesTypes.mkString(", ")})
-       |""".stripMargin
-
-  lazy val sbtRootForGateway =
-    s"""
-       |lazy val root = project
-       |  .in(file("."))
-       |  .settings(
-       |    sourcesInBase := false,
-       |    projectSettings(),
-       |    preventPublication,
-       |  ).aggregate(gateway)
        |""".stripMargin
 
   lazy val sbtModules =

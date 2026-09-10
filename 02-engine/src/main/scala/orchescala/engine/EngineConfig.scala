@@ -1,8 +1,12 @@
 package orchescala.engine
 
 import orchescala.domain.*
+import orchescala.engine.config.ReposConfig
 import orchescala.engine.domain.EngineType
 import orchescala.engine.rest.WorkerForwardUtil
+
+import java.net.URI
+import java.nio.file.Paths
 
 trait EngineConfig:
   def tenantId: Option[String]
@@ -42,6 +46,30 @@ trait EngineConfig:
   )
   def parallelism: Int
 
+  @description(
+    """General repository configuration (release/dependency repos).""".stripMargin
+  )
+  def reposConfig: ReposConfig
+
+  @description(
+    """Repositories where deployment artifacts (jars) are resolved from.
+      |Defaults to the local Maven repository (~/.m2/repository) and Maven Central.
+      |""".stripMargin
+  )
+  def deploymentRepositories: Seq[URI] =
+    val mavenLocal = Paths.get(System.getProperty("user.home"), ".m2", "repository").toUri
+    val configuredOrDefault = reposConfig.deploymentRepositories match
+      case Seq() => Seq(URI.create("https://repo1.maven.org/maven2"))
+      case repos => repos
+    (mavenLocal +: configuredOrDefault).distinct
+
+  @description(
+    """Pattern used to build the artifact URI inside a repository.
+      |Supported placeholders: <repo>, <company>, <project>, <version>, <artifact>.
+      |""".stripMargin
+  )
+  def deploymentArtifactPattern: String = reposConfig.deploymentArtifactPattern
+
   def validateProcess(doValidate: Boolean): EngineConfig
 
   def withTenantId(tenantId: String): EngineConfig
@@ -61,7 +89,8 @@ case class DefaultEngineConfig(
             if EnvironmentDetector.isLocalhost then "localhost"
             else topicName.split('-').take(2).mkString("-")
           }:5555"
-      )
+      ),
+    reposConfig: ReposConfig = ReposConfig.dummyRepos
 ) extends EngineConfig:
 
   def validateProcess(doValidate: Boolean): EngineConfig =

@@ -7,6 +7,7 @@ import DevStats from './components/DevStats';
 import MdPage from './components/MdPage';
 import Overview from './components/Overview';
 import Release from './components/Release';
+import SearchBox from './components/SearchBox';
 import { useCompanyDocs, useSiteIndex } from './data';
 import { href, useRoute, type Route } from './router';
 import type { CompanyDocs, CompanyRef, SiteIndex } from './types';
@@ -54,6 +55,8 @@ export default function App() {
               </a>
             )}
             {company && <span className={`text-[11px] hidden sm:inline mr-auto ${c.muted}`}>Process Documentation</span>}
+            {/* search across all project APIs - topics, workers, processes; `/` focuses it - right, before the buttons */}
+            <SearchBox site={siteData} isDark={isDark} />
             <a href={href.home()} title="All catalogs" className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${route.kind === 'home' ? c.btnActive : c.btn}`}>
               <Home size={12} /><span className="hidden sm:inline">Catalogs</span>
             </a>

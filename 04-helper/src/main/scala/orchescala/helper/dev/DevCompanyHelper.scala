@@ -4,7 +4,8 @@ import orchescala.api.{defaultProjectConfigPath, projectsPath}
 import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.update.createIfNotExists
-import orchescala.helper.util.{DevConfig, RepoConfig}
+import orchescala.engine.config.RepoConfig
+import orchescala.helper.util.DevConfig
 
 import scala.util.{Failure, Success, Try}
 

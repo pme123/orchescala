@@ -15,6 +15,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.7.1 - 2026-09-10
+### Changed 
+- Adjustments to run company-orchescala. - see [Commit](git@github.com:pme123/orchescala/commit/979e36d16000d390d2441d5b35bae2f114aef747)
+- Supporting multiple deployments for different engines. - see [Commit](git@github.com:pme123/orchescala/commit/dc33c7bc2969eb4a5450eed922ab8ff3294debf6)
+- Running example with all engine implementations. - see [Commit](git@github.com:pme123/orchescala/commit/4ae4a35843bacd09f647361eae5c7fe3923ae75d)
+- Added coursier to resolve dependency - working c7 deployement with postman. - see [Commit](git@github.com:pme123/orchescala/commit/0fe70c8929556c31cc30fa1f4d3e58fab98f8d3c)
+- Added REST endpoint for deploy with manifest method. - see [Commit](git@github.com:pme123/orchescala/commit/15862698153a34152d6e58f7f978d726c5e001e2)
+- Added deploy with manifest method for the different engines. - see [Commit](git@github.com:pme123/orchescala/commit/892c8090c051efb4f73a1ddce747300288364337)
+- Added deploy method for the different engines. - see [Commit](git@github.com:pme123/orchescala/commit/e9b536e4fe83a0167af09605668ae25b9ad8c567)
+- Removed specific GatewayGenerator - is not used anymore - standard module in company-orchescala projects. - see [Commit](git@github.com:pme123/orchescala/commit/743190ad1584456bff813a71b4a654a39d5147a6)
+- Adjusted order when publish new version to get faster (no downloads if not needed). - see [Commit](git@github.com:pme123/orchescala/commit/0755a1ec0d91467afce877d7007248040fb6f3e5)
+- Fixed: Removed own Project in dependency references in orch-docs. - see [Commit](git@github.com:pme123/orchescala/commit/c4693f17eeedd8f19857e6488737c2a1d548f505)
+- Added search field for topics / processNames in top navigation fo orch-docs. - see [Commit](git@github.com:pme123/orchescala/commit/36773a7be580325969e500ada3b17a5043d5eee9)
+- Added different license for docs/specs. - see [Commit](git@github.com:pme123/orchescala/commit/6191f391ae4544d00678cd90fae5ac2502c36d63)
+
 ## 0.7.0 - 2026-09-03
 ### Changed 
 - Integrated orch-spec into orchescala (part of orch-docs). - see [Commit](git@github.com:pme123/orchescala/commit/a0fdad14b1d6e44f9c2e6544bdeb098a39791948)

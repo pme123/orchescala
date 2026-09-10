@@ -1,7 +1,7 @@
 package orchescala.engine
 package c8
 
-import io.camunda.client.CamundaClient
+import io.camunda.client.{CamundaClient, CamundaClientBuilder}
 import io.camunda.client.impl.oauth.OAuthCredentialsProviderBuilder
 import io.camunda.client.CredentialsProvider
 import io.camunda.client.CredentialsProvider.StatusCode
@@ -50,14 +50,19 @@ trait C8BearerTokenClient extends C8Client:
   protected def zeebeGrpc: String
   protected def zeebeRest: String
 
+  private def clientBuilder: CamundaClientBuilder =
+    val builder = CamundaClient.newClientBuilder()
+      .grpcAddress(URI.create(zeebeGrpc))
+      .restAddress(URI.create(zeebeRest))
+    if URI.create(zeebeGrpc).getScheme.equalsIgnoreCase("http") then builder.usePlaintext()
+    else builder
+
   /** Creates a client with the provided Bearer token.
     * Note: This creates a new client for each token, so it should not be cached in SharedC8ClientManager.
     */
   def clientWithToken(token: String): ZIO[Any, EngineError, CamundaClient] =
     ZIO.attempt:
-      CamundaClient.newClientBuilder()
-        .grpcAddress(URI.create(zeebeGrpc))
-        .restAddress(URI.create(zeebeRest))
+      clientBuilder
         .credentialsProvider(new BearerTokenCredentialsProvider(token))
         .build()
     .mapError: ex =>
@@ -67,10 +72,7 @@ trait C8BearerTokenClient extends C8Client:
   lazy val client: ZIO[SharedC8ClientManager, EngineError, CamundaClient] =
     SharedC8ClientManager.getOrCreateClient:
       ZIO.attempt:
-        CamundaClient.newClientBuilder()
-          .grpcAddress(URI.create(zeebeGrpc))
-          .restAddress(URI.create(zeebeRest))
-          .build()
+        clientBuilder.build()
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating C8 Client: $ex")
 

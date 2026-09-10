@@ -12,9 +12,7 @@ case class PublishHelper()(using
 
   def publish(version: String): Unit =
     println(s"Publishing BPF Package: $version")
-    verifyVersion(version)
-    //TODO verifySnapshots()
-    verifyChangelog(version)
+    verify(version)
     pushDevelop()
     setApiVersion(version)
     replaceVersion(version)
@@ -47,41 +45,6 @@ case class PublishHelper()(using
     end if
   end publish
 
-  def publishGateway(version: String): Unit =
-    println(s"Publishing Gateway: $version")
-    verifyVersion(version)
-    verifySnapshots()
-    verifyChangelog(version)
-    pushDevelop()
-    // not used setApiVersion(version)
-    replaceVersion(version)
-
-    lazy val sbtProcs = Seq(
-      "sbt",
-      "publish"
-    )
-
-    lazy val gatewayAppFile: os.Path =
-      workDir / "04-gateway" / "src" / "main" / "scala" /
-        devConfig.projectPath / "GatewayServerApp.scala"
-    lazy val sbtDockerProcs          =
-      if os.exists(gatewayAppFile) then
-        Seq(
-          "gateway / Docker / publish"
-        )
-      else
-        Seq.empty
-
-    println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
-    os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
-
-    val isSnapshot = version.contains("-")
-    if !isSnapshot then
-      git(version, replaceVersion)
-
-    end if
-  end publishGateway
-
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
 
@@ -111,6 +74,15 @@ end PublishHelper
 
 object PublishHelper extends Helpers:
   val projectFile: os.Path = workDir / "project" / "ProjectDef.scala"
+
+  /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
+    * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).
+    */
+  def verify(newVersion: String): Unit =
+    verifySnapshots()
+    verifyChangelog(newVersion)
+    verifyVersion(newVersion)
+  end verify
 
   def verifyVersion(newVersion: String): Unit =
     val releaseVersion = """^(\d+)\.(\d+)\.(\d+)(-.*)?$"""

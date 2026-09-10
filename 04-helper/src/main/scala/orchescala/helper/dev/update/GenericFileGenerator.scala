@@ -1,6 +1,7 @@
 package orchescala.helper.dev.update
 
-import orchescala.helper.util.{PipelineConfig, RepoConfig, RepoCredentials}
+import orchescala.engine.config.{RepoConfig, RepoCredentials}
+import orchescala.helper.util.PipelineConfig
 
 case class GenericFileGenerator()(using config: DevConfig):
 
@@ -17,14 +18,6 @@ case class GenericFileGenerator()(using config: DevConfig):
     config.pipelineConfig.foreach: pConfig => // only if configured
       createOrUpdate(config.projectDir / ".gitlab-ci.yml", gitLabPipeline(pConfig))
   end generate
-
-  lazy val generateForGateway: Unit =
-    createScalaFmt
-    createGitIgnore
-    createOrUpdate(config.projectDir / "helper.scala", ScriptCreator().projectHelperForGateway)
-    os.proc("chmod", "+x", config.projectDir / "helper.scala").call()
-    createIfNotExists(config.projectDir / "CHANGELOG.md", changeLog)
-  end generateForGateway
 
   lazy val createScalaFmt  =
     createOrUpdate(config.projectDir / ".scalafmt.conf", scalafmt)

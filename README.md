@@ -35,3 +35,8 @@ Check the result in http://localhost:4242
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Exception: the documentation apps **Orch Doc** (`04-orch-doc`) and **Orch Spec** (`04-orch-spec`)
+- and the `orchescala-orch-doc` artifact built from them - are licensed under the
+[Business Source License 1.1](04-orch-doc/LICENSE) by z9nai GmbH: free for non-production use,
+production use with a license from z9nai GmbH.

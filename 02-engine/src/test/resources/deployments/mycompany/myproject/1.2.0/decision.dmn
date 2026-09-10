@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/DMN/20180521/MODEL/" id="test-dmn" name="TestDmn">
+  <decision id="decision1" name="Decision 1">
+    <decisionTable id="table1" hitPolicy="UNIQUE">
+      <input id="input1" label="Input">
+        <inputExpression id="inputExpression1" typeRef="string"/>
+      </input>
+      <output id="output1" label="Output"/>
+      <rule id="rule1">
+        <inputEntry id="inputEntry1"><text>"yes"</text></inputEntry>
+        <outputEntry id="outputEntry1"><text>"ok"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -13,8 +13,9 @@ import orchescala.engine.c8.{
   C8ProcessEngine,
   SharedC8ClientManager
 }
-import orchescala.engine.domain.EngineError
+import orchescala.engine.domain.{EngineError, EngineType}
 import orchescala.engine.gateway.GProcessEngine
+import orchescala.engine.op.{OpDefaultBearerTokenClient, OpProcessEngine, SharedOpClientManager}
 import orchescala.worker.DefaultWorkerConfig
 import zio.*
 import zio.http.*
@@ -38,9 +39,14 @@ import zio.http.*
   *   - CAMUNDA_C8_REST_URL: Camunda 8 REST API URL (default: http://localhost:8080)
   */
 object ExampleGatewayServer extends GatewayServer:
+  given EngineConfig =
+    DefaultEngineConfig(
+      supportedEngines = Seq(EngineType.C7, EngineType.C8, EngineType.Op)
+    )
+
   override def config: GatewayConfig = DefaultGatewayConfig(
-    engineConfig = DefaultEngineConfig(),
-    workerConfig = DefaultWorkerConfig(DefaultEngineConfig())
+    engineConfig = summon[EngineConfig],
+    workerConfig = DefaultWorkerConfig(summon[EngineConfig])
   )
 
   /** Example C7 client with Bearer token pass-through authentication */
@@ -50,20 +56,22 @@ object ExampleGatewayServer extends GatewayServer:
   /** Example C8 client with Bearer token pass-through authentication */
   val ExampleC8Client = C8DefaultBearerTokenClient(
     sys.env.getOrElse("CAMUNDA_C8_GRPC_URL", "http://localhost:26500"),
-    sys.env.getOrElse("CAMUNDA_C8_REST_URL", "http://localhost:8080")
+    sys.env.getOrElse("CAMUNDA_C8_REST_URL", "http://localhost:8181")
   )
 
-  /** Example Gateway configuration */
-  given EngineConfig =
-    DefaultEngineConfig(
-    )
+  val ExampleOpClient = OpDefaultBearerTokenClient(
+    sys.env.getOrElse("OPERATON_REST_URL", "http://localhost:8282/engine-rest")
+  )
 
   override def engineZIO: ZIO[Any, EngineError, ProcessEngine] =
     (for
       c7Engine <- C7ProcessEngine.withClient(ExampleC7Client)
-      c8Engine                <- C8ProcessEngine.withClient(ExampleC8Client)
-      given Seq[ProcessEngine] = Seq(c7Engine, c8Engine)
+      c8Engine <- C8ProcessEngine.withClient(ExampleC8Client)
+      opEngine <- OpProcessEngine.withClient(ExampleOpClient)
+      given Seq[ProcessEngine] = Seq(c7Engine, c8Engine, opEngine)
     yield GProcessEngine())
-      .provideLayer(SharedC7ClientManager.layer ++ SharedC8ClientManager.layer)
+      .provideLayer(
+        SharedC7ClientManager.layer ++ SharedC8ClientManager.layer ++ SharedOpClientManager.layer
+      )
 
 end ExampleGatewayServer

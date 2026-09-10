@@ -144,3 +144,20 @@ export interface Page {
   /** navigation section, e.g. `Development`; top level when missing */
   section?: string;
 }
+
+/** `<company>/search.json` - every operation of every project API, for the search in the top
+ *  bar (written by the site assembly from the projects' OpenApi.yml) */
+export interface SearchEntry {
+  company: string;
+  project: string;
+  /** what the API view selects (`?op=`): the operationId, qualified with its tag if the id repeats within the project */
+  id: string;
+  operationId: string;
+  /** the process / group the operation belongs to */
+  tag: string;
+  /** the OpenAPI path - for workers `/worker/<topic>`, the topic being unique across all projects */
+  path: string;
+  /** the worker topic (last segment of a `/worker/` path) */
+  topic?: string;
+  summary?: string;
+}
