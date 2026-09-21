@@ -49,8 +49,8 @@ class C8HistoricProcessInstanceService(using
           processDefinitionVersion = processInstanceDto.getProcessDefinitionVersion,
           processDefinitionId = processInstanceDto.getProcessDefinitionId,
           businessKey = None,  // only supported through variables
-          startTime = OffsetDateTime.parse(processInstanceDto.getStartDate),
-          endTime = Option(processInstanceDto.getEndDate).map(OffsetDateTime.parse),
+          startTime = processInstanceDto.getStartDate,
+          endTime = Option(processInstanceDto.getEndDate),
           removalTime = None,
           startUserId = None,  // not supported
           deleteReason = None, // not supported

@@ -59,7 +59,7 @@ class C8IncidentService(using
       processDefinitionId = Option(incident.getProcessDefinitionId),
       processInstanceId = Option(incident.getProcessInstanceKey).map(_.toString),
       executionId = None, // not supported
-      incidentTimestamp = OffsetDateTime.parse(incident.getCreationTime),
+      incidentTimestamp = incident.getCreationTime,
       incidentType = incident.getErrorType.toString,
       activityId = None, // not supported
       failedActivityId = None, // not supported

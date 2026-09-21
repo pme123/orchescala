@@ -66,7 +66,7 @@ object Dependencies {
   // 04-c8-spring
   // -> bpmn
   val scalaJacksonVersion   = "2.20.0"
-  val camunda8Version       = "8.8.0-alpha8-rc3"
+  val camunda8Version       = "8.9.19"
   val springBootVersion     = "3.4.13"
   val nettyVersion          = "4.2.0.Final"
   val swaggerOpenAPIVersion = "2.1.34"
