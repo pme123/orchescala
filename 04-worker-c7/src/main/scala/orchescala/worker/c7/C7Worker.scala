@@ -115,12 +115,13 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         error: WorkerError,
         generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, Unit]] =
+      // AlreadyHandledError means checkError already resolved it (handleSuccess/handleBpmnError
+      // ran). Everything else - including UnexpectedError and a MockedOutput that somehow wasn't
+      // resolved as handled - must go through handleFailure
       checkError(error, generalVariables)
         .flatMap:
-          case _: (UnexpectedError | MockedOutput | AlreadyHandledError.type) =>
-            ZIO.unit
-          case err                                                            =>
-            handleFailure(err, generalVariables._servicesMocked.contains(true))
+          case AlreadyHandledError => ZIO.unit
+          case err                 => handleFailure(err, generalVariables._servicesMocked.contains(true))
 
     end handleError
 

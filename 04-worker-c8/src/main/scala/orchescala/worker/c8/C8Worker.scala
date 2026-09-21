@@ -69,12 +69,13 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     private[worker] def handleError(
         error: WorkerError
     ): URIO[Any, Unit] =
+      // AlreadyHandledError means checkError already resolved it (handleSuccess/handleBpmnError
+      // ran). Everything else - including UnexpectedError and a MockedOutput that somehow wasn't
+      // resolved as handled - must go through handleFailure
       checkError(error, generalVariables, businessKey)
         .flatMap:
-          case x: (UnexpectedError | MockedOutput | AlreadyHandledError.type) =>
-            ZIO.unit
-          case err                                                            =>
-            handleFailure(err)
+          case AlreadyHandledError => ZIO.unit
+          case err                 => handleFailure(err)
     end handleError
 
     private[worker] def checkError(
@@ -248,7 +249,10 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           case _                               =>
             ZIO.fail(error)
         .flatMapError: throwable =>
-          logError(s"Problem handling Failure to C7: ${throwable.getMessage}.")
+          // throwable is frequently one of our own WorkerError/OrchescalaError cases here (e.g. the
+          // ZIO.fail(error) above) - those override toString but not getMessage, which stays null
+          // (Throwable's default), so use toString to actually see what went wrong.
+          logError(s"Problem handling Failure to C8: $throwable")
         .ignore
         .ignore
   end C8WorkerRunner

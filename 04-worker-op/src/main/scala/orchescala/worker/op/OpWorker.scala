@@ -117,12 +117,13 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         generalVariables: GeneralVariables,
         retries: Int
     ): HelperContext[URIO[Any, Unit]] =
+      // AlreadyHandledError means checkError already resolved it (handleSuccess/handleBpmnError
+      // ran). Everything else - including UnexpectedError and a MockedOutput that somehow wasn't
+      // resolved as handled - must go through handleFailure
       checkError(error, generalVariables, retries)
         .flatMap:
-          case _: (UnexpectedError | MockedOutput | AlreadyHandledError.type) =>
-            ZIO.unit
-          case err                                                            =>
-            handleFailure(err, retries)
+          case AlreadyHandledError => ZIO.unit
+          case err                 => handleFailure(err, retries)
 
     end handleError
 
