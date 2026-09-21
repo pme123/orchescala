@@ -10,13 +10,42 @@ import zio.{IO, ZIO}
 
 import java.net.URI
 
+// Per-route REST pool size (SDK default is already 100). Irrelevant once streaming/gRPC is used
+// below, kept as a safety net for any call that still goes over REST.
+private val maxHttpConnections = 100
+
+// SDK default is a single thread for ALL job worker handler dispatch/completion across the whole
+// client - with dozens/hundreds of registered job types, that one thread serializes job handling
+// and command responses.
+private val numJobWorkerExecutionThreads = 32
+
 trait C8Client:
+  protected def zeebeGrpc: String
+  protected def zeebeRest: String
   def client: ZIO[SharedC8ClientManager, EngineError, CamundaClient]
+
+  protected lazy val clientBuilder = CamundaClient.newClientBuilder()
+    // otherwise ZEEBE_*/CAMUNDA_* env vars silently override the settings below
+    // (applyEnvironmentVariableOverrides defaults to true in the SDK)
+    .applyEnvironmentVariableOverrides(false)
+    .grpcAddress(URI.create(zeebeGrpc))
+    .restAddress(URI.create(zeebeRest))
+    // Every REST call (job activation AND complete/fail/throw commands, since
+    // preferRestOverGrpc defaults to true) shares one Apache HttpClient5 pool capped at a
+    // hard-coded total of 25 connections - there is no public API to raise that total
+    // (maxHttpConnections only raises the per-route limit, which was never the binding
+    // constraint). With dozens/hundreds of concurrently registered job types constantly
+    // long-polling, that pool is permanently saturated, so command calls queue behind
+    // polls for up to the request timeout (DeadlineTimeoutException, or multi-second/
+    // tens-of-seconds delays completing a job). Route both activation and commands over
+    // gRPC (HTTP/2, multiplexed, no such pool) instead.
+    .defaultJobWorkerStreamEnabled(true)
+    .preferRestOverGrpc(false)
+    .maxHttpConnections(maxHttpConnections)
+    .numJobWorkerExecutionThreads(numJobWorkerExecutionThreads)
 
 trait C8SaasClient extends C8Client:
 
-  protected def zeebeGrpc: String
-  protected def zeebeRest: String
   protected def audience: String
   protected def clientId: String
   protected def clientSecret: String
@@ -27,11 +56,9 @@ trait C8SaasClient extends C8Client:
       ZIO.logDebug("Creating Camunda Client for simulation") *>
         ZIO
           .attempt:
-            CamundaClient.newClientBuilder()
-              .grpcAddress(URI.create(zeebeGrpc))
-              .restAddress(URI.create(zeebeRest))
+            clientBuilder
               .credentialsProvider(credentialsProvider)
-              .build
+              .build()
           .mapError: ex =>
             EngineError.UnexpectedError(s"Problem creating Engine Client: $ex")
 
@@ -46,16 +73,6 @@ end C8SaasClient
 
 /** C8 client with Bearer token authentication (token provided per request) */
 trait C8BearerTokenClient extends C8Client:
-
-  protected def zeebeGrpc: String
-  protected def zeebeRest: String
-
-  private def clientBuilder: CamundaClientBuilder =
-    val builder = CamundaClient.newClientBuilder()
-      .grpcAddress(URI.create(zeebeGrpc))
-      .restAddress(URI.create(zeebeRest))
-    if URI.create(zeebeGrpc).getScheme.equalsIgnoreCase("http") then builder.usePlaintext()
-    else builder
 
   /** Creates a client with the provided Bearer token.
     * Note: This creates a new client for each token, so it should not be cached in SharedC8ClientManager.
