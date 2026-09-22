@@ -84,14 +84,31 @@ class C8DeploymentService(using
     yield result
   end deploy
 
+  /** Zeebe has no deployment entity to list - the closest "deploy status" is the set of
+    * deployed process definitions, one `DeploymentInfo` each (key, bpmn process id, version).
+    */
   override def getDeployments(
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, Seq[DeploymentInfo]] =
-    validateTargetEngine(targetEngine) *>
-      ZIO.fail(
-        EngineError.UnexpectedError(
-          "getDeployments is not supported by the C8 Java client in this version"
-        )
+    for
+      _             <- validateTargetEngine(targetEngine)
+      camundaClient <- camundaClientZIO
+      definitions   <-
+        ZIO
+          .fromFutureJava:
+            camundaClient
+              .newProcessDefinitionSearchRequest()
+              .send()
+          .map(_.items().asScala.toSeq)
+          .mapError: err =>
+            EngineError.ProcessError(s"Problem getting process definitions from C8: $err")
+    yield definitions.map: d =>
+      DeploymentInfo(
+        id = d.getProcessDefinitionKey.toString,
+        name = d.getProcessDefinitionId,
+        deploymentTime = None,
+        engineType = Some(EngineType.C8),
+        version = Some(d.getVersion)
       )
 
   override def deleteDeployment(

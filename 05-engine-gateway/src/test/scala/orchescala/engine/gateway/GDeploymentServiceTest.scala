@@ -46,7 +46,7 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
       if shouldFail then ZIO.fail(EngineError.ProcessError(s"$engineType delete failed"))
       else ZIO.unit
 
-    override def deployManifest(
+    override def postDeployments(
         manifest: DeploymentManifest,
         targetEngine: Option[EngineType]
     ): IO[EngineError, Seq[DeploymentResult]] =
@@ -115,7 +115,7 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
       val gService  = GDeploymentService(using Seq(c7Service, c8Service))
       val manifest  = DeploymentManifest(Seq(DeploymentEntry("mycompany", "myproject", "1.2.0")))
       for
-        results <- gService.deployManifest(manifest, Some(EngineType.C8))
+        results <- gService.postDeployments(manifest, Some(EngineType.C8))
       yield assertTrue(
         results.size == 1,
         c7Service.manifestCalls.isEmpty,
@@ -129,7 +129,7 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
       val gService  = GDeploymentService(using Seq(c7Service, c8Service))
       val manifest  = DeploymentManifest(Seq(DeploymentEntry("mycompany", "myproject", "1.2.0")))
       for
-        exit <- gService.deployManifest(manifest, None).exit
+        exit <- gService.postDeployments(manifest, None).exit
       yield assertTrue(
         exit.isFailure,
         c7Service.manifestCalls.length == 1,
@@ -142,7 +142,7 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
       val gService  = GDeploymentService(using Seq(c7Service, c8Service))
       val manifest  = DeploymentManifest(Seq(DeploymentEntry("mycompany", "myproject", "1.2.0")))
       for
-        results <- gService.deployManifest(manifest, None)
+        results <- gService.postDeployments(manifest, None)
       yield assertTrue(
         results.size == 2,
         results.map(_.engineType).toSet == Set(EngineType.C7, EngineType.C8),

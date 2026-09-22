@@ -8,7 +8,7 @@ import sttp.tapir.json.circe.*
 
 object DeploymentEndpoints:
 
-  lazy val deployManifest: Endpoint[
+  lazy val postDeployments: Endpoint[
     String,
     (Option[String], Json),
     ServiceRequestError,
@@ -18,7 +18,6 @@ object DeploymentEndpoints:
     EndpointsUtil.baseEndpoint
       .post
       .in("deployment")
-      .in("manifest")
       .in(
         query[Option[String]]("targetEngine")
           .description("Optional target engine: C7, C8, Op, Gateway")
@@ -42,7 +41,53 @@ object DeploymentEndpoints:
       )
       .tag(apiGroup)
 
+  lazy val getDeployments: Endpoint[
+    String,
+    Option[String],
+    ServiceRequestError,
+    Json,
+    Any
+  ] =
+    EndpointsUtil.baseEndpoint
+      .get
+      .in("deployment")
+      .in(
+        query[Option[String]]("targetEngine")
+          .description("Optional target engine: C7, C8, Op, Gateway")
+          .example(Some("C8"))
+      )
+      .out(statusCode(StatusCode.Ok))
+      .out(
+        jsonBody[Json]
+          .description("List of deployments")
+          .example(getDeploymentsExample)
+      )
+      .name("Get Deployments")
+      .summary("List what is deployed")
+      .description(
+        """Lists the deployments of the selected or auto-detected engine - the check after
+          |`POST /deployment`.
+          |
+          |- C7 / Op: one entry per deployment (`id` = deployment id, `name` = deployment name,
+          |  `deploymentTime` set).
+          |- C8: Zeebe has no deployment entity, so one entry per deployed process definition
+          |  (`id` = processDefinitionKey, `name` = bpmn process id, `version` set).
+          |""".stripMargin
+      )
+      .tag(apiGroup)
+
   private lazy val apiGroup = "Deployment"
+
+  private lazy val getDeploymentsExample: Json =
+    Json.arr(
+      Json.obj(
+        "id"             -> Json.fromString("2251799813685249"),
+        "name"           -> Json.fromString("mycompany-myproject-myProcess"),
+        "deploymentTime" -> Json.Null,
+        "engineType"     -> Json.fromString("C8"),
+        "version"        -> Json.fromInt(3)
+      )
+    )
 
   private lazy val deployManifestExample: Json =
     Json.obj(

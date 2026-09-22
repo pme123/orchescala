@@ -73,7 +73,7 @@ class GDeploymentService(using
         )
   end deleteDeployment
 
-  override def deployManifest(
+  override def postDeployments(
       manifest: DeploymentManifest,
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, Seq[DeploymentResult]] =
@@ -88,7 +88,7 @@ class GDeploymentService(using
           )
           .flatMap(service =>
             service
-              .deployManifest(manifest, Some(engineType))
+              .postDeployments(manifest, Some(engineType))
               .map(_.map(_.copy(engineType = service.engineType)))
           )
       case None             =>
@@ -99,9 +99,9 @@ class GDeploymentService(using
             .foreach(services): service =>
               ZIO.logInfo(s"Deploying manifest to ${service.engineType}") *>
                 service
-                  .deployManifest(manifest, Some(service.engineType))
+                  .postDeployments(manifest, Some(service.engineType))
                   .map(_.map(_.copy(engineType = service.engineType)))
             .map(_.flatten)
-  end deployManifest
+  end postDeployments
 
 end GDeploymentService

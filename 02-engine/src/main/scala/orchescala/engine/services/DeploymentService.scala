@@ -23,7 +23,7 @@ trait DeploymentService extends EngineService:
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, Unit]
 
-  def deployManifest(
+  def postDeployments(
       manifest: DeploymentManifest,
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, Seq[DeploymentResult]] =

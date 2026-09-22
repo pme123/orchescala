@@ -74,16 +74,32 @@ end C8SaasClient
 /** C8 client with Bearer token authentication (token provided per request) */
 trait C8BearerTokenClient extends C8Client:
 
-  /** Creates a client with the provided Bearer token.
-    * Note: This creates a new client for each token, so it should not be cached in SharedC8ClientManager.
-    */
-  def clientWithToken(token: String): ZIO[Any, EngineError, CamundaClient] =
-    ZIO.attempt:
+  /** How long a token's client may sit unused before it is closed and dropped from the cache. */
+  protected def tokenClientIdleTtlMillis: Long = TokenClientCache.defaultIdleTtlMillis
+
+  // A CamundaClient owns a gRPC ManagedChannel plus thread pools; building one per request (the
+  // previous behaviour) leaked a channel on every gateway call ("ManagedChannel ... was garbage
+  // collected without being shut down"). See TokenClientCache.
+  private lazy val tokenClients = TokenClientCache[CamundaClient](
+    build = token =>
       clientBuilder
         .credentialsProvider(new BearerTokenCredentialsProvider(token))
-        .build()
-    .mapError: ex =>
-      EngineError.UnexpectedError(s"Problem creating C8 Client with token: $ex")
+        .build(),
+    close = _.close(),
+    idleTtlMillis = tokenClientIdleTtlMillis,
+    clientTypeName = "C8"
+  )
+
+  /** Returns the client for the given Bearer token, building it on first use. */
+  def clientWithToken(token: String): ZIO[Any, EngineError, CamundaClient] =
+    ZIO.attempt(tokenClients.get(token))
+      .mapError: ex =>
+        EngineError.UnexpectedError(s"Problem creating C8 Client with token: $ex")
+
+  /** Closes and drops every cached token client - e.g. on shutdown. */
+  def closeTokenClients(): Unit = tokenClients.closeAll()
+
+  private[c8] def cachedTokenClients: Int = tokenClients.size
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedC8ClientManager, EngineError, CamundaClient] =
@@ -109,9 +125,9 @@ object C8Client:
 
   /** Helper to create an IO[EngineError, CamundaClient] from a C8Client that can be used in engine services.
     *
-    * For C8BearerTokenClient, this will check AuthContext on every request and create a fresh client
-    * with the token if present. This ensures that pass-through authentication works correctly even
-    * when tokens change between requests.
+    * For C8BearerTokenClient, this will check AuthContext on every request and use the client cached
+    * for that token (built on first use). This ensures that pass-through authentication works
+    * correctly even when tokens change between requests, without building a client per request.
     */
   def resolveClient(c8Client: C8Client): ZIO[SharedC8ClientManager, Nothing, IO[EngineError, CamundaClient]] =
     c8Client match
@@ -122,7 +138,7 @@ object C8Client:
           AuthContext.get.flatMap { authContext =>
             authContext.bearerToken match
               case Some(token) =>
-                // Create a fresh client with the token (not cached)
+                // One client per token, cached inside the bearer client
                 bearerClient.clientWithToken(token)
               case None =>
                 // Fall back to default client without token

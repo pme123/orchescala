@@ -13,20 +13,43 @@ import zio.*
 case class DeploymentRoutes(deploymentService: DeploymentService)(using config: GatewayConfig):
 
   lazy val routes: List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
-    List(deployManifestEndpoint)
+    List(postDeploymentsEndpoint, getDeploymentsEndpoint)
 
-  private lazy val deployManifestEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-    DeploymentEndpoints.deployManifest.zServerSecurityLogic { token =>
+  private lazy val getDeploymentsEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    DeploymentEndpoints.getDeployments.zServerSecurityLogic { token =>
+      config.validateToken(token).mapError(ServiceRequestError.apply)
+    }.serverLogic { validatedToken => targetEngineStr =>
+      ZIO.logDebug("Get deployments request received") *>
+        AuthContext.withBearerToken(validatedToken):
+          for
+            targetEngine <- parseTargetEngine(targetEngineStr)
+            infos        <- deploymentService
+                              .getDeployments(targetEngine)
+                              .mapError(ServiceRequestError.apply)
+          yield Json.arr(infos.map(infoAsJson)*)
+    }
+
+  private def infoAsJson(info: DeploymentInfo): Json =
+    Json.obj(
+      "id"             -> Json.fromString(info.id),
+      "name"           -> Json.fromString(info.name),
+      "deploymentTime" -> info.deploymentTime.fold(Json.Null)(t => Json.fromString(t.toString)),
+      "engineType"     -> info.engineType.fold(Json.Null)(e => Json.fromString(e.toString)),
+      "version"        -> info.version.fold(Json.Null)(Json.fromInt)
+    )
+
+  private lazy val postDeploymentsEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
+    DeploymentEndpoints.postDeployments.zServerSecurityLogic { token =>
       config.validateToken(token).mapError(ServiceRequestError.apply)
     }.serverLogic { validatedToken =>
       (targetEngineStr, body) =>
-        ZIO.logDebug("Deploy manifest request received") *>
+        ZIO.logDebug("POST Deployments request received") *>
           AuthContext.withBearerToken(validatedToken):
             for
               targetEngine <- parseTargetEngine(targetEngineStr)
               manifest     <- parseManifest(body)
               results      <- deploymentService
-                                .deployManifest(manifest, targetEngine)
+                                .postDeployments(manifest, targetEngine)
                                 .mapError(ServiceRequestError.apply)
             yield resultsAsJson(results)
     }

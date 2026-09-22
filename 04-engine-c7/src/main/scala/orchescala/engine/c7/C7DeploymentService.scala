@@ -198,7 +198,8 @@ class C7DeploymentService(using
     DeploymentInfo(
       id = dto.getId,
       name = dto.getName,
-      deploymentTime = Option(dto.getDeploymentTime).map(_.toInstant)
+      deploymentTime = Option(dto.getDeploymentTime).map(_.toInstant),
+      engineType = Some(engineType)
     )
 
 end C7DeploymentService

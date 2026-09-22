@@ -23,10 +23,18 @@ case class DeploymentResult(
     deployedScripts: Seq[ScriptInfo]
 )
 
+/** One deployed unit as reported by `DeploymentService.getDeployments`.
+  *
+  * C7/Op: one entry per deployment (`id` = deployment id, `name` = deployment name). C8: Zeebe
+  * has no deployment entity to list, so one entry per deployed process definition
+  * (`id` = processDefinitionKey, `name` = bpmn process id) with its `version`.
+  */
 case class DeploymentInfo(
     id: String,
     name: String,
-    deploymentTime: Option[Instant]
+    deploymentTime: Option[Instant],
+    engineType: Option[EngineType] = None,
+    version: Option[Int] = None
 )
 
 case class ProcessDefinitionInfo(id: String, key: String, version: Int)
