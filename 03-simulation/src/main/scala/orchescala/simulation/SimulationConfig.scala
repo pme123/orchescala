@@ -39,6 +39,13 @@ sealed trait SimulationConfig:
 
   def withLogLevel(logLevel: LogLevel): SimulationConfig
 
+  /** Cockpit/Operate URL per engine, e.g. `Map(EngineType.C7 -> ..., EngineType.C8 -> ...)`.
+    * Lets an engine-specific trait (CompanyC8Simulation) adjust the URL on top of the
+    * `config` a simulation base class already customized (`withMaxCount`, `withLogLevel`),
+    * instead of replacing the whole config.
+    */
+  def withCockpitUrl(cockpitUrl: String | Map[EngineType, String]): SimulationConfig
+
   def validateProcess(doValidate: Boolean): SimulationConfig
 
   lazy val tenantPath: String = tenantId
@@ -62,6 +69,9 @@ case class DefaultSimulationConfig(
 
   def withLogLevel(logLevel: LogLevel): SimulationConfig =
     copy(logLevel = logLevel)
+
+  def withCockpitUrl(cockpitUrl: String | Map[EngineType, String]): SimulationConfig =
+    copy(cockpitUrl = cockpitUrl)
 
   def validateProcess(doValidate: Boolean): SimulationConfig =
     copy(engineConfig = engineConfig.validateProcess(doValidate))

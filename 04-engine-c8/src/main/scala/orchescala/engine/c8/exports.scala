@@ -9,6 +9,15 @@ import zio.{IO, ZIO}
 import scala.util.Try
 import scala.jdk.CollectionConverters.*
 
+/** Variable names to filter server-side: the single `variableName` and/or the `variableFilter`
+  * list, deduplicated. Empty means "all variables of the scope".
+  */
+private[c8] def variableNames(
+    variableName: Option[String],
+    variableFilter: Option[Seq[String]]
+): Seq[String] =
+  (variableName.toSeq ++ variableFilter.toSeq.flatten).distinct
+
 private[c8] def filterVariables(variableFilter: Option[Seq[String]], variableDtos: Seq[Variable]) =
   if variableFilter.isEmpty then variableDtos
   else

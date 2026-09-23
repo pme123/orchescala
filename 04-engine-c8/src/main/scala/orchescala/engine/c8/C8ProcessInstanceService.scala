@@ -177,9 +177,17 @@ class C8ProcessInstanceService(using
       variableDtos  <-
         ZIO
           .fromFutureJava:
+            // root scope only + explicit page, see C8HistoricVariableService.getVariables
             camundaClient
               .newVariableSearchRequest()
-              .filter(_.processInstanceKey(processInstanceId.toLong))
+              .filter: f =>
+                f.processInstanceKey(processInstanceId.toLong)
+                  .scopeKey(processInstanceId.toLong)
+                variableNames(None, variableFilter) match
+                  case Seq(single) => f.name(single)
+                  case Seq()       => ()
+                  case names       => f.name(_.in(names.asJava))
+              .page(_.limit(C8Service.variablesPageLimit))
               .send()
           .map:
             _.items()

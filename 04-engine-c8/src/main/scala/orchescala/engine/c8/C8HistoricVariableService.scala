@@ -27,18 +27,28 @@ class C8HistoricVariableService(using
       variableDtos  <-
         ZIO
           .fromFutureJava:
+            // Same semantics as C7 (`executionIdIn(processInstanceId)`): only the variables of the
+            // process instance's root scope, not the local ones of tasks / call activities /
+            // multi-instance bodies - those may shadow a root variable with the same name (e.g.
+            // a call activity's local `processStatus`). Without an explicit page the client
+            // returns the first 100 variables only, and a long-running instance easily has more
+            // (each task with an ioMapping adds a local scope), so the last ones (typically the
+            // outputs set on the end event) would be missing.
+            // The variable names (`variableName` or the `variableFilter` list) are filtered
+            // server-side (`name in [...]`) - only what is asked for is fetched.
             camundaClient
               .newVariableSearchRequest()
               .filter(f =>
-                (variableName, processInstanceId) match
-                  case (Some(varName), Some(pid)) =>
-                    f.name(varName)
-                      .processInstanceKey(pid.toLong)
-                  case (Some(varName), _)         => f.name(varName)
-                  case (_, Some(pid))             => f.processInstanceKey(pid.toLong)
-                  case _                          => ()
-                end match
-              ).send()
+                processInstanceId.foreach: pid =>
+                  f.processInstanceKey(pid.toLong)
+                    .scopeKey(pid.toLong)
+                variableNames(variableName, variableFilter) match
+                  case Seq(single) => f.name(single)
+                  case Seq()       => ()
+                  case names       => f.name(_.in(names.asJava))
+              )
+              .page(_.limit(C8Service.variablesPageLimit))
+              .send()
           .map:
               _.items()
           .mapError: err =>
