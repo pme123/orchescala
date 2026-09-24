@@ -1,5 +1,6 @@
 package orchescala.worker
 
+import orchescala.engine.auth.TokenValidation
 import orchescala.engine.rest.HttpClientProvider
 import orchescala.engine.{EngineRuntime, banner}
 import zio.ZIO.*
@@ -55,6 +56,14 @@ trait WorkerApp extends ZIOAppDefault:
         // Start HTTP server
         workerRoutes = WorkerRoutes(engineContext).routes(workerApps(this).flatMap(_.theWorkers).toSet)
         docsRoutes   = OpenApiRoutes.routes
+        _           <- workerConfig.tokenValidation match
+                         case TokenValidation.PresenceOnly =>
+                           ZIO.logWarning(
+                             "/worker does NOT verify Bearer tokens (TokenValidation.PresenceOnly) - " +
+                               "configure TokenValidation.Jwt / AnyOf in the WorkerConfig."
+                           )
+                         case verified                     =>
+                           ZIO.logInfo(s"/worker verifies Bearer tokens: ${verified.description}")
         _           <- ZIO.logInfo(s"Server ready at http://localhost:$port")
         _           <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs/")
         _           <- Server.serve(workerRoutes ++ docsRoutes).forever

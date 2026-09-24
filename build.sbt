@@ -101,8 +101,9 @@ lazy val engine = project
       coursierDependency,
       scaffeineDependency,
       zioDependency,
-      zioSlf4jDependency
-    )
+      zioSlf4jDependency,
+      oauth2Dependency // JWT verification (engine.auth) for gateway and worker app
+    ) ++ zioTestDependencies
   )
   .dependsOn(domain)
 

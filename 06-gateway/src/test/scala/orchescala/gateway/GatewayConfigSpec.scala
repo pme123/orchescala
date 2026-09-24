@@ -17,6 +17,22 @@ object GatewayConfigSpec extends ZIOSpecDefault:
   )
 
   def spec = suite("GatewayConfig")(
+    test("DefaultGatewayConfig answers a rejected token with 401") {
+      val config = DefaultGatewayConfig(
+        engineConfig = orchescala.engine.DefaultEngineConfig(),
+        workerConfig = orchescala.worker.DefaultWorkerConfig(orchescala.engine.DefaultEngineConfig()),
+        tokenValidation = TokenValidation.Jwt("https://sso.example.com/auth/realms/test", jwksUrl = Some("http://unreachable.invalid/certs"))
+      )
+      for
+        blank   <- config.validateToken("").exit
+        invalid <- config.validateToken("just-a-string").exit
+      yield assertTrue(
+        blank.causeOption.flatMap(_.failureOption).map(GatewayError.ServiceRequestError(_).errorCode)
+          .contains(401),
+        invalid.causeOption.flatMap(_.failureOption).map(GatewayError.ServiceRequestError(_).errorCode)
+          .contains(401)
+      )
+    },
     suite("defaultTokenValidator")(
       test("should succeed with non-empty token") {
         val token = "valid-token"

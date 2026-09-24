@@ -470,7 +470,9 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |      workerConfig = companyWorkerConfig,
        |      docsAuth = authCode,
        |      // verifies the Bearer tokens (signature, expiry, issuer) - the issuer must be exactly the
-       |      // `iss` of the tokens, otherwise use TokenValidation.Jwt(issuer, jwksUrl = Some(...))
+       |      // `iss` of the tokens, otherwise use TokenValidation.Jwt(issuer, jwksUrl = Some(...)).
+       |      // Tokens from several identity providers: TokenValidation.AnyOf(jwtA, jwtB) - and the same
+       |      // in the WorkerConfig, as the gateway forwards the caller's token to the worker app.
        |      tokenValidation = TokenValidation.keycloak(ssoBaseUrl, ssoRealm)
        |    )
        |

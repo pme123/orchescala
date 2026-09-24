@@ -203,6 +203,7 @@ object WorkerError:
       err match
         case ValidatorError(msg)            => ServiceRequestError(400, msg)
         case ServiceAuthError(msg)          => ServiceRequestError(401, msg)
+        case TokenValidationError(msg, _)   => ServiceRequestError(401, msg)
         case ServiceBadBodyError(msg)       => ServiceRequestError(400, msg)
         case ServiceBadPathError(msg)       => ServiceRequestError(404, msg)
         case ServiceMappingError(msg)       => ServiceRequestError(400, msg)

@@ -1,4 +1,4 @@
-package orchescala.gateway
+package orchescala.engine.auth
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
@@ -40,6 +40,10 @@ object JwtValidatorSpec extends ZIOSpecDefault:
        |   "n":"${b64(publicKey.getModulus.toByteArray)}","e":"${b64(publicKey.getPublicExponent.toByteArray)}"}
        |]}""".stripMargin
 
+  private def jwksOf(kid: String, key: RSAPublicKey) =
+    s"""{"keys":[{"kid":"$kid","kty":"RSA","use":"sig",
+       |  "n":"${b64(key.getModulus.toByteArray)}","e":"${b64(key.getPublicExponent.toByteArray)}"}]}""".stripMargin
+
   /** Serves the JWKS (or fails with `status`) and counts the fetches. */
   private final class IdentityProvider(kid: String = "key-1", status: Int = 200):
     val fetches = AtomicInteger(0)
@@ -70,12 +74,10 @@ object JwtValidatorSpec extends ZIOSpecDefault:
       .withExpiresAt(expiresAt)
       .sign(algorithm)
 
-  private def rejected(result: Exit[GatewayError, ?], reason: String) =
+  private def rejected(result: Exit[String, ?], reason: String) =
     result match
       case Exit.Failure(cause) =>
-        cause.failureOption.exists:
-          case GatewayError.TokenValidationError(msg) => msg.toLowerCase.contains(reason.toLowerCase)
-          case _                                     => false
+        cause.failureOption.exists(_.toLowerCase.contains(reason.toLowerCase))
       case _                   => false
 
   def spec = suite("JwtValidator")(
@@ -134,21 +136,55 @@ object JwtValidatorSpec extends ZIOSpecDefault:
       for result <- idp.validator().validate(token()).exit
       yield assertTrue(rejected(result, "no signing key"))
     },
-    test("DefaultGatewayConfig answers a rejected token with 401") {
-      val config = DefaultGatewayConfig(
-        engineConfig = orchescala.engine.DefaultEngineConfig(),
-        workerConfig = orchescala.worker.DefaultWorkerConfig(orchescala.engine.DefaultEngineConfig()),
-        tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some("http://unreachable.invalid/certs"))
-      )
-      for
-        blank   <- config.validateToken("").exit
-        invalid <- config.validateToken("just-a-string").exit
-      yield assertTrue(
-        blank.causeOption.flatMap(_.failureOption).map(GatewayError.ServiceRequestError(_).errorCode)
-          .contains(401),
-        invalid.causeOption.flatMap(_.failureOption).map(GatewayError.ServiceRequestError(_).errorCode)
-          .contains(401)
-      )
-    }
+    suite("AnyOf - several identity providers (e.g. one Keycloak for C7, another for C8)")(
+      test("accepts the tokens of every configured issuer, rejects all others") {
+        val (keyB, privateB) = keyPair()
+        val issuerB          = "https://sso-c8.example.com/realms/c8"
+        val fetched          = java.util.concurrent.ConcurrentLinkedQueue[String]()
+        val backend: SttpClientBackend =
+          AsyncHttpClientZioBackend.stub
+            .whenAnyRequest
+            .thenRespondF: request =>
+              fetched.add(request.uri.toString)
+              val body =
+                if request.uri.host.contains("sso-c8.example.com") then jwksOf("kid-b", keyB)
+                else jwksOf("key-1", publicKey)
+              ZIO.succeed(Response(body, StatusCode.Ok))
+        val verifier = TokenVerifier(
+          TokenValidation.AnyOf(TokenValidation.Jwt(issuer), TokenValidation.Jwt(issuerB)),
+          backend
+        ).get
+        val noIssuer = JWT.create().withKeyId("key-1").sign(Algorithm.RSA256(null, privateKey))
+        for
+          fromA        <- verifier.validate(token()).exit
+          fromB        <- verifier.validate(
+                            token(kid = "kid-b", iss = issuerB, algorithm = Algorithm.RSA256(null, privateB))
+                          ).exit
+          untrusted    <- verifier.validate(token(iss = "https://evil.example.com/realms/x")).exit
+          // claims issuer A, but signed with B's key (with B's kid)
+          mixed        <- verifier.validate(
+                            token(kid = "kid-b", iss = issuer, algorithm = Algorithm.RSA256(null, privateB))
+                          ).exit
+          missingIss   <- verifier.validate(noIssuer).exit
+        yield assertTrue(
+          fromA.isSuccess,
+          fromB.isSuccess,
+          rejected(untrusted, "'https://evil.example.com/realms/x' is not trusted"),
+          rejected(mixed, "no signing key 'kid-b'"),
+          rejected(missingIss, "no issuer"),
+          // keys only ever come from the configured URLs
+          fetched.toArray.toSet == Set(
+            s"$issuer/protocol/openid-connect/certs",
+            s"$issuerB/protocol/openid-connect/certs"
+          )
+        )
+      },
+      test("the issuers must be distinct") {
+        for exit <- ZIO.attempt(
+                      TokenValidation.AnyOf(TokenValidation.Jwt(issuer), TokenValidation.Jwt(issuer))
+                    ).exit
+        yield assertTrue(exit.isFailure)
+      }
+    )
   ) @@ TestAspect.withLiveClock
 end JwtValidatorSpec

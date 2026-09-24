@@ -119,16 +119,14 @@ case class DefaultGatewayConfig(
           }:5555"
       ),
     override val docsAuth: DocsAuth = DocsAuth.Disabled,
-    /** Use [[TokenValidation.Jwt]] (e.g. `TokenValidation.keycloak(ssoBaseUrl, realm)`) - with
+    /** Use [[TokenValidation.Jwt]] (e.g. `TokenValidation.keycloak(ssoBaseUrl, realm)`) or
+      * [[TokenValidation.AnyOf]] for several identity providers - with
       * [[TokenValidation.PresenceOnly]] the identity claims are not verified (warned at startup).
       */
     override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 ) extends GatewayConfig:
 
-  private lazy val jwtValidator: Option[JwtValidator] =
-    tokenValidation match
-      case jwt: TokenValidation.Jwt    => Some(JwtValidator(jwt))
-      case TokenValidation.PresenceOnly => None
+  private lazy val tokenVerifier: Option[TokenVerifier] = TokenVerifier(tokenValidation)
 
   /** Validates the Bearer token according to [[tokenValidation]] and returns it. Override this for
     * other validation logic (e.g. token introspection, database lookup).
@@ -140,9 +138,10 @@ case class DefaultGatewayConfig(
           errorMsg = "Invalid or missing authentication token"
         ))
     else
-      jwtValidator
+      tokenVerifier
         .fold(ZIO.unit)(_.validate(token).unit)
-        .tapError(err => ZIO.logWarning(s"Rejected token: ${err.errorMsg}"))
+        .tapError(reason => ZIO.logWarning(s"Rejected token ${TokenFingerprint(token)}: $reason"))
+        .mapError(GatewayError.TokenValidationError(_))
         .as(token)
 
   def extractCorrelation(
