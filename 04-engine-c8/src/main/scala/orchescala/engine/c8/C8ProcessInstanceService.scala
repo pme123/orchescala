@@ -1,8 +1,5 @@
 package orchescala.engine.c8
 
-import io.camunda.client.CamundaClient
-import io.camunda.client.api.response.ProcessInstanceEvent
-import io.camunda.client.api.search.response.Variable
 import orchescala.domain.{CamundaVariable, IdentityCorrelation, IdentityCorrelationSigner, InputParams, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C8
@@ -11,10 +8,8 @@ import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{IO, ZIO}
 
-import scala.jdk.CollectionConverters.*
-
 class C8ProcessInstanceService(using
-    camundaClientZIO: IO[EngineError, CamundaClient],
+    rest: C8RestClient,
     engineConfig: EngineConfig
 ) extends ProcessInstanceService, C8Service, C8EventService:
 
@@ -44,12 +39,10 @@ class C8ProcessInstanceService(using
       tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
     for
-      camundaClient <- camundaClientZIO
-      _             <- logDebug(s"Starting Process '$processDefId' with variables: $in")
-      instance      <-
-        callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, in.asJson)
+      _        <- logDebug(s"Starting Process '$processDefId' with variables: $in")
+      instance <- callStartProcessAsync(processDefId, businessKey, tenantId, in.asJson)
     yield ProcessInfo(
-      processInstanceId = instance.getProcessInstanceKey.toString,
+      processInstanceId = instance.processInstanceKey,
       businessKey = businessKey,
       status = ProcessInfo.ProcessStatus.Active,
       engineType = C8
@@ -67,19 +60,16 @@ class C8ProcessInstanceService(using
       correlation: IdentityCorrelation
   ): IO[EngineError, ProcessInfo] =
     for
-      camundaClient <- camundaClientZIO
-
       // Step 1: Start process WITHOUT correlation
       _                <- logDebug(s"Starting Process '$processDefId' (will sign correlation after)")
-      instance         <-
-        callStartProcessAsync(processDefId, businessKey, tenantId, camundaClient, in.asJson)
-      processInstanceId = instance.getProcessInstanceKey.toString
+      instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, in.asJson)
+      processInstanceId = instance.processInstanceKey
 
       // Step 2: Sign correlation with processInstanceId
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
 
       // Step 3: Set signed correlation as process variable
-      _ <- setCorrelationVariable(camundaClient, processInstanceId, signedCorrelation)
+      _ <- setCorrelationVariable(processInstanceId, signedCorrelation)
       _ <- logInfo(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
     yield ProcessInfo(
       processInstanceId = processInstanceId,
@@ -106,98 +96,65 @@ class C8ProcessInstanceService(using
         )
   end signCorrelation
 
-  /** Set the signed correlation as a process variable using Camunda C8 client
+  /** Set the signed correlation as a process variable (on the process instance's root scope)
     */
   private def setCorrelationVariable(
-      camundaClient: CamundaClient,
       processInstanceId: String,
       signedCorrelation: IdentityCorrelation
   ): IO[EngineError, Unit] =
-    for
-      correlationJson <- ZIO.succeed(signedCorrelation.asJson.deepDropNullValues)
-      variablesMap    <-
-        ZIO.succeed(jsonToVariablesMap(Json.obj(InputParams._identityCorrelation.toString -> correlationJson)))
-      _               <- ZIO
-                           .fromFutureJava:
-                             camundaClient
-                               .newSetVariablesCommand(processInstanceId.toLong)
-                               .variables(variablesMap.asJava)
-                               .send()
-                           .catchAll:
-                             case err if err.getMessage.contains("doesn't exist: execution is null") =>
-                               ZIO.logWarning(
-                                 s"Process $processInstanceId has already ended - correlation not set."
-                               )
-                             case err                                                                =>
-                               ZIO.fail:
-                                 EngineError.ProcessError(
-                                   s"Problem setting identityCorrelation variable for process '$processInstanceId': $err"
-                                 )
-    yield ()
+    val variables = Json.obj(
+      InputParams._identityCorrelation.toString -> signedCorrelation.asJson.deepDropNullValues
+    )
+    rest
+      .putNoContent(
+        Seq("element-instances", processInstanceId, "variables"),
+        Json.obj("variables" -> variables)
+      )
+      .catchAll:
+        case EngineError.ServiceRequestError(404, _) =>
+          ZIO.logWarning(
+            s"Process $processInstanceId has already ended - correlation not set."
+          )
+        case err                                     =>
+          ZIO.fail(withContext(
+            s"Problem setting identityCorrelation variable for process '$processInstanceId'"
+          )(err))
   end setCorrelationVariable
 
   private def callStartProcessAsync(
       processDefId: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      c8Client: CamundaClient,
       processVariables: Json
-  ): IO[EngineError.ProcessError, ProcessInstanceEvent] =
-    ZIO
-      .fromFutureJava:
-        val variables = processVariables.deepMerge(businessKey.map(bk =>
-          Json.obj("businessKey" -> bk.asJson)
-        ).getOrElse(Json.obj()))
-
-        val variablesMap      = jsonToVariablesMap(variables)
-        val command           = c8Client
-          .newCreateInstanceCommand()
-          .bpmnProcessId(processDefId)
-          .latestVersion()
-          .variables(variablesMap.asJava)
-        val commandWithTenant =
-          tenantId
-            .orElse(engineConfig.tenantId)
-            .map: tenantId =>
-              command.tenantId(tenantId)
-            .getOrElse(command)
-
-        commandWithTenant.send()
-      .mapError: err =>
-        EngineError.ProcessError(
-          s"Problem starting Process '$processDefId': $err"
+  ): IO[EngineError, C8RestModel.CreateProcessInstanceResult] =
+    val variables = processVariables.deepMerge(businessKey.map(bk =>
+      Json.obj("businessKey" -> bk.asJson)
+    ).getOrElse(Json.obj()))
+    rest
+      .post[C8RestModel.CreateProcessInstanceResult](
+        Seq("process-instances"),
+        Json.obj(
+          "processDefinitionId" -> processDefId.asJson, // latest version
+          "variables"           -> variables,
+          "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
         )
+      )
+      .mapError(withContext(s"Problem starting Process '$processDefId'"))
+  end callStartProcessAsync
 
   def getVariablesInternal(
       processInstanceId: String,
       variableFilter: Option[Seq[String]]
   ): IO[EngineError, Seq[JsonProperty]] =
     for
-      camundaClient <- camundaClientZIO
       variableDtos  <-
-        ZIO
-          .fromFutureJava:
-            // root scope only + explicit page, see C8HistoricVariableService.getVariables
-            camundaClient
-              .newVariableSearchRequest()
-              .filter: f =>
-                f.processInstanceKey(processInstanceId.toLong)
-                  .scopeKey(processInstanceId.toLong)
-                variableNames(None, variableFilter) match
-                  case Seq(single) => f.name(single)
-                  case Seq()       => ()
-                  case names       => f.name(_.in(names.asJava))
-              .page(_.limit(C8Service.variablesPageLimit))
-              .send()
-          .map:
-            _.items()
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem getting Variables for Process Instance '$processInstanceId': $err"
-            )
+        searchVariables(Some(processInstanceId), variableNames(None, variableFilter))
+          .mapError(withContext(
+            s"Problem getting Variables for Process Instance '$processInstanceId'"
+          ))
       variables     <-
         ZIO
-          .foreach(filterVariables(variableFilter, variableDtos.asScala.toSeq)): dto =>
+          .foreach(filterVariables(variableFilter, variableDtos)): dto =>
             toVariableValue(dto)
           .mapError: err =>
             EngineError.ProcessError(
@@ -269,36 +226,30 @@ class C8ProcessInstanceService(using
         ).getOrElse(Json.obj())))
       .getOrElse(Json.obj())
     for
-      camundaClient <- camundaClientZIO
-      variablesMap  <- ZIO.succeed(jsonToVariablesMap(variables))
-      _             <- logInfo(s"Send Message $messageName: $variablesMap")
-      response      <-
-        ZIO
-          .fromFutureJava:
-            val command = camundaClient.newCorrelateMessageCommand()
-              .messageName(messageName)
-
-            command
-              .withoutCorrelationKey()
-              .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
-              .variables(variablesMap.asJava)
-              .send()
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem sending message '$messageName' to start process: $err"
-            )
-      result        <-
-        ZIO
-          .attempt:
-            MessageCorrelationResult.ProcessInstance(
-              response.getProcessInstanceKey.toString,
-              response.getProcessInstanceKey.toString,
-              C8
-            )
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem mapping MessageCorrelationResult: $err"
-            )
+      _        <- logInfo(s"Send Message $messageName: $variables")
+      response <- rest
+                    .post[C8RestModel.MessageCorrelationResult](
+                      Seq("messages", "correlation"),
+                      Json.obj(
+                        "name"      -> messageName.asJson, // no correlationKey: start event
+                        "variables" -> variables,
+                        "tenantId"  -> tenantId.orElse(engineConfig.tenantId).asJson
+                      )
+                    )
+                    .mapError(withContext(
+                      s"Problem sending message '$messageName' to start process"
+                    ))
+      result   <- ZIO
+                    .fromOption(response.processInstanceKey)
+                    .orElseFail(EngineError.ProcessError(
+                      s"Message '$messageName' was correlated, but no process instance key returned."
+                    ))
+                    .map: processInstanceKey =>
+                      MessageCorrelationResult.ProcessInstance(
+                        processInstanceKey,
+                        processInstanceKey,
+                        C8
+                      )
     yield result
     end for
   end sendMessageToStartProcess

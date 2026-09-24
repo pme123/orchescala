@@ -3,10 +3,8 @@ package c8
 
 import io.camunda.client.{CamundaClient, CamundaClientBuilder}
 import io.camunda.client.impl.oauth.OAuthCredentialsProviderBuilder
-import io.camunda.client.CredentialsProvider
-import io.camunda.client.CredentialsProvider.StatusCode
 import orchescala.engine.domain.EngineError
-import zio.{IO, ZIO}
+import zio.ZIO
 
 import java.net.URI
 
@@ -19,12 +17,28 @@ private val maxHttpConnections = 100
 // and command responses.
 private val numJobWorkerExecutionThreads = 32
 
+/** Connection to a Camunda 8 cluster.
+  *
+  *   - [[client]]: the `CamundaClient` SDK - for the job workers (job streaming, backoff), one per
+  *     application with fixed credentials.
+  *   - [[restClient]]: the engine services (gateway, simulation, dev helpers) - plain REST API v2
+  *     calls on a shared connection pool, the `Authorization` header resolved per request by
+  *     [[restAuth]].
+  */
 trait C8Client:
   protected def zeebeGrpc: String
   protected def zeebeRest: String
   def client: ZIO[SharedC8ClientManager, EngineError, CamundaClient]
 
-  protected lazy val clientBuilder = CamundaClient.newClientBuilder()
+  /** How the engine services authenticate their REST calls. */
+  protected def restAuth: C8RestAuth = C8RestAuth.NoAuth
+
+  lazy val restClient: C8RestClient = C8RestClient(zeebeRest, restAuth)
+
+  // A `def` on purpose: the SDK builder is mutable (`credentialsProvider(..)` sets a field) and the
+  // built client keeps a reference to it as its configuration - clients built from a shared
+  // builder would pick up each other's credentials.
+  protected def clientBuilder: CamundaClientBuilder = CamundaClient.newClientBuilder()
     // otherwise ZEEBE_*/CAMUNDA_* env vars silently override the settings below
     // (applyEnvironmentVariableOverrides defaults to true in the SDK)
     .applyEnvironmentVariableOverrides(false)
@@ -51,6 +65,9 @@ trait C8SaasClient extends C8Client:
   protected def clientSecret: String
   protected def oAuthAPI: String
 
+  override protected lazy val restAuth: C8RestAuth =
+    C8RestAuth.ClientCredentials(oAuthAPI, clientId, clientSecret, audience)
+
   lazy val client: ZIO[SharedC8ClientManager, EngineError, CamundaClient] =
     SharedC8ClientManager.getOrCreateClient:
       ZIO.logDebug("Creating Camunda Client for simulation") *>
@@ -71,37 +88,14 @@ trait C8SaasClient extends C8Client:
       .build
 end C8SaasClient
 
-/** C8 client with Bearer token authentication (token provided per request) */
+/** C8 client with Bearer token authentication: the engine services pass the caller's token (from
+  * `AuthContext`) through on every request - nothing is cached per token.
+  */
 trait C8BearerTokenClient extends C8Client:
 
-  /** How long a token's client may sit unused before it is closed and dropped from the cache. */
-  protected def tokenClientIdleTtlMillis: Long = TokenClientCache.defaultIdleTtlMillis
+  override protected def restAuth: C8RestAuth = C8RestAuth.PassThrough
 
-  // A CamundaClient owns a gRPC ManagedChannel plus thread pools; building one per request (the
-  // previous behaviour) leaked a channel on every gateway call ("ManagedChannel ... was garbage
-  // collected without being shut down"). See TokenClientCache.
-  private lazy val tokenClients = TokenClientCache[CamundaClient](
-    build = token =>
-      clientBuilder
-        .credentialsProvider(new BearerTokenCredentialsProvider(token))
-        .build(),
-    close = _.close(),
-    idleTtlMillis = tokenClientIdleTtlMillis,
-    clientTypeName = "C8"
-  )
-
-  /** Returns the client for the given Bearer token, building it on first use. */
-  def clientWithToken(token: String): ZIO[Any, EngineError, CamundaClient] =
-    ZIO.attempt(tokenClients.get(token))
-      .mapError: ex =>
-        EngineError.UnexpectedError(s"Problem creating C8 Client with token: $ex")
-
-  /** Closes and drops every cached token client - e.g. on shutdown. */
-  def closeTokenClients(): Unit = tokenClients.closeAll()
-
-  private[c8] def cachedTokenClients: Int = tokenClients.size
-
-  // Default client without token (for compatibility)
+  // SDK client without credentials (for compatibility) - the engine services use `restClient`
   lazy val client: ZIO[SharedC8ClientManager, EngineError, CamundaClient] =
     SharedC8ClientManager.getOrCreateClient:
       ZIO.attempt:
@@ -109,44 +103,6 @@ trait C8BearerTokenClient extends C8Client:
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating C8 Client: $ex")
 
-  /** Custom credentials provider that adds Bearer token to requests */
-  private class BearerTokenCredentialsProvider(token: String) extends CredentialsProvider:
-    override def applyCredentials(applier: CredentialsProvider.CredentialsApplier): Unit =
-      applier.put("Authorization", s"Bearer $token")
-
-    override def shouldRetryRequest(statusCode: StatusCode): Boolean =
-      statusCode.isUnauthorized
-
 end C8BearerTokenClient
 
 class C8DefaultBearerTokenClient(val zeebeGrpc: String, val zeebeRest: String) extends C8BearerTokenClient
-
-object C8Client:
-
-  /** Helper to create an IO[EngineError, CamundaClient] from a C8Client that can be used in engine services.
-    *
-    * For C8BearerTokenClient, this will check AuthContext on every request and use the client cached
-    * for that token (built on first use). This ensures that pass-through authentication works
-    * correctly even when tokens change between requests, without building a client per request.
-    */
-  def resolveClient(c8Client: C8Client): ZIO[SharedC8ClientManager, Nothing, IO[EngineError, CamundaClient]] =
-    c8Client match
-      case bearerClient: C8BearerTokenClient =>
-        // For bearer token clients, check AuthContext on every request
-        ZIO.environmentWith[SharedC8ClientManager] { env =>
-          import orchescala.engine.AuthContext
-          AuthContext.get.flatMap { authContext =>
-            authContext.bearerToken match
-              case Some(token) =>
-                // One client per token, cached inside the bearer client
-                bearerClient.clientWithToken(token)
-              case None =>
-                // Fall back to default client without token
-                bearerClient.client.provideEnvironment(env)
-          }
-        }
-      case _ =>
-        // For other client types, use the standard cached client
-        ZIO.environmentWith[SharedC8ClientManager] { env =>
-          c8Client.client.provideEnvironment(env)
-        }

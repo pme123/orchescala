@@ -1,17 +1,13 @@
 package orchescala.engine.c8
 
-import io.camunda.client.CamundaClient
-import orchescala.domain.CamundaVariable
 import orchescala.engine.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.services.SignalService
-import zio.ZIO.{logDebug, logInfo}
-import zio.{IO, ZIO}
-
-import scala.jdk.CollectionConverters.*
+import zio.ZIO.logInfo
+import zio.IO
 
 class C8SignalService(using
-    camundaClientZIO: IO[EngineError, CamundaClient],
+    rest: C8RestClient,
     engineConfig: EngineConfig
 ) extends SignalService with C8EventService:
 
@@ -21,21 +17,15 @@ class C8SignalService(using
       withoutTenantId: Option[Boolean] = None,
       variables: Option[JsonObject] = None
   ): IO[EngineError, Unit] =
-    for
-      camundaClient <- camundaClientZIO
-      _           <- logInfo(s"Sending Signal '$name'.")
-      variablesMap = variables.map(_.toVariablesMap).getOrElse(Map.empty)
-      _           <-
-        ZIO
-          .fromFutureJava :
-            camundaClient
-              .newBroadcastSignalCommand()
-              .signalName(name)
-              .variables(variablesMap)
-              .send()
-          .mapError { err =>
-            EngineError.ProcessError(
-              s"Problem sending Signal '$name': $err"
-            )
-          }
-    yield ()
+    logInfo(s"Sending Signal '$name'.") *>
+      rest
+        .postNoContent(
+          Seq("signals", "broadcast"),
+          Json.obj(
+            "signalName" -> name.asJson,
+            "variables"  -> variables.fold(Json.obj())(Json.fromJsonObject),
+            "tenantId"   -> tenantId.asJson
+          )
+        )
+        .mapError(withContext(s"Problem sending Signal '$name'"))
+end C8SignalService

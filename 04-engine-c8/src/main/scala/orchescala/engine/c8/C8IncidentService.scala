@@ -1,18 +1,12 @@
 package orchescala.engine.c8
 
-import io.camunda.client.CamundaClient
-import io.camunda.client.api.search.response as camunda
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, Incident}
 import orchescala.engine.services.IncidentService
-import zio.ZIO.{logDebug, logInfo}
 import zio.{IO, ZIO}
 
-import java.time.OffsetDateTime
-import scala.jdk.CollectionConverters.*
-
 class C8IncidentService(using
-    camundaClientZIO: IO[EngineError, CamundaClient],
+    rest: C8RestClient,
     engineConfig: EngineConfig
 ) extends IncidentService, C8Service:
 
@@ -21,55 +15,37 @@ class C8IncidentService(using
       processInstanceId: Option[String] = None
   ): IO[EngineError, List[Incident]] =
     for
-      camundaClient <- camundaClientZIO
-      incidentDtos <-
-        ZIO
-          .fromFutureJava:
-            camundaClient
-              .newIncidentSearchRequest()
-              .filter(f =>
-                (incidentId, processInstanceId) match
-                  case (Some(incId), Some(pid)) =>
-                    f.incidentKey(incId.toLong)
-                      .processInstanceKey(pid.toLong)
-                  case (Some(incId), _)         => f.incidentKey(incId.toLong)
-                  case (_, Some(pid))           => f.processInstanceKey(pid.toLong)
-                  case _                        => ()
-                end match
-              )
-              .send()
-          .map:
-              _.items()
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem getting Incidents: $err"
+      incidentKey        <- ZIO.foreach(incidentId)(toKey("incidentId"))
+      processInstanceKey <- ZIO.foreach(processInstanceId)(toKey("processInstanceId"))
+      incidentDtos       <-
+        rest
+          .searchAll[C8RestModel.IncidentResult](
+            Seq("incidents", "search"),
+            C8RestModel.filter(
+              "incidentKey"        -> incidentKey.map(Json.fromString),
+              "processInstanceKey" -> processInstanceKey.map(Json.fromString)
             )
-    yield mapToIncidents(incidentDtos)
+          )
+          .mapError(withContext("Problem getting Incidents"))
+    yield incidentDtos.toList.map(mapToIncident)
 
-  private def mapToIncidents(
-      incidents: java.util.List[camunda.Incident]
-  ): List[Incident] =
-    incidents.asScala.toList.map(mapToIncident)
-
-  private def mapToIncident(
-      incident: camunda.Incident
-  ): Incident =
+  private def mapToIncident(incident: C8RestModel.IncidentResult): Incident =
     Incident(
-      id = incident.getIncidentKey.toString,
-      processDefinitionId = Option(incident.getProcessDefinitionId),
-      processInstanceId = Option(incident.getProcessInstanceKey).map(_.toString),
-      executionId = None, // not supported
-      incidentTimestamp = incident.getCreationTime,
-      incidentType = incident.getErrorType.toString,
-      activityId = None, // not supported
-      failedActivityId = None, // not supported
-      causeIncidentId = None,  // not supported
+      id = incident.incidentKey,
+      processDefinitionId = incident.processDefinitionId,
+      processInstanceId = incident.processInstanceKey,
+      executionId = None,         // not supported
+      incidentTimestamp = incident.creationTime,
+      incidentType = incident.errorType,
+      activityId = None,          // not supported
+      failedActivityId = None,    // not supported
+      causeIncidentId = None,     // not supported
       rootCauseIncidentId = None, // not supported
-      configuration = None, // not supported
-      tenantId = Option(incident.getTenantId),
-      incidentMessage = Option(incident.getErrorMessage),
-      jobDefinitionId = Option(incident.getJobKey).map(_.toString),
-      annotation = None, // not supported
-      state = Option(incident.getState).map(_.toString)
+      configuration = None,       // not supported
+      tenantId = incident.tenantId,
+      incidentMessage = incident.errorMessage,
+      jobDefinitionId = incident.jobKey,
+      annotation = None,          // not supported
+      state = incident.state
     )
 end C8IncidentService

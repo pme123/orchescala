@@ -1,15 +1,12 @@
 package orchescala.engine.c8
 
-
-import io.camunda.client.CamundaClient
 import orchescala.engine.*
-import orchescala.engine.domain.EngineError
 import orchescala.engine.services.*
 import zio.*
 
 case class C8ProcessEngine()(
   using
-  IO[EngineError, CamundaClient],
+  C8RestClient,
   EngineConfig
 ) extends ProcessEngine:
 
@@ -36,10 +33,12 @@ end C8ProcessEngine
 
 object C8ProcessEngine:
 
-  /** Creates a C8ProcessEngine with the proper client resolved from SharedC8ClientManager */
+  /** Creates a C8ProcessEngine whose services call the cluster over the client's REST API.
+    *
+    * The `SharedC8ClientManager` environment is no longer used by the engine services (only by the
+    * job workers) - it stays in the signature for compatibility.
+    */
   def withClient(c8Client: C8Client)(using engineConfig: EngineConfig): ZIO[SharedC8ClientManager, Nothing, C8ProcessEngine] =
-    C8Client.resolveClient(c8Client).map { resolvedClient =>
-      given IO[EngineError, CamundaClient] = resolvedClient
+    ZIO.succeed:
+      given C8RestClient = c8Client.restClient
       C8ProcessEngine()
-    }
-

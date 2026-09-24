@@ -1,24 +1,14 @@
 package orchescala.engine.c8
 
-import io.camunda.client.CamundaClient
-import io.camunda.client.api.search.response as camunda
-import io.camunda.client.api.search.response.Variable
-import orchescala.engine.domain.EngineError
-
-import java.time.OffsetDateTime
-import orchescala.domain.{CamundaVariable, IdentityCorrelation, InputParams, Json, JsonProperty}
+import orchescala.domain.{IdentityCorrelation, InputParams, Json, JsonProperty}
 import orchescala.engine.*
-import orchescala.engine.domain.UserTask
+import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
-import zio.ZIO.{logDebug, logInfo}
+import zio.ZIO.logInfo
 import zio.{IO, ZIO}
-import io.circe.parser
-import orchescala.domain.CamundaVariable.CJson
-
-import scala.jdk.CollectionConverters.*
 
 class C8UserTaskService()(using
-    camundaClientZIO: IO[EngineError, CamundaClient],
+    rest: C8RestClient,
     engineConfig: EngineConfig
 ) extends UserTaskService, C8Service:
 
@@ -27,31 +17,23 @@ class C8UserTaskService()(using
       userTaskDefId: String
   ): IO[EngineError, Option[UserTask]] =
     for
-      camundaClient <- camundaClientZIO
-      userTaskDtos  <-
-        ZIO
-          .attempt:
-            camundaClient
-              .newUserTaskSearchRequest()
-              .filter(f =>
-                f.processInstanceKey(processInstanceId.toLong)
-                  .elementId(userTaskDefId)
-              ).send()
-              .join()
-              .items()
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem getting UserTask for Process Instance '$processInstanceId': $err"
+      processInstanceKey <- toKey("processInstanceId")(processInstanceId)
+      userTaskDtos       <-
+        rest
+          .post[C8RestClient.SearchResult[C8RestModel.UserTaskResult]](
+            Seq("user-tasks", "search"),
+            Json.obj(
+              "filter" -> C8RestModel.filter(
+                "processInstanceKey" -> Some(Json.fromString(processInstanceKey)),
+                "elementId"          -> Some(Json.fromString(userTaskDefId))
+              ),
+              "page"   -> Json.obj("limit" -> Json.fromInt(1))
             )
-      userTask      <-
-        ZIO
-          .attempt:
-            mapToUserTask(userTaskDtos.asScala.toSeq.headOption)
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem mapping UserTask for Process Instance '$processInstanceId': $err"
-            )
-    yield userTask
+          )
+          .mapError(withContext(
+            s"Problem getting UserTask for Process Instance '$processInstanceId'"
+          ))
+    yield userTaskDtos.items.headOption.map(mapToUserTask)
 
   def complete(
       taskId: String,
@@ -59,77 +41,54 @@ class C8UserTaskService()(using
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Unit] =
     for
-      camundaClient <- camundaClientZIO
-      taskKey       <-
-        ZIO.attempt(taskId.toLong).mapError: err =>
-          EngineError.ProcessError(
-            s"Problem completingUserTask converting taskId '$taskId' to Long: $err"
-          )
-
+      taskKey           <- toKey("taskId")(taskId)
       // Get processInstanceId from task
       processInstanceId <- getProcessInstanceIdFromTask(taskKey)
-
       // Sign the correlation with processInstanceId if provided
-      signedCorr      <- identityCorrelation match
-                           case Some(corr) => signCorrelation(corr, processInstanceId)
-                           case None       => ZIO.none
-      jsonVariables =
+      signedCorr        <- identityCorrelation match
+                             case Some(corr) => signCorrelation(corr, processInstanceId)
+                             case None       => ZIO.none
+      jsonVariables      =
         signedCorr
           .map: s =>
             processVariables.add(InputParams._identityCorrelation.toString, s.asJson.deepDropNullValues)
           .getOrElse(processVariables)
-      camundaVariables = jsonToVariablesMap(jsonVariables.toMap)
-      _               <-
-        ZIO
-          .fromFutureJava:
-            camundaClient
-              .newCompleteUserTaskCommand(taskKey)
-              .variables(camundaVariables.asJava)
-              .send()
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem completing UserTask '$taskKey': $err"
-            )
+      _                 <-
+        rest
+          .postNoContent(
+            Seq("user-tasks", taskKey, "completion"),
+            Json.obj("variables" -> Json.fromJsonObject(jsonVariables))
+          )
+          .mapError(withContext(s"Problem completing UserTask '$taskKey'"))
     yield ()
 
-  private def mapToUserTask(
-      c8UserTask: Option[camunda.UserTask]
-  ): Option[UserTask] =
-
-    c8UserTask.map: taskDto =>
-      UserTask(
-        id = Option(taskDto.getUserTaskKey).map(_.toString).getOrElse("taskId not set!"),
-        name = Option(taskDto.getName),
-        assignee = Option(taskDto.getAssignee),
-        created = Option(taskDto.getCreationDate),
-        due = Option(taskDto.getDueDate),
-        followUp = Option(taskDto.getFollowUpDate),
-        priority = Option(taskDto.getPriority).map(_.toInt),
-        processDefinitionId = Option(taskDto.getProcessDefinitionKey).map(_.toString),
-        processInstanceId = Option(taskDto.getProcessInstanceKey).map(_.toString),
-        taskDefinitionKey = Option(taskDto.getBpmnProcessId),
-        formKey = Option(taskDto.getExternalFormReference).map(_.toString),
-        camundaFormRef = Option(taskDto.getFormKey).map(_.toString), // not mapped
-        tenantId = Option(taskDto.getTenantId),
-        taskState = Option(taskDto.getState).map(_.toString)
-      )
+  private def mapToUserTask(taskDto: C8RestModel.UserTaskResult): UserTask =
+    UserTask(
+      id = taskDto.userTaskKey,
+      name = taskDto.name,
+      assignee = taskDto.assignee,
+      created = taskDto.creationDate,
+      due = taskDto.dueDate,
+      followUp = taskDto.followUpDate,
+      priority = taskDto.priority,
+      processDefinitionId = taskDto.processDefinitionKey,
+      processInstanceId = taskDto.processInstanceKey,
+      taskDefinitionKey = taskDto.processDefinitionId,
+      formKey = taskDto.externalFormReference,
+      camundaFormRef = taskDto.formKey,
+      tenantId = taskDto.tenantId,
+      taskState = taskDto.state
+    )
   end mapToUserTask
 
-  private def getProcessInstanceIdFromTask(taskKey: Long): IO[EngineError, String] =
+  private def getProcessInstanceIdFromTask(taskKey: String): IO[EngineError, String] =
     for
-      camundaClient     <- camundaClientZIO
-      userTask          <- ZIO
-                             .attempt:
-                               camundaClient
-                                 .newUserTaskGetRequest(taskKey)
-                                 .send()
-                                 .join()
-                             .mapError(err =>
-                               EngineError.ProcessError(s"Problem getting user task: $err")
-                             )
+      userTask          <- rest
+                             .get[C8RestModel.UserTaskResult](Seq("user-tasks", taskKey))
+                             .mapError(withContext(s"Problem getting user task '$taskKey'"))
       processInstanceId <- ZIO
-                             .fromOption(Option(userTask.getProcessInstanceKey).map(_.toString))
-                             .mapError(_ =>
+                             .fromOption(userTask.processInstanceKey)
+                             .orElseFail(
                                EngineError.ProcessError(s"Task $taskKey has no processInstanceId")
                              )
     yield processInstanceId
@@ -152,31 +111,32 @@ class C8UserTaskService()(using
         ).as:
           Some(correlation.copy(processInstanceId = Some(processInstanceId)))
 
-  def variables(taskId: String, processInstanceId: String, variableFilter: Option[Seq[String]]): IO[EngineError, Seq[JsonProperty]] =
+  def variables(
+      taskId: String,
+      processInstanceId: String,
+      variableFilter: Option[Seq[String]]
+  ): IO[EngineError, Seq[JsonProperty]] =
     for
-      camundaClient <- camundaClientZIO
-      variableDtos  <-
+      taskKey      <- toKey("taskId")(taskId)
+      variableDtos <-
+        rest
+          .searchAll[C8RestModel.VariableResult](
+            Seq("user-tasks", taskKey, "variables", "search"),
+            C8RestModel.filter("name" -> C8RestModel.nameFilter(variableFilter.toSeq.flatten)),
+            query = Map("truncateValues" -> "false")
+          )
+          .mapError(withContext(
+            s"Problem getting Variables of UserTask '$taskId' (Process Instance '$processInstanceId')"
+          ))
+      variables    <-
         ZIO
-          .fromFutureJava:
-            camundaClient
-              .newUserTaskVariableSearchRequest(taskId.toLong)
-              .filter(_.name(variableFilter.toSeq.flatten.contains(_)))
-              .send()
-          .map:
-            _.items()
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem getting Variables for Process Instance '$processInstanceId': $err"
-            )
-      variables     <-
-        ZIO
-          .foreach(filterVariables(variableFilter, variableDtos.asScala.toSeq)): dto =>
+          .foreach(filterVariables(variableFilter, variableDtos)): dto =>
             toVariableValue(dto)
           .mapError: err =>
             EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             )
-      _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+      _            <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
 
 end C8UserTaskService
