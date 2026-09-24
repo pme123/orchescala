@@ -100,6 +100,9 @@ trait GatewayConfig:
   /** Authentication scheme for the `/docs` routes. Defaults to [[DocsAuth.Disabled]]. */
   def docsAuth: DocsAuth = DocsAuth.Disabled
 
+  /** How [[validateToken]] checks the Bearer token - reported at startup. */
+  def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
+
 end GatewayConfig
 
 case class DefaultGatewayConfig(
@@ -114,21 +117,32 @@ case class DefaultGatewayConfig(
             else projectName
           }:5555"
       ),
-    override val docsAuth: DocsAuth = DocsAuth.Disabled
+    override val docsAuth: DocsAuth = DocsAuth.Disabled,
+    /** Use [[TokenValidation.Jwt]] (e.g. `TokenValidation.keycloak(ssoBaseUrl, realm)`) - with
+      * [[TokenValidation.PresenceOnly]] the identity claims are not verified (warned at startup).
+      */
+    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 ) extends GatewayConfig:
 
-  /** Default token validator - validates that token is not empty and returns the token. Override
-    * this with your down validation logic (e.g., JWT validation, database lookup, etc.)
+  private lazy val jwtValidator: Option[JwtValidator] =
+    tokenValidation match
+      case jwt: TokenValidation.Jwt    => Some(JwtValidator(jwt))
+      case TokenValidation.PresenceOnly => None
+
+  /** Validates the Bearer token according to [[tokenValidation]] and returns it. Override this for
+    * other validation logic (e.g. token introspection, database lookup).
     */
   def validateToken(token: String): IO[GatewayError, String] =
-    if token.nonEmpty then
-      ZIO.logInfo("Token is valid")
-        .as(token)
-    else
-      ZIO.logError("Token is empty!") *>
+    if token.isBlank then
+      ZIO.logWarning("Request without authentication token") *>
         ZIO.fail(GatewayError.TokenValidationError(
-        errorMsg = "Invalid or missing authentication token"
-      ))
+          errorMsg = "Invalid or missing authentication token"
+        ))
+    else
+      jwtValidator
+        .fold(ZIO.unit)(_.validate(token).unit)
+        .tapError(err => ZIO.logWarning(s"Rejected token: ${err.errorMsg}"))
+        .as(token)
 
   def extractCorrelation(
       token: String,

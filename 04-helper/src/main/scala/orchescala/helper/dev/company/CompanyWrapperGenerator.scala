@@ -468,7 +468,10 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |    DefaultGatewayConfig(
        |      engineConfig = engineConfig,
        |      workerConfig = companyWorkerConfig,
-       |      docsAuth = authCode
+       |      docsAuth = authCode,
+       |      // verifies the Bearer tokens (signature, expiry, issuer) - the issuer must be exactly the
+       |      // `iss` of the tokens, otherwise use TokenValidation.Jwt(issuer, jwksUrl = Some(...))
+       |      tokenValidation = TokenValidation.keycloak(ssoBaseUrl, ssoRealm)
        |    )
        |
        |  /** Example C7 client with Bearer token pass-through authentication */
