@@ -85,7 +85,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
       .map: tokenResponse =>
         val token = tokenResponse.access_token
         logger.info(
-          s"Added Token to Cache: $username - ${token.take(5)}...${token.takeRight(5)} " +
+          s"Added Token to Cache: $username - ${TokenFingerprint(token)} " +
             s"(expires_in: ${tokenResponse.expires_in.getOrElse("-")}s)"
         )
         TokenCache.put(username, token, tokenResponse.expires_in)
@@ -119,7 +119,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
               .flatMap: tokenResponse =>
                 val token = tokenResponse.access_token
                 ZIO.logInfo(
-                  s"Added Admin Token to Cache: $username - ${token.take(5)}...${token.takeRight(5)}"
+                  s"Added Admin Token to Cache: $username - ${TokenFingerprint(token)}"
                 ).as {
                   TokenCache.put(username, token, tokenResponse.expires_in)
                   lastToken.set(Some(token))

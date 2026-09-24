@@ -3,6 +3,7 @@ package orchescala.gateway
 import com.auth0.jwt.JWT
 import orchescala.domain.*
 import orchescala.engine.{DefaultEngineConfig, EngineConfig, EnvironmentDetector}
+import orchescala.engine.rest.TokenFingerprint
 import orchescala.worker.{DefaultWorkerConfig, WorkerConfig}
 import zio.{IO, ZIO}
 
@@ -151,9 +152,8 @@ case class DefaultGatewayConfig(
     (for
       decoded <- ZIO.attempt(JWT.decode(token))
       claims  <- ZIO.attempt(decoded.getClaims.asScala)
-      payload <- ZIO.attempt(new String(java.util.Base64.getDecoder.decode(decoded.getPayload)))
-      _       <- ZIO.logDebug(s"Payload: $payload")
-      _       <- ZIO.logDebug(s"Claims: ${claims}")
+      // no payload / claims in the logs - they carry personal data (name, email, ...)
+      _       <- ZIO.logDebug(s"IdentityCorrelation from token ${TokenFingerprint(token)}")
     yield IdentityCorrelation(
       username = claims.get("preferred_username").map(_.asString()).mkString,
       email = claims.get("email").map(_.asString()),

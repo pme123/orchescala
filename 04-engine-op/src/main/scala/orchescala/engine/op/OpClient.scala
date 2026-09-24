@@ -3,7 +3,7 @@ package orchescala.engine.op
 import org.camunda.community.rest.client.invoker.ApiClient
 import orchescala.engine.c7.{ApiHttpClient, BearerTokenApiClient}
 import orchescala.engine.domain.EngineError
-import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
+import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig, TokenFingerprint}
 import zio.*
 
 /** Base trait for Op clients that provide ApiClient instances */
@@ -109,7 +109,7 @@ object OpClient:
               authContext.bearerToken match
                 case Some(token) =>
                   ZIO.logDebug(
-                    s"Using token from AuthContext: ${token.take(5)}...${token.takeRight(5)}"
+                    s"Using token from AuthContext: ${TokenFingerprint(token)}"
                   ) *>
                     // Use fresh client with token from AuthContext (pass-through authentication)
                     bearerClient.clientWithToken(token)
