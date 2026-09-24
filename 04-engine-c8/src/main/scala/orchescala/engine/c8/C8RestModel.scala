@@ -53,6 +53,7 @@ private[c8] object C8RestModel:
 
   final case class UserTaskResult(
       userTaskKey: String,
+      elementId: Option[String],
       name: Option[String],
       assignee: Option[String],
       state: Option[String],

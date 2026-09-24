@@ -73,7 +73,7 @@ class C8UserTaskService()(using
       priority = taskDto.priority,
       processDefinitionId = taskDto.processDefinitionKey,
       processInstanceId = taskDto.processInstanceKey,
-      taskDefinitionKey = taskDto.processDefinitionId,
+      taskDefinitionKey = taskDto.elementId, // the user task's BPMN id - like C7
       formKey = taskDto.externalFormReference,
       camundaFormRef = taskDto.formKey,
       tenantId = taskDto.tenantId,

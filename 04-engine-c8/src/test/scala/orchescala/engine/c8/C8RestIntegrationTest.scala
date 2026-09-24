@@ -98,6 +98,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
           byName("big").contains(Json.fromString(bigValue)), // not truncated
           byName("businessKey").contains(Json.fromString(businessKey)),
           instance.processDefinitionId == processId,
+          task.get.taskDefinitionKey.contains("task1"), // the user task's BPMN id, like C7
           completed.state == HistoricProcessInstance.ProcessState.COMPLETED,
           allVars.exists(v => v.name == "approved" && v.value.contains(Json.True)),
           infos.exists(i => i.name == processId && i.engineType.contains(EngineType.C8)),
