@@ -1,6 +1,6 @@
 package orchescala.engine.c7
 
-import orchescala.engine.{AuthContext, TokenClientCache}
+import orchescala.engine.AuthContext
 import org.camunda.community.rest.client.invoker.ApiClient
 import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
@@ -18,7 +18,7 @@ trait C7LocalClient extends C7Client:
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
     SharedC7ClientManager.getOrCreateClient:
       ZIO.attempt:
-        val apiClient = new ApiClient()
+        val apiClient = new ApiClient(ApiHttpClient.pooled())
         apiClient.setBasePath(camundaRestUrl)
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating C7 API Client: $ex")
@@ -35,7 +35,7 @@ trait C7BasicAuthClient extends C7Client:
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =
     SharedC7ClientManager.getOrCreateClient:
       ZIO.attempt:
-        val apiClient = new ApiClient()
+        val apiClient = new ApiClient(ApiHttpClient.pooled())
         apiClient.setBasePath(camundaRestUrl)
         apiClient.setUsername(username)
         apiClient.setPassword(password)
@@ -57,10 +57,11 @@ trait C7OAuth2Client
     SharedC7ClientManager.getOrCreateClient:
       (for
         _      <- ZIO.logDebug(s"Creating Engine Client: ${oAuthConfig.ssoBaseUrl}")
-        client <- ZIO.attempt(ApiClient())
+        // token first - if it fails, no client (and connection pool) is left behind unclosed
+        token  <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
+        client <- ZIO.attempt(ApiClient(ApiHttpClient.pooled()))
         _      <- ZIO.attempt:
                     client.setBasePath(camundaRestUrl)
-        token  <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
         _      <- ZIO.attempt:
                     client.addDefaultHeader("Authorization", s"Bearer $token")
       yield client)
@@ -75,30 +76,13 @@ trait C7BearerTokenClient extends C7Client:
 
   protected def camundaRestUrl: String
 
-  /** How long a token's client may sit unused before it is closed and dropped from the cache. */
-  protected def tokenClientIdleTtlMillis: Long = TokenClientCache.defaultIdleTtlMillis
-
-  // Every `new ApiClient()` brings its own Apache HttpClient5 connection pool; building one per
-  // request leaked a pool on every gateway call. See TokenClientCache.
-  private lazy val tokenClients = TokenClientCache[ApiClient](
-    build = token =>
-      val apiClient = new ApiClient()
-      apiClient.setBasePath(camundaRestUrl)
-      apiClient.addDefaultHeader("Authorization", s"Bearer $token")
-      apiClient,
-    close = _.getHttpClient.close(),
-    idleTtlMillis = tokenClientIdleTtlMillis,
-    clientTypeName = "C7"
-  )
-
-  /** Returns the client for the given Bearer token, building it on first use. */
+  /** Returns a client for the given Bearer token - cheap, it runs on a shared connection pool
+    * (see BearerTokenApiClient).
+    */
   def clientWithToken(token: String): ZIO[Any, EngineError, ApiClient] =
-    ZIO.attempt(tokenClients.get(token))
+    ZIO.attempt(BearerTokenApiClient(camundaRestUrl, token))
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating C7 API Client with token: $ex")
-
-  /** Closes and drops every cached token client - e.g. on shutdown. */
-  def closeTokenClients(): Unit = tokenClients.closeAll()
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedC7ClientManager, EngineError, ApiClient] =

@@ -1,7 +1,7 @@
 package orchescala.engine.op
 
 import org.camunda.community.rest.client.invoker.ApiClient
-import orchescala.engine.TokenClientCache
+import orchescala.engine.c7.{ApiHttpClient, BearerTokenApiClient}
 import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
 import zio.*
@@ -18,7 +18,7 @@ trait OpLocalClient extends OpClient:
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOpClientManager.getOrCreateClient:
       ZIO.attempt:
-        val apiClient = new ApiClient()
+        val apiClient = new ApiClient(ApiHttpClient.pooled())
         apiClient.setBasePath(operatonRestUrl)
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating Op API Client: $ex")
@@ -35,7 +35,7 @@ trait OpBasicAuthClient extends OpClient:
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOpClientManager.getOrCreateClient:
       ZIO.attempt:
-        val apiClient = new ApiClient()
+        val apiClient = new ApiClient(ApiHttpClient.pooled())
         apiClient.setBasePath(operatonRestUrl)
         apiClient.setUsername(username)
         apiClient.setPassword(password)
@@ -53,10 +53,11 @@ class OpOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.ClientCre
     SharedOpClientManager.getOrCreateClient:
       (for
         _      <- ZIO.logDebug(s"Creating Op Engine Client: ${oAuthConfig.ssoBaseUrl}")
-        client <- ZIO.attempt(ApiClient())
+        // token first - if it fails, no client (and connection pool) is left behind unclosed
+        token  <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
+        client <- ZIO.attempt(ApiClient(ApiHttpClient.pooled()))
         _      <- ZIO.attempt:
                     client.setBasePath(operatonRestUrl)
-        token  <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
         _      <- ZIO.attempt:
                     client.addDefaultHeader("Authorization", s"Bearer $token")
       yield client)
@@ -71,30 +72,13 @@ trait OpBearerTokenClient extends OpClient:
 
   protected def operatonRestUrl: String
 
-  /** How long a token's client may sit unused before it is closed and dropped from the cache. */
-  protected def tokenClientIdleTtlMillis: Long = TokenClientCache.defaultIdleTtlMillis
-
-  // Every `new ApiClient()` brings its own Apache HttpClient5 connection pool; building one per
-  // request leaked a pool on every gateway call. See TokenClientCache.
-  private lazy val tokenClients = TokenClientCache[ApiClient](
-    build = token =>
-      val apiClient = new ApiClient()
-      apiClient.setBasePath(operatonRestUrl)
-      apiClient.addDefaultHeader("Authorization", s"Bearer $token")
-      apiClient,
-    close = _.getHttpClient.close(),
-    idleTtlMillis = tokenClientIdleTtlMillis,
-    clientTypeName = "Op"
-  )
-
-  /** Returns the client for the given Bearer token, building it on first use. */
+  /** Returns a client for the given Bearer token - cheap, it runs on a shared connection pool
+    * (see BearerTokenApiClient).
+    */
   def clientWithToken(token: String): ZIO[Any, EngineError, ApiClient] =
-    ZIO.attempt(tokenClients.get(token))
+    ZIO.attempt(BearerTokenApiClient(operatonRestUrl, token))
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating Op API Client with token: $ex")
-
-  /** Closes and drops every cached token client - e.g. on shutdown. */
-  def closeTokenClients(): Unit = tokenClients.closeAll()
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
