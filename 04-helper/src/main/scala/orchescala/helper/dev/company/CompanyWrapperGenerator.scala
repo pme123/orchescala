@@ -234,8 +234,7 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val c8SimulationWrapper =
     s"""package $companyName.orchescala.simulation
        |
-       |import io.camunda.client.CamundaClient
-       |import orchescala.engine.{EngineError, EngineConfig, ProcessEngine}
+       |import orchescala.engine.{EngineConfig, ProcessEngine}
        |import orchescala.engine.c8.{C8ProcessEngine, C8SaasClient, SharedC8ClientManager}
        |import orchescala.simulation.{SimulationConfig, SimulationRunner, SimulationError, LogLevel, ScenarioResult}
        |import zio.{ZIO, Scope, ZLayer}
@@ -245,14 +244,11 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        | */
        |trait CompanyC8Simulation extends SimulationRunner, CompanyEngineC8Config, C8SaasClient:
        |
-       |  // Provide the client as a given for the engine services
-       |  given ZIO[SharedC8ClientManager, EngineError, CamundaClient] = client
-       |
        |  // Override requiredLayers to provide the SharedC8ClientManager layer
        |  override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
        |    Seq(SharedC8ClientManager.layer)
        |
-       |  // Override engineZIO to create the engine within the SharedC8ClientManager environment
+       |  // The engine services call the cluster over its REST API (see C8Client.restClient)
        |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
        |    C8ProcessEngine.withClient(this).provideLayer(SharedC8ClientManager.layer)
        |
