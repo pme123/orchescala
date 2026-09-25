@@ -41,7 +41,7 @@ class ClientCredentialsFlow(val config: OAuthConfig.ClientCredentials) extends C
   protected def identityUrl    = config.identityUrl
   // one token per identity provider and client - a single global key handed the token of one
   // client to another (e.g. the engine client's to the simulation's worker app login)
-  private lazy val cacheKey    = s"clientCredentials|$identityUrl|${config.client_id}"
+  private[engine] lazy val cacheKey = s"clientCredentials|$identityUrl|${config.client_id}"
   private lazy val requestBody = config.asMap
 
 end ClientCredentialsFlow

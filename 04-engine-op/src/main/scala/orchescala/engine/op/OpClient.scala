@@ -49,22 +49,21 @@ class OpOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.ClientCre
     extends OpClient:
   lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
 
+  /** A client with the current token, per call: the token comes from the cache and is refreshed
+    * shortly before it expires (asynchronously, never inside the HTTP connection pool). The client
+    * only holds base path and header, on the shared connection pool (see BearerTokenApiClient).
+    * Before, one client was built with the first token and shared for the whole runtime - every
+    * call failed with 401 once that token expired (Keycloak: usually after 5 minutes).
+    */
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
-    SharedOpClientManager.getOrCreateClient:
-      (for
-        _      <- ZIO.logDebug(s"Creating Op Engine Client: ${oAuthConfig.ssoBaseUrl}")
-        // token first - if it fails, no client (and connection pool) is left behind unclosed
-        token  <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
-        client <- ZIO.attempt(ApiClient(ApiHttpClient.pooled()))
-        _      <- ZIO.attempt:
-                    client.setBasePath(operatonRestUrl)
-        _      <- ZIO.attempt:
-                    client.addDefaultHeader("Authorization", s"Bearer $token")
-      yield client)
-        .tapError: err =>
-          ZIO.logError(s"Problem creating Op Engine Client: $err")
-        .mapError: ex =>
-          EngineError.UnexpectedError(s"Problem creating Op Engine Client: $ex")
+    authFlow
+      .clientCredentialsToken()
+      .provideLayer(HttpClientProvider.live)
+      .flatMap(token => ZIO.attempt(BearerTokenApiClient(operatonRestUrl, token)))
+      .tapError: err =>
+        ZIO.logError(s"Problem creating Op Engine Client: $err")
+      .mapError: ex =>
+        EngineError.UnexpectedError(s"Problem creating Op Engine Client: $ex")
 end OpOAuth2Client
 
 /** Op client with Bearer token authentication (token provided per request) */

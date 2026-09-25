@@ -27,7 +27,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
     * hold a leased pool connection.
     */
   def cachedToken: Option[String] =
-    TokenCache.get(username).orElse(lastToken.get())
+    TokenCache.get(cacheKey).orElse(lastToken.get())
 
   /** Starts a daemon thread that periodically refreshes the token, so [[cachedToken]] is always
     * warm and no request thread ever has to fetch a token itself. Idempotent per JVM:
@@ -73,6 +73,9 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
       .foreach(_.shutdownNow())
 
   private lazy val refresherKey = s"$identityUrl|$username"
+  // one token per identity provider, client and user - the user name alone handed the token of
+  // one realm / client to another with the same user name
+  private lazy val cacheKey     = s"password|$identityUrl|${config.client_id}|$username"
 
   /** Fetches a fresh token (ignoring the cache) and stores it in the cache and as last token. The
     * call is bounded by [[tokenCallHardTimeout]] - it can never block indefinitely.
@@ -88,12 +91,12 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
           s"Added Token to Cache: $username - ${TokenFingerprint(token)} " +
             s"(expires_in: ${tokenResponse.expires_in.getOrElse("-")}s)"
         )
-        TokenCache.put(username, token, tokenResponse.expires_in)
+        TokenCache.put(cacheKey, token, tokenResponse.expires_in)
         lastToken.set(Some(token))
         token
 
   def retrieveTokenSync()(using logger: OrchescalaLogger): Either[ServiceError, String] =
-    TokenCache.get(username)
+    TokenCache.get(cacheKey)
       .map: token =>
         logger.debug(s"Admin Token from Cache: $username")
         Right(token)
@@ -101,7 +104,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
         refreshToken()
 
   def retrieveToken(): ZIO[SttpClientBackend, ServiceError, String] =
-    ZIO.fromOption(TokenCache.get(username))
+    ZIO.fromOption(TokenCache.get(cacheKey))
       .zipLeft(ZIO.logDebug(s"Admin Token from Cache: $username"))
       .orElse:
         ZIO.serviceWithZIO[SttpClientBackend]: backend =>
@@ -121,7 +124,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
                 ZIO.logInfo(
                   s"Added Admin Token to Cache: $username - ${TokenFingerprint(token)}"
                 ).as {
-                  TokenCache.put(username, token, tokenResponse.expires_in)
+                  TokenCache.put(cacheKey, token, tokenResponse.expires_in)
                   lastToken.set(Some(token))
                   token
                 }
