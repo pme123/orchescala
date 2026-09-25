@@ -985,8 +985,9 @@ paths:
       - Deployment
       summary: List what is deployed
       description: |
-        Lists the deployments of the selected or auto-detected engine - the check after
-        `POST /deployment`.
+        Lists the deployments - the check after `POST /deployment`. With `targetEngine` of that
+        engine, without of all engines (each entry has its `engineType`; an engine that cannot be
+        reached is left out and logged - the request only fails if no engine answers).
 
         - C7 / Op: one entry per deployment (`id` = deployment id, `name` = deployment name,
           `deploymentTime` set).

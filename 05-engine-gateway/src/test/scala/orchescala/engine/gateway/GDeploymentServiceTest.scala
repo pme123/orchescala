@@ -173,6 +173,32 @@ object GDeploymentServiceTest extends ZIOSpecDefault:
         c8Service.deleteCalls.length == 1,
         c8Service.deleteCalls.head == (("dep-1", true, Some(EngineType.C8)))
       )
+    },
+    test("getDeployments without target engine lists the deployments of all engines") {
+      val c7Service = MockDeploymentService(EngineType.C7, shouldFail = false)
+      val c8Service = MockDeploymentService(EngineType.C8, shouldFail = false)
+      val gService  = GDeploymentService(using Seq(c7Service, c8Service))
+      for result <- gService.getDeployments(None)
+      yield assertTrue(
+        result.map(i => i.name -> i.engineType).toSet == Set(
+          "C7-deployment" -> Some(EngineType.C7),
+          "C8-deployment" -> Some(EngineType.C8)
+        )
+      )
+    },
+    test("getDeployments without target engine leaves out an engine that fails") {
+      val c7Service = MockDeploymentService(EngineType.C7, shouldFail = true)
+      val c8Service = MockDeploymentService(EngineType.C8, shouldFail = false)
+      val gService  = GDeploymentService(using Seq(c7Service, c8Service))
+      for result <- gService.getDeployments(None)
+      yield assertTrue(result.map(_.name) == Seq("C8-deployment"))
+    },
+    test("getDeployments without target engine fails if no engine answers") {
+      val c7Service = MockDeploymentService(EngineType.C7, shouldFail = true)
+      val c8Service = MockDeploymentService(EngineType.C8, shouldFail = true)
+      val gService  = GDeploymentService(using Seq(c7Service, c8Service))
+      for exit <- gService.getDeployments(None).exit
+      yield assertTrue(exit.isFailure)
     }
   )
 end GDeploymentServiceTest
