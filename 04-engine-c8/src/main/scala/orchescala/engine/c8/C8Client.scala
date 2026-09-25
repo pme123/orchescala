@@ -30,8 +30,12 @@ trait C8Client:
   protected def zeebeRest: String
   def client: ZIO[SharedC8ClientManager, EngineError, CamundaClient]
 
-  /** How the engine services authenticate their REST calls. */
-  protected def restAuth: C8RestAuth = C8RestAuth.NoAuth
+  /** How the engine services authenticate their REST calls. No default on purpose: a silent
+    * `NoAuth` only showed up as 401 against a secured cluster. [[C8BearerTokenClient]] passes the
+    * caller's token through, [[C8SaasClient]] uses client credentials, [[C8NoAuthClient]] sends
+    * none (e.g. a local c8run).
+    */
+  protected def restAuth: C8RestAuth
 
   lazy val restClient: C8RestClient = C8RestClient(zeebeRest, restAuth)
 
@@ -106,3 +110,21 @@ trait C8BearerTokenClient extends C8Client:
 end C8BearerTokenClient
 
 class C8DefaultBearerTokenClient(val zeebeGrpc: String, val zeebeRest: String) extends C8BearerTokenClient
+
+/** C8 client without authentication, e.g. a local c8run: the engine services send no
+  * `Authorization` header, the SDK client (job workers) has no credentials.
+  */
+trait C8NoAuthClient extends C8Client:
+
+  override protected def restAuth: C8RestAuth = C8RestAuth.NoAuth
+
+  lazy val client: ZIO[SharedC8ClientManager, EngineError, CamundaClient] =
+    SharedC8ClientManager.getOrCreateClient:
+      ZIO.attempt:
+        clientBuilder.build()
+      .mapError: ex =>
+        EngineError.UnexpectedError(s"Problem creating C8 Client: $ex")
+
+end C8NoAuthClient
+
+class C8DefaultNoAuthClient(val zeebeGrpc: String, val zeebeRest: String) extends C8NoAuthClient
