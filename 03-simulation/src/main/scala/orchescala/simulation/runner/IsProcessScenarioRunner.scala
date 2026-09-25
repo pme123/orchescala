@@ -91,10 +91,13 @@ class IsProcessScenarioRunner(scenario: IsProcessScenario)(using
 
 
   private def initProcess(variables: Json)(using ScenarioData) =
-    // Forward request to the worker app
-    WorkerForwardUtil.forwardWorkerRequest(processName, variables, "No token needed")(using
-        config.engineConfig
-      )
+    // Forward request to the worker app - with the simulation's token (SimulationConfig.workerAppAuth)
+    (for
+      token  <- WorkerAppToken(config.workerAppAuth)
+      result <- WorkerForwardUtil.forwardWorkerRequest(processName, variables, token)(using
+                  config.engineConfig
+                )
+    yield result)
       .provideLayer(HttpClientProvider.live)
       .map:
         _.asObject
