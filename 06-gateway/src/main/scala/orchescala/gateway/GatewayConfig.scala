@@ -69,14 +69,23 @@ object DocsAuth:
     *   OAuth 2.0 client secret.
     * @param scopes
     *   Space-separated OAuth scopes, e.g. `"openid profile"`.
+    * @param tokenValidation
+    *   How the token in the docs cookie is verified - default `TokenValidation.keycloak(ssoBaseUrl,
+    *   realm)`.
     */
   case class OAuth2AuthCode(
       ssoBaseUrl: String,
       realm: String,
       clientId: String,
       clientSecret: String,
-      scopes: String = "openid profile"
+      scopes: String = "openid profile",
+      tokenValidation: Option[TokenValidation.Jwt | TokenValidation.AnyOf] = None
   ) extends DocsAuth:
+    /** How the token in the docs cookie is verified - default: the Keycloak realm above. Set it if
+      * the tokens' `iss` differs from `{ssoBaseUrl}/realms/{realm}` (e.g. a Keycloak frontend URL).
+      */
+    lazy val docsTokenValidation: TokenValidation =
+      tokenValidation.getOrElse(TokenValidation.keycloak(ssoBaseUrl, realm))
     private val base: String        = ssoBaseUrl.stripSuffix("/")
     def authorizationUrl: String    = s"$base/realms/$realm/protocol/openid-connect/auth"
     def tokenUrl: String            = s"$base/realms/$realm/protocol/openid-connect/token"

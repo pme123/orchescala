@@ -1,5 +1,7 @@
 package orchescala.gateway
 
+import orchescala.engine.rest.TokenFingerprint
+
 import io.circe.parser as circeParser
 import java.net.JarURLConnection
 import java.nio.file.{Files, Paths}
@@ -26,6 +28,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
   private val oauth2StateCookieName       = "orchescala_oauth_state"
   private val oauth2TargetCookieName      = "orchescala_oauth_target"
   private val defaultOAuth2Target         = "/docs"
+
+  // one verifier per auth config - it caches the signing keys
+  private val docsTokenVerifiers = ConcurrentHashMap[DocsAuth.OAuth2AuthCode, TokenVerifier]()
+
+  private def docsTokenVerifier(auth: DocsAuth.OAuth2AuthCode): TokenVerifier =
+    docsTokenVerifiers.computeIfAbsent(auth, a => TokenVerifier(a.docsTokenValidation).get)
 
   /** Creates routes for serving OpenAPI documentation and company documentation.
     *
@@ -220,36 +228,52 @@ class OpenApiRoutes()(using config: GatewayConfig):
             zio.http.handler: (request: Request) =>
               request.cookie(docsTokenCookieName) match
 
-                // ── 1. Authenticated ────────────────────────────────────────
+                // ── 1. Token cookie: verify it (signature, expiry, issuer) ──
+                // Its mere presence let anyone in: `Cookie: orchescala_docs_token=x`.
                 case Some(cookie) if cookie.content.nonEmpty =>
-                  handler(request)
+                  docsTokenVerifier(auth)
+                    .validate(cookie.content)
+                    .foldZIO(
+                      reason =>
+                        ZIO.logWarning(
+                          s"Docs token ${TokenFingerprint(cookie.content)} rejected: $reason"
+                        ) *>
+                          redirectToLogin(auth, request)
+                            .map(_.addCookie(clearRootCookie(docsTokenCookieName))),
+                      _ => handler(request)
+                    )
 
                 // ── 2. No token → redirect to Keycloak ──────────────────────
                 case _ =>
-                  val state       = java.util.UUID.randomUUID().toString
-                  val target      = deriveOAuth2Target(request)
-                  val redirectUri = deriveCallbackUri(request)
-                  val authUrl     = buildOAuthUrl(auth, state, redirectUri)
-                  ZIO.logInfo(s"Redirecting to Keycloak: $authUrl \n- RedirectUri: $redirectUri\n- Target: $target\n- State: $state").as:
-                    Response(status = Status.Found, headers = Headers("location" -> authUrl))
-                      .addCookie(
-                        Cookie.Response(
-                          name       = oauth2StateCookieName,
-                          content    = state,
-                          path       = Some(Path.root),
-                          isHttpOnly = true,
-                          sameSite   = Some(Cookie.SameSite.Lax)
-                        )
-                      )
-                      .addCookie(
-                        Cookie.Response(
-                          name       = oauth2TargetCookieName,
-                          content    = target,
-                          path       = Some(Path.root),
-                          isHttpOnly = true,
-                          sameSite   = Some(Cookie.SameSite.Lax)
-                        )
-                      )
+                  redirectToLogin(auth, request)
+
+  /** Redirects the browser to the Keycloak login, remembering the requested page. */
+  private def redirectToLogin(auth: DocsAuth.OAuth2AuthCode, request: Request): UIO[Response] =
+    val state       = java.util.UUID.randomUUID().toString
+    val target      = deriveOAuth2Target(request)
+    val redirectUri = deriveCallbackUri(request)
+    val authUrl     = buildOAuthUrl(auth, state, redirectUri)
+    ZIO.logInfo(s"Redirecting to Keycloak: $authUrl \n- RedirectUri: $redirectUri\n- Target: $target\n- State: $state").as:
+      Response(status = Status.Found, headers = Headers("location" -> authUrl))
+        .addCookie(
+          Cookie.Response(
+            name       = oauth2StateCookieName,
+            content    = state,
+            path       = Some(Path.root),
+            isHttpOnly = true,
+            sameSite   = Some(Cookie.SameSite.Lax)
+          )
+        )
+        .addCookie(
+          Cookie.Response(
+            name       = oauth2TargetCookieName,
+            content    = target,
+            path       = Some(Path.root),
+            isHttpOnly = true,
+            sameSite   = Some(Cookie.SameSite.Lax)
+          )
+        )
+  end redirectToLogin
 
   /** Public (unprotected) route that handles the Keycloak authorization-code callback.
     *
