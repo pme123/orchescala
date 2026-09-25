@@ -31,7 +31,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
 
   /** Starts a daemon thread that periodically refreshes the token, so [[cachedToken]] is always
     * warm and no request thread ever has to fetch a token itself. Idempotent per JVM:
-    * only one refresher runs per identity provider + username, no matter how many flow
+    * only one refresher runs per identity provider, client and user, no matter how many flow
     * instances are created over time.
     */
   def startBackgroundRefresh(interval: FiniteDuration = 60.seconds)(using
@@ -72,10 +72,13 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
     Option(PasswordGrantFlow.refreshers.remove(refresherKey))
       .foreach(_.shutdownNow())
 
-  private lazy val refresherKey = s"$identityUrl|$username"
   // one token per identity provider, client and user - the user name alone handed the token of
   // one realm / client to another with the same user name
   private lazy val cacheKey     = s"password|$identityUrl|${config.client_id}|$username"
+  // the same key as the cache: a refresher keeps exactly the entry the flow reads - with a
+  // coarser key (identity provider + user) the first flow's refresher blocked the one of a
+  // second client with the same user, whose cache entry then stayed empty for good
+  private lazy val refresherKey = cacheKey
 
   /** Fetches a fresh token (ignoring the cache) and stores it in the cache and as last token. The
     * call is bounded by [[tokenCallHardTimeout]] - it can never block indefinitely.
@@ -139,7 +142,7 @@ class PasswordGrantFlow(val config: OAuthConfig.PasswordGrant) extends PasswordG
 end PasswordGrantFlow
 
 object PasswordGrantFlow:
-  // one background refresher per identity provider + username per JVM -
+  // one background refresher per identity provider, client and user per JVM -
   // repeated client creations (restarts, simulations) must not accumulate threads
   private val refreshers = new ConcurrentHashMap[String, ScheduledExecutorService]()
 end PasswordGrantFlow
