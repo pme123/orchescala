@@ -36,16 +36,18 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         logInfo(
           s"Worker: ${externalTask.getTopicName} (${externalTask.getId}) started > ${externalTask.getProcessInstanceId}"
         )
-      _         <- executeWorker(externalTaskService, externalTask.getRetries)
+      _         <- executeWorker(externalTaskService)
       _         <-
         logInfo(
           s"Worker: ${externalTask.getTopicName} (${externalTask.getProcessInstanceId}) ended ${printTimeOnConsole(startDate)}   > ${externalTask.getBusinessKey}"
         )
     yield ()
 
+  // the retries are read from the task only when handling a failure (calcRetries): before the
+  // first failure they are `null` - converting them to Int up front threw a NullPointerException
+  // on EVERY first run, a defect that left the task neither completed nor failed
   private def executeWorker(
-      externalTaskService: operaton.ExternalTaskService,
-      retries: Int
+      externalTaskService: operaton.ExternalTaskService
   ): HelperContext[ZIO[SttpClientBackend, Throwable, Unit]] =
     val tryProcessVariables =
       ProcessVariablesExtractor.extract(worker.variableNames)
@@ -60,16 +62,15 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             _                      <- logDebug(s"filteredOut: $filteredOut")
             _                      <- externalTaskService.handleSuccess(
                                         filteredOut,
-                                        generalVariables.isManualOutMapping,
-                                        retries
+                                        generalVariables.isManualOutMapping
                                       )
             _                      <- logDebug(s"Worker: ${worker.topic} completed successfully")
           yield ())
             .catchAll: ex =>
-              externalTaskService.handleError(ex, generalVariables, retries)
+              externalTaskService.handleError(ex, generalVariables)
             .unit
         .catchAll: ex =>
-          externalTaskService.handleFailure(ex, retries = retries)
+          externalTaskService.handleFailure(ex)
   end executeWorker
 
   private def createEngineRunContext(generalVariables: GeneralVariables) =
@@ -90,8 +91,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
     private[worker] def handleSuccess(
         filteredOutput: Map[String, Any],
-        manualOutMapping: Boolean,
-        retries: Int
+        manualOutMapping: Boolean
     ): HelperContext[URIO[Any, Unit]] = {
       ZIO.logDebug(s"handleSuccess BEFORE complete: ${worker.topic}") *>
         ZIO.attempt {
@@ -107,30 +107,27 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       handleFailure(
         UnexpectedError(
           s"There is an unexpected Error from completing a successful Worker to Operaton: $err."
-        ),
-        retries
+        )
       )
     .ignore
 
     private[worker] def handleError(
         error: WorkerError,
-        generalVariables: GeneralVariables,
-        retries: Int
+        generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, Unit]] =
       // AlreadyHandledError means checkError already resolved it (handleSuccess/handleBpmnError
       // ran). Everything else - including UnexpectedError and a MockedOutput that somehow wasn't
       // resolved as handled - must go through handleFailure
-      checkError(error, generalVariables, retries)
+      checkError(error, generalVariables)
         .flatMap:
           case AlreadyHandledError => ZIO.unit
-          case err                 => handleFailure(err, retries)
+          case err                 => handleFailure(err, generalVariables._servicesMocked.contains(true))
 
     end handleError
 
     private[worker] def checkError(
         error: WorkerError,
-        generalVariables: GeneralVariables,
-        retries: Int
+        generalVariables: GeneralVariables
     ): HelperContext[URIO[Any, WorkerError]] =
       val errorMsg          = error.errorMsg.replace("\n", "")
       val errorHandled      = isErrorHandled(error, generalVariables.handledErrorSeq)
@@ -152,9 +149,9 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                error.errorCode.toString
              )
            then
-             handleSuccess(filtered, generalVariables.isManualOutMapping, retries)
+             handleSuccess(filtered, generalVariables.isManualOutMapping)
            else
-             handleBpmnError(error, filtered, retries)
+             handleBpmnError(error, filtered)
           ).as(AlreadyHandledError)
         case (true, false) =>
           ZIO.succeed(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrorSeq))
@@ -165,8 +162,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
     private[worker] def handleBpmnError(
         error: WorkerError,
-        filteredGeneralVariables: Map[String, Any],
-        retries: Int
+        filteredGeneralVariables: Map[String, Any]
     ): HelperContext[URIO[Any, Unit]] =
       val errorVars = Map(
         "errorCode" -> error.errorCode.toString,
@@ -183,16 +179,16 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       )
         .catchAll: err =>
           handleFailure(
-            UnexpectedError(s"Problem handling BpmnError to Operaton: $err."),
-            retries = retries
+            UnexpectedError(s"Problem handling BpmnError to Operaton: $err.")
           ).ignore
         .ignore
     end handleBpmnError
 
     private[worker] def handleFailure(
         error: WorkerError,
-        retries: Int
+        inTestMode: Boolean = false
     ): HelperContext[URIO[Any, Unit]] =
+      val retries           = calcRetries(error, operatonContext.workerConfig.doRetryList, inTestMode)
       val taskId            = summon[operaton.ExternalTask].getId
       val processInstanceId = summon[operaton.ExternalTask].getProcessInstanceId
       val businessKey       = summon[operaton.ExternalTask].getBusinessKey
@@ -227,6 +223,29 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end filteredOutput
 
   end extension
+
+  /** Retries left after this failure - as C7Worker.calcRetries: counts down on every failure; on
+    * the first one (retries still `null`) a ServiceError or an error of `doRetryMsgs` gets 2
+    * retries, any other error none. Sending the unchanged count (as before) retried a failing
+    * task every 10s without end.
+    */
+  private[worker] def calcRetries(
+      error: WorkerError,
+      doRetryMsgs: Seq[String],
+      inTestMode: Boolean
+  ): HelperContext[Int] =
+    Option(summon[operaton.ExternalTask].getRetries)
+      .map(_ - 1)
+      .getOrElse:
+        error match
+          case _ if inTestMode                                                     => 0
+          case _: ServiceError                                                     => 2
+          case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2
+          case _
+              if doRetryMsgs.exists(msg => error.errorMsg.toLowerCase.contains(msg.toLowerCase)) =>
+            2
+          case _                                                                   => 0
+  end calcRetries
 
 end OpWorker
 
