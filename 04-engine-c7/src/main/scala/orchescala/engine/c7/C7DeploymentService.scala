@@ -56,7 +56,7 @@ class C7DeploymentService(using
             ZIO
               .acquireRelease(createTempResources(deployableResources))(deleteTempResources)
               .flatMap: resourceFiles =>
-                ZIO.attempt:
+                ZIO.attemptBlocking:
                   val formParams = new HashMap[String, Object]()
                   Option(engineConfig.tenantId.orNull).foreach(formParams.put("tenant-id", _))
                   formParams.put("deployment-source", "orchescala-deployment")
@@ -102,7 +102,7 @@ class C7DeploymentService(using
       _         <- validateTargetEngine(targetEngine)
       apiClient <- apiClientZIO
       dtos      <- ZIO
-                    .attempt:
+                    .attemptBlocking:
                       new DeploymentApi(apiClient)
                         .getDeployments(
                           null, null, null, null, null, null, null, null,
@@ -124,7 +124,7 @@ class C7DeploymentService(using
       _         <- validateTargetEngine(targetEngine)
       apiClient <- apiClientZIO
       _         <- ZIO
-                    .attempt:
+                    .attemptBlocking:
                       new DeploymentApi(apiClient)
                         .deleteDeployment(deploymentId, cascade, false, false)
                     .mapError: err =>
@@ -145,7 +145,7 @@ class C7DeploymentService(using
       case _ => ZIO.unit
 
   private def createTempResources(resources: Seq[DeploymentResource]): IO[EngineError, Seq[Path]] =
-    ZIO.attempt:
+    ZIO.attemptBlocking:
       val directory = Files.createTempDirectory("orchescala-deploy-")
       resources.map: resource =>
         val fileName = Paths.get(resource.name).getFileName.toString
@@ -155,7 +155,7 @@ class C7DeploymentService(using
       EngineError.ProcessError(s"Problem creating temporary deployment resources: $err")
 
   private def deleteTempResources(paths: Seq[Path]): IO[Nothing, Unit] =
-    ZIO.attempt:
+    ZIO.attemptBlocking:
       paths.foreach(Files.deleteIfExists)
       paths.headOption.map(_.getParent).foreach(Files.deleteIfExists)
     .ignore

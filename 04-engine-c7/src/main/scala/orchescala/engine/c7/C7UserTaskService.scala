@@ -35,7 +35,7 @@ class C7UserTaskService() (using
                      .processInstanceId(processInstanceId)
                      .taskDefinitionKey(userTaskDefId)
       taskDtos  <- ZIO
-                     .attempt:
+                     .attemptBlocking:
                        new TaskApi(apiClient).queryTasks(null, null, query)
                      .mapError(err =>
                        EngineError.ProcessError(s"Problem getting tasks: $err")
@@ -53,7 +53,7 @@ class C7UserTaskService() (using
       _ <- ZIO.logDebug(s"Getting Variables for UserTask '$taskId' of ProcessInstance '$processInstanceId' with variableFilter: ${variableFilter.toSeq.flatten.mkString(",")}")
       variableDtos <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new TaskApi(apiClient)
               .getFormVariables(taskId, variableFilter.map(_.mkString(",")).orNull, false)
           .mapError: err =>
@@ -103,7 +103,7 @@ class C7UserTaskService() (using
 
       variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
       _            <- ZIO
-                        .attempt:
+                        .attemptBlocking:
                           new TaskApi(apiClient)
                             .complete(
                               taskId,
@@ -162,7 +162,7 @@ class C7UserTaskService() (using
       apiClient <- apiClientZIO
       variables <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new TaskApi(apiClient)
               .getFormVariables(
                 taskId,
@@ -232,7 +232,7 @@ class C7UserTaskService() (using
     for
       apiClient         <- apiClientZIO
       task              <- ZIO
-                             .attempt:
+                             .attemptBlocking:
                                new TaskApi(apiClient).getTask(taskId)
                              .mapError(err =>
                                EngineError.ProcessError(s"Problem getting task: $err")

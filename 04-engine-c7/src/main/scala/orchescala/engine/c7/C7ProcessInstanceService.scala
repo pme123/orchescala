@@ -127,7 +127,7 @@ class C7ProcessInstanceService(using
       correlationVar  <- ZIO.succeed(CJson(correlationJson.toString))
       correlationDto  <- C7VariableMapper.toC7VariableValue(correlationVar)
       _               <- ZIO
-                           .attempt:
+                           .attemptBlocking:
                              val modifications = new PatchVariablesDto()
                                .modifications(Map(InputParams._identityCorrelation.toString -> correlationDto).asJava)
                              new ProcessInstanceApi(apiClient)
@@ -154,7 +154,7 @@ class C7ProcessInstanceService(using
   ): ZIO[Any, EngineError.ProcessError, ProcessInstanceWithVariablesDto] =
     val effectiveTenantId = tenantId.orElse(engineConfig.tenantId)
     ZIO
-      .attempt:
+      .attemptBlocking:
         val api = new ProcessDefinitionApi(apiClient)
         effectiveTenantId
           .map: tenantId =>
@@ -186,7 +186,7 @@ class C7ProcessInstanceService(using
       apiClient    <- apiClientZIO
       variableDtos <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new ProcessInstanceApi(apiClient)
               .getProcessInstanceVariables(processInstanceId, false)
           .mapError: err =>
@@ -297,7 +297,7 @@ class C7ProcessInstanceService(using
       apiClient <- apiClientZIO
       response  <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new org.camunda.community.rest.client.api.MessageApi(apiClient)
               .deliverMessage(
                 new org.camunda.community.rest.client.dto.CorrelationMessageDto()

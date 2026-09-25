@@ -26,7 +26,7 @@ class C7SignalService(using
       _         <- logInfo(s"Sending Signal '$name'.")
       _         <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new SignalApi(apiClient)
               .throwSignal(SignalDto()
                 .name(name)

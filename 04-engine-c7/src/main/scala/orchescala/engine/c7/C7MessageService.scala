@@ -45,7 +45,7 @@ class C7MessageService(using
         )
       response  <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new MessageApi(apiClient)
               .deliverMessage(CorrelationMessageDto()
                 .messageName(name)

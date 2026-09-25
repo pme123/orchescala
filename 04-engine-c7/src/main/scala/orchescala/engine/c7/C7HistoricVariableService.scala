@@ -29,7 +29,7 @@ class C7HistoricVariableService(using
         .executionIdIn(Seq(processInstanceId.orNull).asJava)
       variableDtos <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new HistoricVariableInstanceApi(apiClient)
               .queryHistoricVariableInstances(null, null, false, dto)
           .mapError: err =>
