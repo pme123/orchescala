@@ -4,7 +4,7 @@ import orchescala.engine.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.services.SignalService
 import zio.ZIO.logInfo
-import zio.IO
+import zio.{IO, ZIO}
 
 class C8SignalService(using
     rest: C8RestClient,
@@ -17,15 +17,16 @@ class C8SignalService(using
       withoutTenantId: Option[Boolean] = None,
       variables: Option[JsonObject] = None
   ): IO[EngineError, Unit] =
-    logInfo(s"Sending Signal '$name'.") *>
-      rest
-        .postNoContent(
-          Seq("signals", "broadcast"),
-          Json.obj(
-            "signalName" -> name.asJson,
-            "variables"  -> variables.fold(Json.obj())(Json.fromJsonObject),
-            "tenantId"   -> tenantId.asJson
+    ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      logInfo(s"Sending Signal '$name'.") *>
+        rest
+          .postNoContent(
+            Seq("signals", "broadcast"),
+            Json.obj(
+              "signalName" -> name.asJson,
+              "variables"  -> variables.fold(Json.obj())(Json.fromJsonObject),
+              "tenantId"   -> tenantId.asJson
+            )
           )
-        )
-        .mapError(withContext(s"Problem sending Signal '$name'"))
+          .mapError(withContext(s"Problem sending Signal '$name'"))
 end C8SignalService

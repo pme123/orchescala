@@ -77,44 +77,45 @@ class C7UserTaskService() (using
       processVariables: JsonObject,
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Unit] =
-    for
-      apiClient <- apiClientZIO
-      _         <- logInfo(s"Completing UserTask: $taskId")
+    withoutCallerIdentityCorrelation(processVariables).flatMap: processVariables =>
+      for
+        apiClient <- apiClientZIO
+        _         <- logInfo(s"Completing UserTask: $taskId")
 
-      // Get existing correlation from process or use provided one
-      existingCorr <- getOrUpdateCorrelation(taskId, identityCorrelation)
-      _            <- logInfo(s"existingCorr existingCorr: $taskId")
+        // Get existing correlation from process or use provided one
+        existingCorr <- getOrUpdateCorrelation(taskId, identityCorrelation)
+        _            <- logInfo(s"existingCorr existingCorr: $taskId")
 
-      // Get processInstanceId from task
-      processInstanceId <- getProcessInstanceIdFromTask(taskId)
+        // Get processInstanceId from task
+        processInstanceId <- getProcessInstanceIdFromTask(taskId)
 
-      // Sign the correlation with processInstanceId if provided
-      signedCorr <- existingCorr match
-                      case Some(corr) => signCorrelation(corr, processInstanceId)
-                      case None       => ZIO.succeed(None)
-      _          <- logInfo(s"existingCorr $signedCorr: $taskId")
+        // Sign the correlation with processInstanceId if provided
+        signedCorr <- existingCorr match
+                        case Some(corr) => signCorrelation(corr, processInstanceId)
+                        case None       => ZIO.succeed(None)
+        _          <- logInfo(s"existingCorr $signedCorr: $taskId")
 
-      // Build variables with signed correlation
-      jsonObj = processVariables.add(
-                  InputParams._identityCorrelation.toString,
-                  signedCorr.asJson.deepDropNullValues
-                )
-      _      <- logInfo(s"complete UserTask: $taskId - $jsonObj")
+        // Build variables with signed correlation
+        jsonObj = processVariables.add(
+                    InputParams._identityCorrelation.toString,
+                    signedCorr.asJson.deepDropNullValues
+                  )
+        _      <- logInfo(s"complete UserTask: $taskId - $jsonObj")
 
-      variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
-      _            <- ZIO
-                        .attemptBlocking:
-                          new TaskApi(apiClient)
-                            .complete(
-                              taskId,
-                              new CompleteTaskDto()
-                                .variables(variableDtos.asJava)
-                            )
-                        .mapError(err =>
-                          EngineError.ProcessError(s"Problem completing task: $err")
-                        )
-      _            <- logInfo(s"UserTask completed: $taskId")
-    yield ()
+        variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
+        _            <- ZIO
+                          .attemptBlocking:
+                            new TaskApi(apiClient)
+                              .complete(
+                                taskId,
+                                new CompleteTaskDto()
+                                  .variables(variableDtos.asJava)
+                              )
+                          .mapError(err =>
+                            EngineError.ProcessError(s"Problem completing task: $err")
+                          )
+        _            <- logInfo(s"UserTask completed: $taskId")
+      yield ()
 
   private def mapToUserTasks(taskDtos: java.util.List[TaskWithAttachmentAndCommentDto])
       : Option[UserTask] =

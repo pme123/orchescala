@@ -1,5 +1,6 @@
 package orchescala.engine.c7
 
+import orchescala.engine.withoutCallerIdentityCorrelation
 import orchescala.domain.CamundaVariable
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
@@ -29,39 +30,40 @@ class C7MessageService(using
       processInstanceId: Option[String],
       variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
-    val theBusinessKey = if processInstanceId.isDefined then None else businessKey
-    val theTenantId    = if processInstanceId.isDefined then None else tenantId
+    ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      val theBusinessKey = if processInstanceId.isDefined then None else businessKey
+      val theTenantId    = if processInstanceId.isDefined then None else tenantId
 
-    for
-      apiClient <- apiClientZIO
-      _         <-
-        logInfo(
-          s"""Correlate Message:
-             |- msgName: $name
-             |- processInstanceId: ${processInstanceId.getOrElse("-")}
-             |- businessKey: ${theBusinessKey.getOrElse("-")}
-             |- tenantId: ${theTenantId.getOrElse("-")}
-             |""".stripMargin
-        )
-      response  <-
-        ZIO
-          .attemptBlocking:
-            new MessageApi(apiClient)
-              .deliverMessage(CorrelationMessageDto()
-                .messageName(name)
-                .tenantId(theTenantId.orNull)
-                .businessKey(theBusinessKey.orNull)
-                .processInstanceId(processInstanceId.orNull)
-                .processVariables(mapToC7Variables(variables))
-                .resultEnabled(true))
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${theBusinessKey.getOrElse("-")}): $err"
-            )
-      _         <- logInfo(s"Message '$name' sent successfully: $response.")
-      result    <- mapToMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
-    yield result
-    end for
+      for
+        apiClient <- apiClientZIO
+        _         <-
+          logInfo(
+            s"""Correlate Message:
+               |- msgName: $name
+               |- processInstanceId: ${processInstanceId.getOrElse("-")}
+               |- businessKey: ${theBusinessKey.getOrElse("-")}
+               |- tenantId: ${theTenantId.getOrElse("-")}
+               |""".stripMargin
+          )
+        response  <-
+          ZIO
+            .attemptBlocking:
+              new MessageApi(apiClient)
+                .deliverMessage(CorrelationMessageDto()
+                  .messageName(name)
+                  .tenantId(theTenantId.orNull)
+                  .businessKey(theBusinessKey.orNull)
+                  .processInstanceId(processInstanceId.orNull)
+                  .processVariables(mapToC7Variables(variables))
+                  .resultEnabled(true))
+            .mapError: err =>
+              EngineError.ProcessError(
+                s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${theBusinessKey.getOrElse("-")}): $err"
+              )
+        _         <- logInfo(s"Message '$name' sent successfully: $response.")
+        result    <- mapToMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
+      yield result
+      end for
   end sendMessage
 
   private def mapToMessageCorrelationResult(

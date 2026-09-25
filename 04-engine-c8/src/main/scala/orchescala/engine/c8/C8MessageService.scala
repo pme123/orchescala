@@ -4,7 +4,7 @@ import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
 import zio.ZIO.logInfo
-import zio.IO
+import zio.{IO, ZIO}
 
 class C8MessageService(using
     rest: C8RestClient,
@@ -19,27 +19,28 @@ class C8MessageService(using
       processInstanceId: Option[String],
       variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
-    val correlationKey = businessKey.orElse(processInstanceId)
-    val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)
-    for
-      _      <-
-        logInfo(
-          s"""Correlate Message:
-             |- msgName: $name
-             |- processInstanceId: ${processInstanceId.getOrElse("-")}
-             |- timeToLiveInSec: ${timeToLiveInSec.getOrElse("-")}
-             |- businessKey: ${businessKey.getOrElse("-")}
-             |- tenantId: ${tenantId.getOrElse("-")}
-             |""".stripMargin
-        )
-      result <- timeToLiveInSec
-                  .map: ttl =>
-                    publishMessage(name, tenantId, correlationKey, ttl, variablesJson)
-                  .getOrElse:
-                    correlateMessage(name, tenantId, correlationKey, variablesJson)
-      _      <- logInfo(s"Message '$name' sent successfully.")
-    yield result
-    end for
+    ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      val correlationKey = businessKey.orElse(processInstanceId)
+      val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)
+      for
+        _      <-
+          logInfo(
+            s"""Correlate Message:
+               |- msgName: $name
+               |- processInstanceId: ${processInstanceId.getOrElse("-")}
+               |- timeToLiveInSec: ${timeToLiveInSec.getOrElse("-")}
+               |- businessKey: ${businessKey.getOrElse("-")}
+               |- tenantId: ${tenantId.getOrElse("-")}
+               |""".stripMargin
+          )
+        result <- timeToLiveInSec
+                    .map: ttl =>
+                      publishMessage(name, tenantId, correlationKey, ttl, variablesJson)
+                    .getOrElse:
+                      correlateMessage(name, tenantId, correlationKey, variablesJson)
+        _      <- logInfo(s"Message '$name' sent successfully.")
+      yield result
+      end for
   end sendMessage
 
   /** Correlates the message to exactly one waiting subscription (or start event) - fails if there

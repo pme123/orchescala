@@ -20,6 +20,20 @@ def banner(applicationName: String) =
      |  Scala: ${BuildInfo.scalaVersion}
      |""".stripMargin
 
+/** Removes `_identityCorrelation` from variables a caller passes in (start, message, signal, user
+  * task completion). Only the engine services set it - signed for the process instance it belongs
+  * to. Passed through, a correlation copied from another process (logs, variable history) reached
+  * the workers as if the engine had set it, and they acted as that user.
+  */
+def withoutCallerIdentityCorrelation(variables: JsonObject): zio.UIO[JsonObject] =
+  val key = orchescala.domain.InputParams._identityCorrelation.toString
+  if variables.contains(key) then
+    zio.ZIO
+      .logWarning(s"Removed `$key` from the caller's variables - only the engine sets it.")
+      .as(variables.remove(key))
+  else zio.ZIO.succeed(variables)
+end withoutCallerIdentityCorrelation
+
 extension (jsonObj: JsonObject)
   def toVariablesMap: Map[String, Json] =
     jsonObj.toMap.map:

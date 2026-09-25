@@ -260,6 +260,22 @@ object C8RestClientTest extends ZIOSpecDefault:
               )
             )
           )
+      },
+      test("a caller supplied _identityCorrelation is removed before the process starts") {
+        val cluster = StubCluster(_ => 200 -> """{"processInstanceKey":"1"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        val forged = io.circe.JsonObject(
+          "amount"               -> Json.fromInt(1),
+          "_identityCorrelation" -> Json.obj("username" -> Json.fromString("alice"))
+        )
+        for _ <- C8ProcessInstanceService().startProcessAsync("p", forged, None, None, None)
+        yield
+          val variables = cluster.jsonBodies.head.hcursor.downField("variables")
+          assertTrue(
+            variables.get[Int]("amount").contains(1),
+            variables.downField("_identityCorrelation").failed
+          )
       }
     )
   ) @@ TestAspect.withLiveClock

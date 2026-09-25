@@ -20,14 +20,15 @@ class C8ProcessInstanceService(using
       tenantId: Option[String],
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, ProcessInfo] =
-    identityCorrelation match
-      case None =>
-        // No identity correlation - start process normally
-        startProcessWithoutCorrelation(processDefId, in, businessKey, tenantId)
+    withoutCallerIdentityCorrelation(in).flatMap: in =>
+      identityCorrelation match
+        case None =>
+          // No identity correlation - start process normally
+          startProcessWithoutCorrelation(processDefId, in, businessKey, tenantId)
 
-      case Some(correlation) =>
-        // Two-step flow: start process, then set signed correlation
-        startProcessWithSignedCorrelation(processDefId, in, businessKey, tenantId, correlation)
+        case Some(correlation) =>
+          // Two-step flow: start process, then set signed correlation
+          startProcessWithSignedCorrelation(processDefId, in, businessKey, tenantId, correlation)
   end startProcessAsync
 
   /** Start process without identity correlation (simple flow)
@@ -170,20 +171,21 @@ class C8ProcessInstanceService(using
       variables: Option[JsonObject] = None,
       identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, ProcessInfo] =
-    identityCorrelation match
-      case None =>
-        // No identity correlation - just send message
-        startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
+    ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      identityCorrelation match
+        case None =>
+          // No identity correlation - just send message
+          startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
 
-      case Some(correlation) =>
-        // Two-step flow (like C7): send message to start process, then set signed correlation
-        startProcessByMessageWithSignedCorrelation(
-          messageName,
-          businessKey,
-          tenantId,
-          variables,
-          correlation
-        )
+        case Some(correlation) =>
+          // Two-step flow (like C7): send message to start process, then set signed correlation
+          startProcessByMessageWithSignedCorrelation(
+            messageName,
+            businessKey,
+            tenantId,
+            variables,
+            correlation
+          )
   end startProcessByMessage
 
   /** Start process by message without identity correlation (simple flow)

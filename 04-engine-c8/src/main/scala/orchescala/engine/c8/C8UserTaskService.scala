@@ -40,27 +40,28 @@ class C8UserTaskService()(using
       processVariables: JsonObject,
       identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, Unit] =
-    for
-      taskKey           <- toKey("taskId")(taskId)
-      // Get processInstanceId from task
-      processInstanceId <- getProcessInstanceIdFromTask(taskKey)
-      // Sign the correlation with processInstanceId if provided
-      signedCorr        <- identityCorrelation match
-                             case Some(corr) => signCorrelation(corr, processInstanceId)
-                             case None       => ZIO.none
-      jsonVariables      =
-        signedCorr
-          .map: s =>
-            processVariables.add(InputParams._identityCorrelation.toString, s.asJson.deepDropNullValues)
-          .getOrElse(processVariables)
-      _                 <-
-        rest
-          .postNoContent(
-            Seq("user-tasks", taskKey, "completion"),
-            Json.obj("variables" -> Json.fromJsonObject(jsonVariables))
-          )
-          .mapError(withContext(s"Problem completing UserTask '$taskKey'"))
-    yield ()
+    withoutCallerIdentityCorrelation(processVariables).flatMap: processVariables =>
+      for
+        taskKey           <- toKey("taskId")(taskId)
+        // Get processInstanceId from task
+        processInstanceId <- getProcessInstanceIdFromTask(taskKey)
+        // Sign the correlation with processInstanceId if provided
+        signedCorr        <- identityCorrelation match
+                               case Some(corr) => signCorrelation(corr, processInstanceId)
+                               case None       => ZIO.none
+        jsonVariables      =
+          signedCorr
+            .map: s =>
+              processVariables.add(InputParams._identityCorrelation.toString, s.asJson.deepDropNullValues)
+            .getOrElse(processVariables)
+        _                 <-
+          rest
+            .postNoContent(
+              Seq("user-tasks", taskKey, "completion"),
+              Json.obj("variables" -> Json.fromJsonObject(jsonVariables))
+            )
+            .mapError(withContext(s"Problem completing UserTask '$taskKey'"))
+      yield ()
 
   private def mapToUserTask(taskDto: C8RestModel.UserTaskResult): UserTask =
     UserTask(
