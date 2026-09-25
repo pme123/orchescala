@@ -22,6 +22,12 @@ object WorkerForwardUtil:
         .map: projectName =>
           s"$workersBasePath/orchescala/$projectName"
 
+  /** Topic names and process ids come from the request path - the worker app URL is derived from
+    * them. Only letters, digits, `.`, `_` and `-` (no `/`, `:`, `?`, `#`, `@`, `..`).
+    */
+  def isValidTopicName(topicName: String): Boolean =
+    topicName.matches("[A-Za-z0-9_][A-Za-z0-9._-]*") && !topicName.contains("..")
+
   def forwardWorkerRequest(
       topicName: String,
       variables: Json,
@@ -30,6 +36,8 @@ object WorkerForwardUtil:
     if !config.validateInput then
       ZIO.logDebug("Input validation is disabled (starting a process)")
         .as(variables)
+    else if !isValidTopicName(topicName) then
+      ZIO.fail(ServiceRequestError(400, s"Invalid topic / process name: '$topicName'"))
     else
       config.workerAppUrl(topicName)
         .fold(
@@ -49,7 +57,8 @@ object WorkerForwardUtil:
   ): ZIO[SttpClientBackend, EngineError, Json] =
     (for
       _        <- ZIO.logInfo(s"Forwarding worker request to: $workerAppBaseUrl/worker/$topicName")
-      uri      <- ZIO.fromEither(Uri.parse(s"$workerAppBaseUrl/worker/$topicName"))
+      // the topic as ONE encoded path segment - never part of the host or of other segments
+      uri      <- ZIO.fromEither(Uri.parse(workerAppBaseUrl).map(_.addPath("worker", topicName)))
                     .mapError(err => UnexpectedError(s"Invalid worker app URL: $err"))
       request   = basicRequest
                     .post(uri)
