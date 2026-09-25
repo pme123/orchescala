@@ -176,18 +176,17 @@ class C8ProcessInstanceService(using
         startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
 
       case Some(correlation) =>
-        // Note: C8 message correlation doesn't return processInstanceId directly
-        // We can only sign the correlation if we can query for the process instance
-        // For now, log a warning and proceed without signing
-        logWarning(
-          s"Identity correlation signing for startProcessByMessage is not fully supported in C8 " +
-            s"because message correlation doesn't return processInstanceId. " +
-            s"Consider using startProcessAsync instead for processes that need identity correlation."
-        ) *> startProcessByMessageWithoutCorrelation(messageName, businessKey, tenantId, variables)
+        // Two-step flow (like C7): send message to start process, then set signed correlation
+        startProcessByMessageWithSignedCorrelation(
+          messageName,
+          businessKey,
+          tenantId,
+          variables,
+          correlation
+        )
   end startProcessByMessage
 
-  /** Start process by message without identity correlation Note: C8 message correlation returns
-    * messageKey, not processInstanceId
+  /** Start process by message without identity correlation (simple flow)
     */
   private def startProcessByMessageWithoutCorrelation(
       messageName: String,
@@ -198,19 +197,49 @@ class C8ProcessInstanceService(using
     for
       _                 <- logInfo(s"Starting process by message '$messageName'")
       correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
-      messageKey         = correlationResult.id
-      _                 <- logInfo(s"Process started by message '$messageName' with messageKey: $messageKey")
+      processInstanceId  = correlationResult.processInstanceId
+      _                 <- logInfo(
+                             s"Process started by message '$messageName' with processInstanceId: $processInstanceId"
+                           )
     yield ProcessInfo(
-      processInstanceId =
-        messageKey, // Using messageKey as ID since we don't have processInstanceId
+      processInstanceId = processInstanceId,
       businessKey = businessKey,
       status = ProcessInfo.ProcessStatus.Active,
       engineType = C8
     )
   end startProcessByMessageWithoutCorrelation
 
-  /** Send message to start a process (via Message Start Event) Note: C8 returns messageKey, not
-    * processInstanceId
+  /** Start process by message with signed identity correlation (two-step flow, like C7) Step 1:
+    * send the message to start the process - the REST correlation returns its processInstanceKey.
+    * Step 2: sign the correlation with it and set it as variable.
+    */
+  private def startProcessByMessageWithSignedCorrelation(
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[JsonObject],
+      correlation: IdentityCorrelation
+  ): IO[EngineError, ProcessInfo] =
+    for
+      _                 <- logDebug(s"Starting process by message '$messageName' (will sign correlation after)")
+      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      processInstanceId  = correlationResult.processInstanceId
+      signedCorrelation <- signCorrelation(correlation, processInstanceId)
+      _                 <- setCorrelationVariable(processInstanceId, signedCorrelation)
+      _                 <- logInfo(
+                             s"Process started by message '$messageName' with processInstanceId: $processInstanceId " +
+                               "- signed IdentityCorrelation set"
+                           )
+    yield ProcessInfo(
+      processInstanceId = processInstanceId,
+      businessKey = businessKey,
+      status = ProcessInfo.ProcessStatus.Active,
+      engineType = C8
+    )
+  end startProcessByMessageWithSignedCorrelation
+
+  /** Send message to start a process (via Message Start Event) - the REST correlation returns the
+    * key of the started process instance.
     */
   private def sendMessageToStartProcess(
       messageName: String,

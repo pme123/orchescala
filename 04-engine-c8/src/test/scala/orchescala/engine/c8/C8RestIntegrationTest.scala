@@ -40,6 +40,27 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
        |  </bpmn:message>
        |</bpmn:definitions>""".stripMargin
 
+  private val msgStartProcessId = "orchescala-rest-it-msgstart"
+  private val startMessageName  = "orchescala-it-start"
+
+  // started by a message; the user task keeps the instance alive to set the correlation
+  private val msgStartBpmn =
+    s"""<?xml version="1.0" encoding="UTF-8"?>
+       |<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+       |  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="defs2"
+       |  targetNamespace="http://bpmn.io/schema/bpmn">
+       |  <bpmn:process id="$msgStartProcessId" isExecutable="true">
+       |    <bpmn:startEvent id="start"><bpmn:messageEventDefinition messageRef="startMsg"/></bpmn:startEvent>
+       |    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="task1"/>
+       |    <bpmn:userTask id="task1" name="Task 1">
+       |      <bpmn:extensionElements><zeebe:userTask/></bpmn:extensionElements>
+       |    </bpmn:userTask>
+       |    <bpmn:sequenceFlow id="f2" sourceRef="task1" targetRef="end"/>
+       |    <bpmn:endEvent id="end"/>
+       |  </bpmn:process>
+       |  <bpmn:message id="startMsg" name="$startMessageName"/>
+       |</bpmn:definitions>""".stripMargin
+
   // search results are eventually consistent (exported asynchronously)
   private def eventually[A](effect: IO[EngineError, A])(done: A => Boolean): IO[EngineError, A] =
     effect
@@ -106,6 +127,40 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
           notFound match
             case EngineError.ServiceRequestError(404, _) => true
             case _                                        => false
+        )
+      end for
+    },
+    test("start by message with identity correlation: signed with the started instance") {
+      val restAddress = sys.env("C8_REST_IT")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig(identitySigningKey = Some("it-signing-key"))
+      val engine         = C8ProcessEngine()
+      for
+        _         <- engine.deploymentService.deploy(
+                       "it-msgstart",
+                       Seq(DeploymentResource(s"$msgStartProcessId.bpmn", msgStartBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.C8)
+                     )
+        started   <- eventually( // the message subscription of a fresh deployment may need a moment
+                       engine.processInstanceService.startProcessByMessage(
+                         startMessageName,
+                         businessKey = Some(s"bk-${java.util.UUID.randomUUID()}"),
+                         identityCorrelation = Some(orchescala.domain.IdentityCorrelation("alice", Some("alice@example.com")))
+                       )
+                     )(_ => true)
+        pid        = started.processInstanceId
+        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(_ => true)
+        variables <- eventually(
+                       engine.historicVariableService.getVariables(None, Some(pid), Some(Seq("_identityCorrelation")))
+                     )(_.nonEmpty)
+      yield
+        val signed = variables.head.value.flatMap(_.as[orchescala.domain.IdentityCorrelation].toOption)
+        assertTrue(
+          instance.processDefinitionId == msgStartProcessId, // a real process instance key
+          signed.flatMap(_.processInstanceId).contains(pid),
+          signed.exists(c =>
+            orchescala.domain.IdentityCorrelationSigner.verify(c, pid, c.signature.get, "it-signing-key")
+          )
         )
       end for
     }

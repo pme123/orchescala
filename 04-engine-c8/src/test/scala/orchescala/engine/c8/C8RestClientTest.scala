@@ -225,6 +225,41 @@ object C8RestClientTest extends ZIOSpecDefault:
             result.deployedProcesses == Seq(ProcessDefinitionInfo("70", "p1", 3)),
             result.deployedDecisions == Seq(DecisionDefinitionInfo("71", "d1", 1))
           )
+      },
+      test("start by message with identity correlation: signed with the started instance's key") {
+        val cluster = StubCluster: request =>
+          request.uri.path.mkString("/") match
+            case "v2/messages/correlation" =>
+              200 -> """{"tenantId":"<default>","messageKey":"999","processInstanceKey":"4711"}"""
+            case _                         => 204 -> ""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig =
+          DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
+        val correlation = orchescala.domain.IdentityCorrelation("alice", Some("alice@example.com"))
+        for info <- C8ProcessInstanceService().startProcessByMessage(
+                      "start-msg",
+                      businessKey = Some("bk-1"),
+                      identityCorrelation = Some(correlation)
+                    )
+        yield
+          val setVariables = cluster.all.last
+          val signed       = bodyJson(setVariables).hcursor
+            .downField("variables")
+            .get[orchescala.domain.IdentityCorrelation]("_identityCorrelation")
+            .toOption
+          assertTrue(
+            info.processInstanceId == "4711", // the instance, not the message key
+            cluster.paths == Seq("v2/messages/correlation", "v2/element-instances/4711/variables"),
+            signed.flatMap(_.processInstanceId).contains("4711"),
+            signed.exists(c =>
+              orchescala.domain.IdentityCorrelationSigner.verify(
+                c,
+                "4711",
+                c.signature.get,
+                "test-signing-key"
+              )
+            )
+          )
       }
     )
   ) @@ TestAspect.withLiveClock
