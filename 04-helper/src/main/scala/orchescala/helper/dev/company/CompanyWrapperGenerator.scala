@@ -42,7 +42,10 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     createIfNotExists(projectGatewayPath, gatewayServerWrapper(engines))
     createIfNotExists(helperCompanyDevHelperPath, helperCompanyDevHelperWrapper)
     createIfNotExists(helperCompanyDevConfigPath, helperCompanyDevConfigWrapper)
-    createIfNotExists(helperCompanyOrchescalaDevHelperPath, helperCompanyOrchescalaDevHelperWrapper)
+    createIfNotExists(
+      helperCompanyOrchescalaDevHelperPath,
+      helperCompanyOrchescalaDevHelperWrapper(engines)
+    )
     // the former Redoc CompanyOpenApi.html resource is gone - the API page is orch-doc's
     // OrchDocApi.html from the orchescala-orch-doc jar
     os.remove(helperCompanyOpenApiHtmlPath)
@@ -318,6 +321,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
 
   private lazy val dmnWrapper =
     s"""package $companyName.orchescala.dmn
+       |
+       |import orchescala.dmntester.DmnTesterApp
        |
        |trait CompanyDmnTester extends DmnTesterApp:
        |
@@ -669,14 +674,16 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |end CompanyDevConfig
        |""".stripMargin
   end helperCompanyDevConfigWrapper
-  private lazy val helperCompanyOrchescalaDevHelperWrapper =
+  private def helperCompanyOrchescalaDevHelperWrapper(engines: Seq[EngineType]) =
     s"""package $companyName.orchescala.helper
        |
        |import orchescala.api.ApiConfig
+       |import orchescala.engine.EngineConfig
        |import orchescala.helper.dev.DevCompanyOrchescalaHelper
        |import orchescala.helper.util.DevConfig
        |import $companyName.orchescala.BuildInfo
        |import $companyName.orchescala.api.CompanyApiCreator
+       |import $companyName.orchescala.engine.CompanyEngine${engines.head}Config
        |
        |object CompanyOrchescalaDevHelper
        |    extends DevCompanyOrchescalaHelper:
@@ -687,7 +694,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |      tempGitDir = os.pwd / os.up /  os.up / "git-temp"
        |    )
        |
-       |  lazy val devConfig: DevConfig = CompanyDevConfig.companyConfig
+       |  lazy val engineConfig: EngineConfig = CompanyEngine${engines.head}Config.engineConfig
+       |  lazy val devConfig: DevConfig       = CompanyDevConfig.companyConfig
        |
        |end CompanyOrchescalaDevHelper
        |""".stripMargin
