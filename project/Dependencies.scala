@@ -115,7 +115,10 @@ object Dependencies {
 
   val opVersion = "1.1.0"
   lazy val opWorkerDependencies = Seq(
-    "org.operaton.bpm" % "operaton-external-task-client" % opVersion
+    "org.operaton.bpm" % "operaton-external-task-client" % opVersion,
+    // the client's XML data format needs JAXB when it is built - without it every Operaton
+    // worker app failed to start (NoClassDefFoundError: jakarta/xml/bind/JAXBException)
+    jaxbApiDependency
   )
   lazy val camunda7EngineDependencies    =
     Seq("org.camunda.community" % "camunda-engine-rest-client-openapi-java" % camundaVersion)
