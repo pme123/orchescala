@@ -42,6 +42,32 @@ interface Props {
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
 
+// ── Seitenleiste: was ein Typ ist, was ihm fehlt, ob er gebraucht wird ─────
+/** Leer — kein Feld bzw. kein Wert mit Namen? */
+const isEmptyType = (t: TypeDef | null | undefined): boolean =>
+  !t || (t.kind === 'enum' ? !(t.values ?? []).some(v => v.name) : !(t.fields ?? []).some(f => f.name));
+
+/** Kurz, was drin ist: «14», «ADT · 2 Fälle · 8 gemeinsam», «3 Werte». */
+function contentLabel(t: TypeDef): string {
+  if (t.kind !== 'enum') return String((t.fields ?? []).filter(f => f.name).length);
+  const cases = (t.values ?? []).filter(v => v.name).length;
+  if (!isAdt(t)) return `${cases} Wert${cases === 1 ? '' : 'e'}`;
+  const common = (t.fields ?? []).filter(f => f.name).length;
+  return `ADT · ${cases} F${cases === 1 ? 'all' : 'älle'}${common ? ` · ${common} gemeinsam` : ''}`;
+}
+
+/** Wie viele Felder anderer Typen auf diesen Typ zeigen. */
+function usageCount(all: TypeDef[], id: string): number {
+  let n = 0;
+  for (const t of all) {
+    if (t.id === id) continue;
+    for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) if (f.type === id) n++;
+  }
+  return n;
+}
+
+const amber = (isDark: boolean) => (isDark ? 'text-amber-400' : 'text-amber-600');
+
 /** Klasse ↔ ADT: die Felder wandern in den ersten Fall bzw. zurück. */
 function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
   if (kind === t.kind) return {};
@@ -178,8 +204,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 <button key={slot} onClick={() => processSlot(slot)}
                   className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                     t && selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
-                  <Braces size={11} className={c.muted} />
-                  <span className={`flex-1 truncate text-[11px] font-mono ${t ? c.text : c.muted}`}>{label}</span>
+                  {t?.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
+                  <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${t ? c.text : c.muted}`}>{label}</span>
                   {t && !!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
                   {t && !!openCount(spec, typeTarget(t.id)) && (
                     <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
@@ -187,7 +213,15 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                       <MessageSquare size={9} />{openCount(spec, typeTarget(t.id))}
                     </span>
                   )}
-                  <span className={`text-[9px] ${c.muted}`}>{t ? (t.kind === 'enum' ? t.values?.length : t.fields?.length) ?? 0 : '+'}</span>
+                  {/* In und Out hat jeder Prozess — fehlen sie oder sind sie leer, ist das orange.
+                      Das InitIn entsteht aus dem Init-Worker; ohne den gibt es keins, das ist kein Mangel. */}
+                  {!t && slot !== 'initIn'
+                    ? <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title={`${label} fehlt — anklicken legt es an`}><AlertTriangle size={9} /> fehlt</span>
+                    : !t
+                      ? <span className={`text-[9px] ${c.muted}`}>+</span>
+                      : isEmptyType(t)
+                        ? <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title={`${label} ist leer — Felder fehlen`}><AlertTriangle size={9} /> leer</span>
+                        : <span className={`text-[9px] ${c.muted}`}>{contentLabel(t)}</span>}
                 </button>
               );
             })}
@@ -204,43 +238,63 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
           {!!interactions.length && (
             <div className="mb-2">
               <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Interaktionen</div>
-              {interactions.map(ia => (
+              {interactions.map(ia => {
+                // Was der DSL verlangt (In, bei Aufgaben und Workern auch Out) und noch
+                // fehlt oder leer ist, wird orange — Signale und Nachrichten ohne In
+                // sind `NoInput`, das ist erlaubt
+                const members = (['In', 'Out'] as const).filter(m => m === 'In' || INTERACTION_META[ia.kind].hasOut);
+                const typeOf = (m: 'In' | 'Out') => { const id = m === 'In' ? ia.inTypeId : ia.outTypeId; return id ? types.find(x => x.id === id) ?? null : null; };
+                const lacking = (m: 'In' | 'Out') => {
+                  const t = typeOf(m);
+                  if (!t) return m === 'In' && !INTERACTION_META[ia.kind].hasOut ? null : 'fehlt';
+                  return isEmptyType(t) ? 'leer' : null;
+                };
+                const mangel = members.some(m => lacking(m));
+                return (
                 <div key={ia.id}>
                   <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }}
                     className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                       selectedIa === ia.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                     <Workflow size={11} className={c.muted} />
-                    <span className={`flex-1 truncate text-[11px] font-mono ${c.text}`}>{ia.name}</span>
+                    <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${c.text}`}>{ia.name}</span>
+                    {mangel && <AlertTriangle size={10} className={amber(isDark)} />}
                     <span className={`text-[9px] ${c.muted}`}>{INTERACTION_META[ia.kind].suffix || 'W'}</span>
                   </button>
                   <div className="flex gap-1 pl-6 pb-0.5">
-                    {(['In', 'Out'] as const)
-                      .filter(m => m === 'In' || INTERACTION_META[ia.kind].hasOut)
-                      .map(m => {
-                        const id = m === 'In' ? ia.inTypeId : ia.outTypeId;
-                        const t = id ? types.find(x => x.id === id) : null;
+                    {members.map(m => {
+                        const t = typeOf(m);
+                        const id = t?.id;
+                        const fehl = lacking(m);
                         return (
                           <button key={m} onClick={() => openMember(ia, m)}
-                            title={t ? `${m} bearbeiten` : `${m} anlegen`}
+                            title={fehl === 'fehlt' ? `${m} fehlt — anlegen` : fehl === 'leer' ? `${m} ist leer — Felder fehlen` : t ? `${m} bearbeiten` : `${m} — NoInput, anlegen wenn gebraucht`}
                             className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                              selected === id ? (isDark ? 'bg-white/10 border-white/40' : 'bg-black/10 border-black/40') : c.border2
-                            } ${t ? c.muted2 : c.muted}`}>
-                            {m}{t ? ` ${t.fields?.length ?? 0}` : ' +'}
+                              selected === id ? (isDark ? 'bg-white/10 border-white/40' : 'bg-black/10 border-black/40')
+                              : fehl ? (isDark ? 'border-amber-500/40' : 'border-amber-400') : c.border2
+                            } ${fehl ? amber(isDark) : t ? c.muted2 : c.muted}`}>
+                            {m}{t ? ` ${(t.fields ?? []).filter(f => f.name).length}` : ' +'}
                           </button>
                         );
                       })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
-          <TypeGroup label="Klassen" isDark={isDark}
+          <TypeGroup label="Klassen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'case')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
-          <TypeGroup label="Auswahlen" isDark={isDark}
+          <TypeGroup label="Auswahlen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'enum')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
+          {/* Legende — die Farben sagen, was los ist */}
+          <div className={`text-[9px] px-2 pt-2 pb-1 leading-relaxed ${c.muted}`}>
+            <span className={amber(isDark)}>orange</span> = fehlt etwas ·{' '}
+            <span className={isDark ? 'text-rose-400' : 'text-rose-600'}>rot</span> = Fehler ·{' '}
+            <span className="italic">grau kursiv</span> = nicht verwendet
+          </div>
         </div>
         {canEdit && (
           <div className={`flex-shrink-0 border-t ${c.border} p-2 space-y-1`}>
@@ -436,8 +490,11 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 }
 
 // ── Typliste ─────────────────────────────────────────────────────────────────
-function TypeGroup({ label, types, selected, onSelect, isDark, issuesOf, spec }: {
-  label: string; types: TypeDef[]; selected: string | null; isDark: boolean;
+function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, spec }: {
+  label: string; types: TypeDef[];
+  /** alle Typen — um zu sehen, wer auf einen zeigt */
+  all: TypeDef[];
+  selected: string | null; isDark: boolean;
   onSelect: (id: string) => void; issuesOf: (id: string) => unknown[];
   spec: ProcessSpec;
 }) {
@@ -446,12 +503,18 @@ function TypeGroup({ label, types, selected, onSelect, isDark, issuesOf, spec }:
   return (
     <div className="mb-2">
       <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>{label}</div>
-      {types.map(t => (
+      {types.map(t => {
+        const used = usageCount(all, t.id);
+        const leer = isEmptyType(t);
+        return (
         <button key={t.id} onClick={() => onSelect(t.id)}
+          title={used ? `${used}× als Feldtyp verwendet` : 'Kein Feld zeigt auf diesen Typ — Überbleibsel?'}
           className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
             selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
           {t.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
-          <span className={`flex-1 truncate text-[11px] font-mono ${c.text}`}>{t.name}</span>
+          {/* fett, was gebraucht wird; grau und kursiv, worauf nichts zeigt */}
+          <span className={`flex-1 truncate text-[11px] font-mono ${used ? `font-semibold ${c.text}` : `italic ${c.muted}`}`}>{t.name}</span>
+          {leer && <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title="leer — Felder fehlen"><AlertTriangle size={9} /> leer</span>}
           {!!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
           {!!openCount(spec, typeTarget(t.id)) && (
             <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
@@ -460,10 +523,11 @@ function TypeGroup({ label, types, selected, onSelect, isDark, issuesOf, spec }:
             </span>
           )}
           <span className={`text-[9px] ${c.muted}`}>
-            {t.kind === 'enum' ? t.values?.length ?? 0 : t.fields?.length ?? 0}
+            {leer ? '' : contentLabel(t)}{used ? ` · ${used}×` : ' · ungenutzt'}
           </span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
