@@ -20,7 +20,7 @@
 // gemeldet.
 
 import { unzipSync } from 'fflate';
-import type { DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, TypeDef } from './types';
+import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, TypeDef } from './types';
 import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
@@ -157,13 +157,11 @@ class Converter {
       ...flags,
     };
     this.types.push(t); // vor den Feldern — gegen Zyklen
-    if (dom.kind === 'enum') {
-      t.values = (dom.values ?? []).map(v => ({ name: v }));
-    } else {
+    const toFields = (ps: DomainField[] | undefined, pkg: string): Field[] =>
       // `InConfig` ist Implementations-Detail — weder als Typ noch als Feld
-      t.fields = (dom.fields ?? []).filter(p => !/^InConfig$|\.InConfig$/.test(typeShape(p.type).base)).map(p => {
+      (ps ?? []).filter(p => !/^InConfig$|\.InConfig$/.test(typeShape(p.type).base)).map(p => {
         const shape = typeShape(p.type);
-        const ft = this.fieldType(shape.base, dom.pkg);
+        const ft = this.fieldType(shape.base, pkg);
         const f: Field = { id: uid('f'), name: p.name, type: ft.type };
         if (shape.optional) f.optional = true;
         if (shape.collection) f.collection = true;
@@ -173,6 +171,15 @@ class Converter {
         if (p.description) f.description = p.description;
         return f;
       });
+    if (dom.kind === 'enum') {
+      // mit Parametern je Fall (ADT) bekommen die Werte ihre Felder
+      const cases = new Map((dom.cases ?? []).map(c => [c.name, c.fields]));
+      t.values = (dom.values ?? []).map(v => {
+        const fields = cases.get(v);
+        return fields?.length ? { name: v, fields: toFields(fields, dom.pkg) } : { name: v };
+      });
+    } else {
+      t.fields = toFields(dom.fields, dom.pkg);
     }
     return id;
   }
@@ -225,8 +232,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
 
   // Prozess: In · InitIn · Out — InConfig ist Implementations-Detail
   const inT = member(owner, 'In');
-  if (inT?.kind === 'case') conv.convert(inT, { root: true }, 'In');
-  else if (inT?.kind === 'enum') warnings.push('Das `In` des Prozesses ist ein enum (ADT) — der Klassenbauer kennt nur ein `In` als Klasse; es bleibt leer.');
+  if (inT && (inT.kind === 'case' || inT.kind === 'enum')) conv.convert(inT, { root: true }, 'In');
   const initT = member(owner, 'InitIn');
   if (initT?.kind === 'case') conv.convert(initT, { initIn: true }, 'InitIn');
   const outT = member(owner, 'Out');

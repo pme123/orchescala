@@ -20,7 +20,7 @@
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
 import type { DomainType, Field, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
-import { SCALA_TYPES } from './types';
+import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
 import { domainMember, initOutputs, resolveType } from './interactions';
@@ -123,8 +123,11 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>)
 
   const own = b.idx.byId.get(typeRef);
   if (own) {
-    if (own.kind === 'enum') return { type: 'string' };
-    return { type: 'context', children: (own.fields ?? []).filter(f => f.name).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner)) };
+    // ein ADT ist im JSON ein Objekt — sichtbar sind die Felder aller Fälle
+    if (own.kind === 'enum' && !isAdt(own)) return { type: 'string' };
+    const fields = own.kind === 'enum' ? (own.values ?? []).flatMap(v => v.fields ?? []) : (own.fields ?? []);
+    const seenNames = new Set<string>();
+    return { type: 'context', children: fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner)) };
   }
 
   const dom = b.idx.domainOf(typeRef);
@@ -141,9 +144,13 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>)
 }
 
 function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>): { type: FeelType; children?: VarNode[] } {
-  if (dom.kind === 'enum') return { type: 'string' };
+  if (dom.kind === 'enum' && !dom.cases?.length) return { type: 'string' };
   if (dom.kind === 'alias') return { type: 'any' };
-  const children = (dom.fields ?? []).map(p => {
+  const seenNames = new Set<string>();
+  const fields = dom.kind === 'enum'
+    ? (dom.cases ?? []).flatMap(c => c.fields ?? []).filter(p => !seenNames.has(p.name) && seenNames.add(p.name))
+    : (dom.fields ?? []);
+  const children = fields.map(p => {
     const shape = typeShape(p.type);
     const scalar = isScalar(shape.base);
     const ref = scalar ? null : resolveType(shape.base, b.model, dom.pkg);
@@ -226,7 +233,7 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   else {
     const ref = resolveType(shape.base, model, dom!.pkg);
     if (!ref) return null;                    // Typ nicht im Katalog — kein Urteil
-    if (ref.kind === 'enum') accepts = ['string'];
+    if (ref.kind === 'enum' && !ref.cases?.length) accepts = ['string'];
     else if (ref.kind === 'alias') return null;
     else accepts = ['context'];
   }
@@ -274,7 +281,7 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   else {
     const own = idx.byId.get(f.type);
     const dom = idx.domainOf(f.type);
-    if (own?.kind === 'enum' || dom?.kind === 'enum') accepts = ['string'];
+    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length)) accepts = ['string'];
     else if (dom?.kind === 'alias') return null;
     else accepts = ['context'];
   }

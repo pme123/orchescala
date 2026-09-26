@@ -20,7 +20,7 @@
 // gleich formatiert, und was der Parser nicht sicher erkennt, lässt er lieber
 // weg, statt zu raten.
 
-import type { DomainType } from './types';
+import type { DomainField, DomainType } from './types';
 import { parseParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
@@ -43,16 +43,25 @@ const END = /^(\s*)end\s+(\w+)/;
 const SERVICE_MARK = /^\s+(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
 
-/** Klammern zählen, um das Ende einer Parameterliste zu finden. */
-function balance(line: string, depth: number): number {
+/**
+ * Klammern zählen, um das Ende einer Parameterliste zu finden. Zeichenketten
+ * zählen nicht — auch dreifach angeführte (`"""…""".stripMargin`), die über
+ * mehrere Zeilen gehen; deren Zustand trägt `state` von Zeile zu Zeile.
+ */
+function balance(line: string, depth: number, state: { triple: boolean } = { triple: false }): number {
   let d = depth;
   let inString = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
+    if (state.triple) {
+      if (line.startsWith('"""', i)) { state.triple = false; i += 2; }
+      continue;
+    }
     if (inString) {
       if (ch === '"' && line[i - 1] !== '\\') inString = false;
       continue;
     }
+    if (line.startsWith('"""', i)) { state.triple = true; i += 2; continue; }
     if (ch === '"') { inString = true; continue; }
     if (ch === '/' && line[i + 1] === '/') break; // Zeilenkommentar
     if (ch === '(' || ch === '[') d++;
@@ -238,9 +247,20 @@ export function scanScala(source: string, path = ''): DomainType[] {
       continue;
     }
 
-    // `type AddressType = Int :| …` — ein Alias auf oberster Ebene, mit Ziel
+    // `type AddressType = Int :| …` — ein Alias auf oberster Ebene, mit Ziel;
+    // das Ziel kann über mehrere Zeilen gehen (`any.In[(\n 11,\n 15 )]`)
     const tt = !owner ? TYPE_TOP.exec(line) : null;
-    if (tt) { add(tt[1], 'alias', { target: tt[2].trim() }); continue; }
+    if (tt) {
+      let target = tt[2].trim();
+      let depth = balance(target, 0);
+      while (depth > 0 && i + 1 < lines.length) {
+        i++;
+        target += ' ' + lines[i].trim();
+        depth = balance(lines[i], depth);
+      }
+      add(tt[1], 'alias', { target: target.replace(/\s+/g, ' ') });
+      continue;
+    }
 
     // `type Out = Seq[Account]` — ebenfalls ein verwendbarer Typ (mit Ziel)
     const tm = TYPE_MEMBER.exec(line);
@@ -253,13 +273,14 @@ export function scanScala(source: string, path = ''): DomainType[] {
       // Die ganze Parameterliste einsammeln und als Scala lesen — damit
       // stehen Typ, Vorgabe und Beschreibung fest, nicht nur der Name.
       const open = line.indexOf('(');
-      let depth = balance(line.slice(open), 0);
+      const state = { triple: false };
+      let depth = balance(line.slice(open), 0, state);
       let text = line.slice(open + 1);
       let j = i;
       while (depth > 0 && j + 1 < lines.length) {
         j++;
         text += '\n' + lines[j];
-        depth = balance(lines[j], depth);
+        depth = balance(lines[j], depth, state);
       }
       const close = text.lastIndexOf(')');
       const fields = parseParams(close >= 0 ? text.slice(0, close) : text);
@@ -274,8 +295,11 @@ export function scanScala(source: string, path = ''): DomainType[] {
       const indent = en[1].length;
       const saved: string | null = owner;
       if (indent === 0) owner = null;
-      // Werte stehen in den `case`-Zeilen des Blocks — mit oder ohne Parameter
+      // Werte stehen in den `case`-Zeilen des Blocks — mit oder ohne
+      // Parameter. Mit Parametern (`case Standard(clientKey: Long, …)`) ist
+      // die Auswahl ein ADT: die Parameterliste wird wie bei einer Klasse gelesen.
       const values: string[] = [];
+      const cases: Array<{ name: string; fields?: DomainField[] }> = [];
       for (let j = i + 1; j < lines.length; j++) {
         const l = lines[j];
         if (!l.trim()) continue;
@@ -283,9 +307,25 @@ export function scanScala(source: string, path = ''): DomainType[] {
         const many = ENUM_CASES.exec(l);
         if (many) { values.push(...many[1].split(',').map(v => v.trim()).filter(Boolean)); continue; }
         const one = ENUM_CASE.exec(l);
-        if (one) values.push(one[1]);
+        if (!one) continue;
+        values.push(one[1]);
+        const open = l.indexOf('(');
+        if (open < 0 || !/^\s*case\s+\w+\s*\(/.test(l)) { cases.push({ name: one[1] }); continue; }
+        const state = { triple: false };
+        let depth = balance(l.slice(open), 0, state);
+        let text = l.slice(open + 1);
+        let k = j;
+        while (depth > 0 && k + 1 < lines.length) {
+          k++;
+          text += '\n' + lines[k];
+          depth = balance(lines[k], depth, state);
+        }
+        const close = text.lastIndexOf(')');
+        const fields = parseParams(close >= 0 ? text.slice(0, close) : text);
+        cases.push(fields.length ? { name: one[1], fields } : { name: one[1] });
+        j = k;
       }
-      add(en[2], 'enum', values.length ? { values } : {});
+      add(en[2], 'enum', { ...(values.length ? { values } : {}), ...(cases.some(c => c.fields?.length) ? { cases } : {}) });
       owner = saved;
       continue;
     }

@@ -105,6 +105,33 @@ Felder auf `None` setzt. Das `In` kommt als Einfüge-Block für das
 Prozess-Objekt, jeder weitere Typ als eigene Datei unter `schema/`; Iron-Imports
 werden gesetzt, wenn eine Einschränkung im Spiel ist.
 
+### Auswahl mit Fällen — ein enum als ADT
+
+Eine **Auswahl** (enum) hat normalerweise nur Werte (`case de, fr`). Ihre
+Werte können aber auch **Felder** tragen — dann ist sie ein ADT wie das `In`
+der Depot-Domain:
+
+```scala
+enum In:
+  case Standard(clientKey: Long, investmentProduct: Int, …)
+  case VermoegensVerwaltung(clientKey: Long, investmentAmount: Int, …)
+```
+
+Jeder Fall ist eine eigene Klasse, gemeinsam sind sie ein Typ. Im Klassenbauer
+steht bei jedem Wert **«+ Feld»**; sobald ein Fall Felder hat, heisst die
+Auswahl «Auswahl mit Fällen (ADT)», und die Felder werden mit derselben Zeile
+bearbeitet wie in einer Klasse (Typ, optional, mehrfach, Einschränkung …).
+Auch die **Prozess-Eingabe `In`** kann ein ADT sein — derselbe Prozess mit
+verschiedenen Eingaben: ein Schalter am Kopf wechselt zwischen Klasse und
+Auswahl mit Fällen, die Felder wandern dabei in den ersten Fall und zurück.
+
+Der Generator schreibt das ADT wie die Domain: die Fälle mit ihren Parametern,
+das Companion mit `example` je Fall und einem für den Typ. Ein ADT-Feld ist
+im JSON ein Objekt; die FEEL-Vervollständigung zeigt darin die Felder aller
+Fälle. Der Import liest `case X(…)` mit Parametern aus der Domain — das `In`
+von `valiant-depot-open` kommt so mit seinen zwei Fällen und 14 bzw. 15
+Feldern herein.
+
 ### Interaktionen — In und Out je Berührungspunkt
 
 Jede Stelle, an der der Prozess mit aussen spricht, hat in der Domain ein

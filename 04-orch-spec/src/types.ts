@@ -192,11 +192,21 @@ export interface Field {
   [key: string]: unknown;
 }
 
+/**
+ * Ein Wert einer Auswahl. Trägt er Felder, ist die Auswahl ein **ADT**
+ * (`enum In: case Standard(…) case VermoegensVerwaltung(…)`) — jeder Fall
+ * eine eigene Klasse, gemeinsam ein Typ.
+ */
 export interface EnumValue {
   name: string;
   description?: string;
+  fields?: Field[];
   [key: string]: unknown;
 }
+
+/** Auswahl, deren Fälle Felder tragen (ADT)? */
+export const isAdt = (t: { kind: string; values?: EnumValue[] }): boolean =>
+  t.kind === 'enum' && (t.values ?? []).some(v => !!v.fields?.length);
 
 // ── Interaktionen ────────────────────────────────────────────────────────────
 //
@@ -393,6 +403,8 @@ export interface DomainType {
   importPath: string;
   fields?: DomainField[];
   values?: string[];
+  /** bei einem enum mit Parametern (ADT): die Felder je Fall */
+  cases?: Array<{ name: string; fields?: DomainField[] }>;
   descr?: string;
   /**
    * `val processName` eines Prozess-Objekts, z. B. `valiant-addresschange`.

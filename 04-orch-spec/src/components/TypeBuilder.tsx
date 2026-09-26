@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Workflow, X,
   MessageSquare,
 } from 'lucide-react';
-import {
+import { isAdt,
   CONSTRAINTS, INTERACTION_META, STATUSES, STATUS_META,
   type ConstraintTemplate, type Field, type Interaction, type Model, type ProcessSpec,
   type Status, type TypeDef,
@@ -41,6 +41,14 @@ interface Props {
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
+
+/** Klasse ↔ ADT: die Felder wandern in den ersten Fall bzw. zurück. */
+function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
+  if (kind === t.kind) return {};
+  if (kind === 'enum') return { kind, fields: undefined, values: [{ name: 'Standard', fields: t.fields?.length ? t.fields : [emptyField()] }] };
+  const fields = (t.values ?? []).flatMap(v => v.fields ?? []);
+  return { kind, values: undefined, fields: fields.length ? fields : [emptyField()] };
+}
 
 export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, focusTypeId, onFocused, highlight }: Props) {
   const author = useAuthorName();
@@ -176,7 +184,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                       <MessageSquare size={9} />{openCount(spec, typeTarget(t.id))}
                     </span>
                   )}
-                  <span className={`text-[9px] ${c.muted}`}>{t ? t.fields?.length ?? 0 : '+'}</span>
+                  <span className={`text-[9px] ${c.muted}`}>{t ? (t.kind === 'enum' ? t.values?.length : t.fields?.length) ?? 0 : '+'}</span>
                 </button>
               );
             })}
@@ -228,7 +236,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'case')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
           <TypeGroup label="Auswahlen" isDark={isDark}
-            types={types.filter(t => t.kind === 'enum')} selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
+            types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'enum')}
+            selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
         </div>
         {canEdit && (
           <div className={`flex-shrink-0 border-t ${c.border} p-2 space-y-1`}>
@@ -489,8 +498,19 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
       {/* Kopf */}
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>
-            {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? 'Auswahl (enum)' : 'Klasse (case class)'}
+          <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
+            {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
+            {/* Das In eines Prozesses ist meist eine Klasse — kann aber ein ADT
+                sein (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
+                wenn derselbe Prozess mit verschiedenen Eingaben startet. */}
+            {t.root && canEdit && (
+              <select value={t.kind} onChange={e => onPatch(switchKind(t, e.target.value as 'case' | 'enum'))}
+                title="Klasse oder Auswahl mit Fällen (ADT) — beim Wechsel wandern die Felder in den ersten Fall bzw. zurück"
+                className={`text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
+                <option value="case">Klasse</option>
+                <option value="enum">Auswahl mit Fällen (ADT)</option>
+              </select>
+            )}
           </div>
           <input value={t.name} disabled={!canEdit || t.root}
             onChange={e => onPatch({ name: e.target.value })}
@@ -520,7 +540,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
       )}
 
       {t.kind === 'enum'
-        ? <EnumEditor type={t} isDark={isDark} canEdit={canEdit} onPatch={onPatch} />
+        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onAddType={onAddType} />
         : (
           <div className="space-y-2">
             {fields.map((f, i) => (
@@ -699,34 +719,84 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 }
 
 // ── Auswahl (enum) ───────────────────────────────────────────────────────────
-function EnumEditor({ type: t, isDark, canEdit, onPatch }: {
-  type: TypeDef; isDark: boolean; canEdit: boolean; onPatch: (patch: Partial<TypeDef>) => void;
+//
+// Ein Wert kann **Felder** tragen — dann ist die Auswahl ein ADT wie
+// `enum In: case Standard(clientKey: Long, …) case VermoegensVerwaltung(…)`:
+// jeder Fall eine eigene Klasse, gemeinsam ein Typ. Die Felder werden mit
+// derselben Zeile bearbeitet wie in einer Klasse.
+function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType }: {
+  type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
+  idx: ReturnType<typeof indexTypes>;
+  issues: { field?: string; message: string }[];
+  onPatch: (patch: Partial<TypeDef>) => void;
+  onAddType: (kind: 'case' | 'enum') => string;
 }) {
   const c = cls(isDark);
   const values = t.values ?? [];
   const set = (i: number, patch: Partial<(typeof values)[number]>) =>
     onPatch({ values: values.map((v, k) => (k === i ? { ...v, ...patch } : v)) });
+  const setFields = (i: number, fields: Field[]) => set(i, { fields: fields.length ? fields : undefined });
+  const adt = isAdt(t);
   return (
-    <div className="space-y-1">
-      {values.map((v, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
-            placeholder="wert"
-            className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-          <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
-            placeholder="Bedeutung"
-            className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
-          {canEdit && (
-            <button onClick={() => onPatch({ values: values.filter((_, k) => k !== i) })} className={`p-1 ${c.muted}`}>
-              <Trash2 size={11} />
-            </button>
-          )}
-        </div>
-      ))}
+    <div className="space-y-1.5">
+      {adt && (
+        <p className={`text-[10px] ${c.muted}`}>
+          Auswahl mit Feldern je Fall (ADT) — jeder Fall wird eine eigene Klasse, zusammen ein Typ.
+        </p>
+      )}
+      {values.map((v, i) => {
+        const fields = v.fields ?? [];
+        return (
+          <div key={i} className={`rounded border ${fields.length ? `${c.border2} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
+            <div className="flex items-center gap-1.5">
+              <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
+                placeholder={adt ? 'Fall' : 'wert'}
+                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+              <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
+                placeholder="Bedeutung"
+                className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
+              {canEdit && !fields.length && (
+                <button onClick={() => setFields(i, [emptyField()])} title="Dieser Fall trägt Felder (ADT)"
+                  className={`text-[10px] px-1.5 py-1 rounded border flex-shrink-0 ${c.btn}`}>+ Feld</button>
+              )}
+              {canEdit && (
+                <button onClick={() => onPatch({ values: values.filter((_, k) => k !== i) })} className={`p-1 ${c.muted}`}>
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </div>
+            {!!fields.length && (
+              <div className="pl-3 space-y-2">
+                {fields.map((f, k) => (
+                  <FieldRow key={f.id} field={f} index={k} last={k === fields.length - 1}
+                    types={types} selfId={t.id} isDark={isDark} canEdit={canEdit} idx={idx} model={model}
+                    issue={issues.find(x => x.field === f.id)?.message}
+                    onChange={patch => setFields(i, fields.map((x, m) => (m === k ? { ...x, ...patch } : x)))}
+                    onRemove={() => setFields(i, fields.filter((_, m) => m !== k))}
+                    onMove={by => {
+                      const next = [...fields];
+                      const j = k + by;
+                      if (j < 0 || j >= next.length) return;
+                      [next[k], next[j]] = [next[j], next[k]];
+                      setFields(i, next);
+                    }}
+                    onAddType={onAddType} />
+                ))}
+                {canEdit && (
+                  <button onClick={() => setFields(i, [...fields, emptyField()])}
+                    className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+                    <Plus size={11} /> Feld
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
       {canEdit && (
         <button onClick={() => onPatch({ values: [...values, { name: '' }] })}
           className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
-          <Plus size={11} /> Wert
+          <Plus size={11} /> {adt ? 'Fall' : 'Wert'}
         </button>
       )}
     </div>
