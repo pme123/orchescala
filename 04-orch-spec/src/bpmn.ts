@@ -11,6 +11,7 @@
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
 import type { Branch, ErrorHandling, GatewayType, Mapping, ProcessSpec, Status, Step, StepKind } from './types';
+import { importExpression } from './juelFeel.ts';
 import { STATUSES } from './types.ts';
 import { nowIsoWithTimezone, slugify, todayIso } from './util.ts';
 
@@ -135,6 +136,12 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
 }
 
 // ── Ein-/Ausgaben ────────────────────────────────────────────────────────────
+/** Ein fachlicher Parameterwert: Text wird JUEL → FEEL; Skript, Liste und Map bleiben beschreibend. */
+function fachlich(p: Element): string {
+  if (firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
+  return importExpression(text(p));
+}
+
 function paramValue(p: Element): string {
   const script = firstNamed(p, 'script');
   if (script) return `«${attr(script, 'scriptFormat') ?? 'script'}» ${text(script)}`;
@@ -176,7 +183,11 @@ function readIo(el: Element): IoResult {
       const business = attr(c, 'businessKey');
       if (business) { res.technical.push({ name: 'businessKey', expression: business }); continue; }
       if (!target) continue;
-      const m: Mapping = { name: target, expression: source ?? '' };
+      // `source` ist ein Variablenname, `sourceExpression` ein JUEL-Ausdruck —
+      // beides wird zu FEEL, der Sprache der Spezifikation
+      const plain = attr(c, 'source');
+      const expression = plain != null ? `= ${plain}` : importExpression(source ?? '');
+      const m: Mapping = { name: target, expression };
       (TECHNICAL.has(target) || TECHNICAL.has(source ?? '') ? res.technical : n === 'in' ? res.inputs : res.outputs).push(m);
     }
   }
@@ -211,11 +222,11 @@ function readIo(el: Element): IoResult {
         continue;
       }
       if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; continue; }
-      (TECHNICAL.has(name) ? res.technical : res.inputs).push({ name, expression: value });
+      (TECHNICAL.has(name) ? res.technical : res.inputs).push({ name, expression: TECHNICAL.has(name) ? value : fachlich(p) });
     }
     for (const p of childrenNamed(io, 'outputParameter')) {
       const name = attr(p, 'name') ?? '';
-      (TECHNICAL.has(name) ? res.technical : res.outputs).push({ name, expression: paramValue(p) });
+      (TECHNICAL.has(name) ? res.technical : res.outputs).push({ name, expression: TECHNICAL.has(name) ? paramValue(p) : fachlich(p) });
     }
   }
   return res;
@@ -269,7 +280,7 @@ function readScope(container: Element): Scope {
       id: el.getAttribute('id') ?? '',
       source, target,
       name: nameOf(el) || undefined,
-      condition: text(firstNamed(el, 'conditionExpression')) || undefined,
+      condition: importExpression(text(firstNamed(el, 'conditionExpression'))) || undefined,
     };
     out.set(source, [...(out.get(source) ?? []), f]);
     inCount.set(target, (inCount.get(target) ?? 0) + 1);
@@ -381,7 +392,7 @@ interface BuildCtx {
 function branchLabel(f: Flow, isDefault: boolean, index: number): string {
   if (f.name) return f.name;
   if (isDefault) return 'sonst';
-  if (f.condition) return f.condition.replace(/^\$\{|\}$/g, '');
+  if (f.condition) return f.condition.replace(/^=\s*/, '').replace(/^\$\{|\}$/g, '');
   return `Pfad ${index + 1}`;
 }
 

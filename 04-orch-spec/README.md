@@ -705,7 +705,16 @@ Camunda-8-Export mit Hinweis, denn dort wäre das ein fester Text.
 **Import** kann beides lesen: `camunda:inputOutput` / `camunda:in` wie bisher
 und für Camunda 8 `zeebe:ioMapping`, `zeebe:taskDefinition` (Topic) und
 `zeebe:calledElement` (gerufener Prozess). Eine FEEL-Quelle `=x` kommt als
-`= x` in die Spezifikation.
+`= x` in die Spezifikation — und **JUEL wird zu FEEL**: `${client.name}` wird
+`= client.name`, `${a == b ? 'x' : 'y'}` wird `= if a = b then "x" else "y"`,
+eine Vorlage wie `Hallo ${name}` wird `= "Hallo " + name`. Übersetzt wird
+mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
+`modulo()`), Vergleiche (auch `eq`/`ne`/`lt`…), `&&`/`||`/`!`, `? :`,
+`empty x`, Index `[0]` → `[1]` und die üblichen String-Methoden (`concat`,
+`equals`, `contains`, `startsWith`, `toUpperCase`, `size`, `isEmpty` …).
+Was kein Gegenstück hat (fremde Methoden, Java-Aufrufe), bleibt als JUEL
+stehen und wird am Feld gelb gemeldet — der Export übernimmt es für Camunda 7
+unverändert. Ein fester Text ohne `${}` bleibt ein fester Text.
 
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.

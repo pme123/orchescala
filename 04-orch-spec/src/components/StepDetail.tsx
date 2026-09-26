@@ -13,6 +13,7 @@ import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, resultVariables, type FeelIssue, type VarNode } from '../feel';
 import { feelBody, feelToJuel } from '../feelJuel';
+import { isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
 import Comments from './Comments';
 import { canComment, orphanThreads, processTarget, stepTarget, targetLabel, threadsFor } from '../comments';
@@ -389,9 +390,11 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               const setBranch = (patch: Partial<typeof b>) =>
                 onPatch(step.id, { branches: (step.branches ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // Bedingung als FEEL: gültig, Pfade bekannt, Ergebnis Ja/Nein
-              const cond = !b.isDefault && b.condition && isFeel(b.condition)
+              const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
                 ? [...checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung' }).issues, ...juelIssues(b.condition, spec.engine)]
-                : [];
+                : !b.isDefault && b.condition && isJuel(b.condition)
+                  ? [{ level: 'warn', text: 'JUEL aus dem Import, nicht nach FEEL übersetzbar — als «= …» schreiben.' }]
+                  : [];
               const condErr = cond.some(i => i.level === 'error');
               return (
                 <div key={b.id} className={`px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
@@ -761,6 +764,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const feelIssues: FeelIssue[] = [
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : []),
+            // JUEL, das der Import nicht übersetzen konnte — bleibt, bis es jemand als FEEL schreibt
+            ...(!off && !feel && isJuel(m.expression) ? [{ level: 'warn' as const, text: 'JUEL aus dem Import, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }] : []),
           ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
           const box = dupl || feelIssues.some(i => i.level === 'error') ? errBox : fehlt || feelIssues.length ? warnBox : c.border2;
