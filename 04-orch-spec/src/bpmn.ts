@@ -147,7 +147,8 @@ function paramValue(p: Element): string {
 
 // Technische Orchescala-Parameter — nicht Teil der fachlichen Spezifikation,
 // aber für den Orchescala-Export relevant (deshalb separat gesammelt).
-const TECHNICAL = new Set([
+/** Steuerparameter, die kein fachliches Mapping sind — bleiben beim Schreiben stehen. */
+export const TECHNICAL = new Set([
   '_handledErrors', '_regexHandledErrors', '_outputVariables', '_outputMock',
   '_outputServiceMock', '_manualOutMapping', '_servicesMocked', '_mockedWorkers',
   '_identityCorrelation', 'impersonateUserId',
@@ -177,6 +178,26 @@ function readIo(el: Element): IoResult {
       if (!target) continue;
       const m: Mapping = { name: target, expression: source ?? '' };
       (TECHNICAL.has(target) || TECHNICAL.has(source ?? '') ? res.technical : n === 'in' ? res.inputs : res.outputs).push(m);
+    }
+  }
+
+  // Camunda 8: <zeebe:ioMapping><zeebe:input source="=…" target="x"/> — die
+  // Quelle ist FEEL (`=…`) oder ein fester Text, das Ziel die Variable.
+  const zio = firstNamed(ext, 'ioMapping');
+  if (zio) {
+    for (const p of childrenNamed(zio, 'input')) {
+      const target = attr(p, 'target') ?? '';
+      if (!target) continue;
+      const source = attr(p, 'source') ?? '';
+      const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
+      (TECHNICAL.has(target) ? res.technical : res.inputs).push(m);
+    }
+    for (const p of childrenNamed(zio, 'output')) {
+      const target = attr(p, 'target') ?? '';
+      if (!target) continue;
+      const source = attr(p, 'source') ?? '';
+      const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
+      (TECHNICAL.has(target) ? res.technical : res.outputs).push(m);
     }
   }
 
@@ -432,12 +453,17 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 
   const template = attr(el, 'modelerTemplate');
   if (template) step.serviceId = template;
-  const topic = attr(el, 'topic');
+  // Camunda 7: camunda:topic am Element; Camunda 8: zeebe:taskDefinition type="…"
+  const ext = firstNamed(el, 'extensionElements');
+  const taskDef = ext ? firstNamed(ext, 'taskDefinition') : null;
+  const topic = attr(el, 'topic') ?? (taskDef ? attr(taskDef, 'type') : undefined);
   if (topic) step.topic = topic;
   // Entscheidung: die Decision Reference ist der Schlüssel in den DMN-Katalog
   const decisionRef = attr(el, 'decisionRef');
   if (decisionRef && !step.topic) step.topic = decisionRef;
-  const called = el.getAttribute('calledElement') ?? attr(el, 'processId');
+  // Camunda 7: calledElement am Element; Camunda 8: zeebe:calledElement processId="…"
+  const calledEl = ext ? firstNamed(ext, 'calledElement') : null;
+  const called = el.getAttribute('calledElement') ?? (calledEl ? attr(calledEl, 'processId') : undefined);
   if (called) step.calledProcess = called;
 
   if (io.inputs.length) step.inputs = io.inputs;

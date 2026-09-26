@@ -1,7 +1,7 @@
 // Export-Dialog: Zielgruppe wählen, Ergebnis prüfen, kopieren oder speichern.
 import { useMemo, useState } from 'react';
-import { Check, Copy, Download, X } from 'lucide-react';
-import { EXPORT_META, exportFileName, exportSpec, type ExportKind } from '../exporters';
+import { AlertTriangle, Check, Copy, Download, X } from 'lucide-react';
+import { EXPORT_META, exportBpmn, exportFileName, exportSpec, type ExportKind } from '../exporters';
 import type { Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
 
@@ -14,6 +14,8 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   const [kind, setKind] = useState<ExportKind>('orchescala');
   const [copied, setCopied] = useState(false);
   const text = useMemo(() => exportSpec(spec, kind, model, bpmn), [spec, kind, model, bpmn]);
+  // was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
+  const issues = useMemo(() => (kind === 'bpmn' ? exportBpmn(spec, bpmn ?? '').issues : []), [spec, kind, bpmn]);
 
   const copy = async () => {
     try {
@@ -56,6 +58,14 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
           ))}
         </div>
         <p className={`text-[10px] mb-2 ${c.muted}`}>{EXPORT_META[kind].hint}</p>
+        {!!issues.length && (
+          <div className={`mb-2 text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
+            <div className="flex items-center gap-1 font-semibold"><AlertTriangle size={11} /> {issues.length} Stelle{issues.length === 1 ? '' : 'n'} zum Prüfen</div>
+            {issues.map((it, i) => (
+              <div key={i}><span className="font-mono">{it.stepId}</span> · {it.where}: {it.text}</div>
+            ))}
+          </div>
+        )}
 
         <textarea readOnly value={text}
           className={`flex-1 min-h-[16rem] text-[10px] leading-relaxed font-mono px-3 py-2 rounded border outline-none resize-none ${c.input}`} />

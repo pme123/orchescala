@@ -624,10 +624,12 @@ wieder entfernen. **Rot** bleibt dem Fehler vorbehalten: derselbe Name
 zweimal in den aktiven Zeilen («Doppelt: «clientKey»»), denn die zweite
 Zeile überschriebe die erste.
 
-### FEEL-Ausdrücke (Camunda 8)
+### FEEL-Ausdrücke — die Sprache der Spezifikation
 
-In Camunda 8 ist ein Mapping-Wert, der mit `=` beginnt, ein FEEL-Ausdruck.
-Die App prüft ihn **beim Tippen** und zeigt den Befund über dem Feld:
+Ein Mapping-Wert oder eine Zweigbedingung, die mit `=` beginnt, ist ein
+FEEL-Ausdruck — **unabhängig von der Engine**. Die Spezifikation spricht
+FEEL; was die Engine braucht, entsteht beim Export (siehe unten). Die App
+prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld:
 
 - **Syntax** — `= amount +` ist kein gültiges FEEL («Fehler an Position 9,
   Ausdruck unvollständig»).
@@ -644,8 +646,13 @@ Kontext, in dem jede bekannte Variable einen zum Typ passenden Wert hat;
 Variablen sind das `In` des Prozesses, das `InitIn`, die Prozessvariablen der
 Spezifikation und die Ausgaben aller Schritte — bei Letzteren ist der Typ
 meist unbekannt, dort bleibt die Prüfung stumm statt falsch zu warnen. Rot
-heisst Fehler; ein `=` in einem Camunda-7-Prozess gibt nur eine gelbe
-Warnung. Der Tooltip des Feldes nennt bei gültigem FEEL den Ergebnistyp.
+heisst Fehler. Der Tooltip des Feldes nennt bei gültigem FEEL den
+Ergebnistyp. **Zweigbedingungen** werden genauso geprüft, mit erwartetem
+Ergebnis Ja/Nein.
+
+In einem **Camunda-7-Prozess** kommt eine gelbe Warnung dazu, wenn ein
+Ausdruck kein JUEL-Gegenstück hat (`count(items)`, Filter, Listen,
+Datumswerte) — man erfährt es beim Tippen, nicht erst beim Export.
 
 **Vervollständigung:** `= cli` schlägt `client` vor, `client.` dessen Felder
 (`name`, `address ›`), `client.addr` filtert. Je Vorschlag stehen Scala-Typ,
@@ -660,6 +667,38 @@ Domain-Katalog (über Topic bzw. gerufenen Prozess), sonst die
 Ausgabe-Parameter des Katalog-Eintrags (ohne Typ). Dahinter stehen die
 Prozessvariablen, wie in Camunda 8 auch. Der erwartete Typ ist der des
 Out-Felds mit dem Namen der Zeile.
+
+### Export: die App übersetzt in die Engine
+
+Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
+**Export → BPMN**. Dort schreibt die App sie in die Form der Engine:
+
+| | Camunda 8 | Camunda 7 |
+| --- | --- | --- |
+| Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.name}` |
+| Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
+| Zweigbedingung | `=amount > 3` | `${amount > 3}` |
+
+FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit
+Textersetzung, sonst würde aus `a = b` in einer Zeichenkette ein `==`. Die
+Teilmenge mit JUEL-Gegenstück: Pfade, Literale, Rechnen (`Text + Text` wird
+`concat`), Vergleiche (`=` → `==`, `between`, `in [...]`), `and`/`or`/`not`,
+`if … then … else` (→ `? :`) und ein fester Listenindex (`items[1]` →
+`items[0]`, FEEL zählt ab 1). Alles andere bleibt als FEEL im BPMN stehen und
+wird im Export-Dialog als **«Stelle zum Prüfen»** gemeldet — lieber sichtbar
+falsch als still verloren. Der Orchescala-Export (Markdown) zeigt die
+Ausdrücke ebenfalls in Engine-Form, Nichtübersetzbares markiert.
+
+Angefasst werden nur Schritte, die in der Spezifikation Mapping-Zeilen haben;
+abgewählte Zeilen kommen nicht ins BPMN, Steuerparameter (`_handledErrors`,
+`_outputMock` …) bleiben, wie sie im Diagramm stehen. Alte JUEL-Werte aus
+einem Import (`${x}`) werden unverändert übernommen — in einem
+Camunda-8-Export mit Hinweis, denn dort wäre das ein fester Text.
+
+**Import** kann beides lesen: `camunda:inputOutput` / `camunda:in` wie bisher
+und für Camunda 8 `zeebe:ioMapping`, `zeebe:taskDefinition` (Topic) und
+`zeebe:calledElement` (gerufener Prozess). Eine FEEL-Quelle `=x` kommt als
+`= x` in die Spezifikation.
 
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.

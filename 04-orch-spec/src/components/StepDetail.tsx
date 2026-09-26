@@ -11,7 +11,8 @@ import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, resultVariables, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, resultVariables, type FeelIssue, type VarNode } from '../feel';
+import { feelBody, feelToJuel } from '../feelJuel';
 import FeelInput from './FeelInput';
 import Comments from './Comments';
 import { canComment, orphanThreads, processTarget, stepTarget, targetLabel, threadsFor } from '../comments';
@@ -49,6 +50,27 @@ export default function StepDetail(p: Props) {
       {p.step ? <StepPanel {...p} step={p.step} /> : <SpecPanel {...p} />}
     </div>
   );
+}
+
+/**
+ * Die Spezifikation spricht FEEL, auch für Camunda 7 — dort übersetzt der
+ * Export nach JUEL. Was kein JUEL-Gegenstück hat, soll man beim Tippen
+ * erfahren, nicht erst beim Export.
+ */
+/** Farben für Warnung (gelb) und Fehler (rot) — Text und Rahmen. */
+const tones = (isDark: boolean) => ({
+  warn: isDark ? 'text-amber-400' : 'text-amber-600',
+  warnBox: isDark ? 'border-amber-500/40 bg-amber-500/5' : 'border-amber-400 bg-amber-50',
+  err: isDark ? 'text-rose-400' : 'text-rose-600',
+  errBox: isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50',
+});
+
+function juelIssues(expression: string, engine: EngineId | undefined): FeelIssue[] {
+  if (engine === 'c8') return [];
+  const body = feelBody(expression);
+  if (body == null) return [];
+  const r = feelToJuel(body);
+  return r.ok ? [] : [{ level: 'warn', text: `Für Camunda 7 nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
 }
 
 // ── Prozess-Ebene (kein Schritt gewählt) ─────────────────────────────────────
@@ -172,6 +194,7 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
 // ── Schritt-Ebene ────────────────────────────────────────────────────────────
 function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType }: Props & { step: Step }) {
   const c = cls(isDark);
+  const { warn, warnBox, err, errBox } = tones(isDark);
   const [preview, setPreview] = useState(false);
   // Ein aus dem BPMN gelesener Schritt trägt oft kein Template, aber ein
   // Topic — und im OpenAPI-Katalog **ist** das Topic die Kennung. Deshalb
@@ -365,8 +388,18 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
             {step.branches.map((b, i) => {
               const setBranch = (patch: Partial<typeof b>) =>
                 onPatch(step.id, { branches: (step.branches ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
+              // Bedingung als FEEL: gültig, Pfade bekannt, Ergebnis Ja/Nein
+              const cond = !b.isDefault && b.condition && isFeel(b.condition)
+                ? [...checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung' }).issues, ...juelIssues(b.condition, spec.engine)]
+                : [];
+              const condErr = cond.some(i => i.level === 'error');
               return (
-                <div key={b.id} className={`px-2 py-1.5 rounded border space-y-1 ${c.border2}`}>
+                <div key={b.id} className={`px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
+                  {cond.map((it, k) => (
+                    <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+                      <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+                    </p>
+                  ))}
                   <div className="flex items-center gap-1.5">
                     <input value={b.label} disabled={!canEdit}
                       onChange={e => setBranch({ label: e.target.value })}
@@ -374,10 +407,11 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
                       className={`w-28 text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
                     {b.isDefault && <span className={`text-[9px] ${c.muted}`}>Standardzweig</span>}
                   </div>
-                  <input value={b.condition ?? ''} disabled={!canEdit || b.isDefault}
-                    onChange={e => setBranch({ condition: e.target.value || undefined })}
-                    placeholder={b.isDefault ? 'Standardzweig — keine Bedingung' : 'Bedingung, z. B. ${severalMatches}'}
-                    className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                  <FeelInput value={b.condition ?? ''} disabled={!canEdit || b.isDefault} isDark={isDark}
+                    variables={variables}
+                    onChange={v => setBranch({ condition: v || undefined })}
+                    placeholder={b.isDefault ? 'Standardzweig — keine Bedingung' : 'Bedingung als FEEL, z. B. = severalMatches'}
+                    title="Bedingung des Zweigs als FEEL (= …) — beim Export für Camunda 7 nach JUEL übersetzt" />
                 </div>
               );
             })}
@@ -646,10 +680,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // eine Warnung, kein Fehler: sobald das Feld im Modell steht, ist die Zeile
   // ohne weiteres Zutun in Ordnung.
   const verwaist = bekannt ? rows.filter(m => m.name && !bekannt.has(m.name)).length : 0;
-  const warn = isDark ? 'text-amber-400' : 'text-amber-600';
-  const warnBox = isDark ? 'border-amber-500/40 bg-amber-500/5' : 'border-amber-400 bg-amber-50';
-  const err = isDark ? 'text-rose-400' : 'text-rose-600';
-  const errBox = isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50';
+  const { warn, warnBox, err, errBox } = tones(isDark);
   // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
   // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
   const zaehler = new Map<string, number>();
@@ -706,9 +737,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const feel = !off && isFeel(m.expression)
             ? checkFeel(m.expression, variables, expectedFor(refFields?.find(f => f.name === m.name), types, model))
             : null;
-          const feelIssues = feel
-            ? [...(engine === 'c7' ? [{ level: 'warn' as const, text: 'FEEL (=) gilt für Camunda 8 — dieser Prozess ist für Camunda 7 (${…}).' }] : []), ...feel.issues]
-            : [];
+          const feelIssues = feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : [];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
           const box = dupl || feelIssues.some(i => i.level === 'error') ? errBox : fehlt || feelIssues.length ? warnBox : c.border2;
           const mark = dupl ? err : warn;
