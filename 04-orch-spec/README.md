@@ -609,12 +609,18 @@ die Abwahl gehört der Spezifikation, wie die fachliche Bedeutung.
 
 **Das Mapping misst sich am Datenmodell.** Hat der Schritt eine Interaktion mit
 `In`/`Out`, sind deren Felder der Massstab; sonst der Katalog-Eintrag. Der Kopf
-bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt. Zeilen
-lassen sich in diesem Fall **nicht mehr löschen**, nur abwählen — und eine
-Zeile ohne Entsprechung im Modell wird **rot markiert**, mit Zähler darüber
-(«1 Zeile ohne Entsprechung im Modell»). Die Abweichung gehört im Datenmodell
-behoben, nicht im Mapping weggeräumt. Nur wo es keinen Massstab gibt, bleibt
-das Mapping frei — dort gibt es «+ Feld» und das Entfernen weiter.
+bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt. Die
+Felder des Massstabs lassen sich **nicht löschen**, nur abwählen.
+
+**Erweiterungen** sind trotzdem möglich: «+ Feld» gibt es immer, auch mit
+Massstab — etwa für ein Feld, das der Service demnächst bekommt. Eine Zeile,
+die das Modell noch nicht kennt, wird **gelb markiert** (Warnung, kein
+Fehler), mit Zähler darüber («1 Zeile noch nicht im Modell — Erweiterung,
+dort nachziehen»). Sobald das Feld im Datenmodell bzw. Katalog steht, ist
+die Zeile ohne weiteres Zutun in Ordnung; bis dahin lässt sie sich auch
+wieder entfernen. **Rot** bleibt dem Fehler vorbehalten: derselbe Name
+zweimal in den aktiven Zeilen («Doppelt: «clientKey»»), denn die zweite
+Zeile überschriebe die erste.
 
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.

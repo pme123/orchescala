@@ -622,9 +622,15 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const vorhanden = new Set(rows.map(m => m.name));
   const bekannt = reference ? new Set(reference.names) : null;
   const fehlend = reference ? reference.names.filter(n => !vorhanden.has(n)).length : 0;
-  // Zeilen, die es im Datenmodell nicht (mehr) gibt — die Abweichung gehört
-  // dort behoben, nicht hier weggelöscht.
+  // Zeilen, die das Modell bzw. der Katalog nicht kennt: eine **Erweiterung**,
+  // die dort noch fehlt — oder ein Feld, das es nicht mehr gibt. Beides ist
+  // eine Warnung, kein Fehler: sobald das Feld im Modell steht, ist die Zeile
+  // ohne weiteres Zutun in Ordnung.
   const verwaist = bekannt ? rows.filter(m => m.name && !bekannt.has(m.name)).length : 0;
+  const warn = isDark ? 'text-amber-400' : 'text-amber-600';
+  const warnBox = isDark ? 'border-amber-500/40 bg-amber-500/5' : 'border-amber-400 bg-amber-50';
+  const err = isDark ? 'text-rose-400' : 'text-rose-600';
+  const errBox = isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50';
   // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
   // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
   const zaehler = new Map<string, number>();
@@ -650,21 +656,21 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                 + {fehlend} aus {reference?.quelle}
               </button>
             )}
-            {!reference && (
-              <button onClick={() => onAdd(list)} className={`text-[10px] ${c.muted} hover:underline`}>
-                + Feld
-              </button>
-            )}
+            <button onClick={() => onAdd(list)}
+              title={reference ? `Feld ergänzen, das im ${reference.quelle} noch fehlt (Erweiterung) — bleibt als Warnung markiert, bis es dort steht` : 'Feld ergänzen'}
+              className={`text-[10px] ${c.muted} hover:underline`}>
+              + Feld
+            </button>
           </div>
         )}
       </div>
       {!!verwaist && (
-        <p className={`text-[10px] mb-1 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
-          {verwaist} Zeile{verwaist === 1 ? '' : 'n'} ohne Entsprechung im {reference?.quelle}.
+        <p className={`text-[10px] mb-1 ${warn}`}>
+          {verwaist} Zeile{verwaist === 1 ? '' : 'n'} noch nicht im {reference?.quelle} — Erweiterung, dort nachziehen.
         </p>
       )}
       {!!doppelt.size && (
-        <p className={`text-[10px] mb-1 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+        <p className={`text-[10px] mb-1 ${err}`}>
           Doppelt: {[...doppelt].map(n => `«${n}»`).join(', ')} — jeder Name nur einmal.
         </p>
       )}
@@ -673,17 +679,18 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const off = !!m.disabled;
           const fehlt = !!bekannt && !!m.name && !bekannt.has(m.name);
           const dupl = !off && doppelt.has(m.name);
-          const problem = fehlt
-            ? `«${m.name}» steht nicht (mehr) im ${reference?.quelle} — dort ergänzen oder hier abwählen.`
-            : dupl ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.` : undefined;
+          // Doppelt ist ein Fehler (rot), eine Erweiterung nur eine Warnung (gelb)
+          const problem = dupl
+            ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.`
+            : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
+          const box = dupl ? errBox : fehlt ? warnBox : c.border2;
+          const mark = dupl ? err : warn;
           return (
             // Key nur über die Position: ein Key mit dem Namen darin würde die
             // Zeile bei jedem Tastendruck neu aufbauen — und den Fokus verlieren.
             <div key={i}
               title={problem}
-              className={`px-2 py-1.5 rounded border ${
-                problem ? (isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50') : c.border2
-              } ${off ? 'opacity-45' : ''}`}>
+              className={`px-2 py-1.5 rounded border ${box} ${off ? 'opacity-45' : ''}`}>
               <div className="flex items-center gap-1.5">
                 <input type="checkbox" checked={!off} disabled={!canEdit}
                   title={off ? 'kommt in diesem Prozess nicht vor' : 'wird verwendet — abwählen, wenn nicht gebraucht'}
@@ -699,8 +706,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   placeholder={list === 'inputs' ? 'Ausdruck / Variable' : 'Quelle'}
                   title={m.expression ? `${hint.expression}\n\nAktuell: ${m.expression}` : hint.expression}
                   className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
-                {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />}
-                {canEdit && !reference && (
+                {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
+                {/* Entfernen: frei ohne Massstab; mit Massstab nur, was er nicht
+                    kennt — seine Felder werden abgewählt, nicht gelöscht */}
+                {canEdit && (!reference || fehlt) && (
                   <button onClick={() => onRemove(list, i)} title="Zeile entfernen"
                     className={`p-0.5 flex-shrink-0 ${c.muted}`}><Trash2 size={10} /></button>
                 )}
