@@ -647,7 +647,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const off = !!m.disabled;
           const fehlt = !!bekannt && !!m.name && !bekannt.has(m.name);
           return (
-            <div key={`${m.name}-${i}`}
+            // Key nur über die Position: ein Key mit dem Namen darin würde die
+            // Zeile bei jedem Tastendruck neu aufbauen — und den Fokus verlieren.
+            <div key={i}
               title={fehlt ? `«${m.name}» steht nicht (mehr) im ${reference?.quelle} — dort ergänzen oder hier abwählen.` : undefined}
               className={`px-2 py-1.5 rounded border ${
                 fehlt ? (isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50') : c.border2
