@@ -11,6 +11,9 @@ export interface ReadResult { text: string; version: string }
 export type WriteResult =
   | { ok: true; version: string }
   | { ok: false; reason: 'conflict' | 'exists' | 'forbidden' | 'error'; message: string; currentVersion?: string };
+export type DeleteResult =
+  | { ok: true }
+  | { ok: false; reason: 'forbidden' | 'error'; message: string };
 
 export interface StorageBackend {
   kind: 'local' | 'sharepoint';
@@ -21,6 +24,8 @@ export interface StorageBackend {
   /** nur Dateien; leer, wenn der Ordner fehlt */
   list(dir: string): Promise<FileInfo[]>;
   ensureDir(dir: string): Promise<void>;
+  /** Datei entfernen; eine fehlende Datei gilt als entfernt */
+  delete(path: string): Promise<DeleteResult>;
 }
 
 // ── Lokaler Ordner ───────────────────────────────────────────────────────────
@@ -94,6 +99,26 @@ export class LocalBackend implements StorageBackend {
     let d = this.root;
     for (const p of dir.split('/').filter(Boolean)) d = await d.getDirectoryHandle(p, { create: true });
   }
+
+  async delete(path: string): Promise<DeleteResult> {
+    let dir: FileSystemDirectoryHandle, file: string;
+    try {
+      ({ dir, file } = await this.dirOf(path, false));
+    } catch {
+      return { ok: true }; // Ordner fehlt → Datei gibt es nicht
+    }
+    try {
+      await dir.removeEntry(file);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'NotFoundError') return { ok: true };
+      console.error('[orch-spec] LocalBackend.delete:', e);
+      if (e instanceof DOMException && e.name === 'NotAllowedError') {
+        return { ok: false, reason: 'forbidden', message: 'Keine Berechtigung zum Löschen im Ordner.' };
+      }
+      return { ok: false, reason: 'error', message: 'Löschen fehlgeschlagen.' };
+    }
+  }
 }
 
 // ── Demo (nur Entwicklung) ───────────────────────────────────────────────────
@@ -104,10 +129,13 @@ export class DemoBackend implements StorageBackend {
   name = 'Demo (sample-data)';
   private overrides = new Map<string, string>();
   private extra = new Map<string, Set<string>>();
+  /** gelöschte Pfade — die Beispieldaten selbst bleiben unangetastet */
+  private removed = new Set<string>();
 
   private url(p: string) { return `/sample-data/${p}`; }
 
   async read(path: string): Promise<ReadResult | null> {
+    if (this.removed.has(path)) return null;
     const own = this.overrides.get(path);
     if (own != null) return { text: own, version: String(own.length) };
     try {
@@ -121,6 +149,7 @@ export class DemoBackend implements StorageBackend {
   }
 
   async write(path: string, text: string): Promise<WriteResult> {
+    this.removed.delete(path);
     this.overrides.set(path, text);
     const dir = path.split('/').slice(0, -1).join('/');
     const name = path.split('/').pop()!;
@@ -135,8 +164,16 @@ export class DemoBackend implements StorageBackend {
       const res = await fetch(this.url(dir));
       if (res.ok) for (const n of (await res.json()) as string[]) names.add(n);
     } catch { /* Ordner fehlt */ }
-    return [...names].map(name => ({ name, version: '0' }));
+    return [...names]
+      .filter(name => !this.removed.has(dir ? `${dir}/${name}` : name))
+      .map(name => ({ name, version: '0' }));
   }
 
   async ensureDir(): Promise<void> { /* nichts zu tun */ }
+
+  async delete(path: string): Promise<DeleteResult> {
+    this.overrides.delete(path);
+    this.removed.add(path);
+    return { ok: true };
+  }
 }

@@ -56,7 +56,8 @@ interface StoreCtx {
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   saveSpec: (data: ProcessSpec, expectedVersion: string | null) => Promise<SaveResult>;
   createSpec: (spec: ProcessSpec) => Promise<{ ok: true } | { ok: false; message: string }>;
-  deleteSpec: (slug: string) => void;
+  /** Spezifikation samt BPMN aus dem Ordner löschen — nur für Admins (siehe usePermissions) */
+  deleteSpec: (slug: string) => Promise<{ ok: true } | { ok: false; message: string }>;
 }
 
 // Der gewählte Datenordner wird als Handle gemerkt (siehe `handles.ts`).
@@ -390,9 +391,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { ok: true as const };
   }, []);
 
-  // Nur aus der Liste nehmen — Dateien löscht die App bewusst nicht.
-  const deleteSpec = useCallback((slug: string) => {
+  // Löscht beide Dateien der Spezifikation: `<slug>.json` und `<slug>.bpmn`.
+  // Erst die Spezifikation, dann das Diagramm — bleibt das BPMN nach einem
+  // Fehler liegen, stört es nicht (die Liste kennt nur .json-Dateien).
+  // Die Prüfung, wer löschen darf, liegt in der Oberfläche (canDelete).
+  const deleteSpec = useCallback(async (slug: string) => {
+    const be = backendRef.current;
+    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
+    const json = await be.delete(`${DIR}/${slug}.json`);
+    if (!json.ok) return { ok: false as const, message: json.message };
     setSpecs(prev => prev.filter(p => p.slug !== slug));
+    const bpmn = await be.delete(`${DIR}/${slug}.bpmn`);
+    if (!bpmn.ok) return { ok: false as const, message: `Spezifikation gelöscht, aber das BPMN nicht: ${bpmn.message}` };
+    return { ok: true as const };
   }, []);
 
   const saveModel = useCallback(async (m: Model): Promise<{ ok: true } | { ok: false; message: string }> => {

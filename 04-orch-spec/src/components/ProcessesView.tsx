@@ -8,8 +8,14 @@
 //    neue Prozesse; ohne eigene gilt die eingebaute). Aus ihr entstehen
 //    Diagramm und Ablaufbaum in einem Zug — mit der neuen Prozess-ID, denn
 //    daran hängen Topics, Domain-Zuordnung und Dateiname.
+//
+// **Löschen** gibt es nur hier, nicht in der Prozessansicht — dort speichert
+// die App automatisch, und ein Autosave nach dem Löschen legte die Datei
+// gleich wieder an. Erlaubt ist es nur mit Admin-Rolle oder ohne
+// Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
+// Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
-import { FileCode2, FilePlus2, Upload, X } from 'lucide-react';
+import { FileCode2, FilePlus2, Trash2, Upload, X } from 'lucide-react';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
 import { importBpmn, statusCounts } from '../bpmn';
@@ -20,11 +26,14 @@ import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, specs, createSpec, saveBpmn, model } = useStore();
-  const { canEdit } = usePermissions();
+  const { isDark, specs, createSpec, saveBpmn, deleteSpec, model } = useStore();
+  const { canEdit, canDelete } = usePermissions();
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
+  /** Spezifikation, deren Löschen gerade bestätigt werden soll */
+  const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
@@ -107,6 +116,15 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     }
   };
 
+  const confirmDelete = async () => {
+    if (!toDelete || deleting) return;
+    setDeleting(true); setError('');
+    const res = await deleteSpec(toDelete.slug);
+    setDeleting(false);
+    if (!res.ok) setError(res.message);
+    setToDelete(null);
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-6">
       <div className="flex items-center gap-3 mb-5">
@@ -134,6 +152,32 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       {error && (
         <div className={`mb-4 text-[11px] px-3 py-2 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
           {error}
+        </div>
+      )}
+
+      {toDelete && (
+        <div className={`mb-4 p-3 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/5' : 'border-rose-300 bg-rose-50'}`}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <Trash2 size={12} className={isDark ? 'text-rose-300' : 'text-rose-700'} />
+            <span className={`text-[11px] font-semibold ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>
+              «{toDelete.title}» löschen?
+            </span>
+            <button onClick={() => setToDelete(null)} disabled={deleting} className={`ml-auto ${c.muted}`}><X size={12} /></button>
+          </div>
+          <p className={`text-[11px] ${c.muted2}`}>
+            Entfernt werden Spezifikation und Diagramm aus dem geteilten Ordner:
+            {' '}<span className="font-mono">processes/{toDelete.slug}.json</span>
+            {' '}und <span className="font-mono">processes/{toDelete.slug}.bpmn</span>.
+            {' '}Das lässt sich in der App nicht rückgängig machen.
+          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={confirmDelete} disabled={deleting}
+              className={`text-[11px] px-3 py-1.5 rounded font-semibold text-white disabled:opacity-40 ${isDark ? 'bg-rose-500 hover:bg-rose-400' : 'bg-rose-600 hover:bg-rose-500'}`}>
+              {deleting ? 'Löscht …' : 'Endgültig löschen'}
+            </button>
+            <button onClick={() => setToDelete(null)} disabled={deleting}
+              className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
+          </div>
         </div>
       )}
 
@@ -201,26 +245,38 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             const counts = statusCounts(data);
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
             return (
-              <button key={slug} onClick={() => onOpen(slug)}
-                className={`w-full text-left px-3 py-2.5 rounded border ${c.border2} ${c.hover} flex items-center gap-3`}>
-                <FileCode2 size={14} className={c.muted} />
-                <div className="min-w-0 flex-1">
-                  <div className={`text-xs truncate ${c.text}`}>{data.title || slug}</div>
-                  <div className={`text-[10px] font-mono truncate ${c.muted}`}>
-                    {data.processId || data.name}{data.project ? ` · ${data.project}` : ''}
+              <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
+                <button onClick={() => onOpen(slug)}
+                  className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
+                  <FileCode2 size={14} className={c.muted} />
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-xs truncate ${c.text}`}>{data.title || slug}</div>
+                    <div className={`text-[10px] font-mono truncate ${c.muted}`}>
+                      {data.processId || data.name}{data.project ? ` · ${data.project}` : ''}
+                    </div>
                   </div>
-                </div>
-                <div className="hidden sm:flex items-center gap-1">
-                  {STATUSES.filter(s => counts[s] > 0).map(s => (
-                    <span key={s} title={`${counts[s]} × ${STATUS_META[s].label}`}
-                      className={`text-[9px] px-1 py-0.5 rounded border ${isDark ? STATUS_META[s].dark : STATUS_META[s].light}`}>
-                      {counts[s]}
-                    </span>
-                  ))}
-                </div>
-                <span className={`text-[10px] ${c.muted} w-20 text-right`}>{total} Schritte</span>
-                <StatusChip status={data.status as Status} isDark={isDark} />
-              </button>
+                  <div className="hidden sm:flex items-center gap-1">
+                    {STATUSES.filter(s => counts[s] > 0).map(s => (
+                      <span key={s} title={`${counts[s]} × ${STATUS_META[s].label}`}
+                        className={`text-[9px] px-1 py-0.5 rounded border ${isDark ? STATUS_META[s].dark : STATUS_META[s].light}`}>
+                        {counts[s]}
+                      </span>
+                    ))}
+                  </div>
+                  <span className={`text-[10px] ${c.muted} w-20 text-right`}>{total} Schritte</span>
+                  <StatusChip status={data.status as Status} isDark={isDark} />
+                </button>
+                {/* Löschen — nur Admin (oder ohne Anmeldepflicht) */}
+                {canDelete && (
+                  <button onClick={() => { setError(''); setToDelete({ slug, title: data.title || slug }); }}
+                    title="Spezifikation löschen (Admin)"
+                    className={`mr-2 p-1.5 rounded border flex-shrink-0 transition-colors ${
+                      isDark ? 'border-white/15 text-white/50 hover:border-rose-400/60 hover:text-rose-300 hover:bg-rose-500/10'
+                             : 'border-black/15 text-black/50 hover:border-rose-400 hover:text-rose-700 hover:bg-rose-50'}`}>
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>

@@ -232,6 +232,19 @@ Schritt beginnt als **Entwurf** — auch in Zweigen und Fehlerpfaden. Eine
 Vorlage dazunehmen heisst: Datei in `public/templates/` ablegen und eine Zeile
 in `ENGINES` ergänzen (`src/template.ts`).
 
+### Spezifikationen löschen
+
+In der Liste hat jede Spezifikation rechts einen Papierkorb. Vorher wird
+gefragt, denn weg ist weg: entfernt werden
+**beide** Dateien, `processes/<slug>.json` und `processes/<slug>.bpmn` —
+lokal endgültig, in SharePoint in den Papierkorb der Site.
+
+Löschen darf nur, wer **Admin** ist — oder alle, wenn keine Anmeldung
+verlangt ist (dann gilt ohnehin «alles erlaubt»). Editor und Viewer sehen den
+Knopf nicht. Bewusst nur in der Liste, nicht in der Prozessansicht: dort
+speichert die App automatisch, und ein Autosave nach dem Löschen legte die
+Datei gleich wieder an.
+
 ### Der Admin-Bereich
 
 Drei Bereiche, in der Reihenfolge, in der sie gebraucht werden:
@@ -638,8 +651,9 @@ Sekunde nach der letzten Eingabe automatisch gespeichert; Konflikte werden
 Wie im arch-review: MSAL im Browser, Authorization Code Flow + PKCE, kein
 eigener Server. Konfiguriert wird unter **Admin → Anmeldung** (Tenant-ID,
 Client-ID, Rollen, aktiv); die Einstellung liegt als `auth` in der
-`model.json`. Drei Stufen über Entra-App-Rollen: **Admin** (alles),
-**Editor** (Spezifikationen bearbeiten), **Viewer** (nur lesen). Für den
+`model.json`. Drei Stufen über Entra-App-Rollen: **Admin** (alles, auch
+Spezifikationen löschen), **Editor** (Spezifikationen bearbeiten), **Viewer**
+(nur lesen). Für den
 SharePoint-Modus erzeugt der Admin einen **Einrichtungs-Link**, der Anmeldung
 und Ordner in einem Schritt setzt.
 

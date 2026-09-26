@@ -364,7 +364,7 @@ export function useAuthorName(): string {
   return user?.name?.trim() || 'Ich';
 }
 
-export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEdit: boolean; canView: boolean } {
+export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEdit: boolean; canView: boolean; canDelete: boolean } {
   const { status, user } = useAuth();
   // Entwicklung: ?noauth&as=viewer|reviewer simuliert eine Stufe ohne Login
   const devAs = import.meta.env.DEV ? new URLSearchParams(location.search).get('as') : null;
@@ -376,5 +376,8 @@ export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEd
     canAdmin: level === 'admin',
     canEdit: level === 'admin' || level === 'reviewer',
     canView: level !== 'none',
+    // Löschen ganzer Spezifikationen: nur mit Admin-Rolle — oder ohne
+    // Anmeldepflicht, denn dann gilt ohnehin «alles erlaubt» (level admin).
+    canDelete: level === 'admin',
   };
 }
