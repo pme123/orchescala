@@ -3,9 +3,8 @@
 // Zwei Wege zu einer neuen Spezifikation:
 //
 //  · **Aus BPMN** — die Struktur kommt aus der Implementation, die Prosa
-//    schreibt man danach.
-//  · **Aus Projekt** — ein Ordner oder ZIP des Orchescala-Projekts: die App
-//    findet die BPMNs und die Domain und baut daraus Spezifikationen mit
+//    schreibt man danach. Über die Prozess-ID findet die App die Domain
+//    (Katalog, gemerkte Projekt-Ordner, sonst Rückfrage) und ergänzt
 //    Datenmodell und Interaktionen (siehe `projectImport.ts`).
 //  · **Neu** — der Prozess startet mit der **Vorlage** (Admin → Vorlage für
 //    neue Prozesse; ohne eigene gilt die eingebaute). Aus ihr entstehen
@@ -18,13 +17,13 @@
 // Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Package, Trash2, Upload, X } from 'lucide-react';
-import { analyzeProject, readProjectDir, readProjectZip, type ProjectAnalysis } from '../projectImport';
+import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Trash2, Upload, X } from 'lucide-react';
+import { enrichSpec, findDomain, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
 import { importBpmn, statusCounts } from '../bpmn';
 import { DEFAULT_ENGINE, ENGINES, applyTemplate, loadTemplate } from '../template';
-import { STATUS_META, STATUSES, type EngineId, type Status, type Step } from '../types';
+import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status, type Step } from '../types';
 import { StatusChip, cls } from '../ui';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
@@ -36,12 +35,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const fileRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
-  // Import aus Projekt: Analyse und Auswahl der gefundenen Prozesse
-  const [projOpen, setProjOpen] = useState(false);
-  const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
-  const [projBusy, setProjBusy] = useState<string | null>(null);
-  const [projErrors, setProjErrors] = useState<string[]>([]);
+  // Import aus BPMN: gelesen, Domain gesucht — vor dem Anlegen sieht man, was entsteht
+  const [pending, setPending] = useState<{
+    spec: ProcessSpec; xml: string; stepCount: number;
+    enriched: Enriched | null; source: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   /** Spezifikation, deren Löschen gerade bestätigt werden soll */
   const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -78,69 +77,53 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     try {
       const text = await file.text();
       const { spec, stepCount, unreachable } = importBpmn(text, file.name);
-      const res = await createSpec(spec);
-      if (!res.ok) { setError(res.message); return; }
-      // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich
-      // in der Prozessansicht direkt bearbeiten.
-      const w = await saveBpmn(spec.slug, text);
-      if (!w.ok) setError(w.message);
-      if (unreachable.length) {
-        console.warn('[orch-spec] nicht erreichbare BPMN-Elemente:', unreachable);
-      }
-      console.info(`[orch-spec] ${stepCount} Schritte importiert`);
-      onOpen(spec.slug);
+      if (unreachable.length) console.warn('[orch-spec] nicht erreichbare BPMN-Elemente:', unreachable);
+      // Über die Prozess-ID die Domain suchen: Katalog, dann gemerkte Ordner
+      setBusy('Domain wird gesucht …');
+      const hit = spec.processId ? await findDomain(spec.processId, model, setBusy) : null;
+      setBusy(null);
+      const enriched = hit ? enrichSpec(spec, hit.domain, model) : null;
+      setPending({ spec, xml: text, stepCount, enriched, source: hit?.source ?? null });
     } catch (e) {
+      setBusy(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-
-  // ── Aus Projekt ────────────────────────────────────────────────────────
-  const analyze = (files: Array<{ path: string; text: string }>) => {
-    const a = analyzeProject(files, model);
-    setAnalysis(a);
-    // vorgewählt: alles, was noch nicht als Spezifikation da ist
-    setChosen(new Set(a.processes.filter(p => !specs.some(s => s.slug === p.spec.slug)).map(p => p.file)));
-    setProjErrors(a.errors);
-  };
-  const pickProjectDir = async () => {
-    if (!('showDirectoryPicker' in window)) { setProjErrors(['Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.']); return; }
+  /** Domain aus einem gewählten Ordner oder ZIP nachreichen. */
+  const domainFrom = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string) => {
+    if (!pending) return;
     try {
-      const dir = await window.showDirectoryPicker({ mode: 'read' });
-      setProjBusy(`${dir.name} wird gelesen …`);
-      analyze(await readProjectDir(dir));
+      setBusy(`${source} wird gelesen …`);
+      const domain = scanDomain(await read());
+      const enriched = enrichSpec(pending.spec, domain, model);
+      if (!enriched) setError(`In ${source} gibt es kein Objekt mit \`val processName = "${pending.spec.processId}"\`.`);
+      else { setError(''); setPending({ ...pending, enriched, source }); }
     } catch (e) {
-      if (!(e instanceof Error && e.name === 'AbortError')) setProjErrors([e instanceof Error ? e.message : String(e)]);
+      if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setProjBusy(null);
+      setBusy(null);
     }
   };
-  const pickProjectZip = async (file: File) => {
-    try {
-      setProjBusy(`${file.name} wird gelesen …`);
-      analyze(readProjectZip(new Uint8Array(await file.arrayBuffer())));
-    } catch (e) {
-      setProjErrors([e instanceof Error ? e.message : String(e)]);
-    } finally {
-      setProjBusy(null);
-    }
+  const pickDomainDir = async () => {
+    if (!('showDirectoryPicker' in window)) { setError('Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.'); return; }
+    const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
+    if (dir) await domainFrom(() => readProjectDir(dir), `Ordner ${dir.name}`);
   };
-  const importChosen = async () => {
-    if (!analysis) return;
-    const todo = analysis.processes.filter(p => chosen.has(p.file));
-    const fehler: string[] = [];
-    let first: string | null = null;
-    setProjBusy('Spezifikationen werden angelegt …');
-    for (const p of todo) {
-      const res = await createSpec(p.spec);
-      if (!res.ok) { fehler.push(`${p.spec.title || p.spec.slug}: ${res.message}`); continue; }
-      const w = await saveBpmn(p.spec.slug, p.xml);
-      if (!w.ok) fehler.push(`${p.spec.title || p.spec.slug}: BPMN nicht gespeichert — ${w.message}`);
-      first ??= p.spec.slug;
-    }
-    setProjBusy(null);
-    setProjErrors(fehler);
-    if (!fehler.length) { setProjOpen(false); setAnalysis(null); }
-    if (first && todo.length === 1) onOpen(first);
+  const pickDomainZip = (file: File) =>
+    domainFrom(async () => readProjectZip(new Uint8Array(await file.arrayBuffer())), file.name);
+  /** Anlegen — mit Domain, wenn eine da ist, sonst nur die Struktur. */
+  const createPending = async () => {
+    if (!pending) return;
+    const spec = pending.enriched?.spec ?? pending.spec;
+    const res = await createSpec(spec);
+    if (!res.ok) { setError(res.message); return; }
+    // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich
+    // in der Prozessansicht direkt bearbeiten.
+    const w = await saveBpmn(spec.slug, pending.xml);
+    if (!w.ok) setError(w.message);
+    console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
+    setPending(null);
+    onOpen(spec.slug);
   };
 
   // Aus der Vorlage entsteht beides: das Diagramm und der Baum daraus. So
@@ -197,12 +180,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
               <Upload size={12} /> Aus BPMN
             </button>
-            <button onClick={() => { setProjOpen(v => !v); setProjErrors([]); }}
-              title="Ordner oder ZIP eines Orchescala-Projekts — BPMN und Domain werden zusammen eingelesen"
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${
-                projOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10') : c.btn}`}>
-              <Package size={12} /> Aus Projekt
-            </button>
+
             <button onClick={() => {
               setCompany(v => v || letztes.company);
               setProject(v => v || letztes.project);
@@ -221,78 +199,57 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         </div>
       )}
 
-      {projOpen && (
+      {pending && (
         <div className={`mb-4 p-3 rounded border ${c.border2} ${c.panel}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`text-[11px] ${c.muted2}`}>Aus Projekt importieren</span>
-            <button onClick={() => { setProjOpen(false); setAnalysis(null); }} className={`ml-auto ${c.muted}`}><X size={12} /></button>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={`text-[11px] ${c.muted2}`}>Aus BPMN</span>
+            <span className={`text-xs ${c.text}`}>{pending.spec.title || pending.spec.processId}</span>
+            <span className={`text-[10px] font-mono ${c.muted}`}>{pending.spec.processId}</span>
+            <button onClick={() => setPending(null)} className={`ml-auto ${c.muted}`}><X size={12} /></button>
           </div>
-          <p className={`text-[10px] mb-2 ${c.muted}`}>
-            Das Orchescala-Projekt als Ordner (Chrome/Edge) oder als ZIP: die App findet die BPMNs und liest die Domain
-            unter <span className="font-mono">01-domain</span> — je Prozess entsteht eine Spezifikation mit Datenmodell
-            (In, InitIn, Out, eigene Typen) und Interaktionen samt deren In/Out.
-          </p>
-          <div className="flex items-center gap-2">
-            <button onClick={pickProjectDir} disabled={!!projBusy}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
-              <FolderOpen size={12} /> Ordner wählen
-            </button>
-            <input ref={zipRef} type="file" accept=".zip" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) void pickProjectZip(f); e.target.value = ''; }} />
-            <button onClick={() => zipRef.current?.click()} disabled={!!projBusy}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
-              <Upload size={12} /> ZIP wählen
-            </button>
-            {projBusy && <span className={`text-[10px] ${c.muted}`}>{projBusy}</span>}
-          </div>
-          {!!projErrors.length && (
-            <div className={`mt-2 text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
-              {projErrors.map((e, i) => <div key={i}>{e}</div>)}
-            </div>
-          )}
-          {analysis && (
-            <div className="mt-3 space-y-1.5">
-              <p className={`text-[10px] ${c.muted}`}>
-                {analysis.bpmnFiles} BPMN · {analysis.scalaFiles} Scala-Dateien · {analysis.domainTypes} Domain-Typen
-                {analysis.processes.length ? '' : ' — kein Prozess gefunden.'}
+          {pending.enriched ? (
+            <div className="space-y-1">
+              <p className={`text-[10px] ${c.muted2}`}>
+                {pending.stepCount} Schritte · Domain <span className="font-mono">{pending.enriched.object}</span> aus {pending.source}
+                {' · '}{pending.enriched.spec.types?.length ?? 0} Typen · {pending.enriched.spec.interactions?.length ?? 0} Interaktionen
+                {pending.enriched.matched.length ? ` (${pending.enriched.matched.join(', ')})` : ''}
               </p>
-              {analysis.processes.map(p => {
-                const exists = specs.some(s => s.slug === p.spec.slug);
-                const on = chosen.has(p.file);
-                return (
-                  <label key={p.file} className={`block px-2 py-1.5 rounded border cursor-pointer ${on ? c.border2 : c.border} ${c.hover}`}>
-                    <div className="flex items-center gap-2">
-                      <input type="checkbox" checked={on} disabled={exists}
-                        onChange={e => setChosen(prev => { const n = new Set(prev); if (e.target.checked) n.add(p.file); else n.delete(p.file); return n; })} />
-                      <span className={`text-[11px] ${c.text}`}>{p.spec.title || p.spec.processId}</span>
-                      <span className={`text-[10px] font-mono ${c.muted}`}>{p.spec.processId}</span>
-                      <span className={`ml-auto text-[10px] ${c.muted}`}>
-                        {p.steps} Schritte · {p.spec.types?.length ?? 0} Typen · {p.spec.interactions?.length ?? 0} Interaktionen
-                        {exists ? ' · schon vorhanden' : ''}
-                      </span>
-                    </div>
-                    <div className={`text-[10px] font-mono truncate ${c.muted}`} title={[p.file, ...p.copies].join('\n')}>
-                      {p.file}{p.copies.length ? ` (+${p.copies.length} Kopie${p.copies.length === 1 ? '' : 'n'})` : ''}
-                      {p.object ? ` · ${p.object}` : ''}
-                    </div>
-                    {(p.warnings.length > 0 || p.unmatched.length > 0 || p.unresolved.length > 0) && (
-                      <div className={`mt-1 text-[10px] space-y-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                        {p.warnings.map((w, i) => <div key={i} className="flex items-start gap-1"><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{w}</span></div>)}
-                        {!!p.unmatched.length && <div>Ohne Schritt im Ablauf: {p.unmatched.join(', ')}</div>}
-                        {!!p.unresolved.length && <div>Typen weder im Projekt noch im Katalog: {p.unresolved.join(', ')}</div>}
-                      </div>
-                    )}
-                  </label>
-                );
-              })}
-              {!!analysis.processes.length && (
-                <button onClick={importChosen} disabled={!chosen.size || !!projBusy}
-                  className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-40 ${c.btnPrimary}`}>
-                  {chosen.size} importieren
-                </button>
+              {(pending.enriched.warnings.length > 0 || pending.enriched.unmatched.length > 0 || pending.enriched.unresolved.length > 0) && (
+                <div className={`text-[10px] space-y-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                  {pending.enriched.warnings.map((w, i) => <div key={i} className="flex items-start gap-1"><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{w}</span></div>)}
+                  {!!pending.enriched.unmatched.length && <div>Ohne Schritt im Ablauf: {pending.enriched.unmatched.join(', ')}</div>}
+                  {!!pending.enriched.unresolved.length && <div>Typen weder im Projekt noch im Katalog: {pending.enriched.unresolved.join(', ')}</div>}
+                </div>
               )}
             </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className={`text-[10px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                <AlertTriangle size={10} className="inline mr-1 -mt-0.5" />
+                {pending.stepCount} Schritte — kein Domain-Objekt mit <span className="font-mono">val processName = "{pending.spec.processId}"</span>
+                {' '}im Katalog oder in den gemerkten Projekt-Ordnern (Admin → Katalog). Projekt-Ordner oder ZIP wählen — oder ohne Domain anlegen.
+              </p>
+              <div className="flex items-center gap-2">
+                <button onClick={pickDomainDir} disabled={!!busy}
+                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
+                  <FolderOpen size={12} /> Projekt-Ordner wählen
+                </button>
+                <input ref={zipRef} type="file" accept=".zip" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) void pickDomainZip(f); e.target.value = ''; }} />
+                <button onClick={() => zipRef.current?.click()} disabled={!!busy}
+                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
+                  <Upload size={12} /> ZIP wählen
+                </button>
+              </div>
+            </div>
           )}
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={createPending} disabled={!!busy}
+              className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-40 ${c.btnPrimary}`}>
+              {pending.enriched ? 'Anlegen' : 'Ohne Domain anlegen'}
+            </button>
+            {busy && <span className={`text-[10px] ${c.muted}`}>{busy}</span>}
+          </div>
         </div>
       )}
 

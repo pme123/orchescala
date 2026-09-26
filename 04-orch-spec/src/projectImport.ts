@@ -1,17 +1,18 @@
-// Import aus einem Projekt — Ordner oder ZIP.
+// BPMN wählen — die Domain findet die App über den Schlüssel.
 //
-// Ein Orchescala-Projekt bringt alles mit, was eine Spezifikation braucht:
-// das BPMN unter `src/main/resources/…` und die Domain unter `01-domain`.
-// Statt nur die Datei zu wählen, wählt man das Projekt — die App findet die
-// BPMNs, liest die Domain und baut daraus je Prozess eine Spezifikation mit
-// **Datenmodell** (In, InitIn, Out und die eigenen Typen dahinter) und
-// **Interaktionen** (Benutzeraufgaben, eigene Worker, Signale, Nachrichten)
-// samt deren In/Out.
+// Ein Orchescala-Prozess trägt seine ID in beiden Welten: im BPMN als
+// Prozess-ID, in der Domain als `val processName`. Wer also ein BPMN wählt,
+// muss die Domain nicht mehr suchen — die App tut es:
 //
-// Zuordnung ohne Raten: der Prozess findet sein Objekt über `val processName`,
-// eine Benutzeraufgabe ihres über `val name` (= BPMN-Element-ID), ein Worker
-// über `val topicName`. Signale und Nachrichten haben nur den Objektnamen —
-// die passen über die Namenskonvention (`CancelAddressChangeSE`).
+//   1. im **Domain-Katalog** (model.json bzw. catalog.generated.json),
+//   2. in den **gemerkten Projekt-Ordnern** (Admin → Katalog → Projekt-Ordner),
+//   3. sonst fragt sie nach dem Projekt-Ordner oder einem ZIP.
+//
+// Aus der gefundenen Domain entstehen das **Datenmodell** (In, InitIn, Out
+// und die eigenen Typen dahinter) und die **Interaktionen** (Benutzeraufgaben,
+// eigene Worker, Signale, Nachrichten) samt deren In/Out — zugeordnet ohne
+// Raten: eine Benutzeraufgabe über `val name` (= Element-ID), ein Worker
+// über `val topicName`, Signal und Nachricht über den Namen im BPMN.
 //
 // Typen aus dem Projekt selbst werden **eigene Typen** der Spezifikation;
 // Typen aus anderen Projekten (`GravitonConsultant`) zeigen auf den
@@ -19,22 +20,22 @@
 // gemeldet.
 
 import { unzipSync } from 'fflate';
-import type { DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, Step, TypeDef } from './types';
+import type { DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, TypeDef } from './types';
 import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
-import { allSteps, importBpmn } from './bpmn';
+import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
 import { interactionKind, resolveType, suggestName } from './interactions';
 import { domainRef } from './serviceTypes';
+import { ensureRead, getHandle } from './handles';
+import { handleKey, readSources } from './projects';
 import { uid } from './util';
 
 export interface ProjectFile { path: string; text: string }
 
 const IGNORE = new Set(['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules', '.idea', 'dist', '__MACOSX']);
 
-const wanted = (path: string) => path.endsWith('.bpmn') || isDomainSource(path);
-
-/** Ordner rekursiv lesen — nur BPMN und Domain-Quellen, Build-Ordner bleiben draussen. */
+/** Ordner rekursiv lesen — nur Domain-Quellen, Build-Ordner bleiben draussen. */
 export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''): Promise<ProjectFile[]> {
   const out: ProjectFile[] = [];
   for await (const [name, handle] of dir.entries()) {
@@ -42,7 +43,7 @@ export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''
     if (handle.kind === 'directory') {
       if (IGNORE.has(name) || name.startsWith('.')) continue;
       out.push(...await readProjectDir(handle as FileSystemDirectoryHandle, path));
-    } else if (wanted(path)) {
+    } else if (isDomainSource(path)) {
       out.push({ path, text: await (handle as FileSystemFileHandle).getFile().then(f => f.text()) });
     }
   }
@@ -53,9 +54,45 @@ export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''
 export function readProjectZip(data: Uint8Array): ProjectFile[] {
   const dec = new TextDecoder();
   const entries = unzipSync(data, {
-    filter: f => wanted(f.name) && !f.name.split('/').some(seg => IGNORE.has(seg)),
+    filter: f => isDomainSource(f.name) && !f.name.split('/').some(seg => IGNORE.has(seg)),
   });
   return Object.entries(entries).map(([path, bytes]) => ({ path, text: dec.decode(bytes) }));
+}
+
+/** Domain-Typen aus Quelldateien. */
+export const scanDomain = (files: ProjectFile[]): DomainType[] => scanFiles(files.filter(f => isDomainSource(f.path))).types;
+
+/** Kennt diese Domain den Prozess? */
+export const hasProcess = (domain: DomainType[], processId: string): boolean =>
+  domain.some(t => t.processName === processId && t.owner);
+
+export interface DomainHit {
+  domain: DomainType[];
+  /** woher: `Katalog` oder `Ordner <name>` */
+  source: string;
+}
+
+/**
+ * Die Domain zum Prozess suchen: erst der Katalog, dann die gemerkten
+ * Projekt-Ordner — Ordner, deren Name zur Prozess-ID passt, zuerst (die
+ * Leseberechtigung fragt der Browser je Ordner nach). `null` = nichts gefunden.
+ */
+export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
+  const catalog = model?.domainTypes ?? [];
+  if (hasProcess(catalog, processId)) return { domain: catalog, source: 'Katalog' };
+
+  const folders: ProjectFolder[] = [...(model?.projects ?? [])]
+    .sort((a, b) => Number(processId.startsWith(b.name)) - Number(processId.startsWith(a.name)));
+  for (const p of folders) {
+    const handle = await getHandle(handleKey(p));
+    if (!handle || !(await ensureRead(handle))) continue;
+    onProgress?.(`${p.name} wird gelesen …`);
+    const files: ProjectFile[] = [];
+    await readSources(handle, p.name, files, () => {});
+    const domain = scanDomain(files);
+    if (hasProcess(domain, processId)) return { domain, source: `Ordner ${p.name}` };
+  }
+  return null;
 }
 
 // ── Domain → eigene Typen ────────────────────────────────────────────────────
@@ -71,16 +108,21 @@ class Converter {
   readonly unresolved = new Set<string>();
   private readonly ids = new Map<string, string>();
 
-  constructor(private readonly domain: DomainType[], private readonly model: Model | null) {}
+  constructor(private readonly domain: DomainType[], private readonly pkg: string, private readonly model: Model | null) {}
+
+  /** Gehört der Typ zum Projekt des Prozesses (gleicher Paketstamm)? */
+  private own(t: DomainType): boolean {
+    const stem = this.pkg.replace(/\.domain\..*$/, '.domain');
+    return t.pkg === this.pkg || t.pkg.startsWith(`${stem}.`) || t.pkg === stem;
+  }
 
   /** Typ eines Feldes: Grundtyp ohne Option/Seq → Feldtyp der Spezifikation. */
   fieldType(base: string, pkg: string, depth = 0): { type: string; constraint?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
-    // im Projekt: gleiches Paket zuerst, dann irgendwo im Projekt
+    // im Projekt: gleiches Paket zuerst, dann der Projektstamm
     const own = this.domain.find(t => t.id === `${pkg}.${base}`)
-      ?? this.domain.find(t => t.name === base)
-      ?? this.domain.find(t => t.name.endsWith(`.${base}`));
+      ?? this.domain.find(t => this.own(t) && (t.name === base || t.name.endsWith(`.${base}`)));
     if (own) {
       if (own.kind === 'alias') {
         if (!own.target) { this.unresolved.add(base); return { type: base }; }
@@ -136,20 +178,12 @@ class Converter {
   }
 }
 
-// ── Analyse ──────────────────────────────────────────────────────────────────
+// ── Spezifikation anreichern ─────────────────────────────────────────────────
 
-export interface ProjectProcess {
-  /** Pfad der BPMN-Datei im Projekt */
-  file: string;
-  /** dieselbe Prozess-ID liegt auch unter diesen Pfaden (Kopien im Projekt) */
-  copies: string[];
-  /** das BPMN selbst — wird neben der Spezifikation abgelegt */
-  xml: string;
+export interface Enriched {
   spec: ProcessSpec;
-  /** Zahl der Schritte im Baum */
-  steps: number;
-  /** Domain-Objekt des Prozesses — fehlt, wenn keins `val processName` mit der Prozess-ID trägt */
-  object?: string;
+  /** Domain-Objekt des Prozesses */
+  object: string;
   /** zugeordnete Interaktionen (Objektnamen) */
   matched: string[];
   /** Interaktions-Objekte des Pakets ohne passenden Schritt */
@@ -159,62 +193,34 @@ export interface ProjectProcess {
   warnings: string[];
 }
 
-export interface ProjectAnalysis {
-  processes: ProjectProcess[];
-  bpmnFiles: number;
-  scalaFiles: number;
-  domainTypes: number;
-  errors: string[];
-}
-
 const DSL_KIND: Record<string, InteractionKind> = {
   UserTask: 'userTask', CustomTask: 'customTask', SignalEvent: 'signal', MessageEvent: 'message',
 };
 
-/** Alle Dateien eines Projekts → je BPMN eine fertige Spezifikation. */
-export function analyzeProject(files: ProjectFile[], model: Model | null): ProjectAnalysis {
-  const bpmns = files.filter(f => f.path.endsWith('.bpmn'));
-  const scala = files.filter(f => isDomainSource(f.path));
-  const domain = scanFiles(scala).types;
-  const errors: string[] = [];
-  const processes: ProjectProcess[] = [];
-
-  // Dasselbe BPMN liegt oft mehrfach im Projekt (`src/main/resources` und
-  // die Kopie im Worker-Modul). Je Prozess-ID zählt eines — das im
-  // Projektstamm zuerst, sonst das mit dem kürzesten Pfad.
-  const rank = (p: string) => (p.startsWith('src/') ? 0 : /^[0-9]{2}-/.test(p) ? 2 : 1) * 1000 + p.length;
-  const byProcess = new Map<string, { file: string; text: string; copies: string[] }>();
-  for (const f of [...bpmns].sort((a, b) => rank(a.path) - rank(b.path))) {
-    const id = /<(?:\w+:)?process\b[^>]*\bid="([^"]+)"[^>]*isExecutable="true"/.exec(f.text)?.[1]
-      ?? /<(?:\w+:)?process\b[^>]*\bid="([^"]+)"/.exec(f.text)?.[1] ?? f.path;
-    const prev = byProcess.get(id);
-    if (prev) prev.copies.push(f.path);
-    else byProcess.set(id, { file: f.path, text: f.text, copies: [] });
-  }
-  for (const f of byProcess.values()) {
-    try {
-      const { spec, stepCount } = importBpmn(f.text, f.file.split('/').pop() ?? f.file);
-      processes.push({ ...buildProcess(f.file, spec, stepCount, domain, model), copies: f.copies, xml: f.text });
-    } catch (e) {
-      errors.push(`${f.file}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-  processes.sort((a, b) => a.file.localeCompare(b.file));
-  return { processes, bpmnFiles: bpmns.length, scalaFiles: scala.length, domainTypes: domain.length, errors };
+/**
+ * Art eines Domain-Objekts. Ein älterer Katalog kennt das DSL nicht — dann
+ * verraten Topic und Namensendung (`…UT`, `…SE`, `…ME`), was es ist.
+ */
+function objectKind(t: DomainType): InteractionKind | null {
+  if (t.dsl) return DSL_KIND[t.dsl] ?? null;
+  if (t.topicName) return 'customTask';
+  if (/UT$/.test(t.owner ?? '')) return 'userTask';
+  if (/SE$/.test(t.owner ?? '')) return 'signal';
+  if (/ME$/.test(t.owner ?? '')) return 'message';
+  return null;
 }
 
-type Built = Omit<ProjectProcess, 'copies' | 'xml'>;
-
-function buildProcess(file: string, spec: ProcessSpec, steps: number, domain: DomainType[], model: Model | null): Built {
+/**
+ * Eine aus dem BPMN gelesene Spezifikation um Datenmodell und Interaktionen
+ * aus der Domain ergänzen. `null`, wenn die Domain den Prozess nicht kennt.
+ */
+export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model | null): Enriched | null {
   const warnings: string[] = [];
   const procType = domain.find(t => t.processName === spec.processId && t.owner);
-  if (!procType) {
-    warnings.push(`Kein Domain-Objekt mit \`val processName = "${spec.processId}"\` — Datenmodell und Interaktionen bleiben leer.`);
-    return { file, spec, steps, matched: [], unmatched: [], unresolved: [], warnings };
-  }
+  if (!procType) return null;
   const owner = procType.owner!;
   const pkg = procType.pkg;
-  const conv = new Converter(domain, model);
+  const conv = new Converter(domain, pkg, model);
   const member = (obj: string, name: string) => domain.find(t => t.id === `${pkg}.${obj}.${name}`) ?? null;
 
   // Prozess: In · InitIn · Out — InConfig ist Implementations-Detail
@@ -226,10 +232,10 @@ function buildProcess(file: string, spec: ProcessSpec, steps: number, domain: Do
   const outT = member(owner, 'Out');
   if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
 
-  // Interaktionen: die Objekte des Projekts mit einem Interaktions-DSL —
-  // zuerst die des eigenen Pakets, damit bei gleichem Namen diese gewinnen
+  // Interaktionen: die Objekte mit Interaktions-Art — die des eigenen Pakets
+  // zuerst, damit bei gleichem Namen diese gewinnen
   const objects = [...new Map(domain
-    .filter(t => t.owner && t.dsl && DSL_KIND[t.dsl])
+    .filter(t => t.owner && objectKind(t))
     .sort((a, b) => Number(b.pkg === pkg) - Number(a.pkg === pkg))
     .map(t => [`${t.pkg}.${t.owner!}`, t])).values()];
   const interactions: Interaction[] = [];
@@ -237,17 +243,17 @@ function buildProcess(file: string, spec: ProcessSpec, steps: number, domain: Do
   const processId = spec.processId ?? '';
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
 
-  const memberType = (obj: string, name: 'In' | 'Out', iaId: string): string | undefined => {
-    const t = member(obj, name);
+  const memberType = (o: DomainType, name: 'In' | 'Out', iaId: string): string | undefined => {
+    const t = domain.find(x => x.id === `${o.pkg}.${o.owner}.${name}`);
     if (!t) return undefined;
-    if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${obj}.${name}`);
+    if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${o.owner}.${name}`);
     if (t.kind === 'alias' && t.target && t.target !== 'NoInput' && t.target !== 'NoOutput') {
       // `type In = AdjustAddressUT.In` — dieselben Felder unter eigenem Namen
       const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
-        return conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${obj}.${name}`);
+        return conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
       }
-      warnings.push(`${obj}.${name} = ${t.target}: Ziel nicht gefunden.`);
+      warnings.push(`${o.owner}.${name} = ${t.target}: Ziel nicht gefunden.`);
     }
     return undefined;
   };
@@ -257,33 +263,33 @@ function buildProcess(file: string, spec: ProcessSpec, steps: number, domain: Do
     // Ein Worker des Projekts erkennt man am Topic — auch wenn es nicht mit
     // der Prozess-ID beginnt (Worker eines Nachbarpakets)
     const byTopic = step.kind === 'service' && step.topic && step.topic !== processId
-      ? objects.find(o => DSL_KIND[o.dsl!] === 'customTask' && o.topicName === step.topic) : undefined;
+      ? objects.find(o => objectKind(o) === 'customTask' && o.topicName === step.topic) : undefined;
     // Ein Signal beschreibt das Objekt auch, wenn der Prozess es **fängt**
     // (Startereignis eines Ereignis-Subprozesses, Zwischenereignis)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
     const kind = byTopic ? 'customTask' : (interactionKind(step, processId) ?? caughtSignal);
     if (!kind) continue;
     const obj = byTopic ?? objects.find(o => {
-      const k = DSL_KIND[o.dsl!];
-      if (k !== kind) return false;
-      if (kind === 'userTask') return o.key === step.id;
+      if (objectKind(o) !== kind) return false;
       if (kind === 'customTask') return o.topicName === step.topic;
-      // Signal / Nachricht: über den Namen im BPMN (bis zum dynamischen Teil), sonst die Konvention
+      if (kind === 'userTask' && o.key) return o.key === step.id;
+      // Signal / Nachricht: über den Namen im BPMN (bis zum dynamischen Teil)
       const key = (o.key ?? '').split('${')[0];
       if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
+      // sonst die Namenskonvention (`AdressanderungPrufenQMSTask` → `AdressanderungPrufenQMSUT`)
       return o.owner === suggestName(step, kind, processId, model);
     });
     if (!obj) continue;
     const ia: Interaction = {
       id: uid('ia'), stepId: step.id, kind, name: obj.owner!,
-      key: obj.key ?? obj.topicName ?? '',
+      key: obj.key ?? obj.topicName ?? (kind === 'userTask' ? step.id : step.messageName ?? ''),
       ...(obj.ownerDescr ? { descr: obj.ownerDescr } : {}),
       status: 'implemented',
     };
-    const inId = memberType(obj.owner!, 'In', ia.id);
+    const inId = memberType(obj, 'In', ia.id);
     if (inId) ia.inTypeId = inId;
     if (kind === 'userTask' || kind === 'customTask') {
-      const outId = memberType(obj.owner!, 'Out', ia.id);
+      const outId = memberType(obj, 'Out', ia.id);
       if (outId) ia.outTypeId = outId;
     }
     interactions.push(ia);
@@ -297,8 +303,5 @@ function buildProcess(file: string, spec: ProcessSpec, steps: number, domain: Do
     types: conv.types,
     interactions,
   };
-  return { file, spec: built, steps, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings };
+  return { spec: built, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings };
 }
-
-/** Schritt-Zahl für die Anzeige — ohne Rücksprünge. */
-export const stepCountOf = (steps: Step[]): number => allSteps(steps).filter(s => s.kind !== 'goto').length;

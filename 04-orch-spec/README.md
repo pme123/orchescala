@@ -189,29 +189,34 @@ obwohl die randlos ist. Die Herkunft steht davon unberührt am Fensterrand
 bleibt von ihr nur das Logo — dann reicht die Breite für den Text nicht mehr,
 ohne den Knöpfen in die Quere zu kommen.
 
-### Aus Projekt — Ordner oder ZIP
+### Aus BPMN — die Domain findet die App
 
-Ein Orchescala-Projekt bringt alles mit, was eine Spezifikation braucht: das
-BPMN unter `src/main/resources/…` und die Domain unter `01-domain`. **«Aus
-Projekt»** nimmt deshalb das ganze Projekt — als Ordner (Chrome/Edge, nur
-lesend) oder als ZIP (jeder Browser). Die App findet die BPMNs, liest die
-Domain und zeigt je Prozess, was daraus würde:
+Ein Orchescala-Prozess trägt seine ID in beiden Welten: im BPMN als
+Prozess-ID, in der Domain als `val processName`. Wer ein BPMN wählt, muss die
+Domain deshalb nicht suchen — die App tut es, in dieser Reihenfolge:
+
+1. im **Domain-Katalog** (model.json bzw. `catalog.generated.json`),
+2. in den **gemerkten Projekt-Ordnern** (Admin → Katalog → Projekt-Ordner;
+   der Browser fragt je Ordner einmal nach dem Leserecht — Ordner, deren
+   Name zur Prozess-ID passt, kommen zuerst),
+3. sonst fragt sie nach dem **Projekt-Ordner** (Chrome/Edge) oder einem
+   **ZIP** — oder legt den Prozess ohne Domain an.
+
+Vor dem Anlegen steht, was entsteht:
 
 ```
-☑ Adressänderung            valiant-addresschange
-  src/main/resources/camunda/addresschange.bpmn (+1 Kopie) · AddressChange
-  74 Schritte · 15 Typen · 5 Interaktionen
-  ⚠ Ohne Schritt im Ablauf: CancelAddressChangeSE
-  ⚠ Typen weder im Projekt noch im Katalog: GravitonConsultant, ProcessCallOrigin
-                                                          [1 importieren]
+Aus BPMN  Adressänderung  valiant-addresschange
+74 Schritte · Domain AddressChange aus Ordner valiant-addresschange
+· 15 Typen · 6 Interaktionen (ReconfirmationUT, AdjustProcessVariables, …)
+⚠ Typen weder im Projekt noch im Katalog: GravitonConsultant, ProcessCallOrigin
+                                                              [Anlegen]
 ```
 
 Was dabei entsteht, ohne Raten:
 
-- **Der Prozess findet sein Objekt** über `val processName` — nicht über den
-  Namen. Aus dessen `In`, `InitIn` und `Out` werden die Prozess-Klassen des
-  Datenmodells; `InConfig` bleibt draussen (Implementations-Detail), auch als
-  Feld im `In`.
+- Aus `In`, `InitIn` und `Out` des Prozess-Objekts werden die Prozess-Klassen
+  des Datenmodells; `InConfig` bleibt draussen (Implementations-Detail), auch
+  als Feld im `In`.
 - **Eigene Typen** des Projekts (`NewAddress`, enums) werden eigene Typen der
   Spezifikation — mit `Option`/`Seq`, Einschränkung, Vorgabe und
   `@description`. Ein Alias wie `type AddressType = Int :| any.In[(11, 15)]`
@@ -222,16 +227,16 @@ Was dabei entsteht, ohne Raten:
   Benutzeraufgabe über `val name` (= Element-ID), ein Worker über
   `val topicName` (auch wenn es nicht mit der Prozess-ID beginnt), Signal und
   Nachricht über den Namen im BPMN (`<bpmn:signal name>`, bis zum dynamischen
-  Teil `${…}`), sonst über die Namenskonvention. Jede bekommt ihre `In`/`Out`
-  als eigene Klassen; `type In = AdjustAddressUT.In` wird eine Kopie mit dem
-  Hinweis `= AdjustAddressUT.In`, `NoInput` bleibt leer. `val descr` wird die
-  Beschreibung. Objekte des Pakets ohne Schritt werden gemeldet.
-- **Kopien** desselben BPMN (etwa nochmals im Worker-Modul) zählen einmal —
-  das im Projektstamm gewinnt, die anderen stehen im Tooltip.
+  Teil `${…}`) — auch gefangene Signale —, sonst über die Namenskonvention.
+  Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustAddressUT.In`
+  wird eine Kopie mit dem Hinweis `= AdjustAddressUT.In`, `NoInput` bleibt
+  leer. `val descr` wird die Beschreibung. Objekte des Pakets ohne Schritt
+  werden gemeldet. Ein älterer Katalog ohne DSL-Angabe wird über Topic und
+  Namensendung (`…UT`, `…SE`, `…ME`) gelesen — Benutzeraufgaben, deren
+  Objektname nicht der Konvention folgt (`ApproveAddressUT` für
+  `AdressanderungPrufenQMSTask`), findet erst ein neu erzeugter Katalog oder
+  der Projekt-Ordner, denn nur dort steht `val name`.
 - Die Engine wird am BPMN erkannt (zeebe-Namensraum → Camunda 8).
-
-Vorgewählt ist, was noch nicht als Spezifikation da ist. Das BPMN wird wie
-bei «Aus BPMN» neben der Spezifikation abgelegt.
 
 ### Neue Prozesse starten mit einer Vorlage
 
