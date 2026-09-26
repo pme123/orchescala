@@ -4,6 +4,9 @@
 //
 //  · **Aus BPMN** — die Struktur kommt aus der Implementation, die Prosa
 //    schreibt man danach.
+//  · **Aus Projekt** — ein Ordner oder ZIP des Orchescala-Projekts: die App
+//    findet die BPMNs und die Domain und baut daraus Spezifikationen mit
+//    Datenmodell und Interaktionen (siehe `projectImport.ts`).
 //  · **Neu** — der Prozess startet mit der **Vorlage** (Admin → Vorlage für
 //    neue Prozesse; ohne eigene gilt die eingebaute). Aus ihr entstehen
 //    Diagramm und Ablaufbaum in einem Zug — mit der neuen Prozess-ID, denn
@@ -15,7 +18,8 @@
 // Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
-import { FileCode2, FilePlus2, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Package, Trash2, Upload, X } from 'lucide-react';
+import { analyzeProject, readProjectDir, readProjectZip, type ProjectAnalysis } from '../projectImport';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
 import { importBpmn, statusCounts } from '../bpmn';
@@ -30,7 +34,14 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const { canEdit, canDelete } = usePermissions();
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
+  const zipRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
+  // Import aus Projekt: Analyse und Auswahl der gefundenen Prozesse
+  const [projOpen, setProjOpen] = useState(false);
+  const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [projBusy, setProjBusy] = useState<string | null>(null);
+  const [projErrors, setProjErrors] = useState<string[]>([]);
   /** Spezifikation, deren Löschen gerade bestätigt werden soll */
   const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -81,6 +92,55 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  // ── Aus Projekt ────────────────────────────────────────────────────────
+  const analyze = (files: Array<{ path: string; text: string }>) => {
+    const a = analyzeProject(files, model);
+    setAnalysis(a);
+    // vorgewählt: alles, was noch nicht als Spezifikation da ist
+    setChosen(new Set(a.processes.filter(p => !specs.some(s => s.slug === p.spec.slug)).map(p => p.file)));
+    setProjErrors(a.errors);
+  };
+  const pickProjectDir = async () => {
+    if (!('showDirectoryPicker' in window)) { setProjErrors(['Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.']); return; }
+    try {
+      const dir = await window.showDirectoryPicker({ mode: 'read' });
+      setProjBusy(`${dir.name} wird gelesen …`);
+      analyze(await readProjectDir(dir));
+    } catch (e) {
+      if (!(e instanceof Error && e.name === 'AbortError')) setProjErrors([e instanceof Error ? e.message : String(e)]);
+    } finally {
+      setProjBusy(null);
+    }
+  };
+  const pickProjectZip = async (file: File) => {
+    try {
+      setProjBusy(`${file.name} wird gelesen …`);
+      analyze(readProjectZip(new Uint8Array(await file.arrayBuffer())));
+    } catch (e) {
+      setProjErrors([e instanceof Error ? e.message : String(e)]);
+    } finally {
+      setProjBusy(null);
+    }
+  };
+  const importChosen = async () => {
+    if (!analysis) return;
+    const todo = analysis.processes.filter(p => chosen.has(p.file));
+    const fehler: string[] = [];
+    let first: string | null = null;
+    setProjBusy('Spezifikationen werden angelegt …');
+    for (const p of todo) {
+      const res = await createSpec(p.spec);
+      if (!res.ok) { fehler.push(`${p.spec.title || p.spec.slug}: ${res.message}`); continue; }
+      const w = await saveBpmn(p.spec.slug, p.xml);
+      if (!w.ok) fehler.push(`${p.spec.title || p.spec.slug}: BPMN nicht gespeichert — ${w.message}`);
+      first ??= p.spec.slug;
+    }
+    setProjBusy(null);
+    setProjErrors(fehler);
+    if (!fehler.length) { setProjOpen(false); setAnalysis(null); }
+    if (first && todo.length === 1) onOpen(first);
   };
 
   // Aus der Vorlage entsteht beides: das Diagramm und der Baum daraus. So
@@ -137,6 +197,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
               <Upload size={12} /> Aus BPMN
             </button>
+            <button onClick={() => { setProjOpen(v => !v); setProjErrors([]); }}
+              title="Ordner oder ZIP eines Orchescala-Projekts — BPMN und Domain werden zusammen eingelesen"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${
+                projOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10') : c.btn}`}>
+              <Package size={12} /> Aus Projekt
+            </button>
             <button onClick={() => {
               setCompany(v => v || letztes.company);
               setProject(v => v || letztes.project);
@@ -152,6 +218,81 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       {error && (
         <div className={`mb-4 text-[11px] px-3 py-2 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
           {error}
+        </div>
+      )}
+
+      {projOpen && (
+        <div className={`mb-4 p-3 rounded border ${c.border2} ${c.panel}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`text-[11px] ${c.muted2}`}>Aus Projekt importieren</span>
+            <button onClick={() => { setProjOpen(false); setAnalysis(null); }} className={`ml-auto ${c.muted}`}><X size={12} /></button>
+          </div>
+          <p className={`text-[10px] mb-2 ${c.muted}`}>
+            Das Orchescala-Projekt als Ordner (Chrome/Edge) oder als ZIP: die App findet die BPMNs und liest die Domain
+            unter <span className="font-mono">01-domain</span> — je Prozess entsteht eine Spezifikation mit Datenmodell
+            (In, InitIn, Out, eigene Typen) und Interaktionen samt deren In/Out.
+          </p>
+          <div className="flex items-center gap-2">
+            <button onClick={pickProjectDir} disabled={!!projBusy}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
+              <FolderOpen size={12} /> Ordner wählen
+            </button>
+            <input ref={zipRef} type="file" accept=".zip" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) void pickProjectZip(f); e.target.value = ''; }} />
+            <button onClick={() => zipRef.current?.click()} disabled={!!projBusy}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
+              <Upload size={12} /> ZIP wählen
+            </button>
+            {projBusy && <span className={`text-[10px] ${c.muted}`}>{projBusy}</span>}
+          </div>
+          {!!projErrors.length && (
+            <div className={`mt-2 text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
+              {projErrors.map((e, i) => <div key={i}>{e}</div>)}
+            </div>
+          )}
+          {analysis && (
+            <div className="mt-3 space-y-1.5">
+              <p className={`text-[10px] ${c.muted}`}>
+                {analysis.bpmnFiles} BPMN · {analysis.scalaFiles} Scala-Dateien · {analysis.domainTypes} Domain-Typen
+                {analysis.processes.length ? '' : ' — kein Prozess gefunden.'}
+              </p>
+              {analysis.processes.map(p => {
+                const exists = specs.some(s => s.slug === p.spec.slug);
+                const on = chosen.has(p.file);
+                return (
+                  <label key={p.file} className={`block px-2 py-1.5 rounded border cursor-pointer ${on ? c.border2 : c.border} ${c.hover}`}>
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" checked={on} disabled={exists}
+                        onChange={e => setChosen(prev => { const n = new Set(prev); if (e.target.checked) n.add(p.file); else n.delete(p.file); return n; })} />
+                      <span className={`text-[11px] ${c.text}`}>{p.spec.title || p.spec.processId}</span>
+                      <span className={`text-[10px] font-mono ${c.muted}`}>{p.spec.processId}</span>
+                      <span className={`ml-auto text-[10px] ${c.muted}`}>
+                        {p.steps} Schritte · {p.spec.types?.length ?? 0} Typen · {p.spec.interactions?.length ?? 0} Interaktionen
+                        {exists ? ' · schon vorhanden' : ''}
+                      </span>
+                    </div>
+                    <div className={`text-[10px] font-mono truncate ${c.muted}`} title={[p.file, ...p.copies].join('\n')}>
+                      {p.file}{p.copies.length ? ` (+${p.copies.length} Kopie${p.copies.length === 1 ? '' : 'n'})` : ''}
+                      {p.object ? ` · ${p.object}` : ''}
+                    </div>
+                    {(p.warnings.length > 0 || p.unmatched.length > 0 || p.unresolved.length > 0) && (
+                      <div className={`mt-1 text-[10px] space-y-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                        {p.warnings.map((w, i) => <div key={i} className="flex items-start gap-1"><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{w}</span></div>)}
+                        {!!p.unmatched.length && <div>Ohne Schritt im Ablauf: {p.unmatched.join(', ')}</div>}
+                        {!!p.unresolved.length && <div>Typen weder im Projekt noch im Katalog: {p.unresolved.join(', ')}</div>}
+                      </div>
+                    )}
+                  </label>
+                );
+              })}
+              {!!analysis.processes.length && (
+                <button onClick={importChosen} disabled={!chosen.size || !!projBusy}
+                  className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-40 ${c.btnPrimary}`}>
+                  {chosen.size} importieren
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

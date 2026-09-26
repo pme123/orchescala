@@ -113,6 +113,17 @@ function eventKindOf(el: Element): Step['eventKind'] {
   return 'none';
 }
 
+/** Name des Signals bzw. der Nachricht eines Ereignisses — über `signalRef` / `messageRef` */
+function signalRefOf(el: Element, defs: Map<string, string>): string | undefined {
+  for (const c of kids(el)) {
+    const n = local(c);
+    if (n !== 'signalEventDefinition' && n !== 'messageEventDefinition') continue;
+    const ref = c.getAttribute('signalRef') ?? c.getAttribute('messageRef');
+    if (ref && defs.has(ref)) return defs.get(ref);
+  }
+  return undefined;
+}
+
 function timerExpression(el: Element): string | undefined {
   for (const c of kids(el)) {
     if (local(c) === 'timerEventDefinition') {
@@ -383,6 +394,8 @@ interface BuildCtx {
   order: string[];
   /** <bpmn:error> id → errorCode bzw. name */
   errors: Map<string, string>;
+  /** <bpmn:signal> / <bpmn:message> id → name */
+  signals: Map<string, string>;
   /** alle Knoten aller Ebenen — für die Meldung «nicht erreichbar» */
   allNodes: Map<string, string>;
   /** Knoten → einziger Nachfolger (löst entfernte Zusammenführungen auf) */
@@ -446,12 +459,21 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   if (kind === 'event') {
     step.eventKind = eventKindOf(el);
     step.eventDirection = tag === 'intermediateThrowEvent' ? 'throw' : 'catch';
+    const ref = signalRefOf(el, ctx.signals);
+    if (ref) step.messageName = ref;
     const timer = timerExpression(el);
     if (timer) step.notes = `Timer: ${timer}`;
   }
   if (kind === 'start' || kind === 'end') {
     const ev = eventKindOf(el);
     if (ev !== 'none') step.eventKind = ev;
+    const ref = signalRefOf(el, ctx.signals);
+    if (ref) step.messageName = ref;
+  }
+  if (kind === 'receive' || kind === 'send') {
+    const ref = el.getAttribute('messageRef');
+    const name = ref ? ctx.signals.get(ref) : undefined;
+    if (name) step.messageName = name;
   }
 
   // Benutzeraufgabe: wer sie bearbeiten darf
@@ -713,9 +735,17 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
     const code = e.getAttribute('errorCode') || e.getAttribute('name');
     if (id && code) errorDefs.set(id, code);
   }
+  const signalDefs = new Map<string, string>();
+  for (const tag of ['signal', 'message']) {
+    for (const e of elementsNamed(doc.documentElement, tag)) {
+      const id = e.getAttribute('id');
+      const name = e.getAttribute('name');
+      if (id && name) signalDefs.set(id, name);
+    }
+  }
   const ctx: BuildCtx = {
     doc, processId, initOutputs: [],
-    byId: new Map(), order: [], errors: errorDefs, allNodes: new Map(), succ: new Map(),
+    byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, allNodes: new Map(), succ: new Map(),
   };
   register(ctx, scope);
   let steps = walk(ctx, scope, scope.starts[0] ?? null, new Set(), new Set());
@@ -740,6 +770,8 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
     title: nameOf(proc) || name,
     processId,
     project,
+    // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
+    engine: /http:\/\/camunda\.org\/schema\/zeebe|executionPlatform="Camunda Cloud"/.test(xml) ? 'c8' : 'c7',
     status: 'implemented',
     description: '',
     createdAt: todayIso(),

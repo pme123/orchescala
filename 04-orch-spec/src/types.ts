@@ -116,6 +116,8 @@ export interface Step {
   // Ereignisse
   eventKind?: 'timer' | 'signal' | 'message' | 'error' | 'escalation' | 'none';
   eventDirection?: 'throw' | 'catch';
+  /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
+  messageName?: string;
 
   /** offene fachliche Fragen zu diesem Schritt */
   open?: string;
@@ -400,6 +402,15 @@ export interface DomainType {
   processName?: string;
   /** `val topicName` eines Worker-Objekts — dasselbe für Service-Tasks */
   topicName?: string;
+  /** Art des Objekts laut DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */
+  dsl?: string;
+  /** Schlüssel des Objekts: `name` (Benutzeraufgabe), `messageName`, `decisionId` — und sein Wert */
+  keyName?: string;
+  key?: string;
+  /** `val descr` des umschliessenden Objekts */
+  ownerDescr?: string;
+  /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustAddressUT.In` */
+  target?: string;
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
   source?: string;
   [key: string]: unknown;

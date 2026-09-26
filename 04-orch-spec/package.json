@@ -15,6 +15,7 @@
     "bpmn-js": "^18.25.1",
     "camunda-bpmn-moddle": "^7.0.1",
     "feelin": "^8.2.0",
+    "fflate": "^0.8.3",
     "lucide-react": "^0.546.0",
     "marked": "^18.0.9",
     "react": "^19.0.0",

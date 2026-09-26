@@ -26,6 +26,12 @@ import { parseParams } from './scalaTypes.ts';
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
 const IMPORT = /^import\s/;
 const OBJECT = /^(\s*)(?:case\s+)?object\s+(\w+)\b/;
+/** `object X extends CompanyBpmnUserTaskDsl` — welche Art Interaktion das Objekt ist */
+const DSL = /extends\s+\w*Bpmn(Process|UserTask|CustomTask|SignalEvent|MessageEvent|Decision|ServiceTask|Service)\w*Dsl/;
+/** `type AddressType = Int :| …` auf oberster Ebene — ein Alias mit Ziel */
+const TYPE_TOP = /^type\s+(\w+)\s*=\s*(.+)$/;
+/** `val descr = "…"` bzw. `val descr: String = "…"` eines Objekts */
+const DESCR = /^\s+(?:val|lazy val|def)\s+descr(?:\s*:\s*String)?\s*=\s*"(.*)"\s*$/;
 const CASE_CLASS = /^(\s*)(?:final\s+)?case\s+class\s+(\w+)\s*(?:\[[^\]]*\])?\s*\(/;
 const ENUM = /^(\s*)enum\s+(\w+)\b/;
 const ENUM_CASE = /^\s*case\s+([A-Za-z]\w*)\s*(?:\(|$|,)/;
@@ -34,7 +40,7 @@ const FIELD = /^\s*(?:@\w+.*)?(?:^|\s)([a-z]\w*)\s*:\s*\S/;
 const SCALADOC = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
 const END = /^(\s*)end\s+(\w+)/;
 // Woran ein Service- oder Prozess-Objekt zu erkennen ist
-const SERVICE_MARK = /^\s+(?:val|lazy val)\s+(topicName|processName)\s*=\s*"?([^"\n]*)"?/;
+const SERVICE_MARK = /^\s+(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
 
 /** Klammern zählen, um das Ende einer Parameterliste zu finden. */
@@ -164,6 +170,12 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const processNames = new Map<string, string>();
   /** `val topicName = "…"` je Objekt — dasselbe für Worker */
   const topicNames = new Map<string, string>();
+  /** `val name` (Benutzeraufgabe), `val messageName` (Signal/Nachricht), `def decisionId` (DMN) je Objekt */
+  const keys = new Map<string, { keyName: string; key: string }>();
+  /** `extends CompanyBpmn…Dsl` je Objekt */
+  const dsls = new Map<string, string>();
+  /** `val descr = "…"` je Objekt */
+  const descrs = new Map<string, string>();
   let owner: string | null = null;
   let doc = '';
 
@@ -199,22 +211,40 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const o = OBJECT.exec(line);
     if (o) {
       // Nur ein Objekt auf oberster Ebene trägt Member wie `In` / `Out`.
-      if (o[1].length === 0) owner = o[2];
+      if (o[1].length === 0) {
+        owner = o[2];
+        const dsl = DSL.exec(line);
+        if (dsl) {
+          dsls.set(owner, dsl[1]);
+          if (!serviceObjects.includes(owner)) serviceObjects.push(owner);
+        }
+      }
       doc = '';
       continue;
     }
+
+    const de = owner ? DESCR.exec(line) : null;
+    if (owner && de) { descrs.set(owner, de[1]); continue; }
 
     const mark = owner ? SERVICE_MARK.exec(line) : null;
     if (owner && mark) {
       if (!serviceObjects.includes(owner)) serviceObjects.push(owner);
       const wert = mark[2]?.trim();
-      if (wert) (mark[1] === 'processName' ? processNames : topicNames).set(owner, wert);
+      if (wert) {
+        if (mark[1] === 'processName') processNames.set(owner, wert);
+        else if (mark[1] === 'topicName') topicNames.set(owner, wert);
+        else keys.set(owner, { keyName: mark[1], key: wert });
+      }
       continue;
     }
 
-    // `type Out = Seq[Account]` — ebenfalls ein verwendbarer Typ
+    // `type AddressType = Int :| …` — ein Alias auf oberster Ebene, mit Ziel
+    const tt = !owner ? TYPE_TOP.exec(line) : null;
+    if (tt) { add(tt[1], 'alias', { target: tt[2].trim() }); continue; }
+
+    // `type Out = Seq[Account]` — ebenfalls ein verwendbarer Typ (mit Ziel)
     const tm = TYPE_MEMBER.exec(line);
-    if (tm && owner) { add(tm[2], 'alias'); continue; }
+    if (tm && owner) { add(tm[2], 'alias', { target: line.slice(line.indexOf('=') + 1).trim() }); continue; }
 
     const cc = CASE_CLASS.exec(line);
     if (cc) {
@@ -276,6 +306,12 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const topic = topicNames.get(t.owner);
     if (process) t.processName = process;
     if (topic) t.topicName = topic;
+    const dsl = dsls.get(t.owner);
+    if (dsl) t.dsl = dsl;
+    const key = keys.get(t.owner);
+    if (key) { t.keyName = key.keyName; t.key = key.key; }
+    const descr = descrs.get(t.owner);
+    if (descr) t.ownerDescr = descr;
   }
   return out;
 }

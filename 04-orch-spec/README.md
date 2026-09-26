@@ -189,6 +189,50 @@ obwohl die randlos ist. Die Herkunft steht davon unberührt am Fensterrand
 bleibt von ihr nur das Logo — dann reicht die Breite für den Text nicht mehr,
 ohne den Knöpfen in die Quere zu kommen.
 
+### Aus Projekt — Ordner oder ZIP
+
+Ein Orchescala-Projekt bringt alles mit, was eine Spezifikation braucht: das
+BPMN unter `src/main/resources/…` und die Domain unter `01-domain`. **«Aus
+Projekt»** nimmt deshalb das ganze Projekt — als Ordner (Chrome/Edge, nur
+lesend) oder als ZIP (jeder Browser). Die App findet die BPMNs, liest die
+Domain und zeigt je Prozess, was daraus würde:
+
+```
+☑ Adressänderung            valiant-addresschange
+  src/main/resources/camunda/addresschange.bpmn (+1 Kopie) · AddressChange
+  74 Schritte · 15 Typen · 5 Interaktionen
+  ⚠ Ohne Schritt im Ablauf: CancelAddressChangeSE
+  ⚠ Typen weder im Projekt noch im Katalog: GravitonConsultant, ProcessCallOrigin
+                                                          [1 importieren]
+```
+
+Was dabei entsteht, ohne Raten:
+
+- **Der Prozess findet sein Objekt** über `val processName` — nicht über den
+  Namen. Aus dessen `In`, `InitIn` und `Out` werden die Prozess-Klassen des
+  Datenmodells; `InConfig` bleibt draussen (Implementations-Detail), auch als
+  Feld im `In`.
+- **Eigene Typen** des Projekts (`NewAddress`, enums) werden eigene Typen der
+  Spezifikation — mit `Option`/`Seq`, Einschränkung, Vorgabe und
+  `@description`. Ein Alias wie `type AddressType = Int :| any.In[(11, 15)]`
+  wird zum Grundtyp mit Einschränkung. Typen aus **anderen Projekten**
+  (`GravitonConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
+  sonst bleibt der Name stehen und wird gemeldet.
+- **Interaktionen** kommen aus den Objekten mit `CompanyBpmn…Dsl`: eine
+  Benutzeraufgabe über `val name` (= Element-ID), ein Worker über
+  `val topicName` (auch wenn es nicht mit der Prozess-ID beginnt), Signal und
+  Nachricht über den Namen im BPMN (`<bpmn:signal name>`, bis zum dynamischen
+  Teil `${…}`), sonst über die Namenskonvention. Jede bekommt ihre `In`/`Out`
+  als eigene Klassen; `type In = AdjustAddressUT.In` wird eine Kopie mit dem
+  Hinweis `= AdjustAddressUT.In`, `NoInput` bleibt leer. `val descr` wird die
+  Beschreibung. Objekte des Pakets ohne Schritt werden gemeldet.
+- **Kopien** desselben BPMN (etwa nochmals im Worker-Modul) zählen einmal —
+  das im Projektstamm gewinnt, die anderen stehen im Tooltip.
+- Die Engine wird am BPMN erkannt (zeebe-Namensraum → Camunda 8).
+
+Vorgewählt ist, was noch nicht als Spezifikation da ist. Das BPMN wird wie
+bei «Aus BPMN» neben der Spezifikation abgelegt.
+
 ### Neue Prozesse starten mit einer Vorlage
 
 «Neu» fängt nicht mit einem leeren Blatt an, sondern mit dem BPMN, das im
