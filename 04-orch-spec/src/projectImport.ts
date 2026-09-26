@@ -20,12 +20,13 @@
 // gemeldet.
 
 import { unzipSync } from 'fflate';
-import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, TypeDef } from './types';
+import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, Step, TypeDef } from './types';
 import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
-import { interactionKind, resolveType, suggestName } from './interactions';
+import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction } from './interactions';
+import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
 import { splitEnumCase } from './feel';
 import { handleFor, readSources } from './projects';
@@ -286,6 +287,55 @@ export interface Enriched {
   warnings: string[];
   /** Hinweise ohne Handlungsbedarf, z. B. erkannte gemeinsame Felder */
   notes: string[];
+  /** Schritte ohne Domain-Objekt — als Interaktion im Entwurf vorbereitet, mit In/Out */
+  prepared: string[];
+}
+
+/**
+ * Schritte, die eine Interaktion brauchen, die Domain aber nicht kennt:
+ * Benutzeraufgaben, eigene Worker, Signale, Nachrichten ohne Objekt. Sie
+ * werden **vorbereitet** — Interaktion im Entwurf, `In` und `Out` als
+ * Klassen mit den Feldern aus dem Katalog, sonst aus den Mappings des
+ * Schritts — damit die Domain daraus entstehen kann statt umgekehrt.
+ */
+export function prepareInteractions(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; prepared: string[] } {
+  const offen = missingInteractions(spec, model);
+  if (!offen.length) return { spec, prepared: [] };
+  const types = [...(spec.types ?? [])];
+  const interactions = [...(spec.interactions ?? [])];
+  const prepared: string[] = [];
+  for (const s of offen) {
+    const ia: Interaction = { ...toInteraction(s), status: 'draft' };
+    const entry = catalogEntry(s.step, model);
+    const inT = memberFromStep(ia, 'In', s.step, entry, model);
+    types.push(inT);
+    ia.inTypeId = inT.id;
+    if (INTERACTION_META[s.kind].hasOut) {
+      const outT = memberFromStep(ia, 'Out', s.step, entry, model);
+      types.push(outT);
+      ia.outTypeId = outT.id;
+    }
+    interactions.push(ia);
+    prepared.push(`${ia.name} (${INTERACTION_META[s.kind].label} «${s.step.name}»)`);
+  }
+  return { spec: { ...spec, types, interactions }, prepared };
+}
+
+/** `In`/`Out` einer vorbereiteten Interaktion: Katalog, sonst die Mappings des Schritts, sonst leer. */
+function memberFromStep(ia: Interaction, member: 'In' | 'Out', step: Step, entry: ReturnType<typeof catalogEntry>, model: Model | null): TypeDef {
+  const t = createMemberType(ia, member, entry, model);
+  if (!(t.fields ?? []).some(f => f.name)) {
+    const maps = (member === 'In' ? step.inputs : step.outputs) ?? [];
+    const fields: Field[] = maps.filter(m => !m.disabled && m.name.trim()).map(m => ({
+      id: uid('f'), name: m.name.trim(), type: 'String', ...(m.description ? { description: m.description } : {}),
+    }));
+    if (fields.length) t.fields = fields;
+  }
+  return {
+    ...t,
+    status: 'draft',
+    description: `Vorbereitet beim Import — in der Domain gibt es «${ia.name}» noch nicht. Felder und Typen prüfen.`,
+  };
 }
 
 const DSL_KIND: Record<string, InteractionKind> = {
@@ -393,11 +443,13 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   }
   const unmatched = objects.filter(o => o.pkg === pkg).map(o => o.owner!).filter(o => !matched.includes(o));
 
-  const built: ProcessSpec = {
+  const enriched: ProcessSpec = {
     ...spec,
     ...(procType.ownerDescr && !spec.description ? { description: procType.ownerDescr } : {}),
     types: conv.types,
     interactions,
   };
-  return { spec: built, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings, notes: conv.notes };
+  // was die Domain nicht kennt, wird vorbereitet — als Entwurf, zum Nachziehen
+  const { spec: built, prepared } = prepareInteractions(enriched, model);
+  return { spec: built, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings, notes: conv.notes, prepared };
 }

@@ -18,7 +18,7 @@
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Trash2, Upload, X } from 'lucide-react';
-import { enrichSpec, findDomain, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
+import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
 import { importBpmn, statusCounts } from '../bpmn';
@@ -39,6 +39,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const [pending, setPending] = useState<{
     spec: ProcessSpec; xml: string; stepCount: number;
     enriched: Enriched | null; source: string | null;
+    /** ohne Domain: die vorbereiteten Interaktionen (Entwurf mit In/Out) */
+    bare: { spec: ProcessSpec; prepared: string[] };
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   /** Spezifikation, deren Löschen gerade bestätigt werden soll */
@@ -84,7 +86,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       setBusy(null);
       const enriched = hit ? enrichSpec(spec, hit.domain, model) : null;
       if (enriched && hit?.note) enriched.warnings.unshift(hit.note);
-      setPending({ spec, xml: text, stepCount, enriched, source: hit?.source ?? null });
+      setPending({ spec, xml: text, stepCount, enriched, source: hit?.source ?? null, bare: prepareInteractions(spec, model) });
     } catch (e) {
       setBusy(null);
       setError(e instanceof Error ? e.message : String(e));
@@ -115,7 +117,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   /** Anlegen — mit Domain, wenn eine da ist, sonst nur die Struktur. */
   const createPending = async () => {
     if (!pending) return;
-    const spec = pending.enriched?.spec ?? pending.spec;
+    const spec = pending.enriched?.spec ?? pending.bare.spec;
     const res = await createSpec(spec);
     if (!res.ok) { setError(res.message); return; }
     // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich
@@ -216,9 +218,13 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                 {pending.enriched.matched.length ? ` (${pending.enriched.matched.join(', ')})` : ''}
               </p>
               {pending.enriched.notes.map((n, i) => <p key={i} className={`text-[10px] ${c.muted}`}>{n}</p>)}
-              {(pending.enriched.warnings.length > 0 || pending.enriched.unmatched.length > 0 || pending.enriched.unresolved.length > 0) && (
+              {(pending.enriched.warnings.length > 0 || pending.enriched.unmatched.length > 0 || pending.enriched.unresolved.length > 0 || pending.enriched.prepared.length > 0) && (
                 <div className={`text-[10px] space-y-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
                   {pending.enriched.warnings.map((w, i) => <div key={i} className="flex items-start gap-1"><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{w}</span></div>)}
+                  {!!pending.enriched.prepared.length && (
+                    <div className="flex items-start gap-1"><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+                      <span>Ohne Domain-Objekt — als Entwurf mit In/Out vorbereitet: {pending.enriched.prepared.join(', ')}</span></div>
+                  )}
                   {!!pending.enriched.unmatched.length && <div>Ohne Schritt im Ablauf: {pending.enriched.unmatched.join(', ')}</div>}
                   {!!pending.enriched.unresolved.length && <div>Typen weder im Projekt noch im Katalog: {pending.enriched.unresolved.join(', ')}</div>}
                 </div>
@@ -231,6 +237,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                 {pending.stepCount} Schritte — kein Domain-Objekt mit <span className="font-mono">val processName = "{pending.spec.processId}"</span>
                 {' '}im Katalog oder in den gemerkten Projekt-Ordnern (Admin → Katalog). Projekt-Ordner oder ZIP wählen — oder ohne Domain anlegen.
               </p>
+              {!!pending.bare.prepared.length && (
+                <p className={`text-[10px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                  <AlertTriangle size={10} className="inline mr-1 -mt-0.5" />
+                  Ohne Domain werden als Entwurf mit In/Out vorbereitet: {pending.bare.prepared.join(', ')}
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <button onClick={pickDomainDir} disabled={!!busy}
                   className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>

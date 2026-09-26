@@ -299,6 +299,14 @@ Was dabei entsteht, ohne Raten:
   Objektname nicht der Konvention folgt (`ApproveAddressUT` für
   `AdressanderungPrufenQMSTask`), findet erst ein neu erzeugter Katalog oder
   der Projekt-Ordner, denn nur dort steht `val name`.
+- **Schritte ohne Domain-Objekt** — Benutzeraufgaben, eigene Worker, Signale,
+  Nachrichten, die die Domain nicht kennt — werden **vorbereitet**: eine
+  Interaktion im Entwurf mit `In` und `Out` als Klassen, die Felder aus dem
+  Katalog (Benutzeraufgaben stehen in der OpenAPI), sonst aus den Mappings
+  des Schritts, sonst ein leeres Feld. Das Panel warnt und nennt sie; die
+  Klassen tragen die Beschreibung «Vorbereitet beim Import». So kann die
+  Domain aus der Spezifikation entstehen statt umgekehrt — auch beim Anlegen
+  ganz ohne Domain.
 - Die Engine wird am BPMN erkannt (zeebe-Namensraum → Camunda 8).
 
 ### Neue Prozesse starten mit einer Vorlage
