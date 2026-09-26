@@ -117,20 +117,38 @@ enum In:
   case VermoegensVerwaltung(clientKey: Long, investmentAmount: Int, …)
 ```
 
-Jeder Fall ist eine eigene Klasse, gemeinsam sind sie ein Typ. Im Klassenbauer
-steht bei jedem Wert **«+ Feld»**; sobald ein Fall Felder hat, heisst die
-Auswahl «Auswahl mit Fällen (ADT)», und die Felder werden mit derselben Zeile
-bearbeitet wie in einer Klasse (Typ, optional, mehrfach, Einschränkung …).
-Auch die **Prozess-Eingabe `In`** kann ein ADT sein — derselbe Prozess mit
+Jeder Fall ist eine eigene Klasse, gemeinsam sind sie ein Typ. Ein Scala-3-
+enum kennt dabei **gemeinsame Felder** — als `def clientKey: Long` im Rumpf
+verlangt und in jedem Fall mitgebracht — und **spezielle Felder** je Fall.
+Im Klassenbauer hat ein ADT deshalb oben den Block «Gemeinsame Felder (in
+jedem Fall)» und bei jedem Fall seine eigenen; bei jedem Wert steht
+**«+ Feld»**, sobald ein Fall Felder hat oder gemeinsame da sind, heisst die
+Auswahl «Auswahl mit Fällen (ADT)». Bearbeitet wird mit derselben Zeile wie
+in einer Klasse (Typ, optional, mehrfach, Map, Einschränkung …). Auch die
+**Prozess-Eingabe `In`** kann ein ADT sein — derselbe Prozess mit
 verschiedenen Eingaben: ein Schalter am Kopf wechselt zwischen Klasse und
-Auswahl mit Fällen, die Felder wandern dabei in den ersten Fall und zurück.
+Auswahl mit Fällen; die Felder der Klasse werden dabei die gemeinsamen, und
+zurück.
 
-Der Generator schreibt das ADT wie die Domain: die Fälle mit ihren Parametern,
-das Companion mit `example` je Fall und einem für den Typ. Ein ADT-Feld ist
-im JSON ein Objekt; die FEEL-Vervollständigung zeigt darin die Felder aller
-Fälle. Der Import liest `case X(…)` mit Parametern aus der Domain — das `In`
-von `valiant-depot-open` kommt so mit seinen zwei Fällen und 14 bzw. 15
-Feldern herein.
+Der Generator schreibt das ADT wie die Domain: die gemeinsamen Felder als
+`def` im Rumpf, die Fälle mit gemeinsamen und speziellen Parametern, das
+Companion mit `example` je Fall und einem für den Typ. Ein ADT-Feld ist im
+JSON ein Objekt; die FEEL-Vervollständigung zeigt darin die Felder aller
+Fälle. Der Import liest `def x: T` und `case X(…)` aus der Domain — das `In`
+von `valiant-depot-open` kommt so mit drei gemeinsamen Feldern und zwei
+Fällen herein, ein Feld, das schon gemeinsam ist, wird im Fall nicht
+nochmals geführt (der Klassenbauer meldet das sonst).
+
+### Map — Werte mit beliebigen Schlüsseln
+
+Ein Feld kann eine **Map** sein: `Map[String, T]`, im Klassenbauer das
+Häkchen «Map» neben «optional» und «mehrfach»; der gewählte Typ ist dann der
+Wert, der Schlüssel ist immer ein Text — so kommt eine Map im JSON an. Der
+Generator schreibt `Map[String, T]` und als Beispiel `Map("key" -> …)`, der
+Import erkennt `Map[String, …]` in der Domain (`customDocContents`). Für
+FEEL ist eine Map ein Objekt mit unbekannten Schlüsseln: Pfade hinein werden
+weder vorgeschlagen noch bemängelt, und über den Ergebnistyp eines Ausdrucks,
+der durch eine Map führt, fällt kein Urteil.
 
 ### Interaktionen — In und Out je Berührungspunkt
 

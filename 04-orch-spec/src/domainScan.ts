@@ -300,10 +300,14 @@ export function scanScala(source: string, path = ''): DomainType[] {
       // die Auswahl ein ADT: die Parameterliste wird wie bei einer Klasse gelesen.
       const values: string[] = [];
       const cases: Array<{ name: string; fields?: DomainField[] }> = [];
+      /** `def clientKey: Long` im Rumpf — ein gemeinsames Feld aller Fälle */
+      const common: DomainField[] = [];
       for (let j = i + 1; j < lines.length; j++) {
         const l = lines[j];
         if (!l.trim()) continue;
         if (l.search(/\S/) <= indent) break;
+        const cd = /^\s*def\s+([a-z]\w*)\s*:\s*([^=]+?)\s*$/.exec(l);
+        if (cd) { common.push({ name: cd[1], type: cd[2] }); continue; }
         const many = ENUM_CASES.exec(l);
         if (many) { values.push(...many[1].split(',').map(v => v.trim()).filter(Boolean)); continue; }
         const one = ENUM_CASE.exec(l);
@@ -325,7 +329,11 @@ export function scanScala(source: string, path = ''): DomainType[] {
         cases.push(fields.length ? { name: one[1], fields } : { name: one[1] });
         j = k;
       }
-      add(en[2], 'enum', { ...(values.length ? { values } : {}), ...(cases.some(c => c.fields?.length) ? { cases } : {}) });
+      add(en[2], 'enum', {
+        ...(values.length ? { values } : {}),
+        ...(cases.some(c => c.fields?.length) ? { cases } : {}),
+        ...(common.length ? { fields: common } : {}),
+      });
       owner = saved;
       continue;
     }

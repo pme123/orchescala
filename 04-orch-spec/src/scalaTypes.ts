@@ -242,6 +242,8 @@ export interface TypeShape {
   base: string;
   optional: boolean;
   collection: boolean;
+  /** `Map[String, T]` — `base` ist dann der Werttyp */
+  map: boolean;
   /** Iron-Refinement hinter `:|` */
   constraint?: string;
 }
@@ -258,6 +260,7 @@ export function typeShape(expr: string): TypeShape {
   let t = expr.trim();
   let optional = false;
   let collection = false;
+  let map = false;
   let constraint: string | undefined;
 
   for (let guard = 0; guard < 6; guard++) {
@@ -266,6 +269,9 @@ export function typeShape(expr: string): TypeShape {
     const [, wrapper, inner] = m;
     if (WRAPPERS_OPTIONAL.includes(wrapper)) { optional = true; t = inner.trim(); continue; }
     if (WRAPPERS_COLLECTION.includes(wrapper)) { collection = true; t = inner.trim(); continue; }
+    // `Map[String, T]` — nur mit Text-Schlüssel, so kommt es im JSON an
+    const mv = wrapper === 'Map' ? /^String\s*,\s*([\s\S]+)$/.exec(inner.trim()) : null;
+    if (mv) { map = true; t = mv[1].trim(); continue; }
     break;
   }
 
@@ -277,10 +283,11 @@ export function typeShape(expr: string): TypeShape {
     const inner = typeShape(t);
     optional = optional || inner.optional;
     collection = collection || inner.collection;
+    map = map || inner.map;
     t = inner.base;
   }
 
-  return { base: t, optional, collection, ...(constraint ? { constraint } : {}) };
+  return { base: t, optional, collection, map, ...(constraint ? { constraint } : {}) };
 }
 
 /** Position von `:|` auf oberster Klammerebene. */

@@ -181,6 +181,8 @@ export interface Field {
   optional?: boolean;
   /** Seq[T] — mehrfach */
   collection?: boolean;
+  /** Map[String, T] — Schlüssel ist im JSON immer ein Text, `type` ist der Wert */
+  map?: boolean;
   /** Iron-Refinement, z. B. `ValidEmail` → `String :| ValidEmail` */
   constraint?: string;
   /** Vorgabewert als Scala-Ausdruck, z. B. `"CH"` oder `Seq.empty` */
@@ -204,9 +206,13 @@ export interface EnumValue {
   [key: string]: unknown;
 }
 
-/** Auswahl, deren Fälle Felder tragen (ADT)? */
-export const isAdt = (t: { kind: string; values?: EnumValue[] }): boolean =>
-  t.kind === 'enum' && (t.values ?? []).some(v => !!v.fields?.length);
+/**
+ * Auswahl mit Feldern (ADT)? Entweder tragen die Fälle Felder, oder die
+ * Auswahl hat **gemeinsame Felder** (`fields`) — in Scala 3 als `def` im
+ * enum-Rumpf, die jeder Fall mitbringt.
+ */
+export const isAdt = (t: { kind: string; values?: EnumValue[]; fields?: Field[] }): boolean =>
+  t.kind === 'enum' && ((t.values ?? []).some(v => !!v.fields?.length) || !!t.fields?.length);
 
 // ── Interaktionen ────────────────────────────────────────────────────────────
 //
@@ -263,7 +269,8 @@ export interface TypeDef {
   interactionId?: string;
   /** das `InitIn` — Felder kommen aus dem Init-Worker, Typen werden gepflegt */
   initIn?: boolean;
-  fields?: Field[];   // kind 'case'
+  /** Felder der Klasse — bei einer Auswahl (ADT) die **gemeinsamen** Felder aller Fälle */
+  fields?: Field[];
   values?: EnumValue[]; // kind 'enum'
   [key: string]: unknown;
 }
@@ -401,6 +408,7 @@ export interface DomainType {
   owner?: string;
   /** was importiert werden muss (bei Membern das Objekt) */
   importPath: string;
+  /** Felder — bei einem enum die gemeinsamen (`def x: T` im Rumpf) */
   fields?: DomainField[];
   values?: string[];
   /** bei einem enum mit Parametern (ADT): die Felder je Fall */

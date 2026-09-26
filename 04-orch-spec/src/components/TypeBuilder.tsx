@@ -45,8 +45,11 @@ const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
 /** Klasse ↔ ADT: die Felder wandern in den ersten Fall bzw. zurück. */
 function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
   if (kind === t.kind) return {};
-  if (kind === 'enum') return { kind, fields: undefined, values: [{ name: 'Standard', fields: t.fields?.length ? t.fields : [emptyField()] }] };
-  const fields = (t.values ?? []).flatMap(v => v.fields ?? []);
+  // Klasse → ADT: die Felder werden die gemeinsamen, ein erster Fall entsteht
+  if (kind === 'enum') return { kind, values: [{ name: 'Standard' }] };
+  // ADT → Klasse: gemeinsame und spezielle Felder zusammen, je Name einmal
+  const seen = new Set<string>();
+  const fields = [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])].filter(f => !seen.has(f.name) && seen.add(f.name));
   return { kind, values: undefined, fields: fields.length ? fields : [emptyField()] };
 }
 
@@ -505,7 +508,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
                 wenn derselbe Prozess mit verschiedenen Eingaben startet. */}
             {t.root && canEdit && (
               <select value={t.kind} onChange={e => onPatch(switchKind(t, e.target.value as 'case' | 'enum'))}
-                title="Klasse oder Auswahl mit Fällen (ADT) — beim Wechsel wandern die Felder in den ersten Fall bzw. zurück"
+                title="Klasse oder Auswahl mit Fällen (ADT) — die Felder der Klasse werden die gemeinsamen Felder, und zurück"
                 className={`text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
                 <option value="case">Klasse</option>
                 <option value="enum">Auswahl mit Fällen (ADT)</option>
@@ -622,6 +625,11 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             onChange={e => onChange({ collection: e.target.checked || undefined })} />
           mehrfach
         </label>
+        <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Map[String, …] — Schlüssel ist ein Text, der Typ hier ist der Wert">
+          <input type="checkbox" checked={!!f.map} disabled={!canEdit}
+            onChange={e => onChange({ map: e.target.checked || undefined })} />
+          Map
+        </label>
 
         <span className={`ml-auto text-[10px] font-mono truncate max-w-[14rem] ${c.muted}`} title={fieldType(f, idx)}>
           {fieldType(f, idx)}
@@ -737,12 +745,43 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
     onPatch({ values: values.map((v, k) => (k === i ? { ...v, ...patch } : v)) });
   const setFields = (i: number, fields: Field[]) => set(i, { fields: fields.length ? fields : undefined });
   const adt = isAdt(t);
+  // Gemeinsame Felder aller Fälle — in Scala 3 als `def` im enum-Rumpf
+  const common = t.fields ?? [];
+  const setCommon = (fields: Field[]) => onPatch({ fields: fields.length ? fields : undefined });
+  const fieldRows = (fields: Field[], setAll: (next: Field[]) => void) => fields.map((f, k) => (
+    <FieldRow key={f.id} field={f} index={k} last={k === fields.length - 1}
+      types={types} selfId={t.id} isDark={isDark} canEdit={canEdit} idx={idx} model={model}
+      issue={issues.find(x => x.field === f.id)?.message}
+      onChange={patch => setAll(fields.map((x, m) => (m === k ? { ...x, ...patch } : x)))}
+      onRemove={() => setAll(fields.filter((_, m) => m !== k))}
+      onMove={by => {
+        const next = [...fields];
+        const j = k + by;
+        if (j < 0 || j >= next.length) return;
+        [next[k], next[j]] = [next[j], next[k]];
+        setAll(next);
+      }}
+      onAddType={onAddType} />
+  ));
   return (
     <div className="space-y-1.5">
       {adt && (
         <p className={`text-[10px] ${c.muted}`}>
-          Auswahl mit Feldern je Fall (ADT) — jeder Fall wird eine eigene Klasse, zusammen ein Typ.
+          Auswahl mit Feldern (ADT) — jeder Fall wird eine eigene Klasse, zusammen ein Typ.
+          Gemeinsame Felder stehen in jedem Fall, spezielle nur in ihrem.
         </p>
+      )}
+      {(adt || common.length > 0) && (
+        <div className={`rounded border px-2 py-1.5 space-y-1.5 ${c.border2}`}>
+          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Gemeinsame Felder (in jedem Fall)</div>
+          {common.length > 0 && <div className="space-y-2">{fieldRows(common, setCommon)}</div>}
+          {canEdit && (
+            <button onClick={() => setCommon([...common, emptyField()])}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <Plus size={11} /> Gemeinsames Feld
+            </button>
+          )}
+        </div>
       )}
       {values.map((v, i) => {
         const fields = v.fields ?? [];
@@ -756,7 +795,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
                 placeholder="Bedeutung"
                 className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
               {canEdit && !fields.length && (
-                <button onClick={() => setFields(i, [emptyField()])} title="Dieser Fall trägt Felder (ADT)"
+                <button onClick={() => setFields(i, [emptyField()])} title="Spezielle Felder nur für diesen Fall (ADT)"
                   className={`text-[10px] px-1.5 py-1 rounded border flex-shrink-0 ${c.btn}`}>+ Feld</button>
               )}
               {canEdit && (
@@ -767,21 +806,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
             </div>
             {!!fields.length && (
               <div className="pl-3 space-y-2">
-                {fields.map((f, k) => (
-                  <FieldRow key={f.id} field={f} index={k} last={k === fields.length - 1}
-                    types={types} selfId={t.id} isDark={isDark} canEdit={canEdit} idx={idx} model={model}
-                    issue={issues.find(x => x.field === f.id)?.message}
-                    onChange={patch => setFields(i, fields.map((x, m) => (m === k ? { ...x, ...patch } : x)))}
-                    onRemove={() => setFields(i, fields.filter((_, m) => m !== k))}
-                    onMove={by => {
-                      const next = [...fields];
-                      const j = k + by;
-                      if (j < 0 || j >= next.length) return;
-                      [next[k], next[j]] = [next[j], next[k]];
-                      setFields(i, next);
-                    }}
-                    onAddType={onAddType} />
-                ))}
+                {fieldRows(fields, next => setFields(i, next))}
                 {canEdit && (
                   <button onClick={() => setFields(i, [...fields, emptyField()])}
                     className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>

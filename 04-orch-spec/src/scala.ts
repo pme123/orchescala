@@ -14,7 +14,7 @@
 // Datei unter `schema/`. `InConfig` und `InitIn` erzeugt der Generator
 // bewusst **nicht** — das sind Implementations-Details.
 
-import type { Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
+import type { EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
@@ -75,6 +75,7 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null): T
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
+  if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
   if (f.optional) t = `Option[${t}]`;
   return t;
@@ -101,7 +102,8 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
   let inner = f.example?.trim() || baseExample(f, idx);
   // Ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe`
   if (f.example?.trim() && f.constraint?.trim() && LITERAL.test(inner)) inner = `${inner}.refineUnsafe`;
-  const seq = f.collection ? `Seq(${inner})` : inner;
+  const mapped = f.map ? `Map("key" -> ${inner})` : inner;
+  const seq = f.collection ? `Seq(${mapped})` : mapped;
   return f.optional ? `Some(${seq})` : seq;
 }
 
@@ -190,12 +192,17 @@ function paramList(fields: Field[], idx: TypeIndex, by: string): string {
 function adtDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).filter(v => v.name);
   const first = cases[0]?.name ?? 'unknown';
+  // Gemeinsame Felder: als `def` im Rumpf verlangt, in jedem Fall zuerst
+  const common = (t.fields ?? []).filter(f => f.name);
+  const commonDefs = common.map(f => `  def ${f.name}: ${fieldType(f, idx)}`);
+  const fieldsOf = (v: EnumValue): Field[] => [...common, ...(v.fields ?? []).filter(f => !common.some(c => c.name === f.name))];
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
-    return v.fields?.length ? `${d}  case ${v.name}(${paramList(v.fields, idx, '      ')}  )` : `${d}  case ${v.name}`;
+    const fields = fieldsOf(v);
+    return fields.length ? `${d}  case ${v.name}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${v.name}`;
   });
-  const companions = cases.filter(v => v.fields?.length).map(v => {
-    const fields = v.fields ?? [];
+  const companions = cases.filter(v => fieldsOf(v).length).map(v => {
+    const fields = fieldsOf(v);
     const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
     const optional = fields.filter(f => f.optional);
     const minimal = optional.length
@@ -209,6 +216,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   });
   return [
     `enum ${t.name}:`,
+    ...(commonDefs.length ? [...commonDefs, ''] : []),
     ...caseLines,
     `end ${t.name}`,
     '',
@@ -217,7 +225,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     `  given InOutCodec[${t.name}] = deriveInOutCodec`,
     ...(companions.length ? ['', ...companions] : []),
     '',
-    `  lazy val example = ${cases[0]?.fields?.length ? `${first}.example` : `${t.name}.${first}`}`,
+    `  lazy val example = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
     `end ${t.name}`,
   ].join('\n');
 }
@@ -370,9 +378,9 @@ export interface ScalaFile {
 // Nur was der Typ wirklich braucht: Iron-Refinements und Service-Objekte
 // bringen ihre Imports mit, alles Übrige stellt Orchescala über den
 // Package-Export bereit.
-/** Alle Felder eines Typs — bei einem ADT die aller Fälle. */
+/** Alle Felder eines Typs — bei einem ADT die gemeinsamen und die aller Fälle. */
 export function allFields(t: TypeDef): Field[] {
-  return t.kind === 'enum' ? (t.values ?? []).flatMap(v => v.fields ?? []) : (t.fields ?? []);
+  return t.kind === 'enum' ? [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])] : (t.fields ?? []);
 }
 
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
@@ -552,6 +560,15 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       }
       // Ein ADT: die Felder je Fall werden wie Klassenfelder geprüft
       if (!isAdt(t)) continue;
+      const common = new Set((t.fields ?? []).map(f => f.name));
+      for (const v of t.values ?? []) {
+        const inCase = new Set<string>();
+        for (const f of v.fields ?? []) {
+          if (common.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist schon ein gemeinsames Feld — im Fall «${v.name}» nicht nochmals.` });
+          if (inCase.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt im Fall «${v.name}» doppelt vor.` });
+          inCase.add(f.name);
+        }
+      }
     }
     const fields = t.kind === 'enum' ? allFields(t) : (t.fields ?? []);
     if (!fields.length && t.kind === 'case') issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });

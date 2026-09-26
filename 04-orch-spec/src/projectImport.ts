@@ -165,6 +165,7 @@ class Converter {
         const f: Field = { id: uid('f'), name: p.name, type: ft.type };
         if (shape.optional) f.optional = true;
         if (shape.collection) f.collection = true;
+        if (shape.map) f.map = true;
         const constraint = shape.constraint ?? ft.constraint;
         if (constraint) f.constraint = constraint;
         if (p.default && p.default !== 'None') f.default = p.default;
@@ -172,11 +173,15 @@ class Converter {
         return f;
       });
     if (dom.kind === 'enum') {
-      // mit Parametern je Fall (ADT) bekommen die Werte ihre Felder
+      // Gemeinsame Felder (`def x: T` im Rumpf) — sie stehen in jedem Fall
+      // nochmals; dort bleiben nur die speziellen
+      const common = toFields(dom.fields, dom.pkg);
+      const commonNames = new Set(common.map(f => f.name));
+      if (common.length) t.fields = common;
       const cases = new Map((dom.cases ?? []).map(c => [c.name, c.fields]));
       t.values = (dom.values ?? []).map(v => {
-        const fields = cases.get(v);
-        return fields?.length ? { name: v, fields: toFields(fields, dom.pkg) } : { name: v };
+        const fields = toFields((cases.get(v) ?? []).filter(p => !commonNames.has(p.name)), dom.pkg);
+        return fields.length ? { name: v, fields } : { name: v };
       });
     } else {
       t.fields = toFields(dom.fields, dom.pkg);

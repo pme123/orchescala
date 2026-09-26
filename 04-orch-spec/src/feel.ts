@@ -45,6 +45,8 @@ export interface VarNode {
   description?: string;
   /** Felder (bei Objekt) bzw. Felder der Elemente (bei Liste) */
   children?: VarNode[];
+  /** Objekt mit beliebigen Schlüsseln (Map) — Pfade darin lassen sich nicht prüfen */
+  open?: boolean;
   optional?: boolean;
   /** woher die Variable kommt: `In`, `InitIn`, `Variable`, `Ausgabe von …` */
   source: string;
@@ -87,13 +89,14 @@ interface Builder { idx: TypeIndex; model: Model | null }
 /** Ein Feld des Klassenbauers als Knoten — mit seinen Unterfeldern. */
 function nodeOfField(f: Field, source: string, b: Builder, depth: number, seen: Set<string>): VarNode {
   return nodeOf(f.name, f.type, {
-    optional: !!f.optional, collection: !!f.collection, description: f.description, source,
+    optional: !!f.optional, collection: !!f.collection, map: !!f.map, description: f.description, source,
     label: fieldLabel(f, b.idx),
   }, b, depth, seen);
 }
 
 function fieldLabel(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
+  if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
   if (f.optional) t = `Option[${t}]`;
   return t;
@@ -101,17 +104,20 @@ function fieldLabel(f: Field, idx: TypeIndex): string {
 
 function nodeOf(
   name: string, typeRef: string,
-  o: { optional: boolean; collection: boolean; description?: string; source: string; label: string },
+  o: { optional: boolean; collection: boolean; map?: boolean; description?: string; source: string; label: string },
   b: Builder, depth: number, seen: Set<string>,
 ): VarNode {
   const base = baseNode(typeRef, b, depth, seen);
+  // Eine Map ist ein Objekt mit beliebigen Schlüsseln — ihre Werte kennt der
+  // Baum, die Schlüssel nicht; Pfade hinein bleiben deshalb ungeprüft
   const node: VarNode = {
     name, source: o.source, label: o.label,
-    type: o.collection ? 'list' : base.type,
+    type: o.collection ? 'list' : o.map ? 'context' : base.type,
     ...(o.description ? { description: o.description } : {}),
     ...(o.optional ? { optional: true } : {}),
+    ...(o.map && !o.collection ? { open: true } : {}),
   };
-  if (base.children?.length) node.children = base.children;
+  if (base.children?.length && !o.map) node.children = base.children;
   return node;
 }
 
@@ -125,7 +131,8 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>)
   if (own) {
     // ein ADT ist im JSON ein Objekt — sichtbar sind die Felder aller Fälle
     if (own.kind === 'enum' && !isAdt(own)) return { type: 'string' };
-    const fields = own.kind === 'enum' ? (own.values ?? []).flatMap(v => v.fields ?? []) : (own.fields ?? []);
+    // ADT: die gemeinsamen Felder und die aller Fälle
+    const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...(own.values ?? []).flatMap(v => v.fields ?? [])] : (own.fields ?? []);
     const seenNames = new Set<string>();
     return { type: 'context', children: fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner)) };
   }
@@ -144,11 +151,11 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>)
 }
 
 function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>): { type: FeelType; children?: VarNode[] } {
-  if (dom.kind === 'enum' && !dom.cases?.length) return { type: 'string' };
+  if (dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length) return { type: 'string' };
   if (dom.kind === 'alias') return { type: 'any' };
   const seenNames = new Set<string>();
   const fields = dom.kind === 'enum'
-    ? (dom.cases ?? []).flatMap(c => c.fields ?? []).filter(p => !seenNames.has(p.name) && seenNames.add(p.name))
+    ? [...(dom.fields ?? []), ...(dom.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => !seenNames.has(p.name) && seenNames.add(p.name))
     : (dom.fields ?? []);
   const children = fields.map(p => {
     const shape = typeShape(p.type);
@@ -156,7 +163,7 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     const ref = scalar ? null : resolveType(shape.base, b.model, dom.pkg);
     const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : shape.base;
     return nodeOf(p.name, typeRef, {
-      optional: shape.optional, collection: shape.collection, description: p.description,
+      optional: shape.optional, collection: shape.collection, map: shape.map, description: p.description,
       source: `Feld von ${dom.name}`, label: p.type,
     }, b, depth + 1, seen);
   });
@@ -174,8 +181,13 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   const have = new Set<string>();
   const add = (n: VarNode) => { if (n.name && !have.has(n.name)) { have.add(n.name); out.push(n); } };
 
+  // Das In — als ADT die gemeinsamen Felder und die aller Fälle (im JSON
+  // stehen sie nebeneinander; welcher Fall es ist, entscheidet sich zur Laufzeit)
   const root = types.find(t => t.root);
-  for (const f of root?.fields ?? []) add(nodeOfField(f, 'In', b, 0, new Set()));
+  const rootFields = root?.kind === 'enum'
+    ? [...(root.fields ?? []), ...(root.values ?? []).flatMap(v => v.fields ?? [])]
+    : (root?.fields ?? []);
+  for (const f of rootFields) add(nodeOfField(f, 'In', b, 0, new Set()));
 
   const initIn = types.find(t => t.initIn);
   if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, 'InitIn', b, 0, new Set()));
@@ -229,11 +241,12 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   const shape = typeShape(p.type);
   let accepts: FeelType[];
   if (shape.collection) accepts = ['list'];
+  else if (shape.map) accepts = ['context'];
   else if (isScalar(shape.base)) accepts = SCALAR_ACCEPTS[shape.base] ?? [SCALAR_FEEL[shape.base] ?? 'string'];
   else {
     const ref = resolveType(shape.base, model, dom!.pkg);
     if (!ref) return null;                    // Typ nicht im Katalog — kein Urteil
-    if (ref.kind === 'enum' && !ref.cases?.length) accepts = ['string'];
+    if (ref.kind === 'enum' && !ref.cases?.length && !ref.fields?.length) accepts = ['string'];
     else if (ref.kind === 'alias') return null;
     else accepts = ['context'];
   }
@@ -277,11 +290,12 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   const idx = indexTypes(types, model);
   let accepts: FeelType[];
   if (f.collection) accepts = ['list'];
+  else if (f.map) accepts = ['context'];
   else if (isScalar(f.type)) accepts = SCALAR_ACCEPTS[f.type] ?? [SCALAR_FEEL[f.type] ?? 'string'];
   else {
     const own = idx.byId.get(f.type);
     const dom = idx.domainOf(f.type);
-    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length)) accepts = ['string'];
+    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length && !dom.fields?.length)) accepts = ['string'];
     else if (dom?.kind === 'alias') return null;
     else accepts = ['context'];
   }
@@ -297,6 +311,7 @@ const SAMPLE: Partial<Record<FeelType, unknown>> = {
 
 function sampleOf(n: VarNode): unknown {
   if (n.type === 'list') return [n.children?.length ? sampleContext(n.children) : 'text'];
+  if (n.open) return {};
   if (n.type === 'context') return sampleContext(n.children ?? []);
   if (n.type === 'any') return 'text';
   return SAMPLE[n.type] ?? null;
@@ -324,10 +339,22 @@ export function feelType(value: unknown): FeelType {
   return typeof value as FeelType;
 }
 
-/** `client.address.` vor einer Position → Wurzelvariable `client` */
-function rootBefore(text: string, at: number): string | null {
-  const m = /([A-Za-z_][\w]*)(?:\s*\.\s*[A-Za-z_][\w]*)*\s*\.\s*$/.exec(text.slice(0, at));
-  return m?.[1] ?? null;
+/** `client.address.` vor einer Position → die Pfadglieder `client`, `address` */
+function chainBefore(text: string, at: number): string[] | null {
+  const m = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*\.\s*$/.exec(text.slice(0, at));
+  return m ? m[1].replace(/\s/g, '').split('.') : null;
+}
+
+/** Liegt auf dem Pfad ein Knoten ohne bekannten Inhalt (Typ unbekannt oder Map)? */
+function openOnPath(vars: VarNode[], chain: string[]): boolean {
+  let pool = vars;
+  for (const seg of chain) {
+    const n = pool.find(v => v.name === seg);
+    if (!n) return false;
+    if (n.type === 'any' || n.open) return true;
+    pool = n.children ?? [];
+  }
+  return false;
 }
 
 /** Namen im Ausdruck, die eine Variable ohne bekannten Typ treffen. */
@@ -374,11 +401,8 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   if (!vars) return { issues, result: feelType(value) };
 
   const unknown = touchesUnknown(body, vars);
-  const byName = new Map(vars.map(v => [v.name, v]));
   let pathFailed = false;
   for (const w of warnings) {
-    const root = rootBefore(body, w.position.from);
-    const rootVar = root ? byName.get(root) : undefined;
     switch (w.type) {
       case 'NO_VARIABLE_FOUND': {
         const name = quoted(w.message);
@@ -393,7 +417,9 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       }
       case 'NO_CONTEXT_ENTRY_FOUND':
       case 'NO_PROPERTY_FOUND': {
-        if (rootVar?.type === 'any') break;           // Typ unbekannt — kein Urteil
+        const chain = chainBefore(body, w.position.from);
+        // Typ unbekannt oder Map — kein Urteil, auch nicht über das Ergebnis
+        if (chain && openOnPath(vars, chain)) { pathFailed = true; break; }
         if (pathFailed && w.type === 'NO_PROPERTY_FOUND') break; // Folgefehler auf null
         const key = quoted(w.message);
         const prefix = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*\.\s*$/.exec(body.slice(0, w.position.from))?.[1]?.replace(/\s/g, '');
@@ -415,7 +441,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   }
 
   const result = feelType(value);
-  if (!issues.length && expected && !unknown) {
+  if (!issues.length && expected && !unknown && !pathFailed) {
     if (!expected.accepts.includes(result)) {
       const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');
       issues.push({
@@ -426,7 +452,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       });
     }
   }
-  return { issues, result: unknown ? null : result };
+  return { issues, result: unknown || pathFailed ? null : result };
 }
 
 // ── Vervollständigung ────────────────────────────────────────────────────────
@@ -470,7 +496,7 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
     for (const seg of chain.slice(0, -1).split('.')) {
       const hit = pool.find(v => v.name === seg);
       if (!hit) return null;
-      if (hit.type === 'any') return null;
+      if (hit.type === 'any' || hit.open) return null;
       pool = hit.children ?? [];
     }
   }
