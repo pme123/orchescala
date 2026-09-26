@@ -259,7 +259,7 @@ class Converter {
  * Beschreibung und Vorgabe kommen vom ersten Fall, der sie hat. Bei einem
  * einzigen Fall gibt es nichts Gemeinsames zu erkennen.
  */
-function sharedFields(cases: Field[][]): Field[] {
+export function sharedFields(cases: Field[][]): Field[] {
   if (cases.length < 2) return [];
   const key = (f: Field) => JSON.stringify([f.type, !!f.optional, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '']);
   return cases[0].flatMap(f => {

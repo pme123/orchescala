@@ -21,7 +21,8 @@ import { casesOf, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import { checkTypes, constraintKind, fieldType, indexTypes, renderType, scalaBundle } from '../scala';
-import { cls } from '../ui';
+import { BRANCH_COLORS, cls } from '../ui';
+import { sharedFields } from '../projectImport';
 import Comments from './Comments';
 import { typeTarget, openCount } from '../comments';
 import { useAuthorName } from '../auth';
@@ -45,7 +46,7 @@ const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
 
 /** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
 const KIND_GROUP: Record<Interaction['kind'], string> = {
-  userTask: 'Benutzeraufgaben', customTask: 'Eigene Worker', signal: 'Signale', message: 'Nachrichten',
+  userTask: 'User Tasks', customTask: 'Worker', signal: 'Signale', message: 'Nachrichten',
 };
 
 // ── Seitenleiste: was ein Typ ist, was ihm fehlt, ob er gebraucht wird ─────
@@ -904,8 +905,17 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
       }}
       onAddType={onAddType} onOpenType={onOpenType} />
   ));
+  // Felder, die in allen Fällen gleich stehen, aber noch nicht gemeinsam sind —
+  // dasselbe Urteil wie beim Import, hier als Knopf
+  const shared = adt ? sharedFields(values.filter(v => v.fields?.length).map(v => v.fields!)) : [];
+  const makeCommon = (f: Field) => {
+    onPatch({
+      fields: [...common, f],
+      values: values.map(v => (v.fields ? { ...v, fields: v.fields.filter(x => x.name !== f.name) } : v)),
+    });
+  };
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {adt && (
         <p className={`text-[10px] ${c.muted}`}>
           Auswahl mit Feldern (ADT) — jeder Fall wird eine eigene Klasse, zusammen ein Typ.
@@ -913,9 +923,24 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
         </p>
       )}
       {(adt || common.length > 0) && (
-        <div className={`rounded border px-2 py-1.5 space-y-1.5 ${c.border2}`}>
-          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Gemeinsame Felder (in jedem Fall)</div>
+        <div className={`rounded border px-2 py-2 space-y-1.5 ${isDark ? 'border-white/15 bg-white/[0.04]' : 'border-black/15 bg-black/[0.03]'}`}>
+          <div className={`flex items-center gap-2 text-[10px] uppercase tracking-widest ${c.muted2}`}>
+            Gemeinsame Felder <span className={`normal-case tracking-normal ${c.muted}`}>· in jedem Fall · {common.length}</span>
+          </div>
           {common.length > 0 && <div className="space-y-2">{fieldRows(common, setCommon)}</div>}
+          {/* in allen Fällen gleich — auf Knopfdruck gemeinsam */}
+          {canEdit && shared.length > 0 && (
+            <div className={`flex flex-wrap items-center gap-1.5 text-[10px] ${amber(isDark)}`}>
+              <AlertTriangle size={10} />
+              <span>In allen Fällen gleich:</span>
+              {shared.map(f => (
+                <button key={f.id} onClick={() => makeCommon(f)} title={`«${f.name}» aus den Fällen herausziehen — steht dann einmal hier`}
+                  className={`font-mono px-1.5 py-0.5 rounded border ${isDark ? 'border-amber-500/40 hover:bg-amber-500/10' : 'border-amber-400 hover:bg-amber-50'}`}>
+                  {f.name} → gemeinsam
+                </button>
+              ))}
+            </div>
+          )}
           {canEdit && (
             <button onClick={() => setCommon([...common, emptyField()])}
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
@@ -926,12 +951,21 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
       )}
       {values.map((v, i) => {
         const fields = v.fields ?? [];
+        // jeder Fall in seiner Farbe — wie die Zweige im Ablauf
+        const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
+        const tone = isDark ? col.dark : col.light;
         return (
-          <div key={i} className={`rounded border ${fields.length ? `${c.border2} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
+          <div key={i} className={`rounded border ${fields.length ? `${c.border2} border-l-4 ${tone.split(' ')[0]} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
+            {fields.length > 0 && (
+              <div className={`flex items-center gap-2 text-[10px] uppercase tracking-widest ${tone.split(' ')[1]}`}>
+                Fall <span className="font-mono normal-case tracking-normal font-semibold">{v.name || '…'}</span>
+                <span className={`normal-case tracking-normal ${c.muted}`}>· {fields.length} spezielle{fields.length === 1 ? 's Feld' : ' Felder'}{common.length ? ` + ${common.length} gemeinsam` : ''}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
                 placeholder={adt ? 'Fall' : 'wert'}
-                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
               <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
                 placeholder="Bedeutung"
                 className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
