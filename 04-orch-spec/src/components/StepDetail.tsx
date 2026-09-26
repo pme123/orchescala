@@ -6,11 +6,13 @@
 import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ExternalLink, GitFork, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
-import type { Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
+import type { EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
+import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, type VarNode } from '../feel';
+import FeelInput from './FeelInput';
 import Comments from './Comments';
 import { canComment, orphanThreads, processTarget, stepTarget, targetLabel, threadsFor } from '../comments';
 import { splitPrefix } from '../stepIds';
@@ -179,12 +181,15 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
   // Woran sich das Mapping messen lässt: die Klasse der Interaktion, sonst der
   // Katalog-Eintrag. Gibt es beides nicht, ist das Mapping frei.
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
-  const classFields = (list: 'inputs' | 'outputs'): string[] | null => {
+  const classFieldDefs = (list: 'inputs' | 'outputs'): Field[] | null => {
     const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
     const t = id ? (spec.types ?? []).find(x => x.id === id) : null;
-    if (!t) return null;
-    return (t.fields ?? []).map(f => f.name).filter(Boolean);
+    return t ? (t.fields ?? []).filter(f => f.name) : null;
   };
+  const classFields = (list: 'inputs' | 'outputs'): string[] | null =>
+    classFieldDefs(list)?.map(f => f.name) ?? null;
+  // Die Prozessvariablen mit ihren Pfaden — für FEEL-Prüfung und Vorschläge
+  const variables = useMemo(() => processVariables(spec, model), [spec, model]);
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass, quelle: 'Modell' };
@@ -301,9 +306,11 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
         onSpecChange={onSpecChange} onEditType={onEditType} />
 
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
+        variables={variables} refFields={classFieldDefs('inputs')} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('inputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
+        variables={null} refFields={null} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('outputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
 
@@ -586,10 +593,17 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, onChange, onAdd, onRemove, onFill }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, types, model, engine, onChange, onAdd, onRemove, onFill }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
   service: ServiceDef | null;
+  /** Prozessvariablen für FEEL-Prüfung und Vorschläge — null bei Ausgaben (die zeigen aufs Service-Ergebnis) */
+  variables: VarNode[] | null;
+  /** Felder der In-Klasse — daraus der erwartete Typ je Zeile */
+  refFields: Field[] | null;
+  types: TypeDef[];
+  model: Model | null;
+  engine: EngineId | undefined;
   /** was das Datenmodell bzw. der Katalog kennt — daran misst sich das Mapping */
   reference: { names: string[]; quelle: 'Modell' | 'Katalog' } | null;
   onChange: (list: 'inputs' | 'outputs', i: number, patch: Partial<Mapping>) => void;
@@ -686,7 +700,15 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const problem = dupl
             ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.`
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
-          const box = dupl ? errBox : fehlt ? warnBox : c.border2;
+          // FEEL (Camunda 8): `= …` wird beim Tippen geprüft — Syntax, Pfade, Typ
+          const feel = !off && isFeel(m.expression)
+            ? checkFeel(m.expression, variables, expectedFor(refFields?.find(f => f.name === m.name), types, model))
+            : null;
+          const feelIssues = feel
+            ? [...(engine === 'c7' ? [{ level: 'warn' as const, text: 'FEEL (=) gilt für Camunda 8 — dieser Prozess ist für Camunda 7 (${…}).' }] : []), ...feel.issues]
+            : [];
+          const feelOk = feel && !feel.issues.some(i => i.level === 'error');
+          const box = dupl || feelIssues.some(i => i.level === 'error') ? errBox : fehlt || feelIssues.length ? warnBox : c.border2;
           const mark = dupl ? err : warn;
           return (
             // Key nur über die Position: ein Key mit dem Namen darin würde die
@@ -694,6 +716,12 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             <div key={i}
               title={problem}
               className={`px-2 py-1.5 rounded border ${box} ${off ? 'opacity-45' : ''}`}>
+              {/* Befund zum FEEL-Ausdruck — über dem Feld, damit er beim Tippen im Blick bleibt */}
+              {feelIssues.map((it, k) => (
+                <p key={k} className={`text-[10px] mb-1 flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+                  <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+                </p>
+              ))}
               <div className="flex items-center gap-1.5">
                 <input type="checkbox" checked={!off} disabled={!canEdit}
                   title={off ? 'kommt in diesem Prozess nicht vor' : 'wird verwendet — abwählen, wenn nicht gebraucht'}
@@ -704,11 +732,16 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   placeholder="name"
                   title={hint.name}
                   className={`w-32 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${off ? 'line-through' : ''}`} />
-                <input value={m.expression} disabled={!canEdit || off}
-                  onChange={e => onChange(list, i, { expression: e.target.value })}
+                <FeelInput value={m.expression} disabled={!canEdit || off} isDark={isDark}
+                  variables={variables}
+                  onChange={v => onChange(list, i, { expression: v })}
                   placeholder={list === 'inputs' ? 'Ausdruck / Variable' : 'Quelle'}
-                  title={m.expression ? `${hint.expression}\n\nAktuell: ${m.expression}` : hint.expression}
-                  className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                  title={[
+                    hint.expression,
+                    feelOk && feel?.result ? `FEEL gültig · Ergebnis: ${FEEL_TYPE_LABEL[feel.result]}` : '',
+                    m.expression ? `Aktuell: ${m.expression}` : '',
+                  ].filter(Boolean).join('\n\n')}
+                  className="flex-1 min-w-0" />
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
                 {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
                     «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist

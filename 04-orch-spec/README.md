@@ -624,6 +624,36 @@ wieder entfernen. **Rot** bleibt dem Fehler vorbehalten: derselbe Name
 zweimal in den aktiven Zeilen («Doppelt: «clientKey»»), denn die zweite
 Zeile überschriebe die erste.
 
+### FEEL-Ausdrücke (Camunda 8)
+
+In Camunda 8 ist ein Mapping-Wert, der mit `=` beginnt, ein FEEL-Ausdruck.
+Die App prüft ihn **beim Tippen** und zeigt den Befund über dem Feld:
+
+- **Syntax** — `= amount +` ist kein gültiges FEEL («Fehler an Position 9,
+  Ausdruck unvollständig»).
+- **Pfade** — `= client.addr.x` zeigt ins Leere («client hat kein Feld
+  addr»); eine unbekannte Variable oder Funktion ebenso.
+- **Typ** — `= client.address.zip` in ein `String`-Feld: «Ergebnis ist Zahl,
+  das Feld erwartet Text». Der erwartete Typ kommt aus der In-Klasse der
+  Interaktion; ohne sie entfällt diese Prüfung. Ein optionales Feld nimmt
+  auch `null`, ein `LocalDate` sowohl ein Datum als auch dessen Text.
+
+Gerechnet wird mit **Beispielwerten**: aus dem Datenmodell entsteht ein
+Kontext, in dem jede bekannte Variable einen zum Typ passenden Wert hat;
+[feelin](https://github.com/nikku/feelin) wertet den Ausdruck darin aus. Die
+Variablen sind das `In` des Prozesses, das `InitIn`, die Prozessvariablen der
+Spezifikation und die Ausgaben aller Schritte — bei Letzteren ist der Typ
+meist unbekannt, dort bleibt die Prüfung stumm statt falsch zu warnen. Rot
+heisst Fehler; ein `=` in einem Camunda-7-Prozess gibt nur eine gelbe
+Warnung. Der Tooltip des Feldes nennt bei gültigem FEEL den Ergebnistyp.
+
+**Vervollständigung:** `= cli` schlägt `client` vor, `client.` dessen Felder
+(`name`, `address ›`), `client.addr` filtert. Je Vorschlag stehen Scala-Typ,
+FEEL-Typ und Herkunft; Pfeiltasten wählen, Enter oder Tab übernimmt, Escape
+schliesst. Vorgeschlagen werden nur Variablen und Pfade, keine Funktionen.
+Ausgaben-Mappings zeigen auf das Ergebnis des Services, nicht auf den
+Prozess — dort wird nur die Syntax geprüft.
+
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.
 ### Exporte
