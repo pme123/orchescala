@@ -137,7 +137,10 @@ JSON ein Objekt; die FEEL-Vervollständigung zeigt darin die Felder aller
 Fälle. Der Import liest `def x: T` und `case X(…)` aus der Domain — das `In`
 von `valiant-depot-open` kommt so mit drei gemeinsamen Feldern und zwei
 Fällen herein, ein Feld, das schon gemeinsam ist, wird im Fall nicht
-nochmals geführt (der Klassenbauer meldet das sonst).
+nochmals geführt (der Klassenbauer meldet das sonst). Was die Domain nicht
+als `def` führt, aber in **allen** Fällen gleich steht — gleicher Name, Typ
+und Hüllen —, erkennt der Import ebenfalls als gemeinsam und zieht es aus
+den Fällen heraus; das Panel vor dem Anlegen nennt diese Felder.
 
 **Eine einzelne Ausprägung als Typ.** Ein Feld kann statt der ganzen Auswahl
 einen ihrer Fälle meinen — in Scala `CustomDocContents.\`QI-Deklaration\``.

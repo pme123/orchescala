@@ -125,6 +125,8 @@ const isScalar = (t: string) => (SCALA_TYPES as readonly string[]).includes(t);
 class Converter {
   readonly types: TypeDef[] = [];
   readonly unresolved = new Set<string>();
+  /** was der Import über das Erkannte zu sagen hat, z. B. erkannte gemeinsame Felder */
+  readonly notes: string[] = [];
   private readonly ids = new Map<string, string>();
 
   constructor(
@@ -229,17 +231,44 @@ class Converter {
       // nochmals; dort bleiben nur die speziellen
       const common = toFields(dom.fields, dom.pkg);
       const commonNames = new Set(common.map(f => f.name));
-      if (common.length) t.fields = common;
       const cases = new Map((dom.cases ?? []).map(c => [c.name, c.fields]));
-      t.values = (dom.values ?? []).map(v => {
-        const fields = toFields((cases.get(v) ?? []).filter(p => !commonNames.has(p.name)), dom.pkg);
-        return fields.length ? { name: v, fields } : { name: v };
-      });
+      const perCase = (dom.values ?? []).map(v => ({
+        name: v, fields: toFields((cases.get(v) ?? []).filter(p => !commonNames.has(p.name)), dom.pkg),
+      }));
+      // Was in **allen** Fällen mit gleichem Namen und gleichem Typ steht, ist
+      // ebenfalls gemeinsam — auch wenn die Domain es nicht als `def` führt
+      const shared = sharedFields(perCase.filter(c => c.fields.length).map(c => c.fields));
+      if (shared.length) {
+        const names = new Set(shared.map(f => f.name));
+        for (const c of perCase) c.fields = c.fields.filter(f => !names.has(f.name));
+        this.notes.push(`${name}: ${shared.length} gemeinsame Feld${shared.length === 1 ? '' : 'er'} erkannt (${shared.map(f => f.name).join(', ')}) — stehen in jedem Fall gleich.`);
+      }
+      if (common.length || shared.length) t.fields = [...common, ...shared];
+      t.values = perCase.map(c => (c.fields.length ? { name: c.name, fields: c.fields } : { name: c.name }));
     } else {
       t.fields = toFields(dom.fields, dom.pkg);
     }
     return id;
   }
+}
+
+/**
+ * Felder, die in allen Fällen gleich sind: gleicher Name, gleicher Typ und
+ * dieselben Hüllen (optional, mehrfach, Map, Ausprägung, Einschränkung).
+ * Beschreibung und Vorgabe kommen vom ersten Fall, der sie hat. Bei einem
+ * einzigen Fall gibt es nichts Gemeinsames zu erkennen.
+ */
+function sharedFields(cases: Field[][]): Field[] {
+  if (cases.length < 2) return [];
+  const key = (f: Field) => JSON.stringify([f.type, !!f.optional, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '']);
+  return cases[0].flatMap(f => {
+    const k = key(f);
+    const twins = cases.map(c => c.find(x => x.name === f.name && key(x) === k));
+    if (twins.some(x => !x)) return [];
+    const description = twins.map(x => x!.description).find(Boolean);
+    const dflt = twins.map(x => x!.default).find(Boolean);
+    return [{ ...f, ...(description ? { description } : {}), ...(dflt ? { default: dflt } : {}) }];
+  });
 }
 
 // ── Spezifikation anreichern ─────────────────────────────────────────────────
@@ -255,6 +284,8 @@ export interface Enriched {
   /** Typnamen, die weder das Projekt noch der Katalog kennt */
   unresolved: string[];
   warnings: string[];
+  /** Hinweise ohne Handlungsbedarf, z. B. erkannte gemeinsame Felder */
+  notes: string[];
 }
 
 const DSL_KIND: Record<string, InteractionKind> = {
@@ -368,5 +399,5 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     types: conv.types,
     interactions,
   };
-  return { spec: built, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings };
+  return { spec: built, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings, notes: conv.notes };
 }

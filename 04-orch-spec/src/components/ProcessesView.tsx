@@ -215,6 +215,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                 {' · '}{pending.enriched.spec.types?.length ?? 0} Typen · {pending.enriched.spec.interactions?.length ?? 0} Interaktionen
                 {pending.enriched.matched.length ? ` (${pending.enriched.matched.join(', ')})` : ''}
               </p>
+              {pending.enriched.notes.map((n, i) => <p key={i} className={`text-[10px] ${c.muted}`}>{n}</p>)}
               {(pending.enriched.warnings.length > 0 || pending.enriched.unmatched.length > 0 || pending.enriched.unresolved.length > 0) && (
                 <div className={`text-[10px] space-y-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
                   {pending.enriched.warnings.map((w, i) => <div key={i} className="flex items-start gap-1"><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{w}</span></div>)}
