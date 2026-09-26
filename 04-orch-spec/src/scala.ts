@@ -197,8 +197,14 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const first = cases[0]?.name ?? 'unknown';
   // Gemeinsame Felder: als `def` im Rumpf verlangt, in jedem Fall zuerst
   const common = (t.fields ?? []).filter(f => f.name);
-  const commonDefs = common.map(f => `  def ${f.name}: ${fieldType(f, idx)}`);
-  const fieldsOf = (v: EnumValue): Field[] => [...common, ...(v.fields ?? []).filter(f => !common.some(c => c.name === f.name))];
+  // Die Bedeutung eines gemeinsamen Feldes steht **einmal** — am `def`, nicht
+  // in jedem Fall nochmals
+  const commonDefs = common.map(f => {
+    const d = f.description ? `${indent(descriptionLine(f.description), '  ')}\n` : '';
+    return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
+  });
+  const commonBare = common.map(f => ({ ...f, description: undefined }));
+  const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...(v.fields ?? []).filter(f => !common.some(c => c.name === f.name))];
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);

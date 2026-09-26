@@ -20,6 +20,7 @@ import {
 import { casesOf, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
+import ScalaCode from './ScalaCode';
 import { checkTypes, constraintKind, fieldType, indexTypes, renderType, scalaBundle } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
@@ -43,6 +44,7 @@ interface Props {
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
+const SCALA_KEY = 'orch-spec.showScala';
 
 /** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
 const KIND_GROUP: Record<Interaction['kind'], string> = {
@@ -132,7 +134,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const [showConfig, setShowConfig] = useState(false);
   const interactions = useMemo(() => spec.interactions ?? [], [spec.interactions]);
   const offen = useMemo(() => missingInteractions(spec, model), [spec, model]);
-  const [showCode, setShowCode] = useState(true);
+  // Die Scala-Spalte ist zu, bis man sie will — und merkt sich das
+  const [showCode, setShowCodeState] = useState(() => { try { return localStorage.getItem(SCALA_KEY) === '1'; } catch { return false; } });
+  const setShowCode = (on: boolean) => { setShowCodeState(on); try { localStorage.setItem(SCALA_KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
   // Sprung aus dem Ablauf: den gewünschten Typ zeigen und die Anfrage quittieren
   useEffect(() => {
@@ -407,6 +411,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             onAddType={addType}
             onOpenType={pickType}
             onSpecChange={onChange}
+            showCode={showCode}
             highlight={highlight} />
         ) : null}
         {!!globalIssues.length && (
@@ -425,10 +430,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             <CopyButton text={scalaBundle(spec, model)} isDark={isDark} />
             <button onClick={() => setShowCode(false)} className={`p-1 ${c.muted}`}><X size={12} /></button>
           </div>
-          <pre className={`flex-1 overflow-auto text-[10px] leading-relaxed p-3 ${c.muted2}`}>{scalaBundle(spec, model)}</pre>
+          <ScalaCode code={scalaBundle(spec, model)} isDark={isDark} className={`flex-1 overflow-auto text-[10px] leading-relaxed p-3 ${c.muted2}`} />
         </div>
       ) : (
-        <button onClick={() => setShowCode(true)} title="Scala-Code zeigen"
+        <button onClick={() => setShowCode(true)} title="Scala-Code zeigen — die Orchescala-Domain, die aus dem Datenmodell entsteht"
           className={`flex-shrink-0 px-2 border-l ${c.border} ${c.muted} ${c.hover}`}>
           <Code2 size={14} />
         </button>
@@ -457,7 +462,7 @@ function GeneratedConfig({ spec, idx, isDark }: { spec: ProcessSpec; idx: Return
         <span className="font-mono"> …Mock</span>, mit dem sich sein Ergebnis in Tests überschreiben lässt.
       </p>
       {code
-        ? <pre className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`}>{code}</pre>
+        ? <ScalaCode code={code} isDark={isDark} className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
         : <p className={`text-[11px] ${c.muted}`}>Noch nichts zu konfigurieren — der Ablauf hat weder Schleifen noch aufgerufene Services.</p>}
     </div>
   );
@@ -580,7 +585,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, sp
 }
 
 // ── Typ-Editor ───────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType, onSpecChange, highlight }: {
+function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType, onSpecChange, showCode, highlight }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec; author: string;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string }[];
@@ -591,6 +596,8 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
   /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
   onOpenType: (id: string) => void;
   onSpecChange: (spec: ProcessSpec) => void;
+  /** Scala-Spalte offen — dann auch die Vorschau des Typs */
+  showCode: boolean;
   highlight?: string;
 }) {
   const c = cls(isDark);
@@ -677,13 +684,14 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
           </div>
         )}
 
-      {/* Vorschau des einzelnen Typs */}
-      <div>
-        <div className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Scala</div>
-        <pre className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`}>
-          {renderType(t, idx)}
-        </pre>
-      </div>
+      {/* Vorschau des einzelnen Typs — nur, wenn die Scala-Spalte offen ist */}
+      {showCode && (
+        <div>
+          <div className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Scala</div>
+          <ScalaCode code={renderType(t, idx)} isDark={isDark}
+            className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
+        </div>
+      )}
 
       <Comments spec={spec} target={typeTarget(t.id)} author={author} isDark={isDark}
         canEdit={canEdit} onChange={onSpecChange} title={`Kommentare · ${t.name}`} highlight={highlight} />
