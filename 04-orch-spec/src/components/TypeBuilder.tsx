@@ -5,7 +5,7 @@
 // Implementations-Details und gehören nicht in die Spezifikation.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Braces, Code2, Copy, Check, ListOrdered,
+  AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, Copy, Check, ListOrdered,
   Plus, Trash2, Workflow, X,
   MessageSquare, Plug, ExternalLink,
 } from 'lucide-react';
@@ -21,7 +21,7 @@ import { casesOf, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
-import { checkTypes, constraintKind, fieldType, indexTypes, renderType, scalaBundle } from '../scala';
+import { checkTypes, constraintKind, fieldType, indexTypes, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
 import Comments from './Comments';
@@ -134,9 +134,6 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const [showConfig, setShowConfig] = useState(false);
   const interactions = useMemo(() => spec.interactions ?? [], [spec.interactions]);
   const offen = useMemo(() => missingInteractions(spec, model), [spec, model]);
-  // Die Scala-Spalte ist zu, bis man sie will — und merkt sich das
-  const [showCode, setShowCodeState] = useState(() => { try { return localStorage.getItem(SCALA_KEY) === '1'; } catch { return false; } });
-  const setShowCode = (on: boolean) => { setShowCodeState(on); try { localStorage.setItem(SCALA_KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
   // Sprung aus dem Ablauf: den gewünschten Typ zeigen und die Anfrage quittieren
   useEffect(() => {
@@ -411,7 +408,6 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             onAddType={addType}
             onOpenType={pickType}
             onSpecChange={onChange}
-            showCode={showCode}
             highlight={highlight} />
         ) : null}
         {!!globalIssues.length && (
@@ -421,23 +417,6 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
         )}
       </div>
 
-      {/* ── Scala ──────────────────────────────────────────────────────────── */}
-      {showCode ? (
-        <div className={`w-[30rem] flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
-          <div className={`flex items-center gap-2 px-3 py-2 border-b ${c.border}`}>
-            <Code2 size={12} className={c.muted} />
-            <span className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Orchescala-Domain</span>
-            <CopyButton text={scalaBundle(spec, model)} isDark={isDark} />
-            <button onClick={() => setShowCode(false)} className={`p-1 ${c.muted}`}><X size={12} /></button>
-          </div>
-          <ScalaCode code={scalaBundle(spec, model)} isDark={isDark} className={`flex-1 overflow-auto text-[10px] leading-relaxed p-3 ${c.muted2}`} />
-        </div>
-      ) : (
-        <button onClick={() => setShowCode(true)} title="Scala-Code zeigen — die Orchescala-Domain, die aus dem Datenmodell entsteht"
-          className={`flex-shrink-0 px-2 border-l ${c.border} ${c.muted} ${c.hover}`}>
-          <Code2 size={14} />
-        </button>
-      )}
     </div>
   );
 }
@@ -585,7 +564,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, sp
 }
 
 // ── Typ-Editor ───────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType, onSpecChange, showCode, highlight }: {
+function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType, onSpecChange, highlight }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec; author: string;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string }[];
@@ -596,12 +575,13 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
   /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
   onOpenType: (id: string) => void;
   onSpecChange: (spec: ProcessSpec) => void;
-  /** Scala-Spalte offen — dann auch die Vorschau des Typs */
-  showCode: boolean;
   highlight?: string;
 }) {
   const c = cls(isDark);
   const fields = t.fields ?? [];
+  // Die Scala-Vorschau ist zu, bis man sie will — und merkt sich das
+  const [showCode, setShowCodeState] = useState(() => { try { return localStorage.getItem(SCALA_KEY) === '1'; } catch { return false; } });
+  const setShowCode = (on: boolean) => { setShowCodeState(on); try { localStorage.setItem(SCALA_KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
   const setField = (i: number, patch: Partial<Field>) =>
     onPatch({ fields: fields.map((f, k) => (k === i ? { ...f, ...patch } : f)) });
@@ -684,14 +664,20 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
           </div>
         )}
 
-      {/* Vorschau des einzelnen Typs — nur, wenn die Scala-Spalte offen ist */}
-      {showCode && (
-        <div>
-          <div className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Scala</div>
+      {/* Scala-Vorschau des Typs — aufklappbar; der ganze Domain-Code steht im Export */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={() => setShowCode(!showCode)}
+            className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
+            {showCode ? <ChevronDown size={11} /> : <ChevronRight size={11} />} Scala
+          </button>
+          {showCode && <CopyButton text={renderType(t, idx)} isDark={isDark} />}
+        </div>
+        {showCode && (
           <ScalaCode code={renderType(t, idx)} isDark={isDark}
             className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
-        </div>
-      )}
+        )}
+      </div>
 
       <Comments spec={spec} target={typeTarget(t.id)} author={author} isDark={isDark}
         canEdit={canEdit} onChange={onSpecChange} title={`Kommentare · ${t.name}`} highlight={highlight} />
