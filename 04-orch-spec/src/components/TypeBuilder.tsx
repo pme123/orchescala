@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, Code2, Copy, Check, ListOrdered,
   Plus, Trash2, Workflow, X,
-  MessageSquare,
+  MessageSquare, Plug, ExternalLink,
 } from 'lucide-react';
 import { isAdt,
   CONSTRAINTS, INTERACTION_META, STATUSES, STATUS_META,
@@ -18,6 +18,7 @@ import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
 } from '../interactions';
 import { casesOf, renderInConfig } from '../scala';
+import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import { checkTypes, constraintKind, fieldType, indexTypes, renderType, scalaBundle } from '../scala';
 import { cls } from '../ui';
@@ -41,6 +42,11 @@ interface Props {
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
+
+/** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
+const KIND_GROUP: Record<Interaction['kind'], string> = {
+  userTask: 'Benutzeraufgaben', customTask: 'Eigene Worker', signal: 'Signale', message: 'Nachrichten',
+};
 
 // ── Seitenleiste: was ein Typ ist, was ihm fehlt, ob er gebraucht wird ─────
 /** Leer — kein Feld bzw. kein Wert mit Namen? */
@@ -67,6 +73,41 @@ function usageCount(all: TypeDef[], id: string): number {
 }
 
 const amber = (isDark: boolean) => (isDark ? 'text-amber-400' : 'text-amber-600');
+
+/** Farbe und Zeichen des Typ-Chips einer Feldzeile. */
+function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>, model: Model | null, isDark: boolean):
+  { cls: string; icon: React.ReactNode; ownId?: string; title?: string } {
+  const own = types.find(t => t.id === f.type);
+  if (own) {
+    const enumish = own.kind === 'enum';
+    return {
+      ownId: own.id,
+      icon: enumish ? <ListOrdered size={9} className="flex-shrink-0" /> : <Braces size={9} className="flex-shrink-0" />,
+      cls: enumish
+        ? (isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100')
+        : (isDark ? 'border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20' : 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100'),
+    };
+  }
+  const dom = idx.domainOf(f.type);
+  const svc = idx.serviceOf(f.type);
+  if (dom || svc) {
+    // Katalog — fehlt der Eintrag im geladenen Katalog, ist das ein Fehler
+    return {
+      icon: <Plug size={9} className="flex-shrink-0" />,
+      title: dom ? `${dom.name} — aus dem Domain-Katalog (${dom.pkg})` : `${svc!.name} — Service-Objekt, ${svc!.label}`,
+      cls: isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800',
+    };
+  }
+  if ((parseDomainRef(f.type) && model?.domainTypes) || (parseServiceRef(f.type) && model)) {
+    return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: 'steht nicht (mehr) im Katalog',
+      cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };
+  }
+  if (constraintKind(f.type) !== null || ['Boolean', 'LocalDate', 'LocalDateTime'].includes(f.type)) {
+    return { icon: null, cls: isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50' };
+  }
+  return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: `«${f.type}» ist kein bekannter Typ`,
+    cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };
+}
 
 /** Klasse ↔ ADT: die Felder wandern in den ersten Fall bzw. zurück. */
 function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
@@ -235,10 +276,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             </button>
           </div>
 
-          {!!interactions.length && (
-            <div className="mb-2">
-              <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Interaktionen</div>
-              {interactions.map(ia => {
+          {(['userTask', 'customTask', 'signal', 'message'] as const).map(kind => {
+            const group = interactions.filter(ia => ia.kind === kind);
+            if (!group.length) return null;
+            return (
+            <div key={kind} className="mb-2">
+              <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>{KIND_GROUP[kind]}</div>
+              {group.map(ia => {
                 // Was der DSL verlangt (In, bei Aufgaben und Workern auch Out) und noch
                 // fehlt oder leer ist, wird orange — Signale und Nachrichten ohne In
                 // sind `NoInput`, das ist erlaubt
@@ -281,7 +325,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 );
               })}
             </div>
-          )}
+            );
+          })}
 
           <TypeGroup label="Klassen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'case')}
@@ -359,6 +404,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             onPatch={patch => patchType(current.id, patch)}
             onRemove={() => removeType(current.id)}
             onAddType={addType}
+            onOpenType={pickType}
             onSpecChange={onChange}
             highlight={highlight} />
         ) : null}
@@ -533,7 +579,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, sp
 }
 
 // ── Typ-Editor ───────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onSpecChange, highlight }: {
+function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType, onSpecChange, highlight }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec; author: string;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string }[];
@@ -541,6 +587,8 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
   onPatch: (patch: Partial<TypeDef>) => void;
   onRemove: () => void;
   onAddType: (kind: 'case' | 'enum') => string;
+  /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
+  onOpenType: (id: string) => void;
   onSpecChange: (spec: ProcessSpec) => void;
   highlight?: string;
 }) {
@@ -607,7 +655,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
       )}
 
       {t.kind === 'enum'
-        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onAddType={onAddType} />
+        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onAddType={onAddType} onOpenType={onOpenType} />
         : (
           <div className="space-y-2">
             {fields.map((f, i) => (
@@ -617,7 +665,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
                 onChange={patch => setField(i, patch)}
                 onRemove={() => onPatch({ fields: fields.filter((_, k) => k !== i) })}
                 onMove={by => moveField(i, by)}
-                onAddType={onAddType} />
+                onAddType={onAddType} onOpenType={onOpenType} />
             ))}
             {canEdit && (
               <button onClick={() => onPatch({ fields: [...fields, emptyField()] })}
@@ -643,7 +691,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
 }
 
 // ── Feld ─────────────────────────────────────────────────────────────────────
-function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType }: {
+function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType, onOpenType }: {
   field: Field; index: number; last: boolean; types: TypeDef[]; selfId: string;
   isDark: boolean; canEdit: boolean; issue?: string; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
@@ -651,8 +699,13 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   onRemove: () => void;
   onMove: (by: number) => void;
   onAddType: (kind: 'case' | 'enum') => string;
+  onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
+  // Der Typ als Chip: die Farbe sagt, was es ist — einfach (grau), eigene
+  // Klasse (blau), Auswahl oder Ausprägung (violett), Katalog (teal, Stecker),
+  // unbekannt (rot). Eigene Typen sind anklickbar und springen dorthin.
+  const chip = typeChip(f, types, idx, model, isDark);
   // Einschränkungen nur, wo sie etwas bedeuten (Text und Zahlen)
   const canConstrain = !!constraintKind(f.type);
   // Fälle einer Auswahl mit Feldern — eigen oder aus dem Katalog
@@ -675,7 +728,9 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
           placeholder="feldName"
-          className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+          className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+        {/* Pflicht: nicht optional — wie in den Mappings */}
+        {!f.optional && f.name && <span className={`-ml-1 text-[11px] ${c.muted}`} title="Pflichtfeld — nicht optional">*</span>}
 
         <TypePicker value={f.type} types={types} selfId={selfId} model={model} isDark={isDark}
           disabled={!canEdit} onPick={changeType}
@@ -708,9 +763,17 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           Map
         </label>
 
-        <span className={`ml-auto text-[10px] font-mono truncate max-w-[14rem] ${c.muted}`} title={fieldType(f, idx)}>
-          {fieldType(f, idx)}
-        </span>
+        {chip.ownId ? (
+          <button onClick={() => onOpenType(chip.ownId!)} title={`${fieldType(f, idx)} — zum Typ springen`}
+            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${chip.cls}`}>
+            {chip.icon}<span className="truncate">{fieldType(f, idx)}</span><ExternalLink size={9} className="flex-shrink-0 opacity-60" />
+          </button>
+        ) : (
+          <span title={chip.title ?? fieldType(f, idx)}
+            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${chip.cls}`}>
+            {chip.icon}<span className="truncate">{fieldType(f, idx)}</span>
+          </span>
+        )}
 
         {canEdit && (
           <div className="flex items-center">
@@ -809,12 +872,13 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 // `enum In: case Standard(clientKey: Long, …) case VermoegensVerwaltung(…)`:
 // jeder Fall eine eigene Klasse, gemeinsam ein Typ. Die Felder werden mit
 // derselben Zeile bearbeitet wie in einer Klasse.
-function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType }: {
+function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
   issues: { field?: string; message: string }[];
   onPatch: (patch: Partial<TypeDef>) => void;
   onAddType: (kind: 'case' | 'enum') => string;
+  onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
   const values = t.values ?? [];
@@ -838,7 +902,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
         [next[k], next[j]] = [next[j], next[k]];
         setAll(next);
       }}
-      onAddType={onAddType} />
+      onAddType={onAddType} onOpenType={onOpenType} />
   ));
   return (
     <div className="space-y-1.5">
