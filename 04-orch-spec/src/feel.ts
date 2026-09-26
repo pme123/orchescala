@@ -19,11 +19,11 @@
 // bei ihnen bleibt die Prüfung stumm, statt falsch zu warnen.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
-import type { DomainType, Field, Model, ProcessSpec, TypeDef } from './types';
+import type { DomainType, Field, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { SCALA_TYPES } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
-import { initOutputs, resolveType } from './interactions';
+import { domainMember, initOutputs, resolveType } from './interactions';
 import { domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
 
@@ -190,6 +190,43 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   return out;
 }
 
+/**
+ * Was im **Quell-Ausdruck einer Ausgabe** sichtbar ist: das Ergebnis des
+ * Services. Der Worker gibt sein `Out` zurück, und dessen Felder werden zu
+ * Variablen des Jobs — `= accountId`, nicht `= out.accountId`. Dazu die
+ * Prozessvariablen, die in Camunda 8 im selben Kontext stehen.
+ *
+ * Woher das `Out` kommt: die Out-Klasse der Interaktion; sonst das
+ * `<Objekt>.Out` im Domain-Katalog (über Topic bzw. gerufenen Prozess);
+ * sonst die Ausgabe-Parameter des Katalog-Eintrags, ohne Typ.
+ */
+export function resultVariables(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null): VarNode[] {
+  const types = spec.types ?? [];
+  const b: Builder = { idx: indexTypes(types, model), model };
+  const out: VarNode[] = [];
+  const have = new Set<string>();
+  const add = (n: VarNode) => { if (n.name && !have.has(n.name)) { have.add(n.name); out.push(n); } };
+
+  const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
+  const ownOut = ia?.outTypeId ? types.find(t => t.id === ia.outTypeId) : undefined;
+  if (ownOut) {
+    for (const f of ownOut.fields ?? []) add(nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()));
+  } else {
+    const all = model?.domainTypes ?? [];
+    const owner = step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
+      : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
+      : ia?.name;
+    const dom = owner ? domainMember(owner, 'Out', model) : null;
+    if (dom?.fields?.length) {
+      for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source: `Ergebnis (${dom.name})` });
+    } else {
+      for (const p of service?.outputs ?? []) add({ name: p.name, type: 'any', label: '?', source: 'Ergebnis (Katalog)', ...(p.description ? { description: p.description } : {}) });
+    }
+  }
+  for (const v of processVariables(spec, model)) add(v);
+  return out;
+}
+
 /** Erwarteter Typ eines Zielfelds — `null`, wenn er nicht bekannt ist. */
 export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: Model | null = null): ExpectedType | null {
   if (!f) return null;
@@ -305,7 +342,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         if (warnings.some(x => x.type === 'NO_FUNCTION_FOUND' && x.position.from === w.position.from)) {
           issues.push({ level: 'error', text: `Funktion «${name}» gibt es nicht.` });
         } else {
-          issues.push({ level: 'error', text: `Variable «${name}» gibt es im Prozess nicht.` });
+          issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }
         pathFailed = true;
         break;

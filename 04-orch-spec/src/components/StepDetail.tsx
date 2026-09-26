@@ -11,7 +11,7 @@ import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, resultVariables, type VarNode } from '../feel';
 import FeelInput from './FeelInput';
 import Comments from './Comments';
 import { canComment, orphanThreads, processTarget, stepTarget, targetLabel, threadsFor } from '../comments';
@@ -188,8 +188,10 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
   };
   const classFields = (list: 'inputs' | 'outputs'): string[] | null =>
     classFieldDefs(list)?.map(f => f.name) ?? null;
-  // Die Prozessvariablen mit ihren Pfaden — für FEEL-Prüfung und Vorschläge
+  // Die Prozessvariablen mit ihren Pfaden — für FEEL-Prüfung und Vorschläge;
+  // bei den Ausgaben zuerst das Ergebnis des Services (die Felder seines Out)
   const variables = useMemo(() => processVariables(spec, model), [spec, model]);
+  const resultVars = useMemo(() => resultVariables(step, spec, model, service), [step, spec, model, service]);
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass, quelle: 'Modell' };
@@ -310,7 +312,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
         reference={reference('inputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
-        variables={null} refFields={null} types={spec.types ?? []} model={model} engine={spec.engine}
+        variables={resultVars} refFields={classFieldDefs('outputs')} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('outputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
 
@@ -597,9 +599,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
   service: ServiceDef | null;
-  /** Prozessvariablen für FEEL-Prüfung und Vorschläge — null bei Ausgaben (die zeigen aufs Service-Ergebnis) */
+  /** was der Ausdruck sehen darf: Prozessvariablen — bei Ausgaben zuerst das Ergebnis des Services */
   variables: VarNode[] | null;
-  /** Felder der In-Klasse — daraus der erwartete Typ je Zeile */
+  /** Felder der In- bzw. Out-Klasse — daraus der erwartete Typ je Zeile */
   refFields: Field[] | null;
   types: TypeDef[];
   model: Model | null;
@@ -629,7 +631,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
     : {
         section: 'Ausgaben: was der Schritt in den Prozess zurückschreibt — je Zeile eine Prozessvariable und ihre Quelle im Ergebnis.',
         name: 'Output-Variablen-Name: so heisst die Prozessvariable, in die der Wert geschrieben wird.',
-        expression: 'Quelle der Ausgabe: Ausdruck auf dem Ergebnis des Services (Out), z. B. ${out.accountId}.',
+        expression: 'Quelle der Ausgabe: Ausdruck auf dem Ergebnis des Services — dessen Out-Felder stehen direkt bereit, z. B. = accountId.',
       };
   const descrHint = 'Fachliche Bedeutung des Feldes für die Stakeholder — landet in der Spezifikation und im Export.';
   // Der Katalog kennt die Bedeutung der Felder (aus den OpenAPI-Schemas).

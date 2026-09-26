@@ -651,8 +651,15 @@ Warnung. Der Tooltip des Feldes nennt bei gültigem FEEL den Ergebnistyp.
 (`name`, `address ›`), `client.addr` filtert. Je Vorschlag stehen Scala-Typ,
 FEEL-Typ und Herkunft; Pfeiltasten wählen, Enter oder Tab übernimmt, Escape
 schliesst. Vorgeschlagen werden nur Variablen und Pfade, keine Funktionen.
-Ausgaben-Mappings zeigen auf das Ergebnis des Services, nicht auf den
-Prozess — dort wird nur die Syntax geprüft.
+
+**Ausgaben** sehen zuerst das **Ergebnis des Services**: der Worker gibt
+sein `Out` zurück, und dessen Felder werden zu Variablen des Jobs — die
+Quelle heisst also `= accountId`, nicht `= out.accountId`. Woher das `Out`
+kommt: die Out-Klasse der Interaktion, sonst das `<Objekt>.Out` aus dem
+Domain-Katalog (über Topic bzw. gerufenen Prozess), sonst die
+Ausgabe-Parameter des Katalog-Eintrags (ohne Typ). Dahinter stehen die
+Prozessvariablen, wie in Camunda 8 auch. Der erwartete Typ ist der des
+Out-Felds mit dem Namen der Zeile.
 
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.
