@@ -34,8 +34,9 @@ const TYPE_TOP = /^type\s+(\w+)\s*=\s*(.+)$/;
 const DESCR = /^\s+(?:val|lazy val|def)\s+descr(?:\s*:\s*String)?\s*=\s*"(.*)"\s*$/;
 const CASE_CLASS = /^(\s*)(?:final\s+)?case\s+class\s+(\w+)\s*(?:\[[^\]]*\])?\s*\(/;
 const ENUM = /^(\s*)enum\s+(\w+)\b/;
-const ENUM_CASE = /^\s*case\s+([A-Za-z]\w*)\s*(?:\(|$|,)/;
-const ENUM_CASES = /^\s*case\s+([A-Za-z][\w,\s]*)$/;
+// Fälle heissen auch mal `QI-Deklaration` — mit Backticks, wie in Scala nötig
+const ENUM_CASE = /^\s*case\s+([A-Za-z]\w*|`[^`]+`)\s*(?:\(|$|,)/;
+const ENUM_CASES = /^\s*case\s+((?:[A-Za-z]\w*|`[^`]+`)(?:\s*,\s*(?:[A-Za-z]\w*|`[^`]+`))*)\s*$/;
 const FIELD = /^\s*(?:@\w+.*)?(?:^|\s)([a-z]\w*)\s*:\s*\S/;
 const SCALADOC = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
 const END = /^(\s*)end\s+(\w+)/;
@@ -314,7 +315,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
         if (!one) continue;
         values.push(one[1]);
         const open = l.indexOf('(');
-        if (open < 0 || !/^\s*case\s+\w+\s*\(/.test(l)) { cases.push({ name: one[1] }); continue; }
+        if (open < 0 || !/^\s*case\s+(?:\w+|`[^`]+`)\s*\(/.test(l)) { cases.push({ name: one[1] }); continue; }
         const state = { triple: false };
         let depth = balance(l.slice(open), 0, state);
         let text = l.slice(open + 1);

@@ -17,7 +17,7 @@ import { isAdt,
 import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
 } from '../interactions';
-import { renderInConfig } from '../scala';
+import { casesOf, renderInConfig } from '../scala';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import { checkTypes, constraintKind, fieldType, indexTypes, renderType, scalaBundle } from '../scala';
 import { cls } from '../ui';
@@ -591,6 +591,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   const c = cls(isDark);
   // Einschränkungen nur, wo sie etwas bedeuten (Text und Zahlen)
   const canConstrain = !!constraintKind(f.type);
+  // Fälle einer Auswahl mit Feldern — eigen oder aus dem Katalog
+  const cases = casesOf(f.type, idx);
 
   const changeType = (v: string) => {
     if (v === NEW_CASE || v === NEW_ENUM) {
@@ -601,7 +603,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
     }
     // Beim Typwechsel eine nicht mehr passende Einschränkung fallen lassen
     const keep = v === f.type || (constraintKind(v) && constraintKind(v) === constraintKind(f.type));
-    onChange({ type: v, ...(keep ? {} : { constraint: undefined }) });
+    onChange({ type: v, enumCase: undefined, ...(keep ? {} : { constraint: undefined }) });
   };
 
   return (
@@ -614,6 +616,17 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         <TypePicker value={f.type} types={types} selfId={selfId} model={model} isDark={isDark}
           disabled={!canEdit} onPick={changeType}
           onCreate={kind => changeType(kind === 'case' ? NEW_CASE : NEW_ENUM)} />
+        {/* Eine Auswahl mit Fällen: das Feld kann eine einzelne Ausprägung meinen
+            (`CustomDocContents.\`QI-Deklaration\``) — oder alle */}
+        {cases && (
+          <select value={f.enumCase ?? ''} disabled={!canEdit}
+            onChange={e => onChange({ enumCase: e.target.value || undefined })}
+            title="Ausprägung: nur dieser Fall der Auswahl — oder alle"
+            className={`text-[10px] px-1.5 py-1 rounded border outline-none font-mono max-w-[10rem] ${c.input}`}>
+            <option value="">alle Fälle</option>
+            {cases.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        )}
 
         <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Option[…] — darf fehlen">
           <input type="checkbox" checked={!!f.optional} disabled={!canEdit}

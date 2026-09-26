@@ -74,6 +74,7 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null): T
 /** `Option[Seq[String :| ValidEmail]]` — in dieser Reihenfolge geschachtelt. */
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
+  if (f.enumCase) t = `${t}.${f.enumCase}`;
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
   if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
@@ -108,6 +109,8 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
 }
 
 function baseExample(f: Field, idx: TypeIndex): string {
+  // eine Ausprägung: ihr Companion hat ein eigenes example
+  if (f.enumCase) return `${idx.nameOf(f.type)}.${f.enumCase}.example`;
   if (parseDomainRef(f.type)) return `${idx.nameOf(f.type)}.example`;
   const svc = idx.serviceOf(f.type);
   if (svc) return `${svc.name}.example`;
@@ -536,8 +539,18 @@ const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
 const RESERVED = new Set(['type', 'val', 'var', 'def', 'class', 'object', 'case', 'match', 'new', 'with', 'given', 'end', 'for', 'if', 'else', 'true', 'false', 'null', 'import', 'package', 'extends', 'lazy', 'implicit', 'private', 'sealed', 'trait', 'enum', 'then', 'do', 'while', 'yield', 'return', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'abstract', 'final', 'override', 'protected', 'forSome']);
 
 /** Was den generierten Scala-Code brechen würde — direkt in der Oberfläche. */
+/** Die Fälle einer Auswahl mit Feldern (eigen oder aus dem Katalog) — null, wenn der Typ keine ist. */
+export function casesOf(typeRef: string, idx: TypeIndex): string[] | null {
+  const own = idx.byId.get(typeRef);
+  if (own) return own.kind === 'enum' && isAdt(own) ? (own.values ?? []).map(v => v.name) : null;
+  const dom = idx.domainOf(typeRef);
+  if (dom) return dom.kind === 'enum' && (dom.cases?.length || dom.fields?.length) ? (dom.values ?? []).slice() : null;
+  return null;
+}
+
 export function checkTypes(types: TypeDef[] = [], model: Model | null = null): TypeIssue[] {
   const issues: TypeIssue[] = [];
+  const idxAll = indexTypes(types, model);
   const names = new Map<string, number>();
   const ids = new Set(types.map(t => t.id));
   // ohne Katalog wird der Service-Verweis nicht geprüft (statt falsch gemeldet)
@@ -555,8 +568,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       const vals = (t.values ?? []).map(v => v.name);
       if (!vals.length) issues.push({ typeId: t.id, message: 'Enumeration ohne Werte.' });
       if (new Set(vals).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
-      for (const v of vals) if (!/^[A-Za-z][A-Za-z0-9]*$/.test(v)) {
-        issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name.` });
+      for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9]*|`[^`]+`)$/.test(v)) {
+        issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (Sonderzeichen nur in Backticks: \`QI-Deklaration\`).` });
       }
       // Ein ADT: die Felder je Fall werden wie Klassenfelder geprüft
       if (!isAdt(t)) continue;
@@ -597,6 +610,11 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         }
       } else if (!isScalar(f.type) && !ids.has(f.type)) {
         issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden.` });
+      }
+      if (f.enumCase) {
+        const cases = casesOf(f.type, idxAll);
+        if (!cases) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: der Typ ist keine Auswahl mit Fällen — «${f.enumCase}» kann keine Ausprägung sein.` });
+        else if (!cases.includes(f.enumCase)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: die Ausprägung «${f.enumCase}» gibt es in ${idxAll.nameOf(f.type)} nicht.` });
       }
       if (f.constraint?.trim() && !constraintKind(f.type)) {
         const label = isScalar(f.type) ? f.type : 'zusammengesetzten Typen';

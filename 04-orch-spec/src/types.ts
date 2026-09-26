@@ -183,6 +183,11 @@ export interface Field {
   collection?: boolean;
   /** Map[String, T] — Schlüssel ist im JSON immer ein Text, `type` ist der Wert */
   map?: boolean;
+  /**
+   * Eine einzelne **Ausprägung** eines ADT-enums als Typ: `type` ist das enum,
+   * `enumCase` der Fall — in Scala `CustomDocContents.\`QI-Deklaration\``.
+   */
+  enumCase?: string;
   /** Iron-Refinement, z. B. `ValidEmail` → `String :| ValidEmail` */
   constraint?: string;
   /** Vorgabewert als Scala-Ausdruck, z. B. `"CH"` oder `Seq.empty` */

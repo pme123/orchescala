@@ -84,18 +84,25 @@ const SCALAR_ACCEPTS: Record<string, FeelType[]> = {
 
 const MAX_DEPTH = 6;
 
+/** `CustomDocContents.\`QI-Deklaration\`` → enum und Fall; null, wenn kein Punkt darin ist. */
+export function splitEnumCase(base: string): { base: string; enumCase: string } | null {
+  const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)$/.exec(base.trim());
+  return m ? { base: m[1], enumCase: m[2] } : null;
+}
+
 interface Builder { idx: TypeIndex; model: Model | null }
 
 /** Ein Feld des Klassenbauers als Knoten — mit seinen Unterfeldern. */
 function nodeOfField(f: Field, source: string, b: Builder, depth: number, seen: Set<string>): VarNode {
   return nodeOf(f.name, f.type, {
-    optional: !!f.optional, collection: !!f.collection, map: !!f.map, description: f.description, source,
+    optional: !!f.optional, collection: !!f.collection, map: !!f.map, enumCase: f.enumCase, description: f.description, source,
     label: fieldLabel(f, b.idx),
   }, b, depth, seen);
 }
 
 function fieldLabel(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
+  if (f.enumCase) t = `${t}.${f.enumCase}`;
   if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
   if (f.optional) t = `Option[${t}]`;
@@ -104,10 +111,10 @@ function fieldLabel(f: Field, idx: TypeIndex): string {
 
 function nodeOf(
   name: string, typeRef: string,
-  o: { optional: boolean; collection: boolean; map?: boolean; description?: string; source: string; label: string },
+  o: { optional: boolean; collection: boolean; map?: boolean; enumCase?: string; description?: string; source: string; label: string },
   b: Builder, depth: number, seen: Set<string>,
 ): VarNode {
-  const base = baseNode(typeRef, b, depth, seen);
+  const base = baseNode(typeRef, b, depth, seen, o.enumCase);
   // Eine Map ist ein Objekt mit beliebigen Schlüsseln — ihre Werte kennt der
   // Baum, die Schlüssel nicht; Pfade hinein bleiben deshalb ungeprüft
   const node: VarNode = {
@@ -121,24 +128,25 @@ function nodeOf(
   return node;
 }
 
-/** Typ und Unterfelder eines Grundtyps (ohne Option/Seq). */
-function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>): { type: FeelType; children?: VarNode[] } {
+/** Typ und Unterfelder eines Grundtyps (ohne Option/Seq); `enumCase` = nur diese Ausprägung. */
+function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
   if (isScalar(typeRef)) return { type: SCALAR_FEEL[typeRef] ?? 'string' };
   if (depth >= MAX_DEPTH || seen.has(typeRef)) return { type: 'context' };
   const inner = new Set(seen).add(typeRef);
 
   const own = b.idx.byId.get(typeRef);
   if (own) {
-    // ein ADT ist im JSON ein Objekt — sichtbar sind die Felder aller Fälle
+    // ein ADT ist im JSON ein Objekt — sichtbar sind die Felder aller Fälle,
+    // bei einer Ausprägung nur die gemeinsamen und die dieses Falls
     if (own.kind === 'enum' && !isAdt(own)) return { type: 'string' };
-    // ADT: die gemeinsamen Felder und die aller Fälle
-    const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...(own.values ?? []).flatMap(v => v.fields ?? [])] : (own.fields ?? []);
+    const cases = (own.values ?? []).filter(v => !enumCase || v.name === enumCase);
+    const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...cases.flatMap(v => v.fields ?? [])] : (own.fields ?? []);
     const seenNames = new Set<string>();
     return { type: 'context', children: fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner)) };
   }
 
   const dom = b.idx.domainOf(typeRef);
-  if (dom) return domainNode(dom, b, depth, inner);
+  if (dom) return domainNode(dom, b, depth, inner, enumCase);
 
   // Service-Objekt (`svc:`): der Katalog kennt es vielleicht unter seinem Namen
   const svc = b.idx.serviceOf(typeRef);
@@ -150,20 +158,25 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>)
   return { type: 'any' };
 }
 
-function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>): { type: FeelType; children?: VarNode[] } {
+function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
   if (dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length) return { type: 'string' };
   if (dom.kind === 'alias') return { type: 'any' };
   const seenNames = new Set<string>();
+  const cases = (dom.cases ?? []).filter(c => !enumCase || c.name === enumCase);
   const fields = dom.kind === 'enum'
-    ? [...(dom.fields ?? []), ...(dom.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => !seenNames.has(p.name) && seenNames.add(p.name))
+    ? [...(dom.fields ?? []), ...cases.flatMap(c => c.fields ?? [])].filter(p => !seenNames.has(p.name) && seenNames.add(p.name))
     : (dom.fields ?? []);
   const children = fields.map(p => {
     const shape = typeShape(p.type);
     const scalar = isScalar(shape.base);
     const ref = scalar ? null : resolveType(shape.base, b.model, dom.pkg);
-    const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : shape.base;
+    // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums
+    const split = !scalar && !ref ? splitEnumCase(shape.base) : null;
+    const enumRef = split ? resolveType(split.base, b.model, dom.pkg) : null;
+    const isCase = !!enumRef && enumRef.kind === 'enum' && (enumRef.cases ?? []).some(c => c.name === split!.enumCase);
+    const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : isCase ? domainRef(enumRef!.id) : shape.base;
     return nodeOf(p.name, typeRef, {
-      optional: shape.optional, collection: shape.collection, map: shape.map, description: p.description,
+      optional: shape.optional, collection: shape.collection, map: shape.map, ...(isCase ? { enumCase: split!.enumCase } : {}), description: p.description,
       source: `Feld von ${dom.name}`, label: p.type,
     }, b, depth + 1, seen);
   });

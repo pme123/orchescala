@@ -278,13 +278,22 @@ export function resolveType(base: string, model: Model | null, pkg?: string): Do
 export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string): Field {
   const shape = typeShape(p.type);
   const scalar = (SCALA_TYPES as readonly string[]).includes(shape.base);
-  const ref = scalar ? null : resolveType(shape.base, model, pkg);
+  let ref = scalar ? null : resolveType(shape.base, model, pkg);
+  // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums
+  let enumCase: string | undefined;
+  if (!scalar && !ref) {
+    const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)$/.exec(shape.base);
+    const en = m ? resolveType(m[1], model, pkg) : null;
+    if (en?.kind === 'enum' && (en.cases ?? []).some(c => c.name === m![2])) { ref = en; enumCase = m![2]; }
+  }
   return {
     id: uid('f'),
     name: p.name,
     type: scalar ? shape.base : ref ? domainRef(ref.id) : shape.base,
     ...(shape.optional ? { optional: true } : {}),
     ...(shape.collection ? { collection: true } : {}),
+    ...(shape.map ? { map: true } : {}),
+    ...(enumCase ? { enumCase } : {}),
     ...(shape.constraint ? { constraint: shape.constraint } : {}),
     ...(p.default ? { default: p.default } : {}),
     ...(p.description ? { description: p.description } : {}),

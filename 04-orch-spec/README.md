@@ -139,6 +139,15 @@ von `valiant-depot-open` kommt so mit drei gemeinsamen Feldern und zwei
 Fällen herein, ein Feld, das schon gemeinsam ist, wird im Fall nicht
 nochmals geführt (der Klassenbauer meldet das sonst).
 
+**Eine einzelne Ausprägung als Typ.** Ein Feld kann statt der ganzen Auswahl
+einen ihrer Fälle meinen — in Scala `CustomDocContents.\`QI-Deklaration\``.
+Im Klassenbauer steht dafür neben dem Typ die Auswahl «alle Fälle» bzw. der
+Fall; der Generator schreibt `Enum.Fall` und als Beispiel `Enum.Fall.example`,
+der Import erkennt die Schreibweise (auch mit Backticks für Namen wie
+`QI-Deklaration`, die der Scanner nun liest). Für FEEL zeigt ein solches Feld
+nur die gemeinsamen Felder und die dieses Falls. Die Prüfung meldet einen
+Fall, den die Auswahl nicht hat.
+
 ### Map — Werte mit beliebigen Schlüsseln
 
 Ein Feld kann eine **Map** sein: `Map[String, T]`, im Klassenbauer das

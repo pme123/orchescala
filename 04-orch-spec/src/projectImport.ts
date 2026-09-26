@@ -27,6 +27,7 @@ import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
 import { interactionKind, resolveType, suggestName } from './interactions';
 import { domainRef } from './serviceTypes';
+import { splitEnumCase } from './feel';
 import { handleFor, readSources } from './projects';
 import { uid } from './util';
 
@@ -139,9 +140,21 @@ class Converter {
   }
 
   /** Typ eines Feldes: Grundtyp ohne Option/Seq → Feldtyp der Spezifikation. */
-  fieldType(base: string, pkg: string, depth = 0): { type: string; constraint?: string } {
+  fieldType(base: string, pkg: string, depth = 0): { type: string; constraint?: string; enumCase?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
+    // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums:
+    // das Feld zeigt auf das enum und nennt den Fall
+    const split = splitEnumCase(base);
+    if (split && !/\.(In|Out)$/.test(base)) {
+      const en = this.domain.find(t => t.id === `${pkg}.${split.base}`)
+        ?? this.domain.find(t => this.own(t) && t.name === split.base)
+        ?? resolveType(split.base, this.model, pkg);
+      if (en?.kind === 'enum' && (en.cases ?? []).some(c => c.name === split.enumCase)) {
+        const type = this.domain.includes(en) && this.own(en) ? this.convert(en, {}) : domainRef(en.id);
+        return { type, enumCase: split.enumCase };
+      }
+    }
     // im Projekt: gleiches Paket zuerst, dann der Projektstamm
     const own = this.domain.find(t => t.id === `${pkg}.${base}`)
       ?? this.domain.find(t => this.own(t) && (t.name === base || t.name.endsWith(`.${base}`)));
@@ -204,6 +217,7 @@ class Converter {
         if (shape.optional) f.optional = true;
         if (shape.collection) f.collection = true;
         if (shape.map) f.map = true;
+        if (ft.enumCase) f.enumCase = ft.enumCase;
         const constraint = shape.constraint ?? ft.constraint;
         if (constraint) f.constraint = constraint;
         if (p.default && p.default !== 'None') f.default = p.default;
