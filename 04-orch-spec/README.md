@@ -644,8 +644,13 @@ prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld:
   addr»); eine unbekannte Variable oder Funktion ebenso.
 - **Typ** — `= client.address.zip` in ein `String`-Feld: «Ergebnis ist Zahl,
   das Feld erwartet Text». Der erwartete Typ kommt aus der In-Klasse der
-  Interaktion; ohne sie entfällt diese Prüfung. Ein optionales Feld nimmt
-  auch `null`, ein `LocalDate` sowohl ein Datum als auch dessen Text.
+  Interaktion — oder, wo der Schritt keine eigene hat, aus dem
+  **Domain-Katalog**: das `<Objekt>.In` bzw. `.Out` des Service-Objekts
+  (gefunden über Topic, gerufenen Prozess oder Interaktionsnamen) trägt die
+  echten Scala-Typen. So werden auch importierte Prozesse geprüft. Ein
+  optionales Feld nimmt auch `null`, ein `LocalDate` sowohl ein Datum als
+  auch dessen Text. Ist ein Feld dort nicht `Option[…]`, gilt es als
+  Pflichtfeld.
 
 Gerechnet wird mit **Beispielwerten**: aus dem Datenmodell entsteht ein
 Kontext, in dem jede bekannte Variable einen zum Typ passenden Wert hat;

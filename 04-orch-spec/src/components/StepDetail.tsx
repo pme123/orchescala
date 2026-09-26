@@ -6,12 +6,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Asterisk, ChevronDown, ExternalLink, GitFork, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
-import type { EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
+import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, expectedFor, isFeel, processVariables, resultVariables, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type FeelIssue, type VarNode } from '../feel';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -216,6 +216,10 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
   // bei den Ausgaben zuerst das Ergebnis des Services (die Felder seines Out)
   const variables = useMemo(() => processVariables(spec, model), [spec, model]);
   const resultVars = useMemo(() => resultVariables(step, spec, model, service), [step, spec, model, service]);
+  // Die Scala-Typen des Service-Objekts aus dem Domain-Katalog — Massstab für
+  // Typ und Pflicht, wo der Schritt keine eigene In-/Out-Klasse hat
+  const domainIn = useMemo(() => stepDomainMember(step, spec, model, 'In'), [step, spec, model]);
+  const domainOut = useMemo(() => stepDomainMember(step, spec, model, 'Out'), [step, spec, model]);
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass, quelle: 'Modell' };
@@ -332,11 +336,11 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
         onSpecChange={onSpecChange} onEditType={onEditType} />
 
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
-        variables={variables} refFields={classFieldDefs('inputs')} types={spec.types ?? []} model={model} engine={spec.engine}
+        variables={variables} refFields={classFieldDefs('inputs')} domain={domainIn} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('inputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
-        variables={resultVars} refFields={classFieldDefs('outputs')} types={spec.types ?? []} model={model} engine={spec.engine}
+        variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('outputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
 
@@ -632,7 +636,7 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, types, model, engine, onChange, onAdd, onRemove, onFill }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, onChange, onAdd, onRemove, onFill }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
   service: ServiceDef | null;
@@ -640,6 +644,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   variables: VarNode[] | null;
   /** Felder der In- bzw. Out-Klasse — daraus der erwartete Typ je Zeile */
   refFields: Field[] | null;
+  /** `<Objekt>.In` bzw. `.Out` aus dem Domain-Katalog — Massstab ohne eigene Klasse */
+  domain: DomainType | null;
   types: TypeDef[];
   model: Model | null;
   engine: EngineId | undefined;
@@ -698,6 +704,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
       const f = refFields.find(x => x.name === name);
       return f && !f.optional ? `Pflichtfeld: «${name}» ist im In nicht optional` : null;
     }
+    const dom = domainRequired(domain, name);
+    if (dom != null) return dom ? `Pflichtfeld: «${name}» ist in ${domain?.name} nicht optional` : null;
     const p = service?.inputs?.find(x => x.name === name);
     return p?.required ? `Pflichtfeld: «${name}» ist laut Katalog erforderlich` : null;
   };
@@ -758,9 +766,11 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.`
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
           // FEEL (Camunda 8): `= …` wird beim Tippen geprüft — Syntax, Pfade, Typ
-          const feel = !off && isFeel(m.expression)
-            ? checkFeel(m.expression, variables, expectedFor(refFields?.find(f => f.name === m.name), types, model))
-            : null;
+          // Solltyp: die eigene Klasse zuerst, sonst der Domain-Katalog
+          const expected = refFields
+            ? expectedFor(refFields.find(f => f.name === m.name), types, model)
+            : expectedFromDomain(domain, m.name, model);
+          const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
           const feelIssues: FeelIssue[] = [
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : []),

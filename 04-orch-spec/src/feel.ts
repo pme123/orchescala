@@ -200,6 +200,47 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
  * `<Objekt>.Out` im Domain-Katalog (über Topic bzw. gerufenen Prozess);
  * sonst die Ausgabe-Parameter des Katalog-Eintrags, ohne Typ.
  */
+/**
+ * Das `In` bzw. `Out` des Service-Objekts im Domain-Katalog — gefunden über
+ * das Topic, den gerufenen Prozess oder den Namen der Interaktion. Dort
+ * stehen die **echten** Scala-Typen; sie sind der Massstab, wo der Schritt
+ * keine eigene Klasse hat.
+ */
+export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | null, member: 'In' | 'Out'): DomainType | null {
+  const all = model?.domainTypes ?? [];
+  const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
+  const owner = step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
+    : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
+    : ia?.name;
+  return owner ? domainMember(owner, member, model) : null;
+}
+
+/** Erwarteter Typ eines Feldes laut Domain-Katalog — `null`, wenn unbekannt. */
+export function expectedFromDomain(dom: DomainType | null, name: string, model: Model | null): ExpectedType | null {
+  const p = dom?.fields?.find(f => f.name === name);
+  if (!p) return null;
+  const shape = typeShape(p.type);
+  let accepts: FeelType[];
+  if (shape.collection) accepts = ['list'];
+  else if (isScalar(shape.base)) accepts = SCALAR_ACCEPTS[shape.base] ?? [SCALAR_FEEL[shape.base] ?? 'string'];
+  else {
+    const ref = resolveType(shape.base, model, dom!.pkg);
+    if (!ref) return null;                    // Typ nicht im Katalog — kein Urteil
+    if (ref.kind === 'enum') accepts = ['string'];
+    else if (ref.kind === 'alias') return null;
+    else accepts = ['context'];
+  }
+  if (shape.optional) accepts = [...accepts, 'nil'];
+  return { accepts, label: p.type };
+}
+
+/** Ist das Feld laut Domain-Katalog Pflicht (nicht `Option[…]`)? null = Feld unbekannt. */
+export function domainRequired(dom: DomainType | null, name: string): boolean | null {
+  const p = dom?.fields?.find(f => f.name === name);
+  if (!p) return null;
+  return !typeShape(p.type).optional && !p.default;
+}
+
 export function resultVariables(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null): VarNode[] {
   const types = spec.types ?? [];
   const b: Builder = { idx: indexTypes(types, model), model };
@@ -212,11 +253,7 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
   if (ownOut) {
     for (const f of ownOut.fields ?? []) add(nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()));
   } else {
-    const all = model?.domainTypes ?? [];
-    const owner = step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
-      : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
-      : ia?.name;
-    const dom = owner ? domainMember(owner, 'Out', model) : null;
+    const dom = stepDomainMember(step, spec, model, 'Out');
     if (dom?.fields?.length) {
       for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source: `Ergebnis (${dom.name})` });
     } else {
