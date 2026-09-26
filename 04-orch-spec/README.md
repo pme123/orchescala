@@ -516,8 +516,13 @@ sich ändert, dessen Topic aber gleich bleibt, gilt als vorhanden — sonst
 gäbe es Fehlalarm bei jedem Umbenennen.
 
 **Mitgelieferter Katalog.** Liegt neben der App eine
-`catalog.generated.json` (orchescala erzeugt sie bei jedem Release aus OpenAPI
-und Site-Katalog und legt sie in `public/`), dann ist **sie** der Katalog: bei
+`catalog.generated.json`, dann ist **sie** der Katalog. Die Doku-Site der
+Firma bringt sie mit: der Helper erzeugt sie bei `publishDocs` mit denselben
+Werkzeugen aus OpenAPI, Domain-Quellen und Site-Katalog — zuerst aus dem
+Firmenprojekt selbst (dessen `01-domain` hält die geteilten Typen wie
+`ProcessCallOrigin`), dann aus allen Projekt-Checkouts; so gewinnen bei
+gleichem Namen die Firmentypen. Wer ohne Site arbeitet, liest dieselbe Datei
+über «Katalog-Datei einlesen» ein. Für den Katalog gilt: bei
 gleicher Kennung (Service-ID, Topic, gerufener Prozess, Typ-ID) gewinnt sie,
 Einträge aus der `model.json` bleiben nur als Altbestand daneben sichtbar und
 werden beim Speichern nie mit ihr vermischt — der Katalog ist nicht vom
