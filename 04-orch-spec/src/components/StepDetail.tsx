@@ -300,10 +300,10 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
       <InteractionClasses step={step} spec={spec} isDark={isDark} canEdit={canEdit} entry={service} model={model}
         onSpecChange={onSpecChange} onEditType={onEditType} />
 
-      <MappingTable title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
+      <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         reference={reference('inputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
-      <MappingTable title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
+      <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         reference={reference('outputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
 
@@ -600,6 +600,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const c = cls(isDark);
   const rows = step[list] ?? [];
   const active = rows.filter(m => !m.disabled).length;
+  /** Zeile, deren Entfernen gerade bestätigt werden soll */
+  const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
   // Was die Felder bedeuten — beim Überfahren erklärt, denn bei Ein- und
   // Ausgaben ist die Leserichtung verschieden: bei Eingaben ist «name» der
   // Parameter des Services und der Ausdruck kommt aus dem Prozess, bei
@@ -711,10 +713,22 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                 {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
                     «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist
                     die sanftere Variante, wenn es sichtbar bleiben soll. */}
-                {canEdit && (
-                  <button onClick={() => onRemove(list, i)}
+                {canEdit && confirmRemove !== i && (
+                  <button onClick={() => setConfirmRemove(i)}
                     title={reference && !fehlt ? `Zeile entfernen — steht danach unter «+ aus ${reference.quelle}» wieder bereit` : 'Zeile entfernen'}
                     className={`p-0.5 flex-shrink-0 ${c.muted}`}><Trash2 size={10} /></button>
+                )}
+                {/* Rückfrage direkt in der Zeile — erst «Ja» entfernt */}
+                {canEdit && confirmRemove === i && (
+                  <span className="flex items-center gap-1 flex-shrink-0">
+                    <span className={`text-[10px] ${err}`}>Entfernen?</span>
+                    <button onClick={() => { setConfirmRemove(null); onRemove(list, i); }}
+                      className={`text-[10px] px-1.5 py-0.5 rounded font-semibold text-white ${isDark ? 'bg-rose-500 hover:bg-rose-400' : 'bg-rose-600 hover:bg-rose-500'}`}>
+                      Ja
+                    </button>
+                    <button onClick={() => setConfirmRemove(null)} title="Abbrechen"
+                      className={`p-0.5 ${c.muted}`}><X size={10} /></button>
+                  </span>
                 )}
               </div>
               <input value={m.description ?? ''} disabled={!canEdit || off}
