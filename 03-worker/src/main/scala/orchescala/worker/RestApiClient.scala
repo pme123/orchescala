@@ -24,8 +24,12 @@ trait RestApiClient:
     for
       _              <- ZIO.logDebug(s"Sending Request: ${runnableRequest.apiUri}")
       reqWithOptBody <- requestWithOptBody(runnableRequest)
-      _              <- ZIO.logDebug(s"Request created: ${reqWithOptBody.toCurl}")
-      req            <- auth(reqWithOptBody)
+      // a service call may take as long as its worker may run (WorkerDsl.timeout) - not only the
+      // HTTP client's default of 1 minute
+      reqWithTimeout  = summon[EngineRunContext].workerTimeout
+                          .fold(reqWithOptBody)(reqWithOptBody.readTimeout)
+      _              <- ZIO.logDebug(s"Request created: ${reqWithTimeout.toCurl}")
+      req            <- auth(reqWithTimeout)
       _              <- ZIO.logDebug(s"Request authenticated: ${req.toCurl}")
       response       <- ZIO.scoped(sendRequest(req))
       _              <- ZIO.logDebug(s"Response received: $response")

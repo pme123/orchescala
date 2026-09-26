@@ -24,10 +24,43 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       externalTask: operaton.ExternalTask,
       externalTaskService: operaton.ExternalTaskService
   ): Unit =
-    executeWithScope(externalTask.getId):
-      run(externalTaskService)(using externalTask)
+    executeJob(externalTask, externalTaskService, permits = None, rootLookup = OpWorker.noRootLookup)
 
-  private[worker] def run(externalTaskService: operaton.ExternalTaskService)(using
+  /** As the registry runs the job: at most `permits` jobs at once (see `BaseWorker.executeForked`),
+    * a timed out job reported as failed, and `rootLookup` to check an IdentityCorrelation of a
+    * call activity against its root process instance.
+    */
+  private[op] def executeJob(
+      externalTask: operaton.ExternalTask,
+      externalTaskService: operaton.ExternalTaskService,
+      permits: Option[JobPermits],
+      rootLookup: String => IO[String, Option[String]]
+  ): Unit =
+    given operaton.ExternalTask = externalTask
+    // shared by the job and its lock renewal: their calls never overlap (see the class)
+    val taskService = GuardedExternalTaskService(externalTaskService)
+    executeForked(externalTask.getId)(
+      execution = run(taskService, rootLookup),
+      onTimeout = taskService.handleFailure(
+        UnexpectedError(s"Worker ${externalTask.getTopicName} timed out after $workerTimeout")
+      ),
+      permits = permits,
+      // back to the engine at once - waiting longer would let its lock run out
+      onNoPermit = attempt(taskService.unlock(externalTask))
+        .catchAll(err => logError(s"Problem unlocking task ${externalTask.getId}: $err"))
+        .unit,
+      // the lock is short (fast recovery after a crash) - renewed while the job runs
+      renewLock = attempt(taskService.extendLock(externalTask, lockTimeout.toMillis))
+        .catchAll(err => logWarning(s"Problem extending the lock of task ${externalTask.getId}: $err"))
+        .unit,
+      lockExpiresAt = Option(externalTask.getLockExpirationTime).map(_.getTime)
+    )
+  end executeJob
+
+  private[worker] def run(
+      externalTaskService: operaton.ExternalTaskService,
+      rootLookup: String => IO[String, Option[String]] = OpWorker.noRootLookup
+  )(using
       externalTask: operaton.ExternalTask
   ): ZIO[SttpClientBackend, Throwable, Unit] =
     for
@@ -36,7 +69,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         logInfo(
           s"Worker: ${externalTask.getTopicName} (${externalTask.getId}) started > ${externalTask.getProcessInstanceId}"
         )
-      _         <- executeWorker(externalTaskService)
+      _         <- executeWorker(externalTaskService, rootLookup)
       _         <-
         logInfo(
           s"Worker: ${externalTask.getTopicName} (${externalTask.getProcessInstanceId}) ended ${printTimeOnConsole(startDate)}   > ${externalTask.getBusinessKey}"
@@ -47,7 +80,8 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   // first failure they are `null` - converting them to Int up front threw a NullPointerException
   // on EVERY first run, a defect that left the task neither completed nor failed
   private def executeWorker(
-      externalTaskService: operaton.ExternalTaskService
+      externalTaskService: operaton.ExternalTaskService,
+      rootLookup: String => IO[String, Option[String]]
   ): HelperContext[ZIO[SttpClientBackend, Throwable, Unit]] =
     val tryProcessVariables =
       ProcessVariablesExtractor.extract(worker.variableNames)
@@ -56,7 +90,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         .flatMap: generalVariables =>
           (for
             _                      <- logDebug(s"generalVariables: ${generalVariables.asJson}")
-            given EngineRunContext <- createEngineRunContext(generalVariables)
+            given EngineRunContext <- createEngineRunContext(generalVariables, rootLookup)
             executor               <- createExecutor
             filteredOut            <- executor.execute(tryProcessVariables)
             _                      <- logDebug(s"filteredOut: $filteredOut")
@@ -73,8 +107,17 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           externalTaskService.handleFailure(ex)
   end executeWorker
 
-  private def createEngineRunContext(generalVariables: GeneralVariables) =
-    attempt(EngineRunContext(operatonContext, generalVariables)).mapError(ex =>
+  private def createEngineRunContext(
+      generalVariables: GeneralVariables,
+      rootLookup: String => IO[String, Option[String]]
+  )(using externalTask: operaton.ExternalTask) =
+    val processInstanceId = externalTask.getProcessInstanceId
+    attempt(EngineRunContext(
+      operatonContext,
+      generalVariables,
+      Some(JobProcessInstance(processInstanceId, rootLookup(processInstanceId))),
+      workerTimeoutForContext
+    )).mapError(ex =>
       UnexpectedError(
         s"Problem creating EngineRunContext: ${ex.getMessage}"
       )
@@ -250,6 +293,6 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 end OpWorker
 
 object OpWorker:
-
+  /** Without the registry's lookup (e.g. a worker called directly) the root is unknown. */
+  val noRootLookup: String => IO[String, Option[String]] = _ => ZIO.none
 end OpWorker
-

@@ -79,6 +79,34 @@ object IdentityVerification:
         end if
   end verifySignature
 
+  /** Checks that the correlation belongs to the job: bound to the job's process instance or to its
+    * root (call activities inherit the correlation of their parent). The signature alone is not
+    * enough - it only proves that the engine signed the correlation for the process instance
+    * stored IN it, so a correlation copied from another process passed as well.
+    */
+  def verifyBinding(
+      correlation: IdentityCorrelation,
+      job: JobProcessInstance
+  ): IO[BadSignatureError, Unit] =
+    correlation.processInstanceId match
+      case None                           =>
+        ZIO.fail(BadSignatureError("IdentityCorrelation present but not bound to a process instance."))
+      case Some(bound) if bound == job.id => ZIO.unit
+      case Some(bound)                    =>
+        job.rootId
+          .mapError: err =>
+            BadSignatureError(
+              s"Could not look up the root process instance of '${job.id}' to verify the IdentityCorrelation: $err"
+            )
+          .flatMap:
+            case Some(root) if root == bound => ZIO.unit
+            case root                        =>
+              ZIO.fail(BadSignatureError(
+                s"IdentityCorrelation is bound to process instance '$bound', not to the job's " +
+                  s"'${job.id}' (root: ${root.getOrElse("-")}) - copied from another process?"
+              ))
+  end verifyBinding
+
   /** Verify signature if a signing key is available, otherwise just log a warning.
     *
     * This is useful during migration or in environments where signing is optional.

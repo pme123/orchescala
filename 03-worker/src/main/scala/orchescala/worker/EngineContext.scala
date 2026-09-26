@@ -123,7 +123,26 @@ object DefaultEngineContext:
   )
 
 
-final case class EngineRunContext(engineContext: EngineContext, generalVariables: GeneralVariables):
+/** The process instance a job runs in - an IdentityCorrelation must be bound to it, or to its
+  * root: a call activity inherits the correlation of its parent, signed for the root instance.
+  *
+  * @param rootId
+  *   looks the root process instance up - only evaluated if the correlation is not bound to `id`
+  *   itself (C8 delivers it with the job, C7 / Operaton look it up in the history, cached)
+  */
+final case class JobProcessInstance(id: String, rootId: IO[String, Option[String]])
+
+/** @param processInstance
+  *   the process instance of the job - None for the `/worker` endpoint (no job, no process yet)
+  * @param workerTimeout
+  *   how long the worker may run (`WorkerDsl.timeout`) - its service calls may take as long
+  */
+final case class EngineRunContext(
+    engineContext: EngineContext,
+    generalVariables: GeneralVariables,
+    processInstance: Option[JobProcessInstance] = None,
+    workerTimeout: Option[scala.concurrent.duration.FiniteDuration] = None
+):
 
   def getLogger(clazz: Class[?]): OrchescalaLogger = engineContext.getLogger(clazz)
 

@@ -173,27 +173,30 @@ case class ServiceHandler[
         )
 
       case (Some(correlation), false) =>
-        // Get processInstanceId from context
+        // optional verification: problems are only logged
         correlation.processInstanceId match
-          case None                    =>
-            // Correlation exists but has no processInstanceId - log warning
+          case None    =>
             ZIO.logWarning(
               "IdentityCorrelation present but not bound to a process instance - skipping verification"
             )
-          case Some(processInstanceId) =>
-            // Verify signature using optional verification (logs warnings but doesn't fail)
-            IdentityVerification.verifySignatureOptional(
-              correlation,
-              engineConfig.identitySigningKey
-            )
+          case Some(_) =>
+            verifyBound(correlation, engineConfig.identitySigningKey)
+              .catchAll: err =>
+                ZIO.logWarning(s"IdentityCorrelation verification failed: ${err.errorMsg}")
       case (Some(correlation), true)  =>
-        // Verify signature using optional verification (logs warnings but doesn't fail)
-        IdentityVerification.verifySignature(
-          correlation,
-          engineConfig.identitySigningKey
-        )
+        verifyBound(correlation, engineConfig.identitySigningKey)
     end match
   end verifyIdentityCorrelation
+
+  /** The correlation must belong to this job (see [[IdentityVerification.verifyBinding]]) and be
+    * signed by the engine. Without a job (`/worker` endpoint) only the signature is checked.
+    */
+  private def verifyBound(
+      correlation: IdentityCorrelation,
+      identitySigningKey: Option[String]
+  )(using context: EngineRunContext): IO[BadSignatureError, Unit] =
+    ZIO.foreachDiscard(context.processInstance)(IdentityVerification.verifyBinding(correlation, _)) *>
+      IdentityVerification.verifySignature(correlation, identitySigningKey)
 
   private def runnableRequest(
       inputObject: In

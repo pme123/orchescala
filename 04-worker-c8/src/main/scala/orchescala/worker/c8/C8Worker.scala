@@ -1,5 +1,6 @@
 package orchescala.worker.c8
 
+import io.camunda.client.CamundaClient
 import io.camunda.client.api.response.ActivatedJob
 import io.camunda.client.api.worker.{JobClient, JobHandler}
 import orchescala.domain.*
@@ -20,7 +21,41 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   protected def c8Context: C8Context
 
   def handle(client: JobClient, job: ActivatedJob): Unit =
-    executeWithScope(job.getKey.toString):
+    handleJob(client, job, camundaClient = None)
+
+  // blocking on the client's job thread: the client counts the job as active until the handler
+  // returns - maxJobsActive limits the jobs in flight, and a running job is not handed out again
+  private[c8] def handleJob(
+      client: JobClient,
+      job: ActivatedJob,
+      camundaClient: Option[CamundaClient]
+  ): Unit =
+    executeBlocking(job.getKey.toString)(
+      execution = runJob(client, job),
+      onTimeout = failTimedOut(client, job),
+      // the job timeout is short (fast recovery after a crash) - renewed while the job runs
+      renewLock = ZIO.foreachDiscard(camundaClient)(renewTimeout(_, job)),
+      lockExpiresAt = Some(job.getDeadline)
+    )
+
+  private def renewTimeout(camundaClient: CamundaClient, job: ActivatedJob): UIO[Unit] =
+    attempt:
+      camundaClient.newUpdateTimeoutCommand(job).timeout(lockTimeout.toMillis).send().join()
+    .catchAll(err => logWarning(s"Problem renewing the timeout of job ${job.getKey}: $err"))
+    .unit
+
+  /** A job running longer than `workerTimeout` was interrupted - the engine must learn it failed. */
+  private def failTimedOut(client: JobClient, job: ActivatedJob): UIO[Unit] =
+    attempt:
+      client.newFailCommand(job)
+        .retries(job.getRetries - 1)
+        .retryBackoff(time.Duration.ofSeconds(60))
+        .errorMessage(s"Worker ${job.getType} timed out after $workerTimeout")
+        .send().join()
+    .catchAll(err => logError(s"Problem failing the timed out job ${job.getKey}: $err"))
+    .unit
+
+  private def runJob(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
       for
         startDate        <- succeed(new Date())
         json             <- extractJson(job)
@@ -127,7 +162,16 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       )
 
     private def createEngineRunContext(generalVariables: GeneralVariables) =
-      ZIO.attempt(EngineRunContext(c8Context, generalVariables)).mapError(ex =>
+      ZIO.attempt(EngineRunContext(
+        c8Context,
+        generalVariables,
+        // C8 delivers the root with the job - no lookup
+        Some(JobProcessInstance(
+          job.getProcessInstanceKey.toString,
+          ZIO.succeed(Option(job.getRootProcessInstanceKey).map(_.toString))
+        )),
+        workerTimeoutForContext
+      )).mapError(ex =>
         UnexpectedError(
           s"Problem creating EngineRunContext: ${ex.getMessage}"
         )

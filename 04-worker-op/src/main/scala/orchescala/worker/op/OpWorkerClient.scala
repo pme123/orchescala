@@ -8,8 +8,12 @@ import org.apache.hc.client5.http.config.RequestConfig
 import org.apache.hc.core5.http.*
 import org.apache.hc.core5.http.protocol.HttpContext
 import org.operaton.bpm.client.ExternalTaskClient
+import com.github.blemale.scaffeine.Scaffeine
+import orchescala.engine.rest.HttpClientProvider
 import org.operaton.bpm.client.backoff.ExponentialBackoffStrategy
-import zio.ZIO
+import sttp.client3.*
+import sttp.model.{Header, Uri}
+import zio.{IO, ZIO}
 
 import java.util.Base64
 import scala.concurrent.duration.*
@@ -23,6 +27,45 @@ trait OpWorkerClient:
   protected def asyncResponseTimeout: Duration = 15.seconds
   protected def lockDuration: Duration         = 30.seconds
   protected def maxTasks: Int                  = 10
+
+  /** Jobs the workers of this client run at once - the tasks one fetch returns at most. */
+  def maxParallelJobs: Int = maxTasks
+
+  /** Authorization header for the engine's REST API (root process instance lookup). */
+  protected def engineAuthorization: Option[String] = None
+
+  // a root never changes - bounded, so a long-running worker app does not grow without end
+  private lazy val rootProcessInstances =
+    Scaffeine().maximumSize(10_000).expireAfterWrite(1.hour).build[String, String]()
+
+  /** The root process instance of a process instance, from the history API - only needed for jobs
+    * in call activities, whose IdentityCorrelation is bound to the root (see
+    * `IdentityVerification.verifyBinding`). Cached.
+    */
+  def rootProcessInstanceId(processInstanceId: String): IO[String, Option[String]] =
+    rootProcessInstances.getIfPresent(processInstanceId) match
+      case Some(root) => ZIO.some(root)
+      case None       =>
+        (for
+          uri      <- ZIO.fromEither(Uri.parse(operatonRestUrl.stripSuffix("/")))
+                        .map(_.addPath("history", "process-instance", processInstanceId))
+          response <- basicRequest
+                        .get(uri)
+                        .headers(engineAuthorization.map(Header("Authorization", _)).toSeq*)
+                        .readTimeout(10.seconds)
+                        .response(asStringAlways)
+                        .send(HttpClientProvider.cachedBackend)
+                        .mapError(_.toString)
+          body     <- if response.code.isSuccess then ZIO.succeed(response.body)
+                      else ZIO.fail(s"status ${response.code.code}")
+          root     <- ZIO.fromEither(
+                        _root_.io.circe.parser.parse(body)
+                          .flatMap(_.hcursor.get[Option[String]]("rootProcessInstanceId"))
+                      ).mapError(_.toString)
+          _         = root.foreach(rootProcessInstances.put(processInstanceId, _))
+        yield root)
+          .mapError(err => s"Root process instance of '$processInstanceId' not found: $err")
+  end rootProcessInstanceId
 
   protected def externalClient = ExternalTaskClient.create()
     .baseUrl(operatonRestUrl)
@@ -96,6 +139,9 @@ trait OAuth2PasswordWorkerClient extends OpWorkerClient:
   given logger: OrchescalaLogger = Slf4JLogger.logger(getClass.getName)
 
   protected def oAuthConfig: OAuthConfig.PasswordGrant
+
+  override protected def engineAuthorization: Option[String] =
+    passwordFlow.cachedToken.map(token => s"Bearer $token")
 
   def retrieveToken(): ZIO[SttpClientBackend, WorkerError.ServiceAuthError, String] =
     passwordFlow.retrieveToken()

@@ -47,7 +47,7 @@ case class WorkerRoutes(engineContext: EngineContext):
                     worker =>
                       for
                         generalVariables      <- extractGeneralVariables(variables)
-                        given EngineRunContext = createRunContext(generalVariables)
+                        given EngineRunContext = createRunContext(generalVariables, worker)
                         result                <- worker match
                                                    case worker: RunWorkDsl[?, ?]           =>
                                                      worker
@@ -72,10 +72,11 @@ case class WorkerRoutes(engineContext: EngineContext):
     )
   end routes
 
-  private def createRunContext(generalVariables: GeneralVariables) =
+  private def createRunContext(generalVariables: GeneralVariables, worker: WorkerDsl[?, ?]) =
     EngineRunContext(
       engineContext = engineContext,
-      generalVariables = generalVariables
+      generalVariables = generalVariables,
+      workerTimeout = Some(worker.timeout).collect { case timeout: scala.concurrent.duration.FiniteDuration => timeout }
     )
 
   /** Validates the Bearer token according to `WorkerConfig.tokenValidation` and returns it. */

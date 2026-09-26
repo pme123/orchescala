@@ -14,7 +14,15 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   // needed that it can be called from CSubscriptionPostProcessor
   def worker: Worker[In, Out, ?]
   def topic: String     = worker.topic
-  def timeout: Duration = 10.seconds
+  /** How long one job of this worker may run - the one timeout to raise for a slow worker; the
+    * dependent ones follow:
+    *   - after it, the job is interrupted and reported as failed
+    *   - its lock (1 minute, so the job of a crashed worker app is handed out again soon) is renewed
+    *     while it runs, up to this timeout
+    *   - its service calls may take as long (instead of the HTTP client's default of 1 minute)
+    * For a slower worker: `override def timeout: Duration = 10.minutes`
+    */
+  def timeout: Duration = 1.minute
 
   protected def regexMatchesAll(
       errorHandled: Boolean,
