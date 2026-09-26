@@ -625,6 +625,11 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // Zeilen, die es im Datenmodell nicht (mehr) gibt — die Abweichung gehört
   // dort behoben, nicht hier weggelöscht.
   const verwaist = bekannt ? rows.filter(m => m.name && !bekannt.has(m.name)).length : 0;
+  // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
+  // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
+  const zaehler = new Map<string, number>();
+  for (const m of rows) if (m.name && !m.disabled) zaehler.set(m.name, (zaehler.get(m.name) ?? 0) + 1);
+  const doppelt = new Set([...zaehler].filter(([, n]) => n > 1).map(([name]) => name));
   if (!rows.length && !canEdit) return null;
 
   return (
@@ -658,17 +663,26 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           {verwaist} Zeile{verwaist === 1 ? '' : 'n'} ohne Entsprechung im {reference?.quelle}.
         </p>
       )}
+      {!!doppelt.size && (
+        <p className={`text-[10px] mb-1 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+          Doppelt: {[...doppelt].map(n => `«${n}»`).join(', ')} — jeder Name nur einmal.
+        </p>
+      )}
       <div className="space-y-1">
         {rows.map((m, i) => {
           const off = !!m.disabled;
           const fehlt = !!bekannt && !!m.name && !bekannt.has(m.name);
+          const dupl = !off && doppelt.has(m.name);
+          const problem = fehlt
+            ? `«${m.name}» steht nicht (mehr) im ${reference?.quelle} — dort ergänzen oder hier abwählen.`
+            : dupl ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.` : undefined;
           return (
             // Key nur über die Position: ein Key mit dem Namen darin würde die
             // Zeile bei jedem Tastendruck neu aufbauen — und den Fokus verlieren.
             <div key={i}
-              title={fehlt ? `«${m.name}» steht nicht (mehr) im ${reference?.quelle} — dort ergänzen oder hier abwählen.` : undefined}
+              title={problem}
               className={`px-2 py-1.5 rounded border ${
-                fehlt ? (isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50') : c.border2
+                problem ? (isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50') : c.border2
               } ${off ? 'opacity-45' : ''}`}>
               <div className="flex items-center gap-1.5">
                 <input type="checkbox" checked={!off} disabled={!canEdit}
@@ -685,7 +699,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   placeholder={list === 'inputs' ? 'Ausdruck / Variable' : 'Quelle'}
                   title={m.expression ? `${hint.expression}\n\nAktuell: ${m.expression}` : hint.expression}
                   className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
-                {fehlt && <AlertTriangle size={10} className={`flex-shrink-0 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />}
+                {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />}
                 {canEdit && !reference && (
                   <button onClick={() => onRemove(list, i)} title="Zeile entfernen"
                     className={`p-0.5 flex-shrink-0 ${c.muted}`}><Trash2 size={10} /></button>
