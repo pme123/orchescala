@@ -409,10 +409,16 @@ nach `.scala`, Tests und Build-Ordner bleiben draussen. Neu **aufbauen**, nicht
 ergänzen: nur so wirkt sich ein Umsortieren überhaupt aus.
 
 Der Ordner-Zugriff wird gemerkt (IndexedDB), die Erlaubnis dazu verlangt der
-Browser nach einem Neustart neu. Fehlt sie für auch nur ein Projekt, bleibt
-der Katalog unverändert stehen — ein halber Aufbau, der stillschweigend Typen
-verliert, wäre schlimmer als gar keiner. **Projekte wählen** mit demselben
-Ordner stellt den Zugriff wieder her.
+Browser nach einem Neustart neu — und zwar **einmal für den Ordner über den
+Projekten**, nicht je Projekt: gemerkt wird der gewählte Ordner (`root`), die
+Projektordner darunter erben seinen Zugriff. Bei «Neu aufbauen» kommt darum
+ein Dialog, nicht siebzehn (der Browser gibt die Erlaubnis nur auf einen
+Klick hin; mehrere Dialoge nacheinander liesse er gar nicht zu). Fehlt sie
+trotzdem, bleibt der Katalog unverändert stehen — ein halber Aufbau, der
+stillschweigend Typen verliert, wäre schlimmer als gar keiner — und die
+Meldung sagt, welcher Ordner zu bestätigen ist. Projekte aus einem älteren
+Stand, die noch einzeln gemerkt sind, hängen sich beim nächsten **Projekte
+wählen** an ihren Ordner darüber.
 
 Gesammelt wird alles, was sich als Feldtyp verwenden lässt — die Objekte im
 `schema/`-Ordner ebenso wie die `In` / `Out` der Services. Der Parser kennt

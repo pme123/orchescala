@@ -19,6 +19,8 @@ const IGNORE = ['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_module
 
 /** Schlüssel des gemerkten Ordner-Zugriffs. */
 export const handleKey = (p: ProjectFolder) => `project:${p.id}`;
+/** Schlüssel des Ordners über den Projekten. */
+export const rootKey = (root: string) => `root:${root}`;
 
 /**
  * Sieht dieser Ordner nach einem Orchescala-Projekt aus? Kennzeichen ist ein
@@ -43,11 +45,14 @@ export async function projectsInFolder(
   if (await istProjekt(dir)) {
     return [{ project: { id: uid('p'), name: dir.name }, handle: dir }];
   }
+  // Der Ordner darüber wird als `root` gemerkt: ein Zugriff für alle
+  // Projekte darunter — der Browser fragt dann einmal, nicht je Projekt.
+  await putHandle(rootKey(dir.name), dir);
   const gefunden: Array<{ project: ProjectFolder; handle: FileSystemDirectoryHandle }> = [];
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind !== 'directory' || IGNORE.includes(name) || name.startsWith('.')) continue;
     const unter = handle as FileSystemDirectoryHandle;
-    if (await istProjekt(unter)) gefunden.push({ project: { id: uid('p'), name }, handle: unter });
+    if (await istProjekt(unter)) gefunden.push({ project: { id: uid('p'), name, root: dir.name }, handle: unter });
   }
   gefunden.sort((a, b) => a.project.name.localeCompare(b.project.name));
   return gefunden;
@@ -89,6 +94,30 @@ export interface RebuildResult {
  * wirkt sich ein Umsortieren aus: beim Ergänzen bliebe das früher Gelesene
  * ja stehen, egal wie die Liste inzwischen aussieht.
  */
+/**
+ * Der lesbare Ordner eines Projekts. Kam es aus einem Ordner darüber, wird
+ * dessen Zugriff genommen (einmal bestätigt, gilt für alle darunter); sonst
+ * der eigene. `roots` merkt sich je Wurzel, ob der Zugriff steht — damit ein
+ * Aufbau über 17 Projekte nicht 17 Dialoge auslöst.
+ */
+export async function handleFor(
+  p: ProjectFolder,
+  roots: Map<string, FileSystemDirectoryHandle | null> = new Map(),
+): Promise<FileSystemDirectoryHandle | null> {
+  if (p.root) {
+    if (!roots.has(p.root)) {
+      const root = await getHandle(rootKey(p.root));
+      roots.set(p.root, root && (await ensureRead(root)) ? root : null);
+    }
+    const root = roots.get(p.root);
+    if (root) {
+      try { return await root.getDirectoryHandle(p.name); } catch { /* umbenannt oder weg — eigener Zugriff */ }
+    }
+  }
+  const own = await getHandle(handleKey(p));
+  return own && (await ensureRead(own)) ? own : null;
+}
+
 export async function rebuild(
   projects: ProjectFolder[],
   onProgress: (text: string) => void,
@@ -99,10 +128,13 @@ export async function rebuild(
   const gezaehlt: ProjectFolder[] = [];
   let files = 0;
   let skipped = 0;
+  // Zugriff je Wurzel zuerst — solange der Klick noch als Nutzeraktion zählt
+  const roots = new Map<string, FileSystemDirectoryHandle | null>();
+  for (const p of projects) if (p.root && !roots.has(p.root)) await handleFor(p, roots);
 
   for (const p of projects) {
-    const handle = await getHandle(handleKey(p));
-    if (!handle || !(await ensureRead(handle))) {
+    const handle = await handleFor(p, roots);
+    if (!handle) {
       missing.push(p);
       gezaehlt.push({ ...p, types: 0 });
       continue;

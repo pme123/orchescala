@@ -27,8 +27,7 @@ import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
 import { interactionKind, resolveType, suggestName } from './interactions';
 import { domainRef } from './serviceTypes';
-import { ensureRead, getHandle } from './handles';
-import { handleKey, readSources } from './projects';
+import { handleFor, readSources } from './projects';
 import { uid } from './util';
 
 export interface ProjectFile { path: string; text: string }
@@ -95,9 +94,10 @@ export async function findDomain(processId: string, model: Model | null, onProgr
 
   const folders: ProjectFolder[] = [...(model?.projects ?? [])]
     .sort((a, b) => Number(processId.startsWith(b.name)) - Number(processId.startsWith(a.name)));
+  const roots = new Map<string, FileSystemDirectoryHandle | null>();
   for (const p of folders) {
-    const handle = await getHandle(handleKey(p));
-    if (!handle || !(await ensureRead(handle))) continue;
+    const handle = await handleFor(p, roots);
+    if (!handle) continue;
     onProgress?.(`${p.name} wird gelesen …`);
     const files: ProjectFile[] = [];
     await readSources(handle, p.name, files, () => {});

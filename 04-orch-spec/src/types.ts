@@ -453,6 +453,12 @@ export interface ProjectFolder {
    * keinen Pfad heraus; dort führt der gemerkte Zugriff zum Ordner zurück.
    */
   path?: string;
+  /**
+   * Name des Ordners **über** den Projekten, aus dem dieses Projekt kam
+   * (`projects`). Sein Zugriff wird einmal gemerkt und einmal bestätigt —
+   * die Projektordner darunter erben ihn, statt je einen Dialog zu brauchen.
+   */
+  root?: string;
   /** Zahl der Typen aus diesem Projekt beim letzten Aufbau */
   types?: number;
   [key: string]: unknown;
