@@ -83,6 +83,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       const hit = spec.processId ? await findDomain(spec.processId, model, setBusy) : null;
       setBusy(null);
       const enriched = hit ? enrichSpec(spec, hit.domain, model) : null;
+      if (enriched && hit?.note) enriched.warnings.unshift(hit.note);
       setPending({ spec, xml: text, stepCount, enriched, source: hit?.source ?? null });
     } catch (e) {
       setBusy(null);

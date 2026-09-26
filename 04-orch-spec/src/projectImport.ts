@@ -70,16 +70,28 @@ export interface DomainHit {
   domain: DomainType[];
   /** woher: `Katalog` oder `Ordner <name>` */
   source: string;
+  /** Vorbehalt zur Quelle, z. B. ein älterer Katalog ohne die Fälle der enums */
+  note?: string;
 }
 
 /**
- * Die Domain zum Prozess suchen: erst der Katalog, dann die gemerkten
- * Projekt-Ordner — Ordner, deren Name zur Prozess-ID passt, zuerst (die
- * Leseberechtigung fragt der Browser je Ordner nach). `null` = nichts gefunden.
+ * Kennt der Katalog die Angaben des heutigen Scanners (Art des Objekts,
+ * Schlüssel, Fälle und gemeinsame Felder der enums)? Ein älterer Katalog
+ * hat nur Namen und Felder — daraus wird kein ADT und keine Zuordnung über
+ * `val name`.
+ */
+const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || t.keyName || t.cases?.length);
+
+/**
+ * Die Domain zum Prozess suchen: der Katalog, wenn er den Prozess **mit
+ * allen Angaben** kennt; sonst die gemerkten Projekt-Ordner — Ordner, deren
+ * Name zur Prozess-ID passt, zuerst (die Leseberechtigung fragt der Browser
+ * je Ordner nach); sonst ein älterer Katalog mit Vorbehalt. `null` = nichts.
  */
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
   const catalog = model?.domainTypes ?? [];
-  if (hasProcess(catalog, processId)) return { domain: catalog, source: 'Katalog' };
+  const inCatalog = hasProcess(catalog, processId);
+  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog' };
 
   const folders: ProjectFolder[] = [...(model?.projects ?? [])]
     .sort((a, b) => Number(processId.startsWith(b.name)) - Number(processId.startsWith(a.name)));
@@ -91,6 +103,12 @@ export async function findDomain(processId: string, model: Model | null, onProgr
     await readSources(handle, p.name, files, () => {});
     const domain = scanDomain(files);
     if (hasProcess(domain, processId)) return { domain, source: `Ordner ${p.name}` };
+  }
+  if (inCatalog) {
+    return {
+      domain: catalog, source: 'Katalog',
+      note: 'Der Katalog ist von einem älteren Stand: Fälle und gemeinsame Felder der enums sowie die Schlüssel der Objekte fehlen darin. Katalog neu aufbauen (Admin → Katalog) oder den Projekt-Ordner wählen.',
+    };
   }
   return null;
 }
@@ -108,7 +126,11 @@ class Converter {
   readonly unresolved = new Set<string>();
   private readonly ids = new Map<string, string>();
 
-  constructor(private readonly domain: DomainType[], private readonly pkg: string, private readonly model: Model | null) {}
+  constructor(
+    private readonly domain: DomainType[], private readonly pkg: string, private readonly model: Model | null,
+    /** Objekte, die im Prozess eine Interaktion sind — deren In/Out bleiben **ein** Typ, `Objekt.In` */
+    private readonly interactionOwners: Set<string> = new Set(),
+  ) {}
 
   /** Gehört der Typ zum Projekt des Prozesses (gleicher Paketstamm)? */
   private own(t: DomainType): boolean {
@@ -131,6 +153,17 @@ class Converter {
         return shape.constraint ? { ...inner, constraint: inner.constraint ?? shape.constraint } : inner;
       }
       if (own.kind === 'member' && !own.fields?.length) { this.unresolved.add(base); return { type: base }; }
+      // `MergeContractsForCAM.In` als Feldtyp: das In/Out eines Objekts. Ist
+      // das Objekt eine Interaktion dieses Prozesses, ist es derselbe Typ wie
+      // dort — mit vollem Namen. Sonst gehört es einem fremden Objekt (DMN,
+      // Service) und zeigt in den Katalog, wenn der es kennt.
+      if (own.owner && /\.(In|Out)$/.test(own.name)) {
+        if (this.interactionOwners.has(own.owner)) return { type: this.convert(own, {}, own.name) };
+        const ext = resolveType(base, this.model, pkg);
+        if (ext) return { type: domainRef(ext.id) };
+        this.unresolved.add(base);
+        return { type: base };
+      }
       return { type: this.convert(own, {}) };
     }
     // fremdes Projekt: der Katalog kennt es vielleicht
@@ -144,7 +177,12 @@ class Converter {
   convert(dom: DomainType, flags: Partial<TypeDef>, copyAs?: string): string {
     const memo = copyAs ? `${dom.id}→${copyAs}` : dom.id;
     const known = this.ids.get(memo);
-    if (known) return known;
+    if (known) {
+      // schon da (etwa als Feldtyp) — die Rolle kommt nachträglich dazu
+      const existing = this.types.find(t => t.id === known);
+      if (existing) Object.assign(existing, flags);
+      return known;
+    }
     const id = uid('t');
     this.ids.set(memo, id);
     const name = copyAs ?? (dom.owner ? dom.name.slice(dom.owner.length + 1) : dom.name);
@@ -232,7 +270,9 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   if (!procType) return null;
   const owner = procType.owner!;
   const pkg = procType.pkg;
-  const conv = new Converter(domain, pkg, model);
+  // Objekte mit Interaktions-Art — deren In/Out bleiben ein Typ mit vollem Namen
+  const interactionOwners = new Set(domain.filter(t => t.owner && objectKind(t)).map(t => t.owner!));
+  const conv = new Converter(domain, pkg, model, interactionOwners);
   const member = (obj: string, name: string) => domain.find(t => t.id === `${pkg}.${obj}.${name}`) ?? null;
 
   // Prozess: In · InitIn · Out — InConfig ist Implementations-Detail

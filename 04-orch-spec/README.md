@@ -240,7 +240,10 @@ Ein Orchescala-Prozess trägt seine ID in beiden Welten: im BPMN als
 Prozess-ID, in der Domain als `val processName`. Wer ein BPMN wählt, muss die
 Domain deshalb nicht suchen — die App tut es, in dieser Reihenfolge:
 
-1. im **Domain-Katalog** (model.json bzw. `catalog.generated.json`),
+1. im **Domain-Katalog** (model.json bzw. `catalog.generated.json`) — sofern
+   er vom heutigen Scanner stammt; ein älterer Katalog kennt weder die Fälle
+   und gemeinsamen Felder der enums noch die Schlüssel der Objekte und wird
+   nur als letzte Wahl genommen, mit Hinweis («Katalog neu aufbauen»),
 2. in den **gemerkten Projekt-Ordnern** (Admin → Katalog → Projekt-Ordner;
    der Browser fragt je Ordner einmal nach dem Leserecht — Ordner, deren
    Name zur Prozess-ID passt, kommen zuerst),
@@ -268,6 +271,9 @@ Was dabei entsteht, ohne Raten:
   wird zum Grundtyp mit Einschränkung. Typen aus **anderen Projekten**
   (`GravitonConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
   sonst bleibt der Name stehen und wird gemeldet.
+- Ein Feld vom Typ `MergeContractsForCAM.In` — das In/Out eines Objekts —
+  bleibt **derselbe Typ** wie bei der Interaktion, unter vollem Namen; gehört
+  das Objekt nicht zum Prozess (DMN, fremder Service), zeigt es in den Katalog.
 - **Interaktionen** kommen aus den Objekten mit `CompanyBpmn…Dsl`: eine
   Benutzeraufgabe über `val name` (= Element-ID), ein Worker über
   `val topicName` (auch wenn es nicht mit der Prozess-ID beginnt), Signal und
