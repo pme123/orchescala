@@ -602,15 +602,17 @@ Katalog als Vorschlag im Eingabefeld, ohne mitgespeichert zu werden.
 
 Die Mappings sind **bearbeitbar** — Ausdruck und fachliche Bedeutung je Zeile —
 und jede Zeile hat ein **Häkchen**: Was möglich wäre, dieser Prozess aber nicht
-braucht, wird **abgewählt statt gelöscht**. So bleibt sichtbar, was es gäbe.
+braucht, wird **abgewählt** — so bleibt sichtbar, was es gäbe. Löschen geht
+daneben ebenfalls, je Zeile über den Papierkorb.
 Der Kopf zeigt dann «5 von 6», der Export listet die abgewählten getrennt als
 «Nicht verwendet», und ein erneuter BPMN-Abgleich stellt sie nicht wieder her:
 die Abwahl gehört der Spezifikation, wie die fachliche Bedeutung.
 
 **Das Mapping misst sich am Datenmodell.** Hat der Schritt eine Interaktion mit
 `In`/`Out`, sind deren Felder der Massstab; sonst der Katalog-Eintrag. Der Kopf
-bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt. Die
-Felder des Massstabs lassen sich **nicht löschen**, nur abwählen.
+bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt.
+Löschen geht bei jeder Zeile — ein Feld des Massstabs steht danach wieder
+unter «+ aus Modell» bereit; wer es sichtbar behalten will, wählt es ab.
 
 **Erweiterungen** sind trotzdem möglich: «+ Feld» gibt es immer, auch mit
 Massstab — etwa für ein Feld, das der Service demnächst bekommt. Eine Zeile,

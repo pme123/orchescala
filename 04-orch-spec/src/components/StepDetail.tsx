@@ -582,9 +582,10 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 
 // ── kleine Bausteine ─────────────────────────────────────────────────────────
 // Ein- und Ausgaben eines Schritts: bearbeitbar, und jede Zeile lässt sich
-// **abwählen**. Ein Katalog-Service bringt alles mit, was er kann — was dieser
-// Prozess nicht braucht, wird deaktiviert statt gelöscht. So bleibt sichtbar,
-// was möglich wäre, und ein erneuter Abgleich stellt es nicht wieder her.
+// **abwählen** oder entfernen. Ein Katalog-Service bringt alles mit, was er
+// kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
+// oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
+// stellt Abgewähltes nicht wieder her.
 function MappingTable({ title, list, step, isDark, canEdit, service, reference, onChange, onAdd, onRemove, onFill }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
@@ -707,10 +708,12 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   title={m.expression ? `${hint.expression}\n\nAktuell: ${m.expression}` : hint.expression}
                   className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
-                {/* Entfernen: frei ohne Massstab; mit Massstab nur, was er nicht
-                    kennt — seine Felder werden abgewählt, nicht gelöscht */}
-                {canEdit && (!reference || fehlt) && (
-                  <button onClick={() => onRemove(list, i)} title="Zeile entfernen"
+                {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
+                    «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist
+                    die sanftere Variante, wenn es sichtbar bleiben soll. */}
+                {canEdit && (
+                  <button onClick={() => onRemove(list, i)}
+                    title={reference && !fehlt ? `Zeile entfernen — steht danach unter «+ aus ${reference.quelle}» wieder bereit` : 'Zeile entfernen'}
                     className={`p-0.5 flex-shrink-0 ${c.muted}`}><Trash2 size={10} /></button>
                 )}
               </div>
