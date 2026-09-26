@@ -599,6 +599,22 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const c = cls(isDark);
   const rows = step[list] ?? [];
   const active = rows.filter(m => !m.disabled).length;
+  // Was die Felder bedeuten — beim Überfahren erklärt, denn bei Ein- und
+  // Ausgaben ist die Leserichtung verschieden: bei Eingaben ist «name» der
+  // Parameter des Services und der Ausdruck kommt aus dem Prozess, bei
+  // Ausgaben ist «name» die Prozessvariable und der Ausdruck die Quelle.
+  const hint = list === 'inputs'
+    ? {
+        section: 'Eingaben: was der Schritt beim Aufruf bekommt — je Zeile ein Parameter des Services (In) und der Wert dazu aus dem Prozess.',
+        name: 'Input-Variablen-Name: so heisst der Parameter beim Service (Feld im In).',
+        expression: 'Wert der Eingabe: Ausdruck oder Prozessvariable, z. B. ${clientKey} oder #{clientKey}.',
+      }
+    : {
+        section: 'Ausgaben: was der Schritt in den Prozess zurückschreibt — je Zeile eine Prozessvariable und ihre Quelle im Ergebnis.',
+        name: 'Output-Variablen-Name: so heisst die Prozessvariable, in die der Wert geschrieben wird.',
+        expression: 'Quelle der Ausgabe: Ausdruck auf dem Ergebnis des Services (Out), z. B. ${out.accountId}.',
+      };
+  const descrHint = 'Fachliche Bedeutung des Feldes für die Stakeholder — landet in der Spezifikation und im Export.';
   // Der Katalog kennt die Bedeutung der Felder (aus den OpenAPI-Schemas).
   // Wo der Schritt keine eigene hat, steht sie als Vorschlag im Feld — sie
   // wird nicht mitgespeichert, solange niemand sie übernimmt.
@@ -614,7 +630,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
-        <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{title}</h3>
+        <h3 title={hint.section} className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{title}</h3>
         {!!rows.length && (
           <span className={`text-[9px] ${c.muted}`}>
             {active === rows.length ? rows.length : `${active} von ${rows.length}`}
@@ -662,11 +678,12 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                 <input value={m.name} disabled={!canEdit || off}
                   onChange={e => onChange(list, i, { name: e.target.value })}
                   placeholder="name"
+                  title={hint.name}
                   className={`w-32 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${off ? 'line-through' : ''}`} />
                 <input value={m.expression} disabled={!canEdit || off}
                   onChange={e => onChange(list, i, { expression: e.target.value })}
                   placeholder={list === 'inputs' ? 'Ausdruck / Variable' : 'Quelle'}
-                  title={m.expression}
+                  title={m.expression ? `${hint.expression}\n\nAktuell: ${m.expression}` : hint.expression}
                   className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
                 {fehlt && <AlertTriangle size={10} className={`flex-shrink-0 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />}
                 {canEdit && !reference && (
@@ -677,7 +694,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
               <input value={m.description ?? ''} disabled={!canEdit || off}
                 onChange={e => onChange(list, i, { description: e.target.value || undefined })}
                 placeholder={fromCatalog.get(m.name) || 'fachliche Bedeutung'}
-                title={fromCatalog.get(m.name) ? `laut Katalog: ${fromCatalog.get(m.name)}` : undefined}
+                title={fromCatalog.get(m.name) ? `${descrHint}\n\nLaut Katalog: ${fromCatalog.get(m.name)}` : descrHint}
                 className={`mt-1 w-full text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
             </div>
           );
