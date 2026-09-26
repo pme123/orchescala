@@ -614,6 +614,13 @@ bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt.
 Löschen geht bei jeder Zeile — ein Feld des Massstabs steht danach wieder
 unter «+ aus Modell» bereit; wer es sichtbar behalten will, wählt es ab.
 
+**Pflichtfelder** tragen ein Sternchen: ein Feld, das im `In` der Interaktion
+nicht optional ist — oder laut Katalog `required` —, muss der Service
+bekommen. Die Zeile lässt sich deshalb weder abwählen noch entfernen; das
+Sternchen und das Häkchen erklären das beim Überfahren. Fehlt ein
+Pflichtfeld ganz oder ist es aus einem alten Stand abgewählt, steht das rot
+über der Tabelle.
+
 **Erweiterungen** sind trotzdem möglich: «+ Feld» gibt es immer, auch mit
 Massstab — etwa für ein Feld, das der Service demnächst bekommt. Eine Zeile,
 die das Modell noch nicht kennt, wird **gelb markiert** (Warnung, kein

@@ -4,7 +4,7 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, ExternalLink, GitFork, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, Asterisk, ChevronDown, ExternalLink, GitFork, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
 import type { EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
@@ -686,6 +686,21 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const zaehler = new Map<string, number>();
   for (const m of rows) if (m.name && !m.disabled) zaehler.set(m.name, (zaehler.get(m.name) ?? 0) + 1);
   const doppelt = new Set([...zaehler].filter(([, n]) => n > 1).map(([name]) => name));
+  // Pflicht: das Feld der In-Klasse ist nicht optional — oder der Katalog
+  // sagt `required`. Ein Pflichtfeld muss der Service bekommen; die Zeile
+  // lässt sich deshalb weder abwählen noch entfernen.
+  const pflichtGrund = (name: string): string | null => {
+    if (list !== 'inputs' || !name) return null;
+    if (refFields) {
+      const f = refFields.find(x => x.name === name);
+      return f && !f.optional ? `Pflichtfeld: «${name}» ist im In nicht optional` : null;
+    }
+    const p = service?.inputs?.find(x => x.name === name);
+    return p?.required ? `Pflichtfeld: «${name}» ist laut Katalog erforderlich` : null;
+  };
+  const pflichtFehlt = reference
+    ? reference.names.filter(n => pflichtGrund(n) && !rows.some(m => m.name === n && !m.disabled))
+    : [];
   if (!rows.length && !canEdit) return null;
 
   return (
@@ -724,11 +739,17 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           Doppelt: {[...doppelt].map(n => `«${n}»`).join(', ')} — jeder Name nur einmal.
         </p>
       )}
+      {!!pflichtFehlt.length && (
+        <p className={`text-[10px] mb-1 ${err}`}>
+          Pflichtfeld{pflichtFehlt.length === 1 ? '' : 'er'} {pflichtFehlt.map(n => `«${n}»`).join(', ')} fehl{pflichtFehlt.length === 1 ? 't' : 'en'} — der Service braucht {pflichtFehlt.length === 1 ? 'es' : 'sie'}.
+        </p>
+      )}
       <div className="space-y-1">
         {rows.map((m, i) => {
           const off = !!m.disabled;
           const fehlt = !!bekannt && !!m.name && !bekannt.has(m.name);
           const dupl = !off && doppelt.has(m.name);
+          const pflicht = pflichtGrund(m.name);
           // Doppelt ist ein Fehler (rot), eine Erweiterung nur eine Warnung (gelb)
           const problem = dupl
             ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.`
@@ -737,7 +758,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const feel = !off && isFeel(m.expression)
             ? checkFeel(m.expression, variables, expectedFor(refFields?.find(f => f.name === m.name), types, model))
             : null;
-          const feelIssues = feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : [];
+          const feelIssues: FeelIssue[] = [
+            ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
+            ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : []),
+          ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
           const box = dupl || feelIssues.some(i => i.level === 'error') ? errBox : fehlt || feelIssues.length ? warnBox : c.border2;
           const mark = dupl ? err : warn;
@@ -754,15 +778,21 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                 </p>
               ))}
               <div className="flex items-center gap-1.5">
-                <input type="checkbox" checked={!off} disabled={!canEdit}
-                  title={off ? 'kommt in diesem Prozess nicht vor' : 'wird verwendet — abwählen, wenn nicht gebraucht'}
+                <input type="checkbox" checked={!off} disabled={!canEdit || (!!pflicht && !off)}
+                  title={pflicht && !off ? `${pflicht} — lässt sich nicht abwählen` : off ? 'kommt in diesem Prozess nicht vor' : 'wird verwendet — abwählen, wenn nicht gebraucht'}
                   onChange={e => onChange(list, i, { disabled: e.target.checked ? undefined : true })}
                   className="flex-shrink-0" />
                 <input value={m.name} disabled={!canEdit || off}
                   onChange={e => onChange(list, i, { name: e.target.value })}
                   placeholder="name"
-                  title={hint.name}
+                  title={pflicht ? `${hint.name}\n\n${pflicht} — weder abwählen noch entfernen.` : hint.name}
                   className={`w-32 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${off ? 'line-through' : ''}`} />
+                {pflicht && (
+                  <span title={`${pflicht} — weder abwählen noch entfernen.`}
+                    className={`flex-shrink-0 -ml-1 ${off ? err : c.muted}`}>
+                    <Asterisk size={10} />
+                  </span>
+                )}
                 <FeelInput value={m.expression} disabled={!canEdit || off} isDark={isDark}
                   variables={variables}
                   onChange={v => onChange(list, i, { expression: v })}
@@ -777,7 +807,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                 {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
                     «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist
                     die sanftere Variante, wenn es sichtbar bleiben soll. */}
-                {canEdit && confirmRemove !== i && (
+                {canEdit && !pflicht && confirmRemove !== i && (
                   <button onClick={() => setConfirmRemove(i)}
                     title={reference && !fehlt ? `Zeile entfernen — steht danach unter «+ aus ${reference.quelle}» wieder bereit` : 'Zeile entfernen'}
                     className={`p-0.5 flex-shrink-0 ${c.muted}`}><Trash2 size={10} /></button>
