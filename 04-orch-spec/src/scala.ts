@@ -18,6 +18,7 @@ import type { EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from 
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
+import { blockIndex, blockStart } from './bpmn.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -382,6 +383,8 @@ export interface ScalaFile {
   content: string;
   /** true = ins bestehende Prozess-Objekt einfügen, nicht als neue Datei */
   insert?: boolean;
+  /** Klammer: der eigene Block oder Ereignis-Subprozess, zu dem die Interaktion gehört */
+  section?: string;
 }
 
 // Nur was der Typ wirklich braucht: Iron-Refinements und Service-Objekte
@@ -509,13 +512,24 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
 
   // Je Interaktion eine eigene Datei. Dasselbe Signal an zwei Stellen im
   // Ablauf ist **ein** Objekt — sonst stünde die Datei zweimal im Export.
+  // Erst der Hauptablauf, dann je eigenem Block bzw. Ereignis-Subprozess
+  // eine Klammer — dieselbe wie im Baum und im Datenmodell.
+  const blocks = blockIndex(spec.steps);
+  const sectionOf = (ia: Interaction): string | undefined => {
+    const ref = blocks.get(ia.stepId);
+    if (!ref) return undefined;
+    return ref.eventSub ? `Ereignis-Subprozess «${ref.head.name}»` : `Eigener Block «${ref.head.name}» — ${blockStart(ref.head)}`;
+  };
   const geschrieben = new Set<string>();
-  for (const ia of spec.interactions ?? []) {
+  const sorted = [...(spec.interactions ?? [])].map((ia, i) => ({ ia, i, section: sectionOf(ia) }))
+    .sort((a, b) => (a.section ? 1 : 0) - (b.section ? 1 : 0) || (a.section ?? '').localeCompare(b.section ?? '') || a.i - b.i);
+  for (const { ia, section } of sorted) {
     if (geschrieben.has(ia.name)) continue;
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,
-      content: `package ${pkg}\n\n${renderInteraction(ia, spec, idx)}\n`,
+      content: `package ${pkg}\n\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
+      ...(section ? { section } : {}),
     });
   }
 
@@ -532,9 +546,14 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
 export function scalaBundle(spec: ProcessSpec, model: Model | null = null): string {
   const files = scalaFiles(spec, model);
   if (!files.length) return '// Noch kein Datenmodell — im Klassenbauer anlegen.';
-  return files.map(f =>
-    `// ${'─'.repeat(72)}\n// ${f.path}${f.insert ? '  (in die bestehende Datei einfügen)' : ''}\n// ${'─'.repeat(72)}\n\n${f.content}`
-  ).join('\n\n');
+  // Klammer: eine Überschrift, sobald ein eigener Block beginnt — und wieder
+  // eine, wenn danach die gemeinsamen Klassen (schema/) folgen
+  let section: string | undefined;
+  return files.map(f => {
+    const head = f.section !== section ? `// ${'═'.repeat(72)}\n// ${f.section ?? 'Gemeinsame Klassen'}\n// ${'═'.repeat(72)}\n\n` : '';
+    section = f.section;
+    return `${head}// ${'─'.repeat(72)}\n// ${f.path}${f.insert ? '  (in die bestehende Datei einfügen)' : ''}\n// ${'─'.repeat(72)}\n\n${f.content}`;
+  }).join('\n\n');
 }
 
 // ── Prüfungen ────────────────────────────────────────────────────────────────
