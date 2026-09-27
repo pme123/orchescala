@@ -11,9 +11,9 @@
 // und — bei Antworten — wer den Faden angefangen hat, eine Chat-Nachricht
 // (siehe useTeamsNotify).
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AtSign, Check, ChevronLeft, ChevronRight, Clock, CornerDownRight, List, MessageSquare, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { AtSign, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, List, MessageSquare, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import {
-  addReply, addThread, baseOf, removeEntry, removeThread, setResolved, whenLabel,
+  addReply, addThread, baseOf, removeEntry, removeThread, setResolved, whenFull, whenLabel,
   type CommentAuthor, type CommentTargetInfo, type Counts,
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
@@ -306,6 +306,9 @@ export function CommentsPanel(p: PanelProps) {
   const [replyDraft, setReplyDraft] = useState('');
   const [replyMentions, setReplyMentions] = useState<DirectoryUser[]>([]);
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  /** erledigte Fäden, die jemand aufgeklappt hat — sonst stehen sie auf einer Zeile */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) => setExpanded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const addMention = (set: React.Dispatch<React.SetStateAction<DirectoryUser[]>>) => (u: DirectoryUser) =>
     set(prev => (prev.some(x => x.email.toLowerCase() === u.email.toLowerCase()) ? prev : [...prev, u]));
   // nur Erwähnungen, deren «@Name» noch im Text steht
@@ -413,13 +416,12 @@ export function CommentsPanel(p: PanelProps) {
     const e = faden.entries[i];
     const isReply = i > 0;
     return (
-      <div key={e.id} className={`flex gap-2 ${isReply ? 'ml-5' : ''}`}>
-        {isReply && <CornerDownRight size={12} className={`mt-1 flex-shrink-0 ${c.muted}`} />}
+      <div key={e.id} className={`group/entry flex gap-2 ${isReply ? `ml-3 pl-3 border-l ${c.border2}` : ''}`}>
         <AuthorChip name={e.author} email={e.email} initials={initialsFor(e.author)} isDark={isDark} />
         <div className="flex-1 min-w-0">
-          <div className={`flex items-center gap-2 text-[10px] ${c.muted}`}>
-            <span className="truncate" title={e.author}>{e.author}</span>
-            <span className="flex-shrink-0">{whenLabel(e.at)}</span>
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className={`truncate font-semibold ${isDark ? 'text-white/85' : 'text-black/85'}`} title={e.email ? `${e.author} · ${e.email}` : e.author}>{e.author}</span>
+            <span className={`flex-shrink-0 ${c.muted}`} title={whenFull(e.at)}>{whenLabel(e.at)}</span>
             {/* Teams-Benachrichtigung: gesendet / noch ausstehend */}
             {(e.notified?.length ?? 0) > 0 && (
               <span title={`Teams-Nachricht gesendet an ${e.notified!.join(', ')}`} className="flex-shrink-0">
@@ -427,24 +429,25 @@ export function CommentsPanel(p: PanelProps) {
               </span>
             )}
             {(e.notifyPending?.length ?? 0) > 0 && (
-              <span title={`Teams-Nachricht ausstehend an ${e.notifyPending!.join(', ')}`} className="flex-shrink-0 opacity-70">
+              <span title={`Teams-Nachricht ausstehend an ${e.notifyPending!.join(', ')}`} className={`flex-shrink-0 ${c.muted}`}>
                 <Clock size={9} />
               </span>
             )}
-            <span className="ml-auto flex items-center gap-0.5 flex-shrink-0">
-              {p.canEdit && !isReply && (
-                <button type="button" title="Antworten" className={iconBtn}
-                  onClick={() => { setReplyTo(replyTo === faden.id ? null : faden.id); setReplyDraft(''); setReplyMentions([]); }}>
-                  <CornerDownRight size={11} />
-                </button>
-              )}
-              {p.canEdit && !isReply && (
-                <button type="button" title={faden.resolved ? 'Wieder öffnen' : 'Als erledigt markieren'} className={iconBtn}
-                  onClick={() => p.onChange(setResolved(spec, faden.id, !faden.resolved, p.author.name))}>
-                  {faden.resolved ? <RotateCcw size={11} /> : <Check size={11} />}
-                </button>
-              )}
-              {p.canEdit && (
+            {/* Aktionen erst beim Überfahren der Karte — so bleibt der Text im Vordergrund */}
+            {p.canEdit && (
+              <span className="ml-auto flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity">
+                {!isReply && (
+                  <button type="button" title="Antworten" className={iconBtn}
+                    onClick={() => { setReplyTo(replyTo === faden.id ? null : faden.id); setReplyDraft(''); setReplyMentions([]); }}>
+                    <CornerDownRight size={11} />
+                  </button>
+                )}
+                {!isReply && (
+                  <button type="button" title={faden.resolved ? 'Wieder öffnen' : 'Als erledigt markieren'} className={iconBtn}
+                    onClick={() => p.onChange(setResolved(spec, faden.id, !faden.resolved, p.author.name))}>
+                    {faden.resolved ? <RotateCcw size={11} /> : <Check size={11} />}
+                  </button>
+                )}
                 <button type="button" title={isReply ? 'Antwort löschen' : 'Kommentar samt Antworten löschen'}
                   className={`p-1 rounded transition-colors ${isDark ? 'text-white/30 hover:text-rose-400' : 'text-black/30 hover:text-rose-500'}`}
                   onClick={() => {
@@ -453,16 +456,58 @@ export function CommentsPanel(p: PanelProps) {
                   }}>
                   <Trash2 size={11} />
                 </button>
-              )}
-            </span>
+              </span>
+            )}
           </div>
           <p className={`text-[11px] leading-relaxed whitespace-pre-wrap break-words mt-0.5 ${isDark ? 'text-white/85' : 'text-black/85'}`}>{renderWithMentions(e.text, e.mentions, isDark)}</p>
-          {!isReply && faden.resolved && (
-            <p className={`text-[10px] mt-0.5 ${isDark ? 'text-emerald-400/80' : 'text-emerald-600'}`}>
-              ✓ erledigt{faden.resolvedBy ? ` von ${initialsFor(faden.resolvedBy)}` : ''}{faden.resolvedAt ? ` · ${whenLabel(faden.resolvedAt)}` : ''}
-            </p>
-          )}
         </div>
+      </div>
+    );
+  };
+
+  /** Ein erledigter Faden auf einer Zeile — Klick klappt ihn auf. */
+  const resolvedRow = (faden: CommentThread) => {
+    const first = faden.entries[0];
+    const n = faden.entries.length - 1;
+    return (
+      <button type="button" onClick={() => toggleExpanded(faden.id)} title="Aufklappen"
+        className={`w-full flex items-center gap-2 text-left text-[10px] px-2 py-1.5 rounded border ${c.border} ${c.hover} ${c.muted}`}>
+        <Check size={11} className={`flex-shrink-0 ${isDark ? 'text-emerald-400/80' : 'text-emerald-600'}`} />
+        <span className={`truncate flex-1 min-w-0 ${isDark ? 'text-white/60' : 'text-black/60'}`}>{first?.text}</span>
+        <span className="flex-shrink-0">
+          erledigt{faden.resolvedBy ? ` · ${initialsFor(faden.resolvedBy)}` : ''}{faden.resolvedAt ? ` · ${whenLabel(faden.resolvedAt)}` : ''}{n ? ` · ${n} Antwort${n === 1 ? '' : 'en'}` : ''}
+        </span>
+        <ChevronRight size={11} className="flex-shrink-0" />
+      </button>
+    );
+  };
+
+  /** Ein Faden als Karte: erster Beitrag, Antworten eingerückt, Antwortfeld unten. */
+  const threadCard = (faden: CommentThread) => {
+    if (faden.resolved && !expanded.has(faden.id)) return <div key={faden.id}>{resolvedRow(faden)}</div>;
+    return (
+      <div key={faden.id}
+        className={`group/card rounded border px-2 py-2 space-y-2 ${faden.resolved ? `${c.border} opacity-80` : c.border2}`}>
+        {faden.resolved && (
+          <button type="button" onClick={() => toggleExpanded(faden.id)} title="Zuklappen"
+            className={`w-full flex items-center gap-1.5 text-[10px] ${isDark ? 'text-emerald-400/80' : 'text-emerald-600'}`}>
+            <Check size={11} className="flex-shrink-0" />
+            <span className="truncate">erledigt{faden.resolvedBy ? ` von ${faden.resolvedBy}` : ''}{faden.resolvedAt ? ` · ${whenLabel(faden.resolvedAt)}` : ''}</span>
+            <ChevronDown size={11} className="ml-auto flex-shrink-0" />
+          </button>
+        )}
+        {faden.entries.map((_, i) => entryRow(faden, i))}
+        {replyTo === faden.id && (
+          <div className={`ml-3 pl-3 border-l ${c.border2} space-y-1.5`}>
+            <MentionTextarea {...mentionProps} value={replyDraft} onChange={setReplyDraft} onMention={addMention(setReplyMentions)}
+              onSubmit={() => reply(faden)} rows={2} autoFocus className={inputCls}
+              placeholder="Antwort … (@ erwähnt jemanden, Ctrl/Cmd+Enter sendet)" />
+            <div className="flex gap-1.5">
+              <button type="button" className={btnPrimary} disabled={!replyDraft.trim()} onClick={() => reply(faden)}>Antworten</button>
+              <button type="button" className={btnGhost} onClick={() => { setReplyTo(null); setReplyDraft(''); setReplyMentions([]); }}>Abbrechen</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -473,28 +518,13 @@ export function CommentsPanel(p: PanelProps) {
     const roots = all.filter(t => showResolved || !t.resolved);
     const hidden = all.length - roots.length;
     return (
-      <div className="space-y-4">
+      <div className="space-y-2">
         {roots.length === 0 && (
           <p className={`text-[11px] ${c.muted}`}>
             {hidden > 0 ? `${hidden} erledigte${hidden === 1 ? 'r Kommentar' : ' Kommentare'} ausgeblendet.` : 'Noch keine Kommentare an dieser Stelle.'}
           </p>
         )}
-        {roots.map(faden => (
-          <div key={faden.id} className={`space-y-2 ${faden.resolved ? 'opacity-60' : ''}`}>
-            {faden.entries.map((_, i) => entryRow(faden, i))}
-            {replyTo === faden.id && (
-              <div className="ml-5 space-y-1.5">
-                <MentionTextarea {...mentionProps} value={replyDraft} onChange={setReplyDraft} onMention={addMention(setReplyMentions)}
-                  onSubmit={() => reply(faden)} rows={2} autoFocus className={inputCls}
-                  placeholder="Antwort … (@ erwähnt jemanden, Ctrl/Cmd+Enter sendet)" />
-                <div className="flex gap-1.5">
-                  <button type="button" className={btnPrimary} disabled={!replyDraft.trim()} onClick={() => reply(faden)}>Antworten</button>
-                  <button type="button" className={btnGhost} onClick={() => { setReplyTo(null); setReplyDraft(''); setReplyMentions([]); }}>Abbrechen</button>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
+        {roots.map(threadCard)}
         {roots.length > 0 && hidden > 0 && (
           <p className={`text-[10px] ${c.muted}`}>{hidden} erledigte{hidden === 1 ? 'r Kommentar' : ' Kommentare'} ausgeblendet.</p>
         )}

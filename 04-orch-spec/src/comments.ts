@@ -236,11 +236,25 @@ function typeInfos(t: TypeDef, group: string): CommentTargetInfo[] {
   return out;
 }
 
-/** «vor 3 Tagen» ist hier zu ungenau — Datum und Uhrzeit, kurz. */
-export function whenLabel(iso: string): string {
+/**
+ * «vor 3 Tagen» ist hier zu ungenau, das volle Datum zu lang: heute nur die
+ * Uhrzeit, dieses Jahr «25.09. 09:45», sonst mit Jahr. Die volle Angabe
+ * steht im Tooltip (`whenFull`).
+ */
+export function whenLabel(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('de-CH', {
-    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+  const time = d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) return time;
+  const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0');
+  if (d.getFullYear() === now.getFullYear()) return `${dd}.${mm}. ${time}`;
+  return `${dd}.${mm}.${d.getFullYear()} ${time}`;
+}
+
+/** Datum und Uhrzeit ausgeschrieben — für den Tooltip. */
+export function whenFull(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('de-CH', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
