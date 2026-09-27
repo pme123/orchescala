@@ -20,7 +20,7 @@
 // in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
 // eine Frage, die sich hier stellt — steht das drin?
 import { useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, ChevronLeft, Image, KeyRound, MessageSquare } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Image, KeyRound, MessageSquare, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink } from '../auth';
 import type { CatalogFile } from '../catalogImport';
@@ -175,22 +175,41 @@ function CatalogState({ model, generated, isDark }: { model: Model; generated: C
  * der Versionsverlauf erhalten).
  */
 function ModelLocation({ isDark }: { isDark: boolean }) {
-  const { modelPath, legacyModelLeftover } = useStore();
+  const { modelPath, legacyModelLeftover, storage } = useStore();
+  const c = cls(isDark);
   const alt = modelPath === LEGACY_MODEL_PATH;
   if (!alt && !legacyModelLeftover) return null;
+  const sp = storage?.kind === 'sharepoint';
+  const mono = (t: string) => <span className="font-mono">{t}</span>;
   return (
-    <p className={`flex items-start gap-1.5 rounded-lg border p-3 text-[11px] ${isDark ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+    <div className={`flex items-start gap-2 rounded-lg border p-3 text-[11px] ${isDark ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
       <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
-      <span>
-        {alt
-          ? <>Die Stammdaten liegen noch im Hauptordner (<span className="font-mono">model.json</span>). Von Hand in
-              einen Unterordner <span className="font-mono">config/</span> verschieben — dann lassen sich in SharePoint
-              eigene Rechte vergeben: nur Admins schreiben, alle anderen lesen. Danach die Seite neu laden.</>
-          : <>Neben <span className="font-mono">config/model.json</span> liegt noch eine alte{' '}
-              <span className="font-mono">model.json</span> im Hauptordner. Es gilt die in{' '}
-              <span className="font-mono">config/</span> — die alte von Hand löschen.</>}
-      </span>
-    </p>
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <p className="leading-relaxed">
+          {alt
+            ? <>Die Stammdaten liegen noch im Hauptordner ({mono('model.json')}). Von Hand in den Unterordner{' '}
+                {mono('config/')} verschieben{sp
+                  ? <> — dort lassen sich in SharePoint eigene Rechte vergeben: nur Admins schreiben, alle anderen lesen
+                      (Anleitung SharePoint-Setup, Teil 3b). Verschieben statt kopieren, so bleibt der Versionsverlauf.</>
+                  : <> — das ist die Standard-Ablage; wird der Ordner später über SharePoint geteilt, bekommt {mono('config/')} dort eigene Rechte.</>}
+                {' '}Danach die Seite neu laden.</>
+            : <>Neben {mono('config/model.json')} liegt noch eine alte {mono('model.json')} im Hauptordner. Es gilt die in{' '}
+                {mono('config/')} — die alte von Hand löschen, sonst ist unklar, welche zählt.</>}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          {sp && storage?.webUrl && (
+            <a href={storage.webUrl} target="_blank" rel="noopener noreferrer"
+              className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded border ${c.btn}`}>
+              <ExternalLink size={11} /> Ordner in SharePoint öffnen
+            </a>
+          )}
+          <button onClick={() => window.location.reload()}
+            className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded border ${c.btn}`}>
+            <RefreshCw size={11} /> Seite neu laden
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
