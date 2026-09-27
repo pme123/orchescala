@@ -633,8 +633,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         if (services && !services.has(svcRef.serviceId)) {
           issues.push({ typeId: t.id, field: f.id, message: `Der Service «${svcRef.serviceId}» steht nicht (mehr) im Katalog — Import von «${f.name}» prüfen.` });
         }
-      } else if (!isScalar(f.type) && !ids.has(f.type)) {
-        issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden.` });
+      } else if (!isScalar(f.type) && !ids.has(f.type) && !idxAll.domainOf(f.type)) {
+        issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden${model?.domainTypes?.length ? '' : ' — kein Katalog geladen (Admin → Katalog)'}.` });
       }
       if (f.enumCase) {
         const cases = casesOf(f.type, idxAll);

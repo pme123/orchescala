@@ -129,10 +129,19 @@ export function parseDomainRef(ref: string): string | null {
   return ref.startsWith(DOMAIN_PREFIX) ? ref.slice(DOMAIN_PREFIX.length) : null;
 }
 
+/**
+ * Der Katalog-Typ zu einem Feldtyp. Ein Verweis (`domain:<id>`) wird über
+ * die Id gefunden. Ein blosser Name (`ProcessCallOrigin`) bleibt vom Import
+ * zurück, wenn der Katalog den Typ damals nicht kannte — kennt er ihn
+ * jetzt, zählt das: der Name löst sich auf, sobald er eindeutig ist.
+ */
 export function domainTypeOf(ref: string, model: Model | null): DomainType | null {
+  const all = model?.domainTypes ?? [];
   const id = parseDomainRef(ref);
-  if (!id) return null;
-  return model?.domainTypes?.find(t => t.id === id) ?? null;
+  if (id) return all.find(t => t.id === id) ?? null;
+  if (!/^[A-Z][\w.]*$/.test(ref)) return null;
+  const byName = all.filter(t => t.name === ref);
+  return byName.length === 1 ? byName[0] : null;
 }
 
 /** Fällt der Katalog weg, bleibt wenigstens der Name lesbar. */
