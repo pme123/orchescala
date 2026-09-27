@@ -387,21 +387,98 @@ Datei gleich wieder an.
 
 ### Der Admin-Bereich
 
-Vier Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+Fünf Bereiche, in der Reihenfolge, in der sie gebraucht werden:
 
 1. **Auftritt** — Kunde und Logo für die Kopfzeile.
 2. **Katalog** — importieren, exportieren, nachschlagen. Das zählt in jeder
    Umgebung; in der Bankenzone ist es der einzige Bereich, der etwas tut.
    Das lokale Erzeugen (Projekt-Ordner, OpenAPI, Doku-Site) steckt darin
    zugeklappt: dazu müssen die Quellen erreichbar sein.
-3. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
-4. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
+3. **Pattern** — wiederkehrende BPMN-Bausteine, siehe [Pattern](#pattern).
+4. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
+5. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
    Antworten in Kommentaren: ein/aus, Wartezeit, Vorlage.
 
 Bewusst **keine** Liste zum Durchblättern: die Klassen eines Prozesses stehen
 in seiner Spezifikation unter «Datenmodell», dort wo sie gebraucht werden.
 Hier bleibt eine Suche über Services **und** Domain-Typen zugleich — für die
 eine Frage, die sich im Admin stellt: steht das drin?
+
+### Pattern
+
+Vieles im BPMN ist Hauskonvention, die an jedem Prozess gleich aussieht:
+eine Benutzeraufgabe meldet sich über Task-Listener und einen Timer an MAP,
+eine Eskalation hängt als Timer an der Aufgabe und startet über einen Link
+den Eskalationsprozess, am Ende steht ein `processStatus`. Solche Bausteine
+legt der Admin als **Pattern** an; in der Spezifikation wählt man sie am
+Element, statt sie Stück für Stück zu zeichnen.
+
+**Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
+Prozess (Admin → Pattern → «Im Editor bearbeiten»):
+
+```
+  ┌──────────────────────┐
+  │ PatternTarget        │  der Anker: sein Typ (Benutzeraufgabe, Call Activity …)
+  │  · Listener, Eingaben│  ist der Typ, an den das Pattern passt. Was an ihm
+  └──◯───────────────────┘  hängt, kommt an jedes Element, das es wählt
+     ↓ Timer ${timerStartEscalation}
+     ◉ Link «start-escalation»
+
+  ◉ Link «start-escalation» → [Start Escalation Process] → ○
+                              losgelöster Block: braucht der Prozess einmal
+```
+
+- Der **Anker** ist das Element mit der ID `PatternTarget`. Seine Attribute,
+  Erweiterungen (Listener, Ein-/Ausgaben, Properties) und Ereignisdefinitionen
+  kommen ans gewählte Element, seine **Boundary-Ereignisse samt Pfad** daran —
+  relativ zur Lage im Pattern, an Elemente anderer Grösse angepasst, und auf
+  dem Rand verschoben, wo schon ein Ereignis sitzt.
+- **Losgelöste Blöcke** (Link-Ziel → Aufruf → Ende, ein Ereignis-Subprozess)
+  braucht der Prozess **einmal**: fehlt der Block, kommt er unter das Diagramm
+  (der Pool wächst mit, was darunter liegt, rückt nach), sonst nicht.
+  Signale, Nachrichten und Fehler werden über ihren Namen wiederverwendet.
+- Ein Pattern **ohne Anker** gehört an den Prozess selbst (z. B. ein
+  Ereignis-Subprozess für den Abbruch).
+- **Parameter** stehen als `{{name}}` im BPMN — in Attributen, Texten,
+  Skripten. Im Admin bekommen sie Beschriftung, Vorgabe und Bedeutung.
+  Eingebaut sind `{{targetId}}`, `{{targetName}}`, `{{processId}}` und
+  `{{startMessage}}` (Nachricht des Nachrichten-Startereignisses); eine
+  Vorgabe darf sie nennen (`{{processId}}-informKube`).
+- **Je Engine ein BPMN** (Camunda 7 / 8): angeboten wird ein Pattern nur, wo
+  es für die Engine der Spezifikation eines gibt.
+
+**Wählen heisst einfügen.** Das Pattern steht sofort im Diagramm — nicht erst
+beim Export. Danach liest der Abgleich das Diagramm neu; ein offener Modeler
+lädt es nach. Die Werte der Parameter lassen sich am Schritt ändern (das
+Pattern wird herausgenommen und mit den neuen Werten an derselben Stelle
+wieder eingefügt), entfernen nimmt es samt Pfad heraus — und den gemeinsamen
+Block, wenn ihn kein anderes Element mehr braucht. Ein Parameter, der nur im
+gemeinsamen Block steht, gilt beim ersten Einfügen; danach gehört der Block
+dem Prozess.
+
+**Der Import erkennt Pattern** — aus demselben BPMN: ein Element trägt ein
+Pattern, wenn alles, was am Anker hängt, auch an ihm hängt; die Werte der
+Parameter werden dabei zurückgelesen. Verglichen wird tolerant: Reihenfolge,
+IDs, Namen der Flussknoten, Leerraum und Gross-/Kleinschreibung zählen nicht,
+`#{…}` gilt wie `${…}`, und was ein Element darüber hinaus trägt, stört nicht.
+Den gemeinsamen Block erkennt der Import an seinem **Einstieg** (Link-Ziel
+gleichen Namens, Ereignis-Subprozess mit gleichem Start). Bestimmtere Pattern
+gehen vor: was eines für sich beansprucht, kann kein anderes haben; dasselbe
+Pattern darf mehrmals am Element hängen (zwei Mail-Timer).
+
+Im **Baum** steht ein Pattern als Chip am Schritt; was es ins Diagramm bringt
+— Timer, Link, gemeinsamer Block — ist Verdrahtung und steht als **eine**
+Zeile in der Pattern-Farbe, die Schritte darunter erst auf Klick. Der
+fachliche Export nennt die Pattern am Schritt und lässt die Verdrahtung weg;
+der Orchescala-Export nennt sie samt Werten und beschreibt am Ende jedes
+verwendete Pattern mit Doku-Link.
+
+Pattern reisen als Datei (Admin → Pattern → Exportieren / Importieren; der
+Import ergänzt, gleiche ID wird ersetzt). Geprüft über die **74 BPMN-Dateien**
+der valiant-Projekte mit 12 Pattern: 504 Stellen erkannt, jede lässt sich
+entfernen und wieder einfügen und wird danach mit denselben Werten erkannt;
+1187-mal an Elemente ohne das Pattern eingefügt und wiedererkannt; der Ablauf
+bleibt mit und ohne Pattern derselbe.
 
 ### Wo ein Prozess in der Domain liegt
 
@@ -1026,6 +1103,9 @@ verworfen: valiant.fil.is.domain.client.v1 (13 Typen) — Vorrang hat swisscom.f
 | `src/siteCatalog.ts` | Doku-Site → Prozesse mit `In`/`Out` |
 | `src/serviceTypes.ts` | Verweise auf Katalog-Typen, plus Ableitung aus dem Servicenamen |
 | `src/exporters.ts` | die drei Exporte |
+| `src/patterns.ts` | Pattern: Pattern-BPMN lesen, einfügen, erkennen, entfernen |
+| `src/xmlFormat.ts` | Einrückung beim Schreiben ins BPMN (Mappings, Pattern) |
+| `src/components/PatternAdmin.tsx` | Pattern im Admin: Liste, Editor, Datei |
 | `src/store.tsx` | Ordner, Laden/Speichern, Konflikte |
 | `src/backend.ts`, `src/graph.ts` | lokaler Ordner bzw. SharePoint über Graph |
 | `src/auth.tsx` | Entra-Anmeldung (MSAL) |
@@ -1033,6 +1113,15 @@ verworfen: valiant.fil.is.domain.client.v1 (13 Typen) — Vorrang hat swisscom.f
 | `src/components/` | Liste, Prozessansicht, Detailspalte, Klassenbauer, Export, Admin |
 
 ## Offene Punkte
+
+- **Pattern im Ablauf.** Ein Pattern hängt sich heute an ein Element an
+  (Erweiterungen, Boundary-Ereignisse) oder bringt eigene Blöcke mit. Was sich
+  **in den Sequenzfluss einfügt** — der Signal-Wurf «stop escalation» nach der
+  Aufgabe, der Init-Worker nach dem Start —, fehlt noch; dafür müsste die App
+  den Fluss auftrennen und das Layout dahinter verschieben.
+- **Pattern aus dem Diagramm übernehmen.** Ein Pattern entsteht im Admin von
+  Hand; schneller wäre: ein Element im Prozess wählen und «als Pattern
+  speichern» — samt dem, was an ihm hängt.
 
 - **Confluence-Import.** Die bestehende Spezifikation liegt als Confluence-HTML
   vor; ein Importer, der Überschriften, Tabellen und Diagramm-Verweise in

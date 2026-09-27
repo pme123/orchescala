@@ -5,7 +5,7 @@
 //                Fehler, Mocks — vollständig und eindeutig
 //  · json        die Spezifikation selbst (Sicherung / Weiterverarbeitung)
 
-import type { Branch, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
+import type { AppliedPattern, Branch, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
 import { STATUS_META } from './types.ts';
 import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
@@ -57,21 +57,37 @@ function statusTag(s: Status): string {
   return `[${STATUS_META[s].label}]`;
 }
 
+// ── Pattern ──────────────────────────────────────────────────────────────────
+// Ein Pattern steht als **ein** Eintrag am Schritt — Name und Werte. Was es
+// ins Diagramm bringt (Timer, Link, gemeinsamer Block), ist Verdrahtung und
+// erscheint nicht als eigene Schritte: fachlich gar nicht, im
+// Orchescala-Export im Überblick markiert.
+type PatternNames = (id: string) => string;
+const patternNames = (model: Model | null): PatternNames => id => model?.patterns?.find(p => p.id === id)?.name ?? id;
+function patternText(ps: AppliedPattern[] | undefined, name: PatternNames, code = false): string {
+  return (ps ?? []).map(p => {
+    const werte = Object.entries(p.params ?? {}).filter(([, v]) => v !== '').map(([k, v]) => (code ? `${k} = \`${v}\`` : `${k} = ${v}`));
+    return `${name(p.id)}${werte.length ? ` (${werte.join(', ')})` : ''}`;
+  }).join(' · ');
+}
+
 // ── Fachlicher Export ────────────────────────────────────────────────────────
 /**
  * Die Schritte einer Ebene — eigene Blöcke (zweiter Start, Link-Ziel) in
  * einer Klammer wie im Baum: eine Überschrift, die Schritte darunter eine
  * Stufe eingerückt. Ein Ereignis-Subprozess steht als solcher da.
  */
-function fachlichSteps(spec: ProcessSpec, steps: Step[], depth: number, out: string[]) {
+function fachlichSteps(spec: ProcessSpec, steps: Step[], depth: number, out: string[], pn: PatternNames) {
   for (const g of blockGroups(steps)) {
-    if (!g.head) { fachlichStepsFlat(spec, g.steps, depth, out); continue; }
+    if (!g.head) { fachlichStepsFlat(spec, g.steps, depth, out, pn); continue; }
+    // der gemeinsame Block eines Patterns ist Verdrahtung — er steht beim Pattern am Schritt
+    if (g.head.pattern) continue;
     out.push(`${bullet(depth)} *Eigener Block — ${blockStart(g.head)}*`);
-    fachlichStepsFlat(spec, g.steps, depth + 1, out);
+    fachlichStepsFlat(spec, g.steps, depth + 1, out, pn);
   }
 }
 
-function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out: string[]) {
+function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out: string[], pn: PatternNames) {
   for (const s of steps) {
     if (s.kind === 'goto') {
       out.push(`${bullet(depth)} ${s.back ? '↻ zurück zu' : '→ weiter bei'} «${s.name}»`);
@@ -86,18 +102,19 @@ function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out:
     if (s.candidateGroups || s.assignee) {
       out.push(`${'  '.repeat(depth + 1)}Zuständig: ${[s.candidateGroups, s.assignee].filter(Boolean).join(' · ')}`);
     }
+    if (s.patterns?.length) out.push(`${'  '.repeat(depth + 1)}Pattern: ${patternText(s.patterns, pn)}`);
     if (s.open) out.push(`${'  '.repeat(depth + 1)}❓ Offen: ${s.open}`);
     out.push(...kommentarZeilen(spec, stepTarget(s.id), '  '.repeat(depth + 1)));
     for (const b of s.branches ?? []) {
       out.push(`${bullet(depth + 1)} *${b.label}*`);
-      fachlichSteps(spec, b.steps, depth + 2, out);
+      fachlichSteps(spec, b.steps, depth + 2, out, pn);
     }
     for (const e of s.errors ?? []) {
-      if (!e.steps?.length) continue;
+      if (!e.steps?.length || e.pattern) continue;
       out.push(`${bullet(depth + 1)} *${e.side ? 'Nebenpfad' : 'Fehlerfall'} «${e.code}»*`);
-      fachlichSteps(spec, e.steps, depth + 2, out);
+      fachlichSteps(spec, e.steps, depth + 2, out, pn);
     }
-    if (s.children?.length) fachlichSteps(spec, s.children, depth + 1, out);
+    if (s.children?.length) fachlichSteps(spec, s.children, depth + 1, out, pn);
   }
 }
 
@@ -119,7 +136,8 @@ function kommentarZeilen(spec: ProcessSpec, target: string, einzug: string): str
   return out;
 }
 
-function exportFachlich(spec: ProcessSpec): string {
+function exportFachlich(spec: ProcessSpec, model: Model | null): string {
+  const pn = patternNames(model);
   const counts = statusCounts(spec);
   const out: string[] = [
     `# ${spec.title}`,
@@ -129,10 +147,11 @@ function exportFachlich(spec: ProcessSpec): string {
   ];
   if (spec.description) out.push(spec.description, '');
   if (spec.timeToLive) out.push(`Historie wird ${spec.timeToLive} Tage aufbewahrt.`, '');
+  if (spec.patterns?.length) out.push(`Pattern am Prozess: ${patternText(spec.patterns, pn)}`, '');
   const amProzess = kommentarZeilen(spec, processTarget, '');
   if (amProzess.length) out.push('### Offene Kommentare zum Prozess', '', ...amProzess, '');
   out.push('## Ablauf', '');
-  fachlichSteps(spec, spec.steps, 0, out);
+  fachlichSteps(spec, spec.steps, 0, out, pn);
 
   const open = collectOpen(spec.steps);
   if (open.length) {
@@ -164,7 +183,7 @@ function collectOpen(steps: Step[], out: Array<[string, string]> = []): Array<[s
 function outline(steps: Step[], depth: number, out: string[]) {
   for (const g of blockGroups(steps)) {
     if (!g.head) { outlineFlat(g.steps, depth, out); continue; }
-    out.push(`${bullet(depth)} [Eigener Block — ${blockStart(g.head)}]`);
+    out.push(`${bullet(depth)} [${g.head.pattern ? `Pattern ${g.head.pattern}, gemeinsamer Block` : 'Eigener Block'} — ${blockStart(g.head)}]`);
     outlineFlat(g.steps, depth + 1, out);
   }
 }
@@ -179,6 +198,7 @@ function outlineFlat(steps: Step[], depth: number, out: string[]) {
       s.loop ? '↻' : '',
       s.errors?.length ? '⚠' : '',
       s.eventSubprocess ? '[Ereignis-Subprozess]' : '',
+      ...(s.patterns ?? []).map(p => `[Pattern ${p.id}]`),
     ].filter(Boolean).join(' ');
     out.push(`${bullet(depth)} \`${s.id}\` · ${KIND_LABEL[s.kind]} · ${s.name}${marks ? ` ${marks}` : ''}`);
     for (const b of s.branches ?? []) {
@@ -187,7 +207,7 @@ function outlineFlat(steps: Step[], depth: number, out: string[]) {
     }
     for (const e of s.errors ?? []) {
       if (!e.steps?.length) continue;
-      out.push(`${bullet(depth + 1)} [${e.side ? 'Nebenpfad' : 'Fehler'} ${e.code}]`);
+      out.push(`${bullet(depth + 1)} [${e.pattern ? `Pattern ${e.pattern}: ` : ''}${e.side ? 'Nebenpfad' : 'Fehler'} ${e.code}]`);
       outline(e.steps, depth + 2, out);
     }
     if (s.children?.length) outline(s.children, depth + 1, out);
@@ -216,6 +236,7 @@ function table(rows: string[][], head: string[]): string[] {
 }
 
 function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
+  const pn = patternNames(model);
   const byId = new Map((model?.services ?? []).map(s => [s.id, s] as [string, ServiceDef]));
   // Ausdrücke so, wie die Engine sie braucht: FEEL bleibt für Camunda 8,
   // wird für Camunda 7 zu JUEL — was sich nicht übersetzen lässt, steht
@@ -236,6 +257,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       ['Stand', spec.updatedAt],
       ...(spec.timeToLive ? [['Time to Live', `${spec.timeToLive} Tage`]] : []),
       ...(spec.sourceUrl ? [['Quelle', spec.sourceUrl]] : []),
+      ...(spec.patterns?.length ? [['Pattern', patternText(spec.patterns, pn, true)]] : []),
     ], ['Feld', 'Wert']),
   ];
   if (spec.description) out.push('## Ausgangslage', '', spec.description, '');
@@ -282,6 +304,8 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     if (openThreads(spec, stepTarget(s.id))) meta.push(['Offene Kommentare', String(openThreads(spec, stepTarget(s.id)))]);
     if (s.candidateGroups) meta.push(['Candidate Groups', `\`${s.candidateGroups}\``]);
     if (s.assignee) meta.push(['Assignee', `\`${s.assignee}\``]);
+    if (s.patterns?.length) meta.push(['Pattern', patternText(s.patterns, pn, true)]);
+    if (s.pattern) meta.push(['Gehört zu Pattern', pn(s.pattern)]);
     if (s.loop) {
       meta.push(['Wiederholung', [s.loop.condition, s.loop.maxAttempts && `max ${s.loop.maxAttempts}`, s.loop.waitFor && `warten ${s.loop.waitFor}`]
         .filter(Boolean).join(' · ')]);
@@ -311,7 +335,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       out.push('**Fehler und Nebenpfade**', '');
       out.push(...table(s.errors.map((e: ErrorHandling) => [
         `\`${e.code}\``,
-        e.side ? 'Nebenpfad' : e.interrupting === false ? 'Fehler, nicht unterbrechend' : 'Fehler, unterbrechend',
+        (e.side ? 'Nebenpfad' : e.interrupting === false ? 'Fehler, nicht unterbrechend' : 'Fehler, unterbrechend') + (e.pattern ? ` — Pattern ${pn(e.pattern)}` : ''),
         e.steps?.length ? e.steps.map(x => `\`${x.id}\``).join(' → ') : '',
       ]), ['Fehler', 'Art', 'Behandlung']));
     }
@@ -327,6 +351,22 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     if (s.open) out.push(`> ❓ **Offen:** ${s.open}`, '');
     const zeilen = kommentarZeilen(spec, stepTarget(s.id), '');
     if (zeilen.length) out.push('**Offene Kommentare**', '', ...zeilen, '');
+  }
+
+  // Pattern: was sie tun und wo die Doku steht — die Vorlage für die Umsetzung
+  const verwendet = new Map<string, string[]>();
+  for (const p of spec.patterns ?? []) verwendet.set(p.id, [...(verwendet.get(p.id) ?? []), 'Prozess']);
+  for (const { step } of flatten(spec.steps, null)) {
+    for (const p of step.patterns ?? []) verwendet.set(p.id, [...(verwendet.get(p.id) ?? []), `\`${step.id}\``]);
+  }
+  if (verwendet.size) {
+    out.push('## Verwendete Pattern', '');
+    for (const [id, wo] of verwendet) {
+      const def = model?.patterns?.find(p => p.id === id);
+      out.push(`### ${def?.name ?? id} (\`${id}\`)`, '', `An: ${wo.join(', ')}`, '');
+      if (def?.description) out.push(def.description, '');
+      if (def?.docUrl) out.push(`Doku: ${def.docUrl}`, '');
+    }
   }
 
   const services = [...new Set(flatten(spec.steps, null).map(f => f.step.serviceId).filter(Boolean))] as string[];
@@ -351,7 +391,7 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
   if (kind === 'bpmn') return exportBpmn(spec, bpmn).xml;
   if (kind === 'json') return JSON.stringify(spec, null, 2);
   if (kind === 'scala') return scalaBundle(spec, model);
-  if (kind === 'fachlich') return exportFachlich(spec);
+  if (kind === 'fachlich') return exportFachlich(spec, model);
   return exportOrchescala(spec, model);
 }
 

@@ -8,7 +8,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare,
+  MessageSquare, Puzzle,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
@@ -18,11 +18,12 @@ import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
-import { allSteps, blockGroups, blockStart, importBpmn, mergeSpec, statusCounts, type MergeReport } from '../bpmn';
+import { allSteps, blockGroups, blockStart, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport } from '../bpmn';
+import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
-import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, STEP_ICON, StatusChip, cls } from '../ui';
+import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -472,12 +473,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   // Ein Weg für beides: die gewählte Datei und die Änderung im Modeler.
   const specRef = useRef<ProcessSpec | null>(null);
   specRef.current = spec;
+  const modelRef = useRef(model);
+  modelRef.current = model;
 
-  const applyXml = useCallback(async (text: string, from: string, quiet = false) => {
+  /** `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst) */
+  const applyXml = useCallback(async (text: string, from: string, quiet: boolean | 'silent' = false) => {
     const current = specRef.current;
     if (!current) return;
     try {
-      const { spec: fresh } = importBpmn(text, from);
+      const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
       const { spec: merged0, report: r } = mergeSpec(fresh, current);
       // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
       // Das Umbenennen im Modeler löst den nächsten Speicherlauf aus, der das
@@ -501,13 +505,47 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       });
       setXml(text);
       if (!quiet) setReport(r);
-      else if (r.added.length || r.removed.length || r.changed.length) setReport(r);
+      else if (quiet !== 'silent' && (r.added.length || r.removed.length || r.changed.length)) setReport(r);
       const w = await saveBpmn(slug, text);
       if (!w.ok) setSaveState({ error: w.message });
     } catch (e) {
       setSaveState({ error: e instanceof Error ? e.message : String(e) });
     }
   }, [update, saveBpmn, slug]);
+
+  // ── Pattern ───────────────────────────────────────────────────────────────
+  // Ein Pattern wird direkt ins BPMN geschrieben — nicht erst beim Export.
+  // Danach liest der Abgleich das Diagramm neu: so steht am Schritt, was im
+  // Diagramm steht, und ein offener Modeler lädt das neue XML nach.
+  const changePattern = useCallback(async (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params: Record<string, string> = {}, previous?: Record<string, string>) => {
+    const x = xmlRef.current, cur = specRef.current, defs = modelRef.current?.patterns ?? [];
+    const def = defs.find(d => d.id === patternId);
+    if (!x || !cur || !def) {
+      setNotice({ tone: 'warn', message: !x ? 'Pattern brauchen das Diagramm — zuerst ein BPMN laden.' : `Pattern «${patternId}» ist im Admin nicht (mehr) definiert.` });
+      return;
+    }
+    const engine = cur.engine ?? 'c7';
+    const r = action === 'add' ? applyPattern(x, def, engine, targetId, params)
+      : action === 'remove' ? removePattern(x, def, engine, targetId, defs, params)
+        : updatePattern(x, def, engine, targetId, params, defs, previous);
+    if (!r.changed) { setNotice({ tone: 'warn', message: r.issues.join(' ') || 'Nichts geändert.' }); return; }
+    await applyXml(r.xml, `Pattern ${def.name}`, 'silent');
+    const was = action === 'add' ? 'eingefügt' : action === 'remove' ? 'entfernt' : 'angepasst';
+    setNotice({ tone: r.issues.length ? 'warn' : 'info', message: [`Pattern «${def.name}» im Diagramm ${was}.`, ...r.issues].join(' ') });
+  }, [applyXml]);
+
+  // Pattern im Admin geändert (oder die Spezifikation stammt von vorher):
+  // die Pattern-Angaben aus dem Diagramm nachziehen, sonst nichts
+  const patternDefs = model?.patterns;
+  const loaded = !!spec;
+  useEffect(() => {
+    const cur = specRef.current;
+    if (!loaded || !xml || !cur) return;
+    try {
+      const next = syncPatterns(cur, importBpmn(xml, cur.slug, { patterns: patternDefs }).spec);
+      if (next) update(next);
+    } catch { /* unlesbares BPMN — meldet der Abgleich */ }
+  }, [loaded, xml, patternDefs, update]);
 
   const onFile = async (file: File) => {
     const text = await file.text();
@@ -673,6 +711,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   serviceOf={s => catalogEntry(s, model)}
                   processId={spec.processId ?? ''}
                   hasCatalog={!!model?.services?.length}
+                  patternName={id => model?.patterns?.find(d => d.id === id)?.name ?? id}
                   onOpenInteraction={ia => { setFocusType(ia.inTypeId ?? ia.outTypeId ?? null); setTab('model'); }} />
                 {!spec.steps.length && (
                   <p className={`text-xs ${c.muted}`}>
@@ -760,7 +799,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   }
                   update(next);
                 }}
-                onEditType={id => { setFocusType(id); setTab('model'); }} />
+                onEditType={id => { setFocusType(id); setTab('model'); }}
+                onPattern={canEdit ? (target, id, action, params, previous) => { void changePattern(target, id, action, params, previous); } : undefined}
+                hasDiagram={!!xml} />
             </div>
           </>
         ) : (
@@ -847,6 +888,32 @@ interface ListProps {
   matches: (s: Step) => boolean;
   filterActive: boolean;
   onStatus?: (id: string, s: Status) => void;
+  /** Anzeigename eines Patterns (aus dem Admin) */
+  patternName: (id: string) => string;
+}
+
+/**
+ * Was ein Pattern ins Diagramm bringt — Timer, Link, gemeinsamer Block —
+ * ist Verdrahtung, keine Fachlichkeit. Im Baum steht es deshalb als eine
+ * Zeile in der Pattern-Farbe; die Schritte darunter erst auf Klick.
+ */
+function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
+  const c = cls(p.isDark);
+  const [open, setOpen] = useState(false);
+  const n = countSteps(steps);
+  return (
+    <div className={`ml-6 pl-3 border-l-2 border-dashed ${p.isDark ? 'border-fuchsia-500/40' : 'border-fuchsia-300'}`}>
+      <button onClick={() => setOpen(!open)} title={open ? 'Verdrahtung ausblenden' : 'Verdrahtung zeigen'}
+        className={`w-full flex items-center gap-1.5 py-1 text-[10px] text-left ${p.isDark ? 'text-fuchsia-300' : 'text-fuchsia-800'}`}>
+        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <Puzzle size={10} />
+        <span className="font-semibold">{p.patternName(pattern)}</span>
+        <span className={c.muted}>· {what}</span>
+        <span className={`ml-auto ${c.muted}`}>{n} Schritt{n === 1 ? '' : 'e'}</span>
+      </button>
+      {open && <StepList {...p} steps={steps} depth={p.depth + 1} />}
+    </div>
+  );
 }
 
 /**
@@ -862,6 +929,13 @@ function StepList(p: ListProps) {
       {groups.map(g => {
         if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...p} />);
         const start = blockStart(g.head);
+        if (g.head.pattern) {
+          return (
+            <div key={g.head.id} className="mt-2 -ml-6">
+              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} p={p} />
+            </div>
+          );
+        }
         const n = countSteps(g.steps);
         return (
           <div key={g.head.id} className={`mt-2 pl-3 border-l-2 ${p.isDark ? 'border-slate-500/40' : 'border-slate-300'}`}>
@@ -931,6 +1005,10 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             {ia.name}
           </button>
         )}
+        {/* Pattern am Schritt */}
+        {step.patterns?.map((pt, i) => (
+          <span key={`${pt.id}-${i}`} className="hidden md:inline-flex"><PatternChip name={p.patternName(pt.id)} params={pt.params} isDark={p.isDark} /></span>
+        ))}
         {/* Fremder Service: die Katalog-Kennung — teal, wenn der Katalog ihn kennt, sonst rot */}
         {!ia && foreign && (
           <span title={svc ? `${svc.name} — im Katalog` : `«${foreign}» steht nicht im Katalog`}
@@ -955,7 +1033,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           <CommentBubble target={stepTarget(step.id)} aggregate quiet />
           <BlockChip step={step} isDark={p.isDark} />
           <LoopChip step={step} isDark={p.isDark} />
-          {!!step.errors?.filter(e => !e.side).length && <ErrorChip n={step.errors.filter(e => !e.side).length} isDark={p.isDark} />}
+          {!!step.errors?.filter(e => !e.side && !e.pattern).length && <ErrorChip n={step.errors.filter(e => !e.side && !e.pattern).length} isDark={p.isDark} />}
           <StatusChip status={step.status} isDark={p.isDark} muted={step.status === 'implemented'}
             onClick={p.onStatus ? () => p.onStatus!(step.id, nextStatus(step.status)) : undefined} />
         </div>
@@ -967,7 +1045,10 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           {step.branches?.map((b, i) => <BranchBlock key={b.id} branch={b} index={i} gatewayId={step.id} {...p} />)}
 
           {/* Fehler- und Nebenpfade */}
-          {step.errors?.filter(e => e.steps?.length).map(e => (
+          {step.errors?.filter(e => e.steps?.length && e.pattern).map(e => (
+            <PatternFold key={e.code} pattern={e.pattern!} what={e.side ? `Nebenpfad «${e.code}»` : `Fehler «${e.code}»`} steps={e.steps!} p={p} />
+          ))}
+          {step.errors?.filter(e => e.steps?.length && !e.pattern).map(e => (
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${
               e.side
                 ? (p.isDark ? 'border-indigo-500/40' : 'border-indigo-400')

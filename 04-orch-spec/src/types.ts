@@ -76,6 +76,8 @@ export interface ErrorHandling {
   boundary?: boolean;
   /** kein Fehler, sondern ein nicht-unterbrechender Nebenpfad am Schritt */
   side?: boolean;
+  /** gehört zu einem Pattern (dessen id) — Verdrahtung, keine eigene Fachlichkeit */
+  pattern?: string;
   steps?: Step[];         // Behandlungspfad
   [key: string]: unknown;
 }
@@ -128,6 +130,62 @@ export interface Step {
   /** Benutzeraufgabe: wem sie direkt zugeteilt ist (`camunda:assignee`) */
   assignee?: string;
 
+  // ── Pattern ──────────────────────────────────────────────────────────────
+  /** Pattern an diesem Element — aus dem BPMN erkannt bzw. hier gewählt */
+  patterns?: AppliedPattern[];
+  /** Schritt gehört selbst zu einem Pattern (dessen id): ein gemeinsamer Block */
+  pattern?: string;
+
+  [key: string]: unknown;
+}
+
+// ── Pattern ──────────────────────────────────────────────────────────────────
+//
+// Ein Pattern ist ein wiederkehrender BPMN-Baustein — «Benutzer per Mail
+// informieren», «Eskalation», «Prozess-Event senden». Der Admin legt es als
+// kleines BPMN an: ein **Anker** (`PatternTarget`, z. B. eine Benutzeraufgabe)
+// mit allem, was an ihm hängt (Listener, Eingaben, Boundary-Ereignisse samt
+// Pfad), und daneben Blöcke, die der Prozess **einmal** braucht (Link-Ziel →
+// Call Activity, Ereignis-Subprozess). Werte, die je Einsatz wechseln,
+// stehen als `{{name}}` darin — das sind die Parameter.
+//
+// Aus demselben BPMN folgt alles Weitere: wählen fügt es ein (src/patterns.ts),
+// der Import erkennt es wieder, entfernen nimmt es heraus.
+
+/** Parameter eines Patterns — im BPMN als `{{name}}` */
+export interface PatternParam {
+  name: string;
+  label?: string;
+  description?: string;
+  /** Vorgabe beim Einfügen */
+  default?: string;
+  [key: string]: unknown;
+}
+
+export interface PatternDef {
+  /** stabil, z. B. `inform-user` — steht in den Spezifikationen */
+  id: string;
+  name: string;
+  /** was es tut und wann man es nimmt (Markdown) */
+  description?: string;
+  /** Doku, z. B. die Pattern-Seite */
+  docUrl?: string;
+  /**
+   * BPMN-Elementtypen, an die es passt (`userTask`, `callActivity` …) —
+   * `process` heisst: am Prozess selbst. Vorgabe ist der Typ des Ankers.
+   */
+  appliesTo: string[];
+  params?: PatternParam[];
+  /** das Pattern als BPMN, je Engine */
+  bpmn: Partial<Record<EngineId, string>>;
+  [key: string]: unknown;
+}
+
+/** Ein Pattern an einem Element (bzw. am Prozess) */
+export interface AppliedPattern {
+  id: string;
+  /** Werte der Parameter */
+  params?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -395,6 +453,8 @@ export interface ProcessSpec {
    * beschrieben. Seine Ausgaben sind aber die Felder des `InitIn`.
    */
   initOutputs?: Mapping[];
+  /** Pattern am Prozess selbst (z. B. «einmalige Ausführung») */
+  patterns?: AppliedPattern[];
   steps: Step[];
   [key: string]: unknown;
 }
@@ -553,5 +613,7 @@ export interface Model {
    * gilt das weiter oben stehende; das andere wird verworfen.
    */
   projects?: ProjectFolder[];
+  /** Pattern, die die Spezifikationen an ihren Elementen wählen können */
+  patterns?: PatternDef[];
   [key: string]: unknown;
 }
