@@ -395,6 +395,10 @@ export interface FeelCheck {
 export function checkFeel(expression: string, vars: VarNode[] | null, expected: ExpectedType | null = null): FeelCheck {
   const body = expression.trimStart().slice(1).trim();
   if (!body) return { issues: [{ level: 'error', text: 'Nach «=» fehlt der FEEL-Ausdruck.' }], result: null };
+  // `liste[0]` ist in FEEL immer null — Listen zählen ab 1
+  if (/\[\s*0\s*\]/.test(body.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
+    return { issues: [{ level: 'error', text: 'Index [0] gibt es in FEEL nicht — Listen zählen ab 1, das erste Element ist [1].' }], result: null };
+  }
 
   let value: unknown;
   let warnings: { type: string; message: string; position: { from: number; to: number } }[];

@@ -109,7 +109,9 @@ function method(target: string, name: string, args: string[]): string {
       return two((a, n) => `(${a} ${sign} duration("P${n.replace(/^"|"$/g, '')}${unit}"))`);
     }
     // `.get("k")` einer Map bzw. eines DMN-Ergebnisses — ein Feld
-    case 'get': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
+    case 'get': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}`
+      // `.get(0)` einer Liste: Java zählt ab 0, FEEL ab 1
+      : /^\d+$/.test(b) ? `${a}[${Number(b) + 1}]` : `${a}[${b} + 1]`));
     case 'jsonPath': return two((a, b) => `${a}.${b.replace(/^"\$?\.?|"$/g, '')}`);
     default: throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`);
   }

@@ -4,7 +4,7 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Asterisk, ChevronDown, ExternalLink, GitFork, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, Asterisk, ChevronDown, ExternalLink, GitFork, Plug, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
 import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
@@ -12,6 +12,7 @@ import { catalogEntry, createMemberType, interactionKind, suggestName } from '..
 import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type FeelIssue, type VarNode } from '../feel';
+import { stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -250,25 +251,62 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
   const convertJuel = (list: 'inputs' | 'outputs') =>
     onPatch(step.id, { [list]: (step[list] ?? []).map(m => (isJuel(m.expression) ? { ...m, expression: importExpression(m.expression) } : m)) });
 
+  // Kopf: die Art als Chip in ihrer Farbe, daneben das Objekt (eigener
+  // Vertrag, violett) oder die Katalog-Kennung (fremder Service, teal)
+  const kindTone = ia
+    ? (isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800')
+    : service
+      ? (isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800')
+      : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50');
+  const foreign = !ia && (step.serviceId || step.topic) && step.topic !== (spec.processId ?? '') ? (step.serviceId ?? step.topic ?? '') : '';
+  // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
+  const finding = stepFindings(step, spec, model, variables);
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{KIND_LABEL[step.kind]}</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border ${kindTone}`}>{KIND_LABEL[step.kind]}</span>
+            {ia && (
+              <button onClick={() => { const id = ia.inTypeId ?? ia.outTypeId; if (id) onEditType(id); }}
+                title={`${INTERACTION_META[ia.kind].label} «${ia.name}» — zum Datenmodell`}
+                className={`inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border ${kindTone} ${ia.inTypeId || ia.outTypeId ? 'hover:underline' : ''}`}>
+                {ia.name}<ExternalLink size={9} className="opacity-60" />
+              </button>
+            )}
+            {!ia && foreign && (
+              <span title={service ? `${service.name} — im Katalog` : `«${foreign}» steht nicht im Katalog`}
+                className={`inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[16rem] ${
+                  service || !model?.services?.length ? kindTone : (isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')}`}>
+                <Plug size={9} className="flex-shrink-0" />{foreign}
+              </span>
+            )}
+          </div>
           <input value={step.name} disabled={!canEdit} onChange={e => onPatch(step.id, { name: e.target.value })}
             onBlur={() => onSyncId?.(step.id)}
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-            className={`w-full bg-transparent outline-none text-xs font-semibold ${c.text}`} />
+            className={`w-full bg-transparent outline-none text-sm font-semibold mt-1 ${c.text}`} />
           <div className={`text-[9px] font-mono mt-0.5 ${c.muted}`}>{step.id}</div>
         </div>
+        <select value={step.status} disabled={!canEdit}
+          onChange={e => onPatch(step.id, { status: e.target.value as Status })}
+          className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
+          {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+        </select>
         <button onClick={onClose} className={`p-1 ${c.muted}`}><X size={12} /></button>
       </div>
 
-      <select value={step.status} disabled={!canEdit}
-        onChange={e => onPatch(step.id, { status: e.target.value as Status })}
-        className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`}>
-        {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
-      </select>
+      {/* Befunde — was rot oder orange im Baum steht, hier ausgeschrieben */}
+      {(finding.errors.length > 0 || finding.warnings.length > 0) && (
+        <div className={`text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${
+          finding.errors.length
+            ? (isDark ? 'border-rose-500/30 bg-rose-500/5' : 'border-rose-300 bg-rose-50')
+            : (isDark ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-300 bg-amber-50')}`}>
+          {finding.errors.map((t, i) => <div key={`e${i}`} className={`flex items-start gap-1 ${err}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /><span>{t}</span></div>)}
+          {finding.warnings.map((t, i) => <div key={`w${i}`} className={`flex items-start gap-1 ${warn}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /><span>{t}</span></div>)}
+        </div>
+      )}
 
       {/* Fachliche Beschreibung */}
       <Field label="Fachliche Beschreibung (Markdown)" isDark={isDark}
