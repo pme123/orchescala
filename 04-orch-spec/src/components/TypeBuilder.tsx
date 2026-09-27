@@ -237,7 +237,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   return (
     <div className="flex h-full min-h-0">
       {/* ── Typen ──────────────────────────────────────────────────────────── */}
-      <div className={`w-56 flex-shrink-0 border-r ${c.border} flex flex-col`}>
+      <div className={`w-72 flex-shrink-0 border-r ${c.border} flex flex-col`}>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div className="mb-2">
             <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Prozess</div>
@@ -371,7 +371,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       </div>
 
       {/* ── Editor ─────────────────────────────────────────────────────────── */}
+      {/* Der Editor in lesbarer Breite, mittig — sonst laufen die Feldzeilen
+          auf einem breiten Bildschirm ins Leere */}
       <div className="flex-1 min-w-0 overflow-y-auto">
+       <div className="max-w-4xl mx-auto w-full">
         {showConfig ? (
           <GeneratedConfig spec={spec} idx={idx} isDark={isDark} />
         ) : !current && !selectedIa ? (
@@ -415,8 +418,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             {globalIssues.map((i, k) => <div key={k}>{i.message}</div>)}
           </div>
         )}
+       </div>
       </div>
-
     </div>
   );
 }

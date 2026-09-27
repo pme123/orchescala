@@ -304,8 +304,18 @@ export function prepareInteractions(spec: ProcessSpec, model: Model | null): { s
   const types = [...(spec.types ?? [])];
   const interactions = [...(spec.interactions ?? [])];
   const prepared: string[] = [];
+  // Dasselbe Objekt an zwei Stellen im Ablauf (ein Signal, das zweimal
+  // geworfen wird) ist **ein** Objekt: die zweite Stelle teilt die Klassen
+  const byName = new Map<string, Interaction>(interactions.map(i => [i.name, i]));
   for (const s of offen) {
     const ia: Interaction = { ...toInteraction(s), status: 'draft' };
+    const twin = byName.get(ia.name);
+    if (twin) {
+      if (twin.inTypeId) ia.inTypeId = twin.inTypeId;
+      if (twin.outTypeId) ia.outTypeId = twin.outTypeId;
+      interactions.push(ia);
+      continue;
+    }
     const entry = catalogEntry(s.step, model);
     const inT = memberFromStep(ia, 'In', s.step, entry, model);
     types.push(inT);
@@ -316,6 +326,7 @@ export function prepareInteractions(spec: ProcessSpec, model: Model | null): { s
       ia.outTypeId = outT.id;
     }
     interactions.push(ia);
+    byName.set(ia.name, ia);
     prepared.push(`${ia.name} (${INTERACTION_META[s.kind].label} «${s.step.name}»)`);
   }
   return { spec: { ...spec, types, interactions }, prepared };
