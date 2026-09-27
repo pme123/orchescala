@@ -111,17 +111,18 @@ startet die App nicht. Die App schreibt die Datei nur aus dem Admin-Bereich
 (und einmal beim Anlegen, falls sie fehlt).
 
 **Alte Ordner** mit der `model.json` im Hauptordner funktionieren weiter: die
-App liest sie dort und zeigt im Admin einen Hinweis mit **«Nach config/
-verschieben»**. Der Knopf legt `config/model.json` an und löscht die alte
-(sie landet im Papierkorb der Site). Liegen beide Dateien da, gilt
-`config/model.json`; der Hinweis bietet dann **«Alte model.json löschen»**.
-Während des Verschiebens sollte niemand im Admin-Bereich arbeiten.
+App liest sie dort und zeigt im Admin einen Hinweis. Verschoben wird von Hand
+(Schritt 1) — so bleibt in SharePoint der Versionsverlauf erhalten. Liegen
+beide Dateien da, gilt `config/model.json`, und der Admin weist auf die alte
+Kopie hin. Während des Verschiebens sollte niemand im Admin-Bereich arbeiten.
 
 **Einrichten** (neuer Ordner: `config/` hat die App schon angelegt, weiter
-bei 2; alter Ordner: zuerst in der App **Admin → Nach config/ verschieben**):
+bei 2):
 
-1. Prüfen, dass im Datenordner ein Unterordner `config` mit der `model.json`
-   liegt und im Hauptordner keine `model.json` mehr.
+1. Alter Ordner: im Datenordner **Neu → Ordner** → `config`, dann
+   `model.json` markieren → **Verschieben nach** → `config`. Im Hauptordner
+   darf keine `model.json` mehr liegen. App neu laden — der Hinweis im Admin
+   verschwindet.
 2. Ordner `config` → **… → Zugriff verwalten → Erweitert** (öffnet die
    klassische Berechtigungsseite) → **Vererbung von Berechtigungen beenden**.
 3. Gruppe **Mitglieder** anhaken → **Berechtigungen bearbeiten** → nur
@@ -202,7 +203,7 @@ Der lokale Ordner bleibt als Alternative bestehen (z. B. für Tests).
 | Speichern schlägt fehl (403) | Person hat in SharePoint nur «Lesen» (Teil 3) |
 | Admin: «config/model.json konnte nicht geschrieben werden» | Admin hat auf `config/` nicht «Bearbeiten» (Teil 3b, Schritt 3) |
 | App startet nicht: «config/model.json konnte nicht gelesen werden» | Person hat auf `config/` gar keinen Zugriff — mindestens «Lesen» geben (Teil 3b) |
-| Admin zeigt «Die Stammdaten liegen noch im Hauptordner» | Alter Ordner — **Nach config/ verschieben**, danach Teil 3b |
+| Admin zeigt «Die Stammdaten liegen noch im Hauptordner» | Alter Ordner — `model.json` von Hand nach `config/` verschieben (Teil 3b, Schritt 1) |
 | Hinweis zur Verzeichnissuche beim «@» | Teil 4: `User.ReadBasic.All` fehlt (Admin) oder die Person hat noch nicht zugestimmt («Zustimmung erteilen») |
 | Hinweis «Teams-Benachrichtigung nicht möglich» | Teil 4: `Chat.Create` / `ChatMessage.Send` fehlen oder die Zustimmung fehlt; der Kommentar ist gespeichert, die Nachricht geht später raus |
 | «Die Datei wurde inzwischen geändert — Seite neu laden» | Jemand anderes hat dieselbe Spezifikation gleichzeitig gespeichert (ETag-Prüfung) — neu laden |

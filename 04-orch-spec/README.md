@@ -927,7 +927,7 @@ vorhandene, aber defekte `model.json` wird nie überschrieben. Die Stammdaten
 liegen in `config/`, damit dort in SharePoint nur Admins schreiben
 ([docs/SHAREPOINT-SETUP.md, Teil 3b](docs/SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-config)). Ältere
 Ordner mit der `model.json` im Hauptordner laufen weiter; der Admin-Bereich
-bietet an, sie nach `config/` zu verschieben. Änderungen werden ca. eine
+weist darauf hin, sie von Hand nach `config/` zu verschieben. Änderungen werden ca. eine
 Sekunde nach der letzten Eingabe automatisch gespeichert; Konflikte werden
 über lastModified bzw. ETag erkannt.
 

@@ -67,8 +67,6 @@ interface StoreCtx {
   modelPath: string;
   /** liegt neben config/model.json noch eine alte model.json im Hauptordner? */
   legacyModelLeftover: boolean;
-  /** die alte model.json nach config/ verschieben (Admin) */
-  moveModelToConfig: () => Promise<{ ok: true } | { ok: false; message: string }>;
   saveModel: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** mitgelieferter Katalog (catalog.generated.json) — null, wenn keiner ausgeliefert ist */
   generatedCatalog: CatalogFile | null;
@@ -199,7 +197,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Stammdaten liegen in config/model.json — der Ordner config/ bekommt in
   // SharePoint eigene Berechtigungen (nur Admins schreiben). Ältere Ordner
   // haben die model.json noch im Hauptordner: dann wird sie dort gelesen und
-  // geschrieben, bis ein Admin sie verschiebt (Admin → Stammdaten).
+  // geschrieben, bis ein Admin sie von Hand nach config/ verschiebt.
   const loadModel = useCallback(async (be: StorageBackend) => {
     const usePath = (p: string) => { modelPathRef.current = p; setModelPath(p); };
     try {
@@ -557,37 +555,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { ok: true };
   }, []);
 
-  /**
-   * Die alte model.json aus dem Hauptordner nach config/ bringen: neu
-   * schreiben (nur wenn dort noch keine liegt), dann die alte löschen. In
-   * SharePoint erbt die neue Datei die Rechte von config/ — der
-   * Versionsverlauf der alten bleibt beim Löschen im Papierkorb.
-   */
-  const moveModelToConfig = useCallback(async (): Promise<{ ok: true } | { ok: false; message: string }> => {
-    const be = backendRef.current;
-    if (!be) return { ok: false, message: 'Kein Ordner gewählt.' };
-    const alt = await be.read(LEGACY_MODEL_PATH);
-    if (!alt) return { ok: false, message: 'Im Hauptordner liegt keine model.json.' };
-    if (modelPathRef.current === LEGACY_MODEL_PATH) {
-      try { await be.ensureDir('config'); } catch { /* meldet write */ }
-      const w = await be.write(MODEL_PATH, alt.text, { createOnly: true });
-      if (!w.ok) {
-        return { ok: false, message: w.reason === 'exists'
-          ? `${MODEL_PATH} gibt es schon — Seite neu laden.`
-          : `${MODEL_PATH} konnte nicht geschrieben werden: ${w.message}` };
-      }
-      modelPathRef.current = MODEL_PATH;
-      setModelPath(MODEL_PATH);
-    }
-    const d = await be.delete(LEGACY_MODEL_PATH);
-    if (!d.ok) {
-      setLegacyModelLeftover(true);
-      return { ok: false, message: `${MODEL_PATH} ist da, aber die alte model.json liess sich nicht löschen — bitte von Hand.` };
-    }
-    setLegacyModelLeftover(false);
-    return { ok: true };
-  }, []);
-
   // nach aussen immer der zusammengeführte Blick: generierter Katalog + model.json
   const mergedModel = useMemo(() => (model ? mergeGeneratedCatalog(model, generatedCatalog) : model), [model, generatedCatalog]);
 
@@ -604,7 +571,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       pickDirectory, savedHandleName, reconnectDirectory,
       connectSharePoint, savedSharePoint, forgetSharePoint, disconnect,
       model: mergedModel, modelError, saveModel, generatedCatalog,
-      modelPath, legacyModelLeftover, moveModelToConfig,
+      modelPath, legacyModelLeftover,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
