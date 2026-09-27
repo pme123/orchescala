@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen, Loader2 } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, LEVEL_LABELS, useAuth, usePermissions } from './auth';
 import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
-import { StartCard, StartOption } from './components/StartCard';
+import { MicrosoftMark, StartCard, StartOption, initialsOf } from './components/StartCard';
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
@@ -222,31 +222,68 @@ export default function App() {
           <StartCard isDark={isDark} model={model} icon={<LogIn size={20} />} tone={auth.status === 'error' ? 'red' : 'blue'}
             title={auth.status === 'error' ? 'Anmeldung nicht möglich' : 'Anmelden'}
             lead={auth.status === 'loading'
-              ? 'Anmeldung wird geprüft …'
+              ? undefined
               : auth.status === 'error'
-                ? auth.error
+                ? undefined
                 : 'Mit dem Microsoft-Konto anmelden. Die Anmeldung läuft über Microsoft Entra ID; die App selbst speichert keine Zugangsdaten.'}>
-            {auth.status === 'error' ? (
-              <button onClick={() => window.location.reload()}
-                className={`w-full text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
-                Erneut versuchen
-              </button>
-            ) : auth.status !== 'loading' && (
+            {auth.status === 'loading' ? (
+              <div className="flex justify-center">
+                <span className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border ${isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700'}`}>
+                  <Loader2 size={12} className="animate-spin" /> Anmeldung wird geprüft …
+                </span>
+              </div>
+            ) : auth.status === 'error' ? (
+              <div className="space-y-3">
+                <div className="flex justify-center">
+                  <span className={`inline-flex items-start gap-1.5 text-[11px] px-2 py-1 rounded border text-left ${isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
+                    <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" /> <span>{auth.error}</span>
+                  </span>
+                </div>
+                <button onClick={() => window.location.reload()}
+                  className={`w-full text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
+                  Erneut versuchen
+                </button>
+              </div>
+            ) : (
               <button onClick={auth.login}
                 className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded font-semibold transition-colors ${c.btnPrimary}`}>
-                <LogIn size={12} /> Mit Microsoft anmelden
+                <MicrosoftMark /> Mit Microsoft anmelden
               </button>
             )}
           </StartCard>
         ) : denied ? (
-          <StartCard isDark={isDark} model={model} icon={<AlertTriangle size={20} />} tone="red"
+          <StartCard isDark={isDark} model={model} icon={<ShieldCheck size={20} />} tone="red"
             title="Keine Berechtigung für diese App"
-            lead={<>{auth.user?.email} ist angemeldet, hat aber keine der Rollen Admin, Reviewer oder Viewer.
-              Die Zuweisung erfolgt in Entra unter «Unternehmensanwendungen → Benutzer und Gruppen».</>}>
-            <button onClick={auth.logout}
-              className={`w-full text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
-              Abmelden
-            </button>
+            lead="Das Konto ist angemeldet, hat aber keine der Rollen dieser App. Die Zuweisung erfolgt in Entra unter «Unternehmensanwendungen → Benutzer und Gruppen»."
+            footnote={auth.user?.roles.length ? <>Rollen des Kontos: {auth.user.roles.join(', ')}</> : 'Das Konto trägt keine App-Rollen.'}>
+            <div className="space-y-3">
+              {/* das Konto, wie bei den Kommentaren: Kürzel, Name, E-Mail */}
+              {auth.user && (
+                <div className={`flex items-center gap-2 rounded border px-3 py-2 ${c.border2}`}>
+                  <span className={`inline-flex items-center justify-center min-w-[26px] h-6 px-1.5 rounded-full text-[10px] font-bold border flex-shrink-0 ${
+                    isDark ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' : 'bg-blue-50 text-blue-700 border-blue-300'}`}>
+                    {initialsOf(auth.user.name)}
+                  </span>
+                  <span className="min-w-0">
+                    <span className={`block text-xs font-semibold truncate ${c.text}`}>{auth.user.name}</span>
+                    <span className={`block text-[10px] truncate ${c.muted}`}>{auth.user.email}</span>
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                <span className={`text-[10px] ${c.muted}`}>Nötig ist eine von:</span>
+                {(['adminRole', 'reviewerRole', 'viewerRole'] as const).map(k => auth.config?.[k] && (
+                  <span key={k} title={k === 'adminRole' ? 'Admin' : k === 'reviewerRole' ? 'Bearbeiten' : 'Lesen'}
+                    className={`text-[10px] font-mono px-1.5 py-px rounded border ${isDark ? 'border-white/15 text-white/60' : 'border-black/15 text-black/60'}`}>
+                    {auth.config[k]}
+                  </span>
+                ))}
+              </div>
+              <button onClick={auth.logout}
+                className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
+                <LogOut size={12} /> Abmelden und anderes Konto verwenden
+              </button>
+            </div>
           </StartCard>
         ) : !dirHandle ? (
           // Start / Speicherwahl: SharePoint oder lokaler Ordner, nebeneinander

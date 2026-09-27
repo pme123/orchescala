@@ -96,3 +96,23 @@ export function StartOption({ isDark, icon, title, text, remembered, primary, se
     </div>
   );
 }
+
+/** Das Microsoft-Zeichen: vier Quadrate — für den Anmelde-Knopf. */
+export function MicrosoftMark({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 21 21" aria-hidden="true" className="flex-shrink-0">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+/** Kürzel aus dem Namen: erster Buchstabe von Vor- und Nachname. */
+export function initialsOf(name: string): string {
+  const parts = name.trim().replace(/\([^)]*\)/g, '').split(/[\s._-]+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
