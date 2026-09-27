@@ -928,6 +928,28 @@ export function blockGroups(steps: Step[]): Array<{ head: Step | null; steps: St
   return groups;
 }
 
+/** In welchem eigenen Block oder Ereignis-Subprozess ein Schritt steht. */
+export interface BlockRef { head: Step; eventSub: boolean }
+
+/**
+ * Je Schritt-ID der Block, zu dem er gehört — für die Klammer im Datenmodell.
+ * Schritte des Hauptablaufs fehlen in der Map.
+ */
+export function blockIndex(steps: Step[], into = new Map<string, BlockRef>(), ctx: BlockRef | null = null): Map<string, BlockRef> {
+  const mark = (s: Step, ref: BlockRef | null) => {
+    if (ref) into.set(s.id, ref);
+    const inner = s.eventSubprocess ? { head: s, eventSub: true } : ref;
+    if (s.children?.length) blockIndex(s.children, into, inner);
+    for (const b of s.branches ?? []) blockIndex(b.steps, into, ref);
+    for (const e of s.errors ?? []) if (e.steps?.length) blockIndex(e.steps, into, ref);
+  };
+  for (const g of blockGroups(steps)) {
+    const ref = g.head ? { head: g.head, eventSub: false } : ctx;
+    for (const s of g.steps) mark(s, ref);
+  }
+  return into;
+}
+
 export function allSteps(steps: Step[] | undefined, out: Step[] = []): Step[] {
   for (const s of steps ?? []) {
     out.push(s);

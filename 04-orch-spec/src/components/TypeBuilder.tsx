@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, Copy, Check, ListOrdered,
   Plus, Trash2, Workflow, X,
-  Plug, ExternalLink,
+  Plug, ExternalLink, Unlink,
 } from 'lucide-react';
 import { isAdt,
   CONSTRAINTS, INTERACTION_META, STATUSES, STATUS_META,
@@ -17,6 +17,7 @@ import { isAdt,
 import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
 } from '../interactions';
+import { blockIndex, blockStart, type BlockRef } from '../bpmn';
 import { casesOf, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
@@ -132,6 +133,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   /** InConfig wird erzeugt, nicht gepflegt — es hat nur eine Ansicht */
   const [showConfig, setShowConfig] = useState(false);
   const interactions = useMemo(() => spec.interactions ?? [], [spec.interactions]);
+  // Zu welchem eigenen Block ein Schritt gehört — die Seitenleiste klammert die Interaktionen so wie der Ablauf
+  const blocks = useMemo(() => blockIndex(spec.steps), [spec.steps]);
   const offen = useMemo(() => missingInteractions(spec, model), [spec, model]);
 
   // Sprung aus dem Ablauf: den gewünschten Typ zeigen und die Anfrage quittieren
@@ -282,10 +285,17 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
           {(['userTask', 'customTask', 'signal', 'message'] as const).map(kind => {
             const group = interactions.filter(ia => ia.kind === kind);
             if (!group.length) return null;
-            return (
-            <div key={kind} className="mb-2">
-              <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>{KIND_GROUP[kind]}</div>
-              {group.map(ia => {
+            // Hauptablauf zuerst, dann je eigenem Block bzw. Ereignis-Subprozess eine Klammer
+            const sub = new Map<string, { ref: BlockRef; items: Interaction[] }>();
+            const main: Interaction[] = [];
+            for (const ia of group) {
+              const ref = blocks.get(ia.stepId);
+              if (!ref) { main.push(ia); continue; }
+              const e = sub.get(ref.head.id) ?? { ref, items: [] };
+              e.items.push(ia);
+              sub.set(ref.head.id, e);
+            }
+            const iaRow = (ia: Interaction) => {
                 // Was der DSL verlangt (In, bei Aufgaben und Workern auch Out) und noch
                 // fehlt oder leer ist, wird orange — Signale und Nachrichten ohne In
                 // sind `NoInput`, das ist erlaubt
@@ -327,7 +337,21 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                   </div>
                 </div>
                 );
-              })}
+            };
+            return (
+            <div key={kind} className="mb-2">
+              <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>{KIND_GROUP[kind]}</div>
+              {main.map(iaRow)}
+              {[...sub.values()].map(({ ref, items }) => (
+                <div key={ref.head.id} className={`ml-2 pl-2 border-l-2 mt-1 ${isDark ? 'border-slate-500/40' : 'border-slate-300'}`}>
+                  <div className={`flex items-center gap-1 px-1 py-0.5 text-[9px] ${isDark ? 'text-slate-300' : 'text-slate-600'}`}
+                    title={ref.eventSub ? 'Ereignis-Subprozess — läuft neben dem Hauptablauf' : `Eigener Block — ${blockStart(ref.head)}`}>
+                    <Unlink size={9} className="flex-shrink-0" />
+                    <span className="truncate">{ref.eventSub ? 'Ereignis-Subprozess' : 'Eigener Block'} «{ref.head.name}»</span>
+                  </div>
+                  {items.map(iaRow)}
+                </div>
+              ))}
             </div>
             );
           })}

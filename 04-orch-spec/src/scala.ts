@@ -279,7 +279,7 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   if (ia.descr) lines.push(scaladoc(ia.descr));
   lines.push(`object ${ia.name} extends ${meta.dsl}:`);
   lines.push('');
-  lines.push(`  val ${meta.keyName} = "${escape(ia.key)}"`);
+  lines.push(`  val ${meta.keyName} = "${escape(ia.key ?? ia.name ?? '')}"`);
   if (ia.descr) lines.push(`  val descr = "${escape(firstLine(ia.descr))}"`);
   lines.push('');
 

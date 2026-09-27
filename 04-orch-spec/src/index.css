@@ -52,3 +52,8 @@ textarea.grow { field-sizing: content; min-height: 2.2em; }
 
 /* Der ausgewählte Schritt soll auch aus dem Baum heraus auffallen */
 .bpmn-host .djs-element.selected .djs-outline { stroke-width: 2px; }
+
+/* Das bpmn.io-Zeichen des Modelers setzt sich inline auf z-index 1001 und
+   läge damit über den Dialogen (Export, Katalog …). Es bleibt sichtbar, aber
+   in der Zeichenfläche. */
+.bjs-container .bjs-powered-by { z-index: 10 !important; }
