@@ -56,7 +56,11 @@ export interface VarNode {
 export interface ExpectedType {
   accepts: FeelType[];
   label: string;
+  /** Art des Typs — bestimmt Farbe und Zeichen des Chips in der Mapping-Zeile */
+  kind: ExpectedKind;
 }
+
+export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
 
 export interface FeelIssue {
   level: 'error' | 'warn';
@@ -253,18 +257,19 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   if (!p) return null;
   const shape = typeShape(p.type);
   let accepts: FeelType[];
-  if (shape.collection) accepts = ['list'];
-  else if (shape.map) accepts = ['context'];
-  else if (isScalar(shape.base)) accepts = SCALAR_ACCEPTS[shape.base] ?? [SCALAR_FEEL[shape.base] ?? 'string'];
+  let kind: ExpectedKind;
+  if (shape.collection) { accepts = ['list']; kind = 'list'; }
+  else if (shape.map) { accepts = ['context']; kind = 'map'; }
+  else if (isScalar(shape.base)) { accepts = SCALAR_ACCEPTS[shape.base] ?? [SCALAR_FEEL[shape.base] ?? 'string']; kind = 'scalar'; }
   else {
     const ref = resolveType(shape.base, model, dom!.pkg);
     if (!ref) return null;                    // Typ nicht im Katalog — kein Urteil
-    if (ref.kind === 'enum' && !ref.cases?.length && !ref.fields?.length) accepts = ['string'];
+    if (ref.kind === 'enum' && !ref.cases?.length && !ref.fields?.length) { accepts = ['string']; kind = 'enum'; }
     else if (ref.kind === 'alias') return null;
-    else accepts = ['context'];
+    else { accepts = ['context']; kind = ref.kind === 'enum' ? 'enum' : 'class'; }
   }
   if (shape.optional) accepts = [...accepts, 'nil'];
-  return { accepts, label: p.type };
+  return { accepts, label: p.type, kind };
 }
 
 /** Ist das Feld laut Domain-Katalog Pflicht (nicht `Option[…]`)? null = Feld unbekannt. */
@@ -302,18 +307,20 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   if (!f) return null;
   const idx = indexTypes(types, model);
   let accepts: FeelType[];
-  if (f.collection) accepts = ['list'];
-  else if (f.map) accepts = ['context'];
-  else if (isScalar(f.type)) accepts = SCALAR_ACCEPTS[f.type] ?? [SCALAR_FEEL[f.type] ?? 'string'];
+  let kind: ExpectedKind;
+  if (f.collection) { accepts = ['list']; kind = 'list'; }
+  else if (f.map) { accepts = ['context']; kind = 'map'; }
+  else if (isScalar(f.type)) { accepts = SCALAR_ACCEPTS[f.type] ?? [SCALAR_FEEL[f.type] ?? 'string']; kind = 'scalar'; }
   else {
     const own = idx.byId.get(f.type);
     const dom = idx.domainOf(f.type);
-    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length && !dom.fields?.length)) accepts = ['string'];
+    const enumish = own?.kind === 'enum' || dom?.kind === 'enum';
+    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length && !dom.fields?.length)) { accepts = ['string']; kind = 'enum'; }
     else if (dom?.kind === 'alias') return null;
-    else accepts = ['context'];
+    else { accepts = ['context']; kind = enumish ? 'enum' : 'class'; }
   }
   if (f.optional) accepts = [...accepts, 'nil'];
-  return { accepts, label: fieldLabel(f, idx) };
+  return { accepts, label: fieldLabel(f, idx), kind };
 }
 
 // ── Beispielwerte ────────────────────────────────────────────────────────────

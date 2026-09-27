@@ -4,14 +4,14 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Asterisk, ChevronDown, ChevronRight, ExternalLink, GitFork, Plug, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, Asterisk, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
 import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { importExpression, isJuel } from '../juelFeel';
@@ -433,7 +433,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
                 onPatch(step.id, { branches: (step.branches ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // Bedingung als FEEL: gültig, Pfade bekannt, Ergebnis Ja/Nein
               const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
-                ? [...checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung' }).issues, ...juelIssues(b.condition, spec.engine)]
+                ? [...checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung', kind: 'scalar' }).issues, ...juelIssues(b.condition, spec.engine)]
                 : !b.isDefault && b.condition && isJuel(b.condition)
                   ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
                       ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'
@@ -883,6 +883,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     <Asterisk size={10} />
                   </span>
                 )}
+                {expected && <ExpectedChip expected={expected} list={list} isDark={isDark} />}
                 <FeelInput value={m.expression} disabled={!canEdit || off} isDark={isDark}
                   variables={variables}
                   onChange={v => onChange(list, i, { expression: v })}
@@ -893,6 +894,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     m.expression ? `Aktuell: ${m.expression}` : '',
                   ].filter(Boolean).join('\n\n')}
                   className="flex-1 min-w-0" />
+                {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
                 {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
                     «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist
@@ -925,6 +927,61 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
         })}
       </div>}
     </div>
+  );
+}
+
+/** Farbe und Zeichen je Typart — dieselben wie die Typ-Chips im Datenmodell. */
+function kindStyle(kind: ExpectedType['kind'], isDark: boolean): { cls: string; icon: React.ReactNode; what: string } {
+  const ico = (I: typeof Braces) => <I size={9} className="flex-shrink-0" />;
+  switch (kind) {
+    case 'enum': return { icon: ico(ListOrdered), what: 'Enum',
+      cls: isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800' };
+    case 'class': return { icon: ico(Braces), what: 'Klasse',
+      cls: isDark ? 'border-sky-500/40 bg-sky-500/10 text-sky-300' : 'border-sky-300 bg-sky-50 text-sky-800' };
+    case 'list': return { icon: ico(List), what: 'Liste',
+      cls: isDark ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-300' : 'border-indigo-300 bg-indigo-50 text-indigo-800' };
+    case 'map': return { icon: ico(Braces), what: 'Map',
+      cls: isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800' };
+    default: return { icon: null, what: 'Wert',
+      cls: isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50' };
+  }
+}
+
+/**
+ * Solltyp der Zeile — was das Feld der In-/Out-Klasse (oder der Katalog)
+ * verlangt. Steht neben dem Namen, damit klar ist, was der Ausdruck liefern muss.
+ */
+function ExpectedChip({ expected, list, isDark }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean }) {
+  const st = kindStyle(expected.kind, isDark);
+  const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');
+  const optional = expected.accepts.includes('nil') ? ' · optional' : '';
+  return (
+    <span title={`${st.what} ${expected.label}${optional} — ${list === 'inputs' ? 'so erwartet es der Service' : 'so ist die Prozessvariable definiert'}.\nDer Ausdruck muss ${soll} liefern.`}
+      className={`flex-shrink-0 max-w-[9rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${st.cls}`}>
+      {st.icon}<span className="truncate">{expected.label}</span>
+    </span>
+  );
+}
+
+/**
+ * Was der FEEL-Ausdruck liefert — ausgewertet mit Beispielwerten. Grün, wenn
+ * es zum Solltyp passt, rot, wenn nicht; grau ohne Massstab. Kein Chip, wenn
+ * der Ausdruck nicht auswertbar ist — dann steht der Befund darüber.
+ */
+function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: ExpectedType | null; isDark: boolean }) {
+  if (!feel.result || feel.issues.some(i => i.level === 'error')) return null;
+  const fits = expected ? expected.accepts.includes(feel.result) : null;
+  const cls = fits === true
+    ? (isDark ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800')
+    : fits === false
+      ? (isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')
+      : (isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50');
+  const title = `FEEL gültig · Ergebnis: ${FEEL_TYPE_LABEL[feel.result]}${
+    fits === true ? ' — passt zum Feld' : fits === false ? ` — das Feld erwartet ${expected!.label}` : ' — kein Solltyp bekannt'}`;
+  return (
+    <span title={title} className={`flex-shrink-0 text-[9px] px-1 py-px rounded border ${cls}`}>
+      {FEEL_TYPE_LABEL[feel.result]}
+    </span>
   );
 }
 
