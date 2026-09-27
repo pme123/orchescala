@@ -4,12 +4,13 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Asterisk, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, Asterisk, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
 import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
+import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
@@ -239,6 +240,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
   // Kopf: die Art als Chip in ihrer Farbe, daneben das Objekt (eigener
   // Vertrag, violett) oder die Katalog-Kennung (fremder Service, teal)
+  // Steht der Schritt in einem eigenen Block oder Ereignis-Subprozess? Dann sagt es der Kopf – wie die Klammer im Baum
+  const block = useMemo(() => blockIndex(spec.steps).get(step.id) ?? null, [spec.steps, step.id]);
   const kindTone = ia
     ? (isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800')
     : service
@@ -270,6 +273,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             )}
             <CommentBubble target={stepTarget(step.id)} title={`Kommentare zu «${step.name || step.id}»`} />
           </div>
+          {block && (
+            <button onClick={() => onGoto(block.head.id)}
+              title={`${block.eventSub ? 'Ereignis-Subprozess — läuft neben dem Hauptablauf' : `Eigener Block — ${blockStart(block.head)}`}. Klick zeigt den Block im Ablauf.`}
+              className={`mt-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${
+                isDark ? 'border-slate-500/40 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20' : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>
+              <Unlink size={9} /> {block.eventSub ? 'Ereignis-Subprozess' : 'Eigener Block'} «{block.head.name}»
+            </button>
+          )}
           <input value={step.name} disabled={!canEdit} onChange={e => onPatch(step.id, { name: e.target.value })}
             onBlur={() => onSyncId?.(step.id)}
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
