@@ -153,7 +153,7 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
   return (
     <div className="space-y-1">
       {vars.map((v, i) => (
-        <div key={i} className="group flex items-center gap-1">
+        <div key={i} data-cframe={v.name ? sub(processTarget, `var:${v.name}`) : undefined} className="group flex items-center gap-1">
           <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
             className={`w-28 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input}`} />
           <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value })}
@@ -231,7 +231,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-start gap-2">
+      <div data-cframe={stepTarget(step.id)} className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
             {KIND_LABEL[step.kind]}
@@ -272,7 +272,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       </Field>
 
       {step.kind === 'user' && (
-        <div>
+        <div data-cframe={sub(stepTarget(step.id), 'assignment')}>
           <div className="flex items-center gap-2 mb-1">
             <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Zuständigkeit</h3>
             <CommentBubble target={sub(stepTarget(step.id), 'assignment')} />
@@ -343,7 +343,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               return (
-                <div key={i} className={`group flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border ${
+                <div key={i} data-cframe={e.code ? sub(stepTarget(step.id), `error:${e.code}`) : undefined}
+                  className={`group flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border ${
                   e.side
                     ? (isDark ? 'border-indigo-500/30 bg-indigo-500/10' : 'border-indigo-300 bg-indigo-50')
                     : (isDark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-300 bg-amber-50')}`}>
@@ -384,7 +385,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                   : [];
               const condErr = cond.some(i => i.level === 'error');
               return (
-                <div key={b.id} className={`group px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
+                <div key={b.id} data-cframe={sub(stepTarget(step.id), `branch:${b.id}`)}
+                  className={`group px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
                   {cond.map((it, k) => (
                     <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
                       <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
@@ -574,7 +576,7 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
   };
 
   return (
-    <div>
+    <div data-cframe={sub(stepTarget(step.id), 'service')}>
       <div className="flex items-center gap-2 mb-1">
         <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Service</h3>
         <CommentBubble target={sub(stepTarget(step.id), 'service')} />
@@ -772,6 +774,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             // Zeile bei jedem Tastendruck neu aufbauen — und den Fokus verlieren.
             <div key={i}
               title={problem}
+              data-cframe={m.name ? sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`) : undefined}
               className={`group px-2 py-1.5 rounded border ${box} ${off ? 'opacity-45' : ''}`}>
               {/* Befund zum FEEL-Ausdruck — über dem Feld, damit er beim Tippen im Blick bleibt */}
               {feelIssues.map((it, k) => (
@@ -848,7 +851,7 @@ function Field({ label, children, isDark, action, comment }: {
 }) {
   const c = cls(isDark);
   return (
-    <div>
+    <div data-cframe={comment}>
       <div className="flex items-center gap-2 mb-1">
         <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{label}</h3>
         {comment && <CommentBubble target={comment} />}

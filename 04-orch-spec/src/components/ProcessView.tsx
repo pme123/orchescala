@@ -11,10 +11,13 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { useAuthorName, usePermissions } from '../auth';
+import { useAuth, useAuthor, usePermissions } from '../auth';
 import { collectFindings, type Finding } from '../findings';
 import { catalogEntry } from '../interactions';
-import { baseOf, commentTargets, countIndex, locate, processTarget, pruneComments, stepTarget, sub } from '../comments';
+import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, pruneComments, stepTarget, sub, threadOf } from '../comments';
+import { TEAMS_SCOPES } from '../teams';
+import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
+import { useTeamsNotify } from './useTeamsNotify';
 import { allSteps, importBpmn, mergeSpec, statusCounts, type MergeReport } from '../bpmn';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
@@ -33,7 +36,18 @@ const BpmnEditor = lazy(() => import('./BpmnEditor'));
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
 
-interface Props { slug: string; onBack: () => void }
+interface Props {
+  slug: string;
+  onBack: () => void;
+  /** Deep Link: das Kommentar-Panel an der Stelle dieses Kommentars öffnen */
+  focusCommentId?: string;
+}
+
+/** Die Entra-Suche einmal pro Sitzung erklären, nicht bei jedem «@». */
+let directoryWarned = false;
+
+/** Attributwert für einen CSS-Selektor. */
+const cssAttr = (s: string) => s.replace(/["\\]/g, '\\$&');
 
 // Alle Schritt-IDs, die Kinder haben (für «alles ein-/ausklappen»)
 function containerIds(steps: Step[], out: string[] = []): string[] {
@@ -86,10 +100,13 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
   }
 };
 
-export default function ProcessView({ slug, onBack }: Props) {
-  const { isDark, model, specs, loadSpec, saveSpec, loadBpmn, saveBpmn } = useStore();
+export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
+  const { isDark, model, specs, loadSpec, saveSpec, loadBpmn, saveBpmn, knownUsers, searchDirectory } = useStore();
+  const auth = useAuth();
   const { canEdit } = usePermissions();
-  const author = useAuthorName();
+  const author = useAuthor();
+  /** Hinweis über dem Inhalt — z. B. fehlende Berechtigung für Teams */
+  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn'; scopes?: string[] } | null>(null);
   const c = cls(isDark);
 
   const [spec, setSpec] = useState<ProcessSpec | null>(null);
@@ -324,6 +341,84 @@ export default function ProcessView({ slug, onBack }: Props) {
   }), [commentCounts, commentsOpen, activeComment, openComment, isDark]);
   const offeneKommentare = spec?.comments?.filter(t => !t.resolved).length ?? 0;
 
+  // Deep Link: einmal, sobald die Spezifikation da ist
+  const focusedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!spec || !focusCommentId || focusedRef.current === focusCommentId) return;
+    focusedRef.current = focusCommentId;
+    const faden = threadOf(spec, focusCommentId);
+    if (!faden) { setNotice({ tone: 'warn', message: 'Der verlinkte Kommentar ist nicht mehr da.' }); return; }
+    if (faden.resolved) setShowResolved(true);
+    openComment(faden.target);
+  }, [spec, focusCommentId, openComment]);
+
+  // Personen für «@»: users.json plus Kommentar-Autoren mit E-Mail plus ich
+  const mentionUsers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { name: string; email: string }[] = [];
+    const add = (name: string, email?: string) => {
+      const key = (email ?? '').toLowerCase();
+      if (!key || !name || seen.has(key)) return;
+      seen.add(key);
+      out.push({ name, email: email! });
+    };
+    knownUsers.forEach(u => add(u.name, u.email));
+    add(author.name, author.email);
+    for (const t of spec?.comments ?? []) for (const e of t.entries) add(e.author, e.email);
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  }, [knownUsers, author.name, author.email, spec?.comments]);
+
+  // Entra-Suche nicht möglich: einmal pro Sitzung erklären; bekannte Personen bleiben wählbar
+  const onDirectoryProblem = useCallback((r: Extract<DirectorySearchResult, { ok: false }>) => {
+    if (r.reason === 'noLogin' || directoryWarned) return;
+    directoryWarned = true;
+    setNotice({
+      tone: 'warn', scopes: r.reason === 'consent' ? DIRECTORY_SCOPES : undefined,
+      message: `${r.message} Bis dahin schlägt «@» nur Personen vor, die in diesem Ordner schon gearbeitet oder kommentiert haben.`,
+    });
+  }, []);
+
+  // Teams-Versand (Wartezeit, gesammelt, einmalig). Das Quittieren läuft auch
+  // nach dem Verlassen noch — deshalb auf dem letzten Stand und sofort gespeichert.
+  const teamsSettings = model?.notifications?.teams;
+  const targetLabel = useCallback((t: string) => targets.find(x => x.key === t)?.label ?? t, [targets]);
+  useTeamsNotify({
+    slug, processName: spec?.title || spec?.name || slug, comments: spec?.comments ?? [],
+    me: auth.user?.email ? { id: auth.user.id, name: auth.user.name, email: auth.user.email } : null,
+    settings: teamsSettings,
+    placeLabel: targetLabel,
+    onDelivered: done => {
+      const base = pending.current ?? specRef.current;
+      if (!base) return;
+      update(markNotified(base, done));
+      void flush();
+    },
+    tryToken: auth.tryToken,
+    onProblem: pr => setNotice({
+      tone: 'warn', scopes: pr.reason === 'consent' ? TEAMS_SCOPES : undefined,
+      message: `Teams-Benachrichtigung nicht möglich: ${pr.message} Die Kommentare bleiben gespeichert; die Benachrichtigung wird nachgeholt, sobald die Berechtigung da ist.`,
+    }),
+    onSent: names => setNotice({ tone: 'info', message: `Teams-Nachricht an ${names.join(', ')} gesendet.` }),
+    onFailed: message => setNotice({ tone: 'warn', message }),
+  });
+  // Erfolgsmeldungen verschwinden von selbst
+  useEffect(() => {
+    if (notice?.tone !== 'info') return;
+    const t = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  /**
+   * Blauer Rahmen um das Element des aktiven Kommentars: die Stelle selbst
+   * (`data-cframe`) und — im Baum, in der Typliste — die Zeile des Elements
+   * (`data-cframe-base`), damit man es auch dort wiederfindet.
+   */
+  const aktiv = commentsOpen ? activeComment : null;
+  const frameCss = aktiv
+    ? `[data-cframe="${cssAttr(aktiv)}"],[data-cframe-base="${cssAttr(baseOf(aktiv))}"]`
+      + `{outline:2px solid ${isDark ? 'rgb(96 165 250)' : 'rgb(59 130 246)'};outline-offset:2px;border-radius:4px}`
+    : '';
+
   // Befunde je Schritt — dieselben Regeln wie im Panel rechts, für das Dreieck
   // in der Zeile; einmal je Stand der Spezifikation gerechnet
   const findings = useMemo(() => (spec ? collectFindings(spec, model, allSteps(spec.steps)) : new Map<string, Finding>()), [spec, model]);
@@ -485,6 +580,25 @@ export default function ProcessView({ slug, onBack }: Props) {
       </div>
 
       {/* Bericht des letzten Abgleichs — über die volle Breite, wegklickbar */}
+      {frameCss && <style>{frameCss}</style>}
+
+      {/* Hinweis: fehlende Berechtigung, Teams gesendet … */}
+      {notice && (
+        <div className={`flex-shrink-0 flex items-center gap-2 text-[10px] px-3 py-1.5 border-b ${c.border} ${
+          notice.tone === 'warn'
+            ? (isDark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-800')
+            : (isDark ? 'bg-blue-500/10 text-blue-300' : 'bg-blue-50 text-blue-800')}`}>
+          <span className="flex-1">{notice.message}</span>
+          {notice.scopes && (
+            <button onClick={() => void auth.requestConsent(notice.scopes!)}
+              className={`flex-shrink-0 px-2 py-0.5 rounded border ${isDark ? 'border-amber-500/40 hover:bg-amber-500/10' : 'border-amber-400 hover:bg-amber-100'}`}>
+              Zustimmung erteilen
+            </button>
+          )}
+          <button onClick={() => setNotice(null)} className="flex-shrink-0 opacity-60 hover:opacity-100"><X size={10} /></button>
+        </div>
+      )}
+
       {report && (
         <div className={`flex-shrink-0 text-[10px] px-3 py-1.5 border-b ${c.border} ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
           <div className="flex items-center gap-2">
@@ -550,7 +664,7 @@ export default function ProcessView({ slug, onBack }: Props) {
                 localStorage.setItem(PANEL_W_KEY, String(w));
               }} />
               <div className={`flex-shrink-0 px-4 py-3 border-b ${c.border}`}>
-                <div className="flex items-center gap-2">
+                <div data-cframe={processTarget} className="flex items-center gap-2">
                   <input value={spec.title} disabled={!canEdit}
                     onChange={e => update({ ...spec, title: e.target.value })}
                     placeholder="Fachlicher Titel"
@@ -616,7 +730,9 @@ export default function ProcessView({ slug, onBack }: Props) {
             active={activeComment} showResolved={showResolved} onToggleResolved={setShowResolved}
             onSelect={selectComment}
             onClose={() => { setCommentsOpen(false); setActiveComment(null); }}
-            canEdit={canEdit} author={author} onChange={update} />
+            canEdit={canEdit} author={author} onChange={update}
+            users={mentionUsers} searchUsers={searchDirectory} onDirectoryProblem={onDirectoryProblem}
+            teamsEnabled={teamsSettings?.enabled === true} />
         )}
       </div>
       </CommentsContext.Provider>
@@ -752,7 +868,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   const quiet = step.kind === 'event' || step.kind === 'start' || step.kind === 'end';
   return (
     <div className="flex flex-col">
-      <div data-step={step.id} onClick={() => p.onSelect(step.id)}
+      <div data-step={step.id} data-cframe-base={stepTarget(step.id)} onClick={() => p.onSelect(step.id)}
         className={`group flex items-center gap-2 py-1 pr-2 rounded cursor-pointer ${c.hover} ${
           isSelected ? (p.isDark ? 'bg-white/10' : 'bg-black/10') : step.kind === 'gateway' ? (p.isDark ? 'bg-white/[0.03]' : 'bg-black/[0.03]') : ''}`}>
         <button onClick={e => { e.stopPropagation(); if (hasChildren) p.toggle(step.id); }}
@@ -841,7 +957,8 @@ function BranchBlock({ branch, index, gatewayId, ...p }: ListProps & { branch: B
   const tint = p.isDark ? col.dark : col.light;
   return (
     <div className={`ml-6 pl-3 border-l-2 ${tint.split(' ')[0]}`}>
-      <div className={`group flex items-center gap-1.5 py-1 text-[10px] ${tint.split(' ')[1]}`}>
+      <div data-cframe={sub(stepTarget(gatewayId), `branch:${branch.id}`)}
+        className={`group flex items-center gap-1.5 py-1 text-[10px] ${tint.split(' ')[1]}`}>
         <span className="font-semibold">{branch.label}</span>
         {branch.isDefault && <span className={c.muted}>· Standard</span>}
         {branch.condition && <span className={`font-mono truncate max-w-[24rem] ${c.muted}`} title={branch.condition}>{branch.condition}</span>}

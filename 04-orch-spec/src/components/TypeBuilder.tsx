@@ -250,7 +250,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             {([['root', 'In'], ['initIn', 'InitIn'], ['processOut', 'Out']] as const).map(([slot, label]) => {
               const t = types.find(x => x[slot]);
               return (
-                <button key={slot} onClick={() => processSlot(slot)}
+                <button key={slot} onClick={() => processSlot(slot)} data-cframe-base={t ? typeTarget(t.id) : undefined}
                   className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                     t && selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                   {t?.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
@@ -299,7 +299,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 const mangel = members.some(m => lacking(m));
                 return (
                 <div key={ia.id}>
-                  <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }}
+                  <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }} data-cframe-base={iaTarget(ia.id)}
                     className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                       selectedIa === ia.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                     <Workflow size={11} className={c.muted} />
@@ -466,7 +466,7 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-start gap-3">
+      <div data-cframe={iaTarget(ia.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
             {meta.label}
@@ -544,7 +544,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
         const used = usageCount(all, t.id);
         const leer = isEmptyType(t);
         return (
-        <button key={t.id} onClick={() => onSelect(t.id)}
+        <button key={t.id} onClick={() => onSelect(t.id)} data-cframe-base={typeTarget(t.id)}
           title={used ? `${used}× als Feldtyp verwendet` : 'Kein Feld zeigt auf diesen Typ — Überbleibsel?'}
           className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
             selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
@@ -598,7 +598,7 @@ function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPat
   return (
     <div className="p-4 space-y-4">
       {/* Kopf */}
-      <div className="flex items-start gap-3">
+      <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
             {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
@@ -717,7 +717,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   };
 
   return (
-    <div className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
+    <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
+      className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
           placeholder="feldName"
@@ -948,7 +949,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
         const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
         const tone = isDark ? col.dark : col.light;
         return (
-          <div key={i} className={`group rounded border ${fields.length ? `${c.border2} border-l-4 ${tone.split(' ')[0]} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
+          <div key={i} data-cframe={v.name ? sub(typeTarget(t.id), `value:${v.name}`) : undefined}
+            className={`group rounded border ${fields.length ? `${c.border2} border-l-4 ${tone.split(' ')[0]} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
             {fields.length > 0 && (
               <div className={`flex items-center gap-2 text-[10px] uppercase tracking-widest ${tone.split(' ')[1]}`}>
                 Fall <span className="font-mono normal-case tracking-normal font-semibold">{v.name || '…'}</span>

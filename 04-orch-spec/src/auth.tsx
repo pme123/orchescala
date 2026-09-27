@@ -28,6 +28,8 @@ export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 export type AccessLevel = 'admin' | 'reviewer' | 'viewer' | 'none';
 
 export interface AuthUser {
+  /** Objekt-ID in Entra — für Graph (Teams-Chat) */
+  id?: string;
   name: string;
   email: string;
   roles: string[];
@@ -59,6 +61,14 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   /** Access-Token für die angegebenen Scopes (still, sonst Redirect) */
   getToken: (scopes: string[]) => Promise<string>;
+  /**
+   * Access-Token nur still — nie ein Redirect. Für Zusatzberechtigungen
+   * (Verzeichnissuche, Teams), die fehlen dürfen: 'interaction' heisst,
+   * die Zustimmung fehlt noch (requestConsent holt sie nach).
+   */
+  tryToken: (scopes: string[]) => Promise<{ ok: true; token: string } | { ok: false; reason: 'noAccount' | 'interaction' | 'error'; message: string }>;
+  /** Zustimmung zu weiteren Berechtigungen einholen (Redirect) */
+  requestConsent: (scopes: string[]) => Promise<void>;
   /** Konfiguration aus der model.json übernehmen (beim Laden und nach Admin-Änderungen) */
   applyConfig: (cfg: AuthSettings | null | undefined) => void;
 }
@@ -140,6 +150,15 @@ export function setupLink(tenantId: string, clientId: string, folderUrl?: string
 }
 
 const devBypass = () => import.meta.env.DEV && new URLSearchParams(location.search).has('noauth');
+// Entwicklung: ?noauth&me=vorname.nachname@firma.ch simuliert eine angemeldete
+// Person (Name aus der E-Mail) — für Kommentare, users.json, Teams-Mock
+function devUser(): AuthUser | null {
+  if (!devBypass()) return null;
+  const email = (new URLSearchParams(location.search).get('me') ?? '').trim();
+  if (!email.includes('@')) return null;
+  const name = email.split('@')[0].split(/[._-]+/).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+  return { id: `dev-${email}`, name, email, roles: [], level: 'admin', isAdmin: true };
+}
 const isValidIds = (cfg: { tenantId: string; clientId: string } | null | undefined): cfg is { tenantId: string; clientId: string } =>
   !!cfg && GUID_RE.test(cfg.tenantId) && GUID_RE.test(cfg.clientId);
 const sharePointMode = () => { try { return localStorage.getItem(MODE_KEY) === 'sharepoint'; } catch { return false; } };
@@ -150,12 +169,12 @@ function toUser(account: AccountInfo, cfg: AuthConfig | null): AuthUser {
   const email = String(claims.preferred_username ?? claims.email ?? account.username);
   const roles = Array.isArray(claims.roles) ? (claims.roles as unknown[]).map(String) : [];
   const level = levelOf(roles, cfg);
-  return { name, email, roles, level, isAdmin: level === 'admin' };
+  return { id: account.localAccountId || undefined, name, email, roles, level, isAdmin: level === 'admin' };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => devUser());
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const pcaRef = useRef<PublicClientApplication | null>(null);
@@ -337,11 +356,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const tryToken = useCallback(async (scopes: string[]) => {
+    if (devBypass()) return { ok: false as const, reason: 'noAccount' as const, message: 'Entwicklung ohne Anmeldung.' };
+    const pca = pcaRef.current;
+    const account = pca?.getActiveAccount() ?? accountRef.current;
+    if (!pca || !account) return { ok: false as const, reason: 'noAccount' as const, message: 'Nicht angemeldet.' };
+    try {
+      const res = await pca.acquireTokenSilent({ scopes, account });
+      return { ok: true as const, token: res.accessToken };
+    } catch (e) {
+      const code = (e as { errorCode?: string })?.errorCode ?? '';
+      const name = e instanceof Error ? e.name : '';
+      const interaction = name === 'InteractionRequiredAuthError' || /interaction_required|consent_required|invalid_grant/i.test(code);
+      return { ok: false as const, reason: interaction ? 'interaction' as const : 'error' as const, message: e instanceof Error ? e.message : String(e) };
+    }
+  }, []);
+
+  const requestConsent = useCallback(async (scopes: string[]) => {
+    const pca = pcaRef.current;
+    const account = pca?.getActiveAccount() ?? accountRef.current;
+    if (!pca || !account) return;
+    await pca.acquireTokenRedirect({ scopes, account, loginHint: account.username });
+  }, []);
+
   const ids = effectiveIds(config);
   const loginAvailable = !!ids;
 
   return (
-    <AuthContext.Provider value={{ status, user, error, config, loginAvailable, ids, setLocalIds, login, loginForSharePoint, logout, getToken, applyConfig }}>
+    <AuthContext.Provider value={{ status, user, error, config, loginAvailable, ids, setLocalIds, login, loginForSharePoint, logout, getToken, tryToken, requestConsent, applyConfig }}>
       {children}
     </AuthContext.Provider>
   );
@@ -362,6 +404,13 @@ export function useAuth(): AuthContextValue {
 export function useAuthorName(): string {
   const { user } = useAuth();
   return user?.name?.trim() || 'Ich';
+}
+
+/** Name und — mit Anmeldung — E-Mail der schreibenden Person. */
+export function useAuthor(): { name: string; email?: string } {
+  const { user } = useAuth();
+  const name = user?.name?.trim() || 'Ich';
+  return user?.email ? { name, email: user.email } : { name };
 }
 
 export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEdit: boolean; canView: boolean; canDelete: boolean } {

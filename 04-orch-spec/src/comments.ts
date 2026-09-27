@@ -16,7 +16,7 @@
 // Fäden bleiben stehen und werden nur ausgeblendet: wer später dazukommt,
 // soll sehen, was besprochen wurde.
 
-import type { CommentEntry, CommentThread, Interaction, ProcessSpec, Step, TypeDef } from './types.ts';
+import type { CommentEntry, CommentThread, DirectoryUser, Interaction, ProcessSpec, Step, TypeDef } from './types.ts';
 import { KIND_LABEL } from './ui.tsx';
 import { nowIsoWithTimezone, uid } from './util.ts';
 
@@ -53,27 +53,63 @@ export function countIndex(spec: ProcessSpec): { exact: Map<string, Counts>; und
   return { exact, under };
 }
 
-const eintrag = (author: string, text: string): CommentEntry => ({
-  id: uid('ce'), author, at: nowIsoWithTimezone(), text: text.trim(),
+/** Wer schreibt — mit Anmeldung auch die E-Mail (Empfänger bei Antworten). */
+export interface CommentAuthor { name: string; email?: string }
+
+/** Was an einem neuen Beitrag hängt: Erwähnungen und wer benachrichtigt wird. */
+export interface EntryExtras { mentions?: DirectoryUser[]; notifyPending?: string[] }
+
+const eintrag = (author: CommentAuthor, text: string, extras: EntryExtras = {}): CommentEntry => ({
+  id: uid('ce'), author: author.name, ...(author.email ? { email: author.email } : {}),
+  at: nowIsoWithTimezone(), text: text.trim(),
+  ...(extras.mentions?.length ? { mentions: extras.mentions } : {}),
+  ...(extras.notifyPending?.length ? { notifyPending: extras.notifyPending } : {}),
 });
 
 /** Einen neuen Faden anlegen. */
-export function addThread(spec: ProcessSpec, target: string, author: string, text: string): ProcessSpec {
+export function addThread(spec: ProcessSpec, target: string, author: CommentAuthor, text: string, extras?: EntryExtras): ProcessSpec {
   if (!text.trim()) return spec;
-  const faden: CommentThread = { id: uid('ct'), target, entries: [eintrag(author, text)] };
+  const faden: CommentThread = { id: uid('ct'), target, entries: [eintrag(author, text, extras)] };
   return { ...spec, comments: [...(spec.comments ?? []), faden] };
 }
 
 /** In einem Faden antworten — das hebt ihn zugleich wieder auf offen. */
-export function addReply(spec: ProcessSpec, threadId: string, author: string, text: string): ProcessSpec {
+export function addReply(spec: ProcessSpec, threadId: string, author: CommentAuthor, text: string, extras?: EntryExtras): ProcessSpec {
   if (!text.trim()) return spec;
   return {
     ...spec,
     comments: (spec.comments ?? []).map(t => (t.id === threadId
-      ? { ...t, resolved: false, resolvedBy: undefined, resolvedAt: undefined, entries: [...t.entries, eintrag(author, text)] }
+      ? { ...t, resolved: false, resolvedBy: undefined, resolvedAt: undefined, entries: [...t.entries, eintrag(author, text, extras)] }
       : t)),
   };
 }
+
+/**
+ * Teams-Versand quittieren: die zugestellten Empfänger wandern von
+ * `notifyPending` nach `notified` — was nicht durchkam, bleibt offen.
+ */
+export function markNotified(spec: ProcessSpec, done: { entryId: string; email: string }[]): ProcessSpec {
+  if (!done.length) return spec;
+  return {
+    ...spec,
+    comments: (spec.comments ?? []).map(t => ({
+      ...t,
+      entries: t.entries.map(e => {
+        const mine = done.filter(d => d.entryId === e.id).map(d => d.email.toLowerCase());
+        if (!mine.length) return e;
+        const left = (e.notifyPending ?? []).filter(r => !mine.includes(r.toLowerCase()));
+        const before = (e.notified ?? []).map(x => x.toLowerCase());
+        const { notifyPending: _drop, ...rest } = e;
+        void _drop;
+        return { ...rest, ...(left.length ? { notifyPending: left } : {}), notified: [...(e.notified ?? []), ...mine.filter(m => !before.includes(m))] };
+      }),
+    })),
+  };
+}
+
+/** Welcher Faden gehört zu einer Kommentar-ID — Faden oder einzelner Beitrag (Deep Link). */
+export const threadOf = (spec: ProcessSpec, id: string): CommentThread | undefined =>
+  (spec.comments ?? []).find(t => t.id === id || t.entries.some(e => e.id === id));
 
 /** Erledigt / wieder offen — wer abgehakt hat, bleibt stehen. */
 export function setResolved(spec: ProcessSpec, threadId: string, resolved: boolean, author: string): ProcessSpec {
