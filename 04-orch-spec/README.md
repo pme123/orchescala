@@ -868,6 +868,16 @@ mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
 `modulo()`), Vergleiche (auch `eq`/`ne`/`lt`…), `&&`/`||`/`!`, `? :`,
 `empty x`, Index `[0]` → `[1]` und die üblichen String-Methoden (`concat`,
 `equals`, `contains`, `startsWith`, `toUpperCase`, `size`, `isEmpty` …).
+Dazu die Camunda-7-Eigenheiten, die in FEEL schlicht Pfade oder Variablen
+sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
+`.hasProp`, `.jsonPath("$.a")`), `execution.getVariable("x")` → `x`,
+`execution.getProcessInstanceId()` → `processInstanceKey`,
+`getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
+`processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen),
+`result.get("k")` → `result.k` und Zeitketten wie
+`dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
+alle valiant-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
+Setter, `append`, dynamische Variablennamen, `jsonPath`-Filter.
 Was kein Gegenstück hat (fremde Methoden, Java-Aufrufe), bleibt als JUEL
 stehen und wird am Feld gelb gemeldet — der Export übernimmt es für Camunda 7
 unverändert. Ein fester Text ohne `${}` bleibt ein fester Text.
