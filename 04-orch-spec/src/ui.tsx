@@ -68,7 +68,8 @@ export function LoopChip({ step, isDark }: { step: Step; isDark: boolean }) {
 // Blöcke, die an keinem Sequenzfluss hängen: Ereignis-Subprozesse und
 // Link-Ziele ohne erkennbares Gegenstück. Sie stehen am Ende des Ablaufs.
 export function BlockChip({ step, isDark }: { step: Step; isDark: boolean }) {
-  if (!step.orphan && !step.eventSubprocess) return null;
+  // ein eigener Block bekommt im Baum eine Klammer — der Chip bleibt dem Ereignis-Subprozess
+  if (!step.eventSubprocess) return null;
   const label = step.eventSubprocess ? 'Ereignis-Subprozess' : 'eigener Block';
   const title = step.eventSubprocess
     ? 'Subprozess, der durch ein Ereignis ausgelöst wird'

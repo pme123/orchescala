@@ -7,7 +7,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
-  AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal,
+  AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
   MessageSquare,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -849,10 +849,47 @@ interface ListProps {
   onStatus?: (id: string, s: Status) => void;
 }
 
+const EVENT_LABEL: Record<NonNullable<Step['eventKind']>, string> = {
+  timer: 'Timer', signal: 'Signal', message: 'Nachricht', error: 'Fehler', escalation: 'Eskalation', none: 'Ereignis',
+};
+
+/**
+ * Die Schritte einer Ebene — eigene Blöcke (zweiter Start, Link-Ziel) in
+ * einer Klammer: der Block beginnt beim Schritt mit `orphan` und reicht
+ * bis zum nächsten. Ein Ereignis-Subprozess hat seine Klammer schon selbst.
+ */
 function StepList(p: ListProps) {
+  const c = cls(p.isDark);
+  const steps = p.steps.filter(s => !p.filterActive || p.matches(s));
+  const groups: Array<{ head: Step | null; steps: Step[] }> = [];
+  for (const s of steps) {
+    const opens = s.orphan && !s.eventSubprocess;
+    const last = groups[groups.length - 1];
+    // jeder eigene Block beginnt eine neue Gruppe — eine Klammer nur ohne eigenen Container
+    if (s.orphan || !last) groups.push({ head: opens ? s : null, steps: [s] });
+    else last.steps.push(s);
+  }
   return (
     <div className="flex flex-col">
-      {p.steps.filter(s => !p.filterActive || p.matches(s)).map(s => <StepRow key={s.id} step={s} {...p} />)}
+      {groups.map((g, i) => {
+        if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...p} />);
+        const start = g.head.kind === 'start'
+          ? `startet mit ${g.head.eventKind && g.head.eventKind !== 'none' ? EVENT_LABEL[g.head.eventKind] : 'eigenem Start'} «${g.head.name}»`
+          : 'hängt an keinem Sequenzfluss — z. B. Ziel eines Link-Ereignisses';
+        const n = countSteps(g.steps);
+        return (
+          <div key={g.head.id} className={`mt-2 pl-3 border-l-2 ${p.isDark ? 'border-slate-500/40' : 'border-slate-300'}`}>
+            <div className={`flex items-center gap-1.5 py-1 text-[10px] ${p.isDark ? 'text-slate-300' : 'text-slate-600'}`}
+              title="Eigener Block: läuft neben dem Hauptablauf, mit eigenem Einstieg">
+              <Unlink size={10} />
+              <span className="font-semibold">Eigener Block</span>
+              <span className={c.muted}>· {start}</span>
+              <span className={`ml-auto ${c.muted}`}>{n} Schritt{n === 1 ? '' : 'e'}</span>
+            </div>
+            {g.steps.map(s => <StepRow key={s.id} step={s} {...p} />)}
+          </div>
+        );
+      })}
     </div>
   );
 }
