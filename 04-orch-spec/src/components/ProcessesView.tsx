@@ -17,16 +17,37 @@
 // Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, Search, Trash2, Upload, X } from 'lucide-react';
+import { collectFindings } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
-import { importBpmn, statusCounts } from '../bpmn';
+import { allSteps, importBpmn, statusCounts } from '../bpmn';
 import { DEFAULT_ENGINE, ENGINES, applyTemplate, loadTemplate } from '../template';
 import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status, type Step } from '../types';
 import { StatusChip, cls } from '../ui';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
+
+/** Balkenfarbe je Status — kräftig, weil der Balken keine Schrift trägt. */
+const BAR: Record<Status, string> = {
+  draft: 'bg-neutral-400/60', review: 'bg-amber-400', final: 'bg-blue-400',
+  implemented: 'bg-emerald-400', accepted: 'bg-emerald-600', changed: 'bg-rose-400',
+};
+
+/** «heute», «gestern», «vor 3 Tagen» … aus dem ISO-Zeitpunkt. */
+function relativeTime(iso: string | undefined): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const days = Math.floor((Date.now() - t) / 86_400_000);
+  if (days <= 0) return 'heute';
+  if (days === 1) return 'gestern';
+  if (days < 14) return `vor ${days} Tagen`;
+  if (days < 60) return `vor ${Math.floor(days / 7)} Wochen`;
+  if (days < 730) return `vor ${Math.floor(days / 30)} Monaten`;
+  return `vor ${Math.floor(days / 365)} Jahren`;
+}
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
   const { isDark, specs, createSpec, saveBpmn, deleteSpec, model } = useStore();
@@ -46,6 +67,41 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   /** Spezifikation, deren Löschen gerade bestätigt werden soll */
   const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Liste: Suche, Status-Filter, Sortierung
+  const [listQuery, setListQuery] = useState('');
+  const [listStatus, setListStatus] = useState<Status | null>(null);
+  const [sortBy, setSortBy] = useState<'title' | 'updated'>('title');
+  // Je Prozess: Status-Zähler und Befunde — einmal je Stand der Liste
+  const summaries = useMemo(() => new Map(specs.map(({ slug, data }) => {
+    const counts = statusCounts(data);
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    let findings = 0, errors = 0;
+    try {
+      const f = collectFindings(data, model, allSteps(data.steps));
+      findings = f.size;
+      errors = [...f.values()].filter(x => x.errors.length).length;
+    } catch { /* eine defekte Spezifikation darf die Liste nicht blockieren */ }
+    return [slug, { counts, total, findings, errors }];
+  })), [specs, model]);
+  const visible = useMemo(() => {
+    const q = listQuery.trim().toLowerCase();
+    const list = specs.filter(({ slug, data }) =>
+      (!q || `${data.title} ${data.processId ?? ''} ${data.project ?? ''} ${slug}`.toLowerCase().includes(q))
+      && (!listStatus || data.status === listStatus));
+    return sortBy === 'updated'
+      ? [...list].sort((a, b) => (b.data.updatedAt ?? '').localeCompare(a.data.updatedAt ?? ''))
+      : list;
+  }, [specs, listQuery, listStatus, sortBy]);
+  // Gruppen je Projekt, in der Reihenfolge ihres ersten Prozesses
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof visible>();
+    for (const item of visible) {
+      const key = item.data.project || 'ohne Projekt';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    }
+    return [...map.entries()];
+  }, [visible]);
   const [newOpen, setNewOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
@@ -347,50 +403,106 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         </div>
       )}
 
+      {/* Kopf der Liste: Suche, Status-Filter, Sortierung */}
+      {specs.length > 0 && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <div className={`flex items-center gap-1 px-2 py-1 rounded border ${c.border2} min-w-[16rem]`}>
+            <Search size={11} className={c.muted} />
+            <input value={listQuery} onChange={e => setListQuery(e.target.value)} placeholder="Titel, Prozess-ID, Projekt …"
+              className={`flex-1 min-w-0 bg-transparent outline-none text-[11px] ${c.text}`} />
+            {listQuery && <button onClick={() => setListQuery('')} className={c.muted}><X size={10} /></button>}
+          </div>
+          {STATUSES.filter(st => specs.some(x => x.data.status === st)).map(st => (
+            <button key={st} onClick={() => setListStatus(listStatus === st ? null : st)}
+              title={`Nur Prozesse mit Status «${STATUS_META[st].label}»`}
+              className={`text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${isDark ? STATUS_META[st].dark : STATUS_META[st].light} ${
+                listStatus && listStatus !== st ? 'opacity-30' : ''}`}>
+              {STATUS_META[st].label} {specs.filter(x => x.data.status === st).length}
+            </button>
+          ))}
+          <button onClick={() => setSortBy(sortBy === 'title' ? 'updated' : 'title')}
+            title="Sortierung wechseln"
+            className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
+            <ArrowUpDown size={10} /> {sortBy === 'title' ? 'nach Titel' : 'zuletzt geändert'}
+          </button>
+        </div>
+      )}
+
       {!specs.length ? (
         <div className={`text-xs ${c.muted} py-10 text-center`}>
           Noch keine Spezifikation. {canEdit ? '«Aus BPMN» liest die Struktur direkt aus der Implementation.' : ''}
         </div>
+      ) : !visible.length ? (
+        <div className={`text-xs ${c.muted} py-10 text-center`}>Kein Prozess passt zu Suche und Filter.</div>
       ) : (
-        <div className="space-y-1.5">
-          {specs.map(({ slug, data }) => {
-            const counts = statusCounts(data);
-            const total = Object.values(counts).reduce((a, b) => a + b, 0);
-            return (
-              <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
-                <button onClick={() => onOpen(slug)}
-                  className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
-                  <FileCode2 size={14} className={c.muted} />
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-xs truncate ${c.text}`}>{data.title || slug}</div>
-                    <div className={`text-[10px] font-mono truncate ${c.muted}`}>
-                      {data.processId || data.name}{data.project ? ` · ${data.project}` : ''}
+        <div className="space-y-4">
+          {groups.map(([project, items]) => (
+            <div key={project}>
+              {/* Gruppenkopf je Projekt — nur, wenn es mehr als eines gibt */}
+              {groups.length > 1 && (
+                <div className={`flex items-baseline gap-2 mb-1.5 px-1 text-[10px] uppercase tracking-widest ${c.muted}`}>
+                  <span className="font-mono normal-case tracking-normal font-semibold">{project}</span>
+                  <span>{items.length} Prozess{items.length === 1 ? '' : 'e'}</span>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                {items.map(({ slug, data }) => {
+                  const sum = summaries.get(slug)!;
+                  const engine = data.engine === 'c8' ? 'C8' : 'C7';
+                  return (
+                    <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
+                      <button onClick={() => onOpen(slug)}
+                        className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
+                        <FileCode2 size={14} className={c.muted} />
+                        <div className="min-w-0 flex-1">
+                          <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
+                          <div className={`text-[10px] font-mono truncate ${c.muted}`}>{data.processId || data.name}</div>
+                        </div>
+                        {/* Fortschritt: ein Balken in Statusfarben, die Zahlen im Tooltip */}
+                        <div className="hidden sm:flex flex-col items-end gap-1 w-40 flex-shrink-0">
+                          <div className="flex w-full h-1.5 rounded overflow-hidden" title={STATUSES.filter(st => sum.counts[st] > 0).map(st => `${sum.counts[st]} × ${STATUS_META[st].label}`).join('\n')}>
+                            {STATUSES.filter(st => sum.counts[st] > 0).map(st => (
+                              <div key={st} className={BAR[st]} style={{ width: `${(100 * sum.counts[st]) / Math.max(sum.total, 1)}%` }} />
+                            ))}
+                          </div>
+                          <span className={`text-[9px] whitespace-nowrap ${c.muted}`}>{sum.total} Schritte · {relativeTime(data.updatedAt)}</span>
+                        </div>
+                        <span title={engine === 'C8' ? 'Camunda 8 — FEEL' : 'Camunda 7 — JUEL beim Export'}
+                          className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                            engine === 'C8'
+                              ? (isDark ? 'border-sky-500/40 text-sky-300' : 'border-sky-300 text-sky-800')
+                              : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50')}`}>
+                          {engine}
+                        </span>
+                        {sum.findings > 0 ? (
+                          <span title={`${sum.findings} Schritt${sum.findings === 1 ? '' : 'e'} mit Befund${sum.errors ? `, ${sum.errors} mit Fehlern` : ''}`}
+                            className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${
+                              sum.errors
+                                ? (isDark ? 'border-rose-500/30 bg-rose-500/15 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')
+                                : (isDark ? 'border-amber-500/30 bg-amber-500/15 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700')}`}>
+                            <AlertTriangle size={9} />{sum.findings}
+                          </span>
+                        ) : (
+                          <span className="w-8" />
+                        )}
+                        <StatusChip status={data.status as Status} isDark={isDark} />
+                      </button>
+                      {/* Löschen — nur Admin (oder ohne Anmeldepflicht) */}
+                      {canDelete && (
+                        <button onClick={() => { setError(''); setToDelete({ slug, title: data.title || slug }); }}
+                          title="Spezifikation löschen (Admin)"
+                          className={`mr-2 p-1.5 rounded border flex-shrink-0 transition-colors ${
+                            isDark ? 'border-white/15 text-white/50 hover:border-rose-400/60 hover:text-rose-300 hover:bg-rose-500/10'
+                                   : 'border-black/15 text-black/50 hover:border-rose-400 hover:text-rose-700 hover:bg-rose-50'}`}>
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
-                  </div>
-                  <div className="hidden sm:flex items-center gap-1">
-                    {STATUSES.filter(s => counts[s] > 0).map(s => (
-                      <span key={s} title={`${counts[s]} × ${STATUS_META[s].label}`}
-                        className={`text-[9px] px-1 py-0.5 rounded border ${isDark ? STATUS_META[s].dark : STATUS_META[s].light}`}>
-                        {counts[s]}
-                      </span>
-                    ))}
-                  </div>
-                  <span className={`text-[10px] ${c.muted} w-20 text-right`}>{total} Schritte</span>
-                  <StatusChip status={data.status as Status} isDark={isDark} />
-                </button>
-                {/* Löschen — nur Admin (oder ohne Anmeldepflicht) */}
-                {canDelete && (
-                  <button onClick={() => { setError(''); setToDelete({ slug, title: data.title || slug }); }}
-                    title="Spezifikation löschen (Admin)"
-                    className={`mr-2 p-1.5 rounded border flex-shrink-0 transition-colors ${
-                      isDark ? 'border-white/15 text-white/50 hover:border-rose-400/60 hover:text-rose-300 hover:bg-rose-500/10'
-                             : 'border-black/15 text-black/50 hover:border-rose-400 hover:text-rose-700 hover:bg-rose-50'}`}>
-                    <Trash2 size={12} />
-                  </button>
-                )}
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>
