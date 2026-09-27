@@ -4,12 +4,13 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Asterisk, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, Asterisk, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
-import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
+import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
-import { KIND_LABEL, cls } from '../ui';
+import { KIND_LABEL, cls, patternTone } from '../ui';
+import { PROCESS_TARGET, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { stepFindings } from '../findings';
@@ -39,6 +40,10 @@ interface Props {
   projectPrefixes?: string[];
   /** Firma/Projekt wechseln — zieht alle `{company}-{project}-*`-IDs nach */
   onRenameProject?: (newPrefix: string) => void;
+  /** Pattern einfügen, entfernen, Werte ändern — schreibt direkt ins BPMN; `null` = am Prozess */
+  onPattern?: (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params?: Record<string, string>, previous?: Record<string, string>) => void;
+  /** liegt ein Diagramm vor? Ohne es gibt es nichts, wo ein Pattern hinkäme */
+  hasDiagram?: boolean;
 }
 
 // Breite, Rand und Hintergrund kommen von der rechten Spalte — hier nur Inhalt.
@@ -72,7 +77,7 @@ function juelIssues(expression: string, engine: EngineId | undefined): FeelIssue
 }
 
 // ── Prozess-Ebene (kein Schritt gewählt) ─────────────────────────────────────
-function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject }: Props) {
+function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject, model, onPattern, hasDiagram }: Props) {
   const c = cls(isDark);
   return (
     <div className="p-4 space-y-4">
@@ -99,6 +104,8 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           placeholder="https://confluence…"
           className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
       </Field>
+      <PatternSection target={null} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
+        onPattern={onPattern} hasDiagram={hasDiagram} />
       <div>
         <h3 className={`text-[10px] uppercase tracking-widest mb-2 ${c.text}`}>Prozessvariablen</h3>
         <VariableList spec={spec} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
@@ -177,7 +184,7 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
 }
 
 // ── Schritt-Ebene ────────────────────────────────────────────────────────────
-function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType }: Props & { step: Step }) {
+function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram }: Props & { step: Step }) {
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
   const [preview, setPreview] = useState(false);
@@ -343,6 +350,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </Section>
       )}
 
+      <PatternSection target={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
+        onPattern={onPattern} hasDiagram={hasDiagram} />
+
       {/* Schleife */}
       {step.loop && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-violet-500/30 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-700'}`}>
@@ -482,6 +492,105 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           onChange={e => onPatch(step.id, { notes: e.target.value })}
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Section>
+    </div>
+  );
+}
+
+// ── Pattern ──────────────────────────────────────────────────────────────────
+//
+// Was der Admin als Pattern hinterlegt hat und zu diesem Element passt, lässt
+// sich hier wählen — es steht danach sofort im Diagramm (nicht erst beim
+// Export). Die Werte der Parameter gehen beim Verlassen des Felds hinein.
+function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDiagram }: {
+  target: Step | null; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean;
+  onPattern?: Props['onPattern']; hasDiagram?: boolean;
+}) {
+  const c = cls(isDark);
+  const engine: EngineId = spec.engine ?? 'c7';
+  const applied = (target ? target.patterns : spec.patterns) ?? [];
+  const tags = target ? stepTags(target.kind, target.eventDirection, target.gatewayType) : [PROCESS_TARGET];
+  const available = patternsFor(model?.patterns, tags, engine);
+  if (!applied.length && !available.length) return null;
+  const editable = canEdit && !!onPattern && !!hasDiagram;
+  const id = target?.id ?? null;
+  return (
+    <Section id="patterns" label="Pattern" count={applied.length} isDark={isDark}
+      hint={!hasDiagram ? <span className={`text-[9px] ${c.muted}`}>braucht das Diagramm</span> : undefined}
+      action={editable && available.length ? (
+        <select value="" onChange={e => { if (e.target.value) onPattern!(id, e.target.value, 'add'); }}
+          title="Pattern wählen — es wird sofort ins Diagramm eingefügt"
+          className={`text-[10px] px-1.5 py-0.5 rounded border outline-none max-w-[12rem] ${c.input}`}>
+          <option value="">+ Pattern …</option>
+          {available.map(d => <option key={d.id} value={d.id} title={d.description}>{d.name}{applied.some(a => a.id === d.id) ? ' (noch einmal)' : ''}</option>)}
+        </select>
+      ) : undefined}>
+      <div className="space-y-1.5">
+        {applied.map((a, i) => (
+          <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={model?.patterns?.find(d => d.id === a.id) ?? null}
+            isDark={isDark} editable={editable} engine={engine} atProcess={!target}
+            onRemove={() => onPattern?.(id, a.id, 'remove', a.params)}
+            onParams={params => onPattern?.(id, a.id, 'update', params, a.params)} />
+        ))}
+        {!applied.length && !!available.length && (
+          <p className={`text-[10px] ${c.muted}`}>
+            {available.length} passende{available.length === 1 ? 's' : ''} Pattern: {available.map(d => d.name).join(', ')}
+          </p>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess, onRemove, onParams }: {
+  applied: AppliedPattern; def: PatternDef | null; isDark: boolean; editable: boolean; engine: EngineId; atProcess: boolean;
+  onRemove: () => void; onParams: (params: Record<string, string>) => void;
+}) {
+  const c = cls(isDark);
+  const { warn } = tones(isDark);
+  const params: Array<{ name: string; label?: string; description?: string; default?: string; inBlock?: boolean }> = def
+    ? patternParamsFor(def, engine, atProcess)
+    : Object.keys(applied.params ?? {}).map(name => ({ name }));
+  const stored = applied.params ?? {};
+  const [draft, setDraft] = useState<Record<string, string>>(stored);
+  const storedKey = JSON.stringify(stored);
+  useEffect(() => { setDraft(JSON.parse(storedKey)); }, [storedKey]);
+  const [confirm, setConfirm] = useState(false);
+  const commit = () => { if (JSON.stringify(draft) !== storedKey) onParams(draft); };
+  return (
+    <div className={`rounded border px-2 py-1.5 space-y-1 ${patternTone(isDark)}`}>
+      <div className="flex items-center gap-1.5 text-[10px]">
+        <Puzzle size={10} className="flex-shrink-0" />
+        <span className="font-semibold truncate" title={def?.description}>{def?.name ?? applied.id}</span>
+        {def?.docUrl && (
+          <a href={def.docUrl} target="_blank" rel="noopener noreferrer" title="Dokumentation des Patterns" className="opacity-70 hover:opacity-100">
+            <ExternalLink size={9} />
+          </a>
+        )}
+        {editable && def && (
+          confirm
+            ? <span className="ml-auto flex items-center gap-1">
+                <button onClick={() => { setConfirm(false); onRemove(); }} className="text-[9px] underline">aus dem Diagramm entfernen</button>
+                <button onClick={() => setConfirm(false)} title="Abbrechen" className="opacity-70"><X size={10} /></button>
+              </span>
+            : <button onClick={() => setConfirm(true)} title="Pattern entfernen" className="ml-auto opacity-60 hover:opacity-100"><Trash2 size={10} /></button>
+        )}
+      </div>
+      {!def && <p className={`text-[10px] flex items-start gap-1 ${warn}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />Im Admin nicht (mehr) definiert — erkannt wurde es mit einem früheren Stand.</p>}
+      {!!params.length && (
+        <div className="space-y-0.5">
+          {params.map(p => (
+            <label key={p.name} className="flex items-center gap-1.5 text-[10px]"
+              title={p.inBlock ? `${p.description ? `${p.description}\n` : ''}Steht im gemeinsamen Block des Prozesses — dort, im Diagramm, ändern.` : p.description}>
+              <span className={`w-28 flex-shrink-0 truncate ${c.muted2}`}>{p.label || p.name}</span>
+              <input value={p.inBlock ? '' : draft[p.name] ?? ''} disabled={!editable || p.inBlock}
+                placeholder={p.inBlock ? 'im gemeinsamen Block' : p.default ? `Vorgabe: ${p.default}` : undefined}
+                onChange={e => setDraft(d => ({ ...d, [p.name]: e.target.value }))}
+                onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -135,7 +135,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     setError('');
     try {
       const text = await file.text();
-      const { spec, stepCount, unreachable } = importBpmn(text, file.name);
+      const { spec, stepCount, unreachable } = importBpmn(text, file.name, { patterns: model?.patterns });
       if (unreachable.length) console.warn('[orch-spec] nicht erreichbare BPMN-Elemente:', unreachable);
       // Über die Prozess-ID die Domain suchen: Katalog, dann gemerkte Ordner
       setBusy('Domain wird gesucht …');
@@ -197,7 +197,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     setError('');
     try {
       const xml = applyTemplate(await loadTemplate(engine), { processId, title: title || processId });
-      const { spec } = importBpmn(xml, `${slugify(processId)}.bpmn`);
+      const { spec } = importBpmn(xml, `${slugify(processId)}.bpmn`, { patterns: model?.patterns });
       // Der Ablauf kommt aus der Vorlage, ist aber noch nicht umgesetzt —
       // und zwar auf allen Ebenen: Unterschritte, Zweige und Fehlerpfade.
       const entwurf = (steps: Step[]): Step[] => steps.map(s => ({

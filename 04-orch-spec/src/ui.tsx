@@ -3,7 +3,7 @@
 import {
   GripVertical,
   Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand,
-  CornerDownRight, Zap, Repeat, AlertTriangle, Split, Merge, Unlink,
+  CornerDownRight, Zap, Repeat, AlertTriangle, Split, Merge, Unlink, Puzzle,
 } from 'lucide-react';
 import { useRef } from 'react';
 import { STATUS_META, type Status, type Step, type StepKind } from './types';
@@ -79,6 +79,21 @@ export function BlockChip({ step, isDark }: { step: Step; isDark: boolean }) {
       className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap ${
         isDark ? 'bg-slate-500/15 text-slate-300 border-slate-500/30' : 'bg-slate-100 text-slate-700 border-slate-300'}`}>
       <Unlink size={9} /> {label}
+    </span>
+  );
+}
+
+/** Farbe der Pattern — dieselbe im Baum, im Panel und im Admin */
+export const patternTone = (isDark: boolean) =>
+  isDark ? 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300' : 'border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800';
+
+/** Ein Pattern an einem Schritt: Name, Werte im Tooltip */
+export function PatternChip({ name, params, isDark, title }: { name: string; params?: Record<string, string>; isDark: boolean; title?: string }) {
+  const werte = Object.entries(params ?? {}).filter(([, v]) => v !== '');
+  return (
+    <span title={title ?? [`Pattern «${name}»`, ...werte.map(([k, v]) => `${k} = ${v}`)].join('\n')}
+      className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap truncate max-w-[14rem] ${patternTone(isDark)}`}>
+      <Puzzle size={9} className="flex-shrink-0" />{name}
     </span>
   );
 }

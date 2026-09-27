@@ -10,8 +10,9 @@
 // werden beim erneuten Import über die stabile BPMN-Element-ID **behalten**
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
-import type { Branch, ErrorHandling, GatewayType, Mapping, ProcessSpec, Status, Step, StepKind } from './types';
+import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind } from './types';
 import { importExpression } from './juelFeel.ts';
+import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
 import { nowIsoWithTimezone, slugify, todayIso } from './util.ts';
 
@@ -415,6 +416,8 @@ interface BuildCtx {
   signals: Map<string, string>;
   /** alle Knoten aller Ebenen — für die Meldung «nicht erreichbar» */
   allNodes: Map<string, string>;
+  /** Element-ID → Pattern, zu dem es gehört (Pfade und Blöcke eines Patterns) */
+  owned: Map<string, string>;
   /** Knoten → einziger Nachfolger (löst entfernte Zusammenführungen auf) */
   succ: Map<string, string>;
 }
@@ -548,13 +551,15 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const code = named || steps?.[0]?.name || bid;
     if (!code) continue;
     const existing = errors.find(e => e.code === code);
+    const pattern = ctx.owned.get(bid);
     if (existing) {
       existing.interrupting = interrupting;
       existing.boundary = true;
       if (side) existing.side = true;
+      if (pattern) existing.pattern = pattern;
       if (steps?.length) existing.steps = steps;
     } else {
-      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(steps?.length ? { steps } : {}) });
+      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(steps?.length ? { steps } : {}) });
     }
   }
   if (errors.length) step.errors = errors;
@@ -732,7 +737,12 @@ export interface ImportResult {
   unreachable: string[];
 }
 
-export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult {
+export interface ImportOptions {
+  /** Pattern aus dem Admin — erkannte stehen am Schritt bzw. am Prozess */
+  patterns?: PatternDef[];
+}
+
+export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportOptions = {}): ImportResult {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   try {
     if (doc.querySelector?.('parsererror')) throw new Error('BPMN-Datei ist kein gültiges XML.');
@@ -760,9 +770,14 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
       if (id && name) signalDefs.set(id, name);
     }
   }
+  // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
+  const engine = /http:\/\/camunda\.org\/schema\/zeebe|executionPlatform="Camunda Cloud"/.test(xml) ? 'c8' : 'c7';
+  // Pattern zuerst: was zu einem gehört, wird im Baum als Pattern gezeigt
+  const detected = detectPatterns(doc, opts.patterns, engine);
   const ctx: BuildCtx = {
     doc, processId, initOutputs: [],
     byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, allNodes: new Map(), succ: new Map(),
+    owned: detected.owned,
   };
   register(ctx, scope);
   let steps = walk(ctx, scope, scope.starts[0] ?? null, new Set(), new Set());
@@ -770,6 +785,10 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
   const pruned = new Set<string>();
   steps = pruneJoins(steps, pruned);
   steps = fixGotos(steps, ctx, pruned);
+  markPatterns(steps, detected.hits, detected.owned);
+
+  const processPatterns: AppliedPattern[] = detected.hits.filter(h => !h.targetId)
+    .map(h => ({ id: h.patternId, ...(Object.keys(h.params).length ? { params: h.params } : {}) }));
 
   const unreachable = [...ctx.allNodes.entries()]
     .filter(([id]) => !ctx.byId.has(id) && !ctx.order.includes(id))
@@ -787,8 +806,7 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
     title: nameOf(proc) || name,
     processId,
     project,
-    // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
-    engine: /http:\/\/camunda\.org\/schema\/zeebe|executionPlatform="Camunda Cloud"/.test(xml) ? 'c8' : 'c7',
+    engine,
     status: 'implemented',
     description: '',
     createdAt: todayIso(),
@@ -796,9 +814,25 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
     variables: [],
     ...(attr(proc, 'historyTimeToLive') ? { timeToLive: attr(proc, 'historyTimeToLive') } : {}),
     ...(ctx.initOutputs.length ? { initOutputs: ctx.initOutputs } : {}),
+    ...(processPatterns.length ? { patterns: processPatterns } : {}),
     steps,
   };
   return { spec, stepCount: ctx.byId.size, unreachable };
+}
+
+/** Erkannte Pattern an die Schritte schreiben; Schritte eines Pattern-Blocks markieren */
+function markPatterns(steps: Step[], hits: Array<{ patternId: string; targetId: string | null; params: Record<string, string> }>, owned: Map<string, string>) {
+  const at = new Map<string, AppliedPattern[]>();
+  for (const h of hits) {
+    if (!h.targetId) continue;
+    at.set(h.targetId, [...(at.get(h.targetId) ?? []), { id: h.patternId, ...(Object.keys(h.params).length ? { params: h.params } : {}) }]);
+  }
+  for (const s of allSteps(steps)) {
+    const ps = at.get(s.id);
+    if (ps) s.patterns = ps;
+    const own = owned.get(s.id);
+    if (own) s.pattern = own;
+  }
 }
 
 // ── Erneuter Import: fachliche Texte behalten ────────────────────────────────
@@ -887,6 +921,8 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec): { spec: Pr
     sourceUrl: previous.sourceUrl,
     variables: previous.variables ?? [],
     ...(fresh.initOutputs?.length ? { initOutputs: fresh.initOutputs } : {}),
+    // Pattern am Prozess kommen aus dem BPMN — wie die Struktur
+    patterns: fresh.patterns,
     timeToLive: previous.timeToLive ?? fresh.timeToLive,
     status: previous.status === 'draft' ? 'draft' : (report.added.length || report.changed.length || report.removed.length ? 'changed' : previous.status),
     createdAt: previous.createdAt,
@@ -965,4 +1001,39 @@ export function statusCounts(spec: ProcessSpec): Record<Status, number> {
   const counts = Object.fromEntries(STATUSES.map(s => [s, 0])) as Record<Status, number>;
   for (const s of allSteps(spec.steps)) if (s.kind !== 'goto') counts[s.status] = (counts[s.status] ?? 0) + 1;
   return counts;
+}
+
+/**
+ * Nur die Pattern-Angaben aus einem frischen Import übernehmen — für eine
+ * gespeicherte Spezifikation, deren Pattern sich im Admin geändert haben.
+ * Alles andere bleibt, wie es ist. `null`: nichts zu tun.
+ */
+export function syncPatterns(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
+  const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
+  const key = (s: Step | undefined) => JSON.stringify([s?.patterns ?? null, s?.pattern ?? null, (s?.errors ?? []).map(e => [e.code, e.pattern ?? null])]);
+  let changed = JSON.stringify(current.patterns ?? null) !== JSON.stringify(fresh.patterns ?? null);
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    const f = neu.get(s.id);
+    const next: Step = { ...s };
+    if (f && key(f) !== key(s)) {
+      changed = true;
+      if (f.patterns) next.patterns = f.patterns; else delete next.patterns;
+      if (f.pattern) next.pattern = f.pattern; else delete next.pattern;
+      if (s.errors) {
+        next.errors = s.errors.map(e => {
+          const fe = f.errors?.find(x => x.code === e.code);
+          const { pattern: _, ...rest } = e;
+          return fe?.pattern ? { ...rest, pattern: fe.pattern } : rest;
+        });
+      }
+    }
+    if (next.children) next.children = walk(next.children);
+    if (next.branches) next.branches = next.branches.map(b => ({ ...b, steps: walk(b.steps) }));
+    if (next.errors) next.errors = next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e));
+    return next;
+  });
+  const steps = walk(current.steps);
+  if (!changed) return null;
+  const { patterns: _, ...rest } = current;
+  return { ...rest, ...(fresh.patterns?.length ? { patterns: fresh.patterns } : {}), steps };
 }

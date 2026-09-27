@@ -22,6 +22,7 @@ import type { EngineId, Mapping, ProcessSpec } from './types';
 import { TECHNICAL, allSteps, paramExpression } from './bpmn';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
 import { importExpression } from './juelFeel';
+import { appendEl, prependEl, removeEl } from './xmlFormat';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -47,50 +48,6 @@ const kids = (el: Element) => Array.from(el.children);
 const firstNamed = (el: Element, name: string): Element | null => kids(el).find(c => local(c) === name) ?? null;
 const attr = (el: Element, name: string): string | undefined =>
   el.getAttribute(name) ?? el.getAttribute(`camunda:${name}`) ?? el.getAttribute(`zeebe:${name}`) ?? undefined;
-
-// ── Einrückung ───────────────────────────────────────────────────────────────
-// Das XML soll nach dem Schreiben aussehen wie vorher: ein entferntes Element
-// nimmt seinen Zeilenumbruch mit, ein neues bekommt die Einrückung seiner
-// Geschwister. Sonst bleiben leere Zeilen und angehängte Elemente kleben
-// am Ende — und jeder Diff im Repository wird unlesbar.
-const isWs = (n: Node | null): n is Text => !!n && n.nodeType === 3 && !(n.textContent ?? '').trim();
-
-/** Einrückung eines Elements: die Zeichen nach dem letzten Umbruch davor */
-function indentOf(el: Element): string {
-  const prev = el.previousSibling;
-  if (isWs(prev)) { const t = prev.textContent ?? ''; return t.slice(t.lastIndexOf('\n') + 1); }
-  return '';
-}
-
-/** Element samt dem Zeilenumbruch davor entfernen */
-function removeEl(el: Element) {
-  const prev = el.previousSibling;
-  if (isWs(prev)) prev.remove();
-  el.remove();
-}
-
-/** Element als letztes Kind anhängen — mit Umbruch und Einrückung wie seine Geschwister */
-function appendEl(parent: Element, el: Element) {
-  const doc = parent.ownerDocument;
-  const first = kids(parent)[0];
-  const indent = first ? indentOf(first) : `${indentOf(parent)}  `;
-  const last = parent.lastChild;
-  if (isWs(last)) last.remove();          // der Umbruch vor dem schliessenden Tag
-  parent.appendChild(doc.createTextNode(`\n${indent}`));
-  parent.appendChild(el);
-  parent.appendChild(doc.createTextNode(`\n${indentOf(parent)}`));
-}
-
-/** Element als erstes Kind einfügen — eingerückt wie die Geschwister */
-function prependEl(parent: Element, el: Element) {
-  const doc = parent.ownerDocument;
-  const first = kids(parent)[0];
-  if (!first) { appendEl(parent, el); return; }
-  const indent = indentOf(first);
-  const anchor = isWs(first.previousSibling) ? first.previousSibling : first;
-  parent.insertBefore(doc.createTextNode(`\n${indent}`), anchor);
-  parent.insertBefore(el, anchor);
-}
 
 /** Skript, Liste oder Map — Werte, die die Spezifikation nur beschreibt, nicht schreibt */
 const isComplex = (p: Element): boolean => !!(firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map'));
