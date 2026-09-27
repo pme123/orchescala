@@ -156,16 +156,8 @@ export function setupLink(tenantId: string, clientId: string, folderUrl?: string
   return u.toString();
 }
 
-const devBypass = () => import.meta.env.DEV && new URLSearchParams(location.search).has('noauth');
-// Entwicklung: ?noauth&me=vorname.nachname@firma.ch simuliert eine angemeldete
-// Person (Name aus der E-Mail) — für Kommentare, users.json, Teams-Mock
-function devUser(): AuthUser | null {
-  if (!devBypass()) return null;
-  const email = (new URLSearchParams(location.search).get('me') ?? '').trim();
-  if (!email.includes('@')) return null;
-  const name = email.split('@')[0].split(/[._-]+/).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
-  return { id: `dev-${email}`, name, email, roles: [], level: 'admin', isAdmin: true };
-}
+// Kein Umgehen der Anmeldung per URL — auch nicht im Dev-Server. Wer sich
+// ausgesperrt hat, setzt in der config/model.json `auth.enabled` auf false.
 const isValidIds = (cfg: { tenantId: string; clientId: string } | null | undefined): cfg is { tenantId: string; clientId: string } =>
   !!cfg && GUID_RE.test(cfg.tenantId) && GUID_RE.test(cfg.clientId);
 const sharePointMode = () => { try { return localStorage.getItem(MODE_KEY) === 'sharepoint'; } catch { return false; } };
@@ -181,7 +173,7 @@ function toUser(account: AccountInfo, cfg: AuthConfig | null): AuthUser {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
-  const [user, setUser] = useState<AuthUser | null>(() => devUser());
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const pcaRef = useRef<PublicClientApplication | null>(null);
@@ -250,7 +242,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     configRef.current = cfg;
     // Stufe mit den neuen Rollen neu berechnen
     if (accountRef.current) setUser(toUser(accountRef.current, cfg));
-    if (devBypass()) { setStatus('disabled'); return; }
     const needLogin = cfg?.enabled === true || sharePointMode();
     if (!needLogin) { setStatus('disabled'); return; }
     const ids = effectiveIds(cfg);
@@ -297,7 +288,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginForSharePoint = async (): Promise<'ready' | 'redirect' | 'setup'> => {
-    if (devBypass()) return 'ready'; // Entwicklung mit Graph-Mock
     const ids = effectiveIds(configRef.current ?? readCache());
     if (!ids) return 'setup';
     try { localStorage.setItem(MODE_KEY, 'sharepoint'); } catch { /* ignore */ }
@@ -332,7 +322,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getToken = useCallback(async (scopes: string[]): Promise<string> => {
-    if (devBypass()) return 'dev-token';
     const pca = pcaRef.current;
     const account = pca?.getActiveAccount() ?? accountRef.current;
     if (!pca || !account) throw new Error('Nicht angemeldet.');
@@ -364,7 +353,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const tryToken = useCallback(async (scopes: string[]) => {
-    if (devBypass()) return { ok: false as const, reason: 'noAccount' as const, message: 'Entwicklung ohne Anmeldung.' };
     const pca = pcaRef.current;
     const account = pca?.getActiveAccount() ?? accountRef.current;
     if (!pca || !account) return { ok: false as const, reason: 'noAccount' as const, message: 'Nicht angemeldet.' };
@@ -422,11 +410,7 @@ export function useAuthor(): { name: string; email?: string } {
 
 export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEdit: boolean; canView: boolean; canDelete: boolean } {
   const { status, user } = useAuth();
-  // Entwicklung: ?noauth&as=viewer|reviewer simuliert eine Stufe ohne Login
-  const devAs = import.meta.env.DEV ? new URLSearchParams(location.search).get('as') : null;
-  const level: AccessLevel = status === 'disabled'
-    ? (devAs === 'viewer' || devAs === 'reviewer' ? devAs : 'admin')
-    : (user?.level ?? 'none');
+  const level: AccessLevel = status === 'disabled' ? 'admin' : (user?.level ?? 'none');
   return {
     level,
     canAdmin: level === 'admin',

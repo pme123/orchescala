@@ -12,12 +12,16 @@
 // Oben eine Statusleiste: je Bereich eine Karte mit dem Zustand, Klick
 // springt hin. So sieht man auf einen Blick, was eingerichtet ist.
 //
+// Die Stammdaten liegen in `config/model.json`, damit dort in SharePoint nur
+// Admins schreiben. Liegt sie noch im Hauptordner, steht oben ein Hinweis —
+// verschoben wird von Hand.
+//
 // Kein Blättern durch den ganzen Katalog: die Klassen eines Prozesses stehen
 // in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
 // eine Frage, die sich hier stellt — steht das drin?
 import { useRef, useState } from 'react';
-import { BookOpen, ChevronLeft, Image, KeyRound, MessageSquare } from 'lucide-react';
-import { useStore } from '../store';
+import { AlertTriangle, BookOpen, ChevronLeft, Image, KeyRound, MessageSquare } from 'lucide-react';
+import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink } from '../auth';
 import type { CatalogFile } from '../catalogImport';
 import BrandingForm from './BrandingForm';
@@ -62,7 +66,7 @@ function zustaende(model: Model, generated: CatalogFile | null): Record<'brandin
 }
 
 export default function AdminView({ onBack }: { onBack: () => void }) {
-  const { isDark, model, saveModel, storage, specs, generatedCatalog } = useStore();
+  const { isDark, model, saveModel, storage, specs, generatedCatalog, modelPath } = useStore();
   const c = cls(isDark);
 
   if (!model) return null;
@@ -82,8 +86,10 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
           <ChevronLeft size={12} /> Prozesse
         </button>
         <h1 className={`text-base font-semibold mt-1 ${c.text}`}>Administration</h1>
-        <p className={`text-[11px] ${c.muted}`}>Einstellungen für alle, gespeichert in der model.json des Ordners.</p>
+        <p className={`text-[11px] ${c.muted}`}>Einstellungen für alle, gespeichert in <span className="font-mono">{modelPath}</span> des Ordners.</p>
       </div>
+
+      <ModelLocation isDark={isDark} />
 
       {/* Statusleiste: je Bereich eine Karte, Klick springt hin */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -161,6 +167,33 @@ function CatalogState({ model, generated, isDark }: { model: Model; generated: C
 
 // Teams-Benachrichtigung bei @-Erwähnungen und Antworten in Kommentaren —
 // dieselbe Mechanik wie im arch-review (siehe useTeamsNotify).
+/**
+ * Wo die Stammdaten liegen, wenn es nicht `config/model.json` ist — dort
+ * bekommen in SharePoint nur Admins Schreibrecht (docs/SHAREPOINT-SETUP.md,
+ * Teil 3b). Liegt sie noch im Hauptordner oder eine alte Kopie daneben,
+ * steht hier ein Hinweis; verschoben wird von Hand (in SharePoint bleibt so
+ * der Versionsverlauf erhalten).
+ */
+function ModelLocation({ isDark }: { isDark: boolean }) {
+  const { modelPath, legacyModelLeftover } = useStore();
+  const alt = modelPath === LEGACY_MODEL_PATH;
+  if (!alt && !legacyModelLeftover) return null;
+  return (
+    <p className={`flex items-start gap-1.5 rounded-lg border p-3 text-[11px] ${isDark ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+      <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
+      <span>
+        {alt
+          ? <>Die Stammdaten liegen noch im Hauptordner (<span className="font-mono">model.json</span>). Von Hand in
+              einen Unterordner <span className="font-mono">config/</span> verschieben — dann lassen sich in SharePoint
+              eigene Rechte vergeben: nur Admins schreiben, alle anderen lesen. Danach die Seite neu laden.</>
+          : <>Neben <span className="font-mono">config/model.json</span> liegt noch eine alte{' '}
+              <span className="font-mono">model.json</span> im Hauptordner. Es gilt die in{' '}
+              <span className="font-mono">config/</span> — die alte von Hand löschen.</>}
+      </span>
+    </p>
+  );
+}
+
 const PLATZHALTER: Array<[string, string]> = [
   ['{{empfaenger}}', 'die erwähnte Person, als @-Mention'],
   ['{{von}}', 'wer kommentiert hat'],

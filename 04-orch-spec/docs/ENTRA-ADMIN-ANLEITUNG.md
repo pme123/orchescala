@@ -126,11 +126,11 @@ Ein Ordner in einer SharePoint-Dokumentbibliothek (z. B. Teams-Team
 «Prozess-Spezifikationen» → Dateien → Ordner `orch-spec`). Berechtigungen:
 Admins und Editoren **Bearbeiten**, Viewer **Lesen**.
 
-Die Datei `model.json` im Ordner (Stammdaten inkl. Rollenkonfiguration)
-braucht **eigene Berechtigungen**: Vererbung beenden, nur Admins
-**Bearbeiten**, Editoren und Viewer **Lesen**. Sonst könnte jede Person mit
-Schreibrecht im Ordner sich über die Datei selbst zum Admin machen.
-Anleitung: [SHAREPOINT-SETUP.md, Teil 3b](SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-modeljson).
+Der Unterordner `config/` (enthält die Stammdaten `model.json` inkl.
+Rollenkonfiguration) braucht **eigene Berechtigungen**: Vererbung beenden,
+nur Admins **Bearbeiten**, Editoren und Viewer **Lesen**. Sonst könnte jede
+Person mit Schreibrecht im Ordner sich über die Datei selbst zum Admin
+machen. Anleitung: [SHAREPOINT-SETUP.md, Teil 3b](SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-config).
 
 Den Link zum Ordner bitte ebenfalls zurückmelden.
 

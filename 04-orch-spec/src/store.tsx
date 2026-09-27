@@ -2,7 +2,9 @@
 // (lokal über die File System Access API oder in SharePoint über Microsoft
 // Graph). Aufbau des Ordners:
 //
-//   model.json               Service-Katalog + Anmeldung (Stammdaten)
+//   config/model.json        Service-Katalog + Anmeldung (Stammdaten) — der
+//                            Ordner config/ bekommt in SharePoint eigene
+//                            Rechte: nur Admins schreiben
 //   users.json               wer hier arbeitet — für @-Erwähnungen
 //   processes/<slug>.json    eine Datei je Prozess-Spezifikation
 //
@@ -19,6 +21,10 @@ import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
 
 const DIR = 'processes';
+/** Stammdaten — in `config/`, damit dort nur Admins schreiben können */
+export const MODEL_PATH = 'config/model.json';
+/** Frühere Ablage im Hauptordner — wird gelesen, bis ein Admin sie verschiebt */
+export const LEGACY_MODEL_PATH = 'model.json';
 
 export interface SpecListItem {
   slug: string;
@@ -57,6 +63,10 @@ interface StoreCtx {
   disconnect: () => void;
   model: Model | null;
   modelError: string | null;
+  /** wo die Stammdaten liegen: config/model.json oder (alt) model.json */
+  modelPath: string;
+  /** liegt neben config/model.json noch eine alte model.json im Hauptordner? */
+  legacyModelLeftover: boolean;
   saveModel: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** mitgelieferter Katalog (catalog.generated.json) — null, wenn keiner ausgeliefert ist */
   generatedCatalog: CatalogFile | null;
@@ -180,37 +190,58 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const authRef = useRef(auth);
   authRef.current = auth;
   const [knownUsers, setKnownUsers] = useState<DirectoryUser[]>([]);
+  const [modelPath, setModelPath] = useState(MODEL_PATH);
+  const modelPathRef = useRef(MODEL_PATH);
+  const [legacyModelLeftover, setLegacyModelLeftover] = useState(false);
 
+  // Stammdaten liegen in config/model.json — der Ordner config/ bekommt in
+  // SharePoint eigene Berechtigungen (nur Admins schreiben). Ältere Ordner
+  // haben die model.json noch im Hauptordner: dann wird sie dort gelesen und
+  // geschrieben, bis ein Admin sie von Hand nach config/ verschiebt.
   const loadModel = useCallback(async (be: StorageBackend) => {
+    const usePath = (p: string) => { modelPathRef.current = p; setModelPath(p); };
     try {
-      const read = await be.read('model.json');
+      let read = await be.read(MODEL_PATH);
+      usePath(MODEL_PATH);
+      if (read) {
+        // eine alte Kopie im Hauptordner gehört weg — sonst ist unklar, welche gilt
+        setLegacyModelLeftover(!!(await be.read(LEGACY_MODEL_PATH).catch(() => null)));
+      } else {
+        setLegacyModelLeftover(false);
+        read = await be.read(LEGACY_MODEL_PATH);
+        if (read) usePath(LEGACY_MODEL_PATH);
+      }
       if (!read) {
         const ids = idsRef.current;
         const fresh: Model = ids
           ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, adminRole: 'OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor', viewerRole: 'OrchSpec.Viewer' } }
           : DEFAULT_MODEL;
-        const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
+        // Ordner vorab anlegen; fehlt das Schreibrecht, meldet es gleich write
+        try { await be.ensureDir('config'); } catch { /* s. u. */ }
+        const w = await be.write(MODEL_PATH, JSON.stringify(fresh, null, 2), { createOnly: true });
         if (!w.ok && w.reason !== 'exists') {
           setModel(null);
           setModelError(w.reason === 'forbidden'
-            ? 'model.json fehlt und kann nicht angelegt werden (keine Schreibberechtigung).'
-            : 'model.json fehlt und konnte nicht angelegt werden.');
+            ? `${MODEL_PATH} fehlt und kann nicht angelegt werden (keine Schreibberechtigung).`
+            : `${MODEL_PATH} fehlt und konnte nicht angelegt werden.`);
           return;
         }
-        setModel(fresh); setModelError(null);
-        return;
+        if (w.ok) { setModel(fresh); setModelError(null); return; }
+        // gleichzeitig von jemand anderem angelegt → deren Stand laden
+        read = await be.read(MODEL_PATH);
+        if (!read) throw new Error(`${MODEL_PATH} nicht gefunden.`);
       }
       try {
         setModel(normalizeModel(JSON.parse(read.text)));
         setModelError(null);
       } catch {
         setModel(null); // vorhandene, aber defekte Datei NICHT überschreiben
-        setModelError('model.json ist unlesbar (kein gültiges JSON).');
+        setModelError(`${modelPathRef.current} ist unlesbar (kein gültiges JSON).`);
       }
     } catch (e) {
       console.error('[orch-spec] loadModel:', e);
       setModel(null);
-      setModelError(`model.json konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`);
+      setModelError(`${modelPathRef.current} konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
@@ -517,8 +548,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let json: string;
     try { json = JSON.stringify(user, null, 2); }
     catch { return { ok: false, message: 'Stammdaten konnten nicht serialisiert werden.' }; }
-    const w = await be.write('model.json', json);
-    if (!w.ok) return { ok: false, message: `model.json konnte nicht geschrieben werden: ${w.message}` };
+    const path = modelPathRef.current;
+    const w = await be.write(path, json);
+    if (!w.ok) return { ok: false, message: `${path} konnte nicht geschrieben werden: ${w.message}` };
     setModel(user);
     return { ok: true };
   }, []);
@@ -539,6 +571,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       pickDirectory, savedHandleName, reconnectDirectory,
       connectSharePoint, savedSharePoint, forgetSharePoint, disconnect,
       model: mergedModel, modelError, saveModel, generatedCatalog,
+      modelPath, legacyModelLeftover,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>

@@ -24,9 +24,9 @@ React 19 · TypeScript · Vite · Tailwind CSS 4 · lucide-react · bpmn-js.
 npm install && npm run dev
 ```
 
-Dann <http://localhost:3002/orch-spec/?demo&noauth> öffnen — die App startet
-direkt mit den Beispieldaten aus `sample-data/` (ohne Ordnerauswahl und ohne
-Anmeldung; beides nur im Dev-Server). Die Beispieldaten sind **echt**: sie
+Dann <http://localhost:3002/orch-spec/?demo> öffnen — die App startet
+direkt mit den Beispieldaten aus `sample-data/` (ohne Ordnerauswahl, nur im
+Dev-Server; verlangt deren `model.json` eine Anmeldung, dann mit Login). Die Beispieldaten sind **echt**: sie
 wurden aus `mkk-openMkkV1.bpmn`, den OpenAPI-Dateien und den Scala-Quellen
 der valiant-Projekte erzeugt.
 
@@ -914,15 +914,20 @@ Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 
 ```
 <geteilter Ordner>/
-├── model.json                Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
+├── config/
+│   └── model.json            Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
 ├── users.json                wer hier arbeitet — Vorschläge bei «@» in Kommentaren
 └── processes/
     ├── <slug>.json           die Spezifikation
     └── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
 ```
 
-Fehlen `model.json` oder `processes/`, legt die App sie an. Eine vorhandene,
-aber defekte `model.json` wird nie überschrieben. Änderungen werden ca. eine
+Fehlen `config/model.json` oder `processes/`, legt die App sie an. Eine
+vorhandene, aber defekte `model.json` wird nie überschrieben. Die Stammdaten
+liegen in `config/`, damit dort in SharePoint nur Admins schreiben
+([docs/SHAREPOINT-SETUP.md, Teil 3b](docs/SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-config)). Ältere
+Ordner mit der `model.json` im Hauptordner laufen weiter; der Admin-Bereich
+weist darauf hin, sie von Hand nach `config/` zu verschieben. Änderungen werden ca. eine
 Sekunde nach der letzten Eingabe automatisch gespeichert; Konflikte werden
 über lastModified bzw. ETag erkannt.
 
@@ -931,16 +936,17 @@ Sekunde nach der letzten Eingabe automatisch gespeichert; Konflikte werden
 Wie im arch-review: MSAL im Browser, Authorization Code Flow + PKCE, kein
 eigener Server. Konfiguriert wird unter **Admin → Anmeldung** (Tenant-ID,
 Client-ID, Rollen, aktiv); die Einstellung liegt als `auth` in der
-`model.json`. Drei Stufen über Entra-App-Rollen: **Admin** (alles, auch
+`config/model.json`. Drei Stufen über Entra-App-Rollen: **Admin** (alles, auch
 Spezifikationen löschen), **Editor** (Spezifikationen bearbeiten), **Viewer**
 (nur lesen). Für den
 SharePoint-Modus erzeugt der Admin einen **Einrichtungs-Link**, der Anmeldung
 und Ordner in einem Schritt setzt.
 
-Entwicklung ohne Login: `?noauth`, Stufen simulieren mit `&as=viewer` /
-`&as=reviewer`, eine angemeldete Person mit `&me=vorname.nachname@firma.ch`;
-`&teamsmock` schreibt Teams-Nachrichten in die Konsole statt sie zu senden,
-`&teamsdelay=<Sekunden>` verkürzt die Wartezeit.
+Die Anmeldung lässt sich per URL nicht umgehen, auch im Dev-Server nicht;
+wer sich ausgesperrt hat, setzt in der `config/model.json` `auth.enabled` auf
+`false`. Im Dev-Server schreibt `?teamsmock` Teams-Nachrichten in die
+Konsole statt sie zu senden, `&teamsdelay=<Sekunden>` verkürzt die
+Wartezeit.
 
 Anleitungen:
 
@@ -950,7 +956,7 @@ Anleitungen:
 - [docs/ENTRA-ADMIN-ANLEITUNG.md](docs/ENTRA-ADMIN-ANLEITUNG.md) — die
   kompakte Fassung für die Entra-Administration
 - [docs/SHAREPOINT-SETUP.md](docs/SHAREPOINT-SETUP.md) — Site und Ordner,
-  Berechtigungen je Rolle, `model.json` schützen, verbinden und
+  Berechtigungen je Rolle, `config/` schützen, verbinden und
   Einrichtungs-Link verteilen
 
 ## Werkzeuge (CLI)
