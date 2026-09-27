@@ -441,9 +441,9 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             <div key={project}>
               {/* Gruppenkopf je Projekt — nur, wenn es mehr als eines gibt */}
               {groups.length > 1 && (
-                <div className={`flex items-baseline gap-2 mb-1.5 px-1 text-[10px] uppercase tracking-widest ${c.muted}`}>
-                  <span className="font-mono normal-case tracking-normal font-semibold">{project}</span>
-                  <span>{items.length} Prozess{items.length === 1 ? '' : 'e'}</span>
+                <div className="flex items-baseline gap-2 mb-1.5 px-1">
+                  <span className={`text-sm font-mono font-bold ${c.text}`}>{project}</span>
+                  <span className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{items.length} Prozess{items.length === 1 ? '' : 'e'}</span>
                 </div>
               )}
               <div className="space-y-1.5">
