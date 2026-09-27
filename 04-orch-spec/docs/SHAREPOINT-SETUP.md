@@ -10,14 +10,15 @@ Was im Ordner liegt:
 
 ```
 <SharePoint-Ordner>/
-├── model.json                Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
+├── config/
+│   └── model.json            Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
 ├── users.json                wer hier arbeitet — Vorschläge bei «@»
 └── processes/
     ├── <slug>.json           die Spezifikation, samt Kommentaren
     └── <slug>.bpmn           das Diagramm dazu
 ```
 
-Fehlen `model.json` oder `processes/`, legt die App sie beim ersten Verbinden
+Fehlen `config/model.json` oder `processes/`, legt die App sie beim ersten Verbinden
 an; `users.json` entsteht, sobald sich die erste Person anmeldet.
 
 ## Teil 1 · Voraussetzung prüfen: Gibt es SharePoint im Tenant?
@@ -58,8 +59,8 @@ Ohne Teams: `https://<tenant>.sharepoint.com` → **Website erstellen →
 Teamwebsite**, dann in **Dokumente** den Ordner `orch-spec` anlegen und den
 Link kopieren.
 
-**Bestehende Daten übernehmen** (z. B. aus einem lokalen Ordner): `model.json`
-und den Ordner `processes/` in den SharePoint-Ordner hochladen — die App
+**Bestehende Daten übernehmen** (z. B. aus einem lokalen Ordner): die Ordner
+`config/` und `processes/` in den SharePoint-Ordner hochladen — die App
 arbeitet mit denselben Dateien.
 
 ## Teil 3 · Berechtigungen = Zugriffsstufen
@@ -89,43 +90,53 @@ Ordner nicht öffnen. Viewer mit «Lesen» tragen sich nicht in `users.json`
 ein (die App überspringt das still); über die Verzeichnissuche lassen sie
 sich trotzdem erwähnen.
 
-## Teil 3b · Stammdaten schützen (`model.json`)
+## Teil 3b · Stammdaten schützen (`config/`)
 
 **Warum:** Die App prüft die Rollen nur im Browser — und welche Entra-Rolle
 als Admin gilt, steht in der `model.json` selbst (`auth.adminRole` usw.),
 ebenso die Teams-Einstellungen. Wer die Datei ändern kann, kann die
 Rollennamen leeren (dann ist jede angemeldete Person Admin) oder den
 Katalog verändern — direkt in SharePoint, an der App vorbei. Editoren
-brauchen aber «Bearbeiten» im Ordner (Spezifikationen, `users.json`).
-Deshalb bekommt die `model.json` eigene Berechtigungen:
+brauchen aber «Bearbeiten» im Datenordner (Spezifikationen, `users.json`).
+Deshalb liegen die Stammdaten im Unterordner `config/` mit eigenen
+Berechtigungen:
 
-| Datei / Ordner | Admins | Editoren | Viewer |
+| Ordner | Admins | Editoren | Viewer |
 |---|---|---|---|
 | `orch-spec/` (inkl. `processes/`, `users.json`) | Bearbeiten | Bearbeiten | Lesen |
-| `orch-spec/model.json` | **Bearbeiten** / Vollzugriff | **Lesen** | **Lesen** |
+| `orch-spec/config/` (`model.json`) | **Bearbeiten** / Vollzugriff | **Lesen** | **Lesen** |
 
-Alle brauchen mindestens «Lesen» auf der `model.json` — ohne sie startet die
-App nicht. Die App schreibt die Datei nur aus dem Admin-Bereich (und einmal
-beim Anlegen, falls sie fehlt).
+Alle brauchen mindestens «Lesen» auf `config/` — ohne die `model.json`
+startet die App nicht. Die App schreibt die Datei nur aus dem Admin-Bereich
+(und einmal beim Anlegen, falls sie fehlt).
 
-**Einrichten** (nachdem die App die `model.json` angelegt hat oder sie
-hochgeladen ist):
+**Alte Ordner** mit der `model.json` im Hauptordner funktionieren weiter: die
+App liest sie dort und zeigt im Admin einen Hinweis mit **«Nach config/
+verschieben»**. Der Knopf legt `config/model.json` an und löscht die alte
+(sie landet im Papierkorb der Site). Liegen beide Dateien da, gilt
+`config/model.json`; der Hinweis bietet dann **«Alte model.json löschen»**.
+Während des Verschiebens sollte niemand im Admin-Bereich arbeiten.
 
-1. `model.json` markieren → **… → Zugriff verwalten → Erweitert** (öffnet
-   die klassische Berechtigungsseite) → **Vererbung von Berechtigungen
-   beenden**.
-2. Gruppe **Mitglieder** anhaken → **Berechtigungen bearbeiten** → nur
+**Einrichten** (neuer Ordner: `config/` hat die App schon angelegt, weiter
+bei 2; alter Ordner: zuerst in der App **Admin → Nach config/ verschieben**):
+
+1. Prüfen, dass im Datenordner ein Unterordner `config` mit der `model.json`
+   liegt und im Hauptordner keine `model.json` mehr.
+2. Ordner `config` → **… → Zugriff verwalten → Erweitert** (öffnet die
+   klassische Berechtigungsseite) → **Vererbung von Berechtigungen beenden**.
+3. Gruppe **Mitglieder** anhaken → **Berechtigungen bearbeiten** → nur
    **Lesen**. **Besucher** bleiben bei **Lesen**, **Besitzer** bei
    **Vollzugriff**. Bei einem Teams-Team heisst das: Admins sind
    **Besitzer** des Teams, Editoren **Mitglieder**. Admins, die keine
    Besitzer sein sollen, einzeln mit **Bearbeiten** hinzufügen.
-3. Unter **Zugriff verwalten → Links** prüfen, dass es auf der `model.json`
-   keinen Freigabelink mit «Bearbeiten» gibt.
-4. Gegenprobe mit einem Editor-Konto: `model.json` in SharePoint bearbeiten
-   → muss scheitern; in der App eine Spezifikation ändern → muss gehen.
+4. Unter **Zugriff verwalten → Links** prüfen, dass es auf `config/` bzw. der
+   `model.json` keinen Freigabelink mit «Bearbeiten» gibt.
+5. Gegenprobe mit einem Editor-Konto: `config/model.json` in SharePoint
+   bearbeiten → muss scheitern; in der App eine Spezifikation ändern → muss
+   gehen.
 
 Anders als im arch-review prüft Orch Spec diese Einstellung nicht selbst —
-die Gegenprobe in Schritt 4 ist der Test.
+die Gegenprobe in Schritt 5 ist der Test.
 
 **Echte Geheimnisse** (Passwörter, API-Keys, Client-Secrets) gehören weder in
 die `model.json` noch in den Ordner: Die App ist eine reine Browser-App,
@@ -160,11 +171,11 @@ Details und was ohne sie passiert: [ENTRA-SETUP.md, A3](ENTRA-SETUP.md#a3--berec
    **Anwendungs-ID (Client)** (aus der App-Registrierung) → **Speichern und
    anmelden** → Microsoft-Login.
 2. Den **Ordner-Link** aus Teil 2 einfügen → **Verbinden**. Die App legt
-   `model.json` und `processes/` an, falls sie fehlen.
+   `config/model.json` und `processes/` an, falls sie fehlen.
 3. **Admin → Anmeldung**: Rollen prüfen, **Anmeldung aktiv** → Speichern.
 4. **Admin → Benachrichtigungen (Teams)**: aktivieren, Wartezeit wählen →
    Speichern (siehe [ENTRA-SETUP.md, B2](ENTRA-SETUP.md#b2--benachrichtigungen-teams-einschalten)).
-5. Teil 3b erledigen (`model.json` schützen).
+5. Teil 3b erledigen (`config/` schützen).
 6. **Admin → Anmeldung → Einrichtungs-Link kopieren** — der Link enthält
    Tenant, Client und den verbundenen Ordner.
 
@@ -189,8 +200,9 @@ Der lokale Ordner bleibt als Alternative bestehen (z. B. für Tests).
 | `AADSTS50011` beim Login | Umleitungs-URI passt nicht zur Adresse der App — [ENTRA-SETUP.md, A2](ENTRA-SETUP.md#a2--umleitungs-uris) |
 | «Link konnte nicht aufgelöst werden» | Link zeigt nicht auf einen Ordner, oder die Person hat keinen Zugriff auf die Site |
 | Speichern schlägt fehl (403) | Person hat in SharePoint nur «Lesen» (Teil 3) |
-| Admin: «model.json konnte nicht geschrieben werden» | Admin hat auf der `model.json` nicht «Bearbeiten» (Teil 3b, Schritt 2) |
-| App startet nicht: «model.json konnte nicht gelesen werden» | Person hat auf der `model.json` gar keinen Zugriff — mindestens «Lesen» geben (Teil 3b) |
+| Admin: «config/model.json konnte nicht geschrieben werden» | Admin hat auf `config/` nicht «Bearbeiten» (Teil 3b, Schritt 3) |
+| App startet nicht: «config/model.json konnte nicht gelesen werden» | Person hat auf `config/` gar keinen Zugriff — mindestens «Lesen» geben (Teil 3b) |
+| Admin zeigt «Die Stammdaten liegen noch im Hauptordner» | Alter Ordner — **Nach config/ verschieben**, danach Teil 3b |
 | Hinweis zur Verzeichnissuche beim «@» | Teil 4: `User.ReadBasic.All` fehlt (Admin) oder die Person hat noch nicht zugestimmt («Zustimmung erteilen») |
 | Hinweis «Teams-Benachrichtigung nicht möglich» | Teil 4: `Chat.Create` / `ChatMessage.Send` fehlen oder die Zustimmung fehlt; der Kommentar ist gespeichert, die Nachricht geht später raus |
 | «Die Datei wurde inzwischen geändert — Seite neu laden» | Jemand anderes hat dieselbe Spezifikation gleichzeitig gespeichert (ETag-Prüfung) — neu laden |

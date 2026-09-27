@@ -274,7 +274,7 @@ export default function App() {
                 Prozess-Spezifikationen
               </h1>
               <p className={`text-xs leading-relaxed mb-6 ${textMuted}`}>
-                Wo liegen <span className="font-semibold">model.json</span> (Service-Katalog) und der Unterordner{' '}
+                Wo liegen <span className="font-semibold">config/model.json</span> (Service-Katalog) und der Unterordner{' '}
                 <span className="font-semibold">processes/</span>? Fehlen sie, werden sie automatisch angelegt.
                 Kein eigener Server — die Daten bleiben im gewählten Ordner.
               </p>
@@ -329,7 +329,7 @@ export default function App() {
             </div>
           </div>
         ) : !model ? (
-          <div className={`h-full flex items-center justify-center text-xs ${textMuted}`}>Lade model.json …</div>
+          <div className={`h-full flex items-center justify-center text-xs ${textMuted}`}>Lade Stammdaten …</div>
         ) : view.kind === 'list' ? (
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : view.kind === 'admin' ? (
@@ -397,7 +397,7 @@ export default function App() {
             </div>
             <p className={`text-[11px] leading-relaxed mb-3 ${textMuted}`}>
               Link zum Ordner aus SharePoint oder Teams einfügen (Ordner öffnen → «Link kopieren» bzw. die Adresse aus der
-              Browserzeile). In diesem Ordner liegen model.json und processes/ — fehlen sie, legt die App sie an.
+              Browserzeile). In diesem Ordner liegen config/model.json und processes/ — fehlen sie, legt die App sie an.
             </p>
             <input value={spLink} autoFocus disabled={spBusy}
               onChange={e => setSpLink(e.target.value)}

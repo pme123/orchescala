@@ -16,17 +16,17 @@ Dieselbe Mechanik wie im arch-review.
   exportieren).
 - ✅ Mit den Zusatzberechtigungen: **@-Erwähnungen** mit Suche im
   Verzeichnis und **Teams-Benachrichtigungen** bei Erwähnungen und Antworten.
-- ❌ Die Anmeldung schützt **nicht die Daten**: `model.json` und
+- ❌ Die Anmeldung schützt **nicht die Daten**: `config/model.json` und
   `processes/` liegen im geteilten Ordner — dessen Berechtigung (SharePoint,
   Netzlaufwerk) entscheidet, wer lesen und schreiben darf. Die App hat kein
   Backend, das Zugriffe prüfen könnte. Weil die Rollennamen in der
   `model.json` stehen, dürfen nur Admins sie ändern können —
-  [SHAREPOINT-SETUP.md, Teil 3b](SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-modeljson).
+  [SHAREPOINT-SETUP.md, Teil 3b](SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-config).
 
 Benötigt werden am Ende genau **zwei IDs** (keine Geheimnisse): die
 **Verzeichnis-ID (Tenant)** und die **Anwendungs-ID (Client)**. Sie werden in
 der App unter **Admin → Anmeldung (Microsoft Entra ID)** eingetragen und
-landen in der `model.json` des geteilten Ordners — sie gelten damit für alle,
+landen in der `config/model.json` des geteilten Ordners — sie gelten damit für alle,
 die diesen Ordner verwenden.
 
 Für die Entra-Administration gibt es eine kompakte Fassung zum Weitergeben:
@@ -89,7 +89,7 @@ braucht sie nicht.
 | Berechtigung | Wofür | Funktion in der App | Admin-Zustimmung | Wenn sie fehlt |
 |---|---|---|---|---|
 | `openid`, `profile`, `email` (in *User.Read* enthalten, Standard) | Anmeldung; Name, E-Mail, Objekt-ID und App-Rollen aus dem ID-Token | Login-Gate, Zugriffsstufe, Name oben rechts, Autor/in und Kürzel an Kommentaren | nein | keine Anmeldung möglich |
-| `Files.ReadWrite.All` | Dateien lesen/schreiben, die die Person in SharePoint ohnehin sieht | **SharePoint-Modus**: `model.json`, `users.json`, `processes/*.json` und `*.bpmn` | empfohlen (laut Graph nicht zwingend; viele Tenants verbieten aber die Benutzerzustimmung → `AADSTS65001`) | nur lokaler Ordner möglich |
+| `Files.ReadWrite.All` | Dateien lesen/schreiben, die die Person in SharePoint ohnehin sieht | **SharePoint-Modus**: `config/model.json`, `users.json`, `processes/*.json` und `*.bpmn` | empfohlen (laut Graph nicht zwingend; viele Tenants verbieten aber die Benutzerzustimmung → `AADSTS65001`) | nur lokaler Ordner möglich |
 | `User.ReadBasic.All` | Anzeigename und E-Mail der Personen im Tenant lesen — mehr nicht | **@-Erwähnungen**: Suche im Verzeichnis beim Tippen von «@» in einem Kommentar; beim Teams-Versand die Empfänger auflösen | nein — jede Person stimmt beim ersten «@» selbst zu (Hinweis mit «Zustimmung erteilen») | «@» schlägt nur Personen vor, die im Ordner schon gearbeitet oder kommentiert haben (`users.json`); einmal pro Sitzung ein Hinweis |
 | `Chat.Create`, `ChatMessage.Send` | 1:1-Chat mit einer Person anlegen (ein bestehender wird wiederverwendet), Nachricht darin senden — im Namen der Person | **Teams-Benachrichtigung** bei @-Erwähnung und bei Antworten auf einen Faden, den jemand angefangen hat (einschalten unter Admin → Benachrichtigungen) | nein — Zustimmung beim ersten Versand (Hinweis mit «Zustimmung erteilen») | Kommentar bleibt gespeichert, die Benachrichtigung bleibt «ausstehend» (Uhr am Beitrag) und geht raus, sobald die Berechtigung da ist |
 
@@ -133,7 +133,7 @@ entsprechen (vorbelegt mit genau diesen Werten, wenn die App die
 | Spezifikation löschen | ✓ | – | – |
 | Admin-Bereich: Auftritt, Katalog, Anmeldung, Benachrichtigungen | ✓ | – | – |
 | **SharePoint-Berechtigung auf dem Ordner** ([SHAREPOINT-SETUP.md](SHAREPOINT-SETUP.md), Teil 3) | Bearbeiten | Bearbeiten | Lesen |
-| **SharePoint-Berechtigung auf `model.json`** (Teil 3b) | Bearbeiten | **Lesen** | Lesen |
+| **SharePoint-Berechtigung auf `config/`** (Teil 3b) | Bearbeiten | **Lesen** | Lesen |
 
 ¹ Kommentare liegen in der Spezifikation selbst (`processes/<slug>.json`) —
 wer kommentiert, ändert die Datei. Deshalb kommentieren nur Admins und
@@ -143,7 +143,7 @@ Welche Dateien die App im Namen welcher Rolle schreibt:
 
 | Datei | Wer schreibt |
 |---|---|
-| `model.json` | Admin (Admin-Bereich); beim allerersten Verbinden legt die App sie an, falls sie fehlt |
+| `config/model.json` | Admin (Admin-Bereich); beim allerersten Verbinden legt die App sie an, falls sie fehlt |
 | `processes/<slug>.json`, `processes/<slug>.bpmn` | Admin, Editor (inkl. Kommentare und Teams-Versandstatus) |
 | `users.json` | jede angemeldete Person beim Öffnen des Ordners — für die Vorschläge bei «@» (ohne Schreibrecht still übersprungen) |
 
@@ -185,7 +185,7 @@ App öffnen → geteilten Ordner wählen → **Admin** → Abschnitt
 - **Admin / Bearbeiten / Lesen**: die **Werte** der App-Rollen aus A4.
 - **Anmeldung aktiv** anhaken → **Speichern**.
 
-Die Einstellung liegt als `auth` in der `model.json`; sie gilt sofort und für
+Die Einstellung liegt als `auth` in der `config/model.json`; sie gilt sofort und für
 alle, die diesen Ordner verwenden. Mit «aktiv» braucht auch ein lokaler
 Ordner eine Anmeldung; für SharePoint ist sie immer nötig.
 
@@ -234,27 +234,28 @@ Name oben rechts mit der Stufe. Dann:
 3. In Teams den Link «Kommentar öffnen» anklicken → die App öffnet den
    Prozess mit dem Kommentar-Panel an dieser Stelle.
 
-Ohne Entra ausprobieren (nur Dev-Server, `npm run dev`):
+Einen Umweg an der Anmeldung vorbei gibt es nicht — auch im Dev-Server nicht.
+Stufen testet man mit den Testkonten aus A6. Zum Ausprobieren der
+Benachrichtigungen ohne echten Versand (nur Dev-Server, `npm run dev`,
+angemeldet):
 
 | Parameter | Wirkung |
 |---|---|
-| `?noauth` | ohne Anmeldung (Stufe Admin) |
-| `&as=viewer` / `&as=reviewer` | Stufe Viewer bzw. Editor simulieren |
-| `&me=vorname.nachname@firma.ch` | eine angemeldete Person simulieren (Name aus der E-Mail) — für Kommentare, `users.json`, Teams |
-| `&teamsmock` | Teams-Versand simulieren: die Nachricht erscheint in der Browser-Konsole |
+| `?teamsmock` | Teams-Versand simulieren: die Nachricht erscheint in der Browser-Konsole |
 | `&teamsdelay=3` | Wartezeit für Teams auf 3 Sekunden |
 | `&teamsfail=consent` / `forbidden` | fehlende Zustimmung bzw. fehlende Berechtigung simulieren |
 | `&dirfail=consent` / `forbidden` | dasselbe für die Verzeichnissuche |
 
-Beispiel: `http://localhost:3002/orch-spec/?demo&noauth&me=pascal.mengelt@firma.ch&teamsmock&teamsdelay=3`
+Beispiel: `http://localhost:3002/orch-spec/?teamsmock&teamsdelay=3`
 
 ### B4 · Ausgesperrt? (falsche IDs, Rolle fehlt)
 
-- Entwicklung: `http://localhost:3002/orch-spec/?noauth` (nur im Dev-Server)
-  → Admin → Anmeldung deaktivieren oder IDs korrigieren.
-- Produktion: in der `model.json` des geteilten Ordners
-  `"auth": { "enabled": false, … }` setzen — als Besitzer/in der Site ist die
-  Datei direkt zugänglich.
+In der `config/model.json` des geteilten Ordners `"auth": { "enabled": false,
+… }` setzen (oder die IDs bzw. Rollennamen korrigieren) — als Besitzer/in der
+Site bzw. mit Zugriff auf den lokalen Ordner ist die Datei direkt zugänglich.
+Danach die App neu laden, Admin → Anmeldung richtigstellen, wieder
+aktivieren. Liegt die Datei noch im Hauptordner (alter Ordner), gilt dort
+dasselbe für `model.json`.
 
 ## Portal auf Englisch — die Stationen
 

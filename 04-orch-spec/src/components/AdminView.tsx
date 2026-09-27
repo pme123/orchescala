@@ -9,12 +9,16 @@
 //  3. **Anmeldung** — Entra ID.
 //  4. **Benachrichtigungen** — Teams-Nachricht bei @-Erwähnungen in Kommentaren.
 //
+// Darüber steht, wo die Stammdaten liegen — `config/model.json`, damit dort
+// in SharePoint nur Admins schreiben. Liegt sie noch im Hauptordner, lässt
+// sie sich hier verschieben.
+//
 // Kein Blättern durch den ganzen Katalog: die Klassen eines Prozesses stehen
 // in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
 // eine Frage, die sich hier stellt — steht das drin?
 import { useState } from 'react';
-import { ChevronLeft, KeyRound } from 'lucide-react';
-import { useStore } from '../store';
+import { AlertTriangle, ChevronLeft, FolderInput, KeyRound } from 'lucide-react';
+import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink } from '../auth';
 import BrandingForm from './BrandingForm';
 import CatalogBuild from './CatalogBuild';
@@ -35,6 +39,8 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
       <button onClick={onBack} className={`flex items-center gap-1 text-[11px] ${c.muted} hover:underline`}>
         <ChevronLeft size={12} /> Prozesse
       </button>
+
+      <ModelLocation isDark={isDark} />
 
       <section className="space-y-3">
         <h1 className={`text-sm font-semibold uppercase tracking-widest ${c.muted2}`}>Auftritt</h1>
@@ -71,6 +77,57 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
 // Teams-Benachrichtigung bei @-Erwähnungen und Antworten in Kommentaren —
 // dieselbe Mechanik wie im arch-review (siehe useTeamsNotify).
+/**
+ * Wo die Stammdaten liegen. `config/model.json` ist der Ort — dort bekommen
+ * in SharePoint nur Admins Schreibrecht (docs/SHAREPOINT-SETUP.md, Teil 3b).
+ * Eine model.json im Hauptordner ist der alte Ort: verschieben, oder — wenn
+ * es config/model.json schon gibt — die alte Kopie loswerden.
+ */
+function ModelLocation({ isDark }: { isDark: boolean }) {
+  const { modelPath, legacyModelLeftover, moveModelToConfig } = useStore();
+  const c = cls(isDark);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const alt = modelPath === LEGACY_MODEL_PATH;
+  const move = async () => {
+    setBusy(true); setMsg('');
+    const r = await moveModelToConfig();
+    setBusy(false);
+    setMsg(r.ok ? 'Verschoben — jetzt in SharePoint die Rechte auf config/ setzen.' : r.message);
+  };
+  if (!alt && !legacyModelLeftover) {
+    return (
+      <p className={`text-[10px] ${c.muted}`}>
+        Stammdaten: <span className="font-mono">{modelPath}</span>
+        {msg && <span> · {msg}</span>}
+      </p>
+    );
+  }
+  return (
+    <div className={`rounded border p-3 space-y-2 text-[11px] ${isDark ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+      <p className="flex items-start gap-1.5">
+        <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
+        <span>
+          {alt
+            ? <>Die Stammdaten liegen noch im Hauptordner (<span className="font-mono">model.json</span>). Nach{' '}
+                <span className="font-mono">config/model.json</span> verschieben — dann lassen sich in SharePoint
+                eigene Rechte vergeben: nur Admins schreiben, alle anderen lesen.</>
+            : <>Neben <span className="font-mono">config/model.json</span> liegt noch eine alte{' '}
+                <span className="font-mono">model.json</span> im Hauptordner. Es gilt die in{' '}
+                <span className="font-mono">config/</span> — die alte gehört weg.</>}
+        </span>
+      </p>
+      <div className="flex items-center gap-2">
+        <button onClick={move} disabled={busy}
+          className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-50 ${c.btnPrimary}`}>
+          <FolderInput size={12} /> {busy ? 'Verschiebe …' : alt ? 'Nach config/ verschieben' : 'Alte model.json löschen'}
+        </button>
+        {msg && <span className="text-[10px]">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 function TeamsSettingsForm({ model, isDark, onSave }: {
   model: Model; isDark: boolean;
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
