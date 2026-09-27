@@ -6,17 +6,19 @@
 // eingeklappt. Änderungen werden automatisch gespeichert (wie im arch-review).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2,
+  ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, GripVertical,
   MessageSquare,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuthorName, usePermissions } from '../auth';
+import { collectFindings, type Finding } from '../findings';
+import { catalogEntry } from '../interactions';
 import { openCount, openThreads, pruneComments, stepTarget, threadTarget } from '../comments';
 import { allSteps, importBpmn, mergeSpec, statusCounts, type MergeReport } from '../bpmn';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
-import { STATUSES, STATUS_META, type Branch, type ProcessSpec, type Status, type Step } from '../types';
+import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, STEP_ICON, StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import ExportDialog from './ExportDialog';
@@ -301,6 +303,9 @@ export default function ProcessView({ slug, onBack }: Props) {
       }, nach);
     }
   }, [offeneKommentare, ancestors]);
+  // Befunde je Schritt — dieselben Regeln wie im Panel rechts, für das Dreieck
+  // in der Zeile; einmal je Stand der Spezifikation gerechnet
+  const findings = useMemo(() => (spec ? collectFindings(spec, model, allSteps(spec.steps)) : new Map<string, Finding>()), [spec, model]);
 
   // Suche/Filter: passt ein Schritt oder einer seiner Nachfahren?
   const matches = useCallback((s: Step): boolean => {
@@ -508,7 +513,13 @@ export default function ProcessView({ slug, onBack }: Props) {
                   selected={selected} onSelect={setSelected} byId={byId}
                   matches={matches} filterActive={active}
                   onStatus={canEdit ? (id, s) => patchStep(id, { status: s }) : undefined}
-                  comments={id => openCount(spec, stepTarget(id))} />
+                  comments={id => openCount(spec, stepTarget(id))}
+                  findings={findings}
+                  interactionOf={id => (spec.interactions ?? []).find(i => i.stepId === id) ?? null}
+                  serviceOf={s => catalogEntry(s, model)}
+                  processId={spec.processId ?? ''}
+                  hasCatalog={!!model?.services?.length}
+                  onOpenInteraction={ia => { setFocusType(ia.inTypeId ?? ia.outTypeId ?? null); setTab('model'); }} />
                 {!spec.steps.length && (
                   <p className={`text-xs ${c.muted}`}>
                     Noch kein Ablauf — «Mit BPMN abgleichen» übernimmt die Struktur aus der Implementation.
@@ -651,6 +662,18 @@ interface ListProps {
   steps: Step[];
   depth: number;
   isDark: boolean;
+  /** Befunde je Schritt-ID — Fehler rot, Warnungen orange (siehe findings.ts) */
+  findings: Map<string, Finding>;
+  /** die Interaktion eines Schritts — eigener Vertrag, im Baum hervorgehoben */
+  interactionOf: (id: string) => Interaction | null;
+  /** Katalog-Eintrag eines fremden Services — teal; fehlt er, rot */
+  serviceOf: (step: Step) => ServiceDef | null;
+  /** springt ins Datenmodell zur Interaktion */
+  onOpenInteraction: (ia: Interaction) => void;
+  /** die eigene Prozess-ID — trennt eigene Worker von fremden Services */
+  processId: string;
+  /** gibt es überhaupt einen Katalog? Ohne ihn ist ein fehlender Eintrag kein Befund */
+  hasCatalog: boolean;
   collapsed: Set<string>;
   toggle: (id: string) => void;
   selected: string | null;
@@ -694,23 +717,52 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
     );
   }
 
+  const ia = p.interactionOf(step.id);
+  const finding = p.findings.get(step.id) ?? null;
+  // fremder Service: Katalog-Kennung oder Topic — nicht der eigene Worker, nicht der Init-Worker
+  const foreign = !ia && (step.serviceId || step.topic) && step.topic !== p.processId ? (step.serviceId ?? step.topic ?? '') : '';
+  const svc = foreign ? p.serviceOf(step) : null;
+  const hasCatalog = p.hasCatalog;
+  // Ereignisse, Start und Ende sind Verdrahtung — leise
+  const quiet = step.kind === 'event' || step.kind === 'start' || step.kind === 'end';
   return (
     <div className="flex flex-col">
       <div data-step={step.id} onClick={() => p.onSelect(step.id)}
         className={`group flex items-center gap-2 py-1 pr-2 rounded cursor-pointer ${c.hover} ${
-          isSelected ? (p.isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
+          isSelected ? (p.isDark ? 'bg-white/10' : 'bg-black/10') : step.kind === 'gateway' ? (p.isDark ? 'bg-white/[0.03]' : 'bg-black/[0.03]') : ''}`}>
         <button onClick={e => { e.stopPropagation(); if (hasChildren) p.toggle(step.id); }}
           className={`w-4 flex-shrink-0 ${hasChildren ? c.muted2 : 'opacity-0 pointer-events-none'}`}>
           {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <Icon size={12} className={`flex-shrink-0 ${c.muted2}`} />
-        <span className={`text-xs truncate ${c.text} ${step.kind === 'gateway' ? 'italic' : ''}`}>{step.name}</span>
-        {step.serviceId && (
-          <span className={`hidden md:inline text-[9px] font-mono truncate max-w-[16rem] ${c.muted}`} title={step.serviceId}>
-            {step.serviceId}
+        <Icon size={12} className={`flex-shrink-0 ${quiet ? c.muted : c.muted2}`} />
+        <span className={`text-xs truncate ${quiet ? c.muted2 : c.text} ${step.kind === 'gateway' ? 'italic' : ''} ${ia ? 'font-semibold' : ''}`}>{step.name}</span>
+        {/* Eigener Vertrag: das Objekt als Chip, klickbar ins Datenmodell */}
+        {ia && (
+          <button onClick={e => { e.stopPropagation(); p.onOpenInteraction(ia); }}
+            title={`${INTERACTION_META[ia.kind].label} «${ia.name}» — zum Datenmodell`}
+            className={`hidden md:inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${
+              p.isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
+            {ia.name}
+          </button>
+        )}
+        {/* Fremder Service: die Katalog-Kennung — teal, wenn der Katalog ihn kennt, sonst rot */}
+        {!ia && foreign && (
+          <span title={svc ? `${svc.name} — im Katalog` : `«${foreign}» steht nicht im Katalog`}
+            className={`hidden md:inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[16rem] ${
+              svc || !hasCatalog
+                ? (p.isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800')
+                : (p.isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')}`}>
+            <Plug size={9} className="flex-shrink-0" />{foreign}
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+          {/* Befund: rot = Fehler, orange = Warnung — die ersten Meldungen im Tooltip */}
+          {finding && (
+            <span title={[...finding.errors, ...finding.warnings].slice(0, 4).join('\n')}
+              className={`flex items-center gap-0.5 text-[9px] ${finding.errors.length ? (p.isDark ? 'text-rose-400' : 'text-rose-600') : (p.isDark ? 'text-amber-400' : 'text-amber-600')}`}>
+              <AlertTriangle size={10} />{finding.errors.length + finding.warnings.length}
+            </span>
+          )}
           {step.description && <span className={`text-[9px] ${c.muted}`} title="fachlich beschrieben">✎</span>}
           {step.open && <span className={p.isDark ? 'text-amber-400' : 'text-amber-600'} title={step.open}>❓</span>}
           {!!p.comments(step.id) && (
@@ -722,7 +774,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           <BlockChip step={step} isDark={p.isDark} />
           <LoopChip step={step} isDark={p.isDark} />
           {!!step.errors?.filter(e => !e.side).length && <ErrorChip n={step.errors.filter(e => !e.side).length} isDark={p.isDark} />}
-          <StatusChip status={step.status} isDark={p.isDark}
+          <StatusChip status={step.status} isDark={p.isDark} muted={step.status === 'implemented'}
             onClick={p.onStatus ? () => p.onStatus!(step.id, nextStatus(step.status)) : undefined} />
         </div>
       </div>
