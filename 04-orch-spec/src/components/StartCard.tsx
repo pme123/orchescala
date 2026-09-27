@@ -2,6 +2,8 @@
 // wählen, anmelden, warten, ein Fehler. Oben die Wortmarke (oder der Kunde,
 // sobald das Modell da ist), ein Zeichen in einem runden Feld, ein Titel,
 // ein Satz, die Aktionen, unten klein die Fussnote.
+import { AlertTriangle, X } from 'lucide-react';
+import { GUID_RE } from '../auth';
 import { cls } from '../ui';
 import type { Model } from '../types';
 
@@ -115,4 +117,71 @@ export function initialsOf(name: string): string {
   if (!parts.length) return '?';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Dialog vor der Arbeit: Kopf mit Zeichen, Titel und Schliessen, ein Satz,
+ * die Felder, ein Fehler als roter Chip, unten Abbrechen und der Hauptknopf.
+ */
+export function StartDialog({ isDark, icon, title, lead, error, busy, onClose, primary, children }: {
+  isDark: boolean;
+  icon: React.ReactNode;
+  title: string;
+  lead?: React.ReactNode;
+  error?: string;
+  busy?: boolean;
+  onClose: () => void;
+  primary: { label: string; icon?: React.ReactNode; onClick: () => void; disabled?: boolean };
+  children: React.ReactNode;
+}) {
+  const c = cls(isDark);
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={onClose}>
+      <div className={`max-w-lg w-full rounded-xl border ${c.border2} ${c.panelStrong}`} onClick={e => e.stopPropagation()}>
+        <div className={`flex items-center gap-2 px-5 py-3 border-b ${c.border}`}>
+          <span className={c.muted2}>{icon}</span>
+          <h3 className={`text-sm font-semibold flex-1 ${c.text}`}>{title}</h3>
+          <button onClick={onClose} disabled={busy} title="Schliessen" className={`p-1 rounded ${c.muted} hover:opacity-100 disabled:opacity-30`}>
+            <X size={14} />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {lead && <p className={`text-[11px] leading-relaxed ${c.muted}`}>{lead}</p>}
+          {children}
+          {error && (
+            <p className={`inline-flex items-start gap-1.5 text-[11px] px-2 py-1 rounded border ${isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
+              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" /> <span>{error}</span>
+            </p>
+          )}
+        </div>
+        <div className={`flex items-center gap-2 px-5 py-3 border-t ${c.border}`}>
+          <button onClick={onClose} disabled={busy} className={`text-xs px-3 py-2 rounded border transition-colors disabled:opacity-40 ${c.btn}`}>
+            Abbrechen
+          </button>
+          <button onClick={primary.onClick} disabled={primary.disabled}
+            className={`ml-auto flex items-center gap-1.5 text-xs px-4 py-2 rounded font-semibold transition-colors disabled:opacity-40 ${c.btnPrimary}`}>
+            {primary.icon} {primary.label}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** GUID-Feld mit Prüfung beim Tippen — wie in der Admin-Ansicht. */
+export function GuidField({ isDark, label, value, onChange, autoFocus }: {
+  isDark: boolean; label: string; value: string; onChange: (v: string) => void; autoFocus?: boolean;
+}) {
+  const c = cls(isDark);
+  const bad = value.trim() !== '' && !GUID_RE.test(value.trim());
+  return (
+    <div>
+      <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.text}`}>{label}</label>
+      <input value={value} onChange={e => onChange(e.target.value)} autoFocus={autoFocus} spellCheck={false}
+        placeholder="00000000-0000-0000-0000-000000000000"
+        className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono transition-colors ${c.input} ${
+          bad ? (isDark ? 'border-rose-500/60 focus:border-rose-400' : 'border-rose-400 focus:border-rose-500') : ''}`} />
+      {bad && <p className={`text-[10px] mt-1 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>Keine GUID — erwartet werden 8-4-4-4-12 Hexziffern, wie im Azure-Portal unter «Übersicht».</p>}
+    </div>
+  );
 }

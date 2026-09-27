@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen, Loader2 } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2 } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, LEVEL_LABELS, useAuth, usePermissions } from './auth';
 import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
-import { MicrosoftMark, StartCard, StartOption, initialsOf } from './components/StartCard';
+import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
@@ -335,80 +335,42 @@ export default function App() {
 
       {/* Einrichtung: Microsoft-Anmeldung für diesen Browser (einmalig) */}
       {setupOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={() => setSetupOpen(false)}>
-          <div className={`max-w-lg w-full rounded-xl border p-6 ${isDark ? 'border-white/15 bg-[#16171a]' : 'border-black/15 bg-white'}`}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <h3 className={`flex items-center gap-2 text-sm font-semibold ${isDark ? 'text-white' : 'text-black'}`}>
-                <KeyRound size={14} /> Microsoft-Anmeldung einrichten
-              </h3>
-              <button onClick={() => setSetupOpen(false)}
-                className={`p-1 rounded flex-shrink-0 transition-colors ${isDark ? 'text-white/25 hover:text-white/70' : 'text-black/25 hover:text-black/70'}`}>
-                <X size={14} />
-              </button>
-            </div>
-            <p className={`text-[11px] leading-relaxed mb-3 ${textMuted}`}>
-              Am einfachsten den <span className="font-semibold">Einrichtungs-Link</span> vom Admin öffnen — er
-              richtet Anmeldung und SharePoint-Ordner in einem Schritt ein. Alternativ hier die beiden IDs der
-              App-Registrierung in Microsoft Entra eintragen (einmalig pro Browser, keine Geheimnisse).
-            </p>
-            <div className="space-y-2">
-              <label className={`block text-[10px] uppercase tracking-wider ${textMuted}`}>Verzeichnis-ID (Tenant)</label>
-              <input value={setupTenant} onChange={e => setSetupTenant(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000"
-                className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono transition-colors ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-white/30' : 'bg-black/5 border-black/10 text-black placeholder-black/20 focus:border-black/30'}`} />
-              <label className={`block text-[10px] uppercase tracking-wider ${textMuted}`}>Anwendungs-ID (Client)</label>
-              <input value={setupClient} onChange={e => setSetupClient(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000"
-                className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono transition-colors ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-white/30' : 'bg-black/5 border-black/10 text-black placeholder-black/20 focus:border-black/30'}`} />
-            </div>
-            {setupError && <p className={`text-[11px] mt-2 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{setupError}</p>}
-            <div className="flex gap-2 pt-4">
-              <button onClick={() => setSetupOpen(false)}
-                className={`flex-1 text-xs py-2 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                Abbrechen
-              </button>
-              <button onClick={saveSetup} disabled={!GUID_RE.test(setupTenant.trim()) || !GUID_RE.test(setupClient.trim())}
-                className={`flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded font-semibold transition-colors disabled:opacity-40 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80'}`}>
-                <LogIn size={12} /> Speichern und anmelden
-              </button>
-            </div>
-          </div>
-        </div>
+        <StartDialog isDark={isDark} icon={<KeyRound size={14} />} title="Microsoft-Anmeldung einrichten"
+          onClose={() => setSetupOpen(false)}
+          lead={<>Am einfachsten den <span className="font-semibold">Einrichtungs-Link</span> vom Admin öffnen — er
+            richtet Anmeldung und SharePoint-Ordner in einem Schritt ein. Alternativ hier die beiden IDs der
+            App-Registrierung in Microsoft Entra eintragen (einmalig pro Browser, keine Geheimnisse).</>}
+          error={setupError}
+          primary={{ label: 'Speichern und anmelden', icon: <LogIn size={12} />, onClick: () => void saveSetup(),
+            disabled: !GUID_RE.test(setupTenant.trim()) || !GUID_RE.test(setupClient.trim()) }}>
+          <GuidField isDark={isDark} label="Verzeichnis-ID (Tenant)" value={setupTenant} onChange={setSetupTenant} autoFocus />
+          <GuidField isDark={isDark} label="Anwendungs-ID (Client)" value={setupClient} onChange={setSetupClient} />
+        </StartDialog>
       )}
 
       {/* SharePoint-Ordner verbinden */}
       {spOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={() => !spBusy && setSpOpen(false)}>
-          <div className={`max-w-lg w-full rounded-xl border p-6 ${isDark ? 'border-white/15 bg-[#16171a]' : 'border-black/15 bg-white'}`}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <h3 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-black'}`}>SharePoint-Ordner verbinden</h3>
-              <button onClick={() => setSpOpen(false)} disabled={spBusy}
-                className={`p-1 rounded flex-shrink-0 transition-colors ${isDark ? 'text-white/25 hover:text-white/70' : 'text-black/25 hover:text-black/70'}`}>
-                <X size={14} />
-              </button>
-            </div>
-            <p className={`text-[11px] leading-relaxed mb-3 ${textMuted}`}>
-              Link zum Ordner aus SharePoint oder Teams einfügen (Ordner öffnen → «Link kopieren» bzw. die Adresse aus der
-              Browserzeile). In diesem Ordner liegen config/model.json und processes/ — fehlen sie, legt die App sie an.
-            </p>
-            <input value={spLink} autoFocus disabled={spBusy}
-              onChange={e => setSpLink(e.target.value)}
+        <StartDialog isDark={isDark} icon={<Cloud size={14} />} title="SharePoint-Ordner verbinden"
+          onClose={() => !spBusy && setSpOpen(false)} busy={spBusy}
+          lead={<>Link zum Ordner aus SharePoint oder Teams einfügen (Ordner öffnen → «Link kopieren» bzw. die Adresse aus der
+            Browserzeile). In diesem Ordner liegen model.json und processes/ — fehlen sie, legt die App sie an.</>}
+          error={spError}
+          primary={{ label: spBusy ? 'Verbinde …' : 'Verbinden', icon: spBusy ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />,
+            onClick: () => void doConnectSharePoint(), disabled: spBusy || !spLink.trim() }}>
+          <div>
+            <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.text}`}>Link zum Ordner</label>
+            <input value={spLink} autoFocus disabled={spBusy} spellCheck={false}
+              onChange={e => { setSpLink(e.target.value); setSpError(''); }}
               onKeyDown={e => { if (e.key === 'Enter' && spLink.trim()) doConnectSharePoint(); }}
-              placeholder="https://firma.sharepoint.com/sites/Architekturpruefung/Freigegebene Dokumente/orch-spec"
-              className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono transition-colors ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-white/30' : 'bg-black/5 border-black/10 text-black placeholder-black/20 focus:border-black/30'}`} />
-            {spError && <p className={`text-[11px] mt-2 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{spError}</p>}
-            <div className="flex gap-2 pt-4">
-              <button onClick={() => setSpOpen(false)} disabled={spBusy}
-                className={`flex-1 text-xs py-2 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                Abbrechen
-              </button>
-              <button onClick={doConnectSharePoint} disabled={spBusy || !spLink.trim()}
-                className={`flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded font-semibold transition-colors disabled:opacity-40 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80'}`}>
-                <Cloud size={12} /> {spBusy ? 'Verbinde …' : 'Verbinden'}
-              </button>
-            </div>
+              placeholder="https://firma.sharepoint.com/sites/Team/Freigegebene Dokumente/orch-spec"
+              className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono transition-colors ${c.input}`} />
+            {spLink.trim() && !/^https:\/\/[^/]+\.sharepoint\.com\//i.test(spLink.trim()) && !/^https:\/\/teams\.microsoft\.com\//i.test(spLink.trim()) && (
+              <p className={`text-[10px] mt-1 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+                Sieht nicht nach SharePoint aus — erwartet wird eine Adresse unter <span className="font-mono">…sharepoint.com/…</span>.
+              </p>
+            )}
           </div>
-        </div>
+        </StartDialog>
       )}
     </div>
   );
