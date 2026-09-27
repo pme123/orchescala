@@ -61,6 +61,10 @@ interface StoreCtx {
   savedSharePoint: SharePointFolder | null;
   forgetSharePoint: () => void;
   disconnect: () => void;
+  /** der Speicher vor «anderen Ordner wählen» — solange man noch zurück kann */
+  previousStorage: StorageInfo | null;
+  /** zurück zum vorigen Speicher, ohne neue Berechtigung oder Anmeldung */
+  resumePrevious: () => Promise<void>;
   model: Model | null;
   modelError: string | null;
   /** wo die Stammdaten liegen: config/model.json oder (alt) model.json */
@@ -350,8 +354,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const requestDirectoryConsent = useCallback(() => authRef.current.requestConsent(DIRECTORY_SCOPES), []);
 
+  const storageRef = useRef<StorageInfo | null>(null);
+  storageRef.current = storage;
+  const previousRef = useRef<{ be: StorageBackend; info: StorageInfo } | null>(null);
+  const [previousStorage, setPreviousStorage] = useState<StorageInfo | null>(null);
   const activate = useCallback(async (be: StorageBackend, info: StorageInfo) => {
     backendRef.current = be;
+    previousRef.current = null;
+    setPreviousStorage(null);
     registeredRef.current = '';
     setStorage(info);
     setSavedHandleName(null);
@@ -410,10 +420,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     storeSharePoint(null); setSavedSharePoint(null);
   }, []);
 
+  // «Anderen Ordner wählen» trennt nur die Anzeige — der bisherige Speicher
+  // bleibt in der Hinterhand, bis ein anderer gewählt ist. So führt die
+  // Startkarte zurück, ohne neue Berechtigung (lokal) oder Anmeldung (SharePoint).
   const disconnect = useCallback(() => {
+    if (backendRef.current && storageRef.current) {
+      previousRef.current = { be: backendRef.current, info: storageRef.current };
+      setPreviousStorage(storageRef.current);
+    }
     backendRef.current = null;
     setStorage(null); setModel(null); setSpecs([]);
   }, []);
+  const resumePrevious = useCallback(async () => {
+    const prev = previousRef.current;
+    if (!prev) return;
+    await activate(prev.be, prev.info);
+  }, [activate]);
 
   // Beim Start den gemerkten Ordner wiederherstellen (SharePoint sobald die
   // Anmeldung steht; lokal direkt, wenn die Berechtigung noch gilt).
@@ -569,7 +591,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       isDark, toggleTheme, storage,
       pickDirectory, savedHandleName, reconnectDirectory,
-      connectSharePoint, savedSharePoint, forgetSharePoint, disconnect,
+      connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,

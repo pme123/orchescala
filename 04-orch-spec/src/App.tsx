@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2 } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2 } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -37,7 +37,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, specs } = useStore();
+    connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -276,6 +276,15 @@ export default function App() {
             lead="Kein eigener Server — die Daten bleiben im gewählten Ordner, geteilt über SharePoint oder ein lokales Laufwerk."
             footnote={<>Im Ordner liegen <span className="font-semibold">model.json</span> (Katalog und Einstellungen) und der
               Unterordner <span className="font-semibold">processes/</span> mit den Spezifikationen. Fehlen sie, werden sie angelegt.</>}>
+            {/* zurück zum Speicher, der eben noch offen war — ohne neue Berechtigung oder Anmeldung */}
+            {previousStorage && (
+              <button onClick={() => void resumePrevious()}
+                className={`w-full mb-3 flex items-center justify-center gap-2 text-xs px-3 py-2 rounded border transition-colors ${
+                  isDark ? 'border-blue-500/40 text-blue-300 hover:bg-blue-500/10' : 'border-blue-300 text-blue-700 hover:bg-blue-50'}`}>
+                <Undo2 size={12} /> Zurück zu «{previousStorage.name}»
+                <span className={`text-[10px] ${textMuted}`}>({previousStorage.kind === 'sharepoint' ? 'SharePoint' : 'lokaler Ordner'})</span>
+              </button>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <StartOption isDark={isDark} icon={<Cloud size={12} />} title="SharePoint"
                 text="Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint. Funktioniert in jedem Browser."
