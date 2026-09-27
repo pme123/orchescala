@@ -438,8 +438,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       ) : (
         <div className="space-y-4">
           {groups.map(([project, items]) => (
-            <div key={project}>
-              {/* Gruppenkopf je Projekt — nur, wenn es mehr als eines gibt */}
+            // Je Projekt eine Klammer wie im Ablauf: Kopf und Linie links — nur, wenn es mehr als eines gibt
+            <div key={project} className={groups.length > 1 ? `pl-3 border-l-2 ${isDark ? 'border-slate-500/40' : 'border-slate-300'}` : ''}>
               {groups.length > 1 && (
                 <div className="flex items-baseline gap-2 mb-1.5 px-1">
                   <span className={`text-sm font-mono font-bold ${c.muted2}`}>{project}</span>
