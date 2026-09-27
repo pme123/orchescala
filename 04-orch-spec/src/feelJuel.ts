@@ -55,6 +55,24 @@ export function feelToJuel(body: string): JuelResult {
   }
   const text = (n: SyntaxNode) => src.slice(n.from, n.to);
 
+  /** `string(x)` → der Ausdruck dahinter, sonst null */
+  const stringCall = (n: SyntaxNode): SyntaxNode | null => {
+    if (n.name !== 'FunctionInvocation') return null;
+    const [fn, , params] = children(n).filter(k => !k.type.isError);
+    const args = params ? children(params) : [];
+    return fn && text(fn) === 'string' && args.length === 1 ? args[0] : null;
+  };
+  /** liefert der Knoten Text? Literal, `string(…)` oder eine Verkettung davon */
+  const stringy = (n: SyntaxNode): boolean => {
+    if (n.name === 'StringLiteral' || stringCall(n)) return true;
+    if (n.name === 'ParenthesizedExpression') { const inner = children(n).find(k => k.name !== '(' && k.name !== ')'); return !!inner && stringy(inner); }
+    if (n.name !== 'ArithmeticExpression') return false;
+    const [a, op, b] = children(n).filter(k => !k.type.isError);
+    return !!a && !!op && !!b && text(op) === '+' && (stringy(a) || stringy(b));
+  };
+  /** Argument von `concat`: `string(x)` braucht dort kein string() mehr */
+  const textArg = (n: SyntaxNode): string => { const inner = stringCall(n); return inner ? tr(inner) : tr(n); };
+
   const tr = (n: SyntaxNode): string => {
     if (n.type.isError) throw new Unsupported('kein gültiges FEEL');
     const kids = children(n).filter(k => !k.type.isError);
@@ -87,8 +105,9 @@ export function feelToJuel(body: string): JuelResult {
         if (!a || !op || !b) throw new Unsupported('unvollständige Rechnung');
         const o = text(op);
         if (o === '**') throw new Unsupported('Potenz «**» gibt es in JUEL nicht');
-        // Text + Text: JUEL rechnet bei «+» immer numerisch
-        if (o === '+' && (a.name === 'StringLiteral' || b.name === 'StringLiteral')) return `${tr(a)}.concat(${tr(b)})`;
+        // Text + Text: JUEL rechnet bei «+» immer numerisch. `concat` macht
+        // aus dem Argument selbst einen String — `string(x)` fällt dabei weg.
+        if (o === '+' && (stringy(a) || stringy(b))) return `${tr(a)}.concat(${textArg(b)})`;
         return `${tr(a)} ${o} ${tr(b)}`;
       }
       case 'Comparison': {
@@ -133,6 +152,8 @@ export function feelToJuel(body: string): JuelResult {
         const name = fn ? text(fn) : '';
         const args = params ? children(params) : [];
         if (name === 'not' && args.length === 1) return `!(${tr(args[0])})`;
+        // `string(x)` allein: JUEL hat kein toString — «leer + x» macht Text daraus
+        if (name === 'string' && args.length === 1) return `"".concat(${tr(args[0])})`;
         throw new Unsupported(`Funktion «${name}()» hat kein JUEL-Gegenstück`);
       }
       case 'FilterExpression': {

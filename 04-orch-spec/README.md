@@ -64,6 +64,26 @@ Geprüft über alle **72 BPMN-Dateien** der valiant-Projekte: kein Element geht
 verloren, und ein erneuter Import derselben Datei ändert nichts
 (0 neu · 0 geändert · 0 entfallen).
 
+### Was der Baum zeigt
+
+Der Ablauf gewichtet seine Zeilen: **eigene Verträge** — Benutzeraufgaben,
+Worker, Signale, Nachrichten mit Interaktion — stehen fett und tragen den
+Objektnamen als violetten Chip, der ins Datenmodell springt. **Fremde
+Services** zeigen ihre Katalog-Kennung als teal Chip mit Stecker, rot, wenn
+ein geladener Katalog sie nicht kennt. Gateways haben eine schwache
+Bandfarbe, Ereignisse, Start und Ende sind leise. Zweigköpfe sind Chips in
+der Zweigfarbe (Standardzweig gestrichelt) mit «wenn …» als FEEL und der
+Schrittzahl; Fehler- und Nebenpfade zählen ebenfalls.
+
+**Befunde** sieht man im Baum, nicht erst im Panel: ein rotes (Fehler) oder
+oranges (Warnung) Dreieck mit Zähler an der Zeile, die ersten Meldungen im
+Tooltip — FEEL-Fehler in Mappings und Bedingungen, doppelte oder fehlende
+Pflichtfelder, eine Interaktion ohne oder mit leerem In/Out, ein unbekannter
+Service. Der Status «Umgesetzt» ist gedämpft, damit «Angepasst» und
+«Entwurf» herausstechen. Im Kopf filtern die Status-Chips den Ablauf, der
+Chip **⚠ n** zeigt nur Schritte mit Befund; die Suche findet auch den
+Objektnamen der Interaktion und den Namen des Katalog-Services.
+
 ### Spezifikation und Implementation nebeneinander
 
 **«Mit BPMN abgleichen»** liest die BPMN-Datei erneut ein und übernimmt die
@@ -861,6 +881,16 @@ mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
 `modulo()`), Vergleiche (auch `eq`/`ne`/`lt`…), `&&`/`||`/`!`, `? :`,
 `empty x`, Index `[0]` → `[1]` und die üblichen String-Methoden (`concat`,
 `equals`, `contains`, `startsWith`, `toUpperCase`, `size`, `isEmpty` …).
+Dazu die Camunda-7-Eigenheiten, die in FEEL schlicht Pfade oder Variablen
+sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
+`.hasProp`, `.jsonPath("$.a")`), `execution.getVariable("x")` → `x`,
+`execution.getProcessInstanceId()` → `processInstanceKey`,
+`getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
+`processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen),
+`result.get("k")` → `result.k` und Zeitketten wie
+`dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
+alle valiant-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
+Setter, `append`, dynamische Variablennamen, `jsonPath`-Filter.
 Was kein Gegenstück hat (fremde Methoden, Java-Aufrufe), bleibt als JUEL
 stehen und wird am Feld gelb gemeldet — der Export übernimmt es für Camunda 7
 unverändert. Ein fester Text ohne `${}` bleibt ein fester Text.

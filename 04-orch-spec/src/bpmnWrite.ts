@@ -19,8 +19,9 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, ProcessSpec } from './types';
-import { TECHNICAL, allSteps } from './bpmn';
+import { TECHNICAL, allSteps, paramExpression } from './bpmn';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
+import { importExpression } from './juelFeel';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -46,6 +47,62 @@ const kids = (el: Element) => Array.from(el.children);
 const firstNamed = (el: Element, name: string): Element | null => kids(el).find(c => local(c) === name) ?? null;
 const attr = (el: Element, name: string): string | undefined =>
   el.getAttribute(name) ?? el.getAttribute(`camunda:${name}`) ?? el.getAttribute(`zeebe:${name}`) ?? undefined;
+
+// ── Einrückung ───────────────────────────────────────────────────────────────
+// Das XML soll nach dem Schreiben aussehen wie vorher: ein entferntes Element
+// nimmt seinen Zeilenumbruch mit, ein neues bekommt die Einrückung seiner
+// Geschwister. Sonst bleiben leere Zeilen und angehängte Elemente kleben
+// am Ende — und jeder Diff im Repository wird unlesbar.
+const isWs = (n: Node | null): n is Text => !!n && n.nodeType === 3 && !(n.textContent ?? '').trim();
+
+/** Einrückung eines Elements: die Zeichen nach dem letzten Umbruch davor */
+function indentOf(el: Element): string {
+  const prev = el.previousSibling;
+  if (isWs(prev)) { const t = prev.textContent ?? ''; return t.slice(t.lastIndexOf('\n') + 1); }
+  return '';
+}
+
+/** Element samt dem Zeilenumbruch davor entfernen */
+function removeEl(el: Element) {
+  const prev = el.previousSibling;
+  if (isWs(prev)) prev.remove();
+  el.remove();
+}
+
+/** Element als letztes Kind anhängen — mit Umbruch und Einrückung wie seine Geschwister */
+function appendEl(parent: Element, el: Element) {
+  const doc = parent.ownerDocument;
+  const first = kids(parent)[0];
+  const indent = first ? indentOf(first) : `${indentOf(parent)}  `;
+  const last = parent.lastChild;
+  if (isWs(last)) last.remove();          // der Umbruch vor dem schliessenden Tag
+  parent.appendChild(doc.createTextNode(`\n${indent}`));
+  parent.appendChild(el);
+  parent.appendChild(doc.createTextNode(`\n${indentOf(parent)}`));
+}
+
+/** Element als erstes Kind einfügen — eingerückt wie die Geschwister */
+function prependEl(parent: Element, el: Element) {
+  const doc = parent.ownerDocument;
+  const first = kids(parent)[0];
+  if (!first) { appendEl(parent, el); return; }
+  const indent = indentOf(first);
+  const anchor = isWs(first.previousSibling) ? first.previousSibling : first;
+  parent.insertBefore(doc.createTextNode(`\n${indent}`), anchor);
+  parent.insertBefore(el, anchor);
+}
+
+/** Skript, Liste oder Map — Werte, die die Spezifikation nur beschreibt, nicht schreibt */
+const isComplex = (p: Element): boolean => !!(firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map'));
+/** Ein Mapping-Wert, der ein Skript beschreibt (`«groovy» …`) — bleibt, wie er im BPMN steht */
+const isScript = (m: Mapping): boolean => m.expression.trimStart().startsWith('«');
+/**
+ * Steht die Zeile unverändert im BPMN? Dann bleibt das Element wörtlich —
+ * mit `#{…}`, Spin-Aufrufen (`.prop("x").value()`) oder Skript, die der Weg
+ * über FEEL nicht eins zu eins zurückbringt. Nur was jemand geändert hat,
+ * wird neu geschrieben.
+ */
+const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim() === m.expression.trim();
 
 /**
  * Mappings und Bedingungen der Spezifikation ins BPMN schreiben. Das XML
@@ -84,7 +141,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     let ext = firstNamed(el, 'extensionElements');
     if (!ext) {
       ext = bpmnEl('extensionElements');
-      el.insertBefore(ext, el.firstChild);
+      prependEl(el, ext);
     }
     return ext;
   };
@@ -115,6 +172,9 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       if (body == null) continue;
       const flow = byId.get(b.id);
       if (!flow || local(flow) !== 'sequenceFlow') continue;
+      // unverändert seit dem Import → der alte Text bleibt wörtlich
+      const before = firstNamed(flow, 'conditionExpression');
+      if (before && importExpression(before.textContent ?? '').trim() === b.condition.trim()) continue;
       let text: string;
       if (engine === 'c8') text = `=${body}`;
       else {
@@ -129,8 +189,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       if (!cond) {
         cond = bpmnEl('conditionExpression');
         cond.setAttributeNS(XSI_NS, 'xsi:type', `${prefix}tFormalExpression`);
-        const ext = firstNamed(flow, 'extensionElements');
-        flow.insertBefore(cond, ext ? ext.nextSibling : flow.firstChild);
+        appendEl(flow, cond);
       }
       cond.textContent = text;
     }
@@ -147,9 +206,10 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
 // ── Camunda 8 ────────────────────────────────────────────────────────────────
 function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
   const old = firstNamed(ext, 'ioMapping');
+  const oldKids = old ? kids(old) : [];
   // Steuerparameter aus dem alten Mapping behalten
-  const keep = old ? kids(old).filter(p => TECHNICAL.has(attr(p, 'target') ?? '')) : [];
-  old?.remove();
+  const keep = oldKids.filter(p => TECHNICAL.has(attr(p, 'target') ?? ''));
+  if (old) removeEl(old);
   if (!ins.length && !outs.length && !keep.length) return;
   const io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping');
   const source = (m: Mapping, where: string): string => {
@@ -159,21 +219,25 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
     }
     return e.text;
   };
+  const same = (tag: 'input' | 'output', m: Mapping): Element | undefined =>
+    oldKids.find(p => local(p) === tag && attr(p, 'target') === m.name.trim() && unchanged(p, m));
   for (const m of ins) {
-    const p = doc.createElementNS(ZEEBE_NS, 'zeebe:input');
-    p.setAttribute('source', source(m, `Eingabe «${m.name}»`));
-    p.setAttribute('target', m.name.trim());
+    const p = same('input', m) ?? doc.createElementNS(ZEEBE_NS, 'zeebe:input');
+    if (!p.hasAttribute('target')) { p.setAttribute('source', source(m, `Eingabe «${m.name}»`)); p.setAttribute('target', m.name.trim()); }
     io.appendChild(p);
   }
   for (const p of keep) if (local(p) === 'input') io.appendChild(p);
   for (const m of outs) {
-    const p = doc.createElementNS(ZEEBE_NS, 'zeebe:output');
-    p.setAttribute('source', source(m, `Ausgabe «${m.name}»`));
-    p.setAttribute('target', m.name.trim());
+    const p = same('output', m) ?? doc.createElementNS(ZEEBE_NS, 'zeebe:output');
+    if (!p.hasAttribute('target')) { p.setAttribute('source', source(m, `Ausgabe «${m.name}»`)); p.setAttribute('target', m.name.trim()); }
     io.appendChild(p);
   }
   for (const p of keep) if (local(p) === 'output') io.appendChild(p);
-  ext.appendChild(io);
+  appendEl(ext, io);
+  // die Kinder nachträglich einrücken — appendChild kennt keine Umbrüche
+  const inner = kids(io);
+  for (const p of inner) p.remove();
+  for (const p of inner) appendEl(io, p);
 }
 
 // ── Camunda 7 ────────────────────────────────────────────────────────────────
@@ -191,44 +255,91 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
   let io = firstNamed(ext, 'inputOutput');
   if (!io) {
     io = doc.createElementNS(CAMUNDA_NS, 'camunda:inputOutput');
-    ext.appendChild(io);
+    appendEl(ext, io);
   }
-  // Steuerparameter bleiben, fachliche Zeilen werden ersetzt
+  // Steuerparameter bleiben, fachliche Zeilen werden ersetzt — ausser
+  // Skripten, Listen und Maps: die beschreibt die Spezifikation nur
+  // (`«groovy» …`), geschrieben werden sie nicht. Sie bleiben, solange
+  // ihre Zeile noch da ist und den Wert nicht durch FEEL ersetzt hat.
+  const keep = new Set<string>();
   for (const p of kids(io)) {
-    if (!TECHNICAL.has(attr(p, 'name') ?? '')) p.remove();
+    const name = attr(p, 'name') ?? '';
+    if (TECHNICAL.has(name)) continue;
+    const tag = local(p) === 'inputParameter' ? 'in' : 'out';
+    const row = (tag === 'in' ? ins : outs).find(m => m.name.trim() === name);
+    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
+      keep.add(`${tag}:${name}`);
+      continue;
+    }
+    removeEl(p);
   }
+  const scriptGone = (m: Mapping, where: string): boolean => {
+    if (!isScript(m)) return false;
+    issues.push({ stepId, where, text: 'ist ein Skript — die Spezifikation beschreibt es nur; im BPMN steht es nicht mehr. Dort pflegen.' });
+    return true;
+  };
   for (const m of ins) {
+    if (keep.has(`in:${m.name.trim()}`) || scriptGone(m, `Eingabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
     p.setAttribute('name', m.name.trim());
     p.textContent = juelOf(m, stepId, `Eingabe «${m.name}»`, issues).text;
-    io.appendChild(p);
+    appendEl(io, p);
   }
   for (const m of outs) {
+    if (keep.has(`out:${m.name.trim()}`) || scriptGone(m, `Ausgabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:outputParameter');
     p.setAttribute('name', m.name.trim());
     p.textContent = juelOf(m, stepId, `Ausgabe «${m.name}»`, issues).text;
-    io.appendChild(p);
+    appendEl(io, p);
   }
-  if (!kids(io).length) io.remove();
+  if (!kids(io).length) removeEl(io);
 }
 
 function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
-  // businessKey, `variables="all"` und Steuerparameter bleiben
+  // Ein Teilprozess kann neben `camunda:in/out` auch ein `inputOutput`
+  // tragen — beides liest der Import als Mapping. Was dort steht, wird dort
+  // gepflegt: Skripte bleiben, Text wird ersetzt; nur was es dort nicht
+  // gibt, kommt als `camunda:in/out`.
+  const io = firstNamed(ext, 'inputOutput');
+  const ioParam = (tag: 'in' | 'out', name: string): Element | null =>
+    io ? kids(io).find(p => local(p) === (tag === 'in' ? 'inputParameter' : 'outputParameter') && attr(p, 'name') === name) ?? null : null;
+  // businessKey, `variables="all"` und Steuerparameter bleiben — und
+  // Zeilen, die unverändert sind, wörtlich
+  const kept = new Set<Mapping>();
   for (const p of kids(ext)) {
     const n = local(p);
     if (n !== 'in' && n !== 'out') continue;
     if (attr(p, 'businessKey') || attr(p, 'variables')) continue;
     if (TECHNICAL.has(attr(p, 'target') ?? '') || TECHNICAL.has(attr(p, 'source') ?? '')) continue;
-    p.remove();
+    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m));
+    if (row) { kept.add(row); continue; }
+    removeEl(p);
   }
   const put = (tag: 'in' | 'out', m: Mapping, where: string) => {
+    if (kept.has(m)) return;
+    const name = m.name.trim();
+    const existing = ioParam(tag, name);
+    // eine lokale Variable im `inputOutput`: unverändert bleibt sie, ein
+    // Skript sowieso; ein geänderter Text wird dort ersetzt — es sei denn,
+    // derselbe Name geht auch als `camunda:in` durch, dann ist das die Zeile
+    const twice = (tag === 'in' ? ins : outs).filter(x => x.name.trim() === name).length > 1;
+    if (existing && (unchanged(existing, m) || (isComplex(existing) && (isScript(m) || feelBody(m.expression) == null)))) return;
+    if (isScript(m)) {
+      issues.push({ stepId, where, text: 'ist ein Skript — die Spezifikation beschreibt es nur; im BPMN steht es nicht mehr. Dort pflegen.' });
+      return;
+    }
+    if (existing && !twice) {
+      for (const k of kids(existing)) k.remove();
+      existing.textContent = juelOf(m, stepId, where, issues).text;
+      return;
+    }
     const p = doc.createElementNS(CAMUNDA_NS, `camunda:${tag}`);
     const j = juelOf(m, stepId, where, issues);
     // ein blosser Variablenpfad ist `source`, alles andere `sourceExpression`
     if (j.plain && !j.plain.includes('.') && !j.plain.includes('[')) p.setAttribute('source', j.plain);
     else p.setAttribute('sourceExpression', j.text);
-    p.setAttribute('target', m.name.trim());
-    ext.appendChild(p);
+    p.setAttribute('target', name);
+    appendEl(ext, p);
   };
   for (const m of ins) put('in', m, `Eingabe «${m.name}»`);
   for (const m of outs) put('out', m, `Ausgabe «${m.name}»`);

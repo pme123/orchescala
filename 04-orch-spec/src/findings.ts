@@ -107,7 +107,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // ── Zweige: Bedingungen ──────────────────────────────────────────────────
   for (const b of step.branches ?? []) {
     if (b.isDefault || !b.condition || !isFeel(b.condition)) continue;
-    const r = checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung' });
+    const r = checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung', kind: 'scalar' });
     for (const i of r.issues) (i.level === 'error' ? errors : warnings).push(`Zweig «${b.label}»: ${i.text}`);
   }
 

@@ -34,6 +34,9 @@ export const CommentsContext = createContext<CommentsCtx | null>(null);
 
 const NONE: Counts = { open: 0, resolved: 0 };
 
+/** Die Stelle, deren Faden gerade im Panel offen ist — oder null. */
+export const useActiveComment = (): string | null => useContext(CommentsContext)?.active ?? null;
+
 /**
  * Sprechblase an einer Stelle: die Zahl offener Kommentare; nur erledigte →
  * gedämpftes Häkchen; aktiv (im Panel geöffnet) → hervorgehoben. Ohne
