@@ -220,6 +220,10 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
   // Die Scala-Typen des Service-Objekts aus dem Domain-Katalog — Massstab für
   // Typ und Pflicht, wo der Schritt keine eigene In-/Out-Klasse hat
   const domainIn = useMemo(() => stepDomainMember(step, spec, model, 'In'), [step, spec, model]);
+  // Benutzeraufgaben und eigene Worker lesen ihr In aus den Prozessvariablen —
+  // ein Mapping ist dort Zusatz, kein Pflichtfeld kann «fehlen»
+  const ownKind = ia?.kind ?? interactionKind(step, spec.processId ?? '');
+  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';
   const domainOut = useMemo(() => stepDomainMember(step, spec, model, 'Out'), [step, spec, model]);
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
     const fromClass = classFields(list);
@@ -380,11 +384,11 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
 
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={variables} refFields={classFieldDefs('inputs')} domain={domainIn} types={spec.types ?? []} model={model} engine={spec.engine}
-        reference={reference('inputs')}
+        implicitIn={implicitIn} reference={reference('inputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
-        reference={reference('outputs')}
+        implicitIn={implicitIn} reference={reference('outputs')}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
@@ -711,8 +715,10 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, onChange, onAdd, onRemove, onFill, onConvert }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, onChange, onAdd, onRemove, onFill, onConvert }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
+  /** Benutzeraufgabe oder eigener Worker: das In kommt aus den Prozessvariablen, ein Mapping ist keine Pflicht */
+  implicitIn: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
   service: ServiceDef | null;
   /** was der Ausdruck sehen darf: Prozessvariablen — bei Ausgaben zuerst das Ergebnis des Services */
@@ -781,7 +787,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // sagt `required`. Ein Pflichtfeld muss der Service bekommen; die Zeile
   // lässt sich deshalb weder abwählen noch entfernen.
   const pflichtGrund = (name: string): string | null => {
-    if (list !== 'inputs' || !name) return null;
+    if (list !== 'inputs' || !name || implicitIn) return null;
     if (refFields) {
       const f = refFields.find(x => x.name === name);
       return f && !f.optional ? `Pflichtfeld: «${name}» ist im In nicht optional` : null;

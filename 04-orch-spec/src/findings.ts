@@ -73,13 +73,17 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const domainOut = stepDomainMember(step, spec, model, 'Out');
   const resultVars = resultVariables(step, spec, model, service);
 
+  const ownKind = ia?.kind ?? interactionKind(step, processId);
+  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';
   const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
     const active = rows.filter(m => !m.disabled && m.name.trim());
     const names = new Map<string, number>();
     for (const m of active) names.set(m.name, (names.get(m.name) ?? 0) + 1);
     for (const [n, k] of names) if (k > 1) errors.push(`${list === 'inputs' ? 'Eingabe' : 'Ausgabe'} «${n}» kommt doppelt vor.`);
-    if (list === 'inputs') {
-      // Pflichtfelder, die fehlen oder abgewählt sind
+    // Pflichtfelder, die fehlen oder abgewählt sind — nicht bei Benutzer-
+    // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
+    // Prozessvariablen, ohne Mapping
+    if (list === 'inputs' && !implicitIn) {
       const required = refFields
         ? refFields.filter(f => !f.optional).map(f => f.name)
         : (dom?.fields ?? []).filter(p => domainRequired(dom, p.name)).map(p => p.name)
