@@ -42,8 +42,21 @@ export default defineConfig({
     // Der Modeler (bpmn-js) ist gross, wird aber nur geladen, wenn jemand das
     // Diagramm aufklappt — die Warnung dazu ist hier kein Signal.
     chunkSizeWarningLimit: 700,
+    // Die Bibliotheken bekommen eigene Chunks: sie ändern sich nur mit einem
+    // Update und bleiben so über Releases der App im Browser-Cache.
     rollupOptions: {
-      output: { manualChunks: { msal: ['@azure/msal-browser'] } },
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules/')) return undefined;
+          const pkg = id.split('node_modules/').pop()!.split('/')[0];
+          if (pkg === '@azure') return 'msal';
+          if (['react', 'react-dom', 'scheduler'].includes(pkg)) return 'react';
+          if (pkg === 'feelin' || pkg.startsWith('@lezer') || pkg === 'lezer-feel') return 'feel';
+          if (pkg === 'lucide-react') return 'icons';
+          if (['marked', 'js-yaml', 'fflate'].includes(pkg)) return 'text';
+          return undefined;
+        },
+      },
     },
   },
 });

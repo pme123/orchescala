@@ -295,6 +295,3 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
     </div>
   );
 }
-
-/** Erlaubt dem Aufrufer, den Modeler zu laden, bevor der Nutzer ihn aufklappt. */
-export const preload = () => import('bpmn-js/lib/Modeler');
