@@ -163,6 +163,23 @@ function paramValue(p: Element): string {
   return text(p);
 }
 
+/**
+ * Der Mapping-Wert eines Parameters, so wie der Import ihn liest — für
+ * `inputParameter`/`outputParameter`, `camunda:in`/`out` und `zeebe:input`/
+ * `output`. Der Export vergleicht damit: was gleich geblieben ist, bleibt
+ * im BPMN wörtlich stehen (samt Spin-Idiom, `#{…}` und Skript).
+ */
+export function paramExpression(p: Element): string {
+  const n = local(p);
+  if (n === 'inputParameter' || n === 'outputParameter') return fachlich(p);
+  if (n === 'in' || n === 'out') {
+    const plain = attr(p, 'source');
+    return plain != null ? `= ${plain}` : importExpression(attr(p, 'sourceExpression') ?? '');
+  }
+  const source = attr(p, 'source') ?? '';
+  return /^=/.test(source) ? `= ${source.slice(1).trim()}` : source;
+}
+
 // Technische Orchescala-Parameter — nicht Teil der fachlichen Spezifikation,
 // aber für den Orchescala-Export relevant (deshalb separat gesammelt).
 /** Steuerparameter, die kein fachliches Mapping sind — bleiben beim Schreiben stehen. */

@@ -66,13 +66,20 @@ function tokenize(src: string): Tok[] {
 }
 
 const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/**
+ * Ein Teil einer Text-Verkettung: FEEL addiert nur Text mit Text, JUEL
+ * macht aus allem einen String. Was kein Text-Literal ist, wird deshalb
+ * mit `string(…)` zu Text — sonst scheitert `"a" + 1` in FEEL.
+ */
+const asText = (feel: string): string =>
+  (/^"(?:[^"\\]|\\.)*"$/.test(feel) || /^string\(.*\)$/.test(feel) || (/^(?:"|string\()/.test(feel) && feel.includes(' + ')) ? feel : `string(${feel})`);
 
 /** Methodenaufrufe mit FEEL-Gegenstück: `a.concat(b)` → `a + b` usw. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
   const two = (fn: (a: string, b: string) => string) => { if (args.length !== 1) throw new Unsupported(`«${name}()» erwartet ein Argument`); return fn(target, args[0]); };
   switch (name) {
-    case 'concat': return two((a, b) => `${a} + ${b}`);
+    case 'concat': return two((a, b) => `${asText(a)} + ${asText(b)}`);
     case 'equals': return two((a, b) => `${a} = ${b}`);
     case 'equalsIgnoreCase': return two((a, b) => `lower case(${a}) = lower case(${b})`);
     case 'contains': return two((a, b) => `contains(${a}, ${b})`);
@@ -256,6 +263,8 @@ export function importExpression(text: string): string {
   if (!isJuel(t)) return t;
   // in Vorlagen-Teile zerlegen: fester Text und ${…}-Ausdrücke
   const parts: string[] = [];
+  /** Positionen der `${…}`-Teile — in einer Verkettung werden sie zu Text */
+  const tmpl: number[] = [];
   let i = 0;
   while (i < t.length) {
     const m = /[$#]\{/.exec(t.slice(i));
@@ -276,8 +285,11 @@ export function importExpression(text: string): string {
     if (!r.ok) return t;
     // ein zusammengesetzter Teil braucht in einer Verkettung Klammern
     parts.push(/\s/.test(r.feel) ? `(${r.feel})` : r.feel);
+    tmpl.push(parts.length - 1);
     i = j + 1;
   }
   if (parts.length === 1 && parts[0].startsWith('(') && parts[0].endsWith(')')) return `= ${parts[0].slice(1, -1)}`;
-  return `= ${parts.join(' + ')}`;
+  if (parts.length === 1) return `= ${parts[0]}`;
+  // Vorlage mit festem Text: die Ausdrücke darin werden zu Text
+  return `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}`;
 }

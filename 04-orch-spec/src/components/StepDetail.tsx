@@ -87,7 +87,7 @@ function SpecPanel({ spec, author, highlight, isDark, canEdit, onSpecChange, pro
     [spec]);
   return (
     <div className="p-4 space-y-4">
-      <h2 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Prozess</h2>
+      <h2 className={`text-[10px] uppercase tracking-widest ${c.text}`}>Prozess</h2>
       {onRenameProject && (
         <ProjectPicker spec={spec} isDark={isDark} canEdit={canEdit}
           prefixes={projectPrefixes ?? []} onRename={onRenameProject} />
@@ -111,7 +111,7 @@ function SpecPanel({ spec, author, highlight, isDark, canEdit, onSpecChange, pro
           className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
       </Field>
       <div>
-        <h3 className={`text-[10px] uppercase tracking-widest mb-2 ${c.muted}`}>Prozessvariablen</h3>
+        <h3 className={`text-[10px] uppercase tracking-widest mb-2 ${c.text}`}>Prozessvariablen</h3>
         <VariableList spec={spec} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
       </div>
       <Comments spec={spec} target={processTarget} author={author} isDark={isDark}
@@ -541,7 +541,7 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
-        <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Klassen</h3>
+        <h3 className={`text-[10px] uppercase tracking-widest ${c.text}`}>Klassen</h3>
         <span className={`text-[9px] ${c.muted}`}>{meta.label}</span>
         {ia && <span className={`ml-auto text-[10px] font-mono ${c.muted2}`} title="Objekt der Interaktion im Datenmodell">{ia.name}</span>}
       </div>
@@ -666,7 +666,7 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 
   return (
     <div>
-      <h3 className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Service</h3>
+      <h3 className={`text-[10px] uppercase tracking-widest mb-1 ${c.text}`}>Service</h3>
       <button disabled={!canEdit} onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 30); }}
         className={`w-full flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border text-left ${c.border2} ${canEdit ? c.hover : ''}`}>
         <span className={`flex-1 truncate font-mono ${current ? c.text : c.muted}`}>
@@ -809,7 +809,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
     <div>
       <div className="flex items-baseline gap-2 mb-1">
         <button onClick={toggle} title={hint.section}
-          className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
+          className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.text} hover:underline`}>
           {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}{title}
           <span className={`normal-case tracking-normal ${rows.length ? c.muted2 : c.muted}`}>
             {!rows.length ? 0 : active === rows.length ? rows.length : `${active} von ${rows.length}`}
@@ -1036,7 +1036,7 @@ function Section({ id, label, count, isDark, action, hint, children }: {
     <div>
       <div className="flex items-center gap-2 mb-1">
         <button onClick={toggle} title={open ? 'einklappen' : 'aufklappen'}
-          className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
+          className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.text} hover:underline`}>
           {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
           {label}
           {count != null && <span className={`normal-case tracking-normal ${n ? c.muted2 : c.muted}`}>{n}</span>}
@@ -1054,7 +1054,7 @@ function Field({ label, children, isDark, action }: { label: string; children: R
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
-        <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{label}</h3>
+        <h3 className={`text-[10px] uppercase tracking-widest ${c.text}`}>{label}</h3>
         {action && <div className="ml-auto">{action}</div>}
       </div>
       {children}
