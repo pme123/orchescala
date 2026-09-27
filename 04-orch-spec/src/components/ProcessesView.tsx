@@ -17,7 +17,7 @@
 // Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, Search, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
 import { collectFindings } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
@@ -81,7 +81,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       findings = f.size;
       errors = [...f.values()].filter(x => x.errors.length).length;
     } catch { /* eine defekte Spezifikation darf die Liste nicht blockieren */ }
-    return [slug, { counts, total, findings, errors }];
+    const comments = (data.comments ?? []).filter(t => !t.resolved).length;
+    return [slug, { counts, total, findings, errors, comments }];
   })), [specs, model]);
   const visible = useMemo(() => {
     const q = listQuery.trim().toLowerCase();
@@ -474,6 +475,16 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                               : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50')}`}>
                           {engine}
                         </span>
+                        {/* offene Kommentare — Klärungsbedarf, ohne den Prozess zu öffnen */}
+                        {sum.comments > 0 ? (
+                          <span title={`${sum.comments} offene${sum.comments === 1 ? 'r Kommentar' : ' Kommentare'}`}
+                            className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${
+                              isDark ? 'border-blue-500/30 text-blue-300' : 'border-blue-300 text-blue-700'}`}>
+                            <MessageSquare size={9} />{sum.comments}
+                          </span>
+                        ) : (
+                          <span className="w-7" />
+                        )}
                         {sum.findings > 0 ? (
                           <span title={`${sum.findings} Schritt${sum.findings === 1 ? '' : 'e'} mit Befund${sum.errors ? `, ${sum.errors} mit Fehlern` : ''}`}
                             className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${

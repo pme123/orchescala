@@ -18,7 +18,7 @@ import {
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
 import type { CommentThread, DirectoryUser, ProcessSpec } from '../types';
-import { STEP_ICON, cls } from '../ui';
+import { PanelWidthHandle, STEP_ICON, cls } from '../ui';
 
 // ── Kontext ──────────────────────────────────────────────────────────────────
 interface CommentsCtx {
@@ -57,7 +57,7 @@ export function CommentBubble({ target, aggregate, quiet, title, inButton }: {
   const active = aggregate ? baseOf(ctx.active ?? '') === target : ctx.active === target;
   const has = open > 0;
   const tone = active
-    ? (isDark ? 'text-blue-300 bg-blue-500/20 border-blue-500/40' : 'text-blue-700 bg-blue-50 border-blue-300')
+    ? (isDark ? 'text-white bg-blue-500 border-blue-400' : 'text-white bg-blue-600 border-blue-600')
     : has
       ? (isDark ? 'text-blue-300 border-blue-500/30 hover:bg-blue-500/10' : 'text-blue-700 border-blue-300 hover:bg-blue-50')
       : resolved > 0
@@ -347,6 +347,11 @@ interface PanelProps {
   onDirectoryProblem: (r: Extract<DirectorySearchResult, { ok: false }>) => void;
   /** Teams-Benachrichtigungen aktiv (Admin) — dann bekommen Beiträge Empfänger */
   teamsEnabled: boolean;
+  /** Breite in px, an der Trennlinie ziehbar */
+  width: number;
+  onWidth: (w: number) => void;
+  /** schmales Fenster: über der rechten Spalte statt daneben */
+  overlay: boolean;
 }
 
 const ORPHAN_GROUP = 'Ohne Stelle';
@@ -646,7 +651,10 @@ export function CommentsPanel(p: PanelProps) {
   const activeInfo = active ? targets.find(t => t.key === active) : null;
 
   return (
-    <aside className={`w-[380px] max-w-[45vw] flex-shrink-0 flex flex-col min-h-0 border-l ${c.border} ${c.panelStrong}`}>
+    <aside style={{ width: p.width }}
+      className={`flex-shrink-0 flex flex-col min-h-0 border-l ${c.border} ${c.panelStrong} ${
+        p.overlay ? 'absolute right-0 top-0 bottom-0 z-30 shadow-2xl max-w-[85vw]' : 'relative max-w-[45vw]'}`}>
+      <PanelWidthHandle isDark={isDark} width={p.width} onWidth={p.onWidth} min={300} max={640} />
       {/* Kopf */}
       <div className={`px-3 py-2 border-b ${c.border} flex items-center gap-1.5`}>
         {active ? (
