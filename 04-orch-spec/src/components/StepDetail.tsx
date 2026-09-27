@@ -13,7 +13,7 @@ import { KIND_LABEL, cls } from '../ui';
 import { allSteps } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type FeelIssue, type VarNode } from '../feel';
 import { feelBody, feelToJuel } from '../feelJuel';
-import { isJuel } from '../juelFeel';
+import { importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
 import Comments from './Comments';
 import { canComment, orphanThreads, processTarget, stepTarget, targetLabel, threadsFor } from '../comments';
@@ -246,6 +246,9 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
   };
   const removeMapping = (list: 'inputs' | 'outputs', i: number) =>
     onPatch(step.id, { [list]: (step[list] ?? []).filter((_, k) => k !== i) });
+  /** JUEL aus einem älteren Stand nach FEEL — dieselbe Übersetzung wie beim Import. */
+  const convertJuel = (list: 'inputs' | 'outputs') =>
+    onPatch(step.id, { [list]: (step[list] ?? []).map(m => (isJuel(m.expression) ? { ...m, expression: importExpression(m.expression) } : m)) });
 
   return (
     <div className="p-4 space-y-4">
@@ -338,11 +341,11 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={variables} refFields={classFieldDefs('inputs')} domain={domainIn} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('inputs')}
-        onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
+        onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
         reference={reference('outputs')}
-        onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} />
+        onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
         <div>
@@ -397,14 +400,23 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
                 ? [...checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung' }).issues, ...juelIssues(b.condition, spec.engine)]
                 : !b.isDefault && b.condition && isJuel(b.condition)
-                  ? [{ level: 'warn', text: 'JUEL aus dem Import, nicht nach FEEL übersetzbar — als «= …» schreiben.' }]
+                  ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
+                      ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'
+                      : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben.' }]
                   : [];
               const condErr = cond.some(i => i.level === 'error');
+              const condConvertible = !b.isDefault && !!b.condition && isJuel(b.condition) && importExpression(b.condition) !== b.condition;
               return (
                 <div key={b.id} className={`px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
                   {cond.map((it, k) => (
                     <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
                       <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+                      {condConvertible && canEdit && k === 0 && (
+                        <button onClick={() => setBranch({ condition: importExpression(b.condition!) })}
+                          className={`ml-auto flex-shrink-0 font-mono px-1.5 rounded border ${isDark ? 'border-amber-500/40 hover:bg-amber-500/10' : 'border-amber-400 hover:bg-amber-50'}`}>
+                          → FEEL
+                        </button>
+                      )}
                     </p>
                   ))}
                   <div className="flex items-center gap-1.5">
@@ -636,7 +648,7 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, onChange, onAdd, onRemove, onFill }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, onChange, onAdd, onRemove, onFill, onConvert }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
   service: ServiceDef | null;
@@ -655,9 +667,14 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   onAdd: (list: 'inputs' | 'outputs') => void;
   onRemove: (list: 'inputs' | 'outputs', i: number) => void;
   onFill: (list: 'inputs' | 'outputs') => void;
+  /** JUEL-Reste dieser Tabelle nach FEEL übersetzen */
+  onConvert: (list: 'inputs' | 'outputs') => void;
 }) {
   const c = cls(isDark);
   const rows = step[list] ?? [];
+  // JUEL aus einem älteren Stand: was sich übersetzen lässt, bekommt oben den Knopf
+  const juelRows = rows.filter(m => !m.disabled && isJuel(m.expression));
+  const convertible = juelRows.filter(m => importExpression(m.expression) !== m.expression).length;
   const active = rows.filter(m => !m.disabled).length;
   /** Zeile, deren Entfernen gerade bestätigt werden soll */
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
@@ -725,6 +742,13 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
         )}
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
+            {convertible > 0 && (
+              <button onClick={() => onConvert(list)}
+                title="JUEL aus einem älteren Stand nach FEEL übersetzen — dieselbe Übersetzung wie beim Import"
+                className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${isDark ? 'border-amber-500/40 text-amber-300 hover:bg-amber-500/10' : 'border-amber-400 text-amber-700 hover:bg-amber-50'}`}>
+                {convertible} JUEL → FEEL
+              </button>
+            )}
             {fehlend > 0 && (
               <button onClick={() => onFill(list)}
                 title={`${fehlend} Feld(er) aus dem ${reference?.quelle} übernehmen`}
@@ -775,7 +799,11 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : []),
             // JUEL, das der Import nicht übersetzen konnte — bleibt, bis es jemand als FEEL schreibt
-            ...(!off && !feel && isJuel(m.expression) ? [{ level: 'warn' as const, text: 'JUEL aus dem Import, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }] : []),
+            ...(!off && !feel && isJuel(m.expression)
+              ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
+                  ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
+                  : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }]
+              : []),
           ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
           const box = dupl || feelIssues.some(i => i.level === 'error') ? errBox : fehlt || feelIssues.length ? warnBox : c.border2;
