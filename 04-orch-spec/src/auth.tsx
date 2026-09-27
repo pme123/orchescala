@@ -78,8 +78,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const LOGIN_SCOPES = ['openid', 'profile', 'email'];
 const GRAPH_LOGIN_SCOPES = ['openid', 'profile', 'email', 'Files.ReadWrite.All'];
 
-// Redirect-URI = Ursprung + Basis-Pfad der App (lokal wie auf GitHub Pages)
-const redirectUri = () => `${window.location.origin}${import.meta.env.BASE_URL}`;
+/**
+ * Wo die App liegt — gegen die Dokument-URL aufgelöst, nicht den Origin: in
+ * der Doku-Site wird mit relativer Basis (`./`) gebaut, `origin + BASE_URL`
+ * ergäbe dort `https://host./`. Lokal `…/orch-spec/`, in der Site `…/site/spec/`.
+ */
+export const appUrl = () => new URL(import.meta.env.BASE_URL, document.baseURI);
+
+// Redirect-URI = die Adresse der App (ohne Query) — so in Entra eintragen
+const redirectUri = () => appUrl().href;
 
 const CACHE_KEY = 'orch-spec.auth';
 const MODE_KEY = 'orch-spec.mode';
@@ -142,7 +149,7 @@ function takeIdsFromUrl(): { tenantId: string; clientId: string } | null {
 
 // Einrichtungs-Link für die Weitergabe (Admin): IDs + SharePoint-Ordner
 export function setupLink(tenantId: string, clientId: string, folderUrl?: string): string {
-  const u = new URL(`${window.location.origin}${import.meta.env.BASE_URL}`);
+  const u = appUrl();
   u.searchParams.set('tenant', tenantId);
   u.searchParams.set('client', clientId);
   if (folderUrl) u.searchParams.set('folder', folderUrl);
