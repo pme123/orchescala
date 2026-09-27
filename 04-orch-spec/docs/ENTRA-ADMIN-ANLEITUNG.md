@@ -9,7 +9,7 @@ Hintergründen steht in [ENTRA-SETUP.md](ENTRA-SETUP.md).
 
 ## Worum es geht
 
-«Z9nAI Orch Spec» ist eine reine Browser-Anwendung (Single-Page-App) für
+«z9nai Orch Spec» ist eine reine Browser-Anwendung (Single-Page-App) für
 Prozess-Spezifikationen (Orchescala/Camunda). Sie wird mit der
 Firmen-Dokumentation ausgeliefert, meldet Benutzer über Microsoft Entra ID an
 und unterscheidet über **App-Rollen** drei Zugriffsstufen. Die Daten liegen in
