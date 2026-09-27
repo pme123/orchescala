@@ -6,6 +6,8 @@ import { GUID_RE, LEVEL_LABELS, useAuth, usePermissions } from './auth';
 import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
+import { StartCard, StartOption } from './components/StartCard';
+import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
 
@@ -113,6 +115,7 @@ export default function App() {
   const applyConfig = auth.applyConfig;
   useEffect(() => { if (model) applyConfig(model.auth); }, [model, applyConfig]);
 
+  const c = cls(isDark);
   const bg = isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]';
   const border = isDark ? 'border-white/8' : 'border-black/8';
   const topBg = isDark ? 'bg-[#0c0d0f]' : 'bg-[#eae9e5]';
@@ -216,120 +219,72 @@ export default function App() {
       <div className={`flex-1 ${view.kind === 'spec' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {gated ? (
           // Anmeldung (Microsoft Entra ID) — vor allem anderen
-          <div className="h-full flex items-center justify-center p-6">
-            <div className={`max-w-md w-full rounded-xl border p-8 text-center ${border} ${isDark ? 'bg-white/2' : 'bg-black/2'}`}>
-              <LogIn size={28} className={`mx-auto mb-4 ${textMuted}`} />
-              <h1 className={`text-sm font-semibold uppercase tracking-widest mb-3 ${isDark ? 'text-white/70' : 'text-black/70'}`}>
-                Prozess-Spezifikationen
-              </h1>
-              {auth.status === 'loading' ? (
-                <p className={`text-xs ${textMuted}`}>Anmeldung wird geprüft …</p>
-              ) : auth.status === 'error' ? (
-                <>
-                  <p className={`text-xs leading-relaxed mb-4 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>
-                    Anmeldung nicht möglich: {auth.error}
-                  </p>
-                  <button onClick={() => window.location.reload()}
-                    className={`text-xs px-4 py-2 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                    Erneut versuchen
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className={`text-xs leading-relaxed mb-6 ${textMuted}`}>
-                    Bitte mit dem Microsoft-Konto anmelden. Die Anmeldung läuft über
-                    Microsoft Entra ID; die App selbst speichert keine Zugangsdaten.
-                  </p>
-                  <button onClick={auth.login}
-                    className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded font-semibold transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80'}`}>
-                    <LogIn size={12} /> Mit Microsoft anmelden
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
+          <StartCard isDark={isDark} model={model} icon={<LogIn size={20} />} tone={auth.status === 'error' ? 'red' : 'blue'}
+            title={auth.status === 'error' ? 'Anmeldung nicht möglich' : 'Anmelden'}
+            lead={auth.status === 'loading'
+              ? 'Anmeldung wird geprüft …'
+              : auth.status === 'error'
+                ? auth.error
+                : 'Mit dem Microsoft-Konto anmelden. Die Anmeldung läuft über Microsoft Entra ID; die App selbst speichert keine Zugangsdaten.'}>
+            {auth.status === 'error' ? (
+              <button onClick={() => window.location.reload()}
+                className={`w-full text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
+                Erneut versuchen
+              </button>
+            ) : auth.status !== 'loading' && (
+              <button onClick={auth.login}
+                className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded font-semibold transition-colors ${c.btnPrimary}`}>
+                <LogIn size={12} /> Mit Microsoft anmelden
+              </button>
+            )}
+          </StartCard>
         ) : denied ? (
-          <div className="h-full flex items-center justify-center p-6">
-            <div className={`max-w-md w-full rounded-xl border p-8 text-center ${isDark ? 'border-rose-500/30 bg-rose-500/5' : 'border-rose-300 bg-rose-50'}`}>
-              <AlertTriangle size={28} className={`mx-auto mb-4 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />
-              <p className={`text-xs leading-relaxed mb-2 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>
-                Keine Berechtigung für diese App.
-              </p>
-              <p className={`text-[11px] leading-relaxed mb-6 ${textMuted}`}>
-                {auth.user?.email} ist angemeldet, hat aber keine der Rollen Admin, Reviewer oder Viewer.
-                Die Zuweisung erfolgt in Entra unter «Unternehmensanwendungen → Benutzer und Gruppen».
-              </p>
-              <button onClick={auth.logout}
-                className={`text-xs px-4 py-2.5 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                Abmelden
-              </button>
-            </div>
-          </div>
+          <StartCard isDark={isDark} model={model} icon={<AlertTriangle size={20} />} tone="red"
+            title="Keine Berechtigung für diese App"
+            lead={<>{auth.user?.email} ist angemeldet, hat aber keine der Rollen Admin, Reviewer oder Viewer.
+              Die Zuweisung erfolgt in Entra unter «Unternehmensanwendungen → Benutzer und Gruppen».</>}>
+            <button onClick={auth.logout}
+              className={`w-full text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
+              Abmelden
+            </button>
+          </StartCard>
         ) : !dirHandle ? (
-          // Start / Speicherwahl
-          <div className="h-full flex items-center justify-center p-6">
-            <div className={`max-w-md w-full rounded-xl border p-8 text-center ${border} ${isDark ? 'bg-white/2' : 'bg-black/2'}`}>
-              <FolderOpen size={28} className={`mx-auto mb-4 ${textMuted}`} />
-              <h1 className={`text-sm font-semibold uppercase tracking-widest mb-3 ${isDark ? 'text-white/70' : 'text-black/70'}`}>
-                Prozess-Spezifikationen
-              </h1>
-              <p className={`text-xs leading-relaxed mb-6 ${textMuted}`}>
-                Wo liegen <span className="font-semibold">config/model.json</span> (Service-Katalog) und der Unterordner{' '}
-                <span className="font-semibold">processes/</span>? Fehlen sie, werden sie automatisch angelegt.
-                Kein eigener Server — die Daten bleiben im gewählten Ordner.
-              </p>
-              <div className="space-y-3">
-                {/* SharePoint */}
-                {savedSharePoint ? (
-                  <div className="space-y-1">
-                    <button onClick={startSharePoint} disabled={spPreparing}
-                      className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80'}`}>
-                      <Cloud size={12} /> {spPreparing ? 'Anmeldung …' : `Wieder verbinden: ${savedSharePoint.name}`}
-                    </button>
-                    <button onClick={forgetSharePoint} className={`text-[10px] ${textMuted} hover:underline`}>anderen SharePoint-Ordner wählen</button>
-                  </div>
-                ) : (
-                  <button onClick={startSharePoint} disabled={spPreparing}
-                    title={auth.loginAvailable ? '' : 'Beim ersten Mal: Einrichtungs-Link vom Admin öffnen oder IDs eintragen'}
-                    className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded font-semibold transition-colors disabled:opacity-40 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80'}`}>
-                    <Cloud size={12} /> {spPreparing ? 'Anmeldung …' : 'SharePoint-Ordner verbinden'}
-                  </button>
-                )}
-                {/* Lokal */}
-                {savedHandleName ? (
-                  <>
-                    <button onClick={reconnectDirectory}
-                      className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                      <FolderOpen size={12} /> Wieder verbinden: {savedHandleName}
-                    </button>
-                    <button onClick={pickDirectory} className={`text-[10px] ${textMuted} hover:underline`}>anderen lokalen Ordner wählen</button>
-                  </>
-                ) : (
-                  <button onClick={pickDirectory}
-                    className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                    <FolderOpen size={12} /> Lokalen Ordner wählen
-                  </button>
-                )}
-              </div>
-              <p className={`text-[10px] leading-relaxed mt-5 ${textMuted}`}>
-                SharePoint: Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint —
-                funktioniert in jedem Browser. Lokaler Ordner (auch OneDrive-/Drive-Sync): Chrome oder Edge.
-              </p>
+          // Start / Speicherwahl: SharePoint oder lokaler Ordner, nebeneinander
+          <StartCard isDark={isDark} model={model} icon={<FolderOpen size={20} />} wide
+            title="Wo liegen die Spezifikationen?"
+            lead="Kein eigener Server — die Daten bleiben im gewählten Ordner, geteilt über SharePoint oder ein lokales Laufwerk."
+            footnote={<>Im Ordner liegen <span className="font-semibold">model.json</span> (Katalog und Einstellungen) und der
+              Unterordner <span className="font-semibold">processes/</span> mit den Spezifikationen. Fehlen sie, werden sie angelegt.</>}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <StartOption isDark={isDark} icon={<Cloud size={12} />} title="SharePoint"
+                text="Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint. Funktioniert in jedem Browser."
+                remembered={savedSharePoint?.name ?? null}
+                primary={{
+                  label: spPreparing ? 'Anmeldung …' : savedSharePoint ? 'Wieder verbinden' : 'Ordner verbinden',
+                  onClick: startSharePoint, disabled: spPreparing, strong: true,
+                  title: auth.loginAvailable ? '' : 'Beim ersten Mal: Einrichtungs-Link vom Admin öffnen oder IDs eintragen',
+                }}
+                secondary={savedSharePoint ? { label: 'anderen SharePoint-Ordner wählen', onClick: forgetSharePoint } : undefined} />
+              <StartOption isDark={isDark} icon={<FolderOpen size={12} />} title="Lokaler Ordner"
+                text="Ein Ordner auf dem Rechner, auch ein synchronisierter (OneDrive, Google Drive). Chrome oder Edge."
+                remembered={savedHandleName}
+                primary={{
+                  label: savedHandleName ? 'Wieder verbinden' : 'Ordner wählen',
+                  onClick: savedHandleName ? reconnectDirectory : pickDirectory,
+                }}
+                secondary={savedHandleName ? { label: 'anderen lokalen Ordner wählen', onClick: pickDirectory } : undefined} />
             </div>
-          </div>
+          </StartCard>
         ) : modelError ? (
-          <div className="h-full flex items-center justify-center p-6">
-            <div className={`max-w-md w-full rounded-xl border p-8 text-center ${isDark ? 'border-rose-500/30 bg-rose-500/5' : 'border-rose-300 bg-rose-50'}`}>
-              <AlertTriangle size={28} className={`mx-auto mb-4 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />
-              <p className={`text-xs leading-relaxed mb-6 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>{modelError}</p>
-              <button onClick={pickDirectory}
-                className={`text-xs px-4 py-2.5 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
-                Anderen Ordner wählen
-              </button>
-            </div>
-          </div>
+          <StartCard isDark={isDark} model={model} icon={<AlertTriangle size={20} />} tone="red"
+            title="Der Ordner lässt sich nicht lesen" lead={modelError}>
+            <button onClick={pickDirectory}
+              className={`w-full text-xs px-4 py-2 rounded border transition-colors ${c.btn}`}>
+              Anderen Ordner wählen
+            </button>
+          </StartCard>
         ) : !model ? (
-          <div className={`h-full flex items-center justify-center text-xs ${textMuted}`}>Lade Stammdaten …</div>
+          <StartCard isDark={isDark} icon={<FolderOpen size={20} />} title="Ordner wird gelesen" lead="model.json und processes/ …" />
         ) : view.kind === 'list' ? (
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : view.kind === 'admin' ? (
