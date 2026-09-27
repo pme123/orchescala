@@ -7,7 +7,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
-  AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, GripVertical,
+  AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal,
   MessageSquare,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -22,7 +22,7 @@ import { allSteps, importBpmn, mergeSpec, statusCounts, type MergeReport } from 
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
-import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, STEP_ICON, StatusChip, cls } from '../ui';
+import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, STEP_ICON, StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -35,6 +35,9 @@ const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
+const COMMENTS_W_KEY = 'orch-spec.commentsWidth';
+/** darunter legt sich das Kommentar-Panel über die rechte Spalte, statt Platz zu nehmen */
+const OVERLAY_BELOW = 1100;
 
 interface Props {
   slug: string;
@@ -143,6 +146,21 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const n = Number(localStorage.getItem(PANEL_W_KEY));
     return Number.isFinite(n) && n >= 320 ? Math.min(n, 800) : 416;
   });
+  // Kommentar-Panel: eigene Breite, ebenfalls ziehbar; bei schmalem Fenster
+  // legt es sich über die rechte Spalte, sonst nimmt es sich seinen Platz
+  // vom Eigenschaften-Panel — der Ablauf links bleibt, wie er ist
+  const [commentsW, setCommentsW] = useState(() => {
+    const n = Number(localStorage.getItem(COMMENTS_W_KEY));
+    return Number.isFinite(n) && n >= 300 ? Math.min(n, 640) : 380;
+  });
+  const [narrow, setNarrow] = useState(() => window.innerWidth < OVERLAY_BELOW);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${OVERLAY_BELOW - 1}px)`);
+    const h = () => setNarrow(mq.matches);
+    h();
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -418,7 +436,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const aktiv = commentsOpen ? activeComment : null;
   const frameCss = aktiv
     ? `[data-cframe="${cssAttr(aktiv)}"],[data-cframe-base="${cssAttr(baseOf(aktiv))}"]`
-      + `{outline:2px solid ${isDark ? 'rgb(96 165 250)' : 'rgb(59 130 246)'};outline-offset:2px;border-radius:4px}`
+      + `{outline:2px solid ${isDark ? 'rgb(96 165 250)' : 'rgb(59 130 246)'};outline-offset:2px;border-radius:4px;background:${isDark ? 'rgb(59 130 246 / 0.12)' : 'rgb(59 130 246 / 0.07)'}}`
     : '';
 
   // Befunde je Schritt — dieselben Regeln wie im Panel rechts, für das Dreieck
@@ -625,7 +643,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
       {/* ── Inhalt ─────────────────────────────────────────────────────────── */}
       <CommentsContext.Provider value={commentsCtx}>
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 relative">
         {tab === 'flow' ? (
           <>
             {/* links: Diagramm über dem Ablauf */}
@@ -666,7 +684,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
             {/* rechts: Titel und Filter über den Eigenschaften — die Breite
                 lässt sich an der Trennlinie ziehen */}
-            <div style={{ width: panelW }}
+            <div style={{ width: commentsOpen && !narrow ? Math.max(360, panelW - commentsW + 120) : panelW }}
               className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
               <PanelWidthHandle isDark={isDark} width={panelW} onWidth={w => {
                 setPanelW(w);
@@ -759,7 +777,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
             onClose={() => { setCommentsOpen(false); setActiveComment(null); }}
             canEdit={canEdit} author={author} onChange={update}
             users={mentionUsers} searchUsers={searchDirectory} onDirectoryProblem={onDirectoryProblem}
-            teamsEnabled={teamsSettings?.enabled === true} />
+            teamsEnabled={teamsSettings?.enabled === true}
+            width={commentsW} overlay={narrow}
+            onWidth={w => { setCommentsW(w); localStorage.setItem(COMMENTS_W_KEY, String(w)); }} />
         )}
       </div>
       </CommentsContext.Provider>
@@ -802,31 +822,6 @@ function ResizeHandle({ isDark, height, onHeight }: { isDark: boolean; height: n
 
 // Breite der Eigenschaften ziehen — dasselbe Muster wie zwischen Diagramm
 // und Ablauf, nur senkrecht: die linke Kante des Panels ist der Griff.
-function PanelWidthHandle({ isDark, width, onWidth }: { isDark: boolean; width: number; onWidth: (w: number) => void }) {
-  const c = cls(isDark);
-  const start = useRef<{ x: number; w: number } | null>(null);
-  return (
-    <div
-      onPointerDown={e => {
-        start.current = { x: e.clientX, w: width };
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      }}
-      onPointerMove={e => {
-        if (!start.current) return;
-        const next = Math.min(800, Math.max(320, start.current.w - (e.clientX - start.current.x)));
-        onWidth(next);
-      }}
-      onPointerUp={e => {
-        start.current = null;
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      }}
-      title="Breite ziehen"
-      className={`absolute top-0 bottom-0 -left-1 w-2 cursor-col-resize z-10 select-none touch-none flex items-center justify-center ${c.muted} hover:opacity-100 opacity-40`}>
-      <GripVertical size={12} />
-    </div>
-  );
-}
-
 // ── Baum ─────────────────────────────────────────────────────────────────────
 interface ListProps {
   steps: Step[];

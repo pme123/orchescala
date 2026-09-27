@@ -12,6 +12,7 @@ import { AlertTriangle, Download, Upload } from 'lucide-react';
 import { losses, readCatalogFile, referenced, type CatalogFile, type Losses } from '../catalogImport';
 import type { Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
+import { StateChip, useFlash } from './adminUi';
 
 export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave }: {
   model: Model;
@@ -22,7 +23,7 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
 }) {
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [msg, setMsg] = useState('');
+  const [flash, setFlash] = useFlash();
   const [frage, setFrage] = useState<{ data: CatalogFile; verlust: Losses } | null>(null);
 
   const services = model.services ?? [];
@@ -57,30 +58,27 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
       projects: data.projects ?? [],
     });
     setFrage(null);
-    setMsg(res.ok
-      ? `Katalog ersetzt: ${(data.services ?? []).length} Services, ${(data.domainTypes ?? []).length} Typen.`
-      : res.message);
+    setFlash(res.ok
+      ? { ok: true, text: `Katalog ersetzt: ${(data.services ?? []).length} Services, ${(data.domainTypes ?? []).length} Typen` }
+      : { ok: false, text: res.message });
   };
 
   const einlesen = async (file: File) => {
-    setMsg('');
+    setFlash(null);
     const gelesen = readCatalogFile(await file.text());
-    if (!gelesen.ok) { setMsg(gelesen.message); return; }
+    if (!gelesen.ok) { setFlash({ ok: false, text: gelesen.message }); return; }
     const verlust = losses(model, gelesen.data, referenced(specs));
     if (verlust.services.length || verlust.types.length) { setFrage({ data: gelesen.data, verlust }); return; }
     await ersetzen(gelesen.data);
   };
 
   return (
-    <div className={`rounded border p-4 ${c.border2} ${c.panel}`}>
+    <div className={`rounded border px-3 py-2 ${c.border2}`}>
       <div className="flex items-center gap-3">
         <div className="min-w-0">
-          <div className={`text-[11px] ${c.text}`}>
-            {services.length} Services · {types.length} Domain-Typen
-          </div>
+          <div className={`text-[10px] uppercase tracking-wider ${c.text}`}>Als Datei</div>
           <p className={`text-[10px] mt-0.5 ${c.muted}`}>
-            Eine Datei mit allem. Der Weg dorthin, wo die Quellen nicht liegen: draussen exportieren,
-            hier importieren. <span className={c.muted2}>Der Import ersetzt den Katalog.</span>
+            Eine JSON-Datei mit allem — draussen exportieren, hier importieren. <span className={c.muted2}>Der Import ersetzt den Katalog.</span>
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
@@ -98,7 +96,7 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
           </button>
         </div>
       </div>
-      {msg && <p className={`text-[11px] mt-2 ${c.muted2}`}>{msg}</p>}
+      {flash && <div className="mt-2"><StateChip tone={flash.ok ? 'ok' : 'error'} label={flash.text} isDark={isDark} /></div>}
 
       {frage && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={() => setFrage(null)}>

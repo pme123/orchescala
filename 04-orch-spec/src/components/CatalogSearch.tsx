@@ -5,13 +5,54 @@
 // — **steht das im Katalog?** — und die beantwortet eine Suche über Services
 // und Domain-Typen zugleich.
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { Braces, ChevronDown, ChevronRight, Link2, ListOrdered, Puzzle, Search, X } from 'lucide-react';
 import type { DomainType, Model, ServiceDef } from '../types';
-import { cls } from '../ui';
+import { STEP_ICON, cls } from '../ui';
 
-const KIND_LABEL: Record<DomainType['kind'], string> = {
-  case: 'Klasse', enum: 'Auswahl', member: 'aus dem Trait', alias: 'Alias',
+/** Die Arten im Katalog: Services nach Schrittart, Typen nach Scala-Art. */
+export type CatalogKind = 'service' | 'call' | 'user' | 'send' | 'rule' | 'case' | 'enum' | 'member' | 'alias';
+
+const KIND_ORDER: CatalogKind[] = ['service', 'call', 'user', 'send', 'rule', 'case', 'enum', 'member', 'alias'];
+
+const KIND_TEXT: Record<CatalogKind, string> = {
+  service: 'Worker', call: 'Prozess', user: 'Benutzeraufgabe', send: 'Signal / Nachricht', rule: 'Entscheidung',
+  case: 'Klasse', enum: 'Enum', member: 'aus dem Trait', alias: 'Alias',
 };
+
+/** Farbe und Zeichen je Art — Klasse und Enum wie im Datenmodell, Services in Teal wie Katalog-Verweise. */
+function kindStyle(kind: CatalogKind, isDark: boolean): { cls: string; icon: React.ReactNode } {
+  const ico = (I: typeof Braces) => <I size={9} className="flex-shrink-0" />;
+  switch (kind) {
+    case 'case': return { icon: ico(Braces), cls: isDark ? 'border-sky-500/40 bg-sky-500/10 text-sky-300' : 'border-sky-300 bg-sky-50 text-sky-800' };
+    case 'enum': return { icon: ico(ListOrdered), cls: isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800' };
+    case 'member': return { icon: ico(Puzzle), cls: isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50' };
+    case 'alias': return { icon: ico(Link2), cls: isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50' };
+    default: return { icon: ico(STEP_ICON[kind]), cls: isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800' };
+  }
+}
+
+/** Art als Chip — mit Zahl in der Zustandszeile, ohne in den Treffern. */
+export function KindChip({ kind, isDark, count }: { kind: CatalogKind; isDark: boolean; count?: number }) {
+  const st = kindStyle(kind, isDark);
+  return (
+    <span title={KIND_TEXT[kind]} className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-px rounded border whitespace-nowrap ${st.cls}`}>
+      {st.icon}{count != null && <span className="font-semibold">{count}</span>}{KIND_TEXT[kind]}
+    </span>
+  );
+}
+
+const serviceKind = (s: ServiceDef): CatalogKind => {
+  const k = s.kind ?? 'service';
+  return k === 'call' || k === 'user' || k === 'send' || k === 'rule' ? k : 'service';
+};
+
+/** Anzahl je Art, in fester Reihenfolge — nur Arten, die vorkommen. */
+export function catalogCounts(model: Model): Array<[CatalogKind, number]> {
+  const m = new Map<CatalogKind, number>();
+  for (const s of model.services ?? []) m.set(serviceKind(s), (m.get(serviceKind(s)) ?? 0) + 1);
+  for (const t of model.domainTypes ?? []) m.set(t.kind, (m.get(t.kind) ?? 0) + 1);
+  return KIND_ORDER.filter(k => m.has(k)).map(k => [k, m.get(k)!]);
+}
 
 const GRENZE = 40;
 
@@ -47,6 +88,7 @@ export default function CatalogSearch({ model, isDark }: { model: Model; isDark:
 
   return (
     <div>
+      <div className={`text-[10px] uppercase tracking-wider mb-1 ${c.text}`}>Nachschlagen</div>
       <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded border mb-2 ${c.border2}`}>
         <Search size={11} className={c.muted} />
         <input value={q} onChange={e => setQ(e.target.value)}
@@ -59,11 +101,9 @@ export default function CatalogSearch({ model, isDark }: { model: Model; isDark:
         <div className={`rounded border px-3 py-2 text-[10px] ${c.border2} ${c.muted}`}>
           {services.length} Services in {gruppen.length} Gruppen · {types.length} Domain-Typen.
           {gruppen.length > 0 && (
-            <span> Grösste: {gruppen.slice(0, 5).map(([g, n]) => `${g} (${n})`).join(' · ')}.</span>
+            <span> Grösste Gruppen: {gruppen.slice(0, 5).map(([g, n]) => `${g} (${n})`).join(' · ')}.</span>
           )}
-          <br />
-          Die Klassen eines Prozesses stehen in seiner Spezifikation unter <b>Datenmodell</b>;
-          hier lässt sich nachschlagen, ob ein Eintrag überhaupt im Katalog ist.
+          {' '}Steht das drin? Die Klassen eines Prozesses stehen ohnehin in seiner Spezifikation unter <b>Datenmodell</b>.
         </div>
       ) : !treffer.services.length && !treffer.types.length ? (
         <div className={`rounded border px-3 py-2 text-[10px] ${c.border2} ${c.muted}`}>
@@ -76,6 +116,7 @@ export default function CatalogSearch({ model, isDark }: { model: Model; isDark:
               <button onClick={() => setOpen(open === s.id ? null : s.id)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${c.hover}`}>
                 {open === s.id ? <ChevronDown size={11} className={c.muted} /> : <ChevronRight size={11} className={c.muted} />}
+                <KindChip kind={serviceKind(s)} isDark={isDark} />
                 <span className={`text-[11px] truncate ${c.text}`}>{s.name}</span>
                 <span className={`text-[9px] font-mono truncate ${c.muted}`}>{s.id}</span>
                 <span className={`ml-auto text-[9px] flex-shrink-0 ${c.muted}`}>
@@ -107,8 +148,9 @@ export default function CatalogSearch({ model, isDark }: { model: Model; isDark:
               <button onClick={() => setOpen(open === t.id ? null : t.id)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${c.hover}`}>
                 {open === t.id ? <ChevronDown size={11} className={c.muted} /> : <ChevronRight size={11} className={c.muted} />}
+                <KindChip kind={t.kind} isDark={isDark} />
                 <span className={`font-mono text-[11px] truncate ${c.text}`}>{t.name}</span>
-                <span className={`text-[9px] ${c.muted}`}>{KIND_LABEL[t.kind]}</span>
+                {t.dsl && <span className={`text-[9px] ${c.muted}`}>{t.dsl.replace(/^CompanyBpmn|Dsl$/g, '')}</span>}
                 <span className={`ml-auto text-[9px] font-mono truncate max-w-[22rem] ${c.muted}`}>{t.pkg}</span>
               </button>
               {open === t.id && (

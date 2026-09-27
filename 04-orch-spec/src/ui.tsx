@@ -1,9 +1,11 @@
 // Gemeinsame Bausteine der Oberfläche: Farbklassen je Modus, Status-Chip und
 // die Symbole je Schritt-Art. Bewusst klein gehalten — die Views bleiben lesbar.
 import {
+  GripVertical,
   Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand,
   CornerDownRight, Zap, Repeat, AlertTriangle, Split, Merge, Unlink,
 } from 'lucide-react';
+import { useRef } from 'react';
 import { STATUS_META, type Status, type Step, type StepKind } from './types';
 
 export const cls = (isDark: boolean) => ({
@@ -101,3 +103,33 @@ export const BRANCH_COLORS = [
 ];
 
 export const GATEWAY_ICON = { exclusive: Split, parallel: Merge, inclusive: Split, eventBased: Zap };
+
+/**
+ * Griff an der linken Kante eines Panels: ziehen ändert die Breite
+ * (zwischen `min` und `max`). Das Panel braucht `relative`.
+ */
+export function PanelWidthHandle({ isDark, width, onWidth, min = 320, max = 800 }: {
+  isDark: boolean; width: number; onWidth: (w: number) => void; min?: number; max?: number;
+}) {
+  const c = cls(isDark);
+  const start = useRef<{ x: number; w: number } | null>(null);
+  return (
+    <div
+      onPointerDown={e => {
+        start.current = { x: e.clientX, w: width };
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={e => {
+        if (!start.current) return;
+        onWidth(Math.min(max, Math.max(min, start.current.w - (e.clientX - start.current.x))));
+      }}
+      onPointerUp={e => {
+        start.current = null;
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      }}
+      title="Breite ziehen"
+      className={`absolute top-0 bottom-0 -left-1 w-2 cursor-col-resize z-10 select-none touch-none flex items-center justify-center ${c.muted} hover:opacity-100 opacity-40`}>
+      <GripVertical size={12} />
+    </div>
+  );
+}
