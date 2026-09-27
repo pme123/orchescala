@@ -3,8 +3,8 @@
 // Hier hängt auch die **Service-Auswahl mit vorbereitetem Mapping**: ein
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
-import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Asterisk, ChevronDown, ExternalLink, GitFork, Plug, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Asterisk, ChevronDown, ChevronRight, ExternalLink, GitFork, Plug, Plus, Repeat, Search, Trash2, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
 import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
@@ -328,8 +328,9 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
       </Field>
 
       {step.kind === 'user' && (
-        <div>
-          <h3 className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Zuständigkeit</h3>
+        <Section id="assign" label="Zuständigkeit" isDark={isDark}
+          count={(step.candidateGroups ? 1 : 0) + (step.assignee ? 1 : 0)}
+          hint={!step.candidateGroups && !step.assignee ? <span className={`text-[9px] ${c.muted}`}>Gruppen oder Person</span> : undefined}>
           <div className="space-y-1">
             <input value={step.candidateGroups ?? ''} disabled={!canEdit}
               onChange={e => onPatch(step.id, { candidateGroups: e.target.value || undefined })}
@@ -340,13 +341,14 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               placeholder="direkt zugeteilt an (assignee)"
               className={`w-full text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
           </div>
-        </div>
+        </Section>
       )}
 
       {(canComment(step) || !!threadsFor(spec, stepTarget(step.id)).length) && (
-        <Comments spec={spec} target={stepTarget(step.id)} author={author} isDark={isDark}
-          canEdit={canEdit} onChange={onSpecChange}
-          title={`Kommentare · ${targetLabel(step)}`} highlight={highlight} />
+        <Section id="comments" label={`Kommentare · ${targetLabel(step)}`} count={threadsFor(spec, stepTarget(step.id)).length} isDark={isDark}>
+          <Comments spec={spec} target={stepTarget(step.id)} author={author} isDark={isDark}
+            canEdit={canEdit} onChange={onSpecChange} title="" highlight={highlight} />
+        </Section>
       )}
 
       {/* Schleife */}
@@ -386,17 +388,14 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
-        <div>
-          <div className="flex items-baseline gap-2 mb-1">
-            <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Behandelte Fehler</h3>
-            {canEdit && (
-              <button
-                onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: 'neuer-fehler', declared: true }] })}
-                className={`ml-auto text-[10px] ${c.muted} hover:underline`}>
-                + Fehler
-              </button>
-            )}
-          </div>
+        <Section id="errors" label="Behandelte Fehler" count={step.errors?.length ?? 0} isDark={isDark}
+          action={canEdit ? (
+            <button
+              onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: 'neuer-fehler', declared: true }] })}
+              className={`text-[10px] ${c.muted} hover:underline`}>
+              + Fehler
+            </button>
+          ) : undefined}>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
               const setErr = (patch: Partial<typeof e>) =>
@@ -424,12 +423,10 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               );
             })}
           </div>
-        </div>
+        </Section>
       )}
-
       {!!step.branches?.length && (
-        <div>
-          <h3 className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Zweige</h3>
+        <Section id="branches" label="Zweige" count={step.branches.length} isDark={isDark}>
           <div className="space-y-1">
             {step.branches.map((b, i) => {
               const setBranch = (patch: Partial<typeof b>) =>
@@ -473,20 +470,20 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               );
             })}
           </div>
-        </div>
+        </Section>
       )}
 
       {step.mock && (
-        <Field label="Mock (Beispielantwort)" isDark={isDark}>
+        <Section id="mock" label="Mock (Beispielantwort)" count={1} isDark={isDark}>
           <pre className={`text-[10px] px-2 py-1.5 rounded border overflow-x-auto ${c.border2} ${c.muted2}`}>{step.mock}</pre>
-        </Field>
+        </Section>
       )}
 
-      <Field label="Technische Notiz" isDark={isDark}>
+      <Section id="notes" label="Technische Notiz" count={step.notes?.trim() ? 1 : 0} isDark={isDark}>
         <textarea value={step.notes ?? ''} disabled={!canEdit} rows={2}
           onChange={e => onPatch(step.id, { notes: e.target.value })}
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
-      </Field>
+      </Section>
     </div>
   );
 }
@@ -743,7 +740,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // die dort noch fehlt — oder ein Feld, das es nicht mehr gibt. Beides ist
   // eine Warnung, kein Fehler: sobald das Feld im Modell steht, ist die Zeile
   // ohne weiteres Zutun in Ordnung.
-  const verwaist = bekannt ? rows.filter(m => m.name && !bekannt.has(m.name)).length : 0;
+  // Bei den Ausgaben ist der Name die **neue** Prozessvariable — die darf
+  // heissen, wie sie will; nur Eingaben messen sich am In des Services
+  const verwaist = bekannt && list === 'inputs' ? rows.filter(m => m.name && !bekannt.has(m.name)).length : 0;
   const { warn, warnBox, err, errBox } = tones(isDark);
   // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
   // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
@@ -769,15 +768,25 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
     : [];
   if (!rows.length && !canEdit) return null;
 
+  // Auf- und zuklappen, je Tabelle gemerkt; leer = zu, und was hinzukommt, klappt auf
+  const sectionKey = `orch-spec.section.${list}`;
+  const [open, setOpen] = useState<boolean>(() => {
+    try { const v = localStorage.getItem(sectionKey); if (v != null) return v === '1'; } catch { /* ignore */ }
+    return rows.length > 0;
+  });
+  const prevRows = useRef(rows.length);
+  useEffect(() => { if (rows.length > prevRows.current && !open) setOpen(true); prevRows.current = rows.length; }, [rows.length, open]);
+  const toggle = () => setOpen(o => { try { localStorage.setItem(sectionKey, o ? '0' : '1'); } catch { /* ignore */ } return !o; });
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
-        <h3 title={hint.section} className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{title}</h3>
-        {!!rows.length && (
-          <span className={`text-[9px] ${c.muted}`}>
-            {active === rows.length ? rows.length : `${active} von ${rows.length}`}
+        <button onClick={toggle} title={hint.section}
+          className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
+          {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}{title}
+          <span className={`normal-case tracking-normal ${rows.length ? c.muted2 : c.muted}`}>
+            {!rows.length ? 0 : active === rows.length ? rows.length : `${active} von ${rows.length}`}
           </span>
-        )}
+        </button>
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
             {convertible > 0 && (
@@ -817,10 +826,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           Pflichtfeld{pflichtFehlt.length === 1 ? '' : 'er'} {pflichtFehlt.map(n => `«${n}»`).join(', ')} fehl{pflichtFehlt.length === 1 ? 't' : 'en'} — der Service braucht {pflichtFehlt.length === 1 ? 'es' : 'sie'}.
         </p>
       )}
-      <div className="space-y-1">
+      {open && <div className="space-y-1">
         {rows.map((m, i) => {
           const off = !!m.disabled;
-          const fehlt = !!bekannt && !!m.name && !bekannt.has(m.name);
+          const fehlt = list === 'inputs' && !!bekannt && !!m.name && !bekannt.has(m.name);
           const dupl = !off && doppelt.has(m.name);
           const pflicht = pflichtGrund(m.name);
           // Doppelt ist ein Fehler (rot), eine Erweiterung nur eine Warnung (gelb)
@@ -914,7 +923,43 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             </div>
           );
         })}
+      </div>}
+    </div>
+  );
+}
+
+/**
+ * Einklappbarer Abschnitt mit Zähler. Zu, wenn er leer ist; offen, wenn
+ * etwas drin ist — und die Wahl der Person wird je Abschnitt gemerkt.
+ * Kommt etwas hinzu (der Zähler steigt), geht er auf.
+ */
+function Section({ id, label, count, isDark, action, hint, children }: {
+  id: string; label: string; count?: number; isDark: boolean;
+  action?: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode;
+}) {
+  const c = cls(isDark);
+  const key = `orch-spec.section.${id}`;
+  const n = count ?? 0;
+  const [open, setOpen] = useState<boolean>(() => {
+    try { const v = localStorage.getItem(key); if (v != null) return v === '1'; } catch { /* ignore */ }
+    return n > 0;
+  });
+  const prev = useRef(n);
+  useEffect(() => { if (n > prev.current && !open) setOpen(true); prev.current = n; }, [n, open]);
+  const toggle = () => setOpen(o => { try { localStorage.setItem(key, o ? '0' : '1'); } catch { /* ignore */ } return !o; });
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={toggle} title={open ? 'einklappen' : 'aufklappen'}
+          className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
+          {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          {label}
+          {count != null && <span className={`normal-case tracking-normal ${n ? c.muted2 : c.muted}`}>{n}</span>}
+        </button>
+        {hint}
+        {action && <div className="ml-auto">{action}</div>}
       </div>
+      {open && children}
     </div>
   );
 }

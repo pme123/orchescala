@@ -54,7 +54,7 @@ export default function Comments({ spec, target, author, isDark, canEdit, onChan
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
-        <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{title}</h3>
+        {title && <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{title}</h3>}
         {!!faeden.length && (
           <span className={`text-[10px] ${c.muted}`}>
             {offen ? `${offen} offen` : 'alle erledigt'}
