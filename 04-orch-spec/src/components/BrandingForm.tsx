@@ -8,6 +8,7 @@ import { useRef, useState } from 'react';
 import { Image, Trash2, Upload } from 'lucide-react';
 import type { Model } from '../types';
 import { cls } from '../ui';
+import { StateChip, flashOf, useFlash } from './adminUi';
 
 /** Grenze für das Logo. Ein PNG dieser Grösse ist für eine Kopfzeile üppig. */
 const MAX = 200 * 1024;
@@ -20,22 +21,21 @@ export default function BrandingForm({ model, isDark, onSave }: {
 }) {
   const c = cls(isDark);
   const [company, setCompany] = useState(model.company ?? '');
-  const [msg, setMsg] = useState('');
+  const [flash, setFlash] = useFlash();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const speichern = async (patch: Partial<Model>) => {
-    const res = await onSave({ ...model, ...patch });
-    setMsg(res.ok ? 'Gespeichert.' : res.message);
+    setFlash(flashOf(await onSave({ ...model, ...patch })));
   };
 
   const logoWaehlen = async (file: File) => {
-    setMsg('');
+    setFlash(null);
     if (!TYPES.test(file.type)) {
-      setMsg(`«${file.name}» ist kein Bild (PNG, JPEG, SVG, WebP oder GIF).`);
+      setFlash({ ok: false, text: `«${file.name}» ist kein Bild (PNG, JPEG, SVG, WebP oder GIF).` });
       return;
     }
     if (file.size > MAX) {
-      setMsg(`Das Bild ist ${Math.round(file.size / 1024)} KB gross — mehr als ${MAX / 1024} KB passen nicht in die model.json.`);
+      setFlash({ ok: false, text: `Das Bild ist ${Math.round(file.size / 1024)} KB gross — mehr als ${MAX / 1024} KB passen nicht in die model.json.` });
       return;
     }
     const dataUri = await new Promise<string>((resolve, reject) => {
@@ -48,10 +48,7 @@ export default function BrandingForm({ model, isDark, onSave }: {
   };
 
   return (
-    <div className={`rounded border p-4 space-y-3 ${c.border2} ${c.panel}`}>
-      <p className={`text-[10px] leading-relaxed ${c.muted}`}>
-        Name und Logo stehen links in der Kopfzeile. Ohne Namen heisst die App dort schlicht «Orch Spec».
-      </p>
+    <div className="space-y-2">
       <div className="flex items-end gap-3">
         <div className="flex-1 min-w-0">
           <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.muted}`}>Kunde</label>
@@ -79,7 +76,8 @@ export default function BrandingForm({ model, isDark, onSave }: {
           </div>
         </div>
       </div>
-      {msg && <p className={`text-[10px] ${c.muted2}`}>{msg}</p>}
+      {flash && <div><StateChip tone={flash.ok ? 'ok' : 'error'} label={flash.text} isDark={isDark} /></div>}
+      <p className={`text-[10px] ${c.muted}`}>Der Name wird beim Verlassen des Feldes gespeichert, das Logo sofort.</p>
     </div>
   );
 }
