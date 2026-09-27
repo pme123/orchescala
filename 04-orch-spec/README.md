@@ -64,6 +64,26 @@ Geprüft über alle **72 BPMN-Dateien** der valiant-Projekte: kein Element geht
 verloren, und ein erneuter Import derselben Datei ändert nichts
 (0 neu · 0 geändert · 0 entfallen).
 
+### Was der Baum zeigt
+
+Der Ablauf gewichtet seine Zeilen: **eigene Verträge** — Benutzeraufgaben,
+Worker, Signale, Nachrichten mit Interaktion — stehen fett und tragen den
+Objektnamen als violetten Chip, der ins Datenmodell springt. **Fremde
+Services** zeigen ihre Katalog-Kennung als teal Chip mit Stecker, rot, wenn
+ein geladener Katalog sie nicht kennt. Gateways haben eine schwache
+Bandfarbe, Ereignisse, Start und Ende sind leise. Zweigköpfe sind Chips in
+der Zweigfarbe (Standardzweig gestrichelt) mit «wenn …» als FEEL und der
+Schrittzahl; Fehler- und Nebenpfade zählen ebenfalls.
+
+**Befunde** sieht man im Baum, nicht erst im Panel: ein rotes (Fehler) oder
+oranges (Warnung) Dreieck mit Zähler an der Zeile, die ersten Meldungen im
+Tooltip — FEEL-Fehler in Mappings und Bedingungen, doppelte oder fehlende
+Pflichtfelder, eine Interaktion ohne oder mit leerem In/Out, ein unbekannter
+Service. Der Status «Umgesetzt» ist gedämpft, damit «Angepasst» und
+«Entwurf» herausstechen. Im Kopf filtern die Status-Chips den Ablauf, der
+Chip **⚠ n** zeigt nur Schritte mit Befund; die Suche findet auch den
+Objektnamen der Interaktion und den Namen des Katalog-Services.
+
 ### Spezifikation und Implementation nebeneinander
 
 **«Mit BPMN abgleichen»** liest die BPMN-Datei erneut ein und übernimmt die

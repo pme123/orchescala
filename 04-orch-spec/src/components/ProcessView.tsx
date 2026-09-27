@@ -97,6 +97,8 @@ export default function ProcessView({ slug, onBack }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<Status | null>(null);
+  /** nur Schritte mit Befund (rotes oder oranges Dreieck) */
+  const [findingsOnly, setFindingsOnly] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
@@ -310,14 +312,21 @@ export default function ProcessView({ slug, onBack }: Props) {
   // Suche/Filter: passt ein Schritt oder einer seiner Nachfahren?
   const matches = useCallback((s: Step): boolean => {
     const q = query.trim().toLowerCase();
-    const hit = (!q || `${s.name} ${s.description ?? ''} ${s.serviceId ?? ''} ${s.topic ?? ''}`.toLowerCase().includes(q))
-      && (!statusFilter || s.status === statusFilter);
+    // gesucht wird auch im Objektnamen der Interaktion und im Namen des
+    // Katalog-Services — so findet «Approve» die Aufgabe, deren Schritt
+    // «Adressänderung prüfen» heisst
+    const ia = spec?.interactions?.find(i => i.stepId === s.id);
+    const svc = catalogEntry(s, model);
+    const haystack = `${s.name} ${s.description ?? ''} ${s.serviceId ?? ''} ${s.topic ?? ''} ${ia?.name ?? ''} ${svc?.name ?? ''} ${s.calledProcess ?? ''}`.toLowerCase();
+    const hit = (!q || haystack.includes(q))
+      && (!statusFilter || s.status === statusFilter)
+      && (!findingsOnly || findings.has(s.id));
     if (hit) return true;
     const sub = [...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])];
     return sub.some(matches);
-  }, [query, statusFilter]);
+  }, [query, statusFilter, findingsOnly, findings, spec?.interactions, model]);
 
-  const active = query.trim() !== '' || statusFilter !== null;
+  const active = query.trim() !== '' || statusFilter !== null || findingsOnly;
 
   const toggle = (id: string) => setCollapsed(prev => {
     const next = new Set(prev);
@@ -551,7 +560,7 @@ export default function ProcessView({ slug, onBack }: Props) {
 
                 <div className={`flex items-center gap-1 mt-2 px-2 py-1 rounded border ${c.border2}`}>
                   <Search size={11} className={c.muted} />
-                  <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Schritt, Service, Text …"
+                  <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Schritt, Objekt, Service, Text …"
                     className={`flex-1 min-w-0 bg-transparent outline-none text-[10px] ${c.text}`} />
                   {query && <button onClick={() => setQuery('')} className={c.muted}><X size={10} /></button>}
                 </div>
@@ -566,13 +575,31 @@ export default function ProcessView({ slug, onBack }: Props) {
                         {STATUS_META[s].label} {counts[s]}
                       </button>
                     ))}
-                    {statusFilter && (
-                      <button onClick={() => setStatusFilter(null)} className={`text-[9px] ${c.muted} hover:underline`}>
+                    {/* Befunde: nur die Schritte mit Dreieck — rot, wenn Fehler dabei sind */}
+                    {findings.size > 0 && (() => {
+                      const errs = [...findings.values()].filter(f => f.errors.length).length;
+                      const tone = errs
+                        ? (isDark ? 'border-rose-500/30 bg-rose-500/15 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')
+                        : (isDark ? 'border-amber-500/30 bg-amber-500/15 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700');
+                      return (
+                        <button onClick={() => setFindingsOnly(v => !v)}
+                          title={`${findings.size} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''} — nur diese zeigen`}
+                          className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${tone} ${
+                            !findingsOnly && (statusFilter) ? 'opacity-30' : ''} ${findingsOnly ? 'ring-1 ring-current' : ''}`}>
+                          <AlertTriangle size={9} /> {findings.size}
+                        </button>
+                      );
+                    })()}
+                    {(statusFilter || findingsOnly) && (
+                      <button onClick={() => { setStatusFilter(null); setFindingsOnly(false); }} className={`text-[9px] ${c.muted} hover:underline`}>
                         Filter aus
                       </button>
                     )}
                   </div>
                 )}
+                <p className={`text-[9px] mt-1 ${c.muted}`}>
+                  Klick auf einen Status filtert den Ablauf · <AlertTriangle size={8} className="inline -mt-0.5" /> nur Schritte mit Befund
+                </p>
               </div>
 
               <StepDetail step={selectedStep} spec={spec} author={author} highlight={aktuellerFaden}
