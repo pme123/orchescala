@@ -795,8 +795,9 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
                   ? (p.isDark ? 'text-indigo-300' : 'text-indigo-700')
                   : (p.isDark ? 'text-amber-300' : 'text-amber-700')}`}>
                 {e.side ? <GitFork size={10} /> : <AlertTriangle size={10} />}
-                {e.side ? 'Nebenpfad' : 'Fehler'} «{e.code}»
+                <span className="font-semibold">{e.side ? 'Nebenpfad' : 'Fehler'}</span> «{e.code}»
                 {!e.side && e.interrupting === false && <span className={c.muted}>· nicht unterbrechend</span>}
+                <span className={`ml-auto ${c.muted}`}>{countSteps(e.steps)} Schritt{countSteps(e.steps) === 1 ? '' : 'e'}</span>
               </div>
               <StepList {...p} steps={e.steps!} depth={p.depth + 1} />
             </div>
@@ -818,15 +819,28 @@ function BranchBlock({ branch, index, ...p }: ListProps & { branch: Branch; inde
   const c = cls(p.isDark);
   const col = BRANCH_COLORS[index % BRANCH_COLORS.length];
   const tint = p.isDark ? col.dark : col.light;
+  // Die Bedingung als FEEL, ohne das «=» davor — gekürzt, ganz im Tooltip
+  const cond = branch.condition ? branch.condition.replace(/^\s*=\s*/, '') : '';
+  const n = countSteps(branch.steps);
   return (
     <div className={`ml-6 pl-3 border-l-2 ${tint.split(' ')[0]}`}>
       <div className={`flex items-center gap-1.5 py-1 text-[10px] ${tint.split(' ')[1]}`}>
-        <span className="font-semibold">{branch.label}</span>
-        {branch.isDefault && <span className={c.muted}>· Standard</span>}
-        {branch.condition && <span className={`font-mono truncate max-w-[24rem] ${c.muted}`} title={branch.condition}>{branch.condition}</span>}
-        {!branch.steps.length && <span className={c.muted}>· direkt weiter</span>}
+        {/* Zweig-Kopf: Beschriftung als Chip in der Zweigfarbe, Standardzweig gestrichelt */}
+        <span className={`px-1.5 py-0.5 rounded border font-semibold ${tint.split(' ')[0]} ${branch.isDefault ? 'border-dashed' : ''}`}>
+          {branch.label}
+        </span>
+        {branch.isDefault && <span className={c.muted}>Standard</span>}
+        {cond && (
+          <span className={`font-mono truncate max-w-[24rem] ${c.muted}`} title={branch.condition}>
+            <span className="opacity-60">wenn </span>{cond}
+          </span>
+        )}
+        <span className={`ml-auto flex-shrink-0 ${c.muted}`}>{n ? `${n} Schritt${n === 1 ? '' : 'e'}` : 'direkt weiter'}</span>
       </div>
       {!!branch.steps.length && <StepList {...p} steps={branch.steps} depth={p.depth + 1} />}
     </div>
   );
 }
+
+/** Schritte eines Blocks — ohne Rücksprünge, über alle Ebenen. */
+const countSteps = (steps: Step[] | undefined): number => allSteps(steps).filter(s => s.kind !== 'goto').length;

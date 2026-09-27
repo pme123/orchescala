@@ -85,6 +85,16 @@ function method(target: string, name: string, args: string[]): string {
     case 'isEmpty': return one(a => `count(${a}) = 0`);
     case 'toString': return one(a => `string(${a})`);
     case 'intValue': case 'longValue': case 'doubleValue': return one(a => `number(${a})`);
+    // Spin (Camunda 7 JSON): in FEEL ist die Variable schon JSON — eine Liste
+    // ist eine Liste, ein Feld ein Feld, ein Wert ein Wert
+    case 'elements': case 'value': case 'stringValue': case 'numberValue': case 'boolValue': case 'listValue':
+      return one(a => a);
+    case 'prop': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
+    case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
+    case 'isNull': return one(a => `${a} = null`);
+    // `execution.getVariable("x")` — in FEEL heisst die Variable einfach `x`
+    case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => { throw new Unsupported('getVariable nur mit festem Namen'); })()));
+    case 'jsonPath': return two((a, b) => `${a}.${b.replace(/^"\$?\.?|"$/g, '')}`);
     default: throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`);
   }
 }
