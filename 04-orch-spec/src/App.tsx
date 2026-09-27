@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2 } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
-import { GUID_RE, LEVEL_LABELS, useAuth, usePermissions } from './auth';
+import { GUID_RE, useAuth, usePermissions } from './auth';
 import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
+import { AccountChip, HeaderButton } from './components/Header';
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
@@ -143,67 +144,39 @@ export default function App() {
             <span title={`Stand ${APP_VERSION}`} className={`text-[11px] tracking-widest ${textMuted}`}>Orch Spec</span>
           )}
 
-        <div className="ml-auto flex items-center gap-3">
-          {/* Dokumentation — nur wenn die umgebende Doku-Seite existiert */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Navigation: Doku, Admin */}
           {docHref && (
-            <a href={docHref} title="Zur Dokumentation"
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors ${
-                isDark ? 'border-white/15 text-white/50 hover:border-white/30' : 'border-black/15 text-black/50 hover:border-black/30'}`}
-            >
-              <BookOpen size={12} />
-              Doc
-            </a>
+            <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
           )}
-
-          {/* Admin-Modus: Themen und Fragen pflegen */}
           {dirHandle && model && canAdmin && (
-            <button
-              onClick={() => setView(v => v.kind === 'admin' ? { kind: 'list' } : { kind: 'admin' })}
-              title="Admin — Service-Katalog und Anmeldung"
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors ${
-                view.kind === 'admin'
-                  ? isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10'
-                  : isDark ? 'border-white/15 text-white/50 hover:border-white/30' : 'border-black/15 text-black/50 hover:border-black/30'
-              }`}
-            >
-              <Wrench size={12} />
-              Admin
-            </button>
+            <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
+              title="Admin — Auftritt, Katalog, Anmeldung, Benachrichtigungen"
+              onClick={() => setView(v => v.kind === 'admin' ? { kind: 'list' } : { kind: 'admin' })} />
           )}
 
-          {/* Angemeldete Person */}
-          {auth.status === 'signedIn' && auth.user && (
-            <div className={`flex items-center gap-2 text-[11px] ${textMuted}`} title={auth.user.email}>
-              <span className="flex items-center gap-1" title={`${auth.user.email} · ${LEVEL_LABELS[level]}`}>
-                {auth.user.isAdmin && auth.config?.adminRole && <ShieldCheck size={11} />}
-                {auth.user.name}
-                <span className="opacity-60">· {LEVEL_LABELS[level]}</span>
-              </span>
-              <button onClick={auth.logout} title="Abmelden"
-                className={`p-1 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
-                <LogOut size={12} />
-              </button>
-            </div>
+          {/* Kontext: Ordner, Konto */}
+          {((!gated && !denied && dirHandle) || (auth.status === 'signedIn' && auth.user)) && (
+            <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
           )}
-
-          {/* Geteilter Ordner (lokal oder SharePoint) */}
           {!gated && !denied && dirHandle && (
-          <button
-            onClick={() => { disconnect(); setView({ kind: 'list' }); }}
-            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30' : 'border-black/15 text-black/50 hover:border-black/30'}`}
-            title={dirHandle.kind === 'sharepoint' ? `SharePoint: ${dirHandle.webUrl ?? ''} — Klick: anderen Ordner wählen` : 'Anderen Ordner wählen'}
-          >
-            {dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}
-            {dirHandle.name}
-          </button>
+            <HeaderButton isDark={isDark} label={dirHandle.name}
+              icon={dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}
+              title={dirHandle.kind === 'sharepoint'
+                ? `SharePoint-Ordner «${dirHandle.name}»\n${dirHandle.webUrl ?? ''}\n\nKlick: anderen Ordner wählen`
+                : `Lokaler Ordner «${dirHandle.name}»\n\nKlick: anderen Ordner wählen`}
+              onClick={() => { disconnect(); setView({ kind: 'list' }); }} />
+          )}
+          {auth.status === 'signedIn' && auth.user && (
+            <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
           )}
 
-          {/* Theme toggle */}
-          <button onClick={toggleTheme}
+          {/* Darstellung */}
+          <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          <button onClick={toggleTheme} title={isDark ? 'Helle Darstellung' : 'Dunkle Darstellung'}
             className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
             {isDark ? <Sun size={13} /> : <Moon size={13} />}
           </button>
-
         </div>
         </div>
 
