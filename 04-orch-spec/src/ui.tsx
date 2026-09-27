@@ -38,11 +38,13 @@ export const KIND_LABEL: Record<StepKind, string> = {
   subprocess: 'Subprozess', gateway: 'Verzweigung', event: 'Ereignis', goto: 'Verweis',
 };
 
-export function StatusChip({ status, isDark, onClick, title }: {
+export function StatusChip({ status, isDark, onClick, title, muted }: {
   status: Status; isDark: boolean; onClick?: () => void; title?: string;
+  /** leise — für den Status, der die Regel ist, damit die Abweichungen herausstechen */
+  muted?: boolean;
 }) {
   const m = STATUS_META[status];
-  const c = `text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap ${isDark ? m.dark : m.light}`;
+  const c = `text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap ${isDark ? m.dark : m.light} ${muted ? 'opacity-50' : ''}`;
   return onClick
     ? <button onClick={e => { e.stopPropagation(); onClick(); }} title={title ?? 'Status ändern'} className={`${c} cursor-pointer`}>{m.label}</button>
     : <span title={title} className={c}>{m.label}</span>;

@@ -76,6 +76,25 @@ trait EngineConfig:
 
 end EngineConfig
 
+object DefaultEngineConfig:
+
+  /** The worker app of a topic: `http://<company>-<project>:5555` (the first two parts of the topic
+    * name), `http://localhost:5555` locally.
+    *
+    * The topic name comes from the request path (`/worker/{topic}`, `/process/{id}/async`) - so
+    * only a plain host name is accepted (letters, digits, `-`). Before, a topic like
+    * `internal.host:8080/admin#` or `attacker.example` made the gateway POST the caller's body and
+    * token to any host.
+    */
+  def defaultWorkerAppUrl(topicName: String, isLocalhost: Boolean): Option[String] =
+    if isLocalhost then Some("http://localhost:5555")
+    else
+      Some(topicName.split('-').take(2).mkString("-"))
+        .filter(_.matches("[A-Za-z0-9]+(-[A-Za-z0-9]+)?"))
+        .map(host => s"http://$host:5555")
+
+end DefaultEngineConfig
+
 case class DefaultEngineConfig(
     tenantId: Option[String] = None,
     supportedEngines: Seq[EngineType] = Seq(EngineType.C7),
@@ -84,12 +103,7 @@ case class DefaultEngineConfig(
     validateInput: Boolean = true,
     parallelism: Int = 4,
     workerAppUrl: (topicName: String) => Option[String] = topicName =>
-      Some(
-        s"http://${
-            if EnvironmentDetector.isLocalhost then "localhost"
-            else topicName.split('-').take(2).mkString("-")
-          }:5555"
-      ),
+      DefaultEngineConfig.defaultWorkerAppUrl(topicName, EnvironmentDetector.isLocalhost),
     reposConfig: ReposConfig = ReposConfig.dummyRepos
 ) extends EngineConfig:
 

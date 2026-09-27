@@ -45,10 +45,29 @@ class GDeploymentService(using
           )
           .flatMap(_.getDeployments(Some(engineType)))
       case None             =>
-        tryServicesWithErrorCollection[DeploymentService, Seq[DeploymentInfo]](
-          _.getDeployments(None),
-          "getDeployments"
-        )
+        // a listing needs every engine - not just the first one that answers
+        // (tryServicesWithErrorCollection stops at the first success)
+        ZIO
+          .foreachPar(services): service =>
+            service
+              .getDeployments(Some(service.engineType))
+              .map(_.map(_.copy(engineType = Some(service.engineType))))
+              .either
+              .map(service.engineType -> _)
+          .flatMap: results =>
+            val failures = results.collect { case (engineType, Left(err)) => engineType -> err }
+            val infos    = results.collect { case (_, Right(infos)) => infos }.flatten
+            if results.isEmpty then
+              ZIO.fail(EngineError.ProcessError("No services available for getDeployments"))
+            else if failures.size == results.size then
+              ZIO.fail(EngineError.ProcessError(
+                s"All services failed for getDeployments: ${failures.map((e, err) => s"$e: ${err.errorMsg}").mkString("; ")}"
+              ))
+            else
+              ZIO
+                .foreachDiscard(failures): (engineType, err) =>
+                  ZIO.logWarning(s"getDeployments failed for $engineType - left out: ${err.errorMsg}")
+                .as(infos)
   end getDeployments
 
   override def deleteDeployment(
@@ -73,7 +92,7 @@ class GDeploymentService(using
         )
   end deleteDeployment
 
-  override def deployManifest(
+  override def postDeployments(
       manifest: DeploymentManifest,
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, Seq[DeploymentResult]] =
@@ -88,7 +107,7 @@ class GDeploymentService(using
           )
           .flatMap(service =>
             service
-              .deployManifest(manifest, Some(engineType))
+              .postDeployments(manifest, Some(engineType))
               .map(_.map(_.copy(engineType = service.engineType)))
           )
       case None             =>
@@ -99,9 +118,9 @@ class GDeploymentService(using
             .foreach(services): service =>
               ZIO.logInfo(s"Deploying manifest to ${service.engineType}") *>
                 service
-                  .deployManifest(manifest, Some(service.engineType))
+                  .postDeployments(manifest, Some(service.engineType))
                   .map(_.map(_.copy(engineType = service.engineType)))
             .map(_.flatten)
-  end deployManifest
+  end postDeployments
 
 end GDeploymentService

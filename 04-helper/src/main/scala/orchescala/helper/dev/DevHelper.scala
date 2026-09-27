@@ -1,6 +1,7 @@
 package orchescala.helper.dev
 
 import orchescala.api.ApiConfig
+import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.deploy.DeployHelper
 import orchescala.helper.dev.docker.DockerHelper
 import orchescala.helper.dev.publish.PublishHelper
@@ -119,15 +120,23 @@ trait DevHelper:
             println(s"Example: $command 1.23.3")
 
       case Command.deploy     =>
+        def deploy(simulation: String, engineType: EngineType): Unit =
+          devConfig.postmanConfig
+            .map(DeployHelper(_).deploy(Some(simulation), engineType))
+            .getOrElse(println("deploy is not supported as there is no deployConfig"))
         args match
-          case Seq(simulation) =>
-            devConfig.postmanConfig
-              .map(DeployHelper(_).deploy(Some(simulation)))
-              .getOrElse(println("deploy is not supported as there is no deployConfig"))
-          case other           =>
+          // engine derived from the simulation name (..C8Simulation -> C8, else C7)
+          case Seq(simulation)             =>
+            deploy(simulation, DeployHelper.engineTypeFromSimulation(simulation))
+          // explicit engine wins over the naming convention
+          case Seq(simulation, engineType) if Try(EngineType.valueOf(engineType)).isSuccess =>
+            deploy(simulation, EngineType.valueOf(engineType))
+          case other                       =>
             println(s"Invalid arguments for command $command: $other")
-            println(s"Usage: $command <simulation>")
+            println(s"Usage: $command <simulation> [engine: ${EngineType.values.mkString("|")}]")
             println(s"Example: $command OpenAccountSimulation")
+            println(s"Example: $command OpenAccountC8Simulation      (deploys to C8 by naming convention)")
+            println(s"Example: $command OpenAccountSimulation C8     (deploys to C8 by explicit argument)")
       // docker
       case Command.dockerUp   =>
         DockerHelper(devConfig.dockerConfig).dockerUp()

@@ -46,8 +46,11 @@ object HttpClientProvider:
           .setThreadFactory(new io.netty.util.concurrent.DefaultThreadFactory("async-http-client", true))
           .setIoThreadsCount(1)
           .setUseNativeTransport(false)
-          .setMaxConnections(50)
-          .setMaxConnectionsPerHost(25)
+          // shared by everything using this backend: the C8 engine services (all gateway calls to
+          // the cluster), token flows, worker forwarding, service calls of workers - 25 per host
+          // made concurrent gateway calls queue for a connection
+          .setMaxConnections(200)
+          .setMaxConnectionsPerHost(100)
           .setConnectTimeout(30000)
           .setReadTimeout(30000)
           .setKeepAlive(true)

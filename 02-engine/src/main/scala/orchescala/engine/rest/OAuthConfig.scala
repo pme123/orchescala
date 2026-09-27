@@ -25,7 +25,7 @@ sealed trait OAuthConfig:
        |- ssoRealm: $ssoRealm
        |- ssoBaseUrl: $ssoBaseUrl
        |- client_id: $client_id
-       |- client_secret: ${client_secret.take(5)}***"
+       |- client_secret: ***
        |- scope: $scope
        |- grantType: $grantType
        |""".stripMargin
@@ -61,7 +61,7 @@ object OAuthConfig:
     override def toString: String =
       super.toString +
         s"""- username: $username
-           |- password: ${password.take(2)}***"
+           |- password: ***
            |""".stripMargin
 
   end PasswordGrant
@@ -98,7 +98,7 @@ object OAuthConfig:
     def toString(username: String, adminToken: String): String =
       super.toString +
         s"""- requested_subject: $username
-           |- subject_token: ${adminToken.take(5)}***"
+           |- subject_token: ${TokenFingerprint(adminToken)}
            |""".stripMargin
   end TokenExchange
 

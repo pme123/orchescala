@@ -77,7 +77,17 @@ trait DocCreator extends DependencyCreator, Helpers:
   end publishDocs
 
   private def assembleSite(docsDirs: Seq[os.Path]): os.Path =
-    SiteAssembler(docsDirs, gitBasePath, siteDir).assemble(ownProjectDirs(), Some(specCatalogMdPath))
+    SiteAssembler(docsDirs, gitBasePath, siteDir).assemble(catalogSourceDirs(), Some(specCatalogMdPath))
+
+  /** The sources of the spec catalog: the company project itself FIRST - its `01-domain` holds
+    * the types every project shares (`ProcessCallOrigin`, `ValidationError` ...), and first means
+    * they win on a name clash - then the project checkouts. `basePath` is the docs folder of the
+    * company project (`00-docs`) or the project itself, whichever holds the `01-domain`.
+    */
+  private def catalogSourceDirs(): Seq[os.Path] =
+    val company = Seq(apiConfig.basePath, apiConfig.basePath / os.up)
+      .find(d => os.exists(d / "01-domain"))
+    company.toSeq ++ ownProjectDirs().filterNot(company.contains)
 
   /** The built site: `00-docs/site` - the company gateway serves it from its classpath (the
     * `04-gateway/src/main/resources/site` symlink set by the company's `update`).

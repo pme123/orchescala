@@ -1,18 +1,19 @@
 package orchescala.engine.c8
 
-import io.camunda.client.CamundaClient
+import io.circe.Json
 import orchescala.engine.EngineConfig
 import orchescala.engine.domain.*
 import orchescala.engine.services.{DeploymentService, ManifestResolver, RepositoryManifestResolver}
 import zio.ZIO.{logDebug, logWarning}
+import sttp.client3.{multipart, RequestBody}
+import sttp.model.{MediaType, Part}
 import zio.{IO, ZIO}
 
 import java.nio.file.Paths
 import java.time.Instant
-import scala.jdk.CollectionConverters.*
 
 class C8DeploymentService(using
-    camundaClientZIO: IO[EngineError, CamundaClient],
+    rest: C8RestClient,
     engineConfig: EngineConfig
 ) extends DeploymentService,
       C8Service:
@@ -45,7 +46,6 @@ class C8DeploymentService(using
                                 "Script resources are not supported for C8 deployments"
                               )
                             )
-      camundaClient <- camundaClientZIO
       result        <-
         if deployableResources.isEmpty then
           ZIO.fail(
@@ -54,44 +54,51 @@ class C8DeploymentService(using
             )
           )
         else
-          ZIO
-            .attemptBlocking:
-              val builder = camundaClient
-                .newDeployResourceCommand()
-
-              val firstResource = deployableResources.head
-              val withFirstResource = builder.addResourceBytes(
-                firstResource.content,
-                Paths.get(firstResource.name).getFileName.toString
-              )
-              val withResources = deployableResources.tail.foldLeft(withFirstResource):
-                (acc, resource) =>
-                  acc.addResourceBytes(resource.content, Paths.get(resource.name).getFileName.toString)
-              val finalBuilder = engineConfig.tenantId match
-                case Some(tenantId) => withResources.tenantId(tenantId)
-                case None           => withResources
-
-              val result = mapDeploymentResult(name, EngineType.C8, finalBuilder.send().join())
-              if result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty && result.deployedForms.isEmpty then
-                throw RuntimeException(
-                  s"C8 accepted deployment '$name' but returned no deployed process, decision or form definitions"
-                )
-              result
-            .mapError: err =>
-              EngineError.ProcessError(
-                s"Problem deploying '$name' to C8: $err"
-              )
+          val resourceParts: Seq[Part[RequestBody[Any]]] =
+            deployableResources.map: resource =>
+              multipart("resources", resource.content)
+                .fileName(Paths.get(resource.name).getFileName.toString)
+                .contentType(MediaType.ApplicationOctetStream)
+          val tenantPart: Seq[Part[RequestBody[Any]]]    =
+            engineConfig.tenantId.toSeq.map(multipart("tenantId", _))
+          rest
+            .postMultipart[C8RestModel.DeploymentResult](
+              Seq("deployments"),
+              resourceParts ++ tenantPart,
+              C8RestClient.deployTimeout
+            )
+            .mapError(withContext(s"Problem deploying '$name' to C8"))
+            .map(mapDeploymentResult(name, EngineType.C8, _))
+            .filterOrFail(result =>
+              result.deployedProcesses.nonEmpty || result.deployedDecisions.nonEmpty ||
+                result.deployedForms.nonEmpty
+            )(EngineError.ProcessError(
+              s"C8 accepted deployment '$name' but returned no deployed process, decision or form definitions"
+            ))
     yield result
   end deploy
 
+  /** Zeebe has no deployment entity to list - the closest "deploy status" is the set of
+    * deployed process definitions, one `DeploymentInfo` each (key, bpmn process id, version).
+    */
   override def getDeployments(
       targetEngine: Option[EngineType] = None
   ): IO[EngineError, Seq[DeploymentInfo]] =
-    validateTargetEngine(targetEngine) *>
-      ZIO.fail(
-        EngineError.UnexpectedError(
-          "getDeployments is not supported by the C8 Java client in this version"
-        )
+    for
+      _           <- validateTargetEngine(targetEngine)
+      definitions <- rest
+                       .searchAll[C8RestModel.ProcessDefinitionResult](
+                         Seq("process-definitions", "search"),
+                         filter = Json.obj()
+                       )
+                       .mapError(withContext("Problem getting process definitions from C8"))
+    yield definitions.map: d =>
+      DeploymentInfo(
+        id = d.processDefinitionKey,
+        name = d.processDefinitionId,
+        deploymentTime = None,
+        engineType = Some(EngineType.C8),
+        version = Some(d.version)
       )
 
   override def deleteDeployment(
@@ -119,30 +126,30 @@ class C8DeploymentService(using
   private def mapDeploymentResult(
       name: String,
       engineType: EngineType,
-      event: io.camunda.client.api.response.DeploymentEvent
+      result: C8RestModel.DeploymentResult
   ): DeploymentResult =
     DeploymentResult(
-      deploymentId = event.getKey.toString,
+      deploymentId = result.deploymentKey,
       name = name,
       engineType = engineType,
       deploymentTime = Instant.now(),
-      deployedProcesses = event.getProcesses.asScala.toSeq.map: p =>
+      deployedProcesses = result.deployments.flatMap(_.processDefinition).map: p =>
         ProcessDefinitionInfo(
-          id = p.getProcessDefinitionKey.toString,
-          key = p.getBpmnProcessId,
-          version = p.getVersion
+          id = p.processDefinitionKey,
+          key = p.processDefinitionId,
+          version = p.processDefinitionVersion
         ),
-      deployedDecisions = event.getDecisions.asScala.toSeq.map: d =>
+      deployedDecisions = result.deployments.flatMap(_.decisionDefinition).map: d =>
         DecisionDefinitionInfo(
-          id = d.getDecisionKey.toString,
-          key = d.getDmnDecisionId,
-          version = d.getVersion
+          id = d.decisionDefinitionKey,
+          key = d.decisionDefinitionId,
+          version = d.version
         ),
-      deployedForms = event.getForm.asScala.toSeq.map: f =>
+      deployedForms = result.deployments.flatMap(_.form).map: f =>
         FormInfo(
-          id = f.getFormKey.toString,
-          key = f.getFormId,
-          version = f.getVersion
+          id = f.formKey,
+          key = f.formId,
+          version = f.version
         ),
       deployedScripts = Seq.empty
     )

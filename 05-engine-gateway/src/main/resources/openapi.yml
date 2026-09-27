@@ -979,7 +979,85 @@ paths:
                 $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
-  /deployment/manifest:
+  /deployment:
+    get:
+      tags:
+      - Deployment
+      summary: List what is deployed
+      description: |
+        Lists the deployments - the check after `POST /deployment`. With `targetEngine` of that
+        engine, without of all engines (each entry has its `engineType`; an engine that cannot be
+        reached is left out and logged - the request only fails if no engine answers).
+
+        - C7 / Op: one entry per deployment (`id` = deployment id, `name` = deployment name,
+          `deploymentTime` set).
+        - C8: Zeebe has no deployment entity, so one entry per deployed process definition
+          (`id` = processDefinitionKey, `name` = bpmn process id, `version` set).
+      operationId: Get Deployments
+      parameters:
+      - name: targetEngine
+        in: query
+        description: 'Optional target engine: C7, C8, Op, Gateway'
+        required: false
+        schema:
+          type: string
+        example: C8
+      responses:
+        '200':
+          description: List of deployments
+          content:
+            application/json:
+              schema: {}
+              example:
+              - id: '2251799813685249'
+                name: mycompany-myproject-myProcess
+                engineType: C8
+                version: 3
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 404
+                errorMsg: Not Found
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 500
+                errorMsg: Internal Server Error
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+      security:
+      - httpAuth: []
     post:
       tags:
       - Deployment

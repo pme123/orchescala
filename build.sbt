@@ -101,8 +101,9 @@ lazy val engine = project
       coursierDependency,
       scaffeineDependency,
       zioDependency,
-      zioSlf4jDependency
-    )
+      zioSlf4jDependency,
+      oauth2Dependency // JWT verification (engine.auth) for gateway and worker app
+    ) ++ zioTestDependencies
   )
   .dependsOn(domain)
 
@@ -163,7 +164,7 @@ lazy val simulation = project
     autoImportSetting,
     libraryDependencies ++= Seq(
       "org.scala-sbt" % "test-interface" % testInterfaceVersion
-    )
+    ) ++ zioTestDependencies
   )
   .dependsOn(engine)
 
@@ -500,3 +501,73 @@ lazy val workerOp = project
       opWorkerDependencies ++ zioTestDependencies
   )
   .dependsOn(worker, engineOp)
+
+/** Company project check - `sbt companyCheck`.
+  *
+  * The company generator (04-helper) writes the wrapper classes of a company project
+  * (CompanyEngineConfig, CompanySimulation, CompanyWorker, GatewayServerApp, ...) as strings - the
+  * compiler never sees them. This generates a company project and compiles each module like the
+  * generated company build does (same dependencies, same `-Yimports`), so a broken template fails
+  * here instead of in a company project. Not part of `root`, never published.
+  */
+lazy val companyCheckDir = "target/company-check/democompany-orchescala"
+
+def companyCheckModule(dir: String, module: String) =
+  Project(s"companyCheck${module.capitalize}", file(s"$companyCheckDir/$dir"))
+    .settings(preventPublication)
+    .settings(
+      scalaVersion := scalaV,
+      // as CompanySbtGenerator.autoImportSetting
+      scalacOptions += (Seq(s"orchescala.$module") ++ Seq(
+        "java.lang", "java.time", "scala", "scala.Predef", "orchescala.domain", "io.circe",
+        "io.circe.generic.semiauto", "io.circe.derivation", "io.circe.syntax", "sttp.tapir",
+        "sttp.tapir.json.circe"
+      )).mkString("-Yimports:", ",", ""),
+      scalacOptions += "-Xmax-inlines:200"
+    )
+
+// the modules and their dependencies of a company build (see CompanySbtGenerator)
+lazy val companyCheckDomain     = companyCheckModule("01-domain", "domain")
+  .settings(
+    // as CompanySbtGenerator.buildInfoSettings
+    buildInfoKeys    := Seq[BuildInfoKey](
+      BuildInfoKey("name", "democompany-orchescala"),
+      version,
+      scalaVersion,
+      sbtVersion,
+      BuildInfoKey("orchescalaV", version.value)
+    ),
+    buildInfoPackage := "democompany.orchescala"
+  )
+  .enablePlugins(BuildInfoPlugin)
+  .dependsOn(domain)
+lazy val companyCheckEngine     =
+  companyCheckModule("02-engine", "engine").dependsOn(companyCheckDomain, engineGateway)
+lazy val companyCheckApi        = companyCheckModule("03-api", "api")
+  .settings(libraryDependencies += "com.typesafe" % "config" % typesafeConfigVersion)
+  .dependsOn(companyCheckEngine, api)
+lazy val companyCheckDmn        =
+  companyCheckModule("03-dmn", "dmn").dependsOn(companyCheckDomain, dmnTesterServer)
+lazy val companyCheckSimulation =
+  companyCheckModule("03-simulation", "simulation").dependsOn(companyCheckEngine, simulation)
+lazy val companyCheckWorker     =
+  companyCheckModule("03-worker", "worker").dependsOn(companyCheckEngine, workerC7, workerC8)
+lazy val companyCheckGateway    =
+  companyCheckModule("04-gateway", "gateway").dependsOn(companyCheckWorker, gateway)
+lazy val companyCheckHelper     =
+  companyCheckModule("04-helper", "helper").dependsOn(companyCheckApi, companyCheckSimulation, helper)
+
+addCommandAlias(
+  "companyCheck",
+  Seq(
+    "helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check C7 C8",
+    "companyCheckDomain/compile",
+    "companyCheckEngine/compile",
+    "companyCheckApi/compile",
+    "companyCheckDmn/compile",
+    "companyCheckSimulation/compile",
+    "companyCheckWorker/compile",
+    "companyCheckGateway/compile",
+    "companyCheckHelper/compile"
+  ).mkString("; ")
+)

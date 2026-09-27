@@ -1,7 +1,7 @@
 // SharePoint-Ordner über Microsoft Graph (delegiert, Token aus der
 // Entra-Anmeldung). Konflikterkennung über ETags (If-Match → 412),
 // Anlegen ohne Überschreiben über conflictBehavior=fail (→ 409).
-import type { FileInfo, ReadResult, StorageBackend, WriteResult } from './backend';
+import type { DeleteResult, FileInfo, ReadResult, StorageBackend, WriteResult } from './backend';
 
 export const GRAPH_SCOPES = ['Files.ReadWrite.All'];
 const DEFAULT_BASE = 'https://graph.microsoft.com/v1.0';
@@ -129,5 +129,19 @@ export class GraphBackend implements StorageBackend {
         throw new Error(`Ordner konnte nicht angelegt werden (HTTP ${res.status}).`);
       }
     }
+  }
+
+  // Löschen in SharePoint ist ein Verschieben in den Papierkorb der Site —
+  // dort lässt sich eine Datei bei Bedarf wiederherstellen.
+  async delete(path: string): Promise<DeleteResult> {
+    let res: Response;
+    try {
+      res = await this.f(this.itemPath(path), { method: 'DELETE' });
+    } catch (e) {
+      return { ok: false, reason: 'error', message: `Netzwerkfehler: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (res.ok || res.status === 404) return { ok: true };
+    if (res.status === 403 || res.status === 401) return { ok: false, reason: 'forbidden', message: 'Keine Berechtigung zum Löschen in SharePoint.' };
+    return { ok: false, reason: 'error', message: `Löschen fehlgeschlagen (HTTP ${res.status}).` };
   }
 }

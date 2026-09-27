@@ -50,7 +50,7 @@ case class GeneralVariables(
   private def asSeq(value: Option[StringOrSeq]): Seq[String] =
     value match
       case None | Some("")        => Seq.empty
-      case Some(s: String)        => s.split(",").toSeq
+      case Some(s: String)        => s.split(",").map(_.trim).filter(_.nonEmpty).toSeq // "a, b" -> Seq("a", "b")
       case Some(seq: Seq[String]) => seq
 end GeneralVariables
 

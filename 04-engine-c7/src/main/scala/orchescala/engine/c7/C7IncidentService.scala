@@ -23,7 +23,7 @@ class C7IncidentService(using
       apiClient    <- apiClientZIO
       incidentDtos <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new IncidentApi(apiClient)
               .getIncidents(
                 incidentId.orNull,           // incidentId

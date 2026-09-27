@@ -12,7 +12,7 @@ trait ClientCredentialsFlowable extends OAuth2Flow:
 class ClientCredentialsFlow(val config: OAuthConfig.ClientCredentials) extends ClientCredentialsFlowable:
 
   def clientCredentialsToken(): ZIO[SttpClientBackend, ServiceError, String] =
-    ZIO.fromOption(TokenCache.get("clientCredentialsToken"))
+    ZIO.fromOption(TokenCache.get(cacheKey))
       .zipLeft(ZIO.logDebug(s"Admin Token from Cache: clientCredentialsToken"))
       .orElse:
         ZIO.serviceWithZIO[SttpClientBackend]: backend =>
@@ -28,17 +28,20 @@ class ClientCredentialsFlow(val config: OAuthConfig.ClientCredentials) extends C
                 )
               .map: tokenResponse =>
                 TokenCache.put(
-                  "clientCredentialsToken",
+                  cacheKey,
                   tokenResponse.access_token,
                   tokenResponse.expires_in
                 )
                 tokenResponse.access_token
               .tap: token =>
                 ZIO.logInfo(
-                  s"Added Admin Token to Cache self acquired: ${config.client_id} - ${token.take(5)}...${token.takeRight(5)}"
+                  s"Added Admin Token to Cache self acquired: ${config.client_id} - ${TokenFingerprint(token)}"
                 )
 
   protected def identityUrl    = config.identityUrl
+  // one token per identity provider and client - a single global key handed the token of one
+  // client to another (e.g. the engine client's to the simulation's worker app login)
+  private[engine] lazy val cacheKey = s"clientCredentials|$identityUrl|${config.client_id}"
   private lazy val requestBody = config.asMap
 
 end ClientCredentialsFlow

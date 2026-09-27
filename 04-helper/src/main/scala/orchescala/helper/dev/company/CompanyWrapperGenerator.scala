@@ -13,30 +13,39 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
 
   def generate(supportedEngines: Seq[EngineType]): Unit =
     println("Generate Company Wrapper")
+    // the company wrappers support Camunda 7 and 8 - in the order of the supported engines
+    val engines = supportedEngines.filter(Seq(EngineType.C7, EngineType.C8).contains).distinct
     createIfNotExists(config.projectDir / "CHANGELOG.md", GenericFileGenerator().changeLog)
     createIfNotExists(projectDomainPath, domainWrapper)
     createIfNotExists(projectApiPath, apiWrapper)
     createIfNotExists(projectDmnPath, dmnWrapper)
-    createIfNotExists(projectSimulationPath, simulationWrapper)
-    createIfNotExists(projectEnginePath, engineWrapper(supportedEngines))
-    if supportedEngines.contains(EngineType.C7) then
+    createIfNotExists(projectEnginePath, engineWrapper(engines))
+    createIfNotExists(projectEngineGAppPath, engineGAppWrapper(engines))
+    createIfNotExists(projectSimulationPath, simulationWrapper(engines))
+    if engines.contains(EngineType.C7) then
       createIfNotExists(projectEngineC7Path, engineC7Wrapper)
+      createIfNotExists(projectEngineC7AppPath, engineC7AppWrapper)
       createIfNotExists(projectC7SimulationPath, c7SimulationWrapper)
+      createIfNotExists(projectWorkerContextPath, workerContextWrapper)
       createIfNotExists(projectWorkerC7ClientPath, workerCompanyC7ClientWrapper)
 
-    if supportedEngines.contains(EngineType.C8) then
+    if engines.contains(EngineType.C8) then
       createIfNotExists(projectEngineC8Path, engineC8Wrapper)
+      createIfNotExists(projectEngineC8AppPath, engineC8AppWrapper)
       createIfNotExists(projectC8SimulationPath, c8SimulationWrapper)
+      createIfNotExists(projectWorkerC8ContextPath, workerC8ContextWrapper)
+      createIfNotExists(projectWorkerC8ClientPath, workerCompanyC8ClientWrapper)
 
-    createIfNotExists(projectWorkerPath, workerWrapper)
-    createIfNotExists(projectWorkerContextPath, workerContextWrapper)
-    // createIfNotExists(projectWorkerPasswordPath, workerPasswordWrapper)
+    createIfNotExists(projectWorkerPath, workerWrapper(engines))
     createIfNotExists(projectWorkerRestApiPath, workerRestApiWrapper)
-    createIfNotExists(projectWorkerAppPath, workerAppWrapper)
-    createIfNotExists(projectGatewayPath, gatewayServerWrapper)
+    createIfNotExists(projectWorkerAppPath, workerAppWrapper(engines))
+    createIfNotExists(projectGatewayPath, gatewayServerWrapper(engines))
     createIfNotExists(helperCompanyDevHelperPath, helperCompanyDevHelperWrapper)
     createIfNotExists(helperCompanyDevConfigPath, helperCompanyDevConfigWrapper)
-    createIfNotExists(helperCompanyOrchescalaDevHelperPath, helperCompanyOrchescalaDevHelperWrapper)
+    createIfNotExists(
+      helperCompanyOrchescalaDevHelperPath,
+      helperCompanyOrchescalaDevHelperWrapper(engines)
+    )
     // the former Redoc CompanyOpenApi.html resource is gone - the API page is orch-doc's
     // OrchDocApi.html from the orchescala-orch-doc jar
     os.remove(helperCompanyOpenApiHtmlPath)
@@ -52,6 +61,12 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     ModuleConfig.engineModule.srcPath / "CompanyEngineC7Config.scala"
   private lazy val projectEngineC8Path                  =
     ModuleConfig.engineModule.srcPath / "CompanyEngineC8Config.scala"
+  private lazy val projectEngineC7AppPath               =
+    ModuleConfig.engineModule.srcPath / "CompanyEngineC7App.scala"
+  private lazy val projectEngineC8AppPath               =
+    ModuleConfig.engineModule.srcPath / "CompanyEngineC8App.scala"
+  private lazy val projectEngineGAppPath                =
+    ModuleConfig.engineModule.srcPath / "CompanyEngineGApp.scala"
   private lazy val projectApiPath                       = ModuleConfig.apiModule.srcPath / "CompanyApiCreator.scala"
   private lazy val projectDmnPath                       = ModuleConfig.dmnModule.srcPath / "CompanyDmnTester.scala"
   private lazy val projectSimulationPath                =
@@ -63,14 +78,16 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val projectWorkerPath                    = ModuleConfig.workerModule.srcPath / "CompanyWorker.scala"
   private lazy val projectWorkerContextPath             =
     ModuleConfig.workerModule.srcPath / "CompanyEngineContext.scala"
-  private lazy val projectWorkerPasswordPath            =
-    ModuleConfig.workerModule.srcPath / "CompanyPasswordFlow.scala"
+  private lazy val projectWorkerC8ContextPath           =
+    ModuleConfig.workerModule.srcPath / "CompanyEngineC8Context.scala"
   private lazy val projectWorkerRestApiPath             =
     ModuleConfig.workerModule.srcPath / "CompanyRestApiClient.scala"
   private lazy val projectWorkerAppPath                 =
     ModuleConfig.workerModule.srcPath / "CompanyWorkerApp.scala"
   private lazy val projectWorkerC7ClientPath            =
     ModuleConfig.workerModule.srcPath / "CompanyC7Client.scala"
+  private lazy val projectWorkerC8ClientPath            =
+    ModuleConfig.workerModule.srcPath / "CompanyC8Client.scala"
   private lazy val projectGatewayPath                   =
     ModuleConfig.gatewayModule.srcPath / "GatewayServerApp.scala"
   private lazy val helperCompanyDevHelperPath           =
@@ -102,73 +119,181 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |trait CompanyBpmnTimerEventDsl extends BpmnTimerEventDsl, CompanyBpmnDsl
        |""".stripMargin
 
-  private def engineWrapper(supportedEngines: Seq[EngineType]) =
-    s"""package $companyName.orchescala
-       |package engine
+  private def engineName(engine: EngineType): String = engine.toString.toLowerCase
+
+  private def engineWrapper(engines: Seq[EngineType]) =
+    s"""package $companyName.orchescala.engine
        |
-       |object CompanyEngineConfig extends ${supportedEngines.map(t => s"CompanyEngine${t}Config").mkString(", ")}
+       |import orchescala.engine.auth.TokenValidation
+       |import orchescala.engine.domain.EngineType
+       |import orchescala.engine.rest.OAuthConfig
        |
+       |/** Company wide engine settings - shared by the engine specific configs
+       |  * (${engines.map(e => s"CompanyEngine${e}Config").mkString(", ")}).
+       |  * Adjust the defaults or set the environment variables.
+       |  */
+       |trait CompanyEngineConfig:
+       |
+       |  def engineConfig: DefaultEngineConfig = DefaultEngineConfig(
+       |    tenantId = None, // TODO set your tenant ID if needed
+       |    // the first engine is the default engine of the gateway
+       |    supportedEngines = Seq(${engines.map(e => s"EngineType.$e").mkString(", ")})
+       |    // identitySigningKey (signs the IdentityCorrelation): env ORCHESCALA_IDENTITY_SIGNING_KEY
+       |  )
+       |
+       |  // Identity provider (Keycloak)
+       |  lazy val ssoRealm: String   = CompanyEngineConfig.ssoRealm
+       |  lazy val ssoBaseUrl: String = CompanyEngineConfig.ssoBaseUrl
+       |  lazy val ssoClientId        = sys.env.getOrElse("SSO_CLIENT_ID", "my-client")
+       |  lazy val ssoClientSecret    = sys.env.getOrElse("SSO_CLIENT_SECRET", "NOT-SET")
+       |  lazy val ssoScope           = sys.env.getOrElse("SSO_SCOPE", "openid")
+       |  lazy val ssoTechuserName    = sys.env.getOrElse("SSO_TECHUSER_NAME", "admin")
+       |  private[engine] lazy val ssoTechuserPassword =
+       |    sys.env.getOrElse("SSO_TECHUSER_PASSWORD", "NOT-SET")
+       |
+       |  /** Service account - e.g. the engine services and the simulations' login for the worker app. */
+       |  lazy val clientCredentials: OAuthConfig.ClientCredentials =
+       |    OAuthConfig.ClientCredentials(
+       |      ssoRealm = ssoRealm,
+       |      ssoBaseUrl = ssoBaseUrl,
+       |      client_id = ssoClientId,
+       |      client_secret = ssoClientSecret,
+       |      scope = ssoScope
+       |    )
+       |
+       |  /** Technical user - e.g. the Camunda 7 external task client. */
+       |  lazy val adminPasswordGrant: OAuthConfig.PasswordGrant =
+       |    OAuthConfig.PasswordGrant(
+       |      ssoRealm = ssoRealm,
+       |      ssoBaseUrl = ssoBaseUrl,
+       |      client_id = ssoClientId,
+       |      client_secret = ssoClientSecret,
+       |      scope = ssoScope,
+       |      username = ssoTechuserName,
+       |      password = ssoTechuserPassword
+       |    )
+       |
+       |  /** How the gateway and the worker app verify the Bearer tokens of their callers. */
+       |  lazy val tokenValidation: TokenValidation = CompanyEngineConfig.tokenValidation
+       |
+       |end CompanyEngineConfig
+       |
+       |object CompanyEngineConfig:
+       |
+       |  lazy val ssoRealm: String   = sys.env.getOrElse("SSO_REALM", "my-realm")
+       |  lazy val ssoBaseUrl: String = sys.env.getOrElse("SSO_BASE_URL", "http://localhost:8090/auth")
+       |
+       |  // the issuer must be exactly the `iss` of the tokens - otherwise use
+       |  // TokenValidation.Jwt(issuer, jwksUrl = Some(...)); tokens from several identity providers:
+       |  // TokenValidation.AnyOf(jwtA, jwtB)
+       |  lazy val tokenValidation: TokenValidation = TokenValidation.keycloak(ssoBaseUrl, ssoRealm)
+       |
+       |end CompanyEngineConfig
        |""".stripMargin
 
   private lazy val engineC7Wrapper =
-    s"""package $companyName.orchescala
-       |package engine
+    s"""package $companyName.orchescala.engine
        |
-       |/**
-       | * Add here company specific stuff, to configure the Engine.
-       | */
-       |object CompanyEngineC7Config:
+       |/** Camunda 7 settings. */
+       |trait CompanyEngineC7Config extends CompanyEngineConfig:
        |
-       |  lazy val ssoClientName = sys.env.getOrElse("SSO_CLIENT_NAME", "myClient")
-       |  lazy val ssoClientSecret =
-       |    sys.env.getOrElse("SSO_CLIENT_SECRET", "mySecret")
-       |  lazy val ssoScope = sys.env.getOrElse("SSO_SCOPE", "myScope")
-       |
-       |  lazy val ssoTechuserName = sys.env.getOrElse("SSO_TECHUSER_NAME", "admin")
-       |  lazy val ssoTechuserPassword = sys.env.getOrElse("SSO_TECHUSER_PASSWORD", "admin")
-       |
-       |
-       |  lazy val ssoRealm: String = sys.env.getOrElse("SSO_REALM", "MY_REALM")
-       |  lazy val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", s"http://host.lima.internal:8090")
-       |  lazy val camundaRestUrl = sys.env.getOrElse("CAMUNDA_BASE_URL", "http://localhost:8080/engine-rest")
-       |
-       |  lazy val client_id = ssoClientName
-       |  lazy val client_secret = ssoClientSecret
-       |  lazy val scope = ssoScope
-       |  lazy val username = ssoTechuserName
-       |  lazy val password = ssoTechuserPassword
+       |  lazy val c7RestUrl: String =
+       |    sys.env.getOrElse("CAMUNDA_BASE_URL", "http://localhost:8080/engine-rest")
+       |  lazy val c7CockpitUrl: String =
+       |    sys.env.getOrElse("CAMUNDA_COCKPIT_URL", ProcessEngine.c7CockpitUrl)
        |
        |end CompanyEngineC7Config
+       |
+       |object CompanyEngineC7Config extends CompanyEngineC7Config
+       |""".stripMargin
+
+  private lazy val engineC7AppWrapper =
+    s"""package $companyName.orchescala.engine
+       |
+       |import orchescala.engine.c7.{C7OAuth2Client, C7ProcessEngine, SharedC7ClientManager}
+       |import orchescala.engine.rest.OAuthConfig
+       |import zio.{ZIO, ZLayer}
+       |
+       |/** The Camunda 7 engine - the engine services authenticate with the service account. */
+       |object CompanyEngineC7App extends EngineApp, CompanyEngineC7Config, C7OAuth2Client:
+       |
+       |  lazy val camundaRestUrl: String                 = c7RestUrl
+       |  def oAuthConfig: OAuthConfig.ClientCredentials = clientCredentials
+       |
+       |  override lazy val engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+       |    C7ProcessEngine.withClient(this)(using engineConfig)
+       |      .provideLayer(SharedC7ClientManager.layer)
+       |
+       |  lazy val requiredLayers: Seq[ZLayer[Any, Nothing, Any]] = Seq(
+       |    SharedC7ClientManager.layer
+       |  )
+       |
+       |end CompanyEngineC7App
        |""".stripMargin
 
   private lazy val engineC8Wrapper =
     s"""package $companyName.orchescala.engine
        |
-       |import orchescala.engine.EngineConfig
-       |import orchescala.engine.c8.C8SaasClient
+       |/** Camunda 8 settings. */
+       |trait CompanyEngineC8Config extends CompanyEngineConfig:
        |
-       |/**
-       | * Company-specific C8 Engine Configuration that provides EngineConfig and C8 SaaS client settings
-       | */
-       |trait CompanyEngineC8Config extends C8SaasClient:
-       |
-       |  // Provide EngineConfig as a given instance
-       |  given EngineConfig = EngineConfig(
-       |    tenantId = None // TODO: Set your tenant ID if needed
-       |  )
-       |
-       |  // C8 SaaS Configuration - override these values in your implementation or use environment variables
-       |  protected def zeebeGrpc: String = sys.env.getOrElse("ZEEBE_GRPC_ADDRESS", "https://bru-2.zeebe.camunda.io:443")
-       |  protected def zeebeRest: String = sys.env.getOrElse("ZEEBE_REST_ADDRESS", "https://bru-2.zeebe.camunda.io")
-       |  protected def audience: String = sys.env.getOrElse("ZEEBE_AUDIENCE", "zeebe.camunda.io")
-       |  protected def clientId: String = sys.env.getOrElse("ZEEBE_CLIENT_ID", "your-client-id")
-       |  protected def clientSecret: String = sys.env.getOrElse("ZEEBE_CLIENT_SECRET", "your-client-secret")
-       |  protected def oAuthAPI: String = sys.env.getOrElse("ZEEBE_OAUTH_URL", "https://login.cloud.camunda.io/oauth/token")
-       |
-       |  // Convenience method to access the EngineConfig
-       |  def engineConfig: EngineConfig = summon[EngineConfig]
+       |  lazy val c8GrpcUrl: String =
+       |    sys.env.getOrElse("CAMUNDA_C8_GRPC_URL", "http://localhost:26500")
+       |  lazy val c8RestUrl: String =
+       |    sys.env.getOrElse("CAMUNDA_C8_REST_URL", "http://localhost:8080")
+       |  lazy val c8OperateUrl: String =
+       |    sys.env.getOrElse("CAMUNDA_C8_OPERATE_URL", "http://localhost:8080/operate/processes/")
        |
        |end CompanyEngineC8Config
+       |
+       |object CompanyEngineC8Config extends CompanyEngineC8Config
+       |""".stripMargin
+
+  private lazy val engineC8AppWrapper =
+    s"""package $companyName.orchescala.engine
+       |
+       |import orchescala.engine.c8.{C8NoAuthClient, C8ProcessEngine, SharedC8ClientManager}
+       |import zio.{ZIO, ZLayer}
+       |
+       |/** The Camunda 8 engine - without authentication (e.g. a local c8run).
+       |  * Camunda SaaS: use C8SaasClient instead of C8NoAuthClient.
+       |  */
+       |object CompanyEngineC8App extends EngineApp, CompanyEngineC8Config, C8NoAuthClient:
+       |
+       |  protected def zeebeGrpc: String = c8GrpcUrl
+       |  protected def zeebeRest: String = c8RestUrl
+       |
+       |  override lazy val engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+       |    C8ProcessEngine.withClient(this)(using engineConfig)
+       |      .provideLayer(SharedC8ClientManager.layer)
+       |
+       |  lazy val requiredLayers: Seq[ZLayer[Any, Nothing, Any]] = Seq(
+       |    SharedC8ClientManager.layer
+       |  )
+       |
+       |end CompanyEngineC8App
+       |""".stripMargin
+
+  private def engineGAppWrapper(engines: Seq[EngineType]) =
+    s"""package $companyName.orchescala.engine
+       |
+       |import orchescala.engine.gateway.GProcessEngine
+       |import zio.{ZIO, ZLayer}
+       |
+       |/** All engines behind one ProcessEngine - used by the simulations and as base of the gateway. */
+       |trait CompanyEngineGApp extends EngineApp, CompanyEngineConfig:
+       |
+       |  lazy val requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
+       |    ${engines.map(e => s"CompanyEngine${e}App.requiredLayers").mkString(" ++\n       |      ")}
+       |
+       |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
+       |    for
+       |      ${engines.map(e => s"${engineName(e)}Engine <- CompanyEngine${e}App.engineZIO").mkString("\n       |      ")}
+       |      // the first engine is the default engine - change the order to change it
+       |      given Seq[ProcessEngine] = Seq(${engines.map(e => s"${engineName(e)}Engine").mkString(", ")})
+       |    yield GProcessEngine()(using engineConfig)
+       |
+       |end CompanyEngineGApp
        |""".stripMargin
 
   private lazy val apiWrapper =
@@ -197,6 +322,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val dmnWrapper =
     s"""package $companyName.orchescala.dmn
        |
+       |import orchescala.dmntester.DmnTesterApp
+       |
        |trait CompanyDmnTester extends DmnTesterApp:
        |
        |  override protected def starterConfig: DmnTesterStarterConfig =
@@ -216,98 +343,77 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |end CompanyDmnTester
        |""".stripMargin
 
-  private lazy val simulationWrapper =
+  private def simulationWrapper(engines: Seq[EngineType]) =
+    val cockpitUrls = engines.map:
+      case EngineType.C7 => "EngineType.C7 -> CompanyEngineC7Config.c7CockpitUrl"
+      case other         => s"EngineType.$other -> CompanyEngine${other}Config.c8OperateUrl"
     s"""package $companyName.orchescala.simulation
        |
+       |import orchescala.engine.domain.EngineType
+       |import $companyName.orchescala.engine.*
        |
-       |/**
-       | * Add here company specific stuff, to run the Simulations.
-       | */
-       |trait CompanySimulation extends SimulationRunner:
+       |/** Add here company specific stuff, to run the Simulations.
+       |  * Runs against all engines (CompanyEngineGApp) - `Company<Engine>Simulation` against one.
+       |  */
+       |trait CompanySimulation extends SimulationRunner, CompanyEngineGApp:
        |
        |  override def config =
-       |    super.config //TODO Adjust config if needed
+       |    super.config
+       |      // login for the worker app (`/worker`), that verifies the tokens (tokenValidation)
+       |      .withWorkerAppAuth(clientCredentials)
+       |      .withCockpitUrl(
+       |        Map(
+       |          ${cockpitUrls.mkString(",\n       |          ")}
+       |        )
+       |      )
        |
        |end CompanySimulation
        |""".stripMargin
+  end simulationWrapper
 
-  private lazy val c8SimulationWrapper =
+  private lazy val c7SimulationWrapper = engineSimulationWrapper(EngineType.C7)
+  private lazy val c8SimulationWrapper = engineSimulationWrapper(EngineType.C8)
+
+  private def engineSimulationWrapper(engine: EngineType) =
     s"""package $companyName.orchescala.simulation
        |
-       |import io.camunda.client.CamundaClient
-       |import orchescala.engine.{EngineError, EngineConfig, ProcessEngine}
-       |import orchescala.engine.c8.{C8ProcessEngine, C8SaasClient, SharedC8ClientManager}
-       |import orchescala.simulation.{SimulationConfig, SimulationRunner, SimulationError, LogLevel, ScenarioResult}
-       |import zio.{ZIO, Scope, ZLayer}
+       |import orchescala.engine.ProcessEngine
+       |import $companyName.orchescala.engine.CompanyEngine${engine}App
+       |import zio.{ZIO, ZLayer}
        |
-       |/**
-       | * Company-specific C8 Simulation trait that works with SharedC8ClientManager
-       | */
-       |trait CompanyC8Simulation extends SimulationRunner, CompanyEngineC8Config, C8SaasClient:
+       |/** Runs the Simulations directly against Camunda ${engine.toString.drop(1)} - CompanySimulation runs them
+       |  * against all engines.
+       |  */
+       |trait Company${engine}Simulation extends CompanySimulation:
        |
-       |  // Provide the client as a given for the engine services
-       |  given ZIO[SharedC8ClientManager, EngineError, CamundaClient] = client
+       |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] = CompanyEngine${engine}App.engineZIO
        |
-       |  // Override requiredLayers to provide the SharedC8ClientManager layer
-       |  override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
-       |    Seq(SharedC8ClientManager.layer)
+       |  override lazy val requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
+       |    CompanyEngine${engine}App.requiredLayers
        |
-       |  // Override engineZIO to create the engine within the SharedC8ClientManager environment
-       |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
-       |    C8ProcessEngine.withClient(this).provideLayer(SharedC8ClientManager.layer)
-       |
-       |  // No special cleanup needed - the SharedC8ClientManager layer handles it
-       |  def engineCleanupFinalizer: ZIO[Scope, Nothing, Any] =
-       |    ZIO.unit
-       |
-       |  override lazy val config: SimulationConfig =
-       |    SimulationConfig(
-       |      endpoint = zeebeRest
-       |    )
-       |
-       |end CompanyC8Simulation
+       |end Company${engine}Simulation
        |""".stripMargin
 
-  private lazy val c7SimulationWrapper =
-    s"""package $companyName.orchescala.simulation
-       |
-       |import org.camunda.community.rest.client.invoker.ApiClient
-       |import orchescala.engine.{EngineError, EngineConfig, ProcessEngine}
-       |import orchescala.engine.c7.{C7ProcessEngine, C7LocalClient, SharedC7ClientManager}
-       |import orchescala.simulation.{SimulationConfig, SimulationRunner, SimulationError, LogLevel, ScenarioResult}
-       |import zio.{ZIO, Scope, ZLayer}
-       |
-       |/**
-       | * Company-specific C7 Simulation trait that works with SharedC7ClientManager
-       | */
-       |trait CompanyC7Simulation extends SimulationRunner, CompanyEngineC7Config, C7LocalClient:
-       |
-       |  // Override requiredLayers to provide the SharedC7ClientManager layer
-       |  override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
-       |    Seq(SharedC7ClientManager.layer)
-       |
-       |  // Override engineZIO to create the engine within the SharedC7ClientManager environment
-       |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
-       |    C7ProcessEngine.withClient(this).provideLayer(SharedC7ClientManager.layer)
-       |
-       |  // No special cleanup needed - the SharedC7ClientManager layer handles it
-       |  def engineCleanupFinalizer: ZIO[Scope, Nothing, Any] =
-       |    ZIO.unit
-       |
-       |  override lazy val config: SimulationConfig =
-       |    SimulationConfig(
-       |      endpoint = camundaRestUrl
-       |    )
-       |
-       |end CompanyC7Simulation
-       |""".stripMargin
-
-  private lazy val workerWrapper =
+  private def workerWrapper(engines: Seq[EngineType]) =
+    val hasC7 = engines.contains(EngineType.C7)
+    val hasC8 = engines.contains(EngineType.C8)
+    val imports  = Seq(
+      Option.when(hasC7)("import orchescala.worker.c7.{C7Context, C7Worker}"),
+      Option.when(hasC8)("import orchescala.worker.c8.{C8Context, C8Worker}")
+    ).flatten
+    val workers  = Seq(Option.when(hasC7)("C7Worker[In, Out]"), Option.when(hasC8)("C8Worker[In, Out]")).flatten
+    val contexts = Seq(
+      Option.when(hasC7)(
+        "protected def c7Context: C7Context = CompanyEngineContext(CompanyRestApiClient())"
+      ),
+      Option.when(hasC8)(
+        "protected def c8Context: C8Context = CompanyEngineC8Context(CompanyRestApiClient())"
+      )
+    ).flatten
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.worker.c7.{C7Context, C7Worker}
-       |//import orchescala.worker.c8.{C8Context, C8Worker}
-       |import $companyName.orchescala.worker.*
+       |import $companyName.orchescala.engine.CompanyEngineConfig
+       |${imports.mkString("\n       |")}
        |
        |import scala.reflect.ClassTag
        |
@@ -316,9 +422,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        | * You also define the implementation of the Worker here.
        | */
        |trait CompanyWorker[In <: Product : InOutCodec, Out <: Product : InOutCodec]
-       |  extends C7Worker[In, Out]/*, C8Worker[In, Out]*/:
-       |  protected def c7Context: C7Context = CompanyEngineContext(CompanyRestApiClient())
-       |//  protected def c8Context: C8Context = CompanyEngineContext(CompanyRestApiClient())
+       |  extends ${workers.mkString(", ")}:
+       |  ${contexts.mkString("\n       |  ")}
        |
        |trait CompanyValidationWorkerDsl[
        |    In <: Product: InOutCodec
@@ -342,162 +447,176 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |    ServiceIn: InOutEncoder,
        |    ServiceOut: {InOutDecoder, ClassTag}
        |] extends CompanyWorker[In, Out], ServiceWorkerDsl[In, Out, ServiceIn, ServiceOut]
+       |
+       |object CompanyWorker extends CompanyEngineConfig:
+       |
+       |  lazy val companyWorkerConfig: WorkerConfig = DefaultWorkerConfig(
+       |    engineConfig = engineConfig,
+       |    // verifies the Bearer tokens on `/worker` (forwarded by the gateway, sent by the simulations)
+       |    tokenValidation = tokenValidation
+       |  )
+       |
+       |end CompanyWorker
        |""".stripMargin
+  end workerWrapper
 
-  private lazy val workerContextWrapper =
+  private lazy val workerContextWrapper   = workerEngineContextWrapper(EngineType.C7)
+  private lazy val workerC8ContextWrapper = workerEngineContextWrapper(EngineType.C8)
+
+  // the Camunda 7 context keeps its former name CompanyEngineContext
+  private def workerEngineContextWrapper(engine: EngineType) =
+    val className = if engine == EngineType.C7 then "CompanyEngineContext" else s"CompanyEngine${engine}Context"
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.worker.c7.C7Context
+       |import $companyName.orchescala.engine.CompanyEngine${engine}Config
+       |import orchescala.worker.${engineName(engine)}.${engine}Context
+       |
        |import scala.reflect.ClassTag
        |
-       |class CompanyEngineContext(restApiClient: CompanyRestApiClient) extends C7Context:
+       |class $className(restApiClient: CompanyRestApiClient)
+       |    extends ${engine}Context, CompanyEngine${engine}Config:
        |
+       |  def workerConfig: WorkerConfig = CompanyWorker.companyWorkerConfig
        |
        |  override def sendRequest[ServiceIn: Encoder, ServiceOut: {Decoder, ClassTag}](
        |      request: RunnableRequest[ServiceIn]
        |  ): SendRequestType[ServiceOut] =
        |    restApiClient.sendRequest(request)
        |
-       |end CompanyEngineContext
+       |end $className
        |""".stripMargin
-
-  private lazy val workerPasswordWrapper =
-    s"""package $companyName.orchescala.worker
-       |
-       |import orchescala.worker.c7.OAuth2WorkerClient
-       |import $companyName.orchescala.engine.CompanyEngineC7Config
-       |
-       |trait CompanyPasswordFlow extends OAuth2WorkerClient:
-       |
-       |  def ssoRealm: String = CompanyEngineC7Config.ssoRealm
-       |  def ssoBaseUrl: String = CompanyEngineC7Config.ssoBaseUrl
-       |
-       | // override the config if needed or change the WorkerClient
-       |
-       |end CompanyPasswordFlow
-       |""".stripMargin
+  end workerEngineContextWrapper
 
   private lazy val workerRestApiWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.worker.WorkerError.ServiceAuthError
-       |import sttp.client3.*
-       |
-       |class CompanyRestApiClient extends RestApiClient, CompanyPasswordFlow:
-       |
-       |  override protected def auth(
-       |      request: Request[Either[String, String], Any]
-       |  )(using
-       |      context: EngineRunContext
-       |  ): IO[ServiceAuthError, Request[Either[String, String], Any]] = ???
-       |
-       |  end auth
-       |
-       |end CompanyRestApiClient
+       |/** Sends the requests of the service workers. Override `auth` to authenticate them at your
+       |  * services, e.g. with a token of the technical user.
+       |  */
+       |class CompanyRestApiClient extends RestApiClient
        |""".stripMargin
 
-  private lazy val workerAppWrapper =
+  private def workerAppWrapper(engines: Seq[EngineType]) =
+    val registries = engines.map:
+      case EngineType.C7 => "C7WorkerRegistry(CompanyC7Client)"
+      case other         => s"${other}WorkerRegistry(Company${other}Client)"
+    val context    =
+      if engines.contains(EngineType.C7) then "CompanyEngineContext" else "CompanyEngineC8Context"
     s"""package $companyName.orchescala.worker
        |
-       |import orchescala.worker.c7.C7WorkerRegistry
-       |import orchescala.worker.c8.C8WorkerRegistry
-       |import orchescala.engine.c8.SharedC8ClientManager
-       |import zio.ZLayer
+       |${engines.map(e => s"import orchescala.worker.${engineName(e)}.${e}WorkerRegistry").mkString("\n       |")}
        |
        |trait CompanyWorkerApp extends WorkerApp:
        |
-       |  // For C7 only
-       |  lazy val workerRegistriesC7: Seq[WorkerRegistry] =
-       |    Seq(C7WorkerRegistry(CompanyC7Client))
+       |  lazy val workerConfig: WorkerConfig = CompanyWorker.companyWorkerConfig
        |
-       |  // For C8 only
-       |  lazy val workerRegistriesC8: Seq[WorkerRegistry] =
-       |    Seq(C8WorkerRegistry(CompanyC8Client))
+       |  lazy val engineContext: EngineContext = $context(CompanyRestApiClient())
        |
-       |  // Override additionalLayers when using C8 workers
-       |  override def additionalLayers: ZLayer[Any, Nothing, Any] =
-       |    if workerRegistries.exists(_.isInstanceOf[C8WorkerRegistry]) then
-       |      SharedC8ClientManager.layer
-       |    else
-       |      ZLayer.empty
+       |  lazy val workerRegistries: Seq[WorkerRegistry] =
+       |    Seq(${registries.mkString(", ")})
        |
-       |  // Choose which registries to use based on your Camunda version
-       |  lazy val workerRegistries: Seq[WorkerRegistry] = workerRegistriesC7 // or workerRegistriesC8
+       |end CompanyWorkerApp
        |""".stripMargin
+  end workerAppWrapper
 
   private lazy val workerCompanyC7ClientWrapper =
     s"""package $companyName.orchescala.worker
        |
-       |import democompany.orchescala.engine.CompanyEngineC7Config
-       |import orchescala.worker.c7.OAuth2WorkerClient
+       |import $companyName.orchescala.engine.CompanyEngineC7Config
+       |import orchescala.engine.rest.OAuthConfig
+       |import orchescala.worker.c7.OAuth2PasswordWorkerClient
+       |
        |import scala.concurrent.duration.*
        |
-       |trait CompanyC7Client extends OAuth2WorkerClient:
-       |  lazy val ssoRealm = CompanyEngineC7Config.ssoRealm
-       |  lazy val ssoBaseUrl = CompanyEngineC7Config.ssoBaseUrl
-       |  override lazy val camundaRestUrl = CompanyEngineC7Config.camundaRestUrl
-       |  override lazy val client_id = CompanyEngineC7Config.ssoClientName
-       |  override lazy val client_secret = CompanyEngineC7Config.ssoClientSecret
-       |  override lazy val scope = CompanyEngineC7Config.ssoScope
-       |  override lazy val username = CompanyEngineC7Config.ssoTechuserName
-       |  override lazy val password = CompanyEngineC7Config.ssoTechuserPassword
+       |/** Camunda 7 external task client - authenticates as technical user. */
+       |trait CompanyC7Client extends OAuth2PasswordWorkerClient, CompanyEngineC7Config:
        |
-       |  override lazy val lockDuration: Long = 5.minutes.toMillis
+       |  lazy val camundaRestUrl: String                 = c7RestUrl
+       |  lazy val oAuthConfig: OAuthConfig.PasswordGrant = adminPasswordGrant
+       |
+       |  override lazy val lockDuration: Duration = 1.minute
        |
        |end CompanyC7Client
        |
        |object CompanyC7Client extends CompanyC7Client
        |""".stripMargin
 
-  private lazy val gatewayServerWrapper          =
+  private lazy val workerCompanyC8ClientWrapper =
+    s"""package $companyName.orchescala.worker
+       |
+       |import $companyName.orchescala.engine.CompanyEngineC8Config
+       |import orchescala.engine.c8.C8NoAuthClient
+       |
+       |/** Camunda 8 client of the job workers - without authentication (e.g. a local c8run).
+       |  * Camunda SaaS: use C8SaasClient instead of C8NoAuthClient.
+       |  */
+       |trait CompanyC8Client extends C8NoAuthClient, CompanyEngineC8Config:
+       |
+       |  protected def zeebeGrpc: String = c8GrpcUrl
+       |  protected def zeebeRest: String = c8RestUrl
+       |
+       |end CompanyC8Client
+       |
+       |object CompanyC8Client extends CompanyC8Client
+       |""".stripMargin
+
+  private def gatewayServerWrapper(engines: Seq[EngineType]) =
+    val clients = engines.map:
+      case EngineType.C7 =>
+        """  /** Camunda 7 - the caller's (verified) token is passed through */
+          |  lazy val c7Client = C7DefaultBearerTokenClient(c7RestUrl)
+          |""".stripMargin
+      case other         =>
+        """  /** Camunda 8 - the caller's (verified) token is passed through. A cluster without
+          |    * authentication (e.g. a local c8run): C8DefaultNoAuthClient(c8GrpcUrl, c8RestUrl)
+          |    */
+          |  lazy val c8Client = C8DefaultBearerTokenClient(c8GrpcUrl, c8RestUrl)
+          |""".stripMargin
     s"""package $companyName.orchescala.gateway
        |
-       |import orchescala.engine.c7.{C7DefaultBearerTokenClient, C7ProcessEngine, SharedC7ClientManager}
+       |import orchescala.engine.ProcessEngine
+       |${engines.map(e => s"import orchescala.engine.${engineName(e)}.{${e}DefaultBearerTokenClient, ${e}ProcessEngine, Shared${e}ClientManager}").mkString("\n       |")}
        |import orchescala.engine.gateway.GProcessEngine
-       |import orchescala.engine.{EngineConfig, ProcessEngine}
-       |import $companyName.orchescala.engine.{CompanyEngineConfig, CompanyEngineGApp}
+       |import $companyName.orchescala.engine.*
        |import $companyName.orchescala.worker.CompanyWorker.companyWorkerConfig
        |import zio.ZIO
        |
        |// sbt gateway/run
        |object GatewayServerApp
-       |    extends GatewayServer, CompanyEngineGApp, CompanyEngineConfig:
-       |
-       |  given EngineConfig = engineConfig
-       |    .copy(
-       |      validateInput = true
-       |    )
+       |    extends GatewayServer, CompanyEngineGApp, ${engines.map(e => s"CompanyEngine${e}Config").mkString(", ")}:
        |
        |  override lazy val config: GatewayConfig =
        |    DefaultGatewayConfig(
        |      engineConfig = engineConfig,
        |      workerConfig = companyWorkerConfig,
-       |      docsAuth = authCode
+       |      docsAuth = authCode,
+       |      // verifies the Bearer tokens of the callers (CompanyEngineConfig.tokenValidation)
+       |      tokenValidation = tokenValidation
        |    )
        |
-       |  /** Example C7 client with Bearer token pass-through authentication */
-       |  lazy val c7Client = C7DefaultBearerTokenClient:
-       |    camundaRestUrl
+       |${clients.map(_.linesIterator.mkString("\n       |")).mkString("\n       |\n       |")}
        |
-       |  // Override engineZIO to create the engine within the SharedC8ClientManager environment
        |  override def engineZIO: ZIO[Any, Nothing, ProcessEngine] =
        |    (for
-       |      c7Engine: ProcessEngine <- C7ProcessEngine.withClient(c7Client)
-       |      given Seq[ProcessEngine] =
-       |        Seq(c7Engine) // -> change order to change default engine
-       |    yield GProcessEngine())
-       |      .provideLayer(SharedC7ClientManager.layer)
+       |      ${engines.map(e => s"${engineName(e)}Engine <- ${e}ProcessEngine.withClient(${engineName(e)}Client)(using engineConfig)").mkString("\n       |      ")}
+       |      // the first engine is the default engine - change the order to change it
+       |      given Seq[ProcessEngine] = Seq(${engines.map(e => s"${engineName(e)}Engine").mkString(", ")})
+       |    yield GProcessEngine()(using engineConfig))
+       |      .provideLayer(${engines.map(e => s"Shared${e}ClientManager.layer").mkString(" ++ ")})
        |
        |  private def authCode =
-       |      DocsAuth.OAuth2AuthCode(
-       |        ssoBaseUrl = ssoBaseUrl,
-       |        realm = ssoRealm,
-       |        clientId = ssoClientId,
-       |        clientSecret = ssoClientSecret,
-       |        scopes = ssoScope
-       |      )
+       |    DocsAuth.OAuth2AuthCode(
+       |      ssoBaseUrl = ssoBaseUrl,
+       |      realm = ssoRealm,
+       |      clientId = ssoClientId,
+       |      clientSecret = ssoClientSecret,
+       |      scopes = ssoScope
+       |    )
        |
-       |end GatewayServerApp""".stripMargin
+       |end GatewayServerApp
+       |""".stripMargin
+  end gatewayServerWrapper
+
   private lazy val helperCompanyDevHelperWrapper =
     s"""package $companyName.orchescala.helper
        |
@@ -555,14 +674,16 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |end CompanyDevConfig
        |""".stripMargin
   end helperCompanyDevConfigWrapper
-  private lazy val helperCompanyOrchescalaDevHelperWrapper =
+  private def helperCompanyOrchescalaDevHelperWrapper(engines: Seq[EngineType]) =
     s"""package $companyName.orchescala.helper
        |
        |import orchescala.api.ApiConfig
+       |import orchescala.engine.EngineConfig
        |import orchescala.helper.dev.DevCompanyOrchescalaHelper
        |import orchescala.helper.util.DevConfig
        |import $companyName.orchescala.BuildInfo
        |import $companyName.orchescala.api.CompanyApiCreator
+       |import $companyName.orchescala.engine.CompanyEngine${engines.head}Config
        |
        |object CompanyOrchescalaDevHelper
        |    extends DevCompanyOrchescalaHelper:
@@ -573,7 +694,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |      tempGitDir = os.pwd / os.up /  os.up / "git-temp"
        |    )
        |
-       |  lazy val devConfig: DevConfig = CompanyDevConfig.companyConfig
+       |  lazy val engineConfig: EngineConfig = CompanyEngine${engines.head}Config.engineConfig
+       |  lazy val devConfig: DevConfig       = CompanyDevConfig.companyConfig
        |
        |end CompanyOrchescalaDevHelper
        |""".stripMargin

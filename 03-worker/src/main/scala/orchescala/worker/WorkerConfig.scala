@@ -1,5 +1,7 @@
 package orchescala.worker
 
+import orchescala.engine.auth.TokenValidation
+
 import orchescala.engine.EngineConfig
 import sttp.tapir.Schema.annotations.description
 
@@ -15,6 +17,11 @@ trait WorkerConfig:
       |""".stripMargin)
   def doRetryList: Seq[String]
 
+  @description(
+    """How the `/worker` endpoint checks the Bearer token - `TokenValidation.Jwt` verifies it
+      |(signature, expiry, issuer), `PresenceOnly` only checks that there is one.
+      |""".stripMargin)
+  def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 
 end WorkerConfig
 
@@ -30,7 +37,8 @@ case class DefaultWorkerConfig(
       "Exception when sending request: PUT"  // only GET and PUT to be safe a POST is not executed again
       //  "Service Unavailable",
       //  "Gateway Timeout"
-    ).map(_.toLowerCase)
+    ).map(_.toLowerCase),
+    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 ) extends WorkerConfig
 
 object WorkerConfig:

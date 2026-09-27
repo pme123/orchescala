@@ -1,5 +1,6 @@
 package orchescala.engine.c7
 
+import orchescala.engine.withoutCallerIdentityCorrelation
 import orchescala.domain.CamundaVariable
 import orchescala.engine.EngineConfig
 import orchescala.engine.domain.EngineError
@@ -21,21 +22,22 @@ class C7SignalService(using
       withoutTenantId: Option[Boolean] = None,
       variables: Option[JsonObject] = None
   ): IO[EngineError, Unit] =
-    for
-      apiClient <- apiClientZIO
-      _         <- logInfo(s"Sending Signal '$name'.")
-      _         <-
-        ZIO
-          .attempt:
-            new SignalApi(apiClient)
-              .throwSignal(SignalDto()
-                .name(name)
-                .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
-                .withoutTenantId(withoutTenantId.getOrElse(false))
-                .variables(mapToC7Variables(variables)))
-          .mapError: err =>
-            EngineError.ProcessError(
-              s"Problem sending Signal '$name': $err"
-            )
-    yield ()
+    ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      for
+        apiClient <- apiClientZIO
+        _         <- logInfo(s"Sending Signal '$name'.")
+        _         <-
+          ZIO
+            .attemptBlocking:
+              new SignalApi(apiClient)
+                .throwSignal(SignalDto()
+                  .name(name)
+                  .tenantId(tenantId.orElse(engineConfig.tenantId).orNull)
+                  .withoutTenantId(withoutTenantId.getOrElse(false))
+                  .variables(mapToC7Variables(variables)))
+            .mapError: err =>
+              EngineError.ProcessError(
+                s"Problem sending Signal '$name': $err"
+              )
+      yield ()
 end C7SignalService

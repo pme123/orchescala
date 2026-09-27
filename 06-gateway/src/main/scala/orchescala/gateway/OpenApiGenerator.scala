@@ -34,7 +34,8 @@ object OpenApiGenerator:
       UserTaskEndpoints.completeUserTask,
       UserTaskEndpoints.completeUserTaskForApi,
       WorkerEndpoints.triggerWorker,
-      DeploymentEndpoints.deployManifest
+      DeploymentEndpoints.postDeployments,
+      DeploymentEndpoints.getDeployments
     )
 
     OpenAPIDocsInterpreter()

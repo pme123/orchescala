@@ -2,13 +2,18 @@ package orchescala.worker.op
 
 import orchescala.domain.GeneralVariables
 import orchescala.engine.DefaultEngineConfig
-import orchescala.worker.{WorkerConfig, WorkerDsl, WorkerRegistry}
+import orchescala.worker.{JobPermits, WorkerConfig, WorkerDsl, WorkerRegistry}
 import org.operaton.bpm.client.ExternalTaskClient
 import zio.{Scope, UIO, ZIO, ZLayer}
 import zio.ZIO.*
 
 class OpWorkerRegistry(client: OpWorkerClient)
     extends WorkerRegistry:
+
+  // jobs running at once: the client fetches up to maxTasks per call and calls the handlers one
+  // after the other, which run the job in the background (BaseWorker.executeForked)
+  private lazy val permits = JobPermits(client.maxParallelJobs)
+  private val rootLookup   = client.rootProcessInstanceId
 
   // Provide the SharedOpExternalClientManager layer required by Op workers
   override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
@@ -39,7 +44,10 @@ class OpWorkerRegistry(client: OpWorkerClient)
                 | - Timeout: ${worker.timeout}""".stripMargin) *>
       attempt(client
         .subscribe(worker.topic)
-        .handler(worker)
+        // short, so the task of a crashed worker app is handed out again soon - a running job
+        // renews it (BaseWorker.lockTimeout); the client's lockDuration applies to all topics
+        .lockDuration(worker.lockTimeout.toMillis)
+        .handler((task, service) => worker.executeJob(task, service, Some(permits), rootLookup))
         .variables(
           (worker.worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey")*
         )

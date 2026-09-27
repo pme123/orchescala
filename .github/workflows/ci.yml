@@ -48,6 +48,10 @@ jobs:
         run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
+      - name: Check the company project templates
+        # generates a company project with the company generator and compiles it like a
+        # company build - its templates are only strings (see build.sbt: companyCheck)
+        run: sbt companyCheck
       - name: Test Report
         uses: dorny/test-reporter@v1
         if: always()    # run this step even if previous step failed

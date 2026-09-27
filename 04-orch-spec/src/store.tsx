@@ -3,12 +3,13 @@
 // Graph). Aufbau des Ordners:
 //
 //   model.json               Service-Katalog + Anmeldung (Stammdaten)
+//   users.json               wer hier arbeitet — für @-Erwähnungen
 //   processes/<slug>.json    eine Datei je Prozess-Spezifikation
 //
 // Übernommen aus arch-review — bewusst dieselbe Mechanik (Konflikterkennung
 // über Version/ETag, gemerkter Ordner, Autosave im Aufrufer).
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { Model, ProcessSpec } from './types';
+import type { DirectoryUser, Model, ProcessSpec, UsersFile } from './types';
 import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
 import { nowIsoWithTimezone, todayIso } from './util';
@@ -31,6 +32,17 @@ export type SaveResult =
   | { status: 'error'; message: string };
 
 export interface StorageInfo { kind: 'local' | 'sharepoint'; name: string; webUrl?: string }
+
+/**
+ * Entra-Suche: Treffer — oder warum sie nicht möglich ist. 'consent' lässt
+ * sich per requestDirectoryConsent nachholen; 'forbidden' = die Berechtigung
+ * User.ReadBasic.All fehlt in der App-Registrierung (Admin in Entra);
+ * 'noLogin' = keine Anmeldung (lokaler Ordner ohne Login).
+ */
+export type DirectorySearchResult =
+  | { ok: true; users: DirectoryUser[] }
+  | { ok: false; reason: 'noLogin' | 'consent' | 'forbidden' | 'error'; message: string };
+export const DIRECTORY_SCOPES = ['User.ReadBasic.All'];
 
 interface StoreCtx {
   isDark: boolean;
@@ -56,7 +68,12 @@ interface StoreCtx {
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   saveSpec: (data: ProcessSpec, expectedVersion: string | null) => Promise<SaveResult>;
   createSpec: (spec: ProcessSpec) => Promise<{ ok: true } | { ok: false; message: string }>;
-  deleteSpec: (slug: string) => void;
+  /** Spezifikation samt BPMN aus dem Ordner löschen — nur für Admins (siehe usePermissions) */
+  deleteSpec: (slug: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** Personen für @-Erwähnungen: users.json im geteilten Ordner */
+  knownUsers: DirectoryUser[];
+  searchDirectory: (query: string) => Promise<DirectorySearchResult>;
+  requestDirectoryConsent: () => Promise<void>;
 }
 
 // Der gewählte Datenordner wird als Handle gemerkt (siehe `handles.ts`).
@@ -160,6 +177,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   getTokenRef.current = auth.getToken;
   const idsRef = useRef(auth.ids);
   idsRef.current = auth.ids;
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const [knownUsers, setKnownUsers] = useState<DirectoryUser[]>([]);
 
   const loadModel = useCallback(async (be: StorageBackend) => {
     try {
@@ -216,15 +236,100 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (backendRef.current) await refreshSpecsIn(backendRef.current);
   }, [refreshSpecsIn]);
 
+  // ── users.json: wer arbeitet in diesem Ordner (für @-Erwähnungen) ──────────
+  const parseUsers = (text: string): DirectoryUser[] => {
+    try {
+      const f = JSON.parse(text) as Partial<UsersFile>;
+      return Array.isArray(f?.users) ? f.users.filter(u => u && typeof u.email === 'string' && typeof u.name === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const loadUsersIn = useCallback(async (be: StorageBackend) => {
+    try {
+      const read = await be.read('users.json');
+      setKnownUsers(read ? parseUsers(read.text) : []);
+    } catch {
+      setKnownUsers([]);
+    }
+  }, []);
+  // Angemeldete Person eintragen bzw. «zuletzt gesehen» nachziehen (ETag,
+  // bei Konflikt wiederholen; ohne Schreibrecht still überspringen)
+  const registerUser = useCallback(async (be: StorageBackend, u: { name: string; email: string }) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let cur: { text: string; version: string } | null = null;
+      try { cur = await be.read('users.json'); } catch { return; }
+      const prev = cur ? parseUsers(cur.text) : [];
+      const key = u.email.toLowerCase();
+      const users = [
+        ...prev.filter(x => x.email.toLowerCase() !== key),
+        { ...(prev.find(x => x.email.toLowerCase() === key) ?? {}), name: u.name, email: u.email, lastSeen: nowIsoWithTimezone() },
+      ].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+      const file: UsersFile = { version: 1, users };
+      const w = await be.write('users.json', JSON.stringify(file, null, 2), cur ? { ifMatch: cur.version } : { createOnly: true });
+      if (w.ok) { setKnownUsers(users); return; }
+      if (w.reason !== 'conflict' && w.reason !== 'exists') return;
+    }
+  }, []);
+  const registeredRef = useRef('');
+  useEffect(() => {
+    const be = backendRef.current;
+    const u = auth.user;
+    if (!storage || !be || !u?.email) return;
+    const key = `${storage.kind}:${storage.name}:${u.email}`;
+    if (registeredRef.current === key) return;
+    registeredRef.current = key;
+    void registerUser(be, { name: u.name, email: u.email });
+  }, [storage, auth.user, registerUser]);
+
+  // Entra-Suche (Graph /users?$search) — nur mit Anmeldung; die Zustimmung zu
+  // User.ReadBasic.All holt sich jede Person selbst (requestDirectoryConsent)
+  const searchDirectory = useCallback(async (query: string): Promise<DirectorySearchResult> => {
+    const q = query.trim().replace(/"/g, '');
+    if (!q) return { ok: true, users: [] };
+    const consent = 'Für die Suche im Verzeichnis fehlt noch deine Zustimmung zur Berechtigung «Grundlegende Profile aller Benutzer lesen» (User.ReadBasic.All).';
+    const forbidden = 'Microsoft Graph verweigert die Benutzersuche: Die Berechtigung User.ReadBasic.All fehlt in der App-Registrierung (Entra → App-Registrierungen → API-Berechtigungen).';
+    // Entwicklung: ?dirfail=consent|forbidden simuliert eine fehlende Berechtigung
+    const simulate = import.meta.env.DEV ? new URLSearchParams(location.search).get('dirfail') : null;
+    if (simulate === 'consent') return { ok: false, reason: 'consent', message: consent };
+    if (simulate === 'forbidden') return { ok: false, reason: 'forbidden', message: forbidden };
+    const t = await authRef.current.tryToken(DIRECTORY_SCOPES);
+    if (!t.ok) {
+      if (t.reason === 'noAccount') return { ok: false, reason: 'noLogin', message: 'Keine Anmeldung — die Entra-Suche steht nur mit Microsoft-Anmeldung zur Verfügung.' };
+      if (t.reason === 'interaction') return { ok: false, reason: 'consent', message: consent };
+      return { ok: false, reason: 'error', message: t.message };
+    }
+    const search = encodeURIComponent(`"displayName:${q}" OR "mail:${q}" OR "userPrincipalName:${q}"`);
+    try {
+      const res = await fetch(`https://graph.microsoft.com/v1.0/users?$search=${search}&$select=displayName,mail,userPrincipalName&$top=8`, {
+        headers: { Authorization: `Bearer ${t.token}`, ConsistencyLevel: 'eventual' },
+      });
+      if (res.status === 403 || res.status === 401) return { ok: false, reason: 'forbidden', message: forbidden };
+      if (!res.ok) return { ok: false, reason: 'error', message: `Benutzersuche fehlgeschlagen (HTTP ${res.status}).` };
+      const data = await res.json();
+      const users: DirectoryUser[] = (data.value ?? [])
+        .map((u: { displayName?: string; mail?: string; userPrincipalName?: string }) => ({
+          name: String(u.displayName ?? '').trim(), email: String(u.mail ?? u.userPrincipalName ?? '').trim(),
+        }))
+        .filter((u: DirectoryUser) => u.name && u.email);
+      return { ok: true, users };
+    } catch (e) {
+      return { ok: false, reason: 'error', message: e instanceof Error ? e.message : String(e) };
+    }
+  }, []);
+  const requestDirectoryConsent = useCallback(() => authRef.current.requestConsent(DIRECTORY_SCOPES), []);
+
   const activate = useCallback(async (be: StorageBackend, info: StorageInfo) => {
     backendRef.current = be;
+    registeredRef.current = '';
     setStorage(info);
     setSavedHandleName(null);
     savedHandleRef.current = null;
     await loadModel(be);
+    await loadUsersIn(be);
     try { await be.ensureDir(DIR); } catch { /* readonly? Liste bleibt leer */ }
     await refreshSpecsIn(be);
-  }, [loadModel, refreshSpecsIn]);
+  }, [loadModel, loadUsersIn, refreshSpecsIn]);
 
   // ── lokaler Ordner ────────────────────────────────────────────────────────
   const pickDirectory = useCallback(async () => {
@@ -390,9 +495,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { ok: true as const };
   }, []);
 
-  // Nur aus der Liste nehmen — Dateien löscht die App bewusst nicht.
-  const deleteSpec = useCallback((slug: string) => {
+  // Löscht beide Dateien der Spezifikation: `<slug>.json` und `<slug>.bpmn`.
+  // Erst die Spezifikation, dann das Diagramm — bleibt das BPMN nach einem
+  // Fehler liegen, stört es nicht (die Liste kennt nur .json-Dateien).
+  // Die Prüfung, wer löschen darf, liegt in der Oberfläche (canDelete).
+  const deleteSpec = useCallback(async (slug: string) => {
+    const be = backendRef.current;
+    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
+    const json = await be.delete(`${DIR}/${slug}.json`);
+    if (!json.ok) return { ok: false as const, message: json.message };
     setSpecs(prev => prev.filter(p => p.slug !== slug));
+    const bpmn = await be.delete(`${DIR}/${slug}.bpmn`);
+    if (!bpmn.ok) return { ok: false as const, message: `Spezifikation gelöscht, aber das BPMN nicht: ${bpmn.message}` };
+    return { ok: true as const };
   }, []);
 
   const saveModel = useCallback(async (m: Model): Promise<{ ok: true } | { ok: false; message: string }> => {
@@ -425,6 +540,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       connectSharePoint, savedSharePoint, forgetSharePoint, disconnect,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
+      knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
       {children}
     </Ctx.Provider>

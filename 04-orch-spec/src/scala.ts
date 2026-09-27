@@ -14,8 +14,8 @@
 // Datei unter `schema/`. `InConfig` und `InitIn` erzeugt der Generator
 // bewusst **nicht** — das sind Implementations-Details.
 
-import type { Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
-import { INTERACTION_META, SCALA_TYPES } from './types.ts';
+import type { EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
+import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
 import {
@@ -74,7 +74,9 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null): T
 /** `Option[Seq[String :| ValidEmail]]` — in dieser Reihenfolge geschachtelt. */
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
+  if (f.enumCase) t = `${t}.${f.enumCase}`;
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
+  if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
   if (f.optional) t = `Option[${t}]`;
   return t;
@@ -101,11 +103,14 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
   let inner = f.example?.trim() || baseExample(f, idx);
   // Ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe`
   if (f.example?.trim() && f.constraint?.trim() && LITERAL.test(inner)) inner = `${inner}.refineUnsafe`;
-  const seq = f.collection ? `Seq(${inner})` : inner;
+  const mapped = f.map ? `Map("key" -> ${inner})` : inner;
+  const seq = f.collection ? `Seq(${mapped})` : mapped;
   return f.optional ? `Some(${seq})` : seq;
 }
 
 function baseExample(f: Field, idx: TypeIndex): string {
+  // eine Ausprägung: ihr Companion hat ein eigenes example
+  if (f.enumCase) return `${idx.nameOf(f.type)}.${f.enumCase}.example`;
   if (parseDomainRef(f.type)) return `${idx.nameOf(f.type)}.example`;
   const svc = idx.serviceOf(f.type);
   if (svc) return `${svc.name}.example`;
@@ -116,7 +121,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   }
   const t = idx.byId.get(f.type);
   if (!t) return '???';
-  if (t.kind === 'enum') return `${t.name}.${t.values?.[0]?.name ?? 'example'}`;
+  if (t.kind === 'enum' && !isAdt(t)) return `${t.name}.${t.values?.[0]?.name ?? 'example'}`;
   return `${t.name}.example`;
 }
 
@@ -173,6 +178,67 @@ function companion(t: TypeDef, idx: TypeIndex): string {
   ].join('\n');
 }
 
+/** Parameterliste einer Klasse bzw. eines ADT-Falls. */
+function paramList(fields: Field[], idx: TypeIndex, by: string): string {
+  const params = fields.map(f => {
+    const d = f.description ? `${descriptionLine(f.description)}\n` : '';
+    const def = f.default?.trim() ? ` = ${f.default.trim()}` : '';
+    return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
+  });
+  return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
+}
+
+/**
+ * Auswahl mit Feldern je Fall — wie `enum In` der Depot-Domain: jeder Fall
+ * eine Klasse, das Companion mit `example` je Fall und einem für den Typ.
+ */
+function adtDef(t: TypeDef, idx: TypeIndex): string {
+  const cases = (t.values ?? []).filter(v => v.name);
+  const first = cases[0]?.name ?? 'unknown';
+  // Gemeinsame Felder: als `def` im Rumpf verlangt, in jedem Fall zuerst
+  const common = (t.fields ?? []).filter(f => f.name);
+  // Die Bedeutung eines gemeinsamen Feldes steht **einmal** — am `def`, nicht
+  // in jedem Fall nochmals
+  const commonDefs = common.map(f => {
+    const d = f.description ? `${indent(descriptionLine(f.description), '  ')}\n` : '';
+    return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
+  });
+  const commonBare = common.map(f => ({ ...f, description: undefined }));
+  const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...(v.fields ?? []).filter(f => !common.some(c => c.name === f.name))];
+  const caseLines = cases.map(v => {
+    const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
+    const fields = fieldsOf(v);
+    return fields.length ? `${d}  case ${v.name}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${v.name}`;
+  });
+  const companions = cases.filter(v => fieldsOf(v).length).map(v => {
+    const fields = fieldsOf(v);
+    const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
+    const optional = fields.filter(f => f.optional);
+    const minimal = optional.length
+      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${f.name} = None`).join(',\n'), '      ')}\n    )`
+      : 'lazy val exampleMinimal = example';
+    return [
+      `  object ${v.name}:`,
+      `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}(\n${indent(args.join(',\n'), '      ')}\n    )`,
+      `    ${minimal}`,
+    ].join('\n');
+  });
+  return [
+    `enum ${t.name}:`,
+    ...(commonDefs.length ? [...commonDefs, ''] : []),
+    ...caseLines,
+    `end ${t.name}`,
+    '',
+    `object ${t.name}:`,
+    `  given ApiSchema[${t.name}]  = deriveApiSchema`,
+    `  given InOutCodec[${t.name}] = deriveInOutCodec`,
+    ...(companions.length ? ['', ...companions] : []),
+    '',
+    `  lazy val example = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
+    `end ${t.name}`,
+  ].join('\n');
+}
+
 function enumDef(t: TypeDef): string {
   const cases = (t.values ?? []).map(v => v.name).filter(Boolean);
   const first = cases[0] ?? 'unknown';
@@ -193,7 +259,7 @@ function enumDef(t: TypeDef): string {
 export function renderType(t: TypeDef, idx: TypeIndex): string {
   const head = t.description ? `${scaladoc(t.description)}\n` : '';
   return t.kind === 'enum'
-    ? `${head}${enumDef(t)}`
+    ? `${head}${isAdt(t) ? adtDef(t, idx) : enumDef(t)}`
     : `${head}${caseClass(t, idx)}\n\n${companion(t, idx)}`;
 }
 
@@ -321,13 +387,18 @@ export interface ScalaFile {
 // Nur was der Typ wirklich braucht: Iron-Refinements und Service-Objekte
 // bringen ihre Imports mit, alles Übrige stellt Orchescala über den
 // Package-Export bereit.
+/** Alle Felder eines Typs — bei einem ADT die gemeinsamen und die aller Fälle. */
+export function allFields(t: TypeDef): Field[] {
+  return t.kind === 'enum' ? [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])] : (t.fields ?? []);
+}
+
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   const lines: string[] = [];
-  if ((t.fields ?? []).some(f => f.constraint?.trim())) {
+  if (allFields(t).some(f => f.constraint?.trim())) {
     lines.push('import io.github.iltotore.iron.*', 'import io.github.iltotore.iron.constraint.all.*');
   }
   const external = new Map<string, string>(); // importPath → Anmerkung
-  for (const f of t.fields ?? []) {
+  for (const f of allFields(t)) {
     const dom = idx.domainOf(f.type);
     if (dom) { external.set(dom.importPath, ''); continue; }
     const svc = idx.serviceOf(f.type);
@@ -474,8 +545,18 @@ const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
 const RESERVED = new Set(['type', 'val', 'var', 'def', 'class', 'object', 'case', 'match', 'new', 'with', 'given', 'end', 'for', 'if', 'else', 'true', 'false', 'null', 'import', 'package', 'extends', 'lazy', 'implicit', 'private', 'sealed', 'trait', 'enum', 'then', 'do', 'while', 'yield', 'return', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'abstract', 'final', 'override', 'protected', 'forSome']);
 
 /** Was den generierten Scala-Code brechen würde — direkt in der Oberfläche. */
+/** Die Fälle einer Auswahl mit Feldern (eigen oder aus dem Katalog) — null, wenn der Typ keine ist. */
+export function casesOf(typeRef: string, idx: TypeIndex): string[] | null {
+  const own = idx.byId.get(typeRef);
+  if (own) return own.kind === 'enum' && isAdt(own) ? (own.values ?? []).map(v => v.name) : null;
+  const dom = idx.domainOf(typeRef);
+  if (dom) return dom.kind === 'enum' && (dom.cases?.length || dom.fields?.length) ? (dom.values ?? []).slice() : null;
+  return null;
+}
+
 export function checkTypes(types: TypeDef[] = [], model: Model | null = null): TypeIssue[] {
   const issues: TypeIssue[] = [];
+  const idxAll = indexTypes(types, model);
   const names = new Map<string, number>();
   const ids = new Set(types.map(t => t.id));
   // ohne Katalog wird der Service-Verweis nicht geprüft (statt falsch gemeldet)
@@ -493,13 +574,23 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       const vals = (t.values ?? []).map(v => v.name);
       if (!vals.length) issues.push({ typeId: t.id, message: 'Enumeration ohne Werte.' });
       if (new Set(vals).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
-      for (const v of vals) if (!/^[A-Za-z][A-Za-z0-9]*$/.test(v)) {
-        issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name.` });
+      for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9]*|`[^`]+`)$/.test(v)) {
+        issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (Sonderzeichen nur in Backticks: \`QI-Deklaration\`).` });
       }
-      continue;
+      // Ein ADT: die Felder je Fall werden wie Klassenfelder geprüft
+      if (!isAdt(t)) continue;
+      const common = new Set((t.fields ?? []).map(f => f.name));
+      for (const v of t.values ?? []) {
+        const inCase = new Set<string>();
+        for (const f of v.fields ?? []) {
+          if (common.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist schon ein gemeinsames Feld — im Fall «${v.name}» nicht nochmals.` });
+          if (inCase.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt im Fall «${v.name}» doppelt vor.` });
+          inCase.add(f.name);
+        }
+      }
     }
-    const fields = t.fields ?? [];
-    if (!fields.length) issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
+    const fields = t.kind === 'enum' ? allFields(t) : (t.fields ?? []);
+    if (!fields.length && t.kind === 'case') issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
     const seen = new Set<string>();
     for (const f of fields) {
       if (!SCALA_NAME.test(f.name)) {
@@ -508,7 +599,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       if (RESERVED.has(f.name)) {
         issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist ein Scala-Schlüsselwort.` });
       }
-      if (seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
+      // in einem ADT darf derselbe Feldname in mehreren Fällen stehen
+      if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
       seen.add(f.name);
       const domId = parseDomainRef(f.type);
       if (domId) {
@@ -524,6 +616,11 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         }
       } else if (!isScalar(f.type) && !ids.has(f.type)) {
         issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden.` });
+      }
+      if (f.enumCase) {
+        const cases = casesOf(f.type, idxAll);
+        if (!cases) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: der Typ ist keine Auswahl mit Fällen — «${f.enumCase}» kann keine Ausprägung sein.` });
+        else if (!cases.includes(f.enumCase)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: die Ausprägung «${f.enumCase}» gibt es in ${idxAll.nameOf(f.type)} nicht.` });
       }
       if (f.constraint?.trim() && !constraintKind(f.type)) {
         const label = isScalar(f.type) ? f.type : 'zusammengesetzten Typen';

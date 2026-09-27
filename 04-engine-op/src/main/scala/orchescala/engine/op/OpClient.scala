@@ -1,8 +1,9 @@
 package orchescala.engine.op
 
 import org.camunda.community.rest.client.invoker.ApiClient
+import orchescala.engine.c7.{ApiHttpClient, BearerTokenApiClient}
 import orchescala.engine.domain.EngineError
-import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig}
+import orchescala.engine.rest.{ClientCredentialsFlow, HttpClientProvider, OAuthConfig, TokenFingerprint}
 import zio.*
 
 /** Base trait for Op clients that provide ApiClient instances */
@@ -17,7 +18,7 @@ trait OpLocalClient extends OpClient:
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOpClientManager.getOrCreateClient:
       ZIO.attempt:
-        val apiClient = new ApiClient()
+        val apiClient = new ApiClient(ApiHttpClient.pooled())
         apiClient.setBasePath(operatonRestUrl)
       .mapError: ex =>
         EngineError.UnexpectedError(s"Problem creating Op API Client: $ex")
@@ -34,7 +35,7 @@ trait OpBasicAuthClient extends OpClient:
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
     SharedOpClientManager.getOrCreateClient:
       ZIO.attempt:
-        val apiClient = new ApiClient()
+        val apiClient = new ApiClient(ApiHttpClient.pooled())
         apiClient.setBasePath(operatonRestUrl)
         apiClient.setUsername(username)
         apiClient.setPassword(password)
@@ -48,21 +49,21 @@ class OpOAuth2Client(operatonRestUrl: String, oAuthConfig: OAuthConfig.ClientCre
     extends OpClient:
   lazy val authFlow = ClientCredentialsFlow(oAuthConfig)
 
+  /** A client with the current token, per call: the token comes from the cache and is refreshed
+    * shortly before it expires (asynchronously, never inside the HTTP connection pool). The client
+    * only holds base path and header, on the shared connection pool (see BearerTokenApiClient).
+    * Before, one client was built with the first token and shared for the whole runtime - every
+    * call failed with 401 once that token expired (Keycloak: usually after 5 minutes).
+    */
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
-    SharedOpClientManager.getOrCreateClient:
-      (for
-        _      <- ZIO.logDebug(s"Creating Op Engine Client: ${oAuthConfig.ssoBaseUrl}")
-        client <- ZIO.attempt(ApiClient())
-        _      <- ZIO.attempt:
-                    client.setBasePath(operatonRestUrl)
-        token  <- authFlow.clientCredentialsToken().provideLayer(HttpClientProvider.live)
-        _      <- ZIO.attempt:
-                    client.addDefaultHeader("Authorization", s"Bearer $token")
-      yield client)
-        .tapError: err =>
-          ZIO.logError(s"Problem creating Op Engine Client: $err")
-        .mapError: ex =>
-          EngineError.UnexpectedError(s"Problem creating Op Engine Client: $ex")
+    authFlow
+      .clientCredentialsToken()
+      .provideLayer(HttpClientProvider.live)
+      .flatMap(token => ZIO.attempt(BearerTokenApiClient(operatonRestUrl, token)))
+      .tapError: err =>
+        ZIO.logError(s"Problem creating Op Engine Client: $err")
+      .mapError: ex =>
+        EngineError.UnexpectedError(s"Problem creating Op Engine Client: $ex")
 end OpOAuth2Client
 
 /** Op client with Bearer token authentication (token provided per request) */
@@ -70,17 +71,13 @@ trait OpBearerTokenClient extends OpClient:
 
   protected def operatonRestUrl: String
 
-  /** Creates a client with the provided Bearer token. Note: This creates a new client for each
-    * token, so it should not be cached in SharedOpClientManager.
+  /** Returns a client for the given Bearer token - cheap, it runs on a shared connection pool
+    * (see BearerTokenApiClient).
     */
   def clientWithToken(token: String): ZIO[Any, EngineError, ApiClient] =
-    ZIO.attempt:
-      val apiClient = new ApiClient()
-      apiClient.setBasePath(operatonRestUrl)
-      apiClient.addDefaultHeader("Authorization", s"Bearer $token")
-      apiClient
-    .mapError: ex =>
-      EngineError.UnexpectedError(s"Problem creating Op API Client with token: $ex")
+    ZIO.attempt(BearerTokenApiClient(operatonRestUrl, token))
+      .mapError: ex =>
+        EngineError.UnexpectedError(s"Problem creating Op API Client with token: $ex")
 
   // Default client without token (for compatibility)
   lazy val client: ZIO[SharedOpClientManager, EngineError, ApiClient] =
@@ -111,7 +108,7 @@ object OpClient:
               authContext.bearerToken match
                 case Some(token) =>
                   ZIO.logDebug(
-                    s"Using token from AuthContext: ${token.take(5)}...${token.takeRight(5)}"
+                    s"Using token from AuthContext: ${TokenFingerprint(token)}"
                   ) *>
                     // Use fresh client with token from AuthContext (pass-through authentication)
                     bearerClient.clientWithToken(token)

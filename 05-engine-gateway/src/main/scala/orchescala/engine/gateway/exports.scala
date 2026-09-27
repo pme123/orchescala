@@ -33,9 +33,12 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
                 ZIO.succeed((errors, Some(result), engineType))
               case (errors, None, _)                  =>
                 operation(service)
-                  .fold(
-                    error => (errors :+ error, None, None),
-                    result => (errors, Some(result), Some(service.engineType))
+                  .foldZIO(
+                    error =>
+                      ZIO.logWarning(
+                        s"$operationName failed for ${service.engineType}: ${error.errorMsg}"
+                      ).as((errors :+ error, None, None)),
+                    result => ZIO.succeed((errors, Some(result), Some(service.engineType)))
                   )
           .flatMap:
             case (_, Some(result), Some(engineType)) =>

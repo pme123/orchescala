@@ -64,6 +64,26 @@ Geprüft über alle **72 BPMN-Dateien** der valiant-Projekte: kein Element geht
 verloren, und ein erneuter Import derselben Datei ändert nichts
 (0 neu · 0 geändert · 0 entfallen).
 
+### Was der Baum zeigt
+
+Der Ablauf gewichtet seine Zeilen: **eigene Verträge** — Benutzeraufgaben,
+Worker, Signale, Nachrichten mit Interaktion — stehen fett und tragen den
+Objektnamen als violetten Chip, der ins Datenmodell springt. **Fremde
+Services** zeigen ihre Katalog-Kennung als teal Chip mit Stecker, rot, wenn
+ein geladener Katalog sie nicht kennt. Gateways haben eine schwache
+Bandfarbe, Ereignisse, Start und Ende sind leise. Zweigköpfe sind Chips in
+der Zweigfarbe (Standardzweig gestrichelt) mit «wenn …» als FEEL und der
+Schrittzahl; Fehler- und Nebenpfade zählen ebenfalls.
+
+**Befunde** sieht man im Baum, nicht erst im Panel: ein rotes (Fehler) oder
+oranges (Warnung) Dreieck mit Zähler an der Zeile, die ersten Meldungen im
+Tooltip — FEEL-Fehler in Mappings und Bedingungen, doppelte oder fehlende
+Pflichtfelder, eine Interaktion ohne oder mit leerem In/Out, ein unbekannter
+Service. Der Status «Umgesetzt» ist gedämpft, damit «Angepasst» und
+«Entwurf» herausstechen. Im Kopf filtern die Status-Chips den Ablauf, der
+Chip **⚠ n** zeigt nur Schritte mit Befund; die Suche findet auch den
+Objektnamen der Interaktion und den Namen des Katalog-Services.
+
 ### Spezifikation und Implementation nebeneinander
 
 **«Mit BPMN abgleichen»** liest die BPMN-Datei erneut ein und übernimmt die
@@ -104,6 +124,63 @@ Erzeugt wird die Orchescala-Domain im Hausstil: `case class` mit
 Felder auf `None` setzt. Das `In` kommt als Einfüge-Block für das
 Prozess-Objekt, jeder weitere Typ als eigene Datei unter `schema/`; Iron-Imports
 werden gesetzt, wenn eine Einschränkung im Spiel ist.
+
+### Auswahl mit Fällen — ein enum als ADT
+
+Eine **Auswahl** (enum) hat normalerweise nur Werte (`case de, fr`). Ihre
+Werte können aber auch **Felder** tragen — dann ist sie ein ADT wie das `In`
+der Depot-Domain:
+
+```scala
+enum In:
+  case Standard(clientKey: Long, investmentProduct: Int, …)
+  case VermoegensVerwaltung(clientKey: Long, investmentAmount: Int, …)
+```
+
+Jeder Fall ist eine eigene Klasse, gemeinsam sind sie ein Typ. Ein Scala-3-
+enum kennt dabei **gemeinsame Felder** — als `def clientKey: Long` im Rumpf
+verlangt und in jedem Fall mitgebracht — und **spezielle Felder** je Fall.
+Im Klassenbauer hat ein ADT deshalb oben den Block «Gemeinsame Felder (in
+jedem Fall)» und bei jedem Fall seine eigenen; bei jedem Wert steht
+**«+ Feld»**, sobald ein Fall Felder hat oder gemeinsame da sind, heisst die
+Auswahl «Auswahl mit Fällen (ADT)». Bearbeitet wird mit derselben Zeile wie
+in einer Klasse (Typ, optional, mehrfach, Map, Einschränkung …). Auch die
+**Prozess-Eingabe `In`** kann ein ADT sein — derselbe Prozess mit
+verschiedenen Eingaben: ein Schalter am Kopf wechselt zwischen Klasse und
+Auswahl mit Fällen; die Felder der Klasse werden dabei die gemeinsamen, und
+zurück.
+
+Der Generator schreibt das ADT wie die Domain: die gemeinsamen Felder als
+`def` im Rumpf, die Fälle mit gemeinsamen und speziellen Parametern, das
+Companion mit `example` je Fall und einem für den Typ. Ein ADT-Feld ist im
+JSON ein Objekt; die FEEL-Vervollständigung zeigt darin die Felder aller
+Fälle. Der Import liest `def x: T` und `case X(…)` aus der Domain — das `In`
+von `valiant-depot-open` kommt so mit drei gemeinsamen Feldern und zwei
+Fällen herein, ein Feld, das schon gemeinsam ist, wird im Fall nicht
+nochmals geführt (der Klassenbauer meldet das sonst). Was die Domain nicht
+als `def` führt, aber in **allen** Fällen gleich steht — gleicher Name, Typ
+und Hüllen —, erkennt der Import ebenfalls als gemeinsam und zieht es aus
+den Fällen heraus; das Panel vor dem Anlegen nennt diese Felder.
+
+**Eine einzelne Ausprägung als Typ.** Ein Feld kann statt der ganzen Auswahl
+einen ihrer Fälle meinen — in Scala `CustomDocContents.\`QI-Deklaration\``.
+Im Klassenbauer steht dafür neben dem Typ die Auswahl «alle Fälle» bzw. der
+Fall; der Generator schreibt `Enum.Fall` und als Beispiel `Enum.Fall.example`,
+der Import erkennt die Schreibweise (auch mit Backticks für Namen wie
+`QI-Deklaration`, die der Scanner nun liest). Für FEEL zeigt ein solches Feld
+nur die gemeinsamen Felder und die dieses Falls. Die Prüfung meldet einen
+Fall, den die Auswahl nicht hat.
+
+### Map — Werte mit beliebigen Schlüsseln
+
+Ein Feld kann eine **Map** sein: `Map[String, T]`, im Klassenbauer das
+Häkchen «Map» neben «optional» und «mehrfach»; der gewählte Typ ist dann der
+Wert, der Schlüssel ist immer ein Text — so kommt eine Map im JSON an. Der
+Generator schreibt `Map[String, T]` und als Beispiel `Map("key" -> …)`, der
+Import erkennt `Map[String, …]` in der Domain (`customDocContents`). Für
+FEEL ist eine Map ein Objekt mit unbekannten Schlüsseln: Pfade hinein werden
+weder vorgeschlagen noch bemängelt, und über den Ergebnistyp eines Ausdrucks,
+der durch eine Map führt, fällt kein Urteil.
 
 ### Interaktionen — In und Out je Berührungspunkt
 
@@ -189,6 +266,69 @@ obwohl die randlos ist. Die Herkunft steht davon unberührt am Fensterrand
 bleibt von ihr nur das Logo — dann reicht die Breite für den Text nicht mehr,
 ohne den Knöpfen in die Quere zu kommen.
 
+### Aus BPMN — die Domain findet die App
+
+Ein Orchescala-Prozess trägt seine ID in beiden Welten: im BPMN als
+Prozess-ID, in der Domain als `val processName`. Wer ein BPMN wählt, muss die
+Domain deshalb nicht suchen — die App tut es, in dieser Reihenfolge:
+
+1. im **Domain-Katalog** (model.json bzw. `catalog.generated.json`) — sofern
+   er vom heutigen Scanner stammt; ein älterer Katalog kennt weder die Fälle
+   und gemeinsamen Felder der enums noch die Schlüssel der Objekte und wird
+   nur als letzte Wahl genommen, mit Hinweis («Katalog neu aufbauen»),
+2. in den **gemerkten Projekt-Ordnern** (Admin → Katalog → Projekt-Ordner;
+   der Browser fragt je Ordner einmal nach dem Leserecht — Ordner, deren
+   Name zur Prozess-ID passt, kommen zuerst),
+3. sonst fragt sie nach dem **Projekt-Ordner** (Chrome/Edge) oder einem
+   **ZIP** — oder legt den Prozess ohne Domain an.
+
+Vor dem Anlegen steht, was entsteht:
+
+```
+Aus BPMN  Adressänderung  valiant-addresschange
+74 Schritte · Domain AddressChange aus Ordner valiant-addresschange
+· 15 Typen · 6 Interaktionen (ReconfirmationUT, AdjustProcessVariables, …)
+⚠ Typen weder im Projekt noch im Katalog: GravitonConsultant, ProcessCallOrigin
+                                                              [Anlegen]
+```
+
+Was dabei entsteht, ohne Raten:
+
+- Aus `In`, `InitIn` und `Out` des Prozess-Objekts werden die Prozess-Klassen
+  des Datenmodells; `InConfig` bleibt draussen (Implementations-Detail), auch
+  als Feld im `In`.
+- **Eigene Typen** des Projekts (`NewAddress`, enums) werden eigene Typen der
+  Spezifikation — mit `Option`/`Seq`, Einschränkung, Vorgabe und
+  `@description`. Ein Alias wie `type AddressType = Int :| any.In[(11, 15)]`
+  wird zum Grundtyp mit Einschränkung. Typen aus **anderen Projekten**
+  (`GravitonConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
+  sonst bleibt der Name stehen und wird gemeldet.
+- Ein Feld vom Typ `MergeContractsForCAM.In` — das In/Out eines Objekts —
+  bleibt **derselbe Typ** wie bei der Interaktion, unter vollem Namen; gehört
+  das Objekt nicht zum Prozess (DMN, fremder Service), zeigt es in den Katalog.
+- **Interaktionen** kommen aus den Objekten mit `CompanyBpmn…Dsl`: eine
+  Benutzeraufgabe über `val name` (= Element-ID), ein Worker über
+  `val topicName` (auch wenn es nicht mit der Prozess-ID beginnt), Signal und
+  Nachricht über den Namen im BPMN (`<bpmn:signal name>`, bis zum dynamischen
+  Teil `${…}`) — auch gefangene Signale —, sonst über die Namenskonvention.
+  Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustAddressUT.In`
+  wird eine Kopie mit dem Hinweis `= AdjustAddressUT.In`, `NoInput` bleibt
+  leer. `val descr` wird die Beschreibung. Objekte des Pakets ohne Schritt
+  werden gemeldet. Ein älterer Katalog ohne DSL-Angabe wird über Topic und
+  Namensendung (`…UT`, `…SE`, `…ME`) gelesen — Benutzeraufgaben, deren
+  Objektname nicht der Konvention folgt (`ApproveAddressUT` für
+  `AdressanderungPrufenQMSTask`), findet erst ein neu erzeugter Katalog oder
+  der Projekt-Ordner, denn nur dort steht `val name`.
+- **Schritte ohne Domain-Objekt** — Benutzeraufgaben, eigene Worker, Signale,
+  Nachrichten, die die Domain nicht kennt — werden **vorbereitet**: eine
+  Interaktion im Entwurf mit `In` und `Out` als Klassen, die Felder aus dem
+  Katalog (Benutzeraufgaben stehen in der OpenAPI), sonst aus den Mappings
+  des Schritts, sonst ein leeres Feld. Das Panel warnt und nennt sie; die
+  Klassen tragen die Beschreibung «Vorbereitet beim Import». So kann die
+  Domain aus der Spezifikation entstehen statt umgekehrt — auch beim Anlegen
+  ganz ohne Domain.
+- Die Engine wird am BPMN erkannt (zeebe-Namensraum → Camunda 8).
+
 ### Neue Prozesse starten mit einer Vorlage
 
 «Neu» fängt nicht mit einem leeren Blatt an, sondern mit dem BPMN, das im
@@ -232,9 +372,22 @@ Schritt beginnt als **Entwurf** — auch in Zweigen und Fehlerpfaden. Eine
 Vorlage dazunehmen heisst: Datei in `public/templates/` ablegen und eine Zeile
 in `ENGINES` ergänzen (`src/template.ts`).
 
+### Spezifikationen löschen
+
+In der Liste hat jede Spezifikation rechts einen Papierkorb. Vorher wird
+gefragt, denn weg ist weg: entfernt werden
+**beide** Dateien, `processes/<slug>.json` und `processes/<slug>.bpmn` —
+lokal endgültig, in SharePoint in den Papierkorb der Site.
+
+Löschen darf nur, wer **Admin** ist — oder alle, wenn keine Anmeldung
+verlangt ist (dann gilt ohnehin «alles erlaubt»). Editor und Viewer sehen den
+Knopf nicht. Bewusst nur in der Liste, nicht in der Prozessansicht: dort
+speichert die App automatisch, und ein Autosave nach dem Löschen legte die
+Datei gleich wieder an.
+
 ### Der Admin-Bereich
 
-Drei Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+Vier Bereiche, in der Reihenfolge, in der sie gebraucht werden:
 
 1. **Auftritt** — Kunde und Logo für die Kopfzeile.
 2. **Katalog** — importieren, exportieren, nachschlagen. Das zählt in jeder
@@ -242,6 +395,8 @@ Drei Bereiche, in der Reihenfolge, in der sie gebraucht werden:
    Das lokale Erzeugen (Projekt-Ordner, OpenAPI, Doku-Site) steckt darin
    zugeklappt: dazu müssen die Quellen erreichbar sein.
 3. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
+4. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
+   Antworten in Kommentaren: ein/aus, Wartezeit, Vorlage.
 
 Bewusst **keine** Liste zum Durchblättern: die Klassen eines Prozesses stehen
 in seiner Spezifikation unter «Datenmodell», dort wo sie gebraucht werden.
@@ -296,10 +451,16 @@ nach `.scala`, Tests und Build-Ordner bleiben draussen. Neu **aufbauen**, nicht
 ergänzen: nur so wirkt sich ein Umsortieren überhaupt aus.
 
 Der Ordner-Zugriff wird gemerkt (IndexedDB), die Erlaubnis dazu verlangt der
-Browser nach einem Neustart neu. Fehlt sie für auch nur ein Projekt, bleibt
-der Katalog unverändert stehen — ein halber Aufbau, der stillschweigend Typen
-verliert, wäre schlimmer als gar keiner. **Projekte wählen** mit demselben
-Ordner stellt den Zugriff wieder her.
+Browser nach einem Neustart neu — und zwar **einmal für den Ordner über den
+Projekten**, nicht je Projekt: gemerkt wird der gewählte Ordner (`root`), die
+Projektordner darunter erben seinen Zugriff. Bei «Neu aufbauen» kommt darum
+ein Dialog, nicht siebzehn (der Browser gibt die Erlaubnis nur auf einen
+Klick hin; mehrere Dialoge nacheinander liesse er gar nicht zu). Fehlt sie
+trotzdem, bleibt der Katalog unverändert stehen — ein halber Aufbau, der
+stillschweigend Typen verliert, wäre schlimmer als gar keiner — und die
+Meldung sagt, welcher Ordner zu bestätigen ist. Projekte aus einem älteren
+Stand, die noch einzeln gemerkt sind, hängen sich beim nächsten **Projekte
+wählen** an ihren Ordner darüber.
 
 Gesammelt wird alles, was sich als Feldtyp verwenden lässt — die Objekte im
 `schema/`-Ordner ebenso wie die `In` / `Out` der Services. Der Parser kennt
@@ -397,8 +558,13 @@ sich ändert, dessen Topic aber gleich bleibt, gilt als vorhanden — sonst
 gäbe es Fehlalarm bei jedem Umbenennen.
 
 **Mitgelieferter Katalog.** Liegt neben der App eine
-`catalog.generated.json` (orchescala erzeugt sie bei jedem Release aus OpenAPI
-und Site-Katalog und legt sie in `public/`), dann ist **sie** der Katalog: bei
+`catalog.generated.json`, dann ist **sie** der Katalog. Die Doku-Site der
+Firma bringt sie mit: der Helper erzeugt sie bei `publishDocs` mit denselben
+Werkzeugen aus OpenAPI, Domain-Quellen und Site-Katalog — zuerst aus dem
+Firmenprojekt selbst (dessen `01-domain` hält die geteilten Typen wie
+`ProcessCallOrigin`), dann aus allen Projekt-Checkouts; so gewinnen bei
+gleichem Namen die Firmentypen. Wer ohne Site arbeitet, liest dieselbe Datei
+über «Katalog-Datei einlesen» ein. Für den Katalog gilt: bei
 gleicher Kennung (Service-ID, Topic, gerufener Prozess, Typ-ID) gewinnt sie,
 Einträge aus der `model.json` bleiben nur als Altbestand daneben sichtbar und
 werden beim Speichern nie mit ihr vermischt — der Katalog ist nicht vom
@@ -458,45 +624,56 @@ Service, Topic, gerufener Prozess oder die Mappings.
 
 ### Kommentare
 
-Wie in Confluence, nur am richtigen Ort: ein Faden, Antworten darunter, und
-irgendwann als **erledigt** abgehakt. Erledigte verschwinden nicht, sie
-rutschen nach unten und werden zugeklappt — wer später dazukommt, soll sehen,
-was besprochen wurde.
+Wie im arch-review: eine **Sprechblase** an jeder Stelle, an der etwas zu
+klären sein kann, und ein **Panel** rechts mit dem Faden dieser Stelle — ein
+Beitrag, Antworten darunter, irgendwann als **erledigt** abgehakt. Erledigte
+bleiben stehen (ausgeblendet, «Erledigte einblenden» zeigt sie): wer später
+dazukommt, soll sehen, was besprochen wurde.
 
-Kommentiert wird dort, wo etwas zu klären ist:
+Sprechblasen gibt es an:
 
-| wo | |
+| wo | Stellen |
 | --- | --- |
-| **Prozess** | im Panel, wenn kein Schritt gewählt ist |
-| **Benutzeraufgabe · Nachricht · Signal · Teilprozess** | am gewählten Schritt |
-| **Datentypen** | im Klassenbauer, unter der Scala-Vorschau |
+| **Prozess** | Titel, Ausgangslage / Ziel, jede Prozessvariable |
+| **Ablauf** | jeder Schritt und jeder Zweig im Baum |
+| **Schritt** | Kopf, Beschreibung, Zuständigkeit, Service, jede Ein- und Ausgabe, jeder Zweig, jeder behandelte Fehler |
+| **Datenmodell** | jede Interaktion, jeder Typ (auch in der Liste), jedes Feld, jeder Wert bzw. Fall |
 
-Bewusst **nicht** an jedem Service-Task: dessen Vertrag steht im Katalog und
-ist keine Fachfrage.
+Leer ist die Blase blass (in Zeilen erst beim Überfahren), mit offenen
+Kommentaren blau mit Zahl, mit nur erledigten ein grünes Häkchen. Im Baum und
+in der Typliste zählt sie das ganze Element samt seinen Teilen.
 
-Offene Fäden sind sichtbar, ohne dass man sie sucht — als Zahl am Schritt im
-Ablaufbaum und am Typ in der Liste des Klassenbauers. In der Werkzeugleiste
-steht `💬 2/7` mit Pfeilen: **einer nach dem anderen durchgehen**, in der
-Reihenfolge des Ablaufs — erst der Prozess, dann die Schritte, zuletzt die
-Datentypen. Der Sprung klappt den Baum auf, wählt den Schritt, holt die Zeile
-ins Bild und schaltet für einen Datentyp in den Klassenbauer. Der Faden selbst
-wird **leicht hervorgehoben** — kräftigerer Rand, ein Hauch Fläche — und in
-die Sicht geholt; genug, um ihn unter mehreren zu finden, zu wenig, um zu
-schreien. Am Ende geht es wieder von vorne los. Beide Text-Exporte tragen die **offenen** Kommentare mit: der
-fachliche unter dem jeweiligen Schritt, der Orchescala-Export zusätzlich als
-Zeile in der Schritt-Tabelle. Erledigte bleiben in der Datei, aber aus den
-Exporten heraus.
+Das **Panel** öffnet der Klick auf eine Blase oder `💬` in der
+Werkzeugleiste (mit der Zahl offener Kommentare). Ohne gewählte Stelle zeigt
+es die **Übersicht** aller Stellen mit Kommentaren, nach Prozess, Ablauf,
+Interaktionen und Datenmodell; **Weiter / Zurück** geht sie der Reihe nach
+durch, in der Reihenfolge des Ablaufs, und läuft rund. Der Sprung wechselt
+bei Bedarf in den Klassenbauer, klappt den Baum auf, wählt den Schritt und
+holt die Stelle ins Bild. Das Element des offenen Kommentars bekommt einen
+**blauen Rahmen** — die Stelle selbst und ihre Zeile im Baum bzw. in der
+Typliste.
 
-Zeigt ein Faden auf ein Element, das es nicht mehr gibt — der Schritt wurde
-aus dem BPMN entfernt, der Typ gelöscht —, dann steht er beim Prozess unter
-**«Kommentare ohne Element»** und bleibt aus der Navigation heraus. Weggeworfen
-wird er nicht: was besprochen wurde, gehört gelesen und abgehakt. Ohne diese
-Trennung sprang die Navigation auf ein Ziel, das es nicht gab, und zeigte
-stattdessen den Prozess.
+**@-Erwähnungen:** «@» im Kommentar schlägt Personen vor — zuerst die, die im
+Ordner schon gearbeitet oder kommentiert haben (`users.json`), dann Treffer
+aus dem Entra-Verzeichnis. **Teams-Benachrichtigung** (Admin →
+Benachrichtigungen): Erwähnte und — bei Antworten — wer den Faden angefangen
+hat, bekommen nach einer Wartezeit eine persönliche Teams-Nachricht, gesammelt
+je Person, mit einem Link direkt zum Kommentar
+(`?spec=<slug>&comment=<id>`). Am Beitrag zeigt eine Uhr «ausstehend», ein
+grüner Pfeil «gesendet». Einrichtung und Berechtigungen:
+[docs/ENTRA-SETUP.md](docs/ENTRA-SETUP.md).
 
-Und wo ein Faden liegt, wird er gezeigt — auch an einem Element, an dem sich
-neue Kommentare gar nicht anlegen lassen. Sonst zählte ihn die Navigation mit,
-ohne dass man ihn je zu Gesicht bekäme.
+Gespeichert werden die Fäden in der Spezifikation (`comments`); die Stelle
+steht als Schlüssel daran, z. B. `step:<id>#in:<name>` oder
+`type:<id>#field:<id>` (siehe `src/comments.ts`). Beim Umbenennen eines
+Schritts wandern die Fäden mit. Zeigt ein Faden auf eine Stelle, die es nicht
+mehr gibt, steht er in der Übersicht unter **«Ohne Stelle»** — weggeworfen
+wird er nicht. Kommentieren können Admins und Editoren; Viewer lesen mit.
+
+Beide Text-Exporte tragen die **offenen** Kommentare mit, samt denen an den
+Teilen eines Schritts oder Typs: der fachliche unter dem jeweiligen Schritt,
+der Orchescala-Export zusätzlich als Zeile in der Schritt-Tabelle. Erledigte
+bleiben in der Datei, aber aus den Exporten heraus.
 
 ### Status je Schritt
 
@@ -589,19 +766,134 @@ Katalog als Vorschlag im Eingabefeld, ohne mitgespeichert zu werden.
 
 Die Mappings sind **bearbeitbar** — Ausdruck und fachliche Bedeutung je Zeile —
 und jede Zeile hat ein **Häkchen**: Was möglich wäre, dieser Prozess aber nicht
-braucht, wird **abgewählt statt gelöscht**. So bleibt sichtbar, was es gäbe.
+braucht, wird **abgewählt** — so bleibt sichtbar, was es gäbe. Löschen geht
+daneben ebenfalls, je Zeile über den Papierkorb.
 Der Kopf zeigt dann «5 von 6», der Export listet die abgewählten getrennt als
 «Nicht verwendet», und ein erneuter BPMN-Abgleich stellt sie nicht wieder her:
 die Abwahl gehört der Spezifikation, wie die fachliche Bedeutung.
 
 **Das Mapping misst sich am Datenmodell.** Hat der Schritt eine Interaktion mit
 `In`/`Out`, sind deren Felder der Massstab; sonst der Katalog-Eintrag. Der Kopf
-bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt. Zeilen
-lassen sich in diesem Fall **nicht mehr löschen**, nur abwählen — und eine
-Zeile ohne Entsprechung im Modell wird **rot markiert**, mit Zähler darüber
-(«1 Zeile ohne Entsprechung im Modell»). Die Abweichung gehört im Datenmodell
-behoben, nicht im Mapping weggeräumt. Nur wo es keinen Massstab gibt, bleibt
-das Mapping frei — dort gibt es «+ Feld» und das Entfernen weiter.
+bietet dann «+ 1 aus Modell» bzw. «+ 1 aus Katalog» für das, was fehlt.
+Löschen geht bei jeder Zeile — ein Feld des Massstabs steht danach wieder
+unter «+ aus Modell» bereit; wer es sichtbar behalten will, wählt es ab.
+
+**Pflichtfelder** tragen ein Sternchen: ein Feld, das im `In` der Interaktion
+nicht optional ist — oder laut Katalog `required` —, muss der Service
+bekommen. Die Zeile lässt sich deshalb weder abwählen noch entfernen; das
+Sternchen und das Häkchen erklären das beim Überfahren. Fehlt ein
+Pflichtfeld ganz oder ist es aus einem alten Stand abgewählt, steht das rot
+über der Tabelle.
+
+**Erweiterungen** sind trotzdem möglich: «+ Feld» gibt es immer, auch mit
+Massstab — etwa für ein Feld, das der Service demnächst bekommt. Eine Zeile,
+die das Modell noch nicht kennt, wird **gelb markiert** (Warnung, kein
+Fehler), mit Zähler darüber («1 Zeile noch nicht im Modell — Erweiterung,
+dort nachziehen»). Sobald das Feld im Datenmodell bzw. Katalog steht, ist
+die Zeile ohne weiteres Zutun in Ordnung; bis dahin lässt sie sich auch
+wieder entfernen. **Rot** bleibt dem Fehler vorbehalten: derselbe Name
+zweimal in den aktiven Zeilen («Doppelt: «clientKey»»), denn die zweite
+Zeile überschriebe die erste.
+
+### FEEL-Ausdrücke — die Sprache der Spezifikation
+
+Ein Mapping-Wert oder eine Zweigbedingung, die mit `=` beginnt, ist ein
+FEEL-Ausdruck — **unabhängig von der Engine**. Die Spezifikation spricht
+FEEL; was die Engine braucht, entsteht beim Export (siehe unten). Die App
+prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld:
+
+- **Syntax** — `= amount +` ist kein gültiges FEEL («Fehler an Position 9,
+  Ausdruck unvollständig»).
+- **Pfade** — `= client.addr.x` zeigt ins Leere («client hat kein Feld
+  addr»); eine unbekannte Variable oder Funktion ebenso.
+- **Typ** — `= client.address.zip` in ein `String`-Feld: «Ergebnis ist Zahl,
+  das Feld erwartet Text». Der erwartete Typ kommt aus der In-Klasse der
+  Interaktion — oder, wo der Schritt keine eigene hat, aus dem
+  **Domain-Katalog**: das `<Objekt>.In` bzw. `.Out` des Service-Objekts
+  (gefunden über Topic, gerufenen Prozess oder Interaktionsnamen) trägt die
+  echten Scala-Typen. So werden auch importierte Prozesse geprüft. Ein
+  optionales Feld nimmt auch `null`, ein `LocalDate` sowohl ein Datum als
+  auch dessen Text. Ist ein Feld dort nicht `Option[…]`, gilt es als
+  Pflichtfeld.
+
+Gerechnet wird mit **Beispielwerten**: aus dem Datenmodell entsteht ein
+Kontext, in dem jede bekannte Variable einen zum Typ passenden Wert hat;
+[feelin](https://github.com/nikku/feelin) wertet den Ausdruck darin aus. Die
+Variablen sind das `In` des Prozesses, das `InitIn`, die Prozessvariablen der
+Spezifikation und die Ausgaben aller Schritte — bei Letzteren ist der Typ
+meist unbekannt, dort bleibt die Prüfung stumm statt falsch zu warnen. Rot
+heisst Fehler. Der Tooltip des Feldes nennt bei gültigem FEEL den
+Ergebnistyp. **Zweigbedingungen** werden genauso geprüft, mit erwartetem
+Ergebnis Ja/Nein.
+
+In einem **Camunda-7-Prozess** kommt eine gelbe Warnung dazu, wenn ein
+Ausdruck kein JUEL-Gegenstück hat (`count(items)`, Filter, Listen,
+Datumswerte) — man erfährt es beim Tippen, nicht erst beim Export.
+
+**Vervollständigung:** `= cli` schlägt `client` vor, `client.` dessen Felder
+(`name`, `address ›`), `client.addr` filtert. Je Vorschlag stehen Scala-Typ,
+FEEL-Typ und Herkunft; Pfeiltasten wählen, Enter oder Tab übernimmt, Escape
+schliesst. Vorgeschlagen werden nur Variablen und Pfade, keine Funktionen.
+
+**Ausgaben** sehen zuerst das **Ergebnis des Services**: der Worker gibt
+sein `Out` zurück, und dessen Felder werden zu Variablen des Jobs — die
+Quelle heisst also `= accountId`, nicht `= out.accountId`. Woher das `Out`
+kommt: die Out-Klasse der Interaktion, sonst das `<Objekt>.Out` aus dem
+Domain-Katalog (über Topic bzw. gerufenen Prozess), sonst die
+Ausgabe-Parameter des Katalog-Eintrags (ohne Typ). Dahinter stehen die
+Prozessvariablen, wie in Camunda 8 auch. Der erwartete Typ ist der des
+Out-Felds mit dem Namen der Zeile.
+
+### Export: die App übersetzt in die Engine
+
+Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
+**Export → BPMN**. Dort schreibt die App sie in die Form der Engine:
+
+| | Camunda 8 | Camunda 7 |
+| --- | --- | --- |
+| Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.name}` |
+| Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
+| Zweigbedingung | `=amount > 3` | `${amount > 3}` |
+
+FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit
+Textersetzung, sonst würde aus `a = b` in einer Zeichenkette ein `==`. Die
+Teilmenge mit JUEL-Gegenstück: Pfade, Literale, Rechnen (`Text + Text` wird
+`concat`), Vergleiche (`=` → `==`, `between`, `in [...]`), `and`/`or`/`not`,
+`if … then … else` (→ `? :`) und ein fester Listenindex (`items[1]` →
+`items[0]`, FEEL zählt ab 1). Alles andere bleibt als FEEL im BPMN stehen und
+wird im Export-Dialog als **«Stelle zum Prüfen»** gemeldet — lieber sichtbar
+falsch als still verloren. Der Orchescala-Export (Markdown) zeigt die
+Ausdrücke ebenfalls in Engine-Form, Nichtübersetzbares markiert.
+
+Angefasst werden nur Schritte, die in der Spezifikation Mapping-Zeilen haben;
+abgewählte Zeilen kommen nicht ins BPMN, Steuerparameter (`_handledErrors`,
+`_outputMock` …) bleiben, wie sie im Diagramm stehen. Alte JUEL-Werte aus
+einem Import (`${x}`) werden unverändert übernommen — in einem
+Camunda-8-Export mit Hinweis, denn dort wäre das ein fester Text.
+
+**Import** kann beides lesen: `camunda:inputOutput` / `camunda:in` wie bisher
+und für Camunda 8 `zeebe:ioMapping`, `zeebe:taskDefinition` (Topic) und
+`zeebe:calledElement` (gerufener Prozess). Eine FEEL-Quelle `=x` kommt als
+`= x` in die Spezifikation — und **JUEL wird zu FEEL**: `${client.name}` wird
+`= client.name`, `${a == b ? 'x' : 'y'}` wird `= if a = b then "x" else "y"`,
+eine Vorlage wie `Hallo ${name}` wird `= "Hallo " + name`. Übersetzt wird
+mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
+`modulo()`), Vergleiche (auch `eq`/`ne`/`lt`…), `&&`/`||`/`!`, `? :`,
+`empty x`, Index `[0]` → `[1]` und die üblichen String-Methoden (`concat`,
+`equals`, `contains`, `startsWith`, `toUpperCase`, `size`, `isEmpty` …).
+Dazu die Camunda-7-Eigenheiten, die in FEEL schlicht Pfade oder Variablen
+sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
+`.hasProp`, `.jsonPath("$.a")`), `execution.getVariable("x")` → `x`,
+`execution.getProcessInstanceId()` → `processInstanceKey`,
+`getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
+`processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen),
+`result.get("k")` → `result.k` und Zeitketten wie
+`dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
+alle valiant-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
+Setter, `append`, dynamische Variablennamen, `jsonPath`-Filter.
+Was kein Gegenstück hat (fremde Methoden, Java-Aufrufe), bleibt als JUEL
+stehen und wird am Feld gelb gemeldet — der Export übernimmt es für Camunda 7
+unverändert. Ein fester Text ohne `${}` bleibt ein fester Text.
 
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.
@@ -622,7 +914,8 @@ Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 
 ```
 <geteilter Ordner>/
-├── model.json                Service-Katalog, Domain-Typen, Anmeldung
+├── model.json                Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
+├── users.json                wer hier arbeitet — Vorschläge bei «@» in Kommentaren
 └── processes/
     ├── <slug>.json           die Spezifikation
     └── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
@@ -638,13 +931,27 @@ Sekunde nach der letzten Eingabe automatisch gespeichert; Konflikte werden
 Wie im arch-review: MSAL im Browser, Authorization Code Flow + PKCE, kein
 eigener Server. Konfiguriert wird unter **Admin → Anmeldung** (Tenant-ID,
 Client-ID, Rollen, aktiv); die Einstellung liegt als `auth` in der
-`model.json`. Drei Stufen über Entra-App-Rollen: **Admin** (alles),
-**Editor** (Spezifikationen bearbeiten), **Viewer** (nur lesen). Für den
+`model.json`. Drei Stufen über Entra-App-Rollen: **Admin** (alles, auch
+Spezifikationen löschen), **Editor** (Spezifikationen bearbeiten), **Viewer**
+(nur lesen). Für den
 SharePoint-Modus erzeugt der Admin einen **Einrichtungs-Link**, der Anmeldung
 und Ordner in einem Schritt setzt.
 
 Entwicklung ohne Login: `?noauth`, Stufen simulieren mit `&as=viewer` /
-`&as=reviewer`.
+`&as=reviewer`, eine angemeldete Person mit `&me=vorname.nachname@firma.ch`;
+`&teamsmock` schreibt Teams-Nachrichten in die Konsole statt sie zu senden,
+`&teamsdelay=<Sekunden>` verkürzt die Wartezeit.
+
+Anleitungen:
+
+- [docs/ENTRA-SETUP.md](docs/ENTRA-SETUP.md) — App-Registrierung,
+  Umleitungs-URIs, Berechtigungen (Dateien, Verzeichnissuche, Teams),
+  App-Rollen, Einrichtung in der App, Fehlermeldungen
+- [docs/ENTRA-ADMIN-ANLEITUNG.md](docs/ENTRA-ADMIN-ANLEITUNG.md) — die
+  kompakte Fassung für die Entra-Administration
+- [docs/SHAREPOINT-SETUP.md](docs/SHAREPOINT-SETUP.md) — Site und Ordner,
+  Berechtigungen je Rolle, `model.json` schützen, verbinden und
+  Einrichtungs-Link verteilen
 
 ## Werkzeuge (CLI)
 

@@ -133,7 +133,10 @@ export function renameStepId<T extends {
         : i)),
     } : {}),
     ...(spec.comments ? {
-      comments: spec.comments.map(t => (t.target === `step:${oldId}` ? { ...t, target: `step:${newId}` } : t)),
+      // auch die Teile des Schritts: `step:<id>#in:name` …
+      comments: spec.comments.map(t => (t.target === `step:${oldId}` || t.target.startsWith(`step:${oldId}#`)
+        ? { ...t, target: `step:${newId}${t.target.slice(`step:${oldId}`.length)}` }
+        : t)),
     } : {}),
   };
 }
@@ -163,7 +166,7 @@ export function knownPrefixes(model: Model | null, specProjects: Array<string | 
  * gerufene eigene Prozesse, Nachrichten-/Signalnamen, Interaktions-Schlüssel,
  * und auch in Beschreibungen, wo die IDs erwähnt sind. Fremde Services tragen
  * einen anderen Prefix und bleiben unberührt. Der Dateiname (slug) bleibt —
- * Dateien benennt die App bewusst nicht um (siehe deleteSpec im Store).
+ * Dateien benennt die App bewusst nicht um.
  */
 export function renamePrefix(spec: ProcessSpec, oldPrefix: string, newPrefix: string): ProcessSpec {
   const alt = `${oldPrefix}-`;

@@ -1,18 +1,17 @@
 package orchescala.engine.c8
 
-import io.camunda.client.CamundaClient
 import orchescala.engine.DefaultEngineConfig
 import orchescala.engine.domain.*
 import zio.test.*
-import zio.{IO, ZIO}
+import zio.ZIO
 
 object C8DeploymentServiceTest extends ZIOSpecDefault:
 
   private val config = DefaultEngineConfig()
 
-  // This client should never be used by the tests below; the guarded paths fail earlier.
-  private val neverClient: IO[EngineError, CamundaClient] =
-    ZIO.fail(EngineError.UnexpectedError("CamundaClient should not be requested"))
+  // This client must never be called by the tests below; the guarded paths fail earlier.
+  private val neverClient: C8RestClient =
+    C8RestClient("http://never-called.invalid", C8RestAuth.NoAuth)
 
   def spec = suite("C8DeploymentService")(
     test("deploy rejects deployments that contain Script resources") {

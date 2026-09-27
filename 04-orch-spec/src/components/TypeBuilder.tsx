@@ -5,11 +5,11 @@
 // Implementations-Details und gehören nicht in die Spezifikation.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Braces, Code2, Copy, Check, ListOrdered,
+  AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, Copy, Check, ListOrdered,
   Plus, Trash2, Workflow, X,
-  MessageSquare,
+  Plug, ExternalLink,
 } from 'lucide-react';
-import {
+import { isAdt,
   CONSTRAINTS, INTERACTION_META, STATUSES, STATUS_META,
   type ConstraintTemplate, type Field, type Interaction, type Model, type ProcessSpec,
   type Status, type TypeDef,
@@ -17,13 +17,15 @@ import {
 import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
 } from '../interactions';
-import { renderInConfig } from '../scala';
+import { casesOf, renderInConfig } from '../scala';
+import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
-import { checkTypes, constraintKind, fieldType, indexTypes, renderType, scalaBundle } from '../scala';
-import { cls } from '../ui';
-import Comments from './Comments';
-import { typeTarget, openCount } from '../comments';
-import { useAuthorName } from '../auth';
+import ScalaCode from './ScalaCode';
+import { checkTypes, constraintKind, fieldType, indexTypes, renderType } from '../scala';
+import { BRANCH_COLORS, cls } from '../ui';
+import { sharedFields } from '../projectImport';
+import { CommentBubble } from './Comments';
+import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 
 interface Props {
@@ -33,17 +35,95 @@ interface Props {
   /** Service-Katalog — liefert die wählbaren Service-Objekte */
   model: Model | null;
   onChange: (spec: ProcessSpec) => void;
-  /** Kommentar-Faden, auf dem die Navigation steht */
-  highlight?: string;
   /** aus dem Ablauf hierher gesprungen: diesen Typ zeigen */
   focusTypeId?: string | null;
   onFocused?: () => void;
+  /** aus den Kommentaren hierher gesprungen: diese Interaktion zeigen */
+  focusIaId?: string | null;
+  onFocusedIa?: () => void;
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
+const SCALA_KEY = 'orch-spec.showScala';
 
-export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, focusTypeId, onFocused, highlight }: Props) {
-  const author = useAuthorName();
+/** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
+const KIND_GROUP: Record<Interaction['kind'], string> = {
+  userTask: 'User Tasks', customTask: 'Worker', signal: 'Signale', message: 'Nachrichten',
+};
+
+// ── Seitenleiste: was ein Typ ist, was ihm fehlt, ob er gebraucht wird ─────
+/** Leer — kein Feld bzw. kein Wert mit Namen? */
+const isEmptyType = (t: TypeDef | null | undefined): boolean =>
+  !t || (t.kind === 'enum' ? !(t.values ?? []).some(v => v.name) : !(t.fields ?? []).some(f => f.name));
+
+/** Kurz, was drin ist: «14», «ADT · 2 Fälle · 8 gemeinsam», «3 Werte». */
+function contentLabel(t: TypeDef): string {
+  if (t.kind !== 'enum') return String((t.fields ?? []).filter(f => f.name).length);
+  const cases = (t.values ?? []).filter(v => v.name).length;
+  if (!isAdt(t)) return `${cases} Wert${cases === 1 ? '' : 'e'}`;
+  const common = (t.fields ?? []).filter(f => f.name).length;
+  return `ADT · ${cases} F${cases === 1 ? 'all' : 'älle'}${common ? ` · ${common} gemeinsam` : ''}`;
+}
+
+/** Wie viele Felder anderer Typen auf diesen Typ zeigen. */
+function usageCount(all: TypeDef[], id: string): number {
+  let n = 0;
+  for (const t of all) {
+    if (t.id === id) continue;
+    for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) if (f.type === id) n++;
+  }
+  return n;
+}
+
+const amber = (isDark: boolean) => (isDark ? 'text-amber-400' : 'text-amber-600');
+
+/** Farbe und Zeichen des Typ-Chips einer Feldzeile. */
+function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>, model: Model | null, isDark: boolean):
+  { cls: string; icon: React.ReactNode; ownId?: string; title?: string } {
+  const own = types.find(t => t.id === f.type);
+  if (own) {
+    const enumish = own.kind === 'enum';
+    return {
+      ownId: own.id,
+      icon: enumish ? <ListOrdered size={9} className="flex-shrink-0" /> : <Braces size={9} className="flex-shrink-0" />,
+      cls: enumish
+        ? (isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100')
+        : (isDark ? 'border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20' : 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100'),
+    };
+  }
+  const dom = idx.domainOf(f.type);
+  const svc = idx.serviceOf(f.type);
+  if (dom || svc) {
+    // Katalog — fehlt der Eintrag im geladenen Katalog, ist das ein Fehler
+    return {
+      icon: <Plug size={9} className="flex-shrink-0" />,
+      title: dom ? `${dom.name} — aus dem Domain-Katalog (${dom.pkg})` : `${svc!.name} — Service-Objekt, ${svc!.label}`,
+      cls: isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800',
+    };
+  }
+  if ((parseDomainRef(f.type) && model?.domainTypes) || (parseServiceRef(f.type) && model)) {
+    return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: 'steht nicht (mehr) im Katalog',
+      cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };
+  }
+  if (constraintKind(f.type) !== null || ['Boolean', 'LocalDate', 'LocalDateTime'].includes(f.type)) {
+    return { icon: null, cls: isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50' };
+  }
+  return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: `«${f.type}» ist kein bekannter Typ`,
+    cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };
+}
+
+/** Klasse ↔ ADT: die Felder wandern in den ersten Fall bzw. zurück. */
+function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
+  if (kind === t.kind) return {};
+  // Klasse → ADT: die Felder werden die gemeinsamen, ein erster Fall entsteht
+  if (kind === 'enum') return { kind, values: [{ name: 'Standard' }] };
+  // ADT → Klasse: gemeinsame und spezielle Felder zusammen, je Name einmal
+  const seen = new Set<string>();
+  const fields = [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])].filter(f => !seen.has(f.name) && seen.add(f.name));
+  return { kind, values: undefined, fields: fields.length ? fields : [emptyField()] };
+}
+
+export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, focusTypeId, onFocused, focusIaId, onFocusedIa }: Props) {
   const c = cls(isDark);
   const types = useMemo(() => spec.types ?? [], [spec.types]);
   const [selected, setSelected] = useState<string | null>(types[0]?.id ?? null);
@@ -53,7 +133,6 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const [showConfig, setShowConfig] = useState(false);
   const interactions = useMemo(() => spec.interactions ?? [], [spec.interactions]);
   const offen = useMemo(() => missingInteractions(spec, model), [spec, model]);
-  const [showCode, setShowCode] = useState(true);
 
   // Sprung aus dem Ablauf: den gewünschten Typ zeigen und die Anfrage quittieren
   useEffect(() => {
@@ -63,6 +142,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     setShowConfig(false);
     onFocused?.();
   }, [focusTypeId, onFocused]);
+  useEffect(() => {
+    if (!focusIaId) return;
+    setSelectedIa(focusIaId);
+    setSelected(null);
+    setShowConfig(false);
+    onFocusedIa?.();
+  }, [focusIaId, onFocusedIa]);
 
   const idx = useMemo(() => indexTypes(types, model), [types, model]);
   const issues = useMemo(() => checkTypes(types, model), [types, model]);
@@ -157,26 +243,29 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   return (
     <div className="flex h-full min-h-0">
       {/* ── Typen ──────────────────────────────────────────────────────────── */}
-      <div className={`w-56 flex-shrink-0 border-r ${c.border} flex flex-col`}>
+      <div className={`w-72 flex-shrink-0 border-r ${c.border} flex flex-col`}>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div className="mb-2">
             <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Prozess</div>
             {([['root', 'In'], ['initIn', 'InitIn'], ['processOut', 'Out']] as const).map(([slot, label]) => {
               const t = types.find(x => x[slot]);
               return (
-                <button key={slot} onClick={() => processSlot(slot)}
-                  className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
+                <button key={slot} onClick={() => processSlot(slot)} data-cframe-base={t ? typeTarget(t.id) : undefined}
+                  className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                     t && selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
-                  <Braces size={11} className={c.muted} />
-                  <span className={`flex-1 truncate text-[11px] font-mono ${t ? c.text : c.muted}`}>{label}</span>
+                  {t?.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
+                  <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${t ? c.text : c.muted}`}>{label}</span>
                   {t && !!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
-                  {t && !!openCount(spec, typeTarget(t.id)) && (
-                    <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
-                      title={`${openCount(spec, typeTarget(t.id))} offene Kommentare`}>
-                      <MessageSquare size={9} />{openCount(spec, typeTarget(t.id))}
-                    </span>
-                  )}
-                  <span className={`text-[9px] ${c.muted}`}>{t ? t.fields?.length ?? 0 : '+'}</span>
+                  {t && <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />}
+                  {/* In und Out hat jeder Prozess — fehlen sie oder sind sie leer, ist das orange.
+                      Das InitIn entsteht aus dem Init-Worker; ohne den gibt es keins, das ist kein Mangel. */}
+                  {!t && slot !== 'initIn'
+                    ? <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title={`${label} fehlt — anklicken legt es an`}><AlertTriangle size={9} /> fehlt</span>
+                    : !t
+                      ? <span className={`text-[9px] ${c.muted}`}>+</span>
+                      : isEmptyType(t)
+                        ? <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title={`${label} ist leer — Felder fehlen`}><AlertTriangle size={9} /> leer</span>
+                        : <span className={`text-[9px] ${c.muted}`}>{contentLabel(t)}</span>}
                 </button>
               );
             })}
@@ -190,45 +279,71 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             </button>
           </div>
 
-          {!!interactions.length && (
-            <div className="mb-2">
-              <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Interaktionen</div>
-              {interactions.map(ia => (
+          {(['userTask', 'customTask', 'signal', 'message'] as const).map(kind => {
+            const group = interactions.filter(ia => ia.kind === kind);
+            if (!group.length) return null;
+            return (
+            <div key={kind} className="mb-2">
+              <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>{KIND_GROUP[kind]}</div>
+              {group.map(ia => {
+                // Was der DSL verlangt (In, bei Aufgaben und Workern auch Out) und noch
+                // fehlt oder leer ist, wird orange — Signale und Nachrichten ohne In
+                // sind `NoInput`, das ist erlaubt
+                const members = (['In', 'Out'] as const).filter(m => m === 'In' || INTERACTION_META[ia.kind].hasOut);
+                const typeOf = (m: 'In' | 'Out') => { const id = m === 'In' ? ia.inTypeId : ia.outTypeId; return id ? types.find(x => x.id === id) ?? null : null; };
+                const lacking = (m: 'In' | 'Out') => {
+                  const t = typeOf(m);
+                  if (!t) return m === 'In' && !INTERACTION_META[ia.kind].hasOut ? null : 'fehlt';
+                  return isEmptyType(t) ? 'leer' : null;
+                };
+                const mangel = members.some(m => lacking(m));
+                return (
                 <div key={ia.id}>
-                  <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }}
-                    className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
+                  <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }} data-cframe-base={iaTarget(ia.id)}
+                    className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                       selectedIa === ia.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                     <Workflow size={11} className={c.muted} />
-                    <span className={`flex-1 truncate text-[11px] font-mono ${c.text}`}>{ia.name}</span>
+                    <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${c.text}`}>{ia.name}</span>
+                    {mangel && <AlertTriangle size={10} className={amber(isDark)} />}
+                    <CommentBubble target={iaTarget(ia.id)} quiet inButton />
                     <span className={`text-[9px] ${c.muted}`}>{INTERACTION_META[ia.kind].suffix || 'W'}</span>
                   </button>
                   <div className="flex gap-1 pl-6 pb-0.5">
-                    {(['In', 'Out'] as const)
-                      .filter(m => m === 'In' || INTERACTION_META[ia.kind].hasOut)
-                      .map(m => {
-                        const id = m === 'In' ? ia.inTypeId : ia.outTypeId;
-                        const t = id ? types.find(x => x.id === id) : null;
+                    {members.map(m => {
+                        const t = typeOf(m);
+                        const id = t?.id;
+                        const fehl = lacking(m);
                         return (
                           <button key={m} onClick={() => openMember(ia, m)}
-                            title={t ? `${m} bearbeiten` : `${m} anlegen`}
+                            title={fehl === 'fehlt' ? `${m} fehlt — anlegen` : fehl === 'leer' ? `${m} ist leer — Felder fehlen` : t ? `${m} bearbeiten` : `${m} — NoInput, anlegen wenn gebraucht`}
                             className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                              selected === id ? (isDark ? 'bg-white/10 border-white/40' : 'bg-black/10 border-black/40') : c.border2
-                            } ${t ? c.muted2 : c.muted}`}>
-                            {m}{t ? ` ${t.fields?.length ?? 0}` : ' +'}
+                              selected === id ? (isDark ? 'bg-white/10 border-white/40' : 'bg-black/10 border-black/40')
+                              : fehl ? (isDark ? 'border-amber-500/40' : 'border-amber-400') : c.border2
+                            } ${fehl ? amber(isDark) : t ? c.muted2 : c.muted}`}>
+                            {m}{t ? ` ${(t.fields ?? []).filter(f => f.name).length}` : ' +'}
                           </button>
                         );
                       })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
-          )}
+            );
+          })}
 
-          <TypeGroup label="Klassen" isDark={isDark}
+          <TypeGroup label="Klassen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'case')}
-            selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
-          <TypeGroup label="Auswahlen" isDark={isDark}
-            types={types.filter(t => t.kind === 'enum')} selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
+            selected={selected} onSelect={pickType} issuesOf={issuesOf} />
+          <TypeGroup label="Auswahlen" isDark={isDark} all={types}
+            types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'enum')}
+            selected={selected} onSelect={pickType} issuesOf={issuesOf} />
+          {/* Legende — die Farben sagen, was los ist */}
+          <div className={`text-[9px] px-2 pt-2 pb-1 leading-relaxed ${c.muted}`}>
+            <span className={amber(isDark)}>orange</span> = fehlt etwas ·{' '}
+            <span className={isDark ? 'text-rose-400' : 'text-rose-600'}>rot</span> = Fehler ·{' '}
+            <span className="italic">grau kursiv</span> = nicht verwendet
+          </div>
         </div>
         {canEdit && (
           <div className={`flex-shrink-0 border-t ${c.border} p-2 space-y-1`}>
@@ -258,7 +373,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       </div>
 
       {/* ── Editor ─────────────────────────────────────────────────────────── */}
+      {/* Der Editor in lesbarer Breite, mittig — sonst laufen die Feldzeilen
+          auf einem breiten Bildschirm ins Leere */}
       <div className="flex-1 min-w-0 overflow-y-auto">
+       <div className="max-w-4xl mx-auto w-full">
         {showConfig ? (
           <GeneratedConfig spec={spec} idx={idx} isDark={isDark} />
         ) : !current && !selectedIa ? (
@@ -287,39 +405,22 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
               setSelectedIa(null);
             }} />
         ) : current ? (
-          <TypeEditor key={current.id} type={current} types={types} spec={spec} author={author}
+          <TypeEditor key={current.id} type={current} types={types}
             isDark={isDark} canEdit={canEdit}
             issues={issuesOf(current.id)} idx={idx} model={model}
             onPatch={patch => patchType(current.id, patch)}
             onRemove={() => removeType(current.id)}
             onAddType={addType}
-            onSpecChange={onChange}
-            highlight={highlight} />
+            onOpenType={pickType}
+            />
         ) : null}
         {!!globalIssues.length && (
           <div className={`mx-4 mb-4 text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
             {globalIssues.map((i, k) => <div key={k}>{i.message}</div>)}
           </div>
         )}
+       </div>
       </div>
-
-      {/* ── Scala ──────────────────────────────────────────────────────────── */}
-      {showCode ? (
-        <div className={`w-[30rem] flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
-          <div className={`flex items-center gap-2 px-3 py-2 border-b ${c.border}`}>
-            <Code2 size={12} className={c.muted} />
-            <span className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Orchescala-Domain</span>
-            <CopyButton text={scalaBundle(spec, model)} isDark={isDark} />
-            <button onClick={() => setShowCode(false)} className={`p-1 ${c.muted}`}><X size={12} /></button>
-          </div>
-          <pre className={`flex-1 overflow-auto text-[10px] leading-relaxed p-3 ${c.muted2}`}>{scalaBundle(spec, model)}</pre>
-        </div>
-      ) : (
-        <button onClick={() => setShowCode(true)} title="Scala-Code zeigen"
-          className={`flex-shrink-0 px-2 border-l ${c.border} ${c.muted} ${c.hover}`}>
-          <Code2 size={14} />
-        </button>
-      )}
     </div>
   );
 }
@@ -344,7 +445,7 @@ function GeneratedConfig({ spec, idx, isDark }: { spec: ProcessSpec; idx: Return
         <span className="font-mono"> …Mock</span>, mit dem sich sein Ergebnis in Tests überschreiben lässt.
       </p>
       {code
-        ? <pre className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`}>{code}</pre>
+        ? <ScalaCode code={code} isDark={isDark} className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
         : <p className={`text-[11px] ${c.muted}`}>Noch nichts zu konfigurieren — der Ablauf hat weder Schleifen noch aufgerufene Services.</p>}
     </div>
   );
@@ -365,9 +466,12 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-start gap-3">
+      <div data-cframe={iaTarget(ia.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{meta.label}</div>
+          <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
+            {meta.label}
+            <CommentBubble target={iaTarget(ia.id)} title={`Kommentare zu «${ia.name}»`} />
+          </div>
           <input value={ia.name} disabled={!canEdit}
             onChange={e => onPatch({ name: e.target.value })}
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
@@ -424,52 +528,59 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 }
 
 // ── Typliste ─────────────────────────────────────────────────────────────────
-function TypeGroup({ label, types, selected, onSelect, isDark, issuesOf, spec }: {
-  label: string; types: TypeDef[]; selected: string | null; isDark: boolean;
+function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: {
+  label: string; types: TypeDef[];
+  /** alle Typen — um zu sehen, wer auf einen zeigt */
+  all: TypeDef[];
+  selected: string | null; isDark: boolean;
   onSelect: (id: string) => void; issuesOf: (id: string) => unknown[];
-  spec: ProcessSpec;
 }) {
   const c = cls(isDark);
   if (!types.length) return null;
   return (
     <div className="mb-2">
       <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>{label}</div>
-      {types.map(t => (
-        <button key={t.id} onClick={() => onSelect(t.id)}
-          className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
+      {types.map(t => {
+        const used = usageCount(all, t.id);
+        const leer = isEmptyType(t);
+        return (
+        <button key={t.id} onClick={() => onSelect(t.id)} data-cframe-base={typeTarget(t.id)}
+          title={used ? `${used}× als Feldtyp verwendet` : 'Kein Feld zeigt auf diesen Typ — Überbleibsel?'}
+          className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
             selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
           {t.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
-          <span className={`flex-1 truncate text-[11px] font-mono ${c.text}`}>{t.name}</span>
+          {/* fett, was gebraucht wird; grau und kursiv, worauf nichts zeigt */}
+          <span className={`flex-1 truncate text-[11px] font-mono ${used ? `font-semibold ${c.text}` : `italic ${c.muted}`}`}>{t.name}</span>
+          {leer && <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title="leer — Felder fehlen"><AlertTriangle size={9} /> leer</span>}
           {!!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
-          {!!openCount(spec, typeTarget(t.id)) && (
-            <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
-              title={`${openCount(spec, typeTarget(t.id))} offene Kommentare`}>
-              <MessageSquare size={9} />{openCount(spec, typeTarget(t.id))}
-            </span>
-          )}
+          <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />
           <span className={`text-[9px] ${c.muted}`}>
-            {t.kind === 'enum' ? t.values?.length ?? 0 : t.fields?.length ?? 0}
+            {leer ? '' : contentLabel(t)}{used ? ` · ${used}×` : ' · ungenutzt'}
           </span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 // ── Typ-Editor ───────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onSpecChange, highlight }: {
-  type: TypeDef; types: TypeDef[]; spec: ProcessSpec; author: string;
+function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
+  type: TypeDef; types: TypeDef[];
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string }[];
   idx: ReturnType<typeof indexTypes>;
   onPatch: (patch: Partial<TypeDef>) => void;
   onRemove: () => void;
   onAddType: (kind: 'case' | 'enum') => string;
-  onSpecChange: (spec: ProcessSpec) => void;
-  highlight?: string;
+  /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
+  onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
   const fields = t.fields ?? [];
+  // Die Scala-Vorschau ist zu, bis man sie will — und merkt sich das
+  const [showCode, setShowCodeState] = useState(() => { try { return localStorage.getItem(SCALA_KEY) === '1'; } catch { return false; } });
+  const setShowCode = (on: boolean) => { setShowCodeState(on); try { localStorage.setItem(SCALA_KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
   const setField = (i: number, patch: Partial<Field>) =>
     onPatch({ fields: fields.map((f, k) => (k === i ? { ...f, ...patch } : f)) });
@@ -487,10 +598,22 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
   return (
     <div className="p-4 space-y-4">
       {/* Kopf */}
-      <div className="flex items-start gap-3">
+      <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>
-            {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? 'Auswahl (enum)' : 'Klasse (case class)'}
+          <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
+            {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
+            <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
+            {/* Das In eines Prozesses ist meist eine Klasse — kann aber ein ADT
+                sein (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
+                wenn derselbe Prozess mit verschiedenen Eingaben startet. */}
+            {t.root && canEdit && (
+              <select value={t.kind} onChange={e => onPatch(switchKind(t, e.target.value as 'case' | 'enum'))}
+                title="Klasse oder Auswahl mit Fällen (ADT) — die Felder der Klasse werden die gemeinsamen Felder, und zurück"
+                className={`text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
+                <option value="case">Klasse</option>
+                <option value="enum">Auswahl mit Fällen (ADT)</option>
+              </select>
+            )}
           </div>
           <input value={t.name} disabled={!canEdit || t.root}
             onChange={e => onPatch({ name: e.target.value })}
@@ -520,7 +643,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
       )}
 
       {t.kind === 'enum'
-        ? <EnumEditor type={t} isDark={isDark} canEdit={canEdit} onPatch={onPatch} />
+        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onAddType={onAddType} onOpenType={onOpenType} />
         : (
           <div className="space-y-2">
             {fields.map((f, i) => (
@@ -530,7 +653,7 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
                 onChange={patch => setField(i, patch)}
                 onRemove={() => onPatch({ fields: fields.filter((_, k) => k !== i) })}
                 onMove={by => moveField(i, by)}
-                onAddType={onAddType} />
+                onAddType={onAddType} onOpenType={onOpenType} />
             ))}
             {canEdit && (
               <button onClick={() => onPatch({ fields: [...fields, emptyField()] })}
@@ -541,22 +664,27 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
           </div>
         )}
 
-      {/* Vorschau des einzelnen Typs */}
+      {/* Scala-Vorschau des Typs — aufklappbar; der ganze Domain-Code steht im Export */}
       <div>
-        <div className={`text-[10px] uppercase tracking-widest mb-1 ${c.muted}`}>Scala</div>
-        <pre className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`}>
-          {renderType(t, idx)}
-        </pre>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={() => setShowCode(!showCode)}
+            className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
+            {showCode ? <ChevronDown size={11} /> : <ChevronRight size={11} />} Scala
+          </button>
+          {showCode && <CopyButton text={renderType(t, idx)} isDark={isDark} />}
+        </div>
+        {showCode && (
+          <ScalaCode code={renderType(t, idx)} isDark={isDark}
+            className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
+        )}
       </div>
 
-      <Comments spec={spec} target={typeTarget(t.id)} author={author} isDark={isDark}
-        canEdit={canEdit} onChange={onSpecChange} title={`Kommentare · ${t.name}`} highlight={highlight} />
     </div>
   );
 }
 
 // ── Feld ─────────────────────────────────────────────────────────────────────
-function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType }: {
+function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType, onOpenType }: {
   field: Field; index: number; last: boolean; types: TypeDef[]; selfId: string;
   isDark: boolean; canEdit: boolean; issue?: string; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
@@ -564,10 +692,17 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   onRemove: () => void;
   onMove: (by: number) => void;
   onAddType: (kind: 'case' | 'enum') => string;
+  onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
+  // Der Typ als Chip: die Farbe sagt, was es ist — einfach (grau), eigene
+  // Klasse (blau), Auswahl oder Ausprägung (violett), Katalog (teal, Stecker),
+  // unbekannt (rot). Eigene Typen sind anklickbar und springen dorthin.
+  const chip = typeChip(f, types, idx, model, isDark);
   // Einschränkungen nur, wo sie etwas bedeuten (Text und Zahlen)
   const canConstrain = !!constraintKind(f.type);
+  // Fälle einer Auswahl mit Feldern — eigen oder aus dem Katalog
+  const cases = casesOf(f.type, idx);
 
   const changeType = (v: string) => {
     if (v === NEW_CASE || v === NEW_ENUM) {
@@ -578,19 +713,33 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
     }
     // Beim Typwechsel eine nicht mehr passende Einschränkung fallen lassen
     const keep = v === f.type || (constraintKind(v) && constraintKind(v) === constraintKind(f.type));
-    onChange({ type: v, ...(keep ? {} : { constraint: undefined }) });
+    onChange({ type: v, enumCase: undefined, ...(keep ? {} : { constraint: undefined }) });
   };
 
   return (
-    <div className={`rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
+    <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
+      className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
           placeholder="feldName"
-          className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+          className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+        {/* Pflicht: nicht optional — wie in den Mappings */}
+        {!f.optional && f.name && <span className={`-ml-1 text-[11px] ${c.muted}`} title="Pflichtfeld — nicht optional">*</span>}
 
         <TypePicker value={f.type} types={types} selfId={selfId} model={model} isDark={isDark}
           disabled={!canEdit} onPick={changeType}
           onCreate={kind => changeType(kind === 'case' ? NEW_CASE : NEW_ENUM)} />
+        {/* Eine Auswahl mit Fällen: das Feld kann eine einzelne Ausprägung meinen
+            (`CustomDocContents.\`QI-Deklaration\``) — oder alle */}
+        {cases && (
+          <select value={f.enumCase ?? ''} disabled={!canEdit}
+            onChange={e => onChange({ enumCase: e.target.value || undefined })}
+            title="Ausprägung: nur dieser Fall der Auswahl — oder alle"
+            className={`text-[10px] px-1.5 py-1 rounded border outline-none font-mono max-w-[10rem] ${c.input}`}>
+            <option value="">alle Fälle</option>
+            {cases.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        )}
 
         <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Option[…] — darf fehlen">
           <input type="checkbox" checked={!!f.optional} disabled={!canEdit}
@@ -602,10 +751,24 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             onChange={e => onChange({ collection: e.target.checked || undefined })} />
           mehrfach
         </label>
+        <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Map[String, …] — Schlüssel ist ein Text, der Typ hier ist der Wert">
+          <input type="checkbox" checked={!!f.map} disabled={!canEdit}
+            onChange={e => onChange({ map: e.target.checked || undefined })} />
+          Map
+        </label>
 
-        <span className={`ml-auto text-[10px] font-mono truncate max-w-[14rem] ${c.muted}`} title={fieldType(f, idx)}>
-          {fieldType(f, idx)}
-        </span>
+        {chip.ownId ? (
+          <button onClick={() => onOpenType(chip.ownId!)} title={`${fieldType(f, idx)} — zum Typ springen`}
+            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${chip.cls}`}>
+            {chip.icon}<span className="truncate">{fieldType(f, idx)}</span><ExternalLink size={9} className="flex-shrink-0 opacity-60" />
+          </button>
+        ) : (
+          <span title={chip.title ?? fieldType(f, idx)}
+            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${chip.cls}`}>
+            {chip.icon}<span className="truncate">{fieldType(f, idx)}</span>
+          </span>
+        )}
+        {f.name && <CommentBubble target={sub(typeTarget(selfId), `field:${f.id}`)} quiet />}
 
         {canEdit && (
           <div className="flex items-center">
@@ -699,34 +862,137 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 }
 
 // ── Auswahl (enum) ───────────────────────────────────────────────────────────
-function EnumEditor({ type: t, isDark, canEdit, onPatch }: {
-  type: TypeDef; isDark: boolean; canEdit: boolean; onPatch: (patch: Partial<TypeDef>) => void;
+//
+// Ein Wert kann **Felder** tragen — dann ist die Auswahl ein ADT wie
+// `enum In: case Standard(clientKey: Long, …) case VermoegensVerwaltung(…)`:
+// jeder Fall eine eigene Klasse, gemeinsam ein Typ. Die Felder werden mit
+// derselben Zeile bearbeitet wie in einer Klasse.
+function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
+  type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
+  idx: ReturnType<typeof indexTypes>;
+  issues: { field?: string; message: string }[];
+  onPatch: (patch: Partial<TypeDef>) => void;
+  onAddType: (kind: 'case' | 'enum') => string;
+  onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
   const values = t.values ?? [];
   const set = (i: number, patch: Partial<(typeof values)[number]>) =>
     onPatch({ values: values.map((v, k) => (k === i ? { ...v, ...patch } : v)) });
+  const setFields = (i: number, fields: Field[]) => set(i, { fields: fields.length ? fields : undefined });
+  const adt = isAdt(t);
+  // Gemeinsame Felder aller Fälle — in Scala 3 als `def` im enum-Rumpf
+  const common = t.fields ?? [];
+  const setCommon = (fields: Field[]) => onPatch({ fields: fields.length ? fields : undefined });
+  const fieldRows = (fields: Field[], setAll: (next: Field[]) => void) => fields.map((f, k) => (
+    <FieldRow key={f.id} field={f} index={k} last={k === fields.length - 1}
+      types={types} selfId={t.id} isDark={isDark} canEdit={canEdit} idx={idx} model={model}
+      issue={issues.find(x => x.field === f.id)?.message}
+      onChange={patch => setAll(fields.map((x, m) => (m === k ? { ...x, ...patch } : x)))}
+      onRemove={() => setAll(fields.filter((_, m) => m !== k))}
+      onMove={by => {
+        const next = [...fields];
+        const j = k + by;
+        if (j < 0 || j >= next.length) return;
+        [next[k], next[j]] = [next[j], next[k]];
+        setAll(next);
+      }}
+      onAddType={onAddType} onOpenType={onOpenType} />
+  ));
+  // Felder, die in allen Fällen gleich stehen, aber noch nicht gemeinsam sind —
+  // dasselbe Urteil wie beim Import, hier als Knopf
+  const shared = adt ? sharedFields(values.filter(v => v.fields?.length).map(v => v.fields!)) : [];
+  const makeCommon = (f: Field) => {
+    onPatch({
+      fields: [...common, f],
+      values: values.map(v => (v.fields ? { ...v, fields: v.fields.filter(x => x.name !== f.name) } : v)),
+    });
+  };
   return (
-    <div className="space-y-1">
-      {values.map((v, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
-            placeholder="wert"
-            className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-          <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
-            placeholder="Bedeutung"
-            className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
+    <div className="space-y-2">
+      {adt && (
+        <p className={`text-[10px] ${c.muted}`}>
+          Auswahl mit Feldern (ADT) — jeder Fall wird eine eigene Klasse, zusammen ein Typ.
+          Gemeinsame Felder stehen in jedem Fall, spezielle nur in ihrem.
+        </p>
+      )}
+      {(adt || common.length > 0) && (
+        <div className={`rounded border px-2 py-2 space-y-1.5 ${isDark ? 'border-white/15 bg-white/[0.04]' : 'border-black/15 bg-black/[0.03]'}`}>
+          <div className={`flex items-center gap-2 text-[10px] uppercase tracking-widest ${c.muted2}`}>
+            Gemeinsame Felder <span className={`normal-case tracking-normal ${c.muted}`}>· in jedem Fall · {common.length}</span>
+          </div>
+          {common.length > 0 && <div className="space-y-2">{fieldRows(common, setCommon)}</div>}
+          {/* in allen Fällen gleich — auf Knopfdruck gemeinsam */}
+          {canEdit && shared.length > 0 && (
+            <div className={`flex flex-wrap items-center gap-1.5 text-[10px] ${amber(isDark)}`}>
+              <AlertTriangle size={10} />
+              <span>In allen Fällen gleich:</span>
+              {shared.map(f => (
+                <button key={f.id} onClick={() => makeCommon(f)} title={`«${f.name}» aus den Fällen herausziehen — steht dann einmal hier`}
+                  className={`font-mono px-1.5 py-0.5 rounded border ${isDark ? 'border-amber-500/40 hover:bg-amber-500/10' : 'border-amber-400 hover:bg-amber-50'}`}>
+                  {f.name} → gemeinsam
+                </button>
+              ))}
+            </div>
+          )}
           {canEdit && (
-            <button onClick={() => onPatch({ values: values.filter((_, k) => k !== i) })} className={`p-1 ${c.muted}`}>
-              <Trash2 size={11} />
+            <button onClick={() => setCommon([...common, emptyField()])}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <Plus size={11} /> Gemeinsames Feld
             </button>
           )}
         </div>
-      ))}
+      )}
+      {values.map((v, i) => {
+        const fields = v.fields ?? [];
+        // jeder Fall in seiner Farbe — wie die Zweige im Ablauf
+        const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
+        const tone = isDark ? col.dark : col.light;
+        return (
+          <div key={i} data-cframe={v.name ? sub(typeTarget(t.id), `value:${v.name}`) : undefined}
+            className={`group rounded border ${fields.length ? `${c.border2} border-l-4 ${tone.split(' ')[0]} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
+            {fields.length > 0 && (
+              <div className={`flex items-center gap-2 text-[10px] uppercase tracking-widest ${tone.split(' ')[1]}`}>
+                Fall <span className="font-mono normal-case tracking-normal font-semibold">{v.name || '…'}</span>
+                <span className={`normal-case tracking-normal ${c.muted}`}>· {fields.length} spezielle{fields.length === 1 ? 's Feld' : ' Felder'}{common.length ? ` + ${common.length} gemeinsam` : ''}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
+                placeholder={adt ? 'Fall' : 'wert'}
+                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+              <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
+                placeholder="Bedeutung"
+                className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
+              {v.name && <CommentBubble target={sub(typeTarget(t.id), `value:${v.name}`)} quiet />}
+              {canEdit && !fields.length && (
+                <button onClick={() => setFields(i, [emptyField()])} title="Spezielle Felder nur für diesen Fall (ADT)"
+                  className={`text-[10px] px-1.5 py-1 rounded border flex-shrink-0 ${c.btn}`}>+ Feld</button>
+              )}
+              {canEdit && (
+                <button onClick={() => onPatch({ values: values.filter((_, k) => k !== i) })} className={`p-1 ${c.muted}`}>
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </div>
+            {!!fields.length && (
+              <div className="pl-3 space-y-2">
+                {fieldRows(fields, next => setFields(i, next))}
+                {canEdit && (
+                  <button onClick={() => setFields(i, [...fields, emptyField()])}
+                    className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+                    <Plus size={11} /> Feld
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
       {canEdit && (
         <button onClick={() => onPatch({ values: [...values, { name: '' }] })}
           className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
-          <Plus size={11} /> Wert
+          <Plus size={11} /> {adt ? 'Fall' : 'Wert'}
         </button>
       )}
     </div>

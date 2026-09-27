@@ -25,7 +25,7 @@ class C7JobService(using
                      .processInstanceId(processInstanceId.orNull)
       jobDtos   <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new JobApi(apiClient).queryJobs(null, null, query)
           .mapError: err =>
             EngineError.ProcessError(
@@ -39,7 +39,7 @@ class C7JobService(using
       _         <- logInfo(s"Executing Job: $jobId")
       _         <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new JobApi(apiClient)
               .executeJob(jobId)
           .mapError: err =>

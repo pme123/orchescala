@@ -3,7 +3,8 @@ package orchescala.worker
 import orchescala.domain.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.domain.EngineError.ProcessError
-import orchescala.engine.rest.HttpClientProvider
+import orchescala.engine.auth.TokenVerifier
+import orchescala.engine.rest.{HttpClientProvider, TokenFingerprint}
 import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
 import orchescala.worker.*
 import orchescala.worker.WorkerError.{MockedOutputJson, ServiceRequestError}
@@ -20,10 +21,12 @@ import scala.reflect.ClassTag
 
 case class WorkerRoutes(engineContext: EngineContext):
 
+  // one validator per app - it caches the signing keys
+  private lazy val tokenVerifier: Option[TokenVerifier] =
+    TokenVerifier(engineContext.workerConfig.tokenValidation)
+
   def routes(
       supportedWorkers: Set[WorkerDsl[?, ?]]
-      // no validation for workers
-      // validateToken: String => IO[WorkerError, String]
   ): Routes[Any, Response] =
     val workers: Map[String, WorkerDsl[?, ?]] = supportedWorkers
       .map: w =>
@@ -44,7 +47,7 @@ case class WorkerRoutes(engineContext: EngineContext):
                     worker =>
                       for
                         generalVariables      <- extractGeneralVariables(variables)
-                        given EngineRunContext = createRunContext(generalVariables)
+                        given EngineRunContext = createRunContext(generalVariables, worker)
                         result                <- worker match
                                                    case worker: RunWorkDsl[?, ?]           =>
                                                      worker
@@ -69,20 +72,23 @@ case class WorkerRoutes(engineContext: EngineContext):
     )
   end routes
 
-  private def createRunContext(generalVariables: GeneralVariables) =
+  private def createRunContext(generalVariables: GeneralVariables, worker: WorkerDsl[?, ?]) =
     EngineRunContext(
       engineContext = engineContext,
-      generalVariables = generalVariables
+      generalVariables = generalVariables,
+      workerTimeout = Some(worker.timeout).collect { case timeout: scala.concurrent.duration.FiniteDuration => timeout }
     )
 
-  /** Default token validator - validates that token is not empty and returns the token. Override
-    * this with your own validation logic (e.g., JWT validation, database lookup, etc.)
-    */
+  /** Validates the Bearer token according to `WorkerConfig.tokenValidation` and returns it. */
   private def validateToken(token: String): IO[WorkerError, String] =
-    if token.nonEmpty then
-      ZIO.succeed(token)
-    else
+    if token.isBlank then
       ZIO.fail(WorkerError.TokenValidationError(
         errorMsg = "Invalid or missing authentication token"
       ))
+    else
+      tokenVerifier
+        .fold(ZIO.unit)(_.validate(token).unit)
+        .tapError(reason => ZIO.logWarning(s"Rejected token ${TokenFingerprint(token)}: $reason"))
+        .mapError(reason => WorkerError.TokenValidationError(errorMsg = reason))
+        .as(token)
 end WorkerRoutes

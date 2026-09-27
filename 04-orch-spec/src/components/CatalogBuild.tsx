@@ -216,6 +216,13 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       }
       const liste = [...projects, ...neu.map(g => g.project)];
       await onSave({ ...model, projects: liste });
+      // Bekannte Projekte, die bisher einzeln gemerkt waren, hängen sich an
+      // den Ordner darüber — dann reicht künftig eine Erlaubnis für alle
+      const liste2 = liste.map(p => {
+        const g = gefunden.find(x => x.project.name === p.name);
+        return g?.project.root && p.root !== g.project.root ? { ...p, root: g.project.root } : p;
+      });
+      if (liste2.some((p, i) => p !== liste[i])) await onSave({ ...model, projects: liste2 });
       setMsg(neu.length
         ? `${neu.length} Projekt(e) hinzugefügt: ${neu.map(g => g.project.name).join(', ')}. «Neu aufbauen» liest sie ein.`
         : `${gefunden.length} Projekt(e) bereits in der Liste — Zugriff erneuert.`);
@@ -247,9 +254,12 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       // Nichts speichern, solange ein Projekt fehlt: sonst wäre der Katalog
       // um dessen Typen ärmer, nur weil der Browser den Zugriff vergessen hat.
       if (r.missing.length) {
-        setMsg(`Kein Zugriff auf ${r.missing.map(p => p.name).join(', ')} — der Katalog bleibt, wie er ist. `
-          + '«Projekte wählen» und denselben Ordner nochmals bestätigen stellt den Zugriff wieder her; '
-          + 'mit × verschwindet ein Projekt aus der Liste.');
+        const roots = [...new Set(r.missing.map(p => p.root).filter(Boolean))] as string[];
+        const alt = r.missing.filter(p => !p.root).map(p => p.name);
+        setMsg(`Kein Zugriff auf ${r.missing.length} von ${projects.length} Projekten — der Katalog bleibt, wie er ist. `
+          + (roots.length ? `Der Browser hat die Erlaubnis für ${roots.map(x => `«${x}»`).join(', ')} nicht erteilt — «Neu aufbauen» nochmals klicken und im Dialog zulassen. ` : '')
+          + (alt.length ? `${alt.join(', ')}: einzeln gemerkt — «Projekte wählen» und den Ordner darüber wählen, dann reicht künftig eine Erlaubnis für alle. ` : '')
+          + 'Mit × verschwindet ein Projekt aus der Liste.');
         return;
       }
       setBusy(`${r.files} Dateien auswerten …`);

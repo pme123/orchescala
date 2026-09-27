@@ -11,6 +11,7 @@
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
 import type { Branch, ErrorHandling, GatewayType, Mapping, ProcessSpec, Status, Step, StepKind } from './types';
+import { importExpression } from './juelFeel.ts';
 import { STATUSES } from './types.ts';
 import { nowIsoWithTimezone, slugify, todayIso } from './util.ts';
 
@@ -112,6 +113,17 @@ function eventKindOf(el: Element): Step['eventKind'] {
   return 'none';
 }
 
+/** Name des Signals bzw. der Nachricht eines Ereignisses — über `signalRef` / `messageRef` */
+function signalRefOf(el: Element, defs: Map<string, string>): string | undefined {
+  for (const c of kids(el)) {
+    const n = local(c);
+    if (n !== 'signalEventDefinition' && n !== 'messageEventDefinition') continue;
+    const ref = c.getAttribute('signalRef') ?? c.getAttribute('messageRef');
+    if (ref && defs.has(ref)) return defs.get(ref);
+  }
+  return undefined;
+}
+
 function timerExpression(el: Element): string | undefined {
   for (const c of kids(el)) {
     if (local(c) === 'timerEventDefinition') {
@@ -135,6 +147,12 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
 }
 
 // ── Ein-/Ausgaben ────────────────────────────────────────────────────────────
+/** Ein fachlicher Parameterwert: Text wird JUEL → FEEL; Skript, Liste und Map bleiben beschreibend. */
+function fachlich(p: Element): string {
+  if (firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
+  return importExpression(text(p));
+}
+
 function paramValue(p: Element): string {
   const script = firstNamed(p, 'script');
   if (script) return `«${attr(script, 'scriptFormat') ?? 'script'}» ${text(script)}`;
@@ -145,9 +163,27 @@ function paramValue(p: Element): string {
   return text(p);
 }
 
+/**
+ * Der Mapping-Wert eines Parameters, so wie der Import ihn liest — für
+ * `inputParameter`/`outputParameter`, `camunda:in`/`out` und `zeebe:input`/
+ * `output`. Der Export vergleicht damit: was gleich geblieben ist, bleibt
+ * im BPMN wörtlich stehen (samt Spin-Idiom, `#{…}` und Skript).
+ */
+export function paramExpression(p: Element): string {
+  const n = local(p);
+  if (n === 'inputParameter' || n === 'outputParameter') return fachlich(p);
+  if (n === 'in' || n === 'out') {
+    const plain = attr(p, 'source');
+    return plain != null ? `= ${plain}` : importExpression(attr(p, 'sourceExpression') ?? '');
+  }
+  const source = attr(p, 'source') ?? '';
+  return /^=/.test(source) ? `= ${source.slice(1).trim()}` : source;
+}
+
 // Technische Orchescala-Parameter — nicht Teil der fachlichen Spezifikation,
 // aber für den Orchescala-Export relevant (deshalb separat gesammelt).
-const TECHNICAL = new Set([
+/** Steuerparameter, die kein fachliches Mapping sind — bleiben beim Schreiben stehen. */
+export const TECHNICAL = new Set([
   '_handledErrors', '_regexHandledErrors', '_outputVariables', '_outputMock',
   '_outputServiceMock', '_manualOutMapping', '_servicesMocked', '_mockedWorkers',
   '_identityCorrelation', 'impersonateUserId',
@@ -175,8 +211,32 @@ function readIo(el: Element): IoResult {
       const business = attr(c, 'businessKey');
       if (business) { res.technical.push({ name: 'businessKey', expression: business }); continue; }
       if (!target) continue;
-      const m: Mapping = { name: target, expression: source ?? '' };
+      // `source` ist ein Variablenname, `sourceExpression` ein JUEL-Ausdruck —
+      // beides wird zu FEEL, der Sprache der Spezifikation
+      const plain = attr(c, 'source');
+      const expression = plain != null ? `= ${plain}` : importExpression(source ?? '');
+      const m: Mapping = { name: target, expression };
       (TECHNICAL.has(target) || TECHNICAL.has(source ?? '') ? res.technical : n === 'in' ? res.inputs : res.outputs).push(m);
+    }
+  }
+
+  // Camunda 8: <zeebe:ioMapping><zeebe:input source="=…" target="x"/> — die
+  // Quelle ist FEEL (`=…`) oder ein fester Text, das Ziel die Variable.
+  const zio = firstNamed(ext, 'ioMapping');
+  if (zio) {
+    for (const p of childrenNamed(zio, 'input')) {
+      const target = attr(p, 'target') ?? '';
+      if (!target) continue;
+      const source = attr(p, 'source') ?? '';
+      const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
+      (TECHNICAL.has(target) ? res.technical : res.inputs).push(m);
+    }
+    for (const p of childrenNamed(zio, 'output')) {
+      const target = attr(p, 'target') ?? '';
+      if (!target) continue;
+      const source = attr(p, 'source') ?? '';
+      const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
+      (TECHNICAL.has(target) ? res.technical : res.outputs).push(m);
     }
   }
 
@@ -190,11 +250,11 @@ function readIo(el: Element): IoResult {
         continue;
       }
       if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; continue; }
-      (TECHNICAL.has(name) ? res.technical : res.inputs).push({ name, expression: value });
+      (TECHNICAL.has(name) ? res.technical : res.inputs).push({ name, expression: TECHNICAL.has(name) ? value : fachlich(p) });
     }
     for (const p of childrenNamed(io, 'outputParameter')) {
       const name = attr(p, 'name') ?? '';
-      (TECHNICAL.has(name) ? res.technical : res.outputs).push({ name, expression: paramValue(p) });
+      (TECHNICAL.has(name) ? res.technical : res.outputs).push({ name, expression: TECHNICAL.has(name) ? paramValue(p) : fachlich(p) });
     }
   }
   return res;
@@ -248,7 +308,7 @@ function readScope(container: Element): Scope {
       id: el.getAttribute('id') ?? '',
       source, target,
       name: nameOf(el) || undefined,
-      condition: text(firstNamed(el, 'conditionExpression')) || undefined,
+      condition: importExpression(text(firstNamed(el, 'conditionExpression'))) || undefined,
     };
     out.set(source, [...(out.get(source) ?? []), f]);
     inCount.set(target, (inCount.get(target) ?? 0) + 1);
@@ -351,6 +411,8 @@ interface BuildCtx {
   order: string[];
   /** <bpmn:error> id → errorCode bzw. name */
   errors: Map<string, string>;
+  /** <bpmn:signal> / <bpmn:message> id → name */
+  signals: Map<string, string>;
   /** alle Knoten aller Ebenen — für die Meldung «nicht erreichbar» */
   allNodes: Map<string, string>;
   /** Knoten → einziger Nachfolger (löst entfernte Zusammenführungen auf) */
@@ -360,7 +422,7 @@ interface BuildCtx {
 function branchLabel(f: Flow, isDefault: boolean, index: number): string {
   if (f.name) return f.name;
   if (isDefault) return 'sonst';
-  if (f.condition) return f.condition.replace(/^\$\{|\}$/g, '');
+  if (f.condition) return f.condition.replace(/^=\s*/, '').replace(/^\$\{|\}$/g, '');
   return `Pfad ${index + 1}`;
 }
 
@@ -414,12 +476,21 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   if (kind === 'event') {
     step.eventKind = eventKindOf(el);
     step.eventDirection = tag === 'intermediateThrowEvent' ? 'throw' : 'catch';
+    const ref = signalRefOf(el, ctx.signals);
+    if (ref) step.messageName = ref;
     const timer = timerExpression(el);
     if (timer) step.notes = `Timer: ${timer}`;
   }
   if (kind === 'start' || kind === 'end') {
     const ev = eventKindOf(el);
     if (ev !== 'none') step.eventKind = ev;
+    const ref = signalRefOf(el, ctx.signals);
+    if (ref) step.messageName = ref;
+  }
+  if (kind === 'receive' || kind === 'send') {
+    const ref = el.getAttribute('messageRef');
+    const name = ref ? ctx.signals.get(ref) : undefined;
+    if (name) step.messageName = name;
   }
 
   // Benutzeraufgabe: wer sie bearbeiten darf
@@ -432,12 +503,17 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 
   const template = attr(el, 'modelerTemplate');
   if (template) step.serviceId = template;
-  const topic = attr(el, 'topic');
+  // Camunda 7: camunda:topic am Element; Camunda 8: zeebe:taskDefinition type="…"
+  const ext = firstNamed(el, 'extensionElements');
+  const taskDef = ext ? firstNamed(ext, 'taskDefinition') : null;
+  const topic = attr(el, 'topic') ?? (taskDef ? attr(taskDef, 'type') : undefined);
   if (topic) step.topic = topic;
   // Entscheidung: die Decision Reference ist der Schlüssel in den DMN-Katalog
   const decisionRef = attr(el, 'decisionRef');
   if (decisionRef && !step.topic) step.topic = decisionRef;
-  const called = el.getAttribute('calledElement') ?? attr(el, 'processId');
+  // Camunda 7: calledElement am Element; Camunda 8: zeebe:calledElement processId="…"
+  const calledEl = ext ? firstNamed(ext, 'calledElement') : null;
+  const called = el.getAttribute('calledElement') ?? (calledEl ? attr(calledEl, 'processId') : undefined);
   if (called) step.calledProcess = called;
 
   if (io.inputs.length) step.inputs = io.inputs;
@@ -676,9 +752,17 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
     const code = e.getAttribute('errorCode') || e.getAttribute('name');
     if (id && code) errorDefs.set(id, code);
   }
+  const signalDefs = new Map<string, string>();
+  for (const tag of ['signal', 'message']) {
+    for (const e of elementsNamed(doc.documentElement, tag)) {
+      const id = e.getAttribute('id');
+      const name = e.getAttribute('name');
+      if (id && name) signalDefs.set(id, name);
+    }
+  }
   const ctx: BuildCtx = {
     doc, processId, initOutputs: [],
-    byId: new Map(), order: [], errors: errorDefs, allNodes: new Map(), succ: new Map(),
+    byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, allNodes: new Map(), succ: new Map(),
   };
   register(ctx, scope);
   let steps = walk(ctx, scope, scope.starts[0] ?? null, new Set(), new Set());
@@ -703,6 +787,8 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn'): ImportResult
     title: nameOf(proc) || name,
     processId,
     project,
+    // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
+    engine: /http:\/\/camunda\.org\/schema\/zeebe|executionPlatform="Camunda Cloud"/.test(xml) ? 'c8' : 'c7',
     status: 'implemented',
     description: '',
     createdAt: todayIso(),

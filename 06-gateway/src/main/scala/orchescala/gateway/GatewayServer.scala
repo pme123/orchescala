@@ -46,6 +46,15 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                  case engines =>
                    ZIO.logInfo(s"Configured process engines: ${engines.distinct.mkString(", ")}")
           _ <- ZIO.logInfo(s"Starting Engine Gateway Server on port ${config.gatewayPort}")
+          _ <- config.tokenValidation match
+                 case TokenValidation.PresenceOnly =>
+                   ZIO.logWarning(
+                     "Bearer tokens are NOT verified (TokenValidation.PresenceOnly): user name and " +
+                       "email of the IdentityCorrelation come from unverified claims - only safe if " +
+                       "every engine rejects invalid tokens. Configure TokenValidation.Jwt / AnyOf."
+                   )
+                 case verified                     =>
+                   ZIO.logInfo(s"Bearer tokens are verified: ${verified.description}")
 
           // Create gateway engine (with shared client layers provided)
           gatewayEngine      <- engineZIO

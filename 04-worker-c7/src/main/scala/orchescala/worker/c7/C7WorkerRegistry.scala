@@ -2,13 +2,18 @@ package orchescala.worker.c7
 
 import orchescala.domain.GeneralVariables
 import orchescala.engine.DefaultEngineConfig
-import orchescala.worker.{WorkerConfig, WorkerDsl, WorkerRegistry}
+import orchescala.worker.{JobPermits, WorkerConfig, WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient
 import zio.{Scope, UIO, ZIO, ZLayer}
 import zio.ZIO.*
 
 class C7WorkerRegistry(client: C7WorkerClient)
     extends WorkerRegistry:
+
+  // jobs running at once: the client fetches up to maxTasks per call and calls the handlers one
+  // after the other, which run the job in the background (BaseWorker.executeForked)
+  private lazy val permits = JobPermits(client.maxParallelJobs)
+  private val rootLookup   = client.rootProcessInstanceId
 
   // Provide the SharedC7ExternalClientManager layer required by C7 workers
   override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =
@@ -37,7 +42,10 @@ class C7WorkerRegistry(client: C7WorkerClient)
                 | - Timeout: ${worker.timeout}""".stripMargin) *>
       attempt(client
         .subscribe(worker.topic)
-        .handler(worker)
+        // short, so the task of a crashed worker app is handed out again soon - a running job
+        // renews it (BaseWorker.lockTimeout); the client's lockDuration applies to all topics
+        .lockDuration(worker.lockTimeout.toMillis)
+        .handler((task, service) => worker.executeJob(task, service, Some(permits), rootLookup))
         .variables((worker.worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey")*)
         .open())
         .tap(_ => logInfo(s"Subscription opened successfully for topic: '${worker.topic}'"))

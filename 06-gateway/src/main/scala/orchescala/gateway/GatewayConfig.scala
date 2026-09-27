@@ -3,6 +3,7 @@ package orchescala.gateway
 import com.auth0.jwt.JWT
 import orchescala.domain.*
 import orchescala.engine.{DefaultEngineConfig, EngineConfig, EnvironmentDetector}
+import orchescala.engine.rest.TokenFingerprint
 import orchescala.worker.{DefaultWorkerConfig, WorkerConfig}
 import zio.{IO, ZIO}
 
@@ -68,14 +69,23 @@ object DocsAuth:
     *   OAuth 2.0 client secret.
     * @param scopes
     *   Space-separated OAuth scopes, e.g. `"openid profile"`.
+    * @param tokenValidation
+    *   How the token in the docs cookie is verified - default `TokenValidation.keycloak(ssoBaseUrl,
+    *   realm)`.
     */
   case class OAuth2AuthCode(
       ssoBaseUrl: String,
       realm: String,
       clientId: String,
       clientSecret: String,
-      scopes: String = "openid profile"
+      scopes: String = "openid profile",
+      tokenValidation: Option[TokenValidation.Jwt | TokenValidation.AnyOf] = None
   ) extends DocsAuth:
+    /** How the token in the docs cookie is verified - default: the Keycloak realm above. Set it if
+      * the tokens' `iss` differs from `{ssoBaseUrl}/realms/{realm}` (e.g. a Keycloak frontend URL).
+      */
+    lazy val docsTokenValidation: TokenValidation =
+      tokenValidation.getOrElse(TokenValidation.keycloak(ssoBaseUrl, realm))
     private val base: String        = ssoBaseUrl.stripSuffix("/")
     def authorizationUrl: String    = s"$base/realms/$realm/protocol/openid-connect/auth"
     def tokenUrl: String            = s"$base/realms/$realm/protocol/openid-connect/token"
@@ -100,6 +110,9 @@ trait GatewayConfig:
   /** Authentication scheme for the `/docs` routes. Defaults to [[DocsAuth.Disabled]]. */
   def docsAuth: DocsAuth = DocsAuth.Disabled
 
+  /** How [[validateToken]] checks the Bearer token - reported at startup. */
+  def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
+
 end GatewayConfig
 
 case class DefaultGatewayConfig(
@@ -114,21 +127,31 @@ case class DefaultGatewayConfig(
             else projectName
           }:5555"
       ),
-    override val docsAuth: DocsAuth = DocsAuth.Disabled
+    override val docsAuth: DocsAuth = DocsAuth.Disabled,
+    /** Use [[TokenValidation.Jwt]] (e.g. `TokenValidation.keycloak(ssoBaseUrl, realm)`) or
+      * [[TokenValidation.AnyOf]] for several identity providers - with
+      * [[TokenValidation.PresenceOnly]] the identity claims are not verified (warned at startup).
+      */
+    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 ) extends GatewayConfig:
 
-  /** Default token validator - validates that token is not empty and returns the token. Override
-    * this with your down validation logic (e.g., JWT validation, database lookup, etc.)
+  private lazy val tokenVerifier: Option[TokenVerifier] = TokenVerifier(tokenValidation)
+
+  /** Validates the Bearer token according to [[tokenValidation]] and returns it. Override this for
+    * other validation logic (e.g. token introspection, database lookup).
     */
   def validateToken(token: String): IO[GatewayError, String] =
-    if token.nonEmpty then
-      ZIO.logInfo("Token is valid")
-        .as(token)
-    else
-      ZIO.logError("Token is empty!") *>
+    if token.isBlank then
+      ZIO.logWarning("Request without authentication token") *>
         ZIO.fail(GatewayError.TokenValidationError(
-        errorMsg = "Invalid or missing authentication token"
-      ))
+          errorMsg = "Invalid or missing authentication token"
+        ))
+    else
+      tokenVerifier
+        .fold(ZIO.unit)(_.validate(token).unit)
+        .tapError(reason => ZIO.logWarning(s"Rejected token ${TokenFingerprint(token)}: $reason"))
+        .mapError(GatewayError.TokenValidationError(_))
+        .as(token)
 
   def extractCorrelation(
       token: String,
@@ -137,9 +160,8 @@ case class DefaultGatewayConfig(
     (for
       decoded <- ZIO.attempt(JWT.decode(token))
       claims  <- ZIO.attempt(decoded.getClaims.asScala)
-      payload <- ZIO.attempt(new String(java.util.Base64.getDecoder.decode(decoded.getPayload)))
-      _       <- ZIO.logDebug(s"Payload: $payload")
-      _       <- ZIO.logDebug(s"Claims: ${claims}")
+      // no payload / claims in the logs - they carry personal data (name, email, ...)
+      _       <- ZIO.logDebug(s"IdentityCorrelation from token ${TokenFingerprint(token)}")
     yield IdentityCorrelation(
       username = claims.get("preferred_username").map(_.asString()).mkString,
       email = claims.get("email").map(_.asString()),

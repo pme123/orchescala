@@ -12,6 +12,18 @@ export function slugify(name: string): string {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
+/**
+ * Deep Link in die App: öffnet die Spezifikation und — mit comment — das
+ * Kommentar-Panel an der Stelle dieses Kommentars (App.tsx wertet die
+ * Parameter beim Start aus; sie überleben den Microsoft-Login-Redirect).
+ */
+export function deepLink(slug: string, commentId?: string): string {
+  const u = new URL(import.meta.env.BASE_URL, document.baseURI);
+  u.searchParams.set('spec', slug);
+  if (commentId) u.searchParams.set('comment', commentId);
+  return u.toString();
+}
+
 export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

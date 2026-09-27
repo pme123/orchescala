@@ -10,7 +10,9 @@ import { STATUS_META } from './types.ts';
 import { statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
 import { engineLabel } from './template.ts';
-import { processTarget, stepTarget, threadsFor, typeTarget } from './comments.ts';
+import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
+import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
+import { engineExpression } from './feelJuel.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -27,7 +29,7 @@ export const EXPORT_META: Record<ExportKind, { label: string; hint: string; ext:
   },
   bpmn: {
     label: 'BPMN',
-    hint: 'Das Diagramm selbst — Stand aus dem Editor, mit allem, was hier festgelegt wurde.',
+    hint: 'Das Diagramm mit den Mappings und Bedingungen aus der Spezifikation — FEEL für Camunda 8 wie es ist, für Camunda 7 nach JUEL übersetzt.',
     ext: 'bpmn',
   },
   scala: {
@@ -86,14 +88,18 @@ function fachlichSteps(spec: ProcessSpec, steps: Step[], depth: number, out: str
 }
 
 const openThreads = (spec: ProcessSpec, target: string) =>
-  threadsFor(spec, target).filter(t => !t.resolved).length;
+  threadsUnder(spec, target).filter(t => !t.resolved).length;
 
-/** Offene Kommentar-Fäden zu einem Ziel, als Zeilen. */
+/**
+ * Offene Kommentar-Fäden zu einem Element samt seiner Teile, als Zeilen —
+ * ein Teil (Mapping-Zeile, Feld …) steht in Klammern davor.
+ */
 function kommentarZeilen(spec: ProcessSpec, target: string, einzug: string): string[] {
   const out: string[] = [];
-  for (const faden of threadsFor(spec, target).filter(t => !t.resolved)) {
+  for (const faden of threadsUnder(spec, target).filter(t => !t.resolved)) {
+    const teil = faden.target.includes('#') ? `(${faden.target.slice(faden.target.indexOf('#') + 1)}) ` : '';
     for (const [i, e] of faden.entries.entries()) {
-      out.push(`${einzug}${i ? '  ↳ ' : '💬 '}${e.author}: ${e.text.replace(/\n+/g, ' ')}`);
+      out.push(`${einzug}${i ? '  ↳ ' : `💬 ${teil}`}${e.author}: ${e.text.replace(/\n+/g, ' ')}`);
     }
   }
   return out;
@@ -188,6 +194,13 @@ function table(rows: string[][], head: string[]): string[] {
 
 function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
   const byId = new Map((model?.services ?? []).map(s => [s.id, s] as [string, ServiceDef]));
+  // Ausdrücke so, wie die Engine sie braucht: FEEL bleibt für Camunda 8,
+  // wird für Camunda 7 zu JUEL — was sich nicht übersetzen lässt, steht
+  // markiert als FEEL da, mit dem Grund.
+  const ausdruck = (e: string): string => {
+    const r = engineExpression(e, spec.engine);
+    return r.issue ? `\`${r.text}\` ⚠ *FEEL, nicht nach JUEL übersetzbar: ${r.issue}*` : `\`${r.text}\``;
+  };
   const out: string[] = [
     `# ${spec.name} — Orchescala-Spezifikation`,
     '',
@@ -259,14 +272,14 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     const off = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => m.disabled);
     if (used(s.inputs).length) {
       out.push('**Eingaben**', '');
-      out.push(...table(used(s.inputs).map(i => [`\`${i.name}\``, `\`${i.expression}\``, i.description ?? '']), ['Parameter', 'Ausdruck', 'Bedeutung']));
+      out.push(...table(used(s.inputs).map(i => [`\`${i.name}\``, ausdruck(i.expression), i.description ?? '']), ['Parameter', 'Ausdruck', 'Bedeutung']));
     }
     if (off(s.inputs).length) {
       out.push(`*Nicht verwendet:* ${off(s.inputs).map(i => `\`${i.name}\``).join(', ')}`, '');
     }
     if (used(s.outputs).length) {
       out.push('**Ausgaben**', '');
-      out.push(...table(used(s.outputs).map(o => [`\`${o.name}\``, `\`${o.expression}\``, o.description ?? '']), ['Variable', 'Ausdruck', 'Bedeutung']));
+      out.push(...table(used(s.outputs).map(o => [`\`${o.name}\``, ausdruck(o.expression), o.description ?? '']), ['Variable', 'Ausdruck', 'Bedeutung']));
     }
     if (off(s.outputs).length) {
       out.push(`*Nicht verwendet:* ${off(s.outputs).map(o => `\`${o.name}\``).join(', ')}`, '');
@@ -282,7 +295,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     if (s.branches?.length) {
       out.push('**Zweige**', '');
       out.push(...table(s.branches.map((b: Branch) => [
-        b.label, b.condition ? `\`${b.condition}\`` : (b.isDefault ? 'Standardzweig' : ''),
+        b.label, b.condition ? ausdruck(b.condition) : (b.isDefault ? 'Standardzweig' : ''),
         b.steps.filter(x => x.kind !== 'goto').map(x => `\`${x.id}\``).join(' → ') || '(leer)',
       ]), ['Zweig', 'Bedingung', 'Schritte']));
     }
@@ -305,8 +318,14 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
 }
 
 // ── öffentliche API ──────────────────────────────────────────────────────────
+/** Das Diagramm mit den Mappings und Bedingungen der Spezifikation — samt dem, was nicht übersetzbar war. */
+export function exportBpmn(spec: ProcessSpec, bpmn: string): WriteResult {
+  if (!bpmn) return { xml: '<!-- Zu dieser Spezifikation liegt (noch) kein Diagramm vor. -->', issues: [] };
+  return writeBpmn(bpmn, spec);
+}
+
 export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | null, bpmn = ''): string {
-  if (kind === 'bpmn') return bpmn || '<!-- Zu dieser Spezifikation liegt (noch) kein Diagramm vor. -->';
+  if (kind === 'bpmn') return exportBpmn(spec, bpmn).xml;
   if (kind === 'json') return JSON.stringify(spec, null, 2);
   if (kind === 'scala') return scalaBundle(spec, model);
   if (kind === 'fachlich') return exportFachlich(spec);

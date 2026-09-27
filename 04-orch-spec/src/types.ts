@@ -116,6 +116,8 @@ export interface Step {
   // Ereignisse
   eventKind?: 'timer' | 'signal' | 'message' | 'error' | 'escalation' | 'none';
   eventDirection?: 'throw' | 'catch';
+  /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
+  messageName?: string;
 
   /** offene fachliche Fragen zu diesem Schritt */
   open?: string;
@@ -179,6 +181,13 @@ export interface Field {
   optional?: boolean;
   /** Seq[T] — mehrfach */
   collection?: boolean;
+  /** Map[String, T] — Schlüssel ist im JSON immer ein Text, `type` ist der Wert */
+  map?: boolean;
+  /**
+   * Eine einzelne **Ausprägung** eines ADT-enums als Typ: `type` ist das enum,
+   * `enumCase` der Fall — in Scala `CustomDocContents.\`QI-Deklaration\``.
+   */
+  enumCase?: string;
   /** Iron-Refinement, z. B. `ValidEmail` → `String :| ValidEmail` */
   constraint?: string;
   /** Vorgabewert als Scala-Ausdruck, z. B. `"CH"` oder `Seq.empty` */
@@ -190,11 +199,25 @@ export interface Field {
   [key: string]: unknown;
 }
 
+/**
+ * Ein Wert einer Auswahl. Trägt er Felder, ist die Auswahl ein **ADT**
+ * (`enum In: case Standard(…) case VermoegensVerwaltung(…)`) — jeder Fall
+ * eine eigene Klasse, gemeinsam ein Typ.
+ */
 export interface EnumValue {
   name: string;
   description?: string;
+  fields?: Field[];
   [key: string]: unknown;
 }
+
+/**
+ * Auswahl mit Feldern (ADT)? Entweder tragen die Fälle Felder, oder die
+ * Auswahl hat **gemeinsame Felder** (`fields`) — in Scala 3 als `def` im
+ * enum-Rumpf, die jeder Fall mitbringt.
+ */
+export const isAdt = (t: { kind: string; values?: EnumValue[]; fields?: Field[] }): boolean =>
+  t.kind === 'enum' && ((t.values ?? []).some(v => !!v.fields?.length) || !!t.fields?.length);
 
 // ── Interaktionen ────────────────────────────────────────────────────────────
 //
@@ -251,7 +274,8 @@ export interface TypeDef {
   interactionId?: string;
   /** das `InitIn` — Felder kommen aus dem Init-Worker, Typen werden gepflegt */
   initIn?: boolean;
-  fields?: Field[];   // kind 'case'
+  /** Felder der Klasse — bei einer Auswahl (ADT) die **gemeinsamen** Felder aller Fälle */
+  fields?: Field[];
   values?: EnumValue[]; // kind 'enum'
   [key: string]: unknown;
 }
@@ -272,9 +296,15 @@ export interface Variable {
  */
 export interface CommentThread {
   id: string;
-  /** worauf er sich bezieht: `process`, `step:<id>` oder `type:<id>` */
+  /**
+   * worauf er sich bezieht: ein Element (`process`, `step:<id>`, `ia:<id>`,
+   * `type:<id>`) oder ein Teil davon (`step:<id>#in:<name>` …, siehe comments.ts)
+   */
   target: string;
   resolved?: boolean;
+  /** wer abgehakt hat, und wann */
+  resolvedBy?: string;
+  resolvedAt?: string;
   entries: CommentEntry[];
   [key: string]: unknown;
 }
@@ -282,9 +312,52 @@ export interface CommentThread {
 export interface CommentEntry {
   id: string;
   author: string;
+  /** E-Mail der Autorin/des Autors — nur mit Anmeldung; Empfänger für Teams bei Antworten */
+  email?: string;
   /** ISO-Zeitpunkt mit Zone */
   at: string;
   text: string;
+  /** per «@» erwähnte Personen (im Text steht «@Name») */
+  mentions?: DirectoryUser[];
+  /**
+   * Teams-Benachrichtigung (siehe Model.notifications.teams): E-Mails der
+   * Personen, die noch zu benachrichtigen sind bzw. schon benachrichtigt
+   * wurden. Verschickt wird nur vom Browser der Autorin/des Autors.
+   */
+  notifyPending?: string[];
+  notified?: string[];
+}
+
+/**
+ * Bekannte Person für @-Erwähnungen: aus `users.json` im geteilten Ordner
+ * (jede angemeldete Person trägt sich beim Öffnen ein) oder aus der
+ * Entra-Suche (Microsoft Graph, Berechtigung User.ReadBasic.All).
+ */
+export interface DirectoryUser {
+  name: string;
+  email: string;
+  /** ISO — nur in users.json */
+  lastSeen?: string;
+}
+
+export interface UsersFile {
+  version: number;
+  users: DirectoryUser[];
+}
+
+/**
+ * Teams-Benachrichtigung bei @-Erwähnung und bei Antworten auf den eigenen
+ * Kommentar: die kommentierende Person schickt der erwähnten über Microsoft
+ * Graph eine persönliche Chat-Nachricht (1:1-Chat, mit echtem @-Mention und
+ * Link in die App) — nach einer Wartezeit, gesammelt, einmalig.
+ * Berechtigungen (delegiert): Chat.Create, ChatMessage.Send, User.ReadBasic.All.
+ */
+export interface TeamsNotifySettings {
+  enabled: boolean;
+  /** Wartezeit nach dem letzten Kommentar in Minuten (Standard 5) */
+  delayMinutes?: number;
+  /** Platzhalter: {{empfaenger}} {{von}} {{prozess}} {{anzahl}} {{kommentare}} {{link}} */
+  template?: string;
 }
 
 export interface ProcessSpec {
@@ -389,8 +462,11 @@ export interface DomainType {
   owner?: string;
   /** was importiert werden muss (bei Membern das Objekt) */
   importPath: string;
+  /** Felder — bei einem enum die gemeinsamen (`def x: T` im Rumpf) */
   fields?: DomainField[];
   values?: string[];
+  /** bei einem enum mit Parametern (ADT): die Felder je Fall */
+  cases?: Array<{ name: string; fields?: DomainField[] }>;
   descr?: string;
   /**
    * `val processName` eines Prozess-Objekts, z. B. `valiant-addresschange`.
@@ -400,6 +476,15 @@ export interface DomainType {
   processName?: string;
   /** `val topicName` eines Worker-Objekts — dasselbe für Service-Tasks */
   topicName?: string;
+  /** Art des Objekts laut DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */
+  dsl?: string;
+  /** Schlüssel des Objekts: `name` (Benutzeraufgabe), `messageName`, `decisionId` — und sein Wert */
+  keyName?: string;
+  key?: string;
+  /** `val descr` des umschliessenden Objekts */
+  ownerDescr?: string;
+  /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustAddressUT.In` */
+  target?: string;
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
   source?: string;
   [key: string]: unknown;
@@ -422,6 +507,12 @@ export interface ProjectFolder {
    * keinen Pfad heraus; dort führt der gemerkte Zugriff zum Ordner zurück.
    */
   path?: string;
+  /**
+   * Name des Ordners **über** den Projekten, aus dem dieses Projekt kam
+   * (`projects`). Sein Zugriff wird einmal gemerkt und einmal bestätigt —
+   * die Projektordner darunter erben ihn, statt je einen Dialog zu brauchen.
+   */
+  root?: string;
   /** Zahl der Typen aus diesem Projekt beim letzten Aufbau */
   types?: number;
   [key: string]: unknown;
@@ -447,6 +538,8 @@ export interface Model {
    */
   logo?: string;
   auth?: AuthSettings;
+  /** Benachrichtigungen zu Kommentaren */
+  notifications?: { teams?: TeamsNotifySettings };
   /** Service-Katalog mit vorbereitetem Mapping */
   services: ServiceDef[];
   /** Domain-Katalog: die Typen der Service-Projekte */

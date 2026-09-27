@@ -18,7 +18,7 @@ class C7HistoricProcessInstanceService(using
       apiClient          <- apiClientZIO
       processInstanceDto <-
         ZIO
-          .attempt:
+          .attemptBlocking:
             new HistoricProcessInstanceApi(apiClient)
               .getHistoricProcessInstance(processInstanceId)
           .mapError: err =>

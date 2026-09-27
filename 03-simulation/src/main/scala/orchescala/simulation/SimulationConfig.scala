@@ -2,6 +2,7 @@ package orchescala.simulation
 
 import orchescala.engine.{DefaultEngineConfig, EngineConfig, ProcessEngine}
 import orchescala.engine.domain.{EngineType, ProcessResult}
+import orchescala.engine.rest.OAuthConfig
 import sttp.tapir.Schema.annotations.description
 
 sealed trait SimulationConfig:
@@ -20,6 +21,14 @@ sealed trait SimulationConfig:
   def cockpitUrl: String | Map[EngineType, String]
   @description("the maximum LogLevel you want to print the LogEntries")
   def logLevel: LogLevel
+  @description(
+    """Login of the simulation at the identity provider (Keycloak), for the Bearer token sent to the
+      |worker app when a process is started (`/worker/<process>`, input mapping / validation).
+      |Needed if the worker app verifies tokens (`WorkerConfig.tokenValidation`) - without it no real
+      |token is sent. `OAuthConfig.ClientCredentials` (service account) or
+      |`OAuthConfig.PasswordGrant` (technical user); the token is cached.""".stripMargin
+  )
+  def workerAppAuth: Option[OAuthConfig]
 
   def cockpitUrl(processResult: ProcessResult): String =
     println(
@@ -39,7 +48,16 @@ sealed trait SimulationConfig:
 
   def withLogLevel(logLevel: LogLevel): SimulationConfig
 
+  /** Cockpit/Operate URL per engine, e.g. `Map(EngineType.C7 -> ..., EngineType.C8 -> ...)`.
+    * Lets an engine-specific trait (CompanyC8Simulation) adjust the URL on top of the
+    * `config` a simulation base class already customized (`withMaxCount`, `withLogLevel`),
+    * instead of replacing the whole config.
+    */
+  def withCockpitUrl(cockpitUrl: String | Map[EngineType, String]): SimulationConfig
+
   def validateProcess(doValidate: Boolean): SimulationConfig
+
+  def withWorkerAppAuth(auth: OAuthConfig): SimulationConfig
 
   lazy val tenantPath: String = tenantId
     .map(id => s"/tenant-id/$id")
@@ -51,7 +69,8 @@ case class DefaultSimulationConfig(
     tenantId: Option[String] = None,
     maxCount: Int = 10,
     cockpitUrl: String | Map[EngineType, String] = ProcessEngine.c7CockpitUrl,
-    logLevel: LogLevel = LogLevel.INFO
+    logLevel: LogLevel = LogLevel.INFO,
+    workerAppAuth: Option[OAuthConfig] = None
 ) extends SimulationConfig:
 
   def withTenantId(tenantId: String): SimulationConfig =
@@ -63,6 +82,12 @@ case class DefaultSimulationConfig(
   def withLogLevel(logLevel: LogLevel): SimulationConfig =
     copy(logLevel = logLevel)
 
+  def withCockpitUrl(cockpitUrl: String | Map[EngineType, String]): SimulationConfig =
+    copy(cockpitUrl = cockpitUrl)
+
   def validateProcess(doValidate: Boolean): SimulationConfig =
     copy(engineConfig = engineConfig.validateProcess(doValidate))
+
+  def withWorkerAppAuth(auth: OAuthConfig): SimulationConfig =
+    copy(workerAppAuth = Some(auth))
 end DefaultSimulationConfig
