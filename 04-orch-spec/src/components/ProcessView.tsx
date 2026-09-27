@@ -18,7 +18,7 @@ import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
-import { allSteps, importBpmn, mergeSpec, statusCounts, type MergeReport } from '../bpmn';
+import { allSteps, blockGroups, blockStart, importBpmn, mergeSpec, statusCounts, type MergeReport } from '../bpmn';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
@@ -849,10 +849,6 @@ interface ListProps {
   onStatus?: (id: string, s: Status) => void;
 }
 
-const EVENT_LABEL: Record<NonNullable<Step['eventKind']>, string> = {
-  timer: 'Timer', signal: 'Signal', message: 'Nachricht', error: 'Fehler', escalation: 'Eskalation', none: 'Ereignis',
-};
-
 /**
  * Die Schritte einer Ebene — eigene Blöcke (zweiter Start, Link-Ziel) in
  * einer Klammer: der Block beginnt beim Schritt mit `orphan` und reicht
@@ -860,22 +856,12 @@ const EVENT_LABEL: Record<NonNullable<Step['eventKind']>, string> = {
  */
 function StepList(p: ListProps) {
   const c = cls(p.isDark);
-  const steps = p.steps.filter(s => !p.filterActive || p.matches(s));
-  const groups: Array<{ head: Step | null; steps: Step[] }> = [];
-  for (const s of steps) {
-    const opens = s.orphan && !s.eventSubprocess;
-    const last = groups[groups.length - 1];
-    // jeder eigene Block beginnt eine neue Gruppe — eine Klammer nur ohne eigenen Container
-    if (s.orphan || !last) groups.push({ head: opens ? s : null, steps: [s] });
-    else last.steps.push(s);
-  }
+  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)));
   return (
     <div className="flex flex-col">
-      {groups.map((g, i) => {
+      {groups.map(g => {
         if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...p} />);
-        const start = g.head.kind === 'start'
-          ? `startet mit ${g.head.eventKind && g.head.eventKind !== 'none' ? EVENT_LABEL[g.head.eventKind] : 'eigenem Start'} «${g.head.name}»`
-          : 'hängt an keinem Sequenzfluss — z. B. Ziel eines Link-Ereignisses';
+        const start = blockStart(g.head);
         const n = countSteps(g.steps);
         return (
           <div key={g.head.id} className={`mt-2 pl-3 border-l-2 ${p.isDark ? 'border-slate-500/40' : 'border-slate-300'}`}>

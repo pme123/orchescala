@@ -7,7 +7,7 @@
 
 import type { Branch, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
 import { STATUS_META } from './types.ts';
-import { statusCounts } from './bpmn.ts';
+import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
 import { engineLabel } from './template.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
@@ -58,14 +58,28 @@ function statusTag(s: Status): string {
 }
 
 // ── Fachlicher Export ────────────────────────────────────────────────────────
+/**
+ * Die Schritte einer Ebene — eigene Blöcke (zweiter Start, Link-Ziel) in
+ * einer Klammer wie im Baum: eine Überschrift, die Schritte darunter eine
+ * Stufe eingerückt. Ein Ereignis-Subprozess steht als solcher da.
+ */
 function fachlichSteps(spec: ProcessSpec, steps: Step[], depth: number, out: string[]) {
+  for (const g of blockGroups(steps)) {
+    if (!g.head) { fachlichStepsFlat(spec, g.steps, depth, out); continue; }
+    out.push(`${bullet(depth)} *Eigener Block — ${blockStart(g.head)}*`);
+    fachlichStepsFlat(spec, g.steps, depth + 1, out);
+  }
+}
+
+function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out: string[]) {
   for (const s of steps) {
     if (s.kind === 'goto') {
       out.push(`${bullet(depth)} ${s.back ? '↻ zurück zu' : '→ weiter bei'} «${s.name}»`);
       continue;
     }
     const loop = s.loop ? ` — wiederholt${s.loop.condition && s.loop.condition !== 'Wiederholung' ? `, solange: ${s.loop.condition}` : ''}` : '';
-    out.push(`${bullet(depth)} **${s.name}** ${statusTag(s.status)}${loop}`);
+    const ereignis = s.eventSubprocess ? ' — Ereignis-Subprozess, läuft neben dem Hauptablauf' : '';
+    out.push(`${bullet(depth)} **${s.name}** ${statusTag(s.status)}${loop}${ereignis}`);
     if (s.description) {
       for (const line of s.description.split('\n')) out.push(`${'  '.repeat(depth + 1)}${line}`);
     }
@@ -148,6 +162,14 @@ function collectOpen(steps: Step[], out: Array<[string, string]> = []): Array<[s
 // ableiten kann, ohne im Baum navigieren zu müssen. Der Baum steht davor
 // als Überblick.
 function outline(steps: Step[], depth: number, out: string[]) {
+  for (const g of blockGroups(steps)) {
+    if (!g.head) { outlineFlat(g.steps, depth, out); continue; }
+    out.push(`${bullet(depth)} [Eigener Block — ${blockStart(g.head)}]`);
+    outlineFlat(g.steps, depth + 1, out);
+  }
+}
+
+function outlineFlat(steps: Step[], depth: number, out: string[]) {
   for (const s of steps) {
     if (s.kind === 'goto') {
       out.push(`${bullet(depth)} ${s.back ? '↻' : '→'} \`${s.gotoId}\``);
@@ -156,6 +178,7 @@ function outline(steps: Step[], depth: number, out: string[]) {
     const marks = [
       s.loop ? '↻' : '',
       s.errors?.length ? '⚠' : '',
+      s.eventSubprocess ? '[Ereignis-Subprozess]' : '',
     ].filter(Boolean).join(' ');
     out.push(`${bullet(depth)} \`${s.id}\` · ${KIND_LABEL[s.kind]} · ${s.name}${marks ? ` ${marks}` : ''}`);
     for (const b of s.branches ?? []) {

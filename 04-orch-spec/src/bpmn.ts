@@ -896,6 +896,38 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec): { spec: Pr
 }
 
 // ── Hilfen für die Oberfläche ────────────────────────────────────────────────
+const EVENT_LABEL: Record<NonNullable<Step['eventKind']>, string> = {
+  timer: 'Timer', signal: 'Signal', message: 'Nachricht', error: 'Fehler', escalation: 'Eskalation', none: 'Ereignis',
+};
+
+/**
+ * Wie ein eigener Block anfängt — für die Klammer im Baum und im Export:
+ * «startet mit Signal «send»» bzw. der Hinweis auf ein Link-Ziel.
+ */
+export function blockStart(first: Step): string {
+  if (first.kind === 'start') {
+    const art = first.eventKind && first.eventKind !== 'none' ? EVENT_LABEL[first.eventKind] : 'eigenem Start';
+    return `startet mit ${art} «${first.name}»`;
+  }
+  return 'hängt an keinem Sequenzfluss — z. B. Ziel eines Link-Ereignisses';
+}
+
+/**
+ * Die Schritte einer Ebene in Gruppen: ein Schritt mit `orphan` beginnt
+ * eine neue; `head` ist gesetzt, wenn die Gruppe eine Klammer braucht (ein
+ * Ereignis-Subprozess hat seinen eigenen Container und bleibt für sich).
+ */
+export function blockGroups(steps: Step[]): Array<{ head: Step | null; steps: Step[] }> {
+  const groups: Array<{ head: Step | null; steps: Step[] }> = [];
+  for (const s of steps) {
+    const opens = !!s.orphan && !s.eventSubprocess;
+    const last = groups[groups.length - 1];
+    if (s.orphan || !last) groups.push({ head: opens ? s : null, steps: [s] });
+    else last.steps.push(s);
+  }
+  return groups;
+}
+
 export function allSteps(steps: Step[] | undefined, out: Step[] = []): Step[] {
   for (const s of steps ?? []) {
     out.push(s);
