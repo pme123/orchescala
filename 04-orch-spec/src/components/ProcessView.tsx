@@ -13,7 +13,7 @@ import {
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
 import { collectFindings, type Finding } from '../findings';
-import { catalogEntry } from '../interactions';
+import { catalogEntry, healLooseTypes } from '../interactions';
 import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, pruneComments, stepTarget, sub, threadOf } from '../comments';
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
@@ -177,6 +177,16 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } });
     return () => { alive = false; };
   }, [slug, loadSpec, loadBpmn]);
+
+  // Blosse Typnamen aus einem Import ohne Katalog: sobald der Katalog sie
+  // kennt, werden sie zu Verweisen — gespeichert wird das mit dem nächsten
+  // Autosave. Nichts zu tun → null, kein Update, keine Schleife.
+  useEffect(() => {
+    if (!spec || !model || !canEdit) return;
+    const healed = healLooseTypes(spec.types ?? [], model);
+    if (healed) update({ ...spec, types: healed });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec?.types, model, canEdit]);
 
   // ── Autosave ──────────────────────────────────────────────────────────────
   const timer = useRef<number | null>(null);

@@ -20,7 +20,7 @@ import type {
 import { INTERACTION_META } from './types.ts';
 import { allSteps } from './bpmn.ts';
 import { typeShape } from './scalaTypes.ts';
-import { domainRef } from './serviceTypes.ts';
+import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
 import { uid } from './util.ts';
 
@@ -308,4 +308,48 @@ export function domainMember(name: string, member: string, model: Model | null):
 /** Der Schritt, zu dem eine Interaktion gehört. */
 export function interactionStep(spec: ProcessSpec, ia: Interaction): Step | null {
   return allSteps(spec.steps).find(s => s.id === ia.stepId) ?? null;
+}
+
+/**
+ * Blosse Typnamen nachträglich auflösen. Kannte der Katalog einen Typ beim
+ * Import nicht, blieb sein Name im Feld stehen — `ProcessCallOrigin` oder
+ * `CustomDocContents.\`QI-Deklaration\``. Kennt der Katalog ihn jetzt
+ * eindeutig, wird daraus der Verweis (samt Ausprägung), so wie es der Import
+ * gemacht hätte. Gibt die geänderten Typen zurück — oder null, wenn nichts
+ * zu tun war.
+ */
+export function healLooseTypes(types: TypeDef[], model: Model | null): TypeDef[] | null {
+  const all = model?.domainTypes ?? [];
+  if (!all.length) return null;
+  const own = new Set(types.map(t => t.id));
+  const unique = (name: string): DomainType | null => {
+    const hits = all.filter(t => t.name === name);
+    return hits.length === 1 ? hits[0] : null;
+  };
+  const heal = (f: Field): Field | null => {
+    const t = f.type;
+    if (!t || own.has(t) || parseDomainRef(t) || parseServiceRef(t) || (SCALA_TYPES as readonly string[]).includes(t)) return null;
+    const direkt = unique(t);
+    if (direkt) return { ...f, type: domainRef(direkt.id) };
+    // `Enum.\`Fall\`` bzw. `Enum.Fall` — der Fall gehört zum Feld, der Verweis zum Enum
+    const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)$/.exec(t);
+    if (!m) return null;
+    const en = unique(m[1]);
+    if (en?.kind === 'enum' && (en.cases ?? []).some(c => c.name === m[2])) return { ...f, type: domainRef(en.id), enumCase: m[2] };
+    return null;
+  };
+  let changed = false;
+  const out = types.map(t => {
+    let touched = false;
+    const fields = (t.fields ?? []).map(f => { const h = heal(f); if (h) touched = true; return h ?? f; });
+    const values = (t.values ?? []).map(v => {
+      if (!v.fields?.length) return v;
+      const vf = v.fields.map(f => { const h = heal(f); if (h) touched = true; return h ?? f; });
+      return touched ? { ...v, fields: vf } : v;
+    });
+    if (!touched) return t;
+    changed = true;
+    return { ...t, ...(t.fields ? { fields } : {}), ...(t.values ? { values } : {}) };
+  });
+  return changed ? out : null;
 }
