@@ -14,7 +14,7 @@ import { useStore } from '../store';
 import { useAuthorName, usePermissions } from '../auth';
 import { collectFindings, type Finding } from '../findings';
 import { catalogEntry } from '../interactions';
-import { openCount, openThreads, pruneComments, stepTarget, threadTarget } from '../comments';
+import { baseOf, commentTargets, countIndex, locate, processTarget, pruneComments, stepTarget, sub } from '../comments';
 import { allSteps, importBpmn, mergeSpec, statusCounts, type MergeReport } from '../bpmn';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
@@ -22,6 +22,7 @@ import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type Interaction,
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, STEP_ICON, StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import ExportDialog from './ExportDialog';
+import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
 import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
 import type { BpmnHandle } from './BpmnEditor';
@@ -103,8 +104,12 @@ export default function ProcessView({ slug, onBack }: Props) {
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
   /** Sprung aus dem Ablauf ins Datenmodell — dort wird dieser Typ gezeigt */
   const [focusType, setFocusType] = useState<string | null>(null);
-  /** wo man beim Durchgehen der offenen Kommentare steht */
-  const [kommentarIdx, setKommentarIdx] = useState(0);
+  /** Sprung aus den Kommentaren zu einer Interaktion im Datenmodell */
+  const [focusIa, setFocusIa] = useState<string | null>(null);
+  /** Kommentar-Panel: offen? welche Stelle? (null = Übersicht) */
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
   const [xml, setXml] = useState<string | null>(null);
   const xmlRef = useRef<string | null>(null);
   xmlRef.current = xml;
@@ -256,53 +261,69 @@ export default function ProcessView({ slug, onBack }: Props) {
   const containers = useMemo(() => (spec ? containerIds(spec.steps) : []), [spec]);
   const ancestors = useMemo(() => (spec ? ancestorsOf(spec.steps) : new Map<string, string[]>()), [spec]);
 
-  // ── Offene Kommentare durchgehen ─────────────────────────────────────────
-  const offeneKommentare = useMemo(
-    () => (spec
-      ? openThreads(spec, allSteps(spec.steps).map(s => s.id), (spec.types ?? []).map(t => t.id))
-      : []),
-    [spec]);
+  // ── Kommentare ───────────────────────────────────────────────────────────
+  const commentCounts = useMemo(() => (spec ? countIndex(spec) : { exact: new Map(), under: new Map() }), [spec]);
+  const targets = useMemo(() => (spec ? commentTargets(spec, allSteps(spec.steps)) : []), [spec]);
 
-  /** Der Faden, auf dem die Navigation steht — er wird hervorgehoben. */
-  const aktuellerFaden = offeneKommentare.length
-    ? offeneKommentare[kommentarIdx % offeneKommentare.length]?.id
-    : undefined;
-
-  const zeigeFaden = useCallback((i: number) => {
-    const faden = offeneKommentare[i];
-    if (!faden) return;
-    setKommentarIdx(i);
-    const ziel = threadTarget(faden);
-    const zumFaden = () => {
-      for (const nach of [0, 60, 200, 400]) {
-        window.setTimeout(() => {
-          document.querySelector(`[data-thread="${CSS.escape(faden.id)}"]`)
-            ?.scrollIntoView({ block: 'center' });
-        }, nach);
+  /**
+   * Zur Stelle eines Kommentars: Ansicht wechseln, eingeklappte Zweige
+   * öffnen, das Element wählen und die Sprechblase in den Blick scrollen.
+   */
+  const gotoTarget = useCallback((key: string) => {
+    const ziel = locate(key);
+    if (ziel.kind === 'type') { setFocusType(ziel.id); setTab('model'); }
+    else if (ziel.kind === 'ia') { setFocusIa(ziel.id); setTab('model'); }
+    else {
+      setTab('flow');
+      if (ziel.kind === 'process') setSelected(null);
+      else {
+        // Der Schritt kann in einem eingeklappten Zweig stecken
+        const oben = ancestors.get(ziel.id) ?? [];
+        if (oben.length) setCollapsed(prev => {
+          const next = new Set(prev);
+          for (const id of oben) next.delete(id);
+          return next;
+        });
+        setSelected(ziel.id);
       }
-    };
-    if (ziel.kind === 'type') { setFocusType(ziel.id); setTab('model'); zumFaden(); return; }
-    setTab('flow');
-    if (ziel.kind === 'process') { setSelected(null); zumFaden(); return; }
-    // Der Schritt kann in einem eingeklappten Zweig stecken
-    const oben = ancestors.get(ziel.id) ?? [];
-    if (oben.length) setCollapsed(prev => {
-      const next = new Set(prev);
-      for (const id of oben) next.delete(id);
-      return next;
-    });
-    setSelected(ziel.id);
+    }
     for (const nach of [0, 60, 200, 400]) {
       window.setTimeout(() => {
-        document.querySelector(`[data-step="${CSS.escape(ziel.id)}"]`)
-          ?.scrollIntoView({ block: 'center' });
-        // die rechte Spalte scrollt für sich — dort steht der Faden vielleicht
-        // weit unten, und hervorgehoben nützt er nur, wenn man ihn sieht
-        document.querySelector(`[data-thread="${CSS.escape(faden.id)}"]`)
-          ?.scrollIntoView({ block: 'center' });
+        if (ziel.kind === 'step') {
+          document.querySelector(`[data-step="${CSS.escape(ziel.id)}"]`)?.scrollIntoView({ block: 'nearest' });
+        }
+        // die rechte Spalte scrollt für sich — dort steht die Stelle vielleicht weit unten
+        const bubbles = document.querySelectorAll(`[data-ctarget="${CSS.escape(key)}"]`);
+        bubbles[bubbles.length - 1]?.scrollIntoView({ block: 'nearest' });
       }, nach);
     }
-  }, [offeneKommentare, ancestors]);
+  }, [ancestors]);
+
+  const selectComment = useCallback((key: string | null) => {
+    setActiveComment(key);
+    if (key) gotoTarget(key);
+  }, [gotoTarget]);
+
+  /**
+   * Klick auf eine Sprechblase. Im Baum zählt sie das ganze Element; hat es
+   * selbst nichts Offenes, wohl aber ein Teil davon, geht es gleich dorthin.
+   */
+  const openComment = useCallback((key: string, aggregate?: boolean) => {
+    let ziel = key;
+    if (aggregate && !commentCounts.exact.get(key)?.open) {
+      const teil = targets.find(t => baseOf(t.key) === key && t.key !== key && commentCounts.exact.get(t.key)?.open);
+      if (teil) ziel = teil.key;
+    }
+    setCommentsOpen(true);
+    selectComment(ziel);
+  }, [commentCounts, targets, selectComment]);
+
+  const commentsCtx = useMemo(() => ({
+    exact: commentCounts.exact, under: commentCounts.under,
+    active: commentsOpen ? activeComment : null, open: openComment, isDark,
+  }), [commentCounts, commentsOpen, activeComment, openComment, isDark]);
+  const offeneKommentare = spec?.comments?.filter(t => !t.resolved).length ?? 0;
+
   // Befunde je Schritt — dieselben Regeln wie im Panel rechts, für das Dreieck
   // in der Zeile; einmal je Stand der Spezifikation gerechnet
   const findings = useMemo(() => (spec ? collectFindings(spec, model, allSteps(spec.steps)) : new Map<string, Finding>()), [spec, model]);
@@ -439,25 +460,17 @@ export default function ProcessView({ slug, onBack }: Props) {
                   <Save size={11} /> {saveState.at}
                 </span>
           )}
-          {/* Offene Kommentare der Reihe nach durchgehen */}
-          {!!offeneKommentare.length && (
-            <div className={`flex items-center gap-0.5 rounded border flex-shrink-0 ${c.border2}`}>
-              <button
-                onClick={() => zeigeFaden((kommentarIdx - 1 + offeneKommentare.length) % offeneKommentare.length)}
-                title="Voriger offener Kommentar"
-                className={`px-1.5 py-1.5 ${c.muted} hover:opacity-100`}><ChevronLeft size={12} /></button>
-              <button onClick={() => zeigeFaden(kommentarIdx % offeneKommentare.length)}
-                title={offeneKommentare[kommentarIdx % offeneKommentare.length]?.entries[0]?.text}
-                className={`flex items-center gap-1 text-[11px] ${c.muted2}`}>
-                <MessageSquare size={11} />
-                {Math.min(kommentarIdx + 1, offeneKommentare.length)}/{offeneKommentare.length}
-              </button>
-              <button
-                onClick={() => zeigeFaden((kommentarIdx + 1) % offeneKommentare.length)}
-                title="Nächster offener Kommentar"
-                className={`px-1.5 py-1.5 ${c.muted} hover:opacity-100`}><ChevronRight size={12} /></button>
-            </div>
-          )}
+          {/* Kommentare: Übersicht und Schrittfolge im Panel rechts */}
+          <button onClick={() => { setCommentsOpen(!commentsOpen); if (commentsOpen) setActiveComment(null); }}
+            title={commentsOpen ? 'Kommentare schliessen' : 'Alle Kommentare — Übersicht und Durchgehen'}
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
+              commentsOpen
+                ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
+                : offeneKommentare
+                  ? (isDark ? 'border-blue-500/40 text-blue-300 hover:bg-blue-500/10' : 'border-blue-300 text-blue-700 hover:bg-blue-50')
+                  : c.btn}`}>
+            <MessageSquare size={12} /> {offeneKommentare || ''}
+          </button>
           <button onClick={() => setExportOpen(true)}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
             <Download size={12} /> Export
@@ -488,6 +501,7 @@ export default function ProcessView({ slug, onBack }: Props) {
       )}
 
       {/* ── Inhalt ─────────────────────────────────────────────────────────── */}
+      <CommentsContext.Provider value={commentsCtx}>
       <div className="flex-1 flex min-h-0">
         {tab === 'flow' ? (
           <>
@@ -513,7 +527,6 @@ export default function ProcessView({ slug, onBack }: Props) {
                   selected={selected} onSelect={setSelected} byId={byId}
                   matches={matches} filterActive={active}
                   onStatus={canEdit ? (id, s) => patchStep(id, { status: s }) : undefined}
-                  comments={id => openCount(spec, stepTarget(id))}
                   findings={findings}
                   interactionOf={id => (spec.interactions ?? []).find(i => i.stepId === id) ?? null}
                   serviceOf={s => catalogEntry(s, model)}
@@ -537,10 +550,13 @@ export default function ProcessView({ slug, onBack }: Props) {
                 localStorage.setItem(PANEL_W_KEY, String(w));
               }} />
               <div className={`flex-shrink-0 px-4 py-3 border-b ${c.border}`}>
-                <input value={spec.title} disabled={!canEdit}
-                  onChange={e => update({ ...spec, title: e.target.value })}
-                  placeholder="Fachlicher Titel"
-                  className={`w-full bg-transparent outline-none text-sm font-semibold ${c.text} disabled:opacity-100`} />
+                <div className="flex items-center gap-2">
+                  <input value={spec.title} disabled={!canEdit}
+                    onChange={e => update({ ...spec, title: e.target.value })}
+                    placeholder="Fachlicher Titel"
+                    className={`flex-1 min-w-0 bg-transparent outline-none text-sm font-semibold ${c.text} disabled:opacity-100`} />
+                  <CommentBubble target={processTarget} title="Kommentare zum Prozess" />
+                </div>
                 <div className={`flex items-center gap-2 mt-0.5 text-[10px] ${c.muted}`}>
                   <span className="font-mono truncate">{spec.processId || spec.name}</span>
                   {spec.project && <span className="font-mono opacity-70 truncate">· {spec.project}</span>}
@@ -575,7 +591,7 @@ export default function ProcessView({ slug, onBack }: Props) {
                 )}
               </div>
 
-              <StepDetail step={selectedStep} spec={spec} author={author} highlight={aktuellerFaden}
+              <StepDetail step={selectedStep} spec={spec}
                 isDark={isDark} canEdit={canEdit} model={model}
                 onPatch={patchStep} onSyncId={syncStepId} onClose={() => setSelected(null)} onGoto={setSelected}
                 projectPrefixes={projectPrefixes} onRenameProject={renameProject}
@@ -589,10 +605,21 @@ export default function ProcessView({ slug, onBack }: Props) {
             </div>
           </>
         ) : (
-          <TypeBuilder spec={spec} isDark={isDark} canEdit={canEdit} model={model} onChange={update}
-            focusTypeId={focusType} onFocused={() => setFocusType(null)} highlight={aktuellerFaden} />
+          <div className="flex-1 min-w-0 min-h-0">
+            <TypeBuilder spec={spec} isDark={isDark} canEdit={canEdit} model={model} onChange={update}
+              focusTypeId={focusType} onFocused={() => setFocusType(null)}
+              focusIaId={focusIa} onFocusedIa={() => setFocusIa(null)} />
+          </div>
+        )}
+        {commentsOpen && (
+          <CommentsPanel spec={spec} isDark={isDark} targets={targets}
+            active={activeComment} showResolved={showResolved} onToggleResolved={setShowResolved}
+            onSelect={selectComment}
+            onClose={() => { setCommentsOpen(false); setActiveComment(null); }}
+            canEdit={canEdit} author={author} onChange={update} />
         )}
       </div>
+      </CommentsContext.Provider>
 
       {exportOpen && <ExportDialog spec={spec} model={model} bpmn={xml ?? ''} isDark={isDark} onClose={() => setExportOpen(false)} />}
     </div>
@@ -682,8 +709,6 @@ interface ListProps {
   matches: (s: Step) => boolean;
   filterActive: boolean;
   onStatus?: (id: string, s: Status) => void;
-  /** wie viele offene Kommentare an diesem Schritt hängen */
-  comments: (id: string) => number;
 }
 
 function StepList(p: ListProps) {
@@ -765,12 +790,8 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           )}
           {step.description && <span className={`text-[9px] ${c.muted}`} title="fachlich beschrieben">✎</span>}
           {step.open && <span className={p.isDark ? 'text-amber-400' : 'text-amber-600'} title={step.open}>❓</span>}
-          {!!p.comments(step.id) && (
-            <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
-              title={`${p.comments(step.id)} offene Kommentare`}>
-              <MessageSquare size={9} />{p.comments(step.id)}
-            </span>
-          )}
+          {/* Kommentare am Schritt samt seiner Teile — ohne erst beim Überfahren */}
+          <CommentBubble target={stepTarget(step.id)} aggregate quiet />
           <BlockChip step={step} isDark={p.isDark} />
           <LoopChip step={step} isDark={p.isDark} />
           {!!step.errors?.filter(e => !e.side).length && <ErrorChip n={step.errors.filter(e => !e.side).length} isDark={p.isDark} />}
@@ -782,7 +803,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
       {isOpen && hasChildren && (
         <div className="flex flex-col">
           {/* Verzweigungen */}
-          {step.branches?.map((b, i) => <BranchBlock key={b.id} branch={b} index={i} {...p} />)}
+          {step.branches?.map((b, i) => <BranchBlock key={b.id} branch={b} index={i} gatewayId={step.id} {...p} />)}
 
           {/* Fehler- und Nebenpfade */}
           {step.errors?.filter(e => e.steps?.length).map(e => (
@@ -814,17 +835,18 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   );
 }
 
-function BranchBlock({ branch, index, ...p }: ListProps & { branch: Branch; index: number }) {
+function BranchBlock({ branch, index, gatewayId, ...p }: ListProps & { branch: Branch; index: number; gatewayId: string }) {
   const c = cls(p.isDark);
   const col = BRANCH_COLORS[index % BRANCH_COLORS.length];
   const tint = p.isDark ? col.dark : col.light;
   return (
     <div className={`ml-6 pl-3 border-l-2 ${tint.split(' ')[0]}`}>
-      <div className={`flex items-center gap-1.5 py-1 text-[10px] ${tint.split(' ')[1]}`}>
+      <div className={`group flex items-center gap-1.5 py-1 text-[10px] ${tint.split(' ')[1]}`}>
         <span className="font-semibold">{branch.label}</span>
         {branch.isDefault && <span className={c.muted}>· Standard</span>}
         {branch.condition && <span className={`font-mono truncate max-w-[24rem] ${c.muted}`} title={branch.condition}>{branch.condition}</span>}
         {!branch.steps.length && <span className={c.muted}>· direkt weiter</span>}
+        <CommentBubble target={sub(stepTarget(gatewayId), `branch:${branch.id}`)} quiet />
       </div>
       {!!branch.steps.length && <StepList {...p} steps={branch.steps} depth={p.depth + 1} />}
     </div>

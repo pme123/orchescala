@@ -296,9 +296,15 @@ export interface Variable {
  */
 export interface CommentThread {
   id: string;
-  /** worauf er sich bezieht: `process`, `step:<id>` oder `type:<id>` */
+  /**
+   * worauf er sich bezieht: ein Element (`process`, `step:<id>`, `ia:<id>`,
+   * `type:<id>`) oder ein Teil davon (`step:<id>#in:<name>` …, siehe comments.ts)
+   */
   target: string;
   resolved?: boolean;
+  /** wer abgehakt hat, und wann */
+  resolvedBy?: string;
+  resolvedAt?: string;
   entries: CommentEntry[];
   [key: string]: unknown;
 }
