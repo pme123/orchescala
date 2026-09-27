@@ -11,14 +11,14 @@
 // und — bei Antworten — wer den Faden angefangen hat, eine Chat-Nachricht
 // (siehe useTeamsNotify).
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AtSign, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, List, MessageSquare, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { AtSign, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, ListOrdered, MessageSquare, RotateCcw, Send, Trash2, Workflow, X } from 'lucide-react';
 import {
   addReply, addThread, baseOf, removeEntry, removeThread, setResolved, whenFull, whenLabel,
   type CommentAuthor, type CommentTargetInfo, type Counts,
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
 import type { CommentThread, DirectoryUser, ProcessSpec } from '../types';
-import { cls } from '../ui';
+import { STEP_ICON, cls } from '../ui';
 
 // ── Kontext ──────────────────────────────────────────────────────────────────
 interface CommentsCtx {
@@ -265,6 +265,64 @@ function MentionTextarea(p: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Stelle ───────────────────────────────────────────────────────────────────
+/** Das Zeichen des Elements: Schrittart, Klasse/Enum, Interaktion, Prozess. */
+function targetIcon(t: CommentTargetInfo, size = 11): React.ReactNode {
+  if (t.stepKind) { const I = STEP_ICON[t.stepKind]; return <I size={size} className="flex-shrink-0" />; }
+  if (t.typeKind === 'enum') return <ListOrdered size={size} className="flex-shrink-0" />;
+  if (t.typeKind) return <Braces size={size} className="flex-shrink-0" />;
+  if (t.ia) return <Workflow size={size} className="flex-shrink-0" />;
+  return <Workflow size={size} className="flex-shrink-0" />;
+}
+
+/** Farbe des Element-Chips — wie die Chips im Datenmodell und im Schritt-Panel. */
+function targetTone(t: CommentTargetInfo, isDark: boolean): string {
+  if (t.typeKind === 'enum') return isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800';
+  if (t.typeKind || t.ia) return isDark ? 'border-sky-500/40 bg-sky-500/10 text-sky-300' : 'border-sky-300 bg-sky-50 text-sky-800';
+  return isDark ? 'border-white/15 text-white/80' : 'border-black/15 text-black/80';
+}
+
+/**
+ * Die Stelle als Pfad: Chip mit Zeichen und Element, dann der Teil.
+ * `mono` für Feldnamen im Datenmodell.
+ */
+function TargetPath({ t, isDark, small }: { t: CommentTargetInfo; isDark: boolean; small?: boolean }) {
+  const c = cls(isDark);
+  const element = t.element ?? t.label;
+  return (
+    <span className="flex items-center gap-1.5 min-w-0">
+      <span className={`inline-flex items-center gap-1 px-1.5 py-px rounded border flex-shrink-0 max-w-[60%] ${small ? 'text-[10px]' : 'text-[11px]'} ${t.typeKind ? 'font-mono' : ''} ${targetTone(t, isDark)}`}>
+        {targetIcon(t, small ? 10 : 11)}<span className="truncate">{element}</span>
+      </span>
+      {t.part && (
+        <>
+          <ChevronRight size={10} className={`flex-shrink-0 ${c.muted}`} />
+          <span className={`truncate ${small ? 'text-[10px]' : 'text-[11px]'} ${t.typeKind ? 'font-mono' : ''} ${isDark ? 'text-white/85' : 'text-black/85'}`}>{t.part}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Zähler wie die Sprechblase an der Stelle: blau für offene, grauer Haken für erledigte. */
+function CountChip({ open, resolved, showResolved, isDark }: { open: number; resolved: number; showResolved: boolean; isDark: boolean }) {
+  if (open > 0) {
+    return (
+      <span className={`inline-flex items-center gap-1 h-[18px] px-1 rounded border text-[10px] leading-none flex-shrink-0 ${isDark ? 'text-blue-300 border-blue-500/30' : 'text-blue-700 border-blue-300'}`}
+        title={`${open} offen${showResolved && resolved ? ` · ${resolved} erledigt` : ''}`}>
+        <MessageSquare size={11} />{open}
+        {showResolved && resolved > 0 && <span className={`inline-flex items-center gap-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}><Check size={9} />{resolved}</span>}
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-0.5 h-[18px] px-1 rounded border text-[10px] leading-none flex-shrink-0 ${isDark ? 'text-white/40 border-white/10' : 'text-black/40 border-black/10'}`}
+      title={`${resolved} erledigt`}>
+      <Check size={11} />{resolved}
+    </span>
   );
 }
 
@@ -556,17 +614,25 @@ export function CommentsPanel(p: PanelProps) {
             <div className="space-y-0.5">
               {g.items.map(t => {
                 const x = countOf(t.key);
-                const first = comments.find(f => f.target === t.key && (showResolved || !f.resolved))?.entries[0]?.text;
+                // der jüngste Beitrag an dieser Stelle — wer zuletzt etwas gesagt hat, und was
+                const letzter = comments.filter(f => f.target === t.key && (showResolved || !f.resolved))
+                  .flatMap(f => f.entries).sort((a, b) => b.at.localeCompare(a.at))[0];
                 return (
                   <button key={t.key} type="button" onClick={() => p.onSelect(t.key)}
                     className={`w-full flex items-start gap-2 text-left px-2 py-1.5 rounded transition-colors ${c.hover}`}>
-                    <span className="flex-1 min-w-0">
-                      <span className={`block text-[11px] leading-snug truncate ${isDark ? 'text-white/85' : 'text-black/85'}`}>{t.label}</span>
-                      {first && <span className={`block text-[10px] truncate ${c.muted}`}>{first}</span>}
+                    <span className="flex-1 min-w-0 space-y-0.5">
+                      {t.group === ORPHAN_GROUP
+                        ? <span className={`block text-[11px] font-mono truncate ${c.muted2}`}>{t.key}</span>
+                        : <TargetPath t={t} isDark={isDark} small />}
+                      {letzter && (
+                        <span className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
+                          <span className={`inline-flex items-center justify-center min-w-[22px] h-4 px-1 rounded-full text-[9px] font-bold border flex-shrink-0 ${isDark ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' : 'bg-blue-50 text-blue-700 border-blue-300'}`}>{initialsFor(letzter.author)}</span>
+                          <span className="flex-shrink-0" title={whenFull(letzter.at)}>{whenLabel(letzter.at)}</span>
+                          <span className="truncate">{letzter.text}</span>
+                        </span>
+                      )}
                     </span>
-                    <span className={`text-[10px] flex-shrink-0 ${x.open > 0 ? (isDark ? 'text-blue-300' : 'text-blue-700') : c.muted}`}>
-                      {x.open > 0 ? `${x.open} offen` : ''}{x.open > 0 && x.resolved > 0 && showResolved ? ' · ' : ''}{showResolved && x.resolved > 0 ? `${x.resolved} erledigt` : ''}
-                    </span>
+                    <CountChip open={x.open} resolved={x.resolved} showResolved={showResolved} isDark={isDark} />
                   </button>
                 );
               })}
@@ -599,7 +665,10 @@ export function CommentsPanel(p: PanelProps) {
         <button type="button" onClick={() => prev && p.onSelect(prev.key)} disabled={!canStep} title="Vorherige Stelle" className={iconBtn}>
           <ChevronLeft size={13} />
         </button>
-        <span className={`text-[10px] tabular-nums ${c.muted}`}>{stepIndex >= 0 ? `${stepIndex + 1}/${steps.length}` : `${steps.length}`}</span>
+        <span className={`text-[10px] tabular-nums ${c.muted}`}
+          title={steps.length ? `Reihenfolge:\n${steps.map((t, i) => `${i === stepIndex ? '› ' : '   '}${i + 1}. ${t.label}`).join('\n')}` : 'Keine Stellen mit Kommentaren'}>
+          {stepIndex >= 0 ? `${stepIndex + 1}/${steps.length}` : `${steps.length}`}
+        </span>
         <button type="button" onClick={() => next && p.onSelect(next.key)} disabled={!canStep} title="Nächste Stelle" className={iconBtn}>
           <ChevronRight size={13} />
         </button>
@@ -613,17 +682,30 @@ export function CommentsPanel(p: PanelProps) {
           Erledigte einblenden
         </label>
         {!active && steps.length > 0 && (
-          <button type="button" className={`ml-auto ${btnGhost}`} onClick={() => p.onSelect(steps[0].key)}>
+          <button type="button" className={`ml-auto ${btnPrimary}`} onClick={() => p.onSelect(steps[0].key)}>
             Alle durchgehen <ChevronRight size={10} className="inline -mt-0.5" />
           </button>
         )}
       </div>
       {activeInfo && (
         <div className={`px-3 py-2 border-b ${c.border}`}>
-          <p className={`text-[10px] uppercase tracking-wider ${c.muted}`}>{activeInfo.group}</p>
-          <p className={`text-[11px] font-semibold leading-snug break-words ${isDark ? 'text-white/85' : 'text-black/85'}`}>
-            {activeInfo.group === ORPHAN_GROUP ? `Stelle gibt es nicht mehr (${activeInfo.key})` : activeInfo.label}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-[10px] uppercase tracking-wider flex-1 ${c.muted}`}>{activeInfo.group}</p>
+            {activeInfo.group !== ORPHAN_GROUP && (
+              <button type="button" onClick={() => p.onSelect(activeInfo.key)} title="Zur Stelle scrollen und sie hervorheben"
+                className={`flex items-center gap-1 text-[10px] ${c.muted} hover:underline`}>
+                <Crosshair size={10} /> zur Stelle
+              </button>
+            )}
+          </div>
+          <div className="mt-1 flex items-center gap-2">
+            {activeInfo.group === ORPHAN_GROUP
+              ? <p className={`text-[11px] leading-snug break-words ${c.muted2}`}>Stelle gibt es nicht mehr <span className="font-mono">({activeInfo.key})</span></p>
+              : <TargetPath t={activeInfo} isDark={isDark} />}
+            <span className="ml-auto flex-shrink-0">
+              <CountChip open={countOf(activeInfo.key).open} resolved={countOf(activeInfo.key).resolved} showResolved={showResolved} isDark={isDark} />
+            </span>
+          </div>
         </div>
       )}
 

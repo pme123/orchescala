@@ -158,6 +158,16 @@ export interface CommentTargetInfo {
   label: string;
   /** Überschrift in der Übersicht, z. B. «Ablauf» oder «Datenmodell» */
   group: string;
+  /** das Element, z. B. der Schrittname — für den Pfad «Element › Teil» */
+  element?: string;
+  /** der Teil des Elements, z. B. «Eingabe kind» */
+  part?: string;
+  /** Schrittart — für das Zeichen vor dem Element */
+  stepKind?: Step['kind'];
+  /** Art des Typs — Klasse oder Enum */
+  typeKind?: TypeDef['kind'];
+  /** eine Interaktion (Objekt mit In/Out) */
+  ia?: boolean;
 }
 
 /** Wo eine Stelle zu finden ist — für die Navigation. */
@@ -190,10 +200,11 @@ const kurz = (s: string | undefined, n = 40) => {
 export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[]): CommentTargetInfo[] {
   const out: CommentTargetInfo[] = [];
   const P = 'Prozess';
-  out.push({ key: processTarget, label: spec.title || spec.name || 'Prozess', group: P });
-  out.push({ key: sub(processTarget, 'description'), label: 'Ausgangslage / Ziel', group: P });
+  const titel = spec.title || spec.name || 'Prozess';
+  out.push({ key: processTarget, label: titel, group: P, element: titel });
+  out.push({ key: sub(processTarget, 'description'), label: 'Ausgangslage / Ziel', group: P, element: titel, part: 'Ausgangslage / Ziel' });
   for (const v of spec.variables ?? []) {
-    if (v.name) out.push({ key: sub(processTarget, `var:${v.name}`), label: `Variable ${v.name}`, group: P });
+    if (v.name) out.push({ key: sub(processTarget, `var:${v.name}`), label: `Variable ${v.name}`, group: P, element: titel, part: `Variable ${v.name}` });
   }
 
   const A = 'Ablauf';
@@ -201,8 +212,9 @@ export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[]): Comment
     if (s.kind === 'goto') continue;
     const base = stepTarget(s.id);
     const name = s.name || s.id;
-    const teil = (part: string, label: string) => out.push({ key: sub(base, part), label: `${name} · ${label}`, group: A });
-    out.push({ key: base, label: `${KIND_LABEL[s.kind]} ${name}`, group: A });
+    const teil = (part: string, label: string) =>
+      out.push({ key: sub(base, part), label: `${name} · ${label}`, group: A, element: name, part: label, stepKind: s.kind });
+    out.push({ key: base, label: `${KIND_LABEL[s.kind]} ${name}`, group: A, element: name, stepKind: s.kind });
     teil('description', 'Beschreibung');
     if (s.kind === 'user') teil('assignment', 'Zuständigkeit');
     if (s.kind === 'service' || s.kind === 'call' || s.kind === 'send' || s.kind === 'rule') teil('service', 'Service');
@@ -221,17 +233,18 @@ export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[]): Comment
 }
 
 const iaInfo = (ia: Interaction, group: string): CommentTargetInfo =>
-  ({ key: iaTarget(ia.id), label: ia.name || ia.id, group });
+  ({ key: iaTarget(ia.id), label: ia.name || ia.id, group, element: ia.name || ia.id, ia: true });
 
 function typeInfos(t: TypeDef, group: string): CommentTargetInfo[] {
   const base = typeTarget(t.id);
   const name = t.name || t.id;
-  const out: CommentTargetInfo[] = [{ key: base, label: name, group }];
-  for (const f of t.fields ?? []) if (f.name) out.push({ key: sub(base, `field:${f.id}`), label: `${name}.${f.name}`, group });
+  const k = t.kind;
+  const out: CommentTargetInfo[] = [{ key: base, label: name, group, element: name, typeKind: k }];
+  for (const f of t.fields ?? []) if (f.name) out.push({ key: sub(base, `field:${f.id}`), label: `${name}.${f.name}`, group, element: name, part: f.name, typeKind: k });
   for (const v of t.values ?? []) {
     if (!v.name) continue;
-    out.push({ key: sub(base, `value:${v.name}`), label: `${name}.${v.name}`, group });
-    for (const f of v.fields ?? []) if (f.name) out.push({ key: sub(base, `field:${f.id}`), label: `${name}.${v.name}.${f.name}`, group });
+    out.push({ key: sub(base, `value:${v.name}`), label: `${name}.${v.name}`, group, element: name, part: v.name, typeKind: k });
+    for (const f of v.fields ?? []) if (f.name) out.push({ key: sub(base, `field:${f.id}`), label: `${name}.${v.name}.${f.name}`, group, element: name, part: `${v.name}.${f.name}`, typeKind: k });
   }
   return out;
 }
