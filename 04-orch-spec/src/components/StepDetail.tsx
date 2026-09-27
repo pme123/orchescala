@@ -537,11 +537,13 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
     onEditType(t.id);
   };
 
+  const { warn, warnBox } = tones(isDark);
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
         <h3 className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Klassen</h3>
         <span className={`text-[9px] ${c.muted}`}>{meta.label}</span>
+        {ia && <span className={`ml-auto text-[10px] font-mono ${c.muted2}`} title="Objekt der Interaktion im Datenmodell">{ia.name}</span>}
       </div>
 
       {!ia ? (
@@ -552,24 +554,50 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
         </button>
       ) : (
         <div className="space-y-1">
-          <div className={`text-[10px] font-mono ${c.muted2}`}>{ia.name}</div>
           {(['In', 'Out'] as const).filter(m => m === 'In' || meta.hasOut).map(m => {
             const t = types.find(x => x.id === (m === 'In' ? ia.inTypeId : ia.outTypeId));
+            const fields = (t?.fields ?? []).filter(f => f.name);
             const known = ((m === 'In' ? entry?.inputs : entry?.outputs) ?? []).length;
+            // Eine Klasse ohne Felder ist ein Hinweis (gelb): der Schritt bekommt
+            // bzw. liefert dann nichts — meist ist das noch nicht fertig
+            const leer = !!t && !fields.length;
+            const what = m === 'In'
+              ? 'was der Schritt bekommt'
+              : kind === 'userTask' ? 'was die Person erfasst' : 'was der Schritt zurückgibt';
             return (
               <button key={m} onClick={() => openMember(m)} disabled={!canEdit && !t}
-                className={`w-full px-2 py-1.5 rounded border text-left ${c.border2} ${c.hover}`}>
+                title={t ? `${ia.name}.${m} — ${what}. Klick öffnet die Klasse im Datenmodell.` : known ? `${m} anlegen — ${known} Felder aus dem Katalog übernehmen` : `${m} anlegen — ${what}`}
+                className={`w-full px-2 py-1.5 rounded border text-left ${leer ? warnBox : t ? c.border2 : `border-dashed ${c.border2}`} ${c.hover}`}>
                 <div className="flex items-center gap-1.5">
+                  <Braces size={10} className={`flex-shrink-0 ${leer ? warn : isDark ? 'text-sky-300' : 'text-sky-700'}`} />
                   <span className={`text-[11px] font-mono ${c.text}`}>{m}</span>
-                  <span className={`text-[10px] ${c.muted}`}>
-                    {t ? `${t.fields?.length ?? 0} Felder` : known ? `${known} aus dem Katalog übernehmen` : 'anlegen'}
+                  <span className={`text-[10px] ${leer ? warn : c.muted}`}>
+                    {t ? (fields.length ? `${fields.length} Feld${fields.length === 1 ? '' : 'er'}` : 'keine Felder') : known ? `${known} aus dem Katalog übernehmen` : 'anlegen'}
                   </span>
-                  {t ? <ExternalLink size={10} className={`ml-auto ${c.muted}`} /> : <Plus size={10} className={`ml-auto ${c.muted}`} />}
+                  <span className={`ml-auto text-[9px] ${c.muted}`}>{what}</span>
+                  {t ? <ExternalLink size={10} className={`flex-shrink-0 ${c.muted}`} /> : <Plus size={10} className={`flex-shrink-0 ${c.muted}`} />}
                 </div>
-                {!!t?.fields?.length && (
-                  <div className={`text-[9px] font-mono truncate mt-0.5 ${c.muted}`}>
-                    {t.fields.map(f => f.name).filter(Boolean).join(', ')}
+                {!!fields.length && (
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                    {fields.map(f => {
+                      const ex = expectedFor(f, types, model);
+                      const st = kindStyle(ex?.kind ?? 'scalar', isDark);
+                      return (
+                        <span key={f.id} className="flex items-center gap-0.5 text-[9px] font-mono min-w-0"
+                          title={f.description ? `${f.name}: ${f.description}` : f.name}>
+                          <span className={c.muted2}>{f.name}{f.optional ? '?' : ''}</span>
+                          <span className={`flex items-center gap-0.5 px-1 py-px rounded border ${st.cls}`}>
+                            {st.icon}<span className="truncate max-w-[8rem]">{ex?.label ?? f.type}</span>
+                          </span>
+                        </span>
+                      );
+                    })}
                   </div>
+                )}
+                {leer && (
+                  <p className={`text-[9px] mt-0.5 ${warn}`}>
+                    Noch keine Felder — im Datenmodell ergänzen{known ? ` (${known} im Katalog)` : ''}.
+                  </p>
                 )}
               </button>
             );
