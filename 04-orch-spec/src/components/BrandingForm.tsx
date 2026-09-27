@@ -8,7 +8,7 @@ import { useRef, useState } from 'react';
 import { Image, Trash2, Upload } from 'lucide-react';
 import type { Model } from '../types';
 import { cls } from '../ui';
-import { StateChip, flashOf, useFlash } from './adminUi';
+import { FieldLabel, StateChip, flashOf, useFlash } from './adminUi';
 
 /** Grenze für das Logo. Ein PNG dieser Grösse ist für eine Kopfzeile üppig. */
 const MAX = 200 * 1024;
@@ -51,14 +51,14 @@ export default function BrandingForm({ model, isDark, onSave }: {
     <div className="space-y-2">
       <div className="flex items-end gap-3">
         <div className="flex-1 min-w-0">
-          <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.muted}`}>Kunde</label>
+          <FieldLabel isDark={isDark}>Kunde</FieldLabel>
           <input value={company} onChange={e => setCompany(e.target.value)}
             onBlur={() => { if (company !== (model.company ?? '')) void speichern({ company: company.trim() || undefined }); }}
             placeholder="z. B. Valiant Bank AG"
             className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`} />
         </div>
         <div className="flex-shrink-0">
-          <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.muted}`}>Logo</label>
+          <FieldLabel isDark={isDark} hint="bis 200 KB">Logo</FieldLabel>
           <div className={`flex items-center gap-2 px-2 py-1 rounded border ${c.border2}`}>
             {model.logo
               ? <img src={model.logo} alt="" className="h-6 max-w-[8rem] object-contain" />

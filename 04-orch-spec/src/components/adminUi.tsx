@@ -106,3 +106,32 @@ export function SaveRow({ onSave, flash, isDark, label = 'Speichern', disabled, 
     </div>
   );
 }
+
+/** Schalter «an/aus» — für die Kopfzeile eines Bereichs; schaltet und speichert sofort. */
+export function Switch({ on, onChange, isDark, label, disabled }: {
+  on: boolean; onChange: (v: boolean) => void; isDark: boolean; label?: string; disabled?: boolean;
+}) {
+  const c = cls(isDark);
+  return (
+    <button type="button" role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)}
+      title={on ? 'Ausschalten' : 'Einschalten'}
+      className={`flex items-center gap-2 text-[11px] disabled:opacity-40 ${c.muted2}`}>
+      {label && <span>{label}</span>}
+      <span className={`relative inline-block w-8 h-[18px] rounded-full transition-colors ${
+        on ? (isDark ? 'bg-emerald-500' : 'bg-emerald-600') : (isDark ? 'bg-white/20' : 'bg-black/20')}`}>
+        <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all ${on ? 'left-[16px]' : 'left-[2px]'}`} />
+      </span>
+      <span className={`w-6 ${on ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : c.muted}`}>{on ? 'an' : 'aus'}</span>
+    </button>
+  );
+}
+
+/** Feldbeschriftung — in Textfarbe, wie die Zwischentitel im Schritt-Panel. */
+export function FieldLabel({ children, isDark, hint }: { children: React.ReactNode; isDark: boolean; hint?: string }) {
+  const c = cls(isDark);
+  return (
+    <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.text}`}>
+      {children}{hint && <span className={`ml-1.5 normal-case tracking-normal ${c.muted}`}>{hint}</span>}
+    </label>
+  );
+}
