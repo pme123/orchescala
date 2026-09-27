@@ -10,7 +10,7 @@ import { STATUS_META } from './types.ts';
 import { statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
 import { engineLabel } from './template.ts';
-import { processTarget, stepTarget, threadsFor, typeTarget } from './comments.ts';
+import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
 import { engineExpression } from './feelJuel.ts';
 
@@ -88,14 +88,18 @@ function fachlichSteps(spec: ProcessSpec, steps: Step[], depth: number, out: str
 }
 
 const openThreads = (spec: ProcessSpec, target: string) =>
-  threadsFor(spec, target).filter(t => !t.resolved).length;
+  threadsUnder(spec, target).filter(t => !t.resolved).length;
 
-/** Offene Kommentar-Fäden zu einem Ziel, als Zeilen. */
+/**
+ * Offene Kommentar-Fäden zu einem Element samt seiner Teile, als Zeilen —
+ * ein Teil (Mapping-Zeile, Feld …) steht in Klammern davor.
+ */
 function kommentarZeilen(spec: ProcessSpec, target: string, einzug: string): string[] {
   const out: string[] = [];
-  for (const faden of threadsFor(spec, target).filter(t => !t.resolved)) {
+  for (const faden of threadsUnder(spec, target).filter(t => !t.resolved)) {
+    const teil = faden.target.includes('#') ? `(${faden.target.slice(faden.target.indexOf('#') + 1)}) ` : '';
     for (const [i, e] of faden.entries.entries()) {
-      out.push(`${einzug}${i ? '  ↳ ' : '💬 '}${e.author}: ${e.text.replace(/\n+/g, ' ')}`);
+      out.push(`${einzug}${i ? '  ↳ ' : `💬 ${teil}`}${e.author}: ${e.text.replace(/\n+/g, ' ')}`);
     }
   }
   return out;

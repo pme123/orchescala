@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
@@ -7,7 +7,30 @@ import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
 
-type View = { kind: 'list' } | { kind: 'spec'; slug: string } | { kind: 'admin' };
+type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
+
+// Deep Link (?spec=<slug>&comment=<id>, siehe util.deepLink): beim Start aus
+// der URL nehmen und im Tab merken — so überlebt er den Login-Redirect — und
+// einlösen, sobald Ordner und model.json da sind.
+const DEEP_LINK_KEY = 'orch-spec.deepLink';
+function takeDeepLink(): { slug: string; commentId?: string } | null {
+  try {
+    const u = new URL(window.location.href);
+    const slug = (u.searchParams.get('spec') ?? '').trim();
+    const commentId = (u.searchParams.get('comment') ?? '').trim();
+    if (slug) {
+      u.searchParams.delete('spec'); u.searchParams.delete('comment');
+      window.history.replaceState(null, '', u.toString());
+      const link = { slug, ...(commentId ? { commentId } : {}) };
+      sessionStorage.setItem(DEEP_LINK_KEY, JSON.stringify(link));
+      return link;
+    }
+    const stored = sessionStorage.getItem(DEEP_LINK_KEY);
+    return stored ? JSON.parse(stored) as { slug: string; commentId?: string } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
@@ -19,6 +42,14 @@ export default function App() {
   const auth = useAuth();
   const { canAdmin, canView, level } = usePermissions();
   const [view, setView] = useState<View>({ kind: 'list' });
+  const [deepLink] = useState(takeDeepLink);
+  const deepLinkUsed = useRef(false);
+  useEffect(() => {
+    if (!deepLink || deepLinkUsed.current || !storage || !model) return;
+    deepLinkUsed.current = true;
+    try { sessionStorage.removeItem(DEEP_LINK_KEY); } catch { /* ignore */ }
+    setView({ kind: 'spec', ...deepLink });
+  }, [deepLink, storage, model]);
   // Anmeldung aktiv und noch nicht angemeldet → Gate; Admin nur mit Rolle
   const gated = auth.status !== 'disabled' && auth.status !== 'signedIn';
   const dirHandle = storage; // Kurzname: verbundener Speicher (lokal oder SharePoint)
@@ -306,7 +337,7 @@ export default function App() {
             ? <AdminView onBack={() => setView({ kind: 'list' })} />
             : <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : (
-          <ProcessView slug={view.slug} onBack={() => setView({ kind: 'list' })} />
+          <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} onBack={() => setView({ kind: 'list' })} />
         )}
       </div>
 

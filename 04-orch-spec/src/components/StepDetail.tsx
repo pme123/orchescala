@@ -10,22 +10,17 @@ import type { DomainType, EngineId, Field, Interaction, Mapping, Model, ProcessS
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls } from '../ui';
-import { allSteps } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
-import Comments from './Comments';
-import { canComment, orphanThreads, processTarget, stepTarget, targetLabel, threadsFor } from '../comments';
+import { CommentBubble, useActiveComment } from './Comments';
+import { processTarget, stepTarget, sub } from '../comments';
 import { splitPrefix } from '../stepIds';
 import { uid } from '../util';
 
 interface Props {
-  /** Name für neue Kommentare */
-  author: string;
-  /** Kommentar-Faden, auf dem die Navigation steht */
-  highlight?: string;
   step: Step | null;
   spec: ProcessSpec;
   isDark: boolean;
@@ -76,15 +71,8 @@ function juelIssues(expression: string, engine: EngineId | undefined): FeelIssue
 }
 
 // ── Prozess-Ebene (kein Schritt gewählt) ─────────────────────────────────────
-function SpecPanel({ spec, author, highlight, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject }: Props) {
+function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject }: Props) {
   const c = cls(isDark);
-  // Fäden, deren Schritt oder Typ es nicht mehr gibt — sie hätten sonst
-  // keinen Ort mehr und blieben für immer offen.
-  const verwaist = useMemo(
-    () => orphanThreads(spec,
-      new Set(allSteps(spec.steps).map(s => s.id)),
-      new Set((spec.types ?? []).map(t => t.id))),
-    [spec]);
   return (
     <div className="p-4 space-y-4">
       <h2 className={`text-[10px] uppercase tracking-widest ${c.text}`}>Prozess</h2>
@@ -92,7 +80,7 @@ function SpecPanel({ spec, author, highlight, isDark, canEdit, onSpecChange, pro
         <ProjectPicker spec={spec} isDark={isDark} canEdit={canEdit}
           prefixes={projectPrefixes ?? []} onRename={onRenameProject} />
       )}
-      <Field label="Ausgangslage / Ziel (Markdown)" isDark={isDark}>
+      <Field label="Ausgangslage / Ziel (Markdown)" isDark={isDark} comment={sub(processTarget, 'description')}>
         <textarea value={spec.description ?? ''} disabled={!canEdit}
           onChange={e => onSpecChange({ ...spec, description: e.target.value })}
           rows={6} placeholder="Worum geht es fachlich?"
@@ -114,13 +102,6 @@ function SpecPanel({ spec, author, highlight, isDark, canEdit, onSpecChange, pro
         <h3 className={`text-[10px] uppercase tracking-widest mb-2 ${c.text}`}>Prozessvariablen</h3>
         <VariableList spec={spec} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
       </div>
-      <Comments spec={spec} target={processTarget} author={author} isDark={isDark}
-        canEdit={canEdit} onChange={onSpecChange} title="Kommentare zum Prozess" highlight={highlight} />
-      {!!verwaist.length && (
-        <Comments spec={spec} target="" author={author} isDark={isDark}
-          canEdit={canEdit} onChange={onSpecChange} threads={verwaist}
-          title={`Kommentare ohne Element (${verwaist.length})`} highlight={highlight} />
-      )}
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Einen Schritt im Ablauf anklicken, um ihn zu beschreiben, den Service zu wählen
         oder den Status zu setzen.
@@ -173,12 +154,13 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
   return (
     <div className="space-y-1">
       {vars.map((v, i) => (
-        <div key={i} className="flex gap-1">
+        <div key={i} data-cframe={v.name ? sub(processTarget, `var:${v.name}`) : undefined} className="group flex items-center gap-1">
           <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
             className={`w-28 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input}`} />
           <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value })}
             placeholder="Bedeutung"
             className={`flex-1 text-[10px] px-1.5 py-1 rounded border outline-none ${c.input}`} />
+          {v.name && <CommentBubble target={sub(processTarget, `var:${v.name}`)} quiet />}
           {canEdit && (
             <button onClick={() => onChange({ ...spec, variables: vars.filter((_, k) => k !== i) })}
               className={`p-1 ${c.muted}`}><X size={10} /></button>
@@ -194,7 +176,7 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
 }
 
 // ── Schritt-Ebene ────────────────────────────────────────────────────────────
-function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType }: Props & { step: Step }) {
+function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType }: Props & { step: Step }) {
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
   const [preview, setPreview] = useState(false);
@@ -268,7 +250,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-start gap-2">
+      <div data-cframe={stepTarget(step.id)} className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className={`text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border ${kindTone}`}>{KIND_LABEL[step.kind]}</span>
@@ -286,6 +268,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
                 <Plug size={9} className="flex-shrink-0" />{foreign}
               </span>
             )}
+            <CommentBubble target={stepTarget(step.id)} title={`Kommentare zu «${step.name || step.id}»`} />
           </div>
           <input value={step.name} disabled={!canEdit} onChange={e => onPatch(step.id, { name: e.target.value })}
             onBlur={() => onSyncId?.(step.id)}
@@ -313,7 +296,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
       )}
 
       {/* Fachliche Beschreibung */}
-      <Field label="Fachliche Beschreibung (Markdown)" isDark={isDark}
+      <Field label="Fachliche Beschreibung (Markdown)" isDark={isDark} comment={sub(stepTarget(step.id), 'description')}
         action={step.description ? <button onClick={() => setPreview(!preview)} className={`text-[9px] ${c.muted} hover:underline`}>
           {preview ? 'bearbeiten' : 'Vorschau'}</button> : undefined}>
         {preview && step.description
@@ -333,6 +316,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
 
       {step.kind === 'user' && (
         <Section id="assign" label="Zuständigkeit" isDark={isDark}
+          comment={sub(stepTarget(step.id), 'assignment')}
           count={(step.candidateGroups ? 1 : 0) + (step.assignee ? 1 : 0)}
           hint={!step.candidateGroups && !step.assignee ? <span className={`text-[9px] ${c.muted}`}>Gruppen oder Person</span> : undefined}>
           <div className="space-y-1">
@@ -345,13 +329,6 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               placeholder="direkt zugeteilt an (assignee)"
               className={`w-full text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
           </div>
-        </Section>
-      )}
-
-      {(canComment(step) || !!threadsFor(spec, stepTarget(step.id)).length) && (
-        <Section id="comments" label={`Kommentare · ${targetLabel(step)}`} count={threadsFor(spec, stepTarget(step.id)).length} isDark={isDark}>
-          <Comments spec={spec} target={stepTarget(step.id)} author={author} isDark={isDark}
-            canEdit={canEdit} onChange={onSpecChange} title="" highlight={highlight} />
         </Section>
       )}
 
@@ -393,6 +370,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
         <Section id="errors" label="Behandelte Fehler" count={step.errors?.length ?? 0} isDark={isDark}
+          openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
             <button
               onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: 'neuer-fehler', declared: true }] })}
@@ -405,7 +383,8 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               return (
-                <div key={i} className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border ${
+                <div key={i} data-cframe={e.code ? sub(stepTarget(step.id), `error:${e.code}`) : undefined}
+                  className={`group flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border ${
                   e.side
                     ? (isDark ? 'border-indigo-500/30 bg-indigo-500/10' : 'border-indigo-300 bg-indigo-50')
                     : (isDark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-300 bg-amber-50')}`}>
@@ -419,6 +398,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
                   {!!e.steps?.length && (
                     <button onClick={() => onGoto(e.steps![0].id)} className={`text-[9px] ${c.muted} hover:underline`}>Pfad →</button>
                   )}
+                  {e.code && <CommentBubble target={sub(stepTarget(step.id), `error:${e.code}`)} quiet />}
                   {canEdit && !e.boundary && (
                     <button onClick={() => onPatch(step.id, { errors: (step.errors ?? []).filter((_, k) => k !== i) })}
                       title="Fehler entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>
@@ -430,7 +410,8 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
         </Section>
       )}
       {!!step.branches?.length && (
-        <Section id="branches" label="Zweige" count={step.branches.length} isDark={isDark}>
+        <Section id="branches" label="Zweige" count={step.branches.length} isDark={isDark}
+          openFor={sub(stepTarget(step.id), 'branch:')}>
           <div className="space-y-1">
             {step.branches.map((b, i) => {
               const setBranch = (patch: Partial<typeof b>) =>
@@ -446,7 +427,8 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
               const condErr = cond.some(i => i.level === 'error');
               const condConvertible = !b.isDefault && !!b.condition && isJuel(b.condition) && importExpression(b.condition) !== b.condition;
               return (
-                <div key={b.id} className={`px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
+                <div key={b.id} data-cframe={sub(stepTarget(step.id), `branch:${b.id}`)}
+                  className={`group px-2 py-1.5 rounded border space-y-1 ${condErr ? errBox : cond.length ? warnBox : c.border2}`}>
                   {cond.map((it, k) => (
                     <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
                       <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
@@ -464,6 +446,7 @@ function StepPanel({ step, spec, author, highlight, isDark, canEdit, model, onPa
                       placeholder="Beschriftung"
                       className={`w-28 text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
                     {b.isDefault && <span className={`text-[9px] ${c.muted}`}>Standardzweig</span>}
+                    <span className="ml-auto"><CommentBubble target={sub(stepTarget(step.id), `branch:${b.id}`)} quiet /></span>
                   </div>
                   <FeelInput value={b.condition ?? ''} disabled={!canEdit || b.isDefault} isDark={isDark}
                     variables={variables}
@@ -669,8 +652,11 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
   };
 
   return (
-    <div>
-      <h3 className={`text-[10px] uppercase tracking-widest mb-1 ${c.text}`}>Service</h3>
+    <div data-cframe={sub(stepTarget(step.id), 'service')}>
+      <div className="flex items-center gap-2 mb-1">
+        <h3 className={`text-[10px] uppercase tracking-widest ${c.text}`}>Service</h3>
+        <CommentBubble target={sub(stepTarget(step.id), 'service')} />
+      </div>
       <button disabled={!canEdit} onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 30); }}
         className={`w-full flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border text-left ${c.border2} ${canEdit ? c.hover : ''}`}>
         <span className={`flex-1 truncate font-mono ${current ? c.text : c.muted}`}>
@@ -894,7 +880,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             // Zeile bei jedem Tastendruck neu aufbauen — und den Fokus verlieren.
             <div key={i}
               title={problem}
-              className={`px-2 py-1.5 rounded border ${box} ${off ? 'opacity-45' : ''}`}>
+              data-cframe={m.name ? sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`) : undefined}
+              className={`group px-2 py-1.5 rounded border ${box} ${off ? 'opacity-45' : ''}`}>
               {/* Befund zum FEEL-Ausdruck — über dem Feld, damit er beim Tippen im Blick bleibt */}
               {feelIssues.map((it, k) => (
                 <p key={k} className={`text-[10px] mb-1 flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
@@ -930,6 +917,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   className="flex-1 min-w-0" />
                 {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
+                {m.name && <CommentBubble target={sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`)} quiet />}
                 {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
                     «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist
                     die sanftere Variante, wenn es sichtbar bleiben soll. */}
@@ -1024,9 +1012,13 @@ function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: Exp
  * etwas drin ist — und die Wahl der Person wird je Abschnitt gemerkt.
  * Kommt etwas hinzu (der Zähler steigt), geht er auf.
  */
-function Section({ id, label, count, isDark, action, hint, children }: {
+function Section({ id, label, count, isDark, action, hint, children, comment, openFor }: {
   id: string; label: string; count?: number; isDark: boolean;
   action?: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode;
+  /** Kommentar-Stelle des Abschnitts — Sprechblase und Rahmen */
+  comment?: string;
+  /** Stellen darin (Präfix): steht der offene Kommentar dort, klappt der Abschnitt auf */
+  openFor?: string;
 }) {
   const c = cls(isDark);
   const key = `orch-spec.section.${id}`;
@@ -1038,8 +1030,13 @@ function Section({ id, label, count, isDark, action, hint, children }: {
   const prev = useRef(n);
   useEffect(() => { if (n > prev.current && !open) setOpen(true); prev.current = n; }, [n, open]);
   const toggle = () => setOpen(o => { try { localStorage.setItem(key, o ? '0' : '1'); } catch { /* ignore */ } return !o; });
+  // Beim Durchgehen der Kommentare: eine Stelle in einem zugeklappten
+  // Abschnitt wäre nicht zu sehen — also aufklappen (ohne es zu merken)
+  const aktiv = useActiveComment();
+  const betrifft = !!aktiv && ((!!comment && aktiv === comment) || (!!openFor && aktiv.startsWith(openFor)));
+  useEffect(() => { if (betrifft) setOpen(true); }, [betrifft, aktiv]);
   return (
-    <div>
+    <div data-cframe={comment}>
       <div className="flex items-center gap-2 mb-1">
         <button onClick={toggle} title={open ? 'einklappen' : 'aufklappen'}
           className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.text} hover:underline`}>
@@ -1047,6 +1044,7 @@ function Section({ id, label, count, isDark, action, hint, children }: {
           {label}
           {count != null && <span className={`normal-case tracking-normal ${n ? c.muted2 : c.muted}`}>{n}</span>}
         </button>
+        {comment && <CommentBubble target={comment} />}
         {hint}
         {action && <div className="ml-auto">{action}</div>}
       </div>
@@ -1055,12 +1053,17 @@ function Section({ id, label, count, isDark, action, hint, children }: {
   );
 }
 
-function Field({ label, children, isDark, action }: { label: string; children: React.ReactNode; isDark: boolean; action?: React.ReactNode }) {
+function Field({ label, children, isDark, action, comment }: {
+  label: string; children: React.ReactNode; isDark: boolean; action?: React.ReactNode;
+  /** Kommentar-Stelle dieses Abschnitts — Sprechblase neben der Überschrift */
+  comment?: string;
+}) {
   const c = cls(isDark);
   return (
-    <div>
+    <div data-cframe={comment}>
       <div className="flex items-center gap-2 mb-1">
         <h3 className={`text-[10px] uppercase tracking-widest ${c.text}`}>{label}</h3>
+        {comment && <CommentBubble target={comment} />}
         {action && <div className="ml-auto">{action}</div>}
       </div>
       {children}

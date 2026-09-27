@@ -296,9 +296,15 @@ export interface Variable {
  */
 export interface CommentThread {
   id: string;
-  /** worauf er sich bezieht: `process`, `step:<id>` oder `type:<id>` */
+  /**
+   * worauf er sich bezieht: ein Element (`process`, `step:<id>`, `ia:<id>`,
+   * `type:<id>`) oder ein Teil davon (`step:<id>#in:<name>` …, siehe comments.ts)
+   */
   target: string;
   resolved?: boolean;
+  /** wer abgehakt hat, und wann */
+  resolvedBy?: string;
+  resolvedAt?: string;
   entries: CommentEntry[];
   [key: string]: unknown;
 }
@@ -306,9 +312,52 @@ export interface CommentThread {
 export interface CommentEntry {
   id: string;
   author: string;
+  /** E-Mail der Autorin/des Autors — nur mit Anmeldung; Empfänger für Teams bei Antworten */
+  email?: string;
   /** ISO-Zeitpunkt mit Zone */
   at: string;
   text: string;
+  /** per «@» erwähnte Personen (im Text steht «@Name») */
+  mentions?: DirectoryUser[];
+  /**
+   * Teams-Benachrichtigung (siehe Model.notifications.teams): E-Mails der
+   * Personen, die noch zu benachrichtigen sind bzw. schon benachrichtigt
+   * wurden. Verschickt wird nur vom Browser der Autorin/des Autors.
+   */
+  notifyPending?: string[];
+  notified?: string[];
+}
+
+/**
+ * Bekannte Person für @-Erwähnungen: aus `users.json` im geteilten Ordner
+ * (jede angemeldete Person trägt sich beim Öffnen ein) oder aus der
+ * Entra-Suche (Microsoft Graph, Berechtigung User.ReadBasic.All).
+ */
+export interface DirectoryUser {
+  name: string;
+  email: string;
+  /** ISO — nur in users.json */
+  lastSeen?: string;
+}
+
+export interface UsersFile {
+  version: number;
+  users: DirectoryUser[];
+}
+
+/**
+ * Teams-Benachrichtigung bei @-Erwähnung und bei Antworten auf den eigenen
+ * Kommentar: die kommentierende Person schickt der erwähnten über Microsoft
+ * Graph eine persönliche Chat-Nachricht (1:1-Chat, mit echtem @-Mention und
+ * Link in die App) — nach einer Wartezeit, gesammelt, einmalig.
+ * Berechtigungen (delegiert): Chat.Create, ChatMessage.Send, User.ReadBasic.All.
+ */
+export interface TeamsNotifySettings {
+  enabled: boolean;
+  /** Wartezeit nach dem letzten Kommentar in Minuten (Standard 5) */
+  delayMinutes?: number;
+  /** Platzhalter: {{empfaenger}} {{von}} {{prozess}} {{anzahl}} {{kommentare}} {{link}} */
+  template?: string;
 }
 
 export interface ProcessSpec {
@@ -489,6 +538,8 @@ export interface Model {
    */
   logo?: string;
   auth?: AuthSettings;
+  /** Benachrichtigungen zu Kommentaren */
+  notifications?: { teams?: TeamsNotifySettings };
   /** Service-Katalog mit vorbereitetem Mapping */
   services: ServiceDef[];
   /** Domain-Katalog: die Typen der Service-Projekte */

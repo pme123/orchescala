@@ -387,7 +387,7 @@ Datei gleich wieder an.
 
 ### Der Admin-Bereich
 
-Drei Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+Vier Bereiche, in der Reihenfolge, in der sie gebraucht werden:
 
 1. **Auftritt** — Kunde und Logo für die Kopfzeile.
 2. **Katalog** — importieren, exportieren, nachschlagen. Das zählt in jeder
@@ -395,6 +395,8 @@ Drei Bereiche, in der Reihenfolge, in der sie gebraucht werden:
    Das lokale Erzeugen (Projekt-Ordner, OpenAPI, Doku-Site) steckt darin
    zugeklappt: dazu müssen die Quellen erreichbar sein.
 3. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
+4. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
+   Antworten in Kommentaren: ein/aus, Wartezeit, Vorlage.
 
 Bewusst **keine** Liste zum Durchblättern: die Klassen eines Prozesses stehen
 in seiner Spezifikation unter «Datenmodell», dort wo sie gebraucht werden.
@@ -622,45 +624,56 @@ Service, Topic, gerufener Prozess oder die Mappings.
 
 ### Kommentare
 
-Wie in Confluence, nur am richtigen Ort: ein Faden, Antworten darunter, und
-irgendwann als **erledigt** abgehakt. Erledigte verschwinden nicht, sie
-rutschen nach unten und werden zugeklappt — wer später dazukommt, soll sehen,
-was besprochen wurde.
+Wie im arch-review: eine **Sprechblase** an jeder Stelle, an der etwas zu
+klären sein kann, und ein **Panel** rechts mit dem Faden dieser Stelle — ein
+Beitrag, Antworten darunter, irgendwann als **erledigt** abgehakt. Erledigte
+bleiben stehen (ausgeblendet, «Erledigte einblenden» zeigt sie): wer später
+dazukommt, soll sehen, was besprochen wurde.
 
-Kommentiert wird dort, wo etwas zu klären ist:
+Sprechblasen gibt es an:
 
-| wo | |
+| wo | Stellen |
 | --- | --- |
-| **Prozess** | im Panel, wenn kein Schritt gewählt ist |
-| **Benutzeraufgabe · Nachricht · Signal · Teilprozess** | am gewählten Schritt |
-| **Datentypen** | im Klassenbauer, unter der Scala-Vorschau |
+| **Prozess** | Titel, Ausgangslage / Ziel, jede Prozessvariable |
+| **Ablauf** | jeder Schritt und jeder Zweig im Baum |
+| **Schritt** | Kopf, Beschreibung, Zuständigkeit, Service, jede Ein- und Ausgabe, jeder Zweig, jeder behandelte Fehler |
+| **Datenmodell** | jede Interaktion, jeder Typ (auch in der Liste), jedes Feld, jeder Wert bzw. Fall |
 
-Bewusst **nicht** an jedem Service-Task: dessen Vertrag steht im Katalog und
-ist keine Fachfrage.
+Leer ist die Blase blass (in Zeilen erst beim Überfahren), mit offenen
+Kommentaren blau mit Zahl, mit nur erledigten ein grünes Häkchen. Im Baum und
+in der Typliste zählt sie das ganze Element samt seinen Teilen.
 
-Offene Fäden sind sichtbar, ohne dass man sie sucht — als Zahl am Schritt im
-Ablaufbaum und am Typ in der Liste des Klassenbauers. In der Werkzeugleiste
-steht `💬 2/7` mit Pfeilen: **einer nach dem anderen durchgehen**, in der
-Reihenfolge des Ablaufs — erst der Prozess, dann die Schritte, zuletzt die
-Datentypen. Der Sprung klappt den Baum auf, wählt den Schritt, holt die Zeile
-ins Bild und schaltet für einen Datentyp in den Klassenbauer. Der Faden selbst
-wird **leicht hervorgehoben** — kräftigerer Rand, ein Hauch Fläche — und in
-die Sicht geholt; genug, um ihn unter mehreren zu finden, zu wenig, um zu
-schreien. Am Ende geht es wieder von vorne los. Beide Text-Exporte tragen die **offenen** Kommentare mit: der
-fachliche unter dem jeweiligen Schritt, der Orchescala-Export zusätzlich als
-Zeile in der Schritt-Tabelle. Erledigte bleiben in der Datei, aber aus den
-Exporten heraus.
+Das **Panel** öffnet der Klick auf eine Blase oder `💬` in der
+Werkzeugleiste (mit der Zahl offener Kommentare). Ohne gewählte Stelle zeigt
+es die **Übersicht** aller Stellen mit Kommentaren, nach Prozess, Ablauf,
+Interaktionen und Datenmodell; **Weiter / Zurück** geht sie der Reihe nach
+durch, in der Reihenfolge des Ablaufs, und läuft rund. Der Sprung wechselt
+bei Bedarf in den Klassenbauer, klappt den Baum auf, wählt den Schritt und
+holt die Stelle ins Bild. Das Element des offenen Kommentars bekommt einen
+**blauen Rahmen** — die Stelle selbst und ihre Zeile im Baum bzw. in der
+Typliste.
 
-Zeigt ein Faden auf ein Element, das es nicht mehr gibt — der Schritt wurde
-aus dem BPMN entfernt, der Typ gelöscht —, dann steht er beim Prozess unter
-**«Kommentare ohne Element»** und bleibt aus der Navigation heraus. Weggeworfen
-wird er nicht: was besprochen wurde, gehört gelesen und abgehakt. Ohne diese
-Trennung sprang die Navigation auf ein Ziel, das es nicht gab, und zeigte
-stattdessen den Prozess.
+**@-Erwähnungen:** «@» im Kommentar schlägt Personen vor — zuerst die, die im
+Ordner schon gearbeitet oder kommentiert haben (`users.json`), dann Treffer
+aus dem Entra-Verzeichnis. **Teams-Benachrichtigung** (Admin →
+Benachrichtigungen): Erwähnte und — bei Antworten — wer den Faden angefangen
+hat, bekommen nach einer Wartezeit eine persönliche Teams-Nachricht, gesammelt
+je Person, mit einem Link direkt zum Kommentar
+(`?spec=<slug>&comment=<id>`). Am Beitrag zeigt eine Uhr «ausstehend», ein
+grüner Pfeil «gesendet». Einrichtung und Berechtigungen:
+[docs/ENTRA-SETUP.md](docs/ENTRA-SETUP.md).
 
-Und wo ein Faden liegt, wird er gezeigt — auch an einem Element, an dem sich
-neue Kommentare gar nicht anlegen lassen. Sonst zählte ihn die Navigation mit,
-ohne dass man ihn je zu Gesicht bekäme.
+Gespeichert werden die Fäden in der Spezifikation (`comments`); die Stelle
+steht als Schlüssel daran, z. B. `step:<id>#in:<name>` oder
+`type:<id>#field:<id>` (siehe `src/comments.ts`). Beim Umbenennen eines
+Schritts wandern die Fäden mit. Zeigt ein Faden auf eine Stelle, die es nicht
+mehr gibt, steht er in der Übersicht unter **«Ohne Stelle»** — weggeworfen
+wird er nicht. Kommentieren können Admins und Editoren; Viewer lesen mit.
+
+Beide Text-Exporte tragen die **offenen** Kommentare mit, samt denen an den
+Teilen eines Schritts oder Typs: der fachliche unter dem jeweiligen Schritt,
+der Orchescala-Export zusätzlich als Zeile in der Schritt-Tabelle. Erledigte
+bleiben in der Datei, aber aus den Exporten heraus.
 
 ### Status je Schritt
 
@@ -901,7 +914,8 @@ Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 
 ```
 <geteilter Ordner>/
-├── model.json                Service-Katalog, Domain-Typen, Anmeldung
+├── model.json                Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
+├── users.json                wer hier arbeitet — Vorschläge bei «@» in Kommentaren
 └── processes/
     ├── <slug>.json           die Spezifikation
     └── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
@@ -924,7 +938,20 @@ SharePoint-Modus erzeugt der Admin einen **Einrichtungs-Link**, der Anmeldung
 und Ordner in einem Schritt setzt.
 
 Entwicklung ohne Login: `?noauth`, Stufen simulieren mit `&as=viewer` /
-`&as=reviewer`.
+`&as=reviewer`, eine angemeldete Person mit `&me=vorname.nachname@firma.ch`;
+`&teamsmock` schreibt Teams-Nachrichten in die Konsole statt sie zu senden,
+`&teamsdelay=<Sekunden>` verkürzt die Wartezeit.
+
+Anleitungen:
+
+- [docs/ENTRA-SETUP.md](docs/ENTRA-SETUP.md) — App-Registrierung,
+  Umleitungs-URIs, Berechtigungen (Dateien, Verzeichnissuche, Teams),
+  App-Rollen, Einrichtung in der App, Fehlermeldungen
+- [docs/ENTRA-ADMIN-ANLEITUNG.md](docs/ENTRA-ADMIN-ANLEITUNG.md) — die
+  kompakte Fassung für die Entra-Administration
+- [docs/SHAREPOINT-SETUP.md](docs/SHAREPOINT-SETUP.md) — Site und Ordner,
+  Berechtigungen je Rolle, `model.json` schützen, verbinden und
+  Einrichtungs-Link verteilen
 
 ## Werkzeuge (CLI)
 

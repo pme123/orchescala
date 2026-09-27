@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, Copy, Check, ListOrdered,
   Plus, Trash2, Workflow, X,
-  MessageSquare, Plug, ExternalLink,
+  Plug, ExternalLink,
 } from 'lucide-react';
 import { isAdt,
   CONSTRAINTS, INTERACTION_META, STATUSES, STATUS_META,
@@ -24,9 +24,8 @@ import ScalaCode from './ScalaCode';
 import { checkTypes, constraintKind, fieldType, indexTypes, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
-import Comments from './Comments';
-import { typeTarget, openCount } from '../comments';
-import { useAuthorName } from '../auth';
+import { CommentBubble } from './Comments';
+import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 
 interface Props {
@@ -36,11 +35,12 @@ interface Props {
   /** Service-Katalog — liefert die wählbaren Service-Objekte */
   model: Model | null;
   onChange: (spec: ProcessSpec) => void;
-  /** Kommentar-Faden, auf dem die Navigation steht */
-  highlight?: string;
   /** aus dem Ablauf hierher gesprungen: diesen Typ zeigen */
   focusTypeId?: string | null;
   onFocused?: () => void;
+  /** aus den Kommentaren hierher gesprungen: diese Interaktion zeigen */
+  focusIaId?: string | null;
+  onFocusedIa?: () => void;
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
@@ -123,8 +123,7 @@ function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
   return { kind, values: undefined, fields: fields.length ? fields : [emptyField()] };
 }
 
-export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, focusTypeId, onFocused, highlight }: Props) {
-  const author = useAuthorName();
+export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, focusTypeId, onFocused, focusIaId, onFocusedIa }: Props) {
   const c = cls(isDark);
   const types = useMemo(() => spec.types ?? [], [spec.types]);
   const [selected, setSelected] = useState<string | null>(types[0]?.id ?? null);
@@ -143,6 +142,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     setShowConfig(false);
     onFocused?.();
   }, [focusTypeId, onFocused]);
+  useEffect(() => {
+    if (!focusIaId) return;
+    setSelectedIa(focusIaId);
+    setSelected(null);
+    setShowConfig(false);
+    onFocusedIa?.();
+  }, [focusIaId, onFocusedIa]);
 
   const idx = useMemo(() => indexTypes(types, model), [types, model]);
   const issues = useMemo(() => checkTypes(types, model), [types, model]);
@@ -244,18 +250,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             {([['root', 'In'], ['initIn', 'InitIn'], ['processOut', 'Out']] as const).map(([slot, label]) => {
               const t = types.find(x => x[slot]);
               return (
-                <button key={slot} onClick={() => processSlot(slot)}
-                  className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
+                <button key={slot} onClick={() => processSlot(slot)} data-cframe-base={t ? typeTarget(t.id) : undefined}
+                  className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                     t && selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                   {t?.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
                   <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${t ? c.text : c.muted}`}>{label}</span>
                   {t && !!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
-                  {t && !!openCount(spec, typeTarget(t.id)) && (
-                    <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
-                      title={`${openCount(spec, typeTarget(t.id))} offene Kommentare`}>
-                      <MessageSquare size={9} />{openCount(spec, typeTarget(t.id))}
-                    </span>
-                  )}
+                  {t && <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />}
                   {/* In und Out hat jeder Prozess — fehlen sie oder sind sie leer, ist das orange.
                       Das InitIn entsteht aus dem Init-Worker; ohne den gibt es keins, das ist kein Mangel. */}
                   {!t && slot !== 'initIn'
@@ -298,12 +299,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 const mangel = members.some(m => lacking(m));
                 return (
                 <div key={ia.id}>
-                  <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }}
-                    className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
+                  <button onClick={() => { setSelectedIa(ia.id); setSelected(null); }} data-cframe-base={iaTarget(ia.id)}
+                    className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                       selectedIa === ia.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                     <Workflow size={11} className={c.muted} />
                     <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${c.text}`}>{ia.name}</span>
                     {mangel && <AlertTriangle size={10} className={amber(isDark)} />}
+                    <CommentBubble target={iaTarget(ia.id)} quiet inButton />
                     <span className={`text-[9px] ${c.muted}`}>{INTERACTION_META[ia.kind].suffix || 'W'}</span>
                   </button>
                   <div className="flex gap-1 pl-6 pb-0.5">
@@ -332,10 +334,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 
           <TypeGroup label="Klassen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'case')}
-            selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
+            selected={selected} onSelect={pickType} issuesOf={issuesOf} />
           <TypeGroup label="Auswahlen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'enum')}
-            selected={selected} onSelect={pickType} issuesOf={issuesOf} spec={spec} />
+            selected={selected} onSelect={pickType} issuesOf={issuesOf} />
           {/* Legende — die Farben sagen, was los ist */}
           <div className={`text-[9px] px-2 pt-2 pb-1 leading-relaxed ${c.muted}`}>
             <span className={amber(isDark)}>orange</span> = fehlt etwas ·{' '}
@@ -403,15 +405,14 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
               setSelectedIa(null);
             }} />
         ) : current ? (
-          <TypeEditor key={current.id} type={current} types={types} spec={spec} author={author}
+          <TypeEditor key={current.id} type={current} types={types}
             isDark={isDark} canEdit={canEdit}
             issues={issuesOf(current.id)} idx={idx} model={model}
             onPatch={patch => patchType(current.id, patch)}
             onRemove={() => removeType(current.id)}
             onAddType={addType}
             onOpenType={pickType}
-            onSpecChange={onChange}
-            highlight={highlight} />
+            />
         ) : null}
         {!!globalIssues.length && (
           <div className={`mx-4 mb-4 text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
@@ -465,9 +466,12 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-start gap-3">
+      <div data-cframe={iaTarget(ia.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{meta.label}</div>
+          <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
+            {meta.label}
+            <CommentBubble target={iaTarget(ia.id)} title={`Kommentare zu «${ia.name}»`} />
+          </div>
           <input value={ia.name} disabled={!canEdit}
             onChange={e => onPatch({ name: e.target.value })}
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
@@ -524,13 +528,12 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 }
 
 // ── Typliste ─────────────────────────────────────────────────────────────────
-function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, spec }: {
+function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: {
   label: string; types: TypeDef[];
   /** alle Typen — um zu sehen, wer auf einen zeigt */
   all: TypeDef[];
   selected: string | null; isDark: boolean;
   onSelect: (id: string) => void; issuesOf: (id: string) => unknown[];
-  spec: ProcessSpec;
 }) {
   const c = cls(isDark);
   if (!types.length) return null;
@@ -541,21 +544,16 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, sp
         const used = usageCount(all, t.id);
         const leer = isEmptyType(t);
         return (
-        <button key={t.id} onClick={() => onSelect(t.id)}
+        <button key={t.id} onClick={() => onSelect(t.id)} data-cframe-base={typeTarget(t.id)}
           title={used ? `${used}× als Feldtyp verwendet` : 'Kein Feld zeigt auf diesen Typ — Überbleibsel?'}
-          className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
+          className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
             selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
           {t.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
           {/* fett, was gebraucht wird; grau und kursiv, worauf nichts zeigt */}
           <span className={`flex-1 truncate text-[11px] font-mono ${used ? `font-semibold ${c.text}` : `italic ${c.muted}`}`}>{t.name}</span>
           {leer && <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title="leer — Felder fehlen"><AlertTriangle size={9} /> leer</span>}
           {!!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
-          {!!openCount(spec, typeTarget(t.id)) && (
-            <span className={`flex items-center gap-0.5 text-[9px] ${c.muted}`}
-              title={`${openCount(spec, typeTarget(t.id))} offene Kommentare`}>
-              <MessageSquare size={9} />{openCount(spec, typeTarget(t.id))}
-            </span>
-          )}
+          <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />
           <span className={`text-[9px] ${c.muted}`}>
             {leer ? '' : contentLabel(t)}{used ? ` · ${used}×` : ' · ungenutzt'}
           </span>
@@ -567,8 +565,8 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf, sp
 }
 
 // ── Typ-Editor ───────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType, onSpecChange, highlight }: {
-  type: TypeDef; types: TypeDef[]; spec: ProcessSpec; author: string;
+function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
+  type: TypeDef; types: TypeDef[];
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string }[];
   idx: ReturnType<typeof indexTypes>;
@@ -577,8 +575,6 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
   onAddType: (kind: 'case' | 'enum') => string;
   /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
   onOpenType: (id: string) => void;
-  onSpecChange: (spec: ProcessSpec) => void;
-  highlight?: string;
 }) {
   const c = cls(isDark);
   const fields = t.fields ?? [];
@@ -602,10 +598,11 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
   return (
     <div className="p-4 space-y-4">
       {/* Kopf */}
-      <div className="flex items-start gap-3">
+      <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
             {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
+            <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
             {/* Das In eines Prozesses ist meist eine Klasse — kann aber ein ADT
                 sein (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
                 wenn derselbe Prozess mit verschiedenen Eingaben startet. */}
@@ -682,8 +679,6 @@ function TypeEditor({ type: t, types, spec, author, isDark, canEdit, issues, idx
         )}
       </div>
 
-      <Comments spec={spec} target={typeTarget(t.id)} author={author} isDark={isDark}
-        canEdit={canEdit} onChange={onSpecChange} title={`Kommentare · ${t.name}`} highlight={highlight} />
     </div>
   );
 }
@@ -722,7 +717,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   };
 
   return (
-    <div className={`rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
+    <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
+      className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
           placeholder="feldName"
@@ -772,6 +768,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             {chip.icon}<span className="truncate">{fieldType(f, idx)}</span>
           </span>
         )}
+        {f.name && <CommentBubble target={sub(typeTarget(selfId), `field:${f.id}`)} quiet />}
 
         {canEdit && (
           <div className="flex items-center">
@@ -952,7 +949,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
         const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
         const tone = isDark ? col.dark : col.light;
         return (
-          <div key={i} className={`rounded border ${fields.length ? `${c.border2} border-l-4 ${tone.split(' ')[0]} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
+          <div key={i} data-cframe={v.name ? sub(typeTarget(t.id), `value:${v.name}`) : undefined}
+            className={`group rounded border ${fields.length ? `${c.border2} border-l-4 ${tone.split(' ')[0]} px-2 py-1.5 space-y-1.5` : 'border-transparent'}`}>
             {fields.length > 0 && (
               <div className={`flex items-center gap-2 text-[10px] uppercase tracking-widest ${tone.split(' ')[1]}`}>
                 Fall <span className="font-mono normal-case tracking-normal font-semibold">{v.name || '…'}</span>
@@ -966,6 +964,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
               <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
                 placeholder="Bedeutung"
                 className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
+              {v.name && <CommentBubble target={sub(typeTarget(t.id), `value:${v.name}`)} quiet />}
               {canEdit && !fields.length && (
                 <button onClick={() => setFields(i, [emptyField()])} title="Spezielle Felder nur für diesen Fall (ADT)"
                   className={`text-[10px] px-1.5 py-1 rounded border flex-shrink-0 ${c.btn}`}>+ Feld</button>

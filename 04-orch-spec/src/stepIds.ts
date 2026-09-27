@@ -133,7 +133,10 @@ export function renameStepId<T extends {
         : i)),
     } : {}),
     ...(spec.comments ? {
-      comments: spec.comments.map(t => (t.target === `step:${oldId}` ? { ...t, target: `step:${newId}` } : t)),
+      // auch die Teile des Schritts: `step:<id>#in:name` …
+      comments: spec.comments.map(t => (t.target === `step:${oldId}` || t.target.startsWith(`step:${oldId}#`)
+        ? { ...t, target: `step:${newId}${t.target.slice(`step:${oldId}`.length)}` }
+        : t)),
     } : {}),
   };
 }
