@@ -25,6 +25,7 @@ import CatalogBuild from './CatalogBuild';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
 import { AdminSection, FieldLabel, SaveRow, StateChip, Switch, flashOf, useFlash, type AdminTone } from './adminUi';
+import { KindChip, catalogCounts } from './CatalogSearch';
 import type { Model, TeamsNotifySettings } from '../types';
 import { DEFAULT_TEAMS_DELAY_MINUTES, DEFAULT_TEAMS_TEMPLATE } from '../teams';
 import { cls } from '../ui';
@@ -116,6 +117,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
           : <>Der Weg dorthin, wo die Quellen nicht liegen: draussen exportieren, hier importieren. Der Import
               ersetzt den Katalog — er ergänzt ihn nicht, sonst blieben Einträge stehen, die es längst nicht
               mehr gibt. Wo die Quellen liegen, lässt er sich lokal erzeugen (unten, zugeklappt).</>}>
+        <CatalogState model={model} generated={generatedCatalog} isDark={isDark} />
         <CatalogTransfer model={model} specs={specs.map(s => s.data)} isDark={isDark} canEdit onSave={saveModel} />
         <CatalogBuild model={model} isDark={isDark} canEdit onSave={saveModel} />
         <CatalogSearch model={model} isDark={isDark} />
@@ -126,6 +128,33 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <TeamsSettingsForm model={model} isDark={isDark} onSave={saveModel}
         state={<StateChip tone={z.teams.tone} label={z.teams.label} isDark={isDark} title={z.teams.detail} />} />
+    </div>
+  );
+}
+
+/**
+ * Zustandszeile des Katalogs: woher er kommt und was drin ist, je Art ein
+ * Chip in den Farben des Datenmodells — dieselben wie in den Suchtreffern.
+ */
+function CatalogState({ model, generated, isDark }: { model: Model; generated: CatalogFile | null; isDark: boolean }) {
+  const c = cls(isDark);
+  const counts = catalogCounts(model);
+  const total = (model.services ?? []).length + (model.domainTypes ?? []).length;
+  const alt = generated
+    ? (model.services ?? []).filter(s => !s.generated).length + (model.domainTypes ?? []).filter(t => !t.generated).length
+    : 0;
+  return (
+    <div className={`flex items-center gap-2 flex-wrap rounded border px-3 py-2 ${c.border2}`}>
+      <span className={`text-[10px] uppercase tracking-wider ${c.text}`}>Quelle</span>
+      <StateChip isDark={isDark} tone={generated ? 'ok' : total ? 'ok' : 'warn'}
+        label={generated ? 'mitgeliefert' : total ? 'importiert / lokal erzeugt' : 'leer'}
+        title={generated ? 'catalog.generated.json — Teil des App-Builds, bei jedem Release neu' : undefined} />
+      {generated && <span className={`text-[10px] font-mono ${c.muted}`}>catalog.generated.json</span>}
+      {generated && alt > 0 && <span className={`text-[10px] ${c.muted}`}>· dazu {alt} aus der model.json</span>}
+      <span className={`ml-auto flex items-center gap-1 flex-wrap ${c.muted}`}>
+        {counts.map(([kind, n]) => <KindChip key={kind} kind={kind} isDark={isDark} count={n} />)}
+        {!total && <span className="text-[10px]">nichts drin</span>}
+      </span>
     </div>
   );
 }

@@ -76,11 +76,9 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
     <div className={`rounded border px-3 py-2 ${c.border2}`}>
       <div className="flex items-center gap-3">
         <div className="min-w-0">
-          <div className={`text-[11px] font-semibold ${c.text}`}>
-            {services.length} Services · {types.length} Domain-Typen
-          </div>
+          <div className={`text-[10px] uppercase tracking-wider ${c.text}`}>Als Datei</div>
           <p className={`text-[10px] mt-0.5 ${c.muted}`}>
-            Eine Datei mit allem — <span className={c.muted2}>der Import ersetzt den Katalog.</span>
+            Eine JSON-Datei mit allem — draussen exportieren, hier importieren. <span className={c.muted2}>Der Import ersetzt den Katalog.</span>
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
