@@ -1,7 +1,7 @@
 // Bausteine der Kopfzeile: ein Knopf im Geist-Stil (unter 900 px nur das
 // Zeichen, der Text im Tooltip) und der Konto-Chip mit Kürzel, Name und
 // Rolle — Abmelden erscheint beim Überfahren.
-import { LogOut, ShieldCheck } from 'lucide-react';
+import { ChevronRight, LogOut, ShieldCheck } from 'lucide-react';
 import { LEVEL_LABELS, type AccessLevel, type AuthUser } from '../auth';
 import { cls } from '../ui';
 import { initialsOf } from './StartCard';
@@ -47,6 +47,23 @@ export function AccountChip({ isDark, user, level, onLogout }: {
         className={`p-0.5 rounded transition-all w-0 opacity-0 overflow-hidden group-hover/acct:w-auto group-hover/acct:opacity-100 focus:w-auto focus:opacity-100 ${c.muted} hover:opacity-100`}>
         <LogOut size={12} />
       </button>
+    </span>
+  );
+}
+
+/** Der Ort in der Kopfzeile: «Prozesse › Titel». Glieder mit onClick führen zurück. */
+export function Breadcrumb({ isDark, items }: { isDark: boolean; items: Array<{ label: string; onClick?: () => void }> }) {
+  const c = cls(isDark);
+  return (
+    <span className="flex items-center gap-1 min-w-0 text-[11px]">
+      {items.map((it, i) => (
+        <span key={i} className="flex items-center gap-1 min-w-0">
+          <ChevronRight size={11} className={`flex-shrink-0 ${c.muted}`} />
+          {it.onClick
+            ? <button onClick={it.onClick} className={`truncate hover:underline ${c.muted2}`}>{it.label}</button>
+            : <span className={`truncate max-w-[16rem] ${i === items.length - 1 ? c.text : c.muted2}`} title={it.label}>{it.label}</span>}
+        </span>
+      ))}
     </span>
   );
 }

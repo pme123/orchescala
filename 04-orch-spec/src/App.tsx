@@ -7,7 +7,7 @@ import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
-import { AccountChip, HeaderButton } from './components/Header';
+import { AccountChip, Breadcrumb, HeaderButton } from './components/Header';
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
@@ -37,7 +37,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    connectSharePoint, savedSharePoint, forgetSharePoint, disconnect } = useStore();
+    connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, specs } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -133,15 +133,26 @@ export default function App() {
       <div className={`relative border-b ${border} ${topBg} flex-shrink-0`}>
         <div className={`flex items-center gap-3 py-2 ${
           view.kind === 'spec' ? 'pl-3 pr-[9.5rem] max-xl:pr-14' : 'max-w-5xl mx-auto px-6 max-xl:pr-14'}`}>
-          {model?.logo && (
-            <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
-          )}
-          <span title={`Orch Spec · Stand ${APP_VERSION}`}
-            className={`text-xs font-bold tracking-widest ${isDark ? 'text-white/70' : 'text-black/70'}`}>
-            {model?.company || 'Orch Spec'}
+          {/* Wortmarke: Logo und Kunde fett, «Orch Spec» klein daneben; die Version im Tooltip */}
+          <span className="flex items-center gap-2 flex-shrink-0" title={`Orch Spec · Stand ${APP_VERSION}`}>
+            {model?.logo && (
+              <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
+            )}
+            <span className={`text-xs font-bold tracking-widest ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+              {model?.company || 'Orch Spec'}
+            </span>
+            {model?.company && (
+              <span className={`text-[10px] tracking-widest hidden sm:inline ${textMuted}`}>Orch Spec</span>
+            )}
           </span>
-          {model?.company && (
-            <span title={`Stand ${APP_VERSION}`} className={`text-[11px] tracking-widest ${textMuted}`}>Orch Spec</span>
+
+          {/* Ort: Prozesse › Titel bzw. Administration — die Glieder führen zurück */}
+          {!gated && !denied && dirHandle && model && (
+            <Breadcrumb isDark={isDark} items={[
+              { label: 'Prozesse', onClick: view.kind !== 'list' ? () => setView({ kind: 'list' }) : undefined },
+              ...(view.kind === 'admin' ? [{ label: 'Administration' }] : []),
+              ...(view.kind === 'spec' ? [{ label: specs.find(x => x.slug === view.slug)?.data.title || view.slug }] : []),
+            ]} />
           )}
 
         <div className="ml-auto flex items-center gap-2">
