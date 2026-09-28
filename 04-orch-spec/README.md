@@ -239,13 +239,14 @@ ist optional — der Prozess startet auch ohne `InConfig`. Der Import aus der
 Domain übernimmt nur diese eigenen Felder; Schleifen und Mocks erzeugt der
 Generator ohnehin.
 
-**Der Init-Worker steht nicht im Ablauf.** Er ist Verdrahtung, keine
-Fachlichkeit — in Camunda 8 kann daraus ein Listener werden. Der Import
-erkennt ihn daran, dass sein Topic der Prozess selbst ist, lässt ihn aus dem
-Baum weg und legt nur seine Ausgaben beim Prozess ab; daraus werden die Felder
-des `InitIn`. Die **Typen** stehen im BPMN nicht, deshalb pflegt man sie im
-Klassenbauer; neue Felder kommen beim nächsten Abgleich dazu, gepflegte Typen
-bleiben.
+**Der Init-Worker ist Verdrahtung**, keine Fachlichkeit — in Camunda 8 kann
+daraus ein Listener werden. Der Import erkennt ihn daran, dass sein Topic der
+Prozess selbst ist, und legt seine Ausgaben beim Prozess ab; daraus werden die
+Felder des `InitIn`. Im Baum steht er als Schritt (im Diagramm wählbar, meist
+mit dem Pattern «Init Process»), wird aber weder Interaktion noch Mock-Feld im
+`InConfig` — gemockt wird dort der Prozess selbst. Die **Typen** stehen im
+BPMN nicht, deshalb pflegt man sie im Klassenbauer; neue Felder kommen beim
+nächsten Abgleich dazu, gepflegte Typen bleiben.
 
 ### Kopfzeile
 
@@ -509,7 +510,12 @@ altes Element auf die aktuelle Schreibweise).
 
 Im **Baum** steht ein Pattern als Chip am Schritt; was es ins Diagramm bringt
 — Timer, Link, gemeinsamer Block — ist Verdrahtung und steht als **eine**
-Zeile in der Pattern-Farbe, die Schritte darunter erst auf Klick. Der
+Zeile in der Pattern-Farbe, die Schritte darunter erst auf Klick. Ein- und
+Ausgaben, die ein Pattern am Element beisteuert (beim Prozess-Event:
+Definition und Instanz des Prozesses, die Rückgaben), sind Implementation
+und je BPMN verschieden — die Schrittansicht blendet sie aus und prüft sie
+nicht (fehlende Pflichtfelder eingeschlossen; nur ein doppelter Name bleibt
+ein Fehler); was fachlich zählt, steht als Parameter am Pattern. Der
 fachliche Export nennt die Pattern am Schritt und lässt die Verdrahtung weg;
 der Orchescala-Export nennt sie samt Werten und beschreibt am Ende jedes
 verwendete Pattern mit Doku-Link.

@@ -162,8 +162,13 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
     modeler.on('commandStack.changed', push);
     // Ein Klick in die Zeichenfläche — auch auf leere Stelle: dann trifft er
     // das Wurzelelement. Nur danach ist eine leere Auswahl eine echte Abwahl.
+    // Der Merker gilt nur während des Klicks: gesetzt vor der Auswahl von
+    // diagram-js (höhere Priorität), gelöscht danach — sonst bliebe er nach
+    // einem Klick stehen, und die leere Auswahl beim nächsten Import (Pattern
+    // eingefügt) wählte den Prozess statt des Elements.
     let vomNutzer = false;
-    modeler.on('element.click', () => { vomNutzer = true; });
+    modeler.on('element.click', 1500, () => { vomNutzer = true; });
+    modeler.on('element.click', 500, () => { vomNutzer = false; });
     modeler.on('selection.changed', (e: { newSelection: Array<{ id: string }> }) => {
       const id = e.newSelection?.[0]?.id ?? null;
       const geklickt = vomNutzer;

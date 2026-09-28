@@ -21,7 +21,8 @@
 //
 // Umbenannt wird überall, wo die alte ID **als ganzer Wert** steht
 // (`processRef`, `bpmnElement`, Nachrichtenflüsse, der Init-Worker, dessen
-// Topic die Prozess-ID ist) — Namen ausgenommen.
+// Topic die Prozess-ID ist) oder als FEEL-Text `="<ID>"` (Camunda 8, z. B.
+// `processDefinitionKey` beim Prozess-Event) — Namen ausgenommen.
 
 const local = (el: Element): string => {
   const n = el.localName || el.tagName || '';
@@ -101,7 +102,10 @@ export function alignPoolIds(xml: string, opts: { renameProcess?: boolean } = {}
     for (const a of Array.from(el.attributes)) {
       if (a.localName === 'name') continue;
       const neu = map.get(a.value);
-      if (neu !== undefined) el.setAttribute(a.name, neu);
+      if (neu !== undefined) { el.setAttribute(a.name, neu); continue; }
+      const feel = /^=\s*"([^"]*)"\s*$/.exec(a.value);
+      const neuFeel = feel ? map.get(feel[1]) : undefined;
+      if (neuFeel !== undefined) el.setAttribute(a.name, `="${neuFeel}"`);
     }
   }
   for (const [el, name] of names) el.setAttribute('name', name);

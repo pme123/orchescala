@@ -10,7 +10,7 @@ import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping,
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls, patternTone } from '../ui';
-import { PROCESS_TARGET, patternParamsFor, patternsFor, stepTags } from '../patterns';
+import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { stepFindings } from '../findings';
@@ -255,6 +255,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       ? (isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800')
       : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50');
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== (spec.processId ?? '') ? (step.serviceId ?? step.topic ?? '') : '';
+  // Ein- und Ausgaben, die ein Pattern beisteuert: Implementation — ausgeblendet
+  const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
+  const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
   // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
   const finding = stepFindings(step, spec, model, variables);
 
@@ -382,11 +385,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={variables} refFields={classFieldDefs('inputs')} domain={domainIn} types={spec.types ?? []} model={model} engine={spec.engine}
-        implicitIn={implicitIn} reference={reference('inputs')}
+        implicitIn={implicitIn} reference={reference('inputs')} fromPattern={fromPattern.inputs} patternName={patternName}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
-        implicitIn={implicitIn} reference={reference('outputs')}
+        implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternName={patternName}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
@@ -821,8 +824,11 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, onChange, onAdd, onRemove, onFill, onConvert }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternName, onChange, onAdd, onRemove, onFill, onConvert }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
+  /** Name → Pattern: diese Zeilen steuert ein Pattern bei — Implementation, ausgeblendet */
+  fromPattern: Map<string, string>;
+  patternName: (id: string) => string;
   /** Benutzeraufgabe oder eigener Worker: das In kommt aus den Prozessvariablen, ein Mapping ist keine Pflicht */
   implicitIn: boolean;
   /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
@@ -846,7 +852,11 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   onConvert: (list: 'inputs' | 'outputs') => void;
 }) {
   const c = cls(isDark);
-  const rows = step[list] ?? [];
+  const all = step[list] ?? [];
+  // was ein Pattern beisteuert, steht nicht hier — seine Parameter stehen am Pattern
+  const rows = all.filter(m => !fromPattern.has(m.name));
+  const byPattern = all.filter(m => fromPattern.has(m.name));
+  const byPatternNames = [...new Set(byPattern.map(m => patternName(fromPattern.get(m.name)!)))];
   // JUEL aus einem älteren Stand: was sich übersetzen lässt, bekommt oben den Knopf
   const juelRows = rows.filter(m => !m.disabled && isJuel(m.expression));
   const convertible = juelRows.filter(m => importExpression(m.expression) !== m.expression).length;
@@ -873,7 +883,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // Wo der Schritt keine eigene hat, steht sie als Vorschlag im Feld — sie
   // wird nicht mitgespeichert, solange niemand sie übernimmt.
   const fromCatalog = new Map((service?.[list] ?? []).map(p => [p.name, p.description]));
-  const vorhanden = new Set(rows.map(m => m.name));
+  const vorhanden = new Set(all.map(m => m.name));
   const bekannt = reference ? new Set(reference.names) : null;
   const fehlend = reference ? reference.names.filter(n => !vorhanden.has(n)).length : 0;
   // Zeilen, die das Modell bzw. der Katalog nicht kennt: eine **Erweiterung**,
@@ -887,7 +897,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
   // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
   const zaehler = new Map<string, number>();
-  for (const m of rows) if (m.name && !m.disabled) zaehler.set(m.name, (zaehler.get(m.name) ?? 0) + 1);
+  for (const m of all) if (m.name && !m.disabled) zaehler.set(m.name, (zaehler.get(m.name) ?? 0) + 1);
   const doppelt = new Set([...zaehler].filter(([, n]) => n > 1).map(([name]) => name));
   // Pflicht: das Feld der In-Klasse ist nicht optional — oder der Katalog
   // sagt `required`. Ein Pflichtfeld muss der Service bekommen; die Zeile
@@ -903,10 +913,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
     const p = service?.inputs?.find(x => x.name === name);
     return p?.required ? `Pflichtfeld: «${name}» ist laut Katalog erforderlich` : null;
   };
-  const pflichtFehlt = reference
-    ? reference.names.filter(n => pflichtGrund(n) && !rows.some(m => m.name === n && !m.disabled))
+  // legt ein Pattern den Aufruf fest, fehlt kein Pflichtfeld
+  const pflichtFehlt = reference && !(list === 'inputs' && byPattern.length)
+    ? reference.names.filter(n => pflichtGrund(n) && !all.some(m => m.name === n && !m.disabled))
     : [];
-  if (!rows.length && !canEdit) return null;
 
   // Auf- und zuklappen, je Tabelle gemerkt; leer = zu, und was hinzukommt, klappt auf
   const sectionKey = `orch-spec.section.${list}`;
@@ -917,6 +927,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const prevRows = useRef(rows.length);
   useEffect(() => { if (rows.length > prevRows.current && !open) setOpen(true); prevRows.current = rows.length; }, [rows.length, open]);
   const toggle = () => setOpen(o => { try { localStorage.setItem(sectionKey, o ? '0' : '1'); } catch { /* ignore */ } return !o; });
+  if (!rows.length && !byPattern.length && !canEdit) return null;
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
@@ -951,6 +962,12 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           </div>
         )}
       </div>
+      {!!byPattern.length && (
+        <p className={`text-[10px] mb-1 ${c.muted}`} title={byPattern.map(m => m.name).join(', ')}>
+          {byPattern.length} {list === 'inputs' ? (byPattern.length === 1 ? 'Eingabe' : 'Eingaben') : (byPattern.length === 1 ? 'Ausgabe' : 'Ausgaben')} vom
+          Pattern {byPatternNames.map(n => `«${n}»`).join(', ')} — Implementation, hier ausgeblendet.
+        </p>
+      )}
       {!!verwaist && (
         <p className={`text-[10px] mb-1 ${warn}`}>
           {verwaist} Zeile{verwaist === 1 ? '' : 'n'} noch nicht im {reference?.quelle} — Erweiterung, dort nachziehen.
@@ -958,7 +975,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
       )}
       {!!doppelt.size && (
         <p className={`text-[10px] mb-1 ${err}`}>
-          Doppelt: {[...doppelt].map(n => `«${n}»`).join(', ')} — jeder Name nur einmal.
+          Doppelt: {[...doppelt].map(n => `«${n}»`).join(', ')} — jeder Name nur einmal{[...doppelt].some(n => fromPattern.has(n)) ? ' (vom Pattern ausgeblendet — im Diagramm bereinigen)' : ''}.
         </p>
       )}
       {!!pflichtFehlt.length && (
@@ -967,7 +984,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
         </p>
       )}
       {open && <div className="space-y-1">
-        {rows.map((m, i) => {
+        {all.map((m, i) => {
+          if (fromPattern.has(m.name)) return null;
           const off = !!m.disabled;
           const fehlt = list === 'inputs' && !!bekannt && !!m.name && !bekannt.has(m.name);
           const dupl = !off && doppelt.has(m.name);

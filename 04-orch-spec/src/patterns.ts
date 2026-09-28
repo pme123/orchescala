@@ -20,15 +20,19 @@
 // wenn alles, was am Anker hängt, auch an ihm hängt — die Parameter werden
 // dabei aus den Werten zurückgelesen. Verglichen wird tolerant: Reihenfolge,
 // IDs, Namen der Flussknoten und Gross-/Kleinschreibung zählen nicht, und
-// was das Element darüber hinaus trägt, stört nicht.
+// was das Element darüber hinaus trägt, stört nicht. Drückt ein älterer
+// Prozess dasselbe anders aus, erkennt die Erkennung auch die weiteren
+// Schreibweisen (`variants`) — eingefügt wird immer das Pattern-BPMN.
 //
 // Ein Pattern am **Prozess** (`appliesTo: ['process']`) hat keinen Anker:
 // sein Inhalt sind die Blöcke und die Erweiterungen des Prozesses selbst.
 
-import type { EngineId, PatternDef, PatternParam } from './types';
+import type { AppliedPattern, EngineId, PatternDef, PatternParam } from './types';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 
 export const ANCHOR_ID = 'PatternTarget';
+/** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */
+const STARTER_NAME = 'Element mit dem Pattern';
 export const PROCESS_TARGET = 'process';
 /** Platzhalter, die die App selbst füllt */
 export const BUILTIN_PARAMS = ['targetId', 'targetName', 'processId', 'startMessage'] as const;
@@ -122,7 +126,8 @@ export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: b
 export function patternParams(def: PatternDef): PatternParam[] {
   const known = def.params ?? [];
   const names = new Set(known.map(p => p.name));
-  const extra = Object.values(def.bpmn).flatMap(x => (x ? placeholders(x) : [])).filter(n => !names.has(n) && (names.add(n), true));
+  const sources = [...Object.values(def.bpmn), ...Object.values(def.variants ?? {}).flat()];
+  const extra = sources.flatMap(x => (x ? placeholders(x) : [])).filter(n => !names.has(n) && (names.add(n), true));
   return [...known, ...extra.map(name => ({ name }))];
 }
 
@@ -649,6 +654,12 @@ const paramsOf = (b: Binding, def: PatternDef): Record<string, string> => {
 /** Das Pattern-BPMN für die Engine, oder null */
 export const fragmentFor = (def: PatternDef, engine: EngineId): string | null => def.bpmn[engine]?.trim() || null;
 
+/** Was die Erkennung annimmt: das Pattern-BPMN, dahinter die weiteren Schreibweisen */
+export const recognisedFor = (def: PatternDef, engine: EngineId): string[] => {
+  const main = fragmentFor(def, engine);
+  return main ? [main, ...(def.variants?.[engine] ?? []).map(x => x?.trim()).filter((x): x is string => !!x)] : [];
+};
+
 /**
  * Welche Pattern trägt das Diagramm, und wo? Bestimmtere Pattern zuerst —
  * was eines für sich beansprucht, kann kein anderes mehr haben.
@@ -657,12 +668,14 @@ export function detectPatterns(docOrXml: Document | string, defs: PatternDef[] |
   const doc = typeof docOrXml === 'string' ? parseXml(docOrXml) : docOrXml;
   if (!doc) return { hits: [], owned: new Map() };
   const r = detectIn(doc, defs, engine);
-  return { hits: r.hits.map(({ match: _, ...h }) => h), owned: r.owned };
+  return { hits: r.hits.map(({ match: _, fr: __, ...h }) => h), owned: r.owned };
 }
 
 interface InternalHit extends PatternHit {
   /** was im Diagramm dazugehört — Elemente dieses Dokuments */
   match: AnchorMatch;
+  /** die Schreibweise, die gepasst hat */
+  fr: Fragment;
 }
 
 /**
@@ -676,7 +689,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
   if (!defs?.length) return res;
   const proc = mainProcess(doc);
   const parsed = defs
-    .map(def => { const x = fragmentFor(def, engine); const fr = x ? parseFragment(x) : null; return fr && !('error' in fr) ? { def, fr } : null; })
+    .flatMap(def => recognisedFor(def, engine).map(x => { const fr = parseFragment(x); return 'error' in fr ? null : { def, fr }; }))
     .filter((x): x is { def: PatternDef; fr: Fragment } => !!x)
     .sort((a, b) => b.fr.score - a.fr.score);
   const claimed = new Set<Element>();
@@ -702,7 +715,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
       for (const x of blocks) own(x!.elements, def.id);
-      res.hits.push({ patternId: def.id, targetId: null, params: paramsOf(b, def), match: { ...m, b } });
+      res.hits.push({ patternId: def.id, targetId: null, params: paramsOf(b, def), match: { ...m, b }, fr });
       continue;
     }
     if (!fr.items.length && !fr.attrs.length && !fr.attached.length) continue;
@@ -717,7 +730,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
         if (!m) break;
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
-        res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m });
+        res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
         // gemeinsame Blöcke einmal je Scope zuordnen
         if (fr.blocks.length) {
           for (const x of matchBlocks(fr, tg, claimed, m.b)) if (x) own(x.elements, def.id);
@@ -1077,6 +1090,9 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     changed = true;
   }
   if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`]);
+  // ein namenloses Element heisst wie der Anker («Init Process») — sonst bliebe es ohne Beschriftung
+  const anchorName = fr.anchor?.getAttribute('name')?.trim();
+  if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
   if (!plane && (fr.attached.length || missing.length)) w.issues.push('Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.');
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
@@ -1119,14 +1135,15 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
   const proc = mainProcess(doc);
   const t = targetId ? byIdIn(doc.documentElement, targetId) : proc;
   if (!t || !proc) return same([`«${targetId}» steht nicht im Diagramm.`]);
-  const fr = parseFragment(src);
-  if ('error' in fr) return same([fr.error]);
+  const main = parseFragment(src);
+  if ('error' in main) return same([main.error]);
   const scope = targetId ? t.parentElement! : proc;
-  const all = defs?.some(d => d.id === def.id) ? defs : [...(defs ?? []), def];
+  const all =defs?.some(d => d.id === def.id) ? defs : [...(defs ?? []), def];
   const mine = detectIn(doc, all, engine).hits.filter(h => h.patternId === def.id && h.targetId === targetId);
   const hit = (params && mine.find(h => sameParams(h.params, params))) || mine[0];
   if (!hit) return same([`«${def.name}» ist hier nicht (mehr) vollständig vorhanden — im Diagramm von Hand entfernen.`]);
-  const m = hit.match;
+  // die Schreibweise, die erkannt wurde — auch eine ältere
+  const { match: m, fr } = hit;
   const w = new Writer(doc);
   for (const k of m.attrs) {
     const a = Array.from(t.attributes).find(x => attrKey(x) === k);
@@ -1183,6 +1200,37 @@ export function updatePattern(xml: string, def: PatternDef, engine: EngineId, ta
 }
 
 // ── Für die Oberfläche ───────────────────────────────────────────────────────
+/** Name → Pattern-ID der Ein- bzw. Ausgaben, die Pattern an einem Element beisteuern */
+export interface PatternMappings { inputs: Map<string, string>; outputs: Map<string, string> }
+
+/**
+ * Welche Ein- und Ausgaben kommen von den Pattern am Element? Das ist
+ * Implementation (Definition und Instanz des Prozesses, Rückgaben) und je
+ * BPMN verschieden — die Oberfläche blendet sie aus; was fachlich zählt,
+ * steht als Parameter am Pattern. Gelesen aus dem Anker aller Schreibweisen.
+ */
+export function patternMappings(defs: PatternDef[] | undefined, applied: AppliedPattern[] | undefined, engine: EngineId): PatternMappings {
+  const res: PatternMappings = { inputs: new Map(), outputs: new Map() };
+  for (const a of applied ?? []) {
+    const def = defs?.find(d => d.id === a.id);
+    if (!def) continue;
+    for (const x of recognisedFor(def, engine)) {
+      const fr = parseFragment(x);
+      if ('error' in fr || !fr.anchor) continue;
+      for (const { el } of fr.items) {
+        const n = local(el);
+        const isIn = n === 'in' || n === 'input' || n === 'inputParameter';
+        const isOut = n === 'out' || n === 'output' || n === 'outputParameter';
+        const name = (n.endsWith('Parameter') ? el.getAttribute('name') : el.getAttribute('target')) ?? '';
+        if (!name || name.includes('{{')) continue;
+        if (isIn && !res.inputs.has(name)) res.inputs.set(name, def.id);
+        if (isOut && !res.outputs.has(name)) res.outputs.set(name, def.id);
+      }
+    }
+  }
+  return res;
+}
+
 /** BPMN-Typen eines Schritts — wofür ein Pattern passen muss */
 export function stepTags(kind: string, eventDirection?: string, gatewayType?: string): string[] {
   switch (kind) {
@@ -1228,7 +1276,7 @@ export function starterFragment(tag: string, engine: EngineId): string {
   const isProcess = tag === PROCESS_TARGET;
   const event = /Event$/.test(tag);
   const [w, h] = event ? [36, 36] : [100, 80];
-  const node = isProcess ? '' : `\n    <bpmn:${tag} id="${ANCHOR_ID}" name="Element mit dem Pattern" />`;
+  const node = isProcess ? '' : `\n    <bpmn:${tag} id="${ANCHOR_ID}" name="${STARTER_NAME}" />`;
   const shape = isProcess ? '' : `\n      <bpmndi:BPMNShape id="${ANCHOR_ID}_di" bpmnElement="${ANCHOR_ID}">\n        <dc:Bounds x="200" y="100" width="${w}" height="${h}" />\n      </bpmndi:BPMNShape>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ${ns} id="PatternDefinitions" targetNamespace="http://bpmn.io/schema/bpmn">

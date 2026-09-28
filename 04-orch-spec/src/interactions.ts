@@ -18,7 +18,7 @@ import type {
   ProcessSpec, ServiceDef, Step, TypeDef,
 } from './types.ts';
 import { INTERACTION_META } from './types.ts';
-import { allSteps } from './bpmn.ts';
+import { allSteps, isInitWorker } from './bpmn.ts';
 import { typeShape } from './scalaTypes.ts';
 import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
@@ -77,7 +77,7 @@ export function interactionKind(step: Step, processId: string): InteractionKind 
   if (step.kind === 'service') {
     // Nur die Worker dieses Prozesses; fremde Services haben ihre eigene Domain
     if (!step.topic || !processId) return null;
-    if (step.topic === processId) return null;            // Init-Worker
+    if (isInitWorker(step, processId)) return null;
     if (!step.topic.startsWith(processId)) return null;
     return 'customTask';
   }
@@ -163,7 +163,8 @@ export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'ti
 
 /** Schritte, deren Ergebnis sich für Tests überschreiben lässt (`…Mock`). */
 export function mockableSteps(spec: ProcessSpec): Step[] {
-  return allSteps(spec.steps).filter(s => s.kind === 'service' || s.kind === 'call');
+  // der Init-Worker nicht: gemockt wird dort der Prozess selbst (outputMock)
+  return allSteps(spec.steps).filter(s => (s.kind === 'service' || s.kind === 'call') && !isInitWorker(s, spec.processId));
 }
 
 /**

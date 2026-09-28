@@ -728,15 +728,11 @@ function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<st
 
     const step = buildStep(ctx, scope, el, path);
     if (step.kind === 'event' && step.eventKind === 'timer') hint.wait = step.name;
-    // Der Init-Worker ist Verdrahtung, kein fachlicher Schritt: sein Topic ist
-    // der Prozess selbst. Er wird nicht beschrieben — seine Ausgaben sind die
-    // Felder des `InitIn` und werden hier eingesammelt.
-    if (step.kind === 'service' && ctx.processId && step.topic === ctx.processId) {
-      ctx.initOutputs = step.outputs ?? [];
-      ctx.byId.delete(cur);
-      cur = flows[0]?.target ?? null;
-      continue;
-    }
+    // Der Init-Worker (sein Topic ist der Prozess selbst): seine Ausgaben sind
+    // die Felder des `InitIn` und werden hier eingesammelt. Er bleibt ein
+    // Schritt — im Diagramm wählbar, das Pattern «Init Process» hängt an ihm;
+    // eine Interaktion oder ein Mock-Feld wird er nicht (interactions.ts).
+    if (isInitWorker(step, ctx.processId)) ctx.initOutputs = step.outputs ?? [];
     // Das fangende Gegenstück eines werfenden Ereignisses ist reine Verdrahtung
     // — es trägt denselben Namen und keine eigene Aussage.
     if (!scope.linkedCatch.has(cur)) out.push(step);
@@ -759,6 +755,10 @@ export interface ImportOptions {
   /** Pattern aus dem Admin — erkannte stehen am Schritt bzw. am Prozess */
   patterns?: PatternDef[];
 }
+
+/** Der Init-Worker: ein Service-Task mit dem Prozess selbst als Topic */
+export const isInitWorker = (step: Step, processId: string | undefined): boolean =>
+  step.kind === 'service' && !!processId && step.topic === processId;
 
 export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportOptions = {}): ImportResult {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');

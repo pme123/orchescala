@@ -178,6 +178,12 @@ export interface PatternDef {
   params?: PatternParam[];
   /** das Pattern als BPMN, je Engine */
   bpmn: Partial<Record<EngineId, string>>;
+  /**
+   * Weitere Schreibweisen desselben Patterns (je Engine) — die Erkennung
+   * nimmt sie auch an, eingefügt wird immer `bpmn`. Für ältere Prozesse, die
+   * dasselbe anders ausdrücken (Groovy-Skript statt Ausdruck).
+   */
+  variants?: Partial<Record<EngineId, string[]>>;
   [key: string]: unknown;
 }
 

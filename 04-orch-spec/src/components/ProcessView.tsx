@@ -521,7 +521,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       // eine gewählte Prozess-ID nur, wenn der Name im Diagramm geändert wurde.
       // Ein offener Modeler lädt das angeglichene XML nach.
       const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
-      const text = alignPoolIds(raw, { renameProcess: renamed }).xml;
+      let text = alignPoolIds(raw, { renameProcess: renamed }).xml;
       const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
       // das vorige BPMN als Bezug: was das Diagramm nicht geändert hat, bleibt
       // wie in der Spezifikation (Service, Mappings — die kommen erst beim Export hinein)
@@ -529,8 +529,10 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unlesbar — ohne Bezug */ }
       const { spec: merged0, report: r } = mergeSpec(fresh, current, base);
       // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
-      // Das Umbenennen im Modeler löst den nächsten Speicherlauf aus, der das
-      // BPMN mit den neuen IDs ablegt.
+      // Kommt die Änderung aus dem Modeler, benennt er um — das löst den
+      // nächsten Speicherlauf aus, der das BPMN mit den neuen IDs ablegt.
+      // Sonst (Pattern, Datei, Titel) zeigt der Modeler noch den alten Stand:
+      // dann im neuen XML umbenennen, das er gleich lädt.
       let merged = merged0;
       const vorher = new Map(allSteps(current.steps).map(s => [s.id, s.name]));
       for (const s of allSteps(merged0.steps)) {
@@ -539,7 +541,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         const ids = new Set(allSteps(merged.steps).map(x => x.id));
         const neu = conventionalId(s, x => x !== s.id && ids.has(x));
         if (!neu || neu === s.id) continue;
-        if (bpmnRef.current?.setId(s.id, neu) !== 'renamed') continue;
+        if (from === 'Diagramm') {
+          if (bpmnRef.current?.setId(s.id, neu) !== 'renamed') continue;
+        } else {
+          const nx = renameIdInXml(text, s.id, neu);
+          if (!nx) continue;
+          text = nx;
+        }
         merged = renameStepId(merged, s.id, neu);
         setSelected(prev => (prev === s.id ? neu : prev));
       }

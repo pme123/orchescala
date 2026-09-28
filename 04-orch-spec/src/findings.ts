@@ -12,6 +12,7 @@ import { checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, pro
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
+import { patternMappings } from './patterns';
 
 export interface Finding {
   errors: string[];
@@ -75,15 +76,20 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 
   const ownKind = ia?.kind ?? interactionKind(step, processId);
   const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';
+  // was ein Pattern am Element beisteuert, ist Implementation — nicht geprüft,
+  // und fehlende Pflichtfelder meldet es nicht: den Aufruf legt das Pattern fest
+  const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
   const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
-    const active = rows.filter(m => !m.disabled && m.name.trim());
+    const used = rows.filter(m => !m.disabled && m.name.trim());
+    const active = used.filter(m => !fromPattern[list].has(m.name));
+    // doppelt zählt auch bei Zeilen des Patterns — dieselbe Eingabe zweimal ist ein Fehler im BPMN
     const names = new Map<string, number>();
-    for (const m of active) names.set(m.name, (names.get(m.name) ?? 0) + 1);
+    for (const m of used) names.set(m.name, (names.get(m.name) ?? 0) + 1);
     for (const [n, k] of names) if (k > 1) errors.push(`${list === 'inputs' ? 'Eingabe' : 'Ausgabe'} «${n}» kommt doppelt vor.`);
     // Pflichtfelder, die fehlen oder abgewählt sind — nicht bei Benutzer-
     // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
     // Prozessvariablen, ohne Mapping
-    if (list === 'inputs' && !implicitIn) {
+    if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
       const required = refFields
         ? refFields.filter(f => !f.optional).map(f => f.name)
         : (dom?.fields ?? []).filter(p => domainRequired(dom, p.name)).map(p => p.name)
