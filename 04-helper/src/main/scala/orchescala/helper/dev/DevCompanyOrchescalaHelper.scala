@@ -89,6 +89,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
 
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")
+    if !newVersion.contains("-") then verifyCleanWorkingTree()
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)

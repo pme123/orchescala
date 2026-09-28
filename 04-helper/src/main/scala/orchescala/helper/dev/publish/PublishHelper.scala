@@ -12,6 +12,7 @@ case class PublishHelper()(using
 
   def publish(version: String): Unit =
     println(s"Publishing ${apiConfig.companyName} Package: $version")
+    if !version.contains("-") then verifyCleanWorkingTree()
     verify(version)
     pushDevelop()
     setApiVersion(version)
@@ -75,6 +76,22 @@ end PublishHelper
 object PublishHelper extends Helpers:
   val projectFile: os.Path = workDir / "project" / "ProjectDef.scala"
 
+  /** A release commits all changes (`git commit -a`): its own (versions, generated docs) - and any
+    * other change of the working tree, e.g. unfinished work. So it must be clean before - only the
+    * CHANGELOG may be edited (untracked files are not committed).
+    */
+  def verifyCleanWorkingTree(repo: os.Path = workDir): Unit =
+    val changed = os.proc("git", "status", "--porcelain").call(cwd = repo).out.lines()
+      .filterNot(_.startsWith("??"))
+      .map(_.drop(3).trim)
+      .filter(_.nonEmpty)
+      .filterNot(_ == "CHANGELOG.md")
+    if changed.nonEmpty then
+      throw IllegalStateException(
+        s"Uncommitted changes - commit or stash them before a release:\n - ${changed.mkString("\n - ")}"
+      )
+  end verifyCleanWorkingTree
+
   /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
     * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).
     */
@@ -131,7 +148,8 @@ object PublishHelper extends Helpers:
       .callOnConsole()
     os.proc("git", "checkout", "master").callOnConsole()
     os.proc("git", "merge", branch).callOnConsole()
-    os.proc("git", "push", "--tags").callOnConsole()
+    // the new tag only - `--tags` pushed every local tag
+    os.proc("git", "push", "origin", s"v$version").callOnConsole()
     os.proc("git", "checkout", branch).callOnConsole()
     val Pattern = """^(\d+)\.(\d+)\.(\d+)$""".r
 
@@ -142,7 +160,8 @@ object PublishHelper extends Helpers:
 
     os.proc("git", "commit", "-a", "-m", s"Init new Version $newVersion")
       .callOnConsole()
-    os.proc("git", "push", "--all").callOnConsole()
+    // the two branches of the release - `--all` pushed every local branch (unfinished work too)
+    os.proc("git", "push", "origin", "master", branch).callOnConsole()
     println(s"Published Version: $version")
   end git
 
