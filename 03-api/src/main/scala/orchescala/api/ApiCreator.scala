@@ -11,7 +11,6 @@ import sttp.tapir.docs.openapi.{OpenAPIDocsInterpreter, OpenAPIDocsOptions}
 
 import java.text.SimpleDateFormat
 import java.util.Date
-import scala.util.matching.Regex
 import scala.jdk.CollectionConverters.*
 
 trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
@@ -306,14 +305,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
       line: String,
       jiraUrls: Map[String, String]
   ): String =
-    jiraUrls.toList match
-      case Nil                => line
-      case (k -> url) :: tail =>
-        val regex   = Regex(s"""$k-(\\d+)""")
-        val matches = regex.findAllIn(line).toSeq
-        val changed =
-          matches.foldLeft(line)((a, b) => a.replace(b, s"[$b]($url/$b)"))
-        replaceJira(changed, tail.toMap)
+    JiraLinks.link(line, jiraUrls)
 
   protected def packageConf =
     if packageConfPath.toIO.exists() then
