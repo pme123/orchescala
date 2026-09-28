@@ -4,7 +4,7 @@ import io.circe.{Decoder, Json, JsonObject}
 import orchescala.engine.domain.*
 import orchescala.engine.services.DeploymentService
 import orchescala.engine.{AuthContext, EngineConfig}
-import orchescala.gateway.GatewayError.{ServiceRequestError, UnexpectedError}
+import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.ztapir.*
@@ -63,9 +63,8 @@ case class DeploymentRoutes(deploymentService: DeploymentService)(using config: 
         ZIO
           .attempt(Some(EngineType.valueOf(value)))
           .mapError: _ =>
-            ServiceRequestError(
-              UnexpectedError(s"Invalid targetEngine '$value'. Valid values: C7, C8, Op, Gateway")
-            )
+            // a wrong request - it was a 500 (UnexpectedError)
+            ServiceRequestError(400, s"Invalid targetEngine '$value'. Valid values: C7, C8, Op, Gateway")
 
   private given Decoder[DeploymentEntry] = Decoder.instance: c =>
     for
@@ -81,7 +80,7 @@ case class DeploymentRoutes(deploymentService: DeploymentService)(using config: 
     json.as[DeploymentManifest] match
       case Left(failure) =>
         ZIO.fail(
-          ServiceRequestError(UnexpectedError(s"Invalid manifest: ${failure.getMessage}"))
+          ServiceRequestError(400, s"Invalid manifest: ${failure.getMessage}")
         )
       case Right(manifest) =>
         ZIO.succeed(manifest)

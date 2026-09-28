@@ -131,6 +131,17 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         !cookie.isSecure
       )
     },
+    test("the favicon is served (its stream closed)") {
+      for
+        response <- openApiRoutes.routes.runZIO(Request.get(URL.decode("/favicon.ico").toOption.get))
+        bytes    <- response.body.asArray
+      yield assertTrue(response.status == Status.Ok, bytes.nonEmpty)
+    },
+    test("the directory entries of the site are read once - the same answer from the cache") {
+      val first  = openApiRoutes.cachedDirectoryEntries("site/unknown-company")
+      val second = openApiRoutes.cachedDirectoryEntries("site/unknown-company")
+      assertTrue(first == openApiRoutes.classpathDirectoryEntries("site/unknown-company"), first == second)
+    },
     test("behind https the docs token cookie is Secure") {
       assertTrue(openApiRoutes.docsTokenCookie("token-value", secure = true).isSecure)
     },

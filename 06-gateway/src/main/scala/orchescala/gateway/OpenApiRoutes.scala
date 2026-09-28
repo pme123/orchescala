@@ -10,6 +10,7 @@ import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import sttp.client3.basicRequest
 import sttp.model.Uri
 import scala.jdk.CollectionConverters.*
+import scala.util.Using
 import zio.*
 import zio.http.*
 
@@ -63,9 +64,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
     */
   private lazy val apiDocPage =
     ZIO.attempt {
-      val htmlContent = scala.io.Source
-        .fromResource("OrchDocApi.html")
-        .mkString
+      val htmlContent = Using.resource(scala.io.Source.fromResource("OrchDocApi.html"))(_.mkString)
       Response.text(htmlContent).addHeader(Header.ContentType(MediaType.text.html))
     }.catchAll { error =>
       ZIO.succeed(
@@ -143,10 +142,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     val faviconRoute = Routes(
       Method.GET / "favicon.ico" -> handler {
         ZIO.attempt {
-          val faviconBytes = scala.io.Source
-            .fromResource("favicon.ico")(using scala.io.Codec.ISO8859)
-            .map(_.toByte)
-            .toArray
+          val faviconBytes =
+            Using.resource(getClass.getClassLoader.getResourceAsStream("favicon.ico"))(_.readAllBytes())
           Response(
             body    = Body.fromArray(faviconBytes),
             headers = Headers(Header.ContentType(MediaType.image.`x-icon`))
@@ -508,7 +505,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         .flatten
 
   private[gateway] def companySiteRedirect(relativePath: String): Option[String] =
-    companySiteRedirect(relativePath, classpathDirectoryEntries)
+    companySiteRedirect(relativePath, cachedDirectoryEntries)
 
   /** `/site/<company>`, `/site/<company>/` and `/site/<company>/index.html` -> the company's page
     * in the documentation app (`/site/#/<company>`). The app is one page for all companies; a
@@ -563,7 +560,15 @@ class OpenApiRoutes()(using config: GatewayConfig):
     Option(getClass.getClassLoader.getResource(resourcePath.stripSuffix("/"))).nonEmpty
 
   private[gateway] def classpathDirectoryExists(resourceDirectory: String): Boolean =
-    classpathResourceExists(resourceDirectory) || classpathDirectoryEntries(resourceDirectory).nonEmpty
+    classpathResourceExists(resourceDirectory) || cachedDirectoryEntries(resourceDirectory).nonEmpty
+
+  // the classpath does not change at runtime - it was read (the whole jar) on every /site request;
+  // bounded: the directories come from the request path
+  private val directoryEntriesCache =
+    com.github.blemale.scaffeine.Scaffeine().maximumSize(1_000).build[String, Seq[String]]()
+
+  private[gateway] def cachedDirectoryEntries(resourceDirectory: String): Seq[String] =
+    directoryEntriesCache.get(resourceDirectory, classpathDirectoryEntries)
 
   private def lastPathSegmentLooksLikeFile(path: String): Boolean =
     path.split('/').lastOption.exists(_.contains('.'))
@@ -702,8 +707,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         case None         =>
           Response.status(Status.NotFound)
         case Some(stream) =>
-          val bytes = stream.readAllBytes()
-          stream.close()
+          val bytes = Using.resource(stream)(_.readAllBytes()) // closed also when reading fails
           Response(
             body    = Body.fromArray(bytes),
             headers = Headers(Header.ContentType(mediaType))

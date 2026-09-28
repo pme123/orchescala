@@ -50,9 +50,9 @@ object DeploymentRoutesSpec extends ZIOSpecDefault:
   private val manifest =
     """{"deployments":[{"company":"mycompany","project":"mycompany-myproject","version":"1.2.0"}]}"""
 
-  private def post(path: String) =
+  private def post(path: String, body: String = manifest) =
     Request
-      .post(URL.decode(path).toOption.get, Body.fromString(manifest))
+      .post(URL.decode(path).toOption.get, Body.fromString(body))
       .addHeader(Header.Authorization.Bearer("token"))
       .addHeader(Header.ContentType(MediaType.application.json))
 
@@ -62,6 +62,14 @@ object DeploymentRoutesSpec extends ZIOSpecDefault:
         response <- routes.runZIO(post("/deployment"))
         body     <- response.body.asString
       yield assertTrue(response.status == Status.Ok, body.contains("mycompany-myproject"))
+    },
+    test("an invalid targetEngine is a bad request (400) - not 500") {
+      for response <- routes.runZIO(post("/deployment?targetEngine=C9"))
+      yield assertTrue(response.status == Status.BadRequest)
+    },
+    test("an invalid manifest is a bad request (400) - not 500") {
+      for response <- routes.runZIO(post("/deployment", """{"deploys":[]}"""))
+      yield assertTrue(response.status == Status.BadRequest)
     }
   )
 end DeploymentRoutesSpec
