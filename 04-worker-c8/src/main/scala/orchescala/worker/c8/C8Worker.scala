@@ -233,10 +233,16 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       .ignore
     end handleBpmnError
 
+    /** @param doRetry
+      *   the error is temporary (a failed complete / throwError command) - retried like a
+      *   ServiceError
+      */
     private[worker] def handleFailure(
         error: WorkerError,
-        doRetry: Boolean = false // TODO: implement retries
+        doRetry: Boolean = false
     ): URIO[Any, Unit] =
+      val retries =
+        C8Worker.retriesAfter(error, job.getRetries, c8Context.workerConfig.doRetryList, doRetry)
       (for
         _                <- logInfo(s"Start handleError: ${error.errorCode}")
         errorHandled      = isErrorHandled(error, generalVariables.handledErrorSeq)
@@ -246,7 +252,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         _                <- logInfo(s"Handled errorRegexHandled: $errorRegexHandled")
         _                <- attemptBlocking:
                               client.newFailCommand(job)
-                                .retries(job.getRetries - 1)
+                                .retries(retries)
                                 .retryBackoff(retryBackoff(error))
                                 .variables(Map(
                                   "errorCode"          -> error.errorCode.toString,
@@ -285,7 +291,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 ZIO.attemptBlocking:
                   val variables = (filtered ++ errorVars).asJava
                   client.newFailCommand(job)
-                    .retries(job.getRetries - 1)
+                    .retries(retries)
                     .retryBackoff(time.Duration.ofSeconds(60))
                     .variables(variables)
                     .errorMessage(error.toString)
@@ -298,7 +304,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             error match
               case _: IdentityCorrelationPendingError =>
                 logInfo(s"Job ${job.getKey}: ${error.errorMsg}")
-              case _ if job.getRetries > 1            =>
+              case _ if retries > 0                   =>
                 logWarning(s"Job ${job.getKey} failed (will be retried): ${orchescala.engine.LogSafe.forLog(error.toString)}")
               case _                                  =>
                 logError(s"Job ${job.getKey} failed - no retries left: ${orchescala.engine.LogSafe.forLog(error.toString)}")
@@ -326,4 +332,33 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           orchescala.engine.LogSafe.withDetails(s"Problem Json Parsing process variables: ${ex.getMessage}", job.getVariables)
         )
       )
+end C8Worker
+
+object C8Worker:
+
+  /** The retries left after a failure - like C7 / Operaton (`calcRetries`): only an error worth
+    * trying again counts down the retries of the job (from the BPMN, default 3), any other ends in
+    * an incident at once. Every error counted down before - a validation error ran three times, a
+    * minute apart, before its incident.
+    *
+    * Worth trying again: a ServiceError (also wrapped in a CustomError), an error matching
+    * `doRetryList`, a pending IdentityCorrelation, a temporary one (`doRetry`).
+    */
+  def retriesAfter(
+      error: WorkerError,
+      jobRetries: Int,
+      doRetryMsgs: Seq[String],
+      doRetry: Boolean = false
+  ): Int =
+    val worthTryingAgain = doRetry || (error match
+      case _: WorkerError.IdentityCorrelationPendingError                                   => true
+      case _: WorkerError.ServiceError                                                      => true
+      case e: WorkerError.CustomError if e.causeError.exists(_.isInstanceOf[WorkerError.ServiceError]) =>
+        true
+      case e if doRetryMsgs.exists(msg => e.errorMsg.toLowerCase.contains(msg.toLowerCase)) => true
+      case _                                                                                => false
+    )
+    if worthTryingAgain then (jobRetries - 1).max(0) else 0
+  end retriesAfter
+
 end C8Worker

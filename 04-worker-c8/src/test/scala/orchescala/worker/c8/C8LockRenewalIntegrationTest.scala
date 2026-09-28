@@ -92,6 +92,25 @@ object C8LockRenewalIntegrationTest extends ZIOSpecDefault:
         throw RuntimeException(s"$method $path: ${response.statusCode()} ${response.body()}")
       response.body()
 
+  private val invalidJobType    = "orchescala-it-invalid-job"
+  private val invalidProcessId  = "orchescala-it-invalid-job-process"
+  private val invalidExecutions = ConcurrentHashMap[String, Int]()
+  private val invalidBpmn       = bpmn
+    .replace(processId, invalidProcessId)
+    .replace(jobType, invalidJobType)
+    .replace("retries=\"1\"", "retries=\"3\"")
+
+  /** Fails with an error not worth trying again (like a validation error). */
+  private object InvalidJobWorker extends C8Worker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
+    protected def c8Context: C8Context = LongJobWorker.c8Context
+    protected def customTask: CustomTask[NoInput, NoOutput] =
+      CustomTask(InOutDescr(invalidJobType, NoInput(), NoOutput(), None))
+    override protected def runWorkZIO(in: NoInput): RunWorkZIOOutput[NoOutput] =
+      val processInstanceId = summon[EngineRunContext].processInstance.map(_.id).getOrElse("-")
+      ZIO.succeed(invalidExecutions.merge(processInstanceId, 1, _ + _)) *>
+        ZIO.fail(WorkerError.CustomError("the order is not valid"))
+  end InvalidJobWorker
+
   /** Runs 75s - longer than its lock of 1 minute, which it renews every 30s. */
   private object LongJobWorker extends C8Worker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
     lazy val c8Context: C8Context = new C8Context:
@@ -212,6 +231,34 @@ object C8LockRenewalIntegrationTest extends ZIOSpecDefault:
         incidents.isEmpty,
         identityExecutions.get(pid) == 1,
         identitySeen.get(pid) // before: it ran at once, without the identity
+      )
+    }
+    ,
+    test("an error not worth trying again ends in an incident at once - not after the job's 3 retries") {
+      val restAddress = sys.env("C8_REST_IT")
+      val grpcAddress = sys.env.getOrElse("C8_GRPC_IT", "http://localhost:26500")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig()
+      given WorkerConfig = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engine         = C8ProcessEngine()
+      for
+        _         <- engine.deploymentService.deploy(
+                       "it-invalid-job",
+                       Seq(DeploymentResource(s"$invalidProcessId.bpmn", invalidBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.C8)
+                     )
+        _         <- C8WorkerRegistry(C8DefaultNoAuthClient(grpcAddress, restAddress))
+                       .register(Set(InvalidJobWorker))
+                       .provideLayer(SharedC8ClientManager.layer)
+                       .forkScoped
+        started   <- engine.processInstanceService.startProcessAsync(invalidProcessId, JsonObject(), None, None, None)
+        // before: retried 3 times, a minute apart - no incident for 2 minutes
+        incidents <- engine.incidentService.getIncidents(None, Some(started.processInstanceId))
+                       .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no incident yet"))
+                       .retry(Schedule.spaced(2.seconds) && Schedule.recurs(15))
+      yield assertTrue(
+        incidents.exists(_.incidentMessage.exists(_.contains("the order is not valid"))),
+        invalidExecutions.get(started.processInstanceId) == 1
       )
     }
   ) @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(4.minutes)
