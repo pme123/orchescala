@@ -35,6 +35,7 @@ class C8DeploymentService(using
 
     for
       _             <- validateTargetEngine(targetEngine)
+      _             <- DeploymentResource.uniqueFileNames(deployableResources)
       _             <- logDebug(s"Deploying '$name' to C8 with ${resources.size} resources")
       _             <- logDebug(
                            s"C8 deployment resources: ${deployableResources.map(_.name).mkString(", ")}"

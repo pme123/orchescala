@@ -37,6 +37,7 @@ class C7DeploymentService(using
 
     for
       _         <- validateTargetEngine(targetEngine)
+      _         <- DeploymentResource.uniqueFileNames(deployableResources)
       _         <- logDebug(s"Deploying '$name' to C7 with ${resources.size} resources")
       _         <- ZIO
                       .when(resources.exists(_.resourceType == DeploymentResourceType.Form)):

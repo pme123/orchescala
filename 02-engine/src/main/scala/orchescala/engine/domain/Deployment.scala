@@ -9,6 +9,25 @@ case class DeploymentResource(
     resourceType: DeploymentResourceType
 )
 
+object DeploymentResource:
+
+  /** The engines deploy a resource under its file name - `a/process.bpmn` and `b/process.bpmn`
+    * overwrote each other (C7: the same temp file, only one was deployed), silently.
+    */
+  def uniqueFileNames(resources: Seq[DeploymentResource]): zio.IO[EngineError, Unit] =
+    val duplicates = resources
+      .groupBy(r => java.nio.file.Paths.get(r.name).getFileName.toString)
+      .collect { case (fileName, rs) if rs.size > 1 => s"$fileName (${rs.map(_.name).mkString(", ")})" }
+    if duplicates.isEmpty then zio.ZIO.unit
+    else
+      zio.ZIO.fail(EngineError.ServiceRequestError(
+        400,
+        s"Deployment resources with the same file name: ${duplicates.toSeq.sorted.mkString("; ")}"
+      ))
+  end uniqueFileNames
+
+end DeploymentResource
+
 enum DeploymentResourceType:
   case Bpmn, Dmn, Form, Script
 
