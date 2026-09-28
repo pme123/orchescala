@@ -63,73 +63,97 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
     extends WebDAV:
 
   val projectUrl = s"$publishBaseUrl/${apiConfig.companyName}/$projectName/"
+  // everything is uploaded here first - the published docs are replaced only when all is there
+  val stagingUrl = s"$publishBaseUrl/${apiConfig.companyName}/_upload-$projectName/"
 
   def upload(): Unit =
     println(s"Start $projectName: upload Documentation to ${publishConfig.documentationUrl}")
     val sardine = startSession
-    try
-      deleteIfExists(sardine, projectUrl, s"project $projectName")
-      // create new
-      sardine.createDirectory(projectUrl)
-      // The project's own OpenApi.html / PostmanOpenApi.html as written by `./helper.scala update`
-      // (orch-doc's single-file page from the orchescala-orch-doc jar). Publishing never builds
-      // orch-doc - no checkout needed here.
-      Seq("OpenApi.html", "PostmanOpenApi.html").foreach: name =>
-        val local = os.pwd / "03-api" / name
-        if os.exists(local) then
-          sardine.put(s"$projectUrl/$name", os.read.bytes(local), contentTypeHtml)
-        else
-          println(s"No 03-api/$name in this project - run `./helper.scala update` first. Not uploaded.")
-      sardine.put(s"$projectUrl/OpenApi.yml", openApiYml, contentTypeYaml)
-      // the company gateway's variant - linked from "<Company> Postman Instructions"
-      postmanOpenApiYml.foreach(yml =>
-        sardine.put(s"$projectUrl/PostmanOpenApi.yml", yml, contentTypeYaml)
-      )
-      postmanApiYml.foreach(pApi =>
-        sardine.put(
-          s"$projectUrl/postmanCollection.json",
-          pApi,
-          contentTypeYaml
-        )
-      )
-      // additional files
-      val docDir = os.pwd / "doc"
-      if docDir.toIO.exists() then
-        sardine.createDirectory(s"$projectUrl/doc/")
-        val docFiles = os.list(docDir)
-        docFiles.foreach { f =>
-          println(s"Uploading $projectUrl/doc/${f.toIO.getName}")
-          sardine.put(
-            s"$projectUrl/doc/${f.toIO.getName}",
-            os.read.inputStream(f)
-          )
-        }
-      end if
-      // diagrams
-      sardine.createDirectory(s"$projectUrl/diagrams/")
-      BpmnProcessType.diagramPaths.foreach: diagramPath =>
-        val diagramDir = os.pwd / diagramPath
-        if os.exists(diagramDir) then
-          val diagramFiles = os.list(diagramDir)
-          diagramFiles
-            .filter(p =>
-              p.toString().endsWith(".bpmn") || p.toString().endsWith(".dmn")
-            )
-            .foreach { f =>
-              println(s"Uploading $projectUrl/diagrams/${f.toIO.getName}")
-              sardine.put(
-                s"$projectUrl/diagrams/${f.toIO.getName}",
-                os.read.inputStream(f)
-              )
-            }
-
-          println(s"Finished $projectName: upload Documentation")
-        else
-          println(s"No Diagrams in this project: $diagramDir")
-        end if
+    try uploadWith(sardine)
     finally sardine.shutdown()
     end try
   end upload
+
+  /** The project docs were deleted first, then uploaded - a failed upload left the project
+    * without any. Now they are uploaded to [[stagingUrl]] and replaced by one MOVE; a server
+    * without MOVE gets them the old way (delete, upload).
+    */
+  private[publish] def uploadWith(sardine: Sardine): Unit =
+    deleteIfExists(sardine, stagingUrl, s"a leftover upload of $projectName")
+    sardine.createDirectory(stagingUrl)
+    uploadProject(sardine, stagingUrl)
+    try
+      sardine.move(stagingUrl, projectUrl, true)
+      println(s"Finished $projectName: upload Documentation")
+    catch
+      case ex: java.io.IOException =>
+        println(s"Replacing the docs by MOVE failed ($ex) - uploading them to $projectUrl directly")
+        deleteIfExists(sardine, projectUrl, s"project $projectName")
+        sardine.createDirectory(projectUrl)
+        uploadProject(sardine, projectUrl)
+        deleteIfExists(sardine, stagingUrl, s"the upload of $projectName")
+        println(s"Finished $projectName: upload Documentation")
+    end try
+  end uploadWith
+
+  private def uploadProject(sardine: Sardine, url: String): Unit =
+    // The project's own OpenApi.html / PostmanOpenApi.html as written by `./helper.scala update`
+    // (orch-doc's single-file page from the orchescala-orch-doc jar). Publishing never builds
+    // orch-doc - no checkout needed here.
+    Seq("OpenApi.html", "PostmanOpenApi.html").foreach: name =>
+      val local = os.pwd / "03-api" / name
+      if os.exists(local) then
+        sardine.put(s"$url/$name", os.read.bytes(local), contentTypeHtml)
+      else
+        println(s"No 03-api/$name in this project - run `./helper.scala update` first. Not uploaded.")
+    sardine.put(s"$url/OpenApi.yml", openApiYml, contentTypeYaml)
+    // the company gateway's variant - linked from "<Company> Postman Instructions"
+    postmanOpenApiYml.foreach(yml =>
+      sardine.put(s"$url/PostmanOpenApi.yml", yml, contentTypeYaml)
+    )
+    postmanApiYml.foreach(pApi =>
+      sardine.put(
+        s"$url/postmanCollection.json",
+        pApi,
+        contentTypeYaml
+      )
+    )
+    // additional files
+    val docDir = os.pwd / "doc"
+    if docDir.toIO.exists() then
+      sardine.createDirectory(s"$url/doc/")
+      val docFiles = os.list(docDir)
+      docFiles.foreach { f =>
+        println(s"Uploading $url/doc/${f.toIO.getName}")
+        sardine.put(
+          s"$url/doc/${f.toIO.getName}",
+          os.read.inputStream(f)
+        )
+      }
+    end if
+    // diagrams
+    sardine.createDirectory(s"$url/diagrams/")
+    BpmnProcessType.diagramPaths.foreach: diagramPath =>
+      val diagramDir = os.pwd / diagramPath
+      if os.exists(diagramDir) then
+        val diagramFiles = os.list(diagramDir)
+        diagramFiles
+          .filter(p =>
+            p.toString().endsWith(".bpmn") || p.toString().endsWith(".dmn")
+          )
+          .foreach { f =>
+            println(s"Uploading $url/diagrams/${f.toIO.getName}")
+            sardine.put(
+              s"$url/diagrams/${f.toIO.getName}",
+              os.read.inputStream(f)
+            )
+          }
+
+        println(s"Finished $projectName: upload Documentation")
+      else
+        println(s"No Diagrams in this project: $diagramDir")
+      end if
+  end uploadProject
 
   private lazy val openApiYml    = os
     .read(apiConfig.openApiPath)
@@ -138,10 +162,11 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
   private lazy val postmanOpenApiYml: Option[Array[Byte]] =
     Option.when(apiConfig.companyPostmanInstructions.isDefined && os.exists(apiConfig.postmanOpenApiPath)):
       os.read(apiConfig.postmanOpenApiPath).getBytes(StandardCharsets.UTF_8)
+  // bytes, not a stream - read once, it was uploaded empty the second time
   private lazy val postmanApiYml =
     val path = os.pwd / "postmanCollection.json"
     if path.toIO.exists() then
-      Some(path.getInputStream)
+      Some(os.read.bytes(path))
     else None
   end postmanApiYml
 
