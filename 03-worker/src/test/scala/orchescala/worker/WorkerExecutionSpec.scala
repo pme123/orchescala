@@ -4,7 +4,7 @@ import orchescala.domain.{NoInput, NoOutput}
 import zio.*
 import zio.test.*
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReference}
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.concurrent.duration as scalaDuration
 
@@ -22,12 +22,24 @@ object WorkerExecutionSpec extends ZIOSpecDefault:
         job: Task[Unit],
         onTimeout: UIO[Unit] = ZIO.unit,
         renewLock: UIO[Unit] = ZIO.unit,
-        lockExpiresAt: Option[Long] = None
+        lockExpiresAt: Option[Long] = None,
+        onFailure: Throwable => UIO[Unit] = _ => ZIO.unit
     ): Unit =
-      executeBlocking("job")(job, onTimeout, renewLock, lockExpiresAt)
+      executeBlocking("job")(
+        job,
+        onTimeout = onTimeout,
+        onFailure = onFailure,
+        renewLock = renewLock,
+        lockExpiresAt = lockExpiresAt
+      )
 
-    def forked(job: Task[Unit], permits: Option[JobPermits], onNoPermit: UIO[Unit] = ZIO.unit): Unit =
-      executeForked("job")(job, permits = permits, onNoPermit = onNoPermit)
+    def forked(
+        job: Task[Unit],
+        permits: Option[JobPermits],
+        onNoPermit: UIO[Unit] = ZIO.unit,
+        onFailure: Throwable => UIO[Unit] = _ => ZIO.unit
+    ): Unit =
+      executeForked("job")(job, onFailure = onFailure, permits = permits, onNoPermit = onNoPermit)
   end TestWorker
 
   def spec = suite("BaseWorker execution")(
@@ -100,9 +112,32 @@ object WorkerExecutionSpec extends ZIOSpecDefault:
                  )
         yield assertTrue(!ran.get)
       },
-      test("a defect is rethrown - the C8 client then fails the job") {
-        for exit <- ZIO.attemptBlocking(TestWorker().blocking(ZIO.die(RuntimeException("bug")))).exit
-        yield assertTrue(exit.isFailure)
+      test("a defect is reported as failed - nothing is thrown (the C8 client only catches an Exception)") {
+        val reported = AtomicReference[Option[Throwable]](None)
+        for exit <- ZIO.attemptBlocking(
+                      TestWorker().blocking(
+                        ZIO.die(RuntimeException("bug")),
+                        onFailure = err => ZIO.succeed(reported.set(Some(err)))
+                      )
+                    ).exit
+        yield assertTrue(exit.isSuccess, reported.get.exists(_.getMessage == "bug"))
+      },
+      test("an error that escaped the execution is reported as failed") {
+        val reported = AtomicReference[Option[Throwable]](None)
+        for _ <- ZIO.attemptBlocking(
+                   TestWorker().blocking(
+                     ZIO.fail(RuntimeException("no variables")),
+                     onFailure = err => ZIO.succeed(reported.set(Some(err)))
+                   )
+                 )
+        yield assertTrue(reported.get.exists(_.getMessage == "no variables"))
+      },
+      test("a successful job is not reported as failed") {
+        val reported = AtomicReference[Option[Throwable]](None)
+        for _ <- ZIO.attemptBlocking(
+                   TestWorker().blocking(ZIO.unit, onFailure = err => ZIO.succeed(reported.set(Some(err))))
+                 )
+        yield assertTrue(reported.get.isEmpty)
       }
     ),
     suite("forked with permits (C7 / Op)")(
@@ -125,6 +160,18 @@ object WorkerExecutionSpec extends ZIOSpecDefault:
           // released right after the job (ensuring) - not yet when its last step counted down
           _ <- ZIO.succeed(permits.available).repeatUntil(_ == 2).timeout(5.seconds)
         yield assertTrue(maxSeen.get == 2, finished.getCount == 0, permits.available == 2)
+      },
+      test("a defect of a forked job is reported as failed (C7 / Op)") {
+        val worker = TestWorker()
+        for
+          reported <- Promise.make[Nothing, Throwable]
+          _        <- ZIO.succeed(worker.forked(
+                        ZIO.die(RuntimeException("bug")),
+                        None,
+                        onFailure = err => reported.succeed(err).unit
+                      ))
+          error    <- reported.await.timeout(5.seconds)
+        yield assertTrue(error.exists(_.getMessage == "bug"))
       },
       test("no permit within maxWait: the job goes back to the engine") {
         val permits  = JobPermits(maxJobs = 1, maxWait = scalaDuration.Duration(100, "millis"))

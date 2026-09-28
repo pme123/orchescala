@@ -40,9 +40,25 @@ object C8LockRenewalIntegrationTest extends ZIOSpecDefault:
        |  </bpmn:process>
        |</bpmn:definitions>""".stripMargin
 
+  private val defectJobType    = "orchescala-it-defect-job"
+  private val defectProcessId  = "orchescala-it-defect-job-process"
+  private val defectExecutions = ConcurrentHashMap[String, Int]()
+  private val defectBpmn       = bpmn.replace(processId, defectProcessId).replace(jobType, defectJobType)
+
+  /** A bug in the worker's code: an exception, not a WorkerError (a defect). */
+  private object DefectJobWorker extends C8Worker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
+    protected def c8Context: C8Context = LongJobWorker.c8Context
+    protected def customTask: CustomTask[NoInput, NoOutput] =
+      CustomTask(InOutDescr(defectJobType, NoInput(), NoOutput(), None))
+    override protected def runWorkZIO(in: NoInput): RunWorkZIOOutput[NoOutput] =
+      val processInstanceId = summon[EngineRunContext].processInstance.map(_.id).getOrElse("-")
+      ZIO.succeed(defectExecutions.merge(processInstanceId, 1, _ + _)) *>
+        ZIO.succeed(throw IllegalStateException("bug in the worker code"))
+  end DefectJobWorker
+
   /** Runs 75s - longer than its lock of 1 minute, which it renews every 30s. */
   private object LongJobWorker extends C8Worker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
-    protected def c8Context: C8Context = new C8Context:
+    lazy val c8Context: C8Context = new C8Context:
       lazy val engineConfig: EngineConfig = DefaultEngineConfig()
       lazy val workerConfig: WorkerConfig =
         DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
@@ -82,6 +98,35 @@ object C8LockRenewalIntegrationTest extends ZIOSpecDefault:
       yield assertTrue(
         finished.state == HistoricProcessInstance.ProcessState.COMPLETED,
         executions.get(started.processInstanceId) == 1 // before (lock 1 min, no renewal): handed out again after a minute
+      )
+    }
+    ,
+    test("an exception of the worker's code fails the job - it is not handed out again and again") {
+      val restAddress = sys.env("C8_REST_IT")
+      val grpcAddress = sys.env.getOrElse("C8_GRPC_IT", "http://localhost:26500")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig()
+      given WorkerConfig = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engine         = C8ProcessEngine()
+      for
+        _         <- engine.deploymentService.deploy(
+                       "it-defect-job",
+                       Seq(DeploymentResource(s"$defectProcessId.bpmn", defectBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.C8)
+                     )
+        _         <- C8WorkerRegistry(C8DefaultNoAuthClient(grpcAddress, restAddress))
+                       .register(Set(DefectJobWorker))
+                       .provideLayer(SharedC8ClientManager.layer)
+                       .forkScoped
+        started   <- engine.processInstanceService.startProcessAsync(defectProcessId, JsonObject(), None, None, None)
+        // retries="1": failed once -> incident. Before: the client did not catch ZIO's FiberFailure
+        // (no Exception) - the job stayed activated until its timeout, then again
+        incidents <- engine.incidentService.getIncidents(None, Some(started.processInstanceId))
+                       .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no incident yet"))
+                       .retry(Schedule.spaced(2.seconds) && Schedule.recurs(20))
+      yield assertTrue(
+        incidents.exists(_.incidentMessage.exists(_.contains("bug in the worker code"))),
+        defectExecutions.get(started.processInstanceId) == 1
       )
     }
   ) @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(4.minutes)

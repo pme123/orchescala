@@ -46,6 +46,24 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
     .replace(processId, fastProcessId)
     .replace(longTaskTopic, fastTaskTopic)
 
+  private val defectTaskTopic  = "orchescala-it-defect-task"
+  private val defectExecutions = ConcurrentHashMap[String, Int]()
+  private val defectProcessId  = "orchescala-it-defect-task-process"
+  private val defectBpmn       = bpmn
+    .replace(processId, defectProcessId)
+    .replace(longTaskTopic, defectTaskTopic)
+
+  /** A bug in the worker's code: an exception, not a WorkerError (a defect). */
+  private object DefectTaskWorker extends OpWorker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
+    protected def operatonContext: OpContext = LongTaskWorker.context
+    protected def customTask: CustomTask[NoInput, NoOutput] =
+      CustomTask(InOutDescr(defectTaskTopic, NoInput(), NoOutput(), None))
+    override protected def runWorkZIO(in: NoInput): RunWorkZIOOutput[NoOutput] =
+      val processInstanceId = summon[EngineRunContext].processInstance.map(_.id).getOrElse("-")
+      ZIO.succeed(defectExecutions.merge(processInstanceId, 1, _ + _)) *>
+        ZIO.succeed(throw IllegalStateException("bug in the worker code"))
+  end DefectTaskWorker
+
   /** Done at once - completes while a lock renewal could still run. */
   private object FastTaskWorker extends OpWorker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
     protected def operatonContext: OpContext = LongTaskWorker.context
@@ -144,6 +162,38 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
         incidents.forall(_.isEmpty),
         // a failed completion ("updated by another transaction concurrently") ran it again
         started.forall(info => fastExecutions.get(info.processInstanceId) == 1)
+      )
+    }
+    ,
+    test("an exception of the worker's code ends in an incident - not fetched again and again") {
+      val restUrl         = sys.env("OP_REST_IT")
+      given EngineConfig  = DefaultEngineConfig()
+      given WorkerConfig  = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engineClient    = new OpLocalClient:
+        protected def operatonRestUrl: String = restUrl
+      val workerClient    = new OpWorkerClient:
+        protected def operatonRestUrl: String = restUrl
+        def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+          SharedOpExternalClientManager.getOrCreateClient(ZIO.attempt(externalClient.build()))
+      for
+        engine    <- OpProcessEngine.withClient(engineClient).provideLayer(SharedOpClientManager.layer)
+        _         <- engine.deploymentService.deploy(
+                       "it-defect-task",
+                       Seq(DeploymentResource(s"$defectProcessId.bpmn", defectBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.Op)
+                     )
+        _         <- OpWorkerRegistry(workerClient)
+                       .register(Set(DefectTaskWorker))
+                       .provideLayer(SharedOpExternalClientManager.layer)
+                       .forkScoped // stops the client at the end of the test
+        started   <- engine.processInstanceService.startProcessAsync(defectProcessId, JsonObject(), None, None, None)
+        // before: no incident - the task was fetched again once its lock (1 minute) ran out
+        incidents <- engine.incidentService.getIncidents(None, Some(started.processInstanceId))
+                       .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no incident yet"))
+                       .retry(Schedule.spaced(1.second) && Schedule.recurs(30))
+      yield assertTrue(
+        incidents.exists(_.incidentMessage.exists(_.contains("bug in the worker code"))),
+        defectExecutions.get(started.processInstanceId) == 1
       )
     }
   ) @@ TestAspect.ifEnvSet("OP_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(4.minutes)

@@ -39,12 +39,17 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     *   - `renewLock` while it runs: when the remaining lock drops below [[lockRenewInterval]], then
     *     every [[lockRenewInterval]] (fast jobs never renew)
     *   - interrupted after [[workerTimeout]], then `onTimeout` (the engine must learn that it failed)
-    *   - errors logged - all with the logger and HTTP layers
+    *   - an error or a defect (an exception of the worker's code) that escaped the execution:
+    *     logged with its cause, then `onFailure` - it was only logged (or not even that), the job
+    *     was neither completed nor failed: fetched again after its lock ran out, without end and
+    *     without counting down the retries
+    *   - all with the logger and HTTP layers
     */
   private def jobEffect[T](
       jobId: String,
       execution: ZIO[SttpClientBackend, Throwable, T],
       onTimeout: UIO[Unit],
+      onFailure: Throwable => UIO[Unit],
       renewLock: UIO[Unit],
       lockExpiresAt: Option[Long]
   ): UIO[Unit] =
@@ -59,8 +64,13 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           (renewLock *> ZIO.sleep(lockRenewInterval)).forever
     // forked in the job's scope: interrupted when the job ends (or times out). Not forked in an
     // acquire - that region is uninterruptible, its fibers too, and the interrupt would wait forever
+    val failed   = (kind: String, cause: Cause[Throwable], error: Throwable) =>
+      ZIO.logErrorCause(s"Worker execution for job $jobId $kind - reported as failed", cause) *>
+        onFailure(error)
     val job      =
-      ZIO.scoped(renewing.forkScoped *> execution)
+      ZIO.scoped(renewing.forkScoped *> execution.unit)
+        .catchAll(error => failed("failed", Cause.fail(error), error))
+        .catchAllDefect(defect => failed("died", Cause.die(defect), defect))
         .timeout(workerTimeout)
         .flatMap:
           case Some(_) =>
@@ -77,8 +87,8 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           )
         else job
       .provideLayer(EngineRuntime.sharedExecutorLayer ++ HttpClientProvider.live)
-      .catchAll: ex =>
-        ZIO.logError(s"Worker execution for job $jobId failed: $ex\n${ex.getStackTrace.mkString("\n")}")
+      .catchAllCause: cause =>
+        ZIO.logErrorCause(s"Worker execution for job $jobId failed", cause)
       // also the timeout / error logs go through SLF4J (before: ZIO's console logger)
       .provideLayer(EngineRuntime.logger)
   end jobEffect
@@ -86,20 +96,25 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   /** Runs the job on the calling thread and returns when it is done - for the C8 client: it runs
     * the handlers on its job threads and counts a job as active until the handler returns, so
     * `maxJobsActive` limits the jobs in flight. (Returning at once let it fetch more and more jobs,
-    * and a job still running past its job timeout was handed out again.) A defect is rethrown -
-    * the client then fails the job.
+    * and a job still running past its job timeout was handed out again.) Errors and defects go to
+    * `onFailure` - nothing is thrown: the C8 client only catches an `Exception`, and ZIO's
+    * `FiberFailure` is none (the job stayed activated until its timeout, again and again).
     */
   protected def executeBlocking[T](jobId: String)(
       execution: ZIO[SttpClientBackend, Throwable, T],
       onTimeout: UIO[Unit] = ZIO.unit,
+      onFailure: Throwable => UIO[Unit] = _ => ZIO.unit,
       renewLock: UIO[Unit] = ZIO.unit,
       lockExpiresAt: Option[Long] = None
   ): Unit =
     Unsafe.unsafe:
       implicit unsafe =>
         EngineRuntime.zioRuntime.unsafe
-          .run(jobEffect(jobId, execution, onTimeout, renewLock, lockExpiresAt))
-          .getOrThrowFiberFailure()
+          .run(jobEffect(jobId, execution, onTimeout, onFailure, renewLock, lockExpiresAt)) match
+          case Exit.Success(_)     => ()
+          // only if the job effect itself died (e.g. in onFailure) - an Exception, see above
+          case Exit.Failure(cause) =>
+            throw RuntimeException(s"Job $jobId failed: ${cause.prettyPrint}", cause.squashTrace)
 
   /** Runs the job in the background - for the C7/Op external task client, whose single thread
     * calls the handlers one after the other (running them there would process one job at a time).
@@ -110,6 +125,7 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   protected def executeForked[T](jobId: String)(
       execution: ZIO[SttpClientBackend, Throwable, T],
       onTimeout: UIO[Unit] = ZIO.unit,
+      onFailure: Throwable => UIO[Unit] = _ => ZIO.unit,
       permits: Option[JobPermits] = None,
       onNoPermit: UIO[Unit] = ZIO.unit,
       renewLock: UIO[Unit] = ZIO.unit,
@@ -126,7 +142,7 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           ()
         else
           EngineRuntime.zioRuntime.unsafe.fork:
-            jobEffect(jobId, execution, onTimeout, renewLock, lockExpiresAt)
+            jobEffect(jobId, execution, onTimeout, onFailure, renewLock, lockExpiresAt)
               .ensuring(ZIO.succeed(permits.foreach(_.release())))
           ()
   end executeForked

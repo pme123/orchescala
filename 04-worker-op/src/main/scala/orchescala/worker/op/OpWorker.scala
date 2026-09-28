@@ -44,13 +44,19 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       onTimeout = taskService.handleFailure(
         UnexpectedError(s"Worker ${externalTask.getTopicName} timed out after $workerTimeout")
       ),
+      // an exception of the worker's code (a defect): it was lost - the task neither completed nor
+      // failed, fetched again after its lock ran out, without counting down the retries
+      onFailure = err =>
+        taskService.handleFailure(
+          UnexpectedError(s"Worker ${externalTask.getTopicName} failed unexpectedly: $err")
+        ),
       permits = permits,
       // back to the engine at once - waiting longer would let its lock run out
-      onNoPermit = attempt(taskService.unlock(externalTask))
+      onNoPermit = attemptBlocking(taskService.unlock(externalTask))
         .catchAll(err => logError(s"Problem unlocking task ${externalTask.getId}: $err"))
         .unit,
       // the lock is short (fast recovery after a crash) - renewed while the job runs
-      renewLock = attempt(taskService.extendLock(externalTask, lockTimeout.toMillis))
+      renewLock = attemptBlocking(taskService.extendLock(externalTask, lockTimeout.toMillis))
         .catchAll(err => logWarning(s"Problem extending the lock of task ${externalTask.getId}: $err"))
         .unit,
       lockExpiresAt = Option(externalTask.getLockExpirationTime).map(_.getTime)
@@ -137,7 +143,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         manualOutMapping: Boolean
     ): HelperContext[URIO[Any, Unit]] = {
       ZIO.logDebug(s"handleSuccess BEFORE complete: ${worker.topic}") *>
-        ZIO.attempt {
+        ZIO.attemptBlocking {
           externalTaskService.complete(
             summon[operaton.ExternalTask],
             if manualOutMapping then Map.empty.asJava
@@ -212,7 +218,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         "errorMsg"  -> error.errorMsg
       )
       val variables = (filteredGeneralVariables ++ errorVars).asJava
-      ZIO.attempt(
+      ZIO.attemptBlocking(
         externalTaskService.handleBpmnError(
           summon[operaton.ExternalTask],
           s"${error.errorCode}",
@@ -239,7 +245,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       logError(
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
       ) *>
-        ZIO.attempt(
+        ZIO.attemptBlocking(
           externalTaskService.handleFailure(
             taskId,
             error.causeMsg,

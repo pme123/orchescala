@@ -32,27 +32,31 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   ): Unit =
     executeBlocking(job.getKey.toString)(
       execution = runJob(client, job),
-      onTimeout = failTimedOut(client, job),
+      onTimeout = failJob(client, job, s"Worker ${job.getType} timed out after $workerTimeout"),
+      // an error before the worker ran (variables, business key) or an exception of the worker's
+      // code: only logged - the job stayed activated until its timeout, then again, without end
+      onFailure = err => failJob(client, job, s"Worker ${job.getType} failed unexpectedly: $err"),
       // the job timeout is short (fast recovery after a crash) - renewed while the job runs
       renewLock = ZIO.foreachDiscard(camundaClient)(renewTimeout(_, job)),
       lockExpiresAt = Some(job.getDeadline)
     )
 
+  // the commands wait for the engine: attemptBlocking - not on ZIO's few threads
   private def renewTimeout(camundaClient: CamundaClient, job: ActivatedJob): UIO[Unit] =
-    attempt:
+    attemptBlocking:
       camundaClient.newUpdateTimeoutCommand(job).timeout(lockTimeout.toMillis).send().join()
     .catchAll(err => logWarning(s"Problem renewing the timeout of job ${job.getKey}: $err"))
     .unit
 
-  /** A job running longer than `workerTimeout` was interrupted - the engine must learn it failed. */
-  private def failTimedOut(client: JobClient, job: ActivatedJob): UIO[Unit] =
-    attempt:
+  /** The job did not finish (timed out, failed unexpectedly) - the engine must learn it failed. */
+  private def failJob(client: JobClient, job: ActivatedJob, message: String): UIO[Unit] =
+    attemptBlocking:
       client.newFailCommand(job)
         .retries(job.getRetries - 1)
         .retryBackoff(time.Duration.ofSeconds(60))
-        .errorMessage(s"Worker ${job.getType} timed out after $workerTimeout")
+        .errorMessage(message)
         .send().join()
-    .catchAll(err => logError(s"Problem failing the timed out job ${job.getKey}: $err"))
+    .catchAll(err => logError(s"Problem failing the job ${job.getKey} ($message): $err"))
     .unit
 
   private def runJob(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
@@ -186,7 +190,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         .flatMap: variablesMap =>
           logInfo(s"handleSuccess BEFORE complete: ${job.getType}") *>
             logDebug(s"handleSuccess BEFORE complete: $variablesMap") *>
-            attempt:
+            attemptBlocking:
               client.newCompleteCommand(job)
                 .variables((variablesMap + ("processInstanceKey" -> job.getProcessInstanceKey)).asJava)
                 .send().join()
@@ -213,15 +217,14 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         (filteredGeneralVariables ++
           errorVars +
           ("businessKey" -> businessKey)).asJava
-      attempt:
+      attemptBlocking:
+        // joined: without, a failed command was lost - the job neither threw the error nor failed
         client.newThrowErrorCommand(job)
           .errorCode(error.errorCode.toString)
           .errorMessage(error.toString)
           .variables(variables)
           .send()
-          .exceptionally(t =>
-            throw new RuntimeException("Could not throw BPMN error: " + t.getMessage, t);
-          )
+          .join()
       .catchAll: err =>
         handleFailure(
           UnexpectedError(s"Problem handling BpmnError to C8: $err."),
@@ -241,7 +244,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         errorRegexHandled =
           regexMatchesAll(errorHandled, error, generalVariables.regexHandledErrorSeq)
         _                <- logInfo(s"Handled errorRegexHandled: $errorRegexHandled")
-        _                <- attempt:
+        _                <- attemptBlocking:
                               client.newFailCommand(job)
                                 .retries(job.getRetries - 1)
                                 .retryBackoff(time.Duration.ofSeconds(60))
@@ -279,7 +282,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                     error.errorCode.toString
                   )}"
               ) *>
-                ZIO.attempt:
+                ZIO.attemptBlocking:
                   val variables = (filtered ++ errorVars).asJava
                   client.newFailCommand(job)
                     .retries(job.getRetries - 1)
