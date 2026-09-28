@@ -23,7 +23,7 @@ import type { DomainType, Field, Model, ProcessSpec, ServiceDef, Step, TypeDef }
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
-import { domainMember, initOutputs, resolveType } from './interactions';
+import { domainMember, initOutputs, loopSettings, resolveType } from './interactions';
 import { domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
 
@@ -97,9 +97,12 @@ export function splitEnumCase(base: string): { base: string; enumCase: string } 
 interface Builder { idx: TypeIndex; model: Model | null }
 
 /** Ein Feld des Klassenbauers als Knoten — mit seinen Unterfeldern. */
+/** Ein Feld mit Vorgabewert ist immer da — auch wenn es `Option[…]` ist */
+const mayBeMissing = (f: { optional?: boolean; default?: string }): boolean => !!f.optional && !f.default?.trim();
+
 function nodeOfField(f: Field, source: string, b: Builder, depth: number, seen: Set<string>): VarNode {
   return nodeOf(f.name, f.type, {
-    optional: !!f.optional, collection: !!f.collection, map: !!f.map, enumCase: f.enumCase, description: f.description, source,
+    optional: mayBeMissing(f), collection: !!f.collection, map: !!f.map, enumCase: f.enumCase, description: f.description, source,
     label: fieldLabel(f, b.idx),
   }, b, depth, seen);
 }
@@ -180,7 +183,7 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     const isCase = !!enumRef && enumRef.kind === 'enum' && (enumRef.cases ?? []).some(c => c.name === split!.enumCase);
     const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : isCase ? domainRef(enumRef!.id) : shape.base;
     return nodeOf(p.name, typeRef, {
-      optional: shape.optional, collection: shape.collection, map: shape.map, ...(isCase ? { enumCase: split!.enumCase } : {}), description: p.description,
+      optional: shape.optional && !p.default?.trim(), collection: shape.collection, map: shape.map, ...(isCase ? { enumCase: split!.enumCase } : {}), description: p.description,
       source: `Feld von ${dom.name}`, label: p.type,
     }, b, depth + 1, seen);
   });
@@ -189,7 +192,8 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
 
 /**
  * Alle Prozessvariablen mit ihren Pfaden. Bei gleichem Namen gilt die erste
- * Quelle: `In` vor `InitIn` vor den Prozessvariablen vor den Ausgaben.
+ * Quelle: `In` vor `InitIn` vor `InConfig` vor den Prozessvariablen vor den
+ * Ausgaben.
  */
 export function processVariables(spec: ProcessSpec, model: Model | null): VarNode[] {
   const types = spec.types ?? [];
@@ -209,6 +213,15 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   const initIn = types.find(t => t.initIn);
   if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, 'InitIn', b, 0, new Set()));
   else for (const o of initOutputs(spec)) add({ name: o.name, type: 'any', label: '?', source: 'InitIn', ...(o.description ? { description: o.description } : {}) });
+
+  // Das InConfig — eigene Stellschrauben und die der Schleifen; alle mit
+  // Vorgabe, also immer da
+  const inConfig = types.find(t => t.inConfig);
+  for (const f of inConfig?.fields ?? []) add(nodeOfField(f, 'InConfig', b, 0, new Set()));
+  for (const l of loopSettings(spec)) {
+    const t = l.kind === 'timer' ? 'Iso8601Duration' : 'Int';
+    add(nodeOf(l.name, t, { optional: false, collection: false, source: 'InConfig', label: t }, b, 0, new Set()));
+  }
 
   for (const v of spec.variables ?? []) {
     const t = (v.type ?? '').trim();
@@ -268,7 +281,8 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
     else if (ref.kind === 'alias') return null;
     else { accepts = ['context']; kind = ref.kind === 'enum' ? 'enum' : 'class'; }
   }
-  if (shape.optional) accepts = [...accepts, 'nil'];
+  // fehlt der Wert, greift die Vorgabe — null ist dann erlaubt
+  if (shape.optional || p.default?.trim()) accepts = [...accepts, 'nil'];
   return { accepts, label: p.type, kind };
 }
 
@@ -319,7 +333,8 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
     else if (dom?.kind === 'alias') return null;
     else { accepts = ['context']; kind = enumish ? 'enum' : 'class'; }
   }
-  if (f.optional) accepts = [...accepts, 'nil'];
+  // fehlt der Wert, greift die Vorgabe — null ist dann erlaubt
+  if (f.optional || f.default?.trim()) accepts = [...accepts, 'nil'];
   return { accepts, label: fieldLabel(f, idx), kind };
 }
 
@@ -384,6 +399,21 @@ function touchesUnknown(body: string, vars: VarNode[]): boolean {
   const code = body.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   for (const m of code.matchAll(/(?<![\w.])([A-Za-z_]\w*)/g)) if (unknown.has(m[1])) return true;
   return false;
+}
+
+/** Ist der Ausdruck ein blosser Pfad, auf dem etwas fehlen darf? Dann welches Glied. */
+function optionalOnPath(body: string, vars: VarNode[]): { path: string; label: string } | null {
+  if (!/^[A-Za-z_]\w*(\s*\.\s*[A-Za-z_]\w*)*$/.test(body)) return null;
+  const chain = body.replace(/\s/g, '').split('.');
+  let pool = vars;
+  for (let i = 0; i < chain.length; i++) {
+    const n = pool.find(v => v.name === chain[i]);
+    if (!n) return null;
+    if (n.optional) return { path: chain.slice(0, i + 1).join('.'), label: n.label };
+    if (n.type === 'any' || n.open) return null;
+    pool = n.children ?? [];
+  }
+  return null;
 }
 
 const quoted = (msg: string): string => /'([^']*)'/.exec(msg)?.[1] ?? '';
@@ -465,6 +495,17 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   }
 
   const result = feelType(value);
+  // Ein optionaler Wert (ohne Vorgabe) auf ein Pflichtfeld: die Beispielwerte
+  // sind nie null, darum hier am Pfad selbst — `= client.address.zip`
+  if (!issues.length && expected && !expected.accepts.includes('nil') && !unknown && !pathFailed) {
+    const opt = optionalOnPath(body, vars);
+    if (opt) {
+      issues.push({
+        level: 'warn',
+        text: `«${opt.path}» ist optional (${opt.label}) — «${expected.label}» verlangt aber einen Wert. Vorgabe setzen oder absichern (\`if … != null then … else …\`).`,
+      });
+    }
+  }
   if (!issues.length && expected && !unknown && !pathFailed) {
     if (!expected.accepts.includes(result)) {
       const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');

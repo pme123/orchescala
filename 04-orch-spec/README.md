@@ -492,7 +492,12 @@ IDs, Namen der Flussknoten, Leerraum und Gross-/Kleinschreibung zählen nicht,
 Den gemeinsamen Block erkennt der Import an seinem **Einstieg** (Link-Ziel
 gleichen Namens, Ereignis-Subprozess mit gleichem Start). Bestimmtere Pattern
 gehen vor: was eines für sich beansprucht, kann kein anderes haben; dasselbe
-Pattern darf mehrmals am Element hängen (zwei Mail-Timer).
+Pattern darf mehrmals am Element hängen (zwei Mail-Timer). Drücken ältere
+Prozesse dasselbe anders aus, trägt die Pattern-Datei weitere
+**Schreibweisen** (`variants`, je Engine eine Liste von Pattern-BPMN): die
+Erkennung nimmt sie auch an, entfernen nimmt heraus, was erkannt wurde —
+eingefügt wird immer das Pattern-BPMN selbst (so bringt «Werte ändern» ein
+altes Element auf die aktuelle Schreibweise).
 
 Im **Baum** steht ein Pattern als Chip am Schritt; was es ins Diagramm bringt
 — Timer, Link, gemeinsamer Block — ist Verdrahtung und steht als **eine**
@@ -931,14 +936,19 @@ prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld:
   (gefunden über Topic, gerufenen Prozess oder Interaktionsnamen) trägt die
   echten Scala-Typen. So werden auch importierte Prozesse geprüft. Ein
   optionales Feld nimmt auch `null`, ein `LocalDate` sowohl ein Datum als
-  auch dessen Text. Ist ein Feld dort nicht `Option[…]`, gilt es als
-  Pflichtfeld.
+  auch dessen Text. Ist ein Feld dort nicht `Option[…]` und hat keine
+  Vorgabe, gilt es als Pflichtfeld.
+- **Optional auf Pflicht** — `= accountTypes` in ein Pflichtfeld, wo
+  `accountTypes` ein `Option[…]` ohne Vorgabe ist: Warnung, der Wert kann
+  fehlen. Ein Feld **mit Vorgabewert** ist dagegen garantiert da, auch als
+  `Option[…]` — als Quelle wie als Ziel.
 
 Gerechnet wird mit **Beispielwerten**: aus dem Datenmodell entsteht ein
 Kontext, in dem jede bekannte Variable einen zum Typ passenden Wert hat;
 [feelin](https://github.com/nikku/feelin) wertet den Ausdruck darin aus. Die
-Variablen sind das `In` des Prozesses, das `InitIn`, die Prozessvariablen der
-Spezifikation und die Ausgaben aller Schritte — bei Letzteren ist der Typ
+Variablen sind das `In` des Prozesses, das `InitIn`, das `InConfig` (eigene
+Stellschrauben und die der Schleifen), die Prozessvariablen der Spezifikation
+und die Ausgaben aller Schritte — bei Letzteren ist der Typ
 meist unbekannt, dort bleibt die Prüfung stumm statt falsch zu warnen. Rot
 heisst Fehler. Der Tooltip des Feldes nennt bei gültigem FEEL den
 Ergebnistyp. **Zweigbedingungen** werden genauso geprüft, mit erwartetem
