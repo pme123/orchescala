@@ -54,8 +54,12 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
                                     .info(
                                       s"Message '$msgName'  (${messageScenario.scenarioName}) sent successfully."
                                     )
+                                // tried again (the process may not wait for it yet) - but the error is
+                                // kept: a 400 / 401 was reported as "was not found"
                                 .catchAll: err =>
-                                  scenarioOrStepRunner.tryOrFail(correlate)
+                                  scenarioOrStepRunner.tryOrFail(correlate, Some(err.errorMsg))(using
+                                    summon[ScenarioData].warn(s"Message '$msgName' not sent yet: ${err.errorMsg}")
+                                  )
         _                  <- logInfo(
                                 s"""Message ${summon[ScenarioData].context.taskId} sent:
                   |- msgName: $msgName

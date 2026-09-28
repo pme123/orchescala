@@ -12,8 +12,12 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
 
   private lazy val incidentService = engine.incidentService
 
+  /** @param lastError
+    *   why it did not work yet - part of the failure after `maxCount` tries
+    */
   def tryOrFail(
-      funct: => ResultType
+      funct: => ResultType,
+      lastError: Option[String] = None
   ): ResultType =
     val count = summon[ScenarioData].context.requestCount
     if count < config.maxCount then
@@ -42,7 +46,8 @@ class ScenarioOrStepRunner(scenarioOrStep: ScenarioOrStep)(using
         SimulationError.WaitingError(
           summon[ScenarioData]
             .error(
-              s"Expected ${scenarioOrStep.scenarioName} (${scenarioOrStep.typeName}) was not found! Tried $count times."
+              s"Expected ${scenarioOrStep.scenarioName} (${scenarioOrStep.typeName}) was not found! Tried $count times." +
+                lastError.fold("")(err => s"\nLast error: $err")
             )
         )
       )
