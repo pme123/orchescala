@@ -293,3 +293,6 @@ export function importExpression(text: string): string {
   // Vorlage mit festem Text: die Ausdrücke darin werden zu Text
   return `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}`;
 }
+
+/** Übersetzbares JUEL nach FEEL — was sich nicht übersetzen lässt, bleibt JUEL. */
+export const feelIfPossible = (text: string): string => (isJuel(text) ? importExpression(text) : text);

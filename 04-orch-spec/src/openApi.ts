@@ -105,10 +105,10 @@ function responseSchema(op: Operation, doc: Doc): Schema | undefined {
 }
 
 /**
- * Schema-Felder als Parameter. Der Vorgabe-Ausdruck ist `#{name}` — das ist
- * die Konvention im Haus: die Prozessvariable gleichen Namens. (In den
- * element-templates steht mal `#{name}`, mal
- * `#{execution.getVariable('name')}` — beides dasselbe.)
+ * Schema-Felder als Parameter. Der Vorgabe-Ausdruck ist `= name` — die
+ * Konvention im Haus: die Prozessvariable gleichen Namens, in FEEL, der
+ * Sprache der Spezifikation. (In den element-templates steht dafür JUEL,
+ * mal `#{name}`, mal `#{execution.getVariable('name')}` — dasselbe.)
  */
 function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
   const out: ServiceParam[] = [];
@@ -118,7 +118,7 @@ function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
     const descr = (raw.description ?? p.description ?? '').trim();
     out.push({
       name,
-      expression: `#{${name}}`,
+      expression: `= ${name}`,
       ...(descr ? { description: descr } : {}),
       ...(required ? { required: true } : {}),
     });

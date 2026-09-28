@@ -11,7 +11,7 @@
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind } from './types';
-import { importExpression } from './juelFeel.ts';
+import { feelIfPossible, importExpression } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -1054,4 +1054,34 @@ export function syncPatterns(current: ProcessSpec, fresh: ProcessSpec): ProcessS
   if (!changed) return null;
   const { patterns: _, ...rest } = current;
   return { ...rest, ...(fresh.patterns?.length ? { patterns: fresh.patterns } : {}), steps };
+}
+
+/**
+ * JUEL aus einem älteren Stand (oder dem Katalog) nach FEEL: Mappings und
+ * Zweigbedingungen, soweit übersetzbar — der Rest bleibt JUEL und wird am
+ * Feld gemeldet. Nichts zu tun → null.
+ */
+export function healJuel(spec: ProcessSpec): ProcessSpec | null {
+  let changed = false;
+  const rows = (ms: Mapping[] | undefined) => ms?.map(m => {
+    const e = feelIfPossible(m.expression);
+    if (e === m.expression) return m;
+    changed = true;
+    return { ...m, expression: e };
+  });
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    const next: Step = { ...s };
+    if (s.inputs) next.inputs = rows(s.inputs);
+    if (s.outputs) next.outputs = rows(s.outputs);
+    if (s.children) next.children = walk(s.children);
+    if (s.branches) next.branches = s.branches.map(b => {
+      const cond = b.condition ? feelIfPossible(b.condition) : b.condition;
+      if (cond !== b.condition) changed = true;
+      return { ...b, condition: cond, steps: walk(b.steps) };
+    });
+    if (s.errors) next.errors = s.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e));
+    return next;
+  });
+  const steps = walk(spec.steps);
+  return changed ? { ...spec, steps } : null;
 }

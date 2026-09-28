@@ -11,7 +11,8 @@
 // Übernommen aus arch-review — bewusst dieselbe Mechanik (Konflikterkennung
 // über Version/ETag, gemerkter Ordner, Autosave im Aufrufer).
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { DirectoryUser, Model, ProcessSpec, UsersFile } from './types';
+import type { DirectoryUser, Model, ProcessSpec, ServiceDef, ServiceParam, UsersFile } from './types';
+import { feelIfPossible } from './juelFeel';
 import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
 import { nowIsoWithTimezone, todayIso } from './util';
@@ -129,9 +130,16 @@ function normalizeModel(raw: unknown): Model {
 // gerufener Prozess bzw. Typ-Id) gewinnt er; Einträge aus der model.json
 // bleiben nur sichtbar, wo der generierte Katalog nichts hat (Altbestand).
 // Der Benutzer pflegt keinen Katalog — model.json gehört den Spezifikationen.
-function mergeGeneratedCatalog(user: Model, gen: CatalogFile | null): Model {
+/** Vorgaben eines Katalog-Eintrags in FEEL — ältere Kataloge haben `#{name}` */
+const feelParams = (s: ServiceDef): ServiceDef => {
+  const conv = (ps: ServiceParam[] | undefined) => ps?.map(p => (p.expression ? { ...p, expression: feelIfPossible(p.expression) } : p));
+  return { ...s, ...(s.inputs ? { inputs: conv(s.inputs) } : {}), ...(s.outputs ? { outputs: conv(s.outputs) } : {}) };
+};
+
+function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
+  const user = { ...user0, services: user0.services.map(feelParams) };
   if (!gen) return user;
-  const genServices = (gen.services ?? []).map(s => ({ ...s, generated: true }));
+  const genServices = (gen.services ?? []).map(s => ({ ...feelParams(s), generated: true }));
   const genTypes = (gen.domainTypes ?? []).map(t => ({ ...t, generated: true }));
   const kennt = new Set<string>();
   for (const s of genServices) {

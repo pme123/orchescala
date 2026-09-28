@@ -18,7 +18,7 @@ import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
-import { allSteps, blockGroups, blockStart, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport } from '../bpmn';
+import { allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport } from '../bpmn';
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
@@ -190,6 +190,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (healed) update({ ...spec, types: healed });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec?.types, model, canEdit]);
+
+  // JUEL aus einem älteren Stand bzw. Katalog: was sich übersetzen lässt,
+  // wird FEEL — gespeichert mit dem nächsten Autosave; der Rest bleibt JUEL
+  // (einmal beim Öffnen — nicht mitten im Tippen)
+  const juelHealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!spec || !canEdit || juelHealed.current === slug) return;
+    juelHealed.current = slug;
+    const healed = healJuel(spec);
+    if (healed) update(healed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec, canEdit, slug]);
 
   // ── Autosave ──────────────────────────────────────────────────────────────
   const timer = useRef<number | null>(null);

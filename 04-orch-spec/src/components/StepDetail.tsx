@@ -15,7 +15,7 @@ import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
-import { importExpression, isJuel } from '../juelFeel';
+import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
 import { CommentBubble, useActiveComment } from './Comments';
 import { processTarget, stepTarget, sub } from '../comments';
@@ -234,7 +234,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     const descr = new Map(((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).map(p => [p.name, p.description]));
     const add = ref.names.filter(n => !have.has(n)).map(name => ({
       name,
-      expression: `#{${name}}`,
+      expression: `= ${name}`,
       ...(descr.get(name) ? { description: descr.get(name) } : {}),
     }));
     if (add.length) onPatch(step.id, { [list]: [...(step[list] ?? []), ...add] });
@@ -753,13 +753,13 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
       // Was schon erfasst war, bleibt: Ausdruck, Bedeutung und die Abwahl
       inputs: (svc.inputs ?? []).map(pm => ({
         name: pm.name,
-        expression: oldIn.get(pm.name)?.expression ?? pm.expression ?? '',
+        expression: oldIn.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldIn.get(pm.name)?.description ?? pm.description ? { description: oldIn.get(pm.name)?.description ?? pm.description } : {}),
         ...(oldIn.get(pm.name)?.disabled ? { disabled: true } : {}),
       })),
       outputs: (svc.outputs ?? []).map(pm => ({
         name: pm.name,
-        expression: oldOut.get(pm.name)?.expression ?? pm.expression ?? '',
+        expression: oldOut.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
         ...(oldOut.get(pm.name)?.disabled ? { disabled: true } : {}),
       })),
@@ -861,7 +861,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
     ? {
         section: 'Eingaben: was der Schritt beim Aufruf bekommt — je Zeile ein Parameter des Services (In) und der Wert dazu aus dem Prozess.',
         name: 'Input-Variablen-Name: so heisst der Parameter beim Service (Feld im In).',
-        expression: 'Wert der Eingabe: Ausdruck oder Prozessvariable, z. B. ${clientKey} oder #{clientKey}.',
+        expression: 'Wert der Eingabe: FEEL-Ausdruck auf den Prozessvariablen, z. B. = clientKey.',
       }
     : {
         section: 'Ausgaben: was der Schritt in den Prozess zurückschreibt — je Zeile eine Prozessvariable und ihre Quelle im Ergebnis.',

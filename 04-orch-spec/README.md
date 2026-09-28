@@ -863,9 +863,16 @@ Das bringt drei Dinge, die die element-templates nicht haben: **Feld­beschreibu
 aus den Schemas (in den Beispieldaten 1106 Felder), **`required`**, und
 **Benutzeraufgaben und Signale** überhaupt. ADT-Eingaben (`enum In: case …`,
 in der OpenAPI ein `oneOf`) werden zur Vereinigung ihrer Varianten
-zusammengezogen. Der Vorgabe-Ausdruck ist `#{name}` — die Hauskonvention;
-in den Templates steht dafür mal `#{name}`, mal
-`#{execution.getVariable('name')}`, beides dasselbe.
+zusammengezogen. Der Vorgabe-Ausdruck ist `= name` — die Hauskonvention,
+in FEEL, der Sprache der Spezifikation; in den Templates steht dafür JUEL,
+mal `#{name}`, mal `#{execution.getVariable('name')}`, beides dasselbe.
+Ältere Kataloge mit `#{name}` übersetzt die App beim Laden.
+
+**JUEL wird FEEL, wo immer es geht.** Beim Öffnen einer Spezifikation werden
+Mappings und Zweigbedingungen aus einem älteren Stand übersetzt, soweit es
+ein FEEL-Gegenstück gibt; gespeichert wird das mit dem nächsten Autosave. Nur
+was sich nicht übersetzen lässt (Bean-Aufrufe, Setter …), bleibt JUEL und
+wird am Feld gemeldet.
 
 Nicht in der OpenAPI stehen die konkreten `_handledErrors` — die liest der
 Import aus dem BPMN, wo sie ohnehin gepflegt sind. `Init Worker` und das Feld
