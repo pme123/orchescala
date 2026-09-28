@@ -48,6 +48,10 @@ final class SimulationTestRunner(
         td,
         (loggers, eventHandler) =>
           runSimulationZIO(td)
+            // last resort - a simulation that did not run must never be reported as a success
+            .recover: ex =>
+              System.err.println(s"Error running Simulation ${td.fullyQualifiedName()}: $ex")
+              (LogLevel.ERROR, 0L)
             .map: (logLevel, time) =>
               eventHandler.synchronized {
                 eventHandler.handle(new sbt.testing.Event:
@@ -110,9 +114,13 @@ final class SimulationTestRunner(
                                      s"Finished Simulation: $logLevelAndTime ${taskDef.fullyQualifiedName()}"
                                    )
               yield logLevelAndTime)
-            .catchAll: ex =>
-              ZIO.logError(s"Error running Simulation: ${ex.getMessage}")
-                .as((LogLevel.ERROR, 0L))
+            // the cause, not only the errors: a defect (e.g. a layer that dies, an exception thrown
+            // while building the simulation) failed the Future - no result was reported to sbt
+            // and the simulation that never ran was shown as a success
+            .catchAllCause: cause =>
+              ZIO.logError(
+                s"Error running Simulation ${taskDef.fullyQualifiedName()}:\n${cause.prettyPrint}"
+              ).as((LogLevel.ERROR, 0L))
             .ensuring:
               ZIO.logInfo(
                 s"Simulation for task ${taskDef.fullyQualifiedName()} completed and resources cleaned up"
@@ -133,7 +141,10 @@ final class SimulationTestRunner(
       results   <- sim.simulation
       _         <- ZIO.logInfo(s"Finished Simulation: $name")
       endTime   <- clock.currentTime(TimeUnit.MILLISECONDS)
-      logLevel   = results.head._1
+      // sorted by level, the most severe first - no result at all: nothing was simulated
+      logLevel   = results.headOption.map(_._1).getOrElse(LogLevel.ERROR)
+      _         <- ZIO.logError(s"Simulation $name has no results - no scenario ran")
+                     .when(results.isEmpty)
       _         <- logInfo(
                      s"""
                 |${logLevel.color}${s"$line START $name $line"
