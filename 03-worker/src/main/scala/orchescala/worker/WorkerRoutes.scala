@@ -41,7 +41,9 @@ case class WorkerRoutes(engineContext: EngineContext):
         .serverLogic: validatedToken =>
           (topicName, variables) =>
             AuthContext.withBearerToken(validatedToken):
-              ZIO.logInfo(s"Triggering worker: $topicName with variables: $variables") *>
+              // the names only - the values (personal data, secrets) were in the INFO log
+              ZIO.logInfo(s"Triggering worker: $topicName with variables: ${variables.asObject.fold("-")(_.keys.mkString(", "))}") *>
+                ZIO.logDebug(s"Triggering worker: $topicName with variables: $variables") *>
                 workers.get(topicName)
                   .fold(ZIO.fail(WorkerError.ServiceBadPathError(s"Worker not found: $topicName"))):
                     worker =>
@@ -56,7 +58,8 @@ case class WorkerRoutes(engineContext: EngineContext):
                                                        worker
                                                          .initWorkFromService(variables)
                                                          .map(Option.apply)
-                        _                     <- ZIO.logInfo(s"Worker '$topicName' response: $result")
+                        _                     <- ZIO.logInfo(s"Worker '$topicName' done")
+                        _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
                       yield result
                   .provideLayer(HttpClientProvider.live)
                   .tapError: err =>

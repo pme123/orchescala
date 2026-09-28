@@ -57,8 +57,8 @@ trait RestApiClient:
         ServiceRequestError(
           statusCode.code,
           s"""Non-2xx response with code $statusCode:
-             |$body
-             |${request.toCurl(Set("Authorization"))}""".stripMargin
+             |${RestApiClient.truncate(body)}
+             |${RestApiClient.safeCurl(request)}""".stripMargin
         )
       )
   end readBody
@@ -79,7 +79,7 @@ trait RestApiClient:
         .mapError: ex =>
           val unexpectedError =
             s"""Unexpected error while sending request: ${ex.getMessage} / ${if ex.getCause != null then ex.getCause.getMessage else "no cause"} / ${ex.getClass}.
-               | -> ${req.toCurl(Set("Authorization"))}
+               | -> ${RestApiClient.safeCurl(req)}
                |""".stripMargin
           ServiceUnexpectedError(unexpectedError)
 
@@ -160,3 +160,40 @@ trait RestApiClient:
 end RestApiClient
 
 object DefaultRestApiClient extends RestApiClient
+
+object RestApiClient:
+
+  private val sensitiveName =
+    "(?i).*(auth|token|secret|passw|pwd|api[-_]?key|cookie|session|credential|signature).*".r
+
+  /** A header or query parameter whose value is a secret. */
+  def isSensitive(name: String): Boolean = sensitiveName.matches(name)
+
+  private val maxResponseBody = 2000
+
+  def truncate(body: String): String =
+    if body.length <= maxResponseBody then body
+    else s"${body.take(maxResponseBody)}... (${body.length - maxResponseBody} more characters)"
+
+  /** The request as curl for an error - it goes into the incident and the process variable
+    * `errorMsg` (Cockpit / Operate, history). Only `Authorization` was masked, and the request body
+    * was part of it: API keys in other headers or the query, passwords and personal data of the
+    * body were stored in the engine. Now: every header / query parameter with a sensitive name is
+    * masked, the body is left out.
+    */
+  def safeCurl(request: Request[?, ?]): String =
+    val uri     = request.uri.copy(querySegments = request.uri.querySegments.map:
+      case QuerySegment.KeyValue(k, _, ke, ve) if isSensitive(k) => QuerySegment.KeyValue(k, "masked", ke, ve)
+      case other                                                 => other
+    )
+    val headers = request.headers.map: h =>
+      s" -H '${h.name}: ${if isSensitive(h.name) then "masked" else h.value}'"
+    val body    = request.body match
+      case NoBody               => ""
+      case StringBody(b, _, _)  => s" --data-raw '<body not shown - ${b.length} characters>'"
+      case ByteArrayBody(b, _)  => s" --data-raw '<body not shown - ${b.length} bytes>'"
+      case _                    => " --data-raw '<body not shown>'"
+    s"curl -X ${request.method} '$uri'${headers.mkString}$body"
+  end safeCurl
+
+end RestApiClient
