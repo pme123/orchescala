@@ -381,10 +381,14 @@ Prozess   name = globex-depot-openDepotV2    id = globex-depot-openDepotV2
 ```
 
 Ohne Pool — so legt der Camunda Modeler einen C8-Prozess an — gilt der Name
-des Prozesses. **Der Titel ist dieser Name**: taugt er als ID, benennt ein
-geänderter Titel (beim Verlassen des Feldes) Prozess und Pool im Diagramm mit
-um, und umgekehrt folgt er einer Umbenennung im Diagramm. Die Prozess-ID
-steht darum nur noch in der Kopfzeile, wo sie vom Titel abweicht. Wer den Pool (bzw. Prozess) im Diagramm umbenennt, bekommt
+des Prozesses.
+
+Im Kopf der Prozessansicht stehen zwei Felder: gross der **fachliche Titel**
+(«Mietkautionskonto eröffnen (MKK)», frei), darunter die **Prozess-ID**. Die
+wird geprüft — `company-projekt-prozessVersion`, Firma und Projekt klein, der
+Prozess in camelCase mit Version (`valiant-mkk-openMkkV1`) — und erst beim
+Verlassen des Feldes übernommen, wenn sie passt; dann folgen Prozess-Name und
+Pool im Diagramm. Was nicht passt, wird rot gemeldet, mit Vorschlag. Wer den Pool (bzw. Prozess) im Diagramm umbenennt, bekommt
 Prozess-ID und -Name gleich mit. Trägt ein Prozess noch die ID des Modelers
 (`Process_0jx2w61`), wird er beim Einlesen («Aus BPMN») und beim Öffnen
 angeglichen. Eine **gewählte** Prozess-ID dagegen ist ein Vertrag

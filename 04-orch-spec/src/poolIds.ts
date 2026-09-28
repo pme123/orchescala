@@ -133,3 +133,25 @@ export function renameProcess(xml: string, processId: string, name: string): str
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   return alignPoolIds(out, { renameProcess: true }).xml;
 }
+
+/**
+ * Die Prozess-ID nach Hauskonvention: `company-projekt-prozessVersion` —
+ * Firma und Projekt klein, der Prozess in camelCase mit Version am Ende
+ * (`valiant-mkk-openMkkV1`). Das Projekt darf mehrteilig sein.
+ */
+export const PROCESS_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+-[a-z][A-Za-z0-9]*V\d+$/;
+
+/** Was an einer Prozess-ID nicht stimmt — null, wenn sie passt. */
+export function processIdProblem(id: string): string | null {
+  const t = id.trim();
+  if (PROCESS_ID_PATTERN.test(t)) return null;
+  if (!t) return 'Die Prozess-ID fehlt.';
+  const parts = t.split('-');
+  if (parts.length < 3) return 'Drei Teile: company-projekt-prozessVersion, z. B. valiant-mkk-openMkkV1.';
+  const proc = parts[parts.length - 1];
+  // der Vorschlag gleich richtig: klein beginnend, ohne Sonderzeichen, mit Version
+  const camel = (proc.charAt(0).toLowerCase() + proc.slice(1)).replace(/[^A-Za-z0-9]/g, '') || 'openMkk';
+  if (!/V\d+$/.test(proc)) return `Der Prozess endet mit der Version — z. B. ${camel}V1.`;
+  if (!/^[a-z][A-Za-z0-9]*$/.test(proc)) return `Der Prozess in camelCase, klein beginnend — z. B. ${camel}.`;
+  return 'Firma und Projekt klein, ohne Sonderzeichen — z. B. valiant-mkk-openMkkV1.';
+}
