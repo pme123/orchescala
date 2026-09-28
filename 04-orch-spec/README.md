@@ -386,9 +386,13 @@ des Prozesses.
 Im Kopf der Prozessansicht stehen zwei Felder: gross der **fachliche Titel**
 («Mietkautionskonto eröffnen (MKK)», frei), darunter die **Prozess-ID**. Die
 wird geprüft — `company-projekt-prozessVersion`, Firma und Projekt klein, der
-Prozess in camelCase mit Version (`valiant-mkk-openMkkV1`) — und erst beim
-Verlassen des Feldes übernommen, wenn sie passt; dann folgen Prozess-Name und
-Pool im Diagramm. Was nicht passt, wird rot gemeldet, mit Vorschlag. Wer den Pool (bzw. Prozess) im Diagramm umbenennt, bekommt
+Prozess in camelCase mit Version (`globex-savings-openSavingsV1`) — und erst
+beim Verlassen des Feldes übernommen, wenn sie passt; dann folgen Prozess-Name
+und Pool im Diagramm. Firma und Projekt werden mit den bekannten verglichen
+(Projekt-Ordner, Prozesse im Katalog, die anderen Spezifikationen): eine
+unbekannte Firma ist ein Fehler (rot, «meinten Sie globex?»), ein unbekanntes
+Projekt einer bekannten Firma nur eine Warnung (gelb, übernommen) — ein neues
+Projekt muss möglich bleiben. Wer den Pool (bzw. Prozess) im Diagramm umbenennt, bekommt
 Prozess-ID und -Name gleich mit. Trägt ein Prozess noch die ID des Modelers
 (`Process_0jx2w61`), wird er beim Einlesen («Aus BPMN») und beim Öffnen
 angeglichen. Eine **gewählte** Prozess-ID dagegen ist ein Vertrag

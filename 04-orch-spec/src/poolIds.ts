@@ -137,21 +137,68 @@ export function renameProcess(xml: string, processId: string, name: string): str
 /**
  * Die Prozess-ID nach Hauskonvention: `company-projekt-prozessVersion` —
  * Firma und Projekt klein, der Prozess in camelCase mit Version am Ende
- * (`valiant-mkk-openMkkV1`). Das Projekt darf mehrteilig sein.
+ * (`globex-savings-openSavingsV1`). Das Projekt darf mehrteilig sein.
  */
 export const PROCESS_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+-[a-z][A-Za-z0-9]*V\d+$/;
 
-/** Was an einer Prozess-ID nicht stimmt — null, wenn sie passt. */
-export function processIdProblem(id: string): string | null {
+const EXAMPLE_ID = 'globex-savings-openSavingsV1';
+
+export interface ProcessIdCheck {
+  /** error: wird nicht übernommen · warn: wird übernommen, aber prüfen */
+  level: 'error' | 'warn';
+  text: string;
+}
+
+/**
+ * Was an einer Prozess-ID nicht stimmt — null, wenn sie passt. `prefixes`
+ * sind die bekannten `company-projekt` (Katalog, andere Spezifikationen):
+ * eine unbekannte Firma ist ein Fehler, ein unbekanntes Projekt einer
+ * bekannten Firma nur eine Warnung — sonst liesse sich kein neues Projekt
+ * anfangen. Ohne bekannte Prefixe zählt nur das Muster.
+ */
+export function checkProcessId(id: string, prefixes: string[] = []): ProcessIdCheck | null {
   const t = id.trim();
-  if (PROCESS_ID_PATTERN.test(t)) return null;
-  if (!t) return 'Die Prozess-ID fehlt.';
+  const error = (text: string): ProcessIdCheck => ({ level: 'error', text });
+  if (!t) return error('Die Prozess-ID fehlt.');
   const parts = t.split('-');
-  if (parts.length < 3) return 'Drei Teile: company-projekt-prozessVersion, z. B. valiant-mkk-openMkkV1.';
+  if (parts.length < 3) return error(`Drei Teile: company-projekt-prozessVersion, z. B. ${EXAMPLE_ID}.`);
   const proc = parts[parts.length - 1];
-  // der Vorschlag gleich richtig: klein beginnend, ohne Sonderzeichen, mit Version
-  const camel = (proc.charAt(0).toLowerCase() + proc.slice(1)).replace(/[^A-Za-z0-9]/g, '') || 'openMkk';
-  if (!/V\d+$/.test(proc)) return `Der Prozess endet mit der Version — z. B. ${camel}V1.`;
-  if (!/^[a-z][A-Za-z0-9]*$/.test(proc)) return `Der Prozess in camelCase, klein beginnend — z. B. ${camel}.`;
-  return 'Firma und Projekt klein, ohne Sonderzeichen — z. B. valiant-mkk-openMkkV1.';
+  if (!PROCESS_ID_PATTERN.test(t)) {
+    // der Vorschlag gleich richtig: klein beginnend, ohne Sonderzeichen, mit Version
+    const camel = (proc.charAt(0).toLowerCase() + proc.slice(1)).replace(/[^A-Za-z0-9]/g, '') || 'openSavings';
+    if (!/V\d+$/.test(proc)) return error(`Der Prozess endet mit der Version — z. B. ${camel}V1.`);
+    if (!/^[a-z][A-Za-z0-9]*$/.test(proc)) return error(`Der Prozess in camelCase, klein beginnend — z. B. ${camel}.`);
+    return error(`Firma und Projekt klein, ohne Sonderzeichen — z. B. ${EXAMPLE_ID}.`);
+  }
+  if (!prefixes.length) return null;
+  const company = parts[0], prefix = parts.slice(0, -1).join('-');
+  if (prefixes.includes(prefix)) return null;
+  const companies = [...new Set(prefixes.map(p => p.split('-')[0]))];
+  if (!companies.includes(company)) {
+    const h = closest(company, companies);
+    return error(`Firma «${company}» ist nicht bekannt${h ? ` — meinten Sie «${h}»?` : '.'}`);
+  }
+  const projects = prefixes.filter(p => p.startsWith(`${company}-`)).map(p => p.slice(company.length + 1));
+  const project = parts.slice(1, -1).join('-');
+  const h = closest(project, projects);
+  return { level: 'warn', text: `Projekt «${project}» gibt es bei ${company} noch nicht — ${h ? `neu, oder meinten Sie «${h}»?` : 'ein neues Projekt?'}` };
+}
+
+/** der ähnlichste bekannte Wert — wenn einer nah genug ist, um ein Tippfehler zu sein */
+function closest(value: string, known: string[]): string | null {
+  const best = known.map(k => ({ k, d: distance(value, k) })).sort((a, b) => a.d - b.d)[0];
+  return best && best.d <= Math.max(2, Math.floor(value.length / 3)) ? best.k : null;
+}
+
+/** Editierdistanz (Levenshtein) */
+function distance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
 }

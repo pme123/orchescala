@@ -151,11 +151,16 @@ export function splitPrefix(prefix: string): { company: string; project: string 
 
 /**
  * Alle bekannten `company-projekt`-Prefixe: die Projekt-Ordner des Katalogs
- * (model.projects) plus die Projekte der vorhandenen Spezifikationen.
+ * (model.projects), die Prozesse im Domain-Katalog (`processName`) und die
+ * Projekte der vorhandenen Spezifikationen.
  */
 export function knownPrefixes(model: Model | null, specProjects: Array<string | undefined>): string[] {
   const out = new Set<string>();
   for (const p of model?.projects ?? []) if (p.name?.includes('-')) out.add(p.name);
+  for (const t of model?.domainTypes ?? []) {
+    const m = t.processName ? /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+)-[a-z][A-Za-z0-9]*V\d+$/.exec(t.processName) : null;
+    if (m) out.add(m[1]);
+  }
   for (const p of specProjects) if (p?.includes('-')) out.add(p);
   return [...out].sort();
 }

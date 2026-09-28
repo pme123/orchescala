@@ -22,7 +22,7 @@ import { allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, sta
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
-import { alignPoolIds, poolNames, processIdProblem, renameProcess } from '../poolIds';
+import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
 import { nowIsoWithTimezone } from '../util';
@@ -603,11 +603,16 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   // und Pool (siehe poolIds.ts).
   const [idDraft, setIdDraft] = useState('');
   useEffect(() => { setIdDraft(spec?.processId ?? ''); }, [spec?.processId]);
-  const idProblem = idDraft.trim() ? processIdProblem(idDraft) : null;
+  // gegen die bekannten company-projekt — ohne diese Spezifikation, sonst
+  // bestätigte ein Tippfehler sich selbst
+  const otherPrefixes = useMemo(
+    () => knownPrefixes(model, specs.filter(s => s.slug !== slug).map(s => s.data.project)),
+    [model, specs, slug]);
+  const idProblem = idDraft.trim() ? checkProcessId(idDraft, otherPrefixes) : null;
   const commitProcessId = () => {
     const cur = specRef.current, x = xmlRef.current;
     const id = idDraft.trim();
-    if (!cur || !canEdit || id === (cur.processId ?? '') || processIdProblem(id)) return;
+    if (!cur || !canEdit || id === (cur.processId ?? '') || checkProcessId(id, otherPrefixes)?.level === 'error') return;
     if (x && cur.processId) {
       const next = renameProcess(x, cur.processId, id);
       if (next !== x) void applyXml(next, 'Prozess-ID', 'silent');
@@ -817,12 +822,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                     if (e.key === 'Escape') setIdDraft(spec.processId ?? '');
                   }}
                   placeholder="company-projekt-prozessV1"
-                  title="Prozess-ID: company-projekt-prozessVersion, z. B. valiant-mkk-openMkkV1"
+                  title="Prozess-ID: company-projekt-prozessVersion, z. B. globex-savings-openSavingsV1"
                   className={`mt-1 w-full font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none bg-transparent disabled:opacity-100 ${
-                    idProblem ? (isDark ? 'border-rose-500/60 text-rose-300' : 'border-rose-400 text-rose-700') : `${c.border2} ${c.text}`}`} />
+                    idProblem?.level === 'error' ? (isDark ? 'border-rose-500/60 text-rose-300' : 'border-rose-400 text-rose-700')
+                      : idProblem ? (isDark ? 'border-amber-500/60 text-amber-300' : 'border-amber-400 text-amber-800')
+                        : `${c.border2} ${c.text}`}`} />
                 {idProblem && (
-                  <div className={`mt-0.5 text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
-                    {idProblem}{idDraft !== (spec.processId ?? '') ? ' — nicht übernommen.' : ''}
+                  <div className={`mt-0.5 text-[10px] ${idProblem.level === 'error'
+                    ? (isDark ? 'text-rose-400' : 'text-rose-600') : (isDark ? 'text-amber-400' : 'text-amber-700')}`}>
+                    {idProblem.text}{idProblem.level === 'error' && idDraft !== (spec.processId ?? '') ? ' — nicht übernommen.' : ''}
                   </div>
                 )}
                 <div className={`flex items-center gap-2 mt-1 text-[10px] ${c.muted}`}>
