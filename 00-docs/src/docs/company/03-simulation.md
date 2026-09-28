@@ -87,11 +87,11 @@ trait CompanySimulation extends OAuthSimulationDsl:
     s"$ssoBaseUrl/realms/${config.tenantId.get}/protocol/openid-connect",
     Map(
       "grant_type" -> "password",
-      "client_id" -> "bpf",
+      "client_id" -> "portal",
       "client_secret" -> ssoClientSecret,
       "username" -> ssoUser,
       "password" -> ssoPassword,
-      "scope" -> "fcs"
+      "scope" -> "api"
     ))
   //...
   private lazy val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", "http://host.lima.internal:8090/auth")

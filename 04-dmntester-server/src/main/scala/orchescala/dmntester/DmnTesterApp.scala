@@ -9,7 +9,7 @@ import orchescala.dmntester.server.DmnTesterServer
   * trait CompanyDmnTester extends DmnTesterApp:
   *   override protected def starterConfig: DmnTesterStarterConfig =
   *     DmnTesterStarterConfig(
-  *       companyName = "valiant",
+  *       companyName = "globex",
   *       dmnConfigPaths = Seq(projectBasePath / "03-dmn" / "src" / "main" / "resources" / "dmnConfigs"),
   *       dmnSources = Seq(DmnSource(projectBasePath / "src" / "main" / "resources" / "camunda"))
   *     )
@@ -37,7 +37,7 @@ import orchescala.dmntester.server.DmnTesterServer
   *   )
   * }}}
   *
-  * `dmn/runMain valiant.documents.dmn.ProjectDmnTester` then writes the
+  * `dmn/runMain globex.documents.dmn.ProjectDmnTester` then writes the
   * configurations, starts the tester in this JVM and keeps it running until
   * you stop it - there is no Docker involved.
   */

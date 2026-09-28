@@ -3,6 +3,7 @@ package orchescala.helper.dev.company.docs
 import orchescala.api.{
   ApiProjectConfig,
   DocProjectConfig,
+  JiraLinks,
   ProjectConfig,
   ProjectGroup,
   catalogFileName
@@ -404,16 +405,10 @@ trait DocCreator extends DependencyCreator, Helpers:
                 .map(ChangeLogGroup.valueOf).getOrElse(ChangeLogGroup.Other)
               (entries, group)
             case l                         =>
-              val regex    = """(.*)(MAP-\d+)(:? )(.*)""".r
-              val newEntry = regex.findFirstMatchIn(l) match
-                case Some(v) =>
-                  val jiraTicket = v.group(2)
-                  ChangeLogEntry(
-                    activeGroup,
-                    s"- ${v.group(4)}",
-                    Some(jiraTicket)
-                  )
-                case None    => ChangeLogEntry(activeGroup, l)
+              val newEntry = JiraLinks.changelogTicket(l, apiConfig.jiraUrls) match
+                case Some(jiraTicket -> text) =>
+                  ChangeLogEntry(activeGroup, s"- $text", Some(jiraTicket))
+                case None                     => ChangeLogEntry(activeGroup, l)
               (entries :+ newEntry, activeGroup)
       }
       ._1
@@ -460,7 +455,7 @@ trait DocCreator extends DependencyCreator, Helpers:
             .sortBy(_._1)
             .map { case ticket -> entries =>
               s"""
-                 |**${replaceJira(ticket)}**
+                 |**${JiraLinks.link(ticket, apiConfig.jiraUrls)}**
                  |
                  |${entries.mkString("\n")}
                  |""".stripMargin
@@ -470,14 +465,6 @@ trait DocCreator extends DependencyCreator, Helpers:
       }
       .mkString("\n")
   end extractChangelog
-
-  private def replaceJira(
-      jiraTicket: String
-  ): String =
-    if jiraTicket == "Other" then
-      jiraTicket
-    else
-      s"[$jiraTicket](https://issue.swisscom.ch/browse/$jiraTicket)"
 
   /** Discovers sibling company-orchescala repos and clones/pulls them into gitBasePath - the
     * site is one for all companies, so their `00-docs` are assembled alongside this one's.
@@ -523,7 +510,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     * gitBasePath (which also holds orphaned/unreleased checkouts and, via pullOtherProjects,
     * entire sibling companies' doc sites). No name-prefix filter: projectsConfig can and does
     * deliberately list projects from another company's namespace as real dependencies (e.g.
-    * valiant's config lists swisscom-fil-is directly, same repo, same list, not through the
+    * globex's config lists initech-core-banking directly, same repo, same list, not through the
     * separate sibling-company mechanism) - excluding those would silently drop catalog entries
     * (services, classes) that this company's own processes actually depend on.
     * prepareDocs()'s fetchConf already checks each one out at its released tag (VERSIONS.conf),

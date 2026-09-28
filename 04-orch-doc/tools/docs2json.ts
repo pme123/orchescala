@@ -1,6 +1,6 @@
 // CLI: an Orchescala `00-docs` folder (markdown) → orch-doc data.
 //
-//   node tools/docs2json.ts <path/to/00-docs> [--out site] [--company valiant] [--spec spec/]
+//   node tools/docs2json.ts <path/to/00-docs> [--out site] [--company globex] [--spec spec/]
 //
 // Reads CONFIG.conf, VERSIONS.conf and src/docs/*.md and writes
 //   <out>/index.json                       list of companies (merged if it exists)
@@ -22,7 +22,7 @@ const args = process.argv.slice(2);
 const opt = (name: string, dflt: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : dflt; };
 const docsDir = args[0];
 if (!docsDir || docsDir.startsWith('--') || !existsSync(join(docsDir, 'src/docs'))) {
-  console.error('Usage: node tools/docs2json.ts <path/to/00-docs> [--out site] [--company valiant]');
+  console.error('Usage: node tools/docs2json.ts <path/to/00-docs> [--out site] [--company globex]');
   process.exit(1);
 }
 const out = opt('--out', 'site');
@@ -86,7 +86,7 @@ const projects: Project[] = [...projectGroup.keys()].map(name => {
     name, group: projectGroup.get(name)!, color: colors.get(name) ?? 'white',
     version: versionMap.get(camel(name)) || undefined,
     workerVersion: versionMap.get(camel(name) + 'Worker') || undefined,
-    // API docs of other companies live in their own folder: ../../swisscom/<p>/OpenApi.html
+    // API docs of other companies live in their own folder: ../../initech/<p>/OpenApi.html
     apiDocUrl: external ? `../${name.split('-')[0]}/${name}/OpenApi.html` : `${name}/OpenApi.html`,
     external: external || undefined,
     hasDependencies: hasDepPage.has(name),

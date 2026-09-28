@@ -54,7 +54,7 @@ export default function BrandingForm({ model, isDark, onSave }: {
           <FieldLabel isDark={isDark}>Kunde</FieldLabel>
           <input value={company} onChange={e => setCompany(e.target.value)}
             onBlur={() => { if (company !== (model.company ?? '')) void speichern({ company: company.trim() || undefined }); }}
-            placeholder="z. B. Valiant Bank AG"
+            placeholder="z. B. Globex Bank AG"
             className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`} />
         </div>
         <div className="flex-shrink-0">

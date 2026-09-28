@@ -11,7 +11,6 @@ import sttp.tapir.docs.openapi.{OpenAPIDocsInterpreter, OpenAPIDocsOptions}
 
 import java.text.SimpleDateFormat
 import java.util.Date
-import scala.util.matching.Regex
 import scala.jdk.CollectionConverters.*
 
 trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
@@ -306,14 +305,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
       line: String,
       jiraUrls: Map[String, String]
   ): String =
-    jiraUrls.toList match
-      case Nil                => line
-      case (k -> url) :: tail =>
-        val regex   = Regex(s"""$k-(\\d+)""")
-        val matches = regex.findAllIn(line).toSeq
-        val changed =
-          matches.foldLeft(line)((a, b) => a.replace(b, s"[$b]($url/$b)"))
-        replaceJira(changed, tail.toMap)
+    JiraLinks.link(line, jiraUrls)
 
   protected def packageConf =
     if packageConfPath.toIO.exists() then
@@ -423,7 +415,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
          |</details>
          |""".stripMargin
 
-  /** The company's own gateway (e.g. Valiant's BPF) - only if `ApiConfig.companyPostmanInstructions`
+  /** The company's own gateway (e.g. Globex's portal gateway) - only if `ApiConfig.companyPostmanInstructions`
     * is set: the configured markdown plus a link to the PostmanOpenApi.yml (published next to
     * OpenApi.yml, see ProjectWebDAV). Same collapsible layout as the Postman Instructions, so
     * Redoc and orch-doc render it the same way.

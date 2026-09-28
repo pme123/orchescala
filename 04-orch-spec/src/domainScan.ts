@@ -8,7 +8,7 @@
 //
 // Drei Eigenheiten der Orchescala-Domain muss der Parser kennen:
 //
-//  1. **Geteilte Paketangaben.** `package valiant.graviton.domain` gefolgt von
+//  1. **Geteilte Paketangaben.** `package globex.crm.domain` gefolgt von
 //     `package account.v1` ergibt zusammen das Paket.
 //  2. **`In` als ADT.** `enum In: case Iban(...) case Generic(...)` — ein enum
 //     mit Parametern, nicht nur eine Werteliste.
@@ -99,7 +99,7 @@ export interface ScanResult {
 // ── Vorrang der Quellen ──────────────────────────────────────────────────────
 //
 // Dieselbe Schnittstelle liegt in mehreren Projekten — `client` gibt es unter
-// `swisscom.fil.is.domain` und unter `valiant.fil.is.domain`. Beide zu führen
+// `initech.core.banking.domain` und unter `globex.core.banking.domain`. Beide zu führen
 // hiesse, dass die Typ-Auswahl zwei gleich heissende Objekte anbietet und der
 // Import zur Glückssache wird.
 //
@@ -108,8 +108,8 @@ export interface ScanResult {
 // und gemeldet, damit die Reihenfolge bewusst gewählt bleibt.
 
 /**
- * Paket ohne das Firmen-Segment. `swisscom.fil.is.domain.client.v1` und
- * `valiant.fil.is.domain.client.v1` ergeben denselben Schlüssel; die Version
+ * Paket ohne das Firmen-Segment. `initech.core.banking.domain.client.v1` und
+ * `globex.core.banking.domain.client.v1` ergeben denselben Schlüssel; die Version
  * bleibt Teil des Schlüssels, denn `client.v1` und `client.v4` sind zwei APIs.
  */
 export function packageKey(pkg: string): string {
@@ -175,7 +175,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const seen = new Set<string>();
   /** Objekte auf oberster Ebene, die wie ein Service/Prozess aussehen */
   const serviceObjects: string[] = [];
-  /** `val processName = "valiant-addresschange"` je Objekt — der Schlüssel,
+  /** `val processName = "globex-ordercard"` je Objekt — der Schlüssel,
    *  mit dem sich ein BPMN-Prozess seiner Domain sicher zuordnen lässt. */
   const processNames = new Map<string, string>();
   /** `val topicName = "…"` je Objekt — dasselbe für Worker */

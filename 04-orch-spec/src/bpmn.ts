@@ -648,7 +648,7 @@ function canReach(scope: Scope, from: string, to: string): boolean {
   return false;
 }
 
-// Hinweise für die Beschriftung einer Schleife (MKK-Muster: ein Timer-Ereignis
+// Hinweise für die Beschriftung einer Schleife (Sparkonto-Muster: ein Timer-Ereignis
 // «wait ${timer}» und ein Gateway «Tried ${max} times?»)
 interface LoopHint { cond?: string; wait?: string }
 const MAX_RE = /\$\{([^}]+)\}/;
@@ -794,7 +794,7 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
     .filter(([id]) => !ctx.byId.has(id) && !ctx.order.includes(id))
     .map(([id, name]) => `${name} (${id})`);
 
-  // Prozessname/Projekt aus der ID ableiten: `valiant-mkk-openMkkV1`
+  // Prozessname/Projekt aus der ID ableiten: `globex-savings-openSavingsV1`
   const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(processId);
   const project = m?.[1] ?? processId.split('-').slice(0, 2).join('-');
   const name = m?.[2] || nameOf(proc) || fileName.replace(/\.bpmn$/i, '');

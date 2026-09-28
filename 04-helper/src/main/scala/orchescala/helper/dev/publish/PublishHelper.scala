@@ -11,7 +11,7 @@ case class PublishHelper()(using
   import PublishHelper.*
 
   def publish(version: String): Unit =
-    println(s"Publishing BPF Package: $version")
+    println(s"Publishing ${apiConfig.companyName} Package: $version")
     verify(version)
     pushDevelop()
     setApiVersion(version)

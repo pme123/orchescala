@@ -1,6 +1,6 @@
 // Datenmodell → Orchescala-Domain (Scala 3).
 //
-// Erzeugt genau die Idiome, die in den valiant-Projekten stehen:
+// Erzeugt genau die Idiome, die in den globex-Projekten stehen:
 //
 //   case class In(@description("…") feld: Option[String] = None)
 //   object In:
@@ -419,10 +419,10 @@ function imports(t: TypeDef, idx: TypeIndex): string {
 }
 
 /**
- * Package-Pfad aus Projekt und Prozessname: `valiant.mkk.domain.openMkk.v1`.
+ * Package-Pfad aus Projekt und Prozessname: `globex.savings.domain.openSavings.v1`.
  *
  * Trägt der Prozessname keine Version und wiederholt er nur das Projekt
- * (`valiant-addresschange`), bleibt sein letztes Segment übrig — ein
+ * (`globex-ordercard`), bleibt sein letztes Segment übrig — ein
  * Bindestrich wäre in einem Package-Namen nicht erlaubt.
  */
 export function packageOf(spec: ProcessSpec, model: Model | null = null): string {
@@ -447,8 +447,8 @@ export function packageOf(spec: ProcessSpec, model: Model | null = null): string
  * Wo dieser Prozess in der Domain wirklich liegt — erkennbar am
  * `val processName` seines Objekts. Ohne Katalog-Eintrag bleibt nur die
  * Ableitung aus der Prozess-ID, und die ist eine Vermutung:
- * `valiant-addresschange` gibt `addresschange` her, in der Domain heisst das
- * Paket aber `addressChange`.
+ * `globex-ordercard` gibt `ordercard` her, in der Domain heisst das
+ * Paket aber `orderCard`.
  */
 function domainHome(spec: ProcessSpec, model: Model | null): { pkg: string; object: string } | null {
   const id = spec.processId ?? spec.name;
@@ -456,7 +456,7 @@ function domainHome(spec: ProcessSpec, model: Model | null): { pkg: string; obje
   return treffer ? { pkg: treffer.pkg, object: treffer.owner! } : null;
 }
 
-/** Der Scala-Name des Prozess-Objekts: `OpenMkkV1`, `AddressChange`. */
+/** Der Scala-Name des Prozess-Objekts: `OpenSavingsV1`, `OrderCard`. */
 export function processObject(spec: ProcessSpec, model: Model | null = null): string {
   const echt = domainHome(spec, model);
   if (echt) return echt.object;
@@ -464,7 +464,7 @@ export function processObject(spec: ProcessSpec, model: Model | null = null): st
   const proc = teil[teil.length - 2] ?? spec.name;
   const version = teil[teil.length - 1];
   const name = proc.replace(/^(.)/, c => c.toUpperCase());
-  // `openMkkV1` trug die Version schon im Namen — dann nicht doppeln
+  // `openSavingsV1` trug die Version schon im Namen — dann nicht doppeln
   return /^([A-Za-z][A-Za-z0-9]*?)V(\d+)$/.test(spec.name) ? `${name}V${version.slice(1)}` : name;
 }
 

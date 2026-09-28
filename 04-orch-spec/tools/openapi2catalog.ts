@@ -25,7 +25,7 @@ if (!sources.length) {
 
 // Genau die generierte `OpenApi.yml` eines Orchescala-Projekts:
 // - kanonisch unter `03-api/` (ApiCreator schreibt sie dorthin),
-// - bei Old-Style-Projekten (valiant-helper, valiant-fil-papi) im Projekt-Root,
+// - bei Old-Style-Projekten (globex-helper, globex-fil-papi) im Projekt-Root,
 //   erkennbar am `helper.scala`/`helper.sc` daneben.
 // NICHT: fremde Spezifikationen, die zufällig so heissen (z. B.
 // `01-domain/coreSearch/openApi.yml`, `04-helper/.../openapi.yaml`) und nicht
