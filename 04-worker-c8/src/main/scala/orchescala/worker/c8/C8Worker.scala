@@ -247,7 +247,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         _                <- attemptBlocking:
                               client.newFailCommand(job)
                                 .retries(job.getRetries - 1)
-                                .retryBackoff(time.Duration.ofSeconds(60))
+                                .retryBackoff(retryBackoff(error))
                                 .variables(Map(
                                   "errorCode"          -> error.errorCode.toString,
                                   "errorMsg"           -> error.toString,
@@ -293,8 +293,15 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             end if
           case (true, false, generalVariables) =>
             ZIO.fail(HandledRegexNotMatchedError(error, generalVariables.regexHandledErrorSeq))
+          // the job is failed (above) - it was logged as "Problem handling Failure" for every error
           case _                               =>
-            ZIO.fail(error)
+            error match
+              case _: IdentityCorrelationPendingError =>
+                logInfo(s"Job ${job.getKey}: ${error.errorMsg}")
+              case _ if job.getRetries > 1            =>
+                logWarning(s"Job ${job.getKey} failed (will be retried): $error")
+              case _                                  =>
+                logError(s"Job ${job.getKey} failed - no retries left: $error")
         .flatMapError: throwable =>
           // throwable is frequently one of our own WorkerError/OrchescalaError cases here (e.g. the
           // ZIO.fail(error) above) - those override toString but not getMessage, which stays null
@@ -303,6 +310,14 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         .ignore
         .ignore
   end C8WorkerRunner
+
+  /** When the engine hands a failed job out again - the IdentityCorrelation follows the start
+    * within moments.
+    */
+  private[c8] def retryBackoff(error: WorkerError): time.Duration =
+    error match
+      case _: IdentityCorrelationPendingError => time.Duration.ofSeconds(2)
+      case _                                  => time.Duration.ofSeconds(60)
 
   private def extractJson(job: ActivatedJob) =
     fromEither(io.circe.parser.parse(job.getVariables))

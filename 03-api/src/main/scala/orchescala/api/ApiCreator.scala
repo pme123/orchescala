@@ -22,6 +22,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
 
   def supportedVariables: Seq[InputParams] =
     InputParams.values.toSeq
+      .filterNot(_ == InputParams._identityCorrelationPending) // set by the engine only
 
   def document(apis: CApi*): Unit =
     val apiDoc = ApiDoc(apis.toList)

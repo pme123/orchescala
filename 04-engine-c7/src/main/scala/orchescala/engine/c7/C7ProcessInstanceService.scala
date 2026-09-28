@@ -15,7 +15,7 @@ import org.camunda.community.rest.client.dto.{
 }
 import org.camunda.community.rest.client.invoker.ApiClient
 import zio.ZIO.{logInfo, logWarning}
-import zio.{IO, ZIO}
+import zio.{IO, UIO, ZIO}
 
 import scala.jdk.CollectionConverters.*
 
@@ -78,9 +78,10 @@ class C7ProcessInstanceService(using
     for
       _         <- ZIO.logDebug(s"Starting Process with Correlation '$processDefId' with variables: $in")
       apiClient <- apiClientZIO
-      // Step 1: Start process WITHOUT correlation
+      // Step 1: Start process WITHOUT correlation - marked as pending: a worker fetching a job before
+      // step 3 waits for it (it ran without the user's identity before)
       _                 <- ZIO.logDebug(s"Starting Process '$processDefId' (will sign correlation after): ${in.asJson}")
-      processVariables  <- C7VariableMapper.toC7Variables(in.asJson)
+      processVariables  <- C7VariableMapper.toC7Variables(withIdentityPending(in).asJson)
       instance          <-
         callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
       processInstanceId  = instance.getId
@@ -89,7 +90,7 @@ class C7ProcessInstanceService(using
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
       _                 <- ZIO.logDebug(s"Signed correlation: $signedCorrelation")
       // Step 3: Set signed correlation as process variable
-      _                 <- setCorrelationVariable(apiClient, processInstanceId, signedCorrelation)
+      _                 <- setCorrelationVariableOfStarted(apiClient, processInstanceId, signedCorrelation)
       _                 <- ZIO.logDebug(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
     yield ProcessInfo(
       processInstanceId = processInstanceId,
@@ -116,7 +117,23 @@ class C7ProcessInstanceService(using
         )
   end signCorrelation
 
-  /** Set the signed correlation as a process variable using Camunda REST API
+  /** Step 3 of a start: the process runs already - a failure is logged, not returned. Returned, the
+    * caller (or the gateway with the next engine) started the process again. Its workers wait for
+    * the correlation (`_identityCorrelationPending`), then end in an incident.
+    */
+  private def setCorrelationVariableOfStarted(
+      apiClient: ApiClient,
+      processInstanceId: String,
+      signedCorrelation: IdentityCorrelation
+  ): UIO[Unit] =
+    setCorrelationVariable(apiClient, processInstanceId, signedCorrelation)
+      .catchAll: err =>
+        ZIO.logError(
+          s"Process $processInstanceId started, but its IdentityCorrelation could not be set - its workers wait for it, then end in an incident: ${err.errorMsg}"
+        )
+
+  /** Set the signed correlation as a process variable using Camunda REST API - and remove the
+    * pending marker of the start.
     */
   private def setCorrelationVariable(
       apiClient: ApiClient,
@@ -131,6 +148,7 @@ class C7ProcessInstanceService(using
                            .attemptBlocking:
                              val modifications = new PatchVariablesDto()
                                .modifications(Map(InputParams._identityCorrelation.toString -> correlationDto).asJava)
+                               .deletions(List(InputParams._identityCorrelationPending.toString).asJava)
                              new ProcessInstanceApi(apiClient)
                                .modifyProcessInstanceVariables(processInstanceId, modifications)
                            .catchAll:
@@ -272,14 +290,21 @@ class C7ProcessInstanceService(using
 
       // Step 1: Send message to start process
       _                 <- logInfo(s"Starting process by message '$messageName' (will sign correlation after)")
-      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      correlationResult <- sendMessageToStartProcess(
+                             messageName,
+                             businessKey,
+                             tenantId,
+                             Some(withIdentityPending(variables.getOrElse(JsonObject.empty))),
+                             // correlated to a running instance: the marker must not stay there
+                             removePending = pid => removeIdentityPending(apiClient, pid)
+                           )
       processInstanceId  = correlationResult.processInstanceId
 
       // Step 2: Sign correlation with processInstanceId
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
 
       // Step 3: Set signed correlation as process variable
-      _ <- setCorrelationVariable(apiClient, processInstanceId, signedCorrelation)
+      _ <- setCorrelationVariableOfStarted(apiClient, processInstanceId, signedCorrelation)
       _ <- logInfo(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
     yield ProcessInfo(
       processInstanceId = processInstanceId,
@@ -295,7 +320,8 @@ class C7ProcessInstanceService(using
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      variables: Option[JsonObject]
+      variables: Option[JsonObject],
+      removePending: String => UIO[Unit] = _ => ZIO.unit
   ): IO[EngineError, MessageCorrelationResult] =
     for
       apiClient <- apiClientZIO
@@ -317,8 +343,19 @@ class C7ProcessInstanceService(using
             ))
       result    <- mapMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
       started   <- onlyStarted(messageName, result)
+                     .tapError(_ => removePending(result.processInstanceId))
     yield started
   end sendMessageToStartProcess
+
+  /** Removes the pending marker - from a running instance a message was correlated to. */
+  private def removeIdentityPending(apiClient: ApiClient, processInstanceId: String): UIO[Unit] =
+    ZIO
+      .attemptBlocking:
+        new ProcessInstanceApi(apiClient).modifyProcessInstanceVariables(
+          processInstanceId,
+          new PatchVariablesDto().deletions(List(InputParams._identityCorrelationPending.toString).asJava)
+        )
+      .catchAll(err => ZIO.logWarning(s"Problem removing the pending marker of process $processInstanceId: $err"))
 
   /** The C7 REST API cannot restrict a message to start events (no `startMessagesOnly`): it is
     * correlated to a running instance waiting for it first. That was reported as a started process

@@ -64,6 +64,41 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
         ZIO.succeed(throw IllegalStateException("bug in the worker code"))
   end DefectTaskWorker
 
+  private val identityTaskTopic  = "orchescala-it-identity-task"
+  private val identityProcessId  = "orchescala-it-identity-task-process"
+  private val identityBpmn       = bpmn
+    .replace(processId, identityProcessId)
+    .replace(longTaskTopic, identityTaskTopic)
+  // per process instance: executions, and whether the identity was there
+  private val identityExecutions = ConcurrentHashMap[String, Int]()
+  private val identitySeen       = ConcurrentHashMap[String, Boolean]()
+
+  private object IdentityTaskWorker extends OpWorker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
+    protected def operatonContext: OpContext = LongTaskWorker.context
+    protected def customTask: CustomTask[NoInput, NoOutput] =
+      CustomTask(InOutDescr(identityTaskTopic, NoInput(), NoOutput(), None))
+    override protected def runWorkZIO(in: NoInput): RunWorkZIOOutput[NoOutput] =
+      val context           = summon[EngineRunContext]
+      val processInstanceId = context.processInstance.map(_.id).getOrElse("-")
+      ZIO.succeed:
+        identityExecutions.merge(processInstanceId, 1, _ + _)
+        identitySeen.put(processInstanceId, context.generalVariables._identityCorrelation.isDefined)
+      .as(NoOutput())
+  end IdentityTaskWorker
+
+  /** Operaton's REST API directly - to set the variables the engine service sets (and filters). */
+  private def rest(restUrl: String, method: String, path: String, body: String): Task[String] =
+    ZIO.attemptBlocking:
+      val request  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(s"$restUrl$path"))
+        .header("Content-Type", "application/json")
+        .method(method, java.net.http.HttpRequest.BodyPublishers.ofString(body))
+        .build()
+      val response = java.net.http.HttpClient.newHttpClient()
+        .send(request, java.net.http.HttpResponse.BodyHandlers.ofString())
+      if response.statusCode() >= 300 then
+        throw RuntimeException(s"$method $path: ${response.statusCode()} ${response.body()}")
+      response.body()
+
   /** Done at once - completes while a lock renewal could still run. */
   private object FastTaskWorker extends OpWorker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
     protected def operatonContext: OpContext = LongTaskWorker.context
@@ -194,6 +229,101 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
       yield assertTrue(
         incidents.exists(_.incidentMessage.exists(_.contains("bug in the worker code"))),
         defectExecutions.get(started.processInstanceId) == 1
+      )
+    }
+    ,
+    test("a task fetched before the identity of its start is set waits for it - then runs once, with it") {
+      val restUrl         = sys.env("OP_REST_IT")
+      given EngineConfig  = DefaultEngineConfig()
+      given WorkerConfig  = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engineClient    = new OpLocalClient:
+        protected def operatonRestUrl: String = restUrl
+      val workerClient    = new OpWorkerClient:
+        protected def operatonRestUrl: String = restUrl
+        def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+          SharedOpExternalClientManager.getOrCreateClient(ZIO.attempt(externalClient.build()))
+      // a JSON variable: its value is the JSON as string
+      val correlation     = io.circe.Json.fromString(IdentityCorrelation("alice").asJson.deepDropNullValues.noSpaces).noSpaces
+      for
+        engine    <- OpProcessEngine.withClient(engineClient).provideLayer(SharedOpClientManager.layer)
+        _         <- engine.deploymentService.deploy(
+                       "it-identity-task",
+                       Seq(DeploymentResource(s"$identityProcessId.bpmn", identityBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.Op)
+                     )
+        _         <- OpWorkerRegistry(workerClient)
+                       .register(Set(IdentityTaskWorker))
+                       .provideLayer(SharedOpExternalClientManager.layer)
+                       .forkScoped
+        // step 1 of a start with an identity: marked pending - the worker gets the task at once
+        started   <- rest(
+                       restUrl,
+                       "POST",
+                       s"/process-definition/key/$identityProcessId/start",
+                       """{"variables":{"_identityCorrelationPending":{"value":true,"type":"Boolean"}}}"""
+                     )
+        pid       <- ZIO.fromEither(io.circe.parser.parse(started).flatMap(_.hcursor.get[String]("id")))
+        // step 3, late: the correlation (not verified by this custom worker), the marker removed
+        _         <- ZIO.sleep(3.seconds)
+        _         <- rest(
+                       restUrl,
+                       "POST",
+                       s"/process-instance/$pid/variables",
+                       s"""{"modifications":{"_identityCorrelation":{"value":$correlation,"type":"Json"}},"deletions":["_identityCorrelationPending"]}"""
+                     )
+        finished  <- engine.historicProcessInstanceService
+                       .getProcessInstance(pid)
+                       .filterOrFail(_.state == HistoricProcessInstance.ProcessState.COMPLETED)(
+                         EngineError.ProcessError("not yet completed")
+                       )
+                       .retry(Schedule.spaced(1.second) && Schedule.recurs(30))
+        incidents <- engine.incidentService.getIncidents(None, Some(pid))
+      yield assertTrue(
+        finished.state == HistoricProcessInstance.ProcessState.COMPLETED,
+        incidents.isEmpty,
+        identityExecutions.get(pid) == 1,
+        identitySeen.get(pid) // before: it ran at once, without the identity
+      )
+    }
+    ,
+    test("a start with an identity through the engine: the worker gets it, the marker is removed") {
+      val restUrl         = sys.env("OP_REST_IT")
+      given EngineConfig  = DefaultEngineConfig(identitySigningKey = Some("it-signing-key"))
+      given WorkerConfig  = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engineClient    = new OpLocalClient:
+        protected def operatonRestUrl: String = restUrl
+      val workerClient    = new OpWorkerClient:
+        protected def operatonRestUrl: String = restUrl
+        def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+          SharedOpExternalClientManager.getOrCreateClient(ZIO.attempt(externalClient.build()))
+      for
+        engine    <- OpProcessEngine.withClient(engineClient).provideLayer(SharedOpClientManager.layer)
+        _         <- engine.deploymentService.deploy(
+                       "it-identity-task",
+                       Seq(DeploymentResource(s"$identityProcessId.bpmn", identityBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.Op)
+                     )
+        _         <- OpWorkerRegistry(workerClient)
+                       .register(Set(IdentityTaskWorker))
+                       .provideLayer(SharedOpExternalClientManager.layer)
+                       .forkScoped
+        started   <- engine.processInstanceService.startProcessAsync(
+                       identityProcessId, JsonObject(), None, None, Some(IdentityCorrelation("alice"))
+                     )
+        pid        = started.processInstanceId
+        finished  <- engine.historicProcessInstanceService
+                       .getProcessInstance(pid)
+                       .filterOrFail(_.state == HistoricProcessInstance.ProcessState.COMPLETED)(
+                         EngineError.ProcessError("not yet completed")
+                       )
+                       .retry(Schedule.spaced(1.second) && Schedule.recurs(30))
+        marker    <- rest(restUrl, "GET", s"/history/variable-instance?processInstanceId=$pid&variableName=_identityCorrelationPending", "")
+      yield assertTrue(
+        finished.state == HistoricProcessInstance.ProcessState.COMPLETED,
+        identityExecutions.get(pid) == 1,
+        identitySeen.get(pid),
+        // removed with the correlation (C7 / Operaton delete it) - history keeps deleted ones as DELETED
+        !marker.contains("\"state\":\"CREATED\"")
       )
     }
   ) @@ TestAspect.ifEnvSet("OP_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(4.minutes)

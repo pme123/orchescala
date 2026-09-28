@@ -102,6 +102,42 @@ object ServiceHandlerSpec extends ZIOSpecDefault:
         // The error is thrown as a defect due to type mismatch in verifyIdentityCorrelation
         assertZIO(result.flip)(isSubtype[WorkerError.BadSignatureError](anything))
       },
+      test("started with an identity whose correlation is not set yet: tried again shortly (optional verification)") {
+        given EngineRunContext = EngineRunContext(
+          engineContext,
+          GeneralVariables(
+            _outputServiceMock = Some(MockedServiceResponse.success200(ServiceOut(true)).asJson),
+            _identityCorrelationPending = Some(true)
+          )
+        )
+        // before: the service ran without the user's identity
+        assertZIO(handler.runWorkZIO(In(1)).flip)(
+          isSubtype[WorkerError.IdentityCorrelationPendingError](anything)
+        )
+      },
+      test("started with an identity whose correlation is not set yet: tried again shortly (required verification)") {
+        given EngineRunContext = EngineRunContext(
+          engineContext.copy(workerConfig = DefaultWorkerConfig(engineContext.engineConfig)),
+          GeneralVariables(
+            _outputServiceMock = Some(MockedServiceResponse.success200(ServiceOut(true)).asJson),
+            _identityCorrelationPending = Some(true)
+          )
+        )
+        // before: an incident at once (no correlation)
+        assertZIO(handler.runWorkZIO(In(1)).flip)(
+          isSubtype[WorkerError.IdentityCorrelationPendingError](anything)
+        )
+      },
+      test("the marker cleared (C8 sets it false): as without it") {
+        given EngineRunContext = EngineRunContext(
+          engineContext,
+          GeneralVariables(
+            _outputServiceMock = Some(MockedServiceResponse.success200(ServiceOut(true)).asJson),
+            _identityCorrelationPending = Some(false)
+          )
+        )
+        assertZIO(handler.verifyIdentityCorrelation())(equalTo(()))
+      },
       test("should log warning when correlation exists but has no processInstanceId") {
         val correlation = IdentityCorrelation(
           username = "testuser",

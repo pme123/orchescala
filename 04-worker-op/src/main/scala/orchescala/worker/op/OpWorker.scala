@@ -242,8 +242,11 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val processInstanceId = summon[operaton.ExternalTask].getProcessInstanceId
       val businessKey       = summon[operaton.ExternalTask].getBusinessKey
 
-      logError(
+      val logMsg            =
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
+      (error match
+        case _: IdentityCorrelationPendingError => logInfo(logMsg) // expected - tried again shortly
+        case _                                  => logError(logMsg)
       ) *>
         ZIO.attemptBlocking(
           externalTaskService.handleFailure(
@@ -251,7 +254,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             error.causeMsg,
             s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
             Math.max(retries, 0), // < 0 not allowed
-            10.seconds.toMillis
+            retryTimeout(error).toMillis
           )
         ).catchAll: throwable => // this should not happen
           logError(s"Problem handling Failure to Operaton: ${throwable.getMessage}.\n${throwable.getStackTrace.mkString("\n")}")
@@ -278,6 +281,12 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     * retries, any other error none. Sending the unchanged count (as before) retried a failing
     * task every 10s without end.
     */
+  /** When the engine hands a failed task out again. */
+  private[worker] def retryTimeout(error: WorkerError): Duration =
+    error match
+      case _: IdentityCorrelationPendingError => 2.seconds
+      case _                                  => 10.seconds
+
   private[worker] def calcRetries(
       error: WorkerError,
       doRetryMsgs: Seq[String],
@@ -288,6 +297,8 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       .getOrElse:
         error match
           case _ if inTestMode                                                     => 0
+          // the correlation follows the start within moments - a few quick tries, then an incident
+          case _: IdentityCorrelationPendingError                                  => 3
           case _: ServiceError                                                     => 2
           case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2
           case _

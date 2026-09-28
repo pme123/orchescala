@@ -260,7 +260,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             error.causeMsg,
             error.toString,
             Math.max(retries, 0),
-            10.seconds.toMillis
+            retryTimeout(error).toMillis
           )
         ).foldZIO(
           {
@@ -274,8 +274,10 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
               )
           },
           _ =>
-            if retries > 0 then logWarning(s"$logMsg (will be retried)")
-            else logError(logMsg)
+            error match
+              case _: IdentityCorrelationPendingError => logInfo(s"$logMsg (tried again shortly)")
+              case _ if retries > 0                   => logWarning(s"$logMsg (will be retried)")
+              case _                                  => logError(logMsg)
         ).ignore
 
     end handleFailure
@@ -295,6 +297,12 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   end extension
 
+  /** When the engine hands a failed task out again. */
+  private[worker] def retryTimeout(error: WorkerError): Duration =
+    error match
+      case _: IdentityCorrelationPendingError => 2.seconds
+      case _                                  => 10.seconds
+
   private[worker] def calcRetries(
       error: WorkerError,
       doRetryMsgs: Seq[String],
@@ -306,6 +314,8 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       .getOrElse: // on the first failure (getRetries is still null) an error matching doRetryMsgs
         error match
           case _ if inTestMode                                                     => 0
+          // the correlation follows the start within moments - a few quick tries, then an incident
+          case _: IdentityCorrelationPendingError                                  => 3
           case _: ServiceError                                                     => 2 // ServiceError gets 2 retries on initial attempt
           case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) =>
             2 // CustomError wrapping ServiceError gets 2 retries on initial attempt

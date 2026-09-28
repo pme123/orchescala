@@ -20,7 +20,7 @@ object C7StartByMessageTest extends ZIOSpecDefault:
   private val started             =
     """[{"resultType":"ProcessDefinition","processInstance":{"id":"new-pi"}}]"""
 
-  /** C7 stub: /message answers `messageResult`, records the requests (method + path). */
+  /** C7 stub: /message answers `messageResult`, records the requests (method, path, body). */
   private def engine(messageResult: String): ZIO[Scope, Throwable, (String, ConcurrentLinkedQueue[String])] =
     ZIO.acquireRelease(
       ZIO.attempt:
@@ -29,8 +29,8 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         server.createContext(
           "/",
           exchange =>
-            requests.add(s"${exchange.getRequestMethod} ${exchange.getRequestURI.getPath}")
-            exchange.getRequestBody.readAllBytes()
+            val requestBody = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+            requests.add(s"${exchange.getRequestMethod} ${exchange.getRequestURI.getPath} $requestBody")
             val body =
               (if exchange.getRequestURI.getPath.endsWith("/message") then messageResult else "")
                 .getBytes(StandardCharsets.UTF_8)
@@ -67,7 +67,13 @@ object C7StartByMessageTest extends ZIOSpecDefault:
           case _                                         => false
         ,
         // the caller's identity was signed onto the running instance
-        !requests.asScala.exists(_.contains("/process-instance/running-pi/variables"))
+        !requests.asScala.exists(r =>
+          r.contains("/process-instance/running-pi/variables") && r.contains("\"_identityCorrelation\"")
+        ),
+        // the pending marker, delivered with the message, is removed again
+        requests.asScala.exists(r =>
+          r.contains("/process-instance/running-pi/variables") && r.contains("_identityCorrelationPending")
+        )
       )
     },
     test("a started process gets the signed identity") {

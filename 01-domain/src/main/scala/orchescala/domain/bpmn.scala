@@ -34,6 +34,9 @@ enum InputParams:
   case _regexHandledErrors
   // authorization
   case _identityCorrelation
+  // set by the engine only: the process was started with an identity, its signed correlation
+  // follows right after the start (it needs the process instance id) - a worker waits for it
+  case _identityCorrelationPending
   // idempotency
   case _idempotentId
   @deprecated("Use `identityCorrelation`") case impersonateUserId
@@ -76,6 +79,7 @@ enum ErrorCodes:
   case `service-mocking-error`
   case `service-bad-path-error`
   case `service-auth-error`
+  case `identity-correlation-pending` // the engine sets the signed correlation right after the start
   case `service-bad-body-error`
   case `service-unexpected-error`
   case `error-already-handled`

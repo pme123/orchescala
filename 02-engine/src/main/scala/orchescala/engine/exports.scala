@@ -26,13 +26,24 @@ def banner(applicationName: String) =
   * the workers as if the engine had set it, and they acted as that user.
   */
 def withoutCallerIdentityCorrelation(variables: JsonObject): zio.UIO[JsonObject] =
-  val key = orchescala.domain.InputParams._identityCorrelation.toString
-  if variables.contains(key) then
+  val keys    = Seq(
+    orchescala.domain.InputParams._identityCorrelation,
+    orchescala.domain.InputParams._identityCorrelationPending
+  ).map(_.toString)
+  val present = keys.filter(variables.contains)
+  if present.nonEmpty then
     zio.ZIO
-      .logWarning(s"Removed `$key` from the caller's variables - only the engine sets it.")
-      .as(variables.remove(key))
+      .logWarning(s"Removed ${present.mkString("`", "`, `", "`")} from the caller's variables - only the engine sets it.")
+      .as(present.foldLeft(variables)(_.remove(_)))
   else zio.ZIO.succeed(variables)
 end withoutCallerIdentityCorrelation
+
+/** Marks a process started with an identity: its signed correlation is set right after the start
+  * (the signature needs the process instance id) - a worker fetching a job in between waits for it
+  * instead of running without the user's identity.
+  */
+def withIdentityPending(variables: JsonObject): JsonObject =
+  variables.add(orchescala.domain.InputParams._identityCorrelationPending.toString, Json.True)
 
 extension (jsonObj: JsonObject)
   def toVariablesMap: Map[String, Json] =

@@ -14,6 +14,8 @@ case class GeneralVariables(
     _regexHandledErrors: Option[StringOrSeq] = None, // Service only
     // authorization
     _identityCorrelation: Option[IdentityCorrelation] = None,
+    // set by the engine only - see InputParams._identityCorrelationPending
+    _identityCorrelationPending: Option[Boolean] = None,
     // idempotency
     _idempotentId: Option[IdempotentId] = None,
     // DEPRECATED

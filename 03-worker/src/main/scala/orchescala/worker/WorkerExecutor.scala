@@ -22,6 +22,8 @@ case class WorkerExecutor[
   ): ZIO[SttpClientBackend, WorkerError, Map[String, Any]] =
     (for
       _                            <- logDebug(s"Executing Worker: ${worker.topic}")
+      // every worker - also a custom worker may act as the user of the IdentityCorrelation
+      _                            <- IdentityVerification.notPending(context.generalVariables)
       validatedInput               <- InputValidator.validate(processVariables)
       _                            <- logDebug(s"- validatedInput: $validatedInput")
       initializedOutput            <- Initializer.initVariables(validatedInput)

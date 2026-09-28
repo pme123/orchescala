@@ -6,7 +6,7 @@ import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo, logWarning}
-import zio.{IO, ZIO}
+import zio.{IO, UIO, ZIO}
 
 class C8ProcessInstanceService(using
     rest: C8RestClient,
@@ -61,16 +61,17 @@ class C8ProcessInstanceService(using
       correlation: IdentityCorrelation
   ): IO[EngineError, ProcessInfo] =
     for
-      // Step 1: Start process WITHOUT correlation
+      // Step 1: Start process WITHOUT correlation - marked as pending: a worker activating a job
+      // before step 3 waits for it (it ran without the user's identity before)
       _                <- logDebug(s"Starting Process '$processDefId' (will sign correlation after)")
-      instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, in.asJson)
+      instance         <- callStartProcessAsync(processDefId, businessKey, tenantId, withIdentityPending(in).asJson)
       processInstanceId = instance.processInstanceKey
 
       // Step 2: Sign correlation with processInstanceId
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
 
       // Step 3: Set signed correlation as process variable
-      _ <- setCorrelationVariable(processInstanceId, signedCorrelation)
+      _ <- setCorrelationVariableOfStarted(processInstanceId, signedCorrelation)
       _ <- logInfo(s"Set signed IdentityCorrelation for process instance '$processInstanceId'")
     yield ProcessInfo(
       processInstanceId = processInstanceId,
@@ -97,14 +98,30 @@ class C8ProcessInstanceService(using
         )
   end signCorrelation
 
-  /** Set the signed correlation as a process variable (on the process instance's root scope)
+  /** Step 3 of a start: the process runs already - a failure is logged, not returned. Returned, the
+    * caller (or the gateway with the next engine) started the process again. Its workers wait for
+    * the correlation (`_identityCorrelationPending`), then end in an incident.
+    */
+  private def setCorrelationVariableOfStarted(
+      processInstanceId: String,
+      signedCorrelation: IdentityCorrelation
+  ): UIO[Unit] =
+    setCorrelationVariable(processInstanceId, signedCorrelation)
+      .catchAll: err =>
+        ZIO.logError(
+          s"Process $processInstanceId started, but its IdentityCorrelation could not be set - its workers wait for it, then end in an incident: ${err.errorMsg}"
+        )
+
+  /** Set the signed correlation as a process variable (on the process instance's root scope) - and
+    * clear the pending marker of the start (C8 cannot delete a variable).
     */
   private def setCorrelationVariable(
       processInstanceId: String,
       signedCorrelation: IdentityCorrelation
   ): IO[EngineError, Unit] =
     val variables = Json.obj(
-      InputParams._identityCorrelation.toString -> signedCorrelation.asJson.deepDropNullValues
+      InputParams._identityCorrelation.toString        -> signedCorrelation.asJson.deepDropNullValues,
+      InputParams._identityCorrelationPending.toString -> Json.False
     )
     rest
       .putNoContent(
@@ -226,10 +243,15 @@ class C8ProcessInstanceService(using
   ): IO[EngineError, ProcessInfo] =
     for
       _                 <- logDebug(s"Starting process by message '$messageName' (will sign correlation after)")
-      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      correlationResult <- sendMessageToStartProcess(
+                             messageName,
+                             businessKey,
+                             tenantId,
+                             Some(withIdentityPending(variables.getOrElse(JsonObject.empty)))
+                           )
       processInstanceId  = correlationResult.processInstanceId
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
-      _                 <- setCorrelationVariable(processInstanceId, signedCorrelation)
+      _                 <- setCorrelationVariableOfStarted(processInstanceId, signedCorrelation)
       _                 <- logInfo(
                              s"Process started by message '$messageName' with processInstanceId: $processInstanceId " +
                                "- signed IdentityCorrelation set"

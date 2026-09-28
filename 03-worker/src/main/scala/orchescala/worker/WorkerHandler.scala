@@ -156,12 +156,14 @@ case class ServiceHandler[
     */
   private[worker] def verifyIdentityCorrelation()(using
       context: EngineRunContext
-  ): ZIO[Any, BadSignatureError, Unit] =
+  ): ZIO[Any, BadSignatureError | IdentityCorrelationPendingError, Unit] =
     val engineConfig     = context.engineContext.engineConfig
     val workerConfig     = context.engineContext.workerConfig
     val generalVariables = context.generalVariables
 
     (generalVariables._identityCorrelation, workerConfig.identityVerification) match
+      case (None, _) if generalVariables._identityCorrelationPending.contains(true) =>
+        IdentityVerification.notPending(generalVariables)
       case (None, false) =>
         // No identity correlation present - skip verification
         ZIO.unit

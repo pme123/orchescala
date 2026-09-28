@@ -56,6 +56,42 @@ object C8LockRenewalIntegrationTest extends ZIOSpecDefault:
         ZIO.succeed(throw IllegalStateException("bug in the worker code"))
   end DefectJobWorker
 
+  private val identityJobType    = "orchescala-it-identity-job"
+  private val identityProcessId  = "orchescala-it-identity-job-process"
+  private val identityBpmn       = bpmn
+    .replace(processId, identityProcessId)
+    .replace(jobType, identityJobType)
+    .replace("retries=\"1\"", "retries=\"3\"")
+  // per process instance: executions, and whether the identity was there
+  private val identityExecutions = ConcurrentHashMap[String, Int]()
+  private val identitySeen       = ConcurrentHashMap[String, Boolean]()
+
+  private object IdentityJobWorker extends C8Worker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
+    protected def c8Context: C8Context = LongJobWorker.c8Context
+    protected def customTask: CustomTask[NoInput, NoOutput] =
+      CustomTask(InOutDescr(identityJobType, NoInput(), NoOutput(), None))
+    override protected def runWorkZIO(in: NoInput): RunWorkZIOOutput[NoOutput] =
+      val context           = summon[EngineRunContext]
+      val processInstanceId = context.processInstance.map(_.id).getOrElse("-")
+      ZIO.succeed:
+        identityExecutions.merge(processInstanceId, 1, _ + _)
+        identitySeen.put(processInstanceId, context.generalVariables._identityCorrelation.isDefined)
+      .as(NoOutput())
+  end IdentityJobWorker
+
+  /** C8's REST API directly - to set the variables the engine service sets (and filters). */
+  private def rest(restUrl: String, method: String, path: String, body: String): Task[String] =
+    ZIO.attemptBlocking:
+      val request  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(s"$restUrl$path"))
+        .header("Content-Type", "application/json")
+        .method(method, java.net.http.HttpRequest.BodyPublishers.ofString(body))
+        .build()
+      val response = java.net.http.HttpClient.newHttpClient()
+        .send(request, java.net.http.HttpResponse.BodyHandlers.ofString())
+      if response.statusCode() >= 300 then
+        throw RuntimeException(s"$method $path: ${response.statusCode()} ${response.body()}")
+      response.body()
+
   /** Runs 75s - longer than its lock of 1 minute, which it renews every 30s. */
   private object LongJobWorker extends C8Worker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
     lazy val c8Context: C8Context = new C8Context:
@@ -127,6 +163,55 @@ object C8LockRenewalIntegrationTest extends ZIOSpecDefault:
       yield assertTrue(
         incidents.exists(_.incidentMessage.exists(_.contains("bug in the worker code"))),
         defectExecutions.get(started.processInstanceId) == 1
+      )
+    }
+    ,
+    test("a job activated before the identity of its start is set waits for it - then runs once, with it") {
+      val restAddress = sys.env("C8_REST_IT")
+      val grpcAddress = sys.env.getOrElse("C8_GRPC_IT", "http://localhost:26500")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig()
+      given WorkerConfig = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engine         = C8ProcessEngine()
+      val correlation    = IdentityCorrelation("alice").asJson.deepDropNullValues.noSpaces
+      for
+        _         <- engine.deploymentService.deploy(
+                       "it-identity-job",
+                       Seq(DeploymentResource(s"$identityProcessId.bpmn", identityBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.C8)
+                     )
+        _         <- C8WorkerRegistry(C8DefaultNoAuthClient(grpcAddress, restAddress))
+                       .register(Set(IdentityJobWorker))
+                       .provideLayer(SharedC8ClientManager.layer)
+                       .forkScoped
+        // step 1 of a start with an identity: marked pending - the worker gets the job at once
+        started   <- rest(
+                       restAddress,
+                       "POST",
+                       "/v2/process-instances",
+                       s"""{"processDefinitionId":"$identityProcessId","variables":{"_identityCorrelationPending":true}}"""
+                     )
+        pid       <- ZIO.fromEither(io.circe.parser.parse(started).flatMap(_.hcursor.get[String]("processInstanceKey")))
+        // step 3, late: the correlation (not verified by this custom worker), the marker cleared
+        _         <- ZIO.sleep(3.seconds)
+        _         <- rest(
+                       restAddress,
+                       "PUT",
+                       s"/v2/element-instances/$pid/variables",
+                       s"""{"variables":{"_identityCorrelation":$correlation,"_identityCorrelationPending":false}}"""
+                     )
+        finished  <- engine.historicProcessInstanceService
+                       .getProcessInstance(pid)
+                       .filterOrFail(_.state == HistoricProcessInstance.ProcessState.COMPLETED)(
+                         EngineError.ProcessError("not yet completed")
+                       )
+                       .retry(Schedule.spaced(1.second) && Schedule.recurs(40))
+        incidents <- engine.incidentService.getIncidents(None, Some(pid))
+      yield assertTrue(
+        finished.state == HistoricProcessInstance.ProcessState.COMPLETED,
+        incidents.isEmpty,
+        identityExecutions.get(pid) == 1,
+        identitySeen.get(pid) // before: it ran at once, without the identity
       )
     }
   ) @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(4.minutes)

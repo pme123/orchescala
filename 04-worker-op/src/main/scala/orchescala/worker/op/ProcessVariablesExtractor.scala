@@ -49,6 +49,7 @@ object ProcessVariablesExtractor:
           regexHandledErrors <- extractSeqFromArrayOrStringOpt(InputParams._regexHandledErrors)
           // authorization
           identityCorrelationOpt <- variableOpt[IdentityCorrelation](InputParams._identityCorrelation)
+          identityPendingOpt <- variableOpt[Boolean](InputParams._identityCorrelationPending)
           // idempotency
           idempotentIdOpt: Option[IdempotentId] <- variableOpt[IdempotentId](InputParams._idempotentId)
             .map: maybeIdempotentId =>
@@ -76,6 +77,7 @@ object ProcessVariablesExtractor:
                 _handledErrors = handledErrors.orElse(handledErrorsOld),
                 _regexHandledErrors = regexHandledErrors.orElse(regexHandledErrorsOld),
                 _identityCorrelation = identityCorrelationOpt,
+                _identityCorrelationPending = identityPendingOpt,
                 _idempotentId = idempotentIdOpt,
                 impersonateUserId = impersonateUserIdOpt
               )

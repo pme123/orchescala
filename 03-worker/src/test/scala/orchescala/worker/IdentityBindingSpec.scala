@@ -1,6 +1,6 @@
 package orchescala.worker
 
-import orchescala.domain.{IdentityCorrelation, IdentityCorrelationSigner}
+import orchescala.domain.{GeneralVariables, IdentityCorrelation, IdentityCorrelationSigner}
 import zio.*
 import zio.test.*
 
@@ -42,6 +42,20 @@ object IdentityBindingSpec extends ZIOSpecDefault:
       val (instance, _) = job("child-1", Left("engine down"))
       for result <- IdentityVerification.verifyBinding(correlationOf("root-1"), instance).exit
       yield assertTrue(result.isFailure)
+    },
+    test("pending: started with an identity, its correlation not set yet - tried again") {
+      for exit <- IdentityVerification.notPending(GeneralVariables(_identityCorrelationPending = Some(true))).exit
+      yield assertTrue(exit.isFailure)
+    },
+    test("not pending: the correlation is set, or the marker cleared / missing") {
+      for
+        set     <- IdentityVerification.notPending(GeneralVariables(
+                     _identityCorrelationPending = Some(true),
+                     _identityCorrelation = Some(IdentityCorrelation("alice"))
+                   )).exit
+        cleared <- IdentityVerification.notPending(GeneralVariables(_identityCorrelationPending = Some(false))).exit
+        missing <- IdentityVerification.notPending(GeneralVariables()).exit
+      yield assertTrue(set.isSuccess, cleared.isSuccess, missing.isSuccess)
     },
     test("not bound to any process instance: rejected") {
       val (instance, _) = job("pi-1", Right(None))

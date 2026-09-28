@@ -135,6 +135,16 @@ object WorkerError:
   ) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`service-auth-error`
 
+  /** The process was started with an identity whose signed correlation is not set yet - it follows
+    * right after the start (the signature needs the process instance id). The job is handed back
+    * and tried again in a moment.
+    */
+  case class IdentityCorrelationPendingError(
+      errorMsg: String =
+        "The IdentityCorrelation of the process is not set yet (it follows its start) - tried again shortly"
+  ) extends RunWorkError:
+    val errorCode: ErrorCodes = ErrorCodes.`identity-correlation-pending`
+
   case class MissingHandlerError(
       errorMsg: String
   ) extends RunWorkError:

@@ -1,6 +1,6 @@
 package orchescala.worker
 
-import orchescala.domain.{IdentityCorrelation, IdentityCorrelationSigner}
+import orchescala.domain.{GeneralVariables, IdentityCorrelation, IdentityCorrelationSigner}
 import orchescala.worker.WorkerError.{BadSignatureError, UnexpectedError}
 import zio.{IO, ZIO}
 
@@ -128,5 +128,18 @@ object IdentityVerification:
         _ => ZIO.unit
       )
   end verifySignatureOptional
+
+  /** Started with an identity whose signed correlation follows the start (it needs the process
+    * instance id), and the job was fetched in between: it ran without the user's identity (or failed
+    * a required verification). Handed back to be tried again shortly.
+    */
+  def notPending(generalVariables: GeneralVariables): IO[WorkerError.IdentityCorrelationPendingError, Unit] =
+    ZIO
+      .fail(WorkerError.IdentityCorrelationPendingError())
+      .when(
+        generalVariables._identityCorrelationPending.contains(true) &&
+          generalVariables._identityCorrelation.isEmpty
+      )
+      .unit
 
 end IdentityVerification
