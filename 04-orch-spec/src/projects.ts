@@ -36,7 +36,7 @@ async function istProjekt(dir: FileSystemDirectoryHandle): Promise<boolean> {
 
 /**
  * Was der Nutzer gewählt hat, in Projekte übersetzen: entweder **ein**
- * Projekt oder ein Ordner darüber (`~/dev-valiant/projects`), dessen
+ * Projekt oder ein Ordner darüber (`~/dev-mycompany/projects`), dessen
  * Unterordner die Projekte sind. Der zweite Fall ist der übliche.
  */
 export async function projectsInFolder(

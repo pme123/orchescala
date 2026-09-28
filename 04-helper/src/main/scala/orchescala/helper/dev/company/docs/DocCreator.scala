@@ -404,8 +404,7 @@ trait DocCreator extends DependencyCreator, Helpers:
                 .map(ChangeLogGroup.valueOf).getOrElse(ChangeLogGroup.Other)
               (entries, group)
             case l                         =>
-              val regex    = """(.*)(MAP-\d+)(:? )(.*)""".r
-              val newEntry = regex.findFirstMatchIn(l) match
+              val newEntry = ticketRegex.findFirstMatchIn(l) match
                 case Some(v) =>
                   val jiraTicket = v.group(2)
                   ChangeLogEntry(
@@ -471,13 +470,24 @@ trait DocCreator extends DependencyCreator, Helpers:
       .mkString("\n")
   end extractChangelog
 
+  /** A changelog line with a ticket: `MAP-123: text` - the ticket prefixes come from
+    * `ApiConfig.jiraUrls`; without them any `ABC-123` counts as a ticket.
+    */
+  private lazy val ticketRegex =
+    val prefixes =
+      if apiConfig.jiraUrls.isEmpty then "[A-Z][A-Z0-9]+"
+      else apiConfig.jiraUrls.keys.map(java.util.regex.Pattern.quote).mkString("(?:", "|", ")")
+    s"""(.*)($prefixes-\\d+)(:? )(.*)""".r
+
+  /** Links a ticket to its JIRA - if `ApiConfig.jiraUrls` knows its prefix. */
   private def replaceJira(
       jiraTicket: String
   ): String =
-    if jiraTicket == "Other" then
-      jiraTicket
-    else
-      s"[$jiraTicket](https://issue.swisscom.ch/browse/$jiraTicket)"
+    apiConfig.jiraUrls
+      .collectFirst { case (prefix, url) if jiraTicket.startsWith(s"$prefix-") =>
+        s"[$jiraTicket]($url/$jiraTicket)"
+      }
+      .getOrElse(jiraTicket)
 
   /** Discovers sibling company-orchescala repos and clones/pulls them into gitBasePath - the
     * site is one for all companies, so their `00-docs` are assembled alongside this one's.

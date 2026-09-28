@@ -7,12 +7,13 @@ import munit.FunSuite
   */
 class SiteAssemblerTest extends FunSuite:
 
+  // the 00-docs of a company-orchescala repo - set COMPANY_DOCS_PATH, otherwise the test is skipped
   private val docsPath = sys.env.get("COMPANY_DOCS_PATH")
     .map(os.Path(_))
-    .getOrElse(os.Path("/Users/pme/dev-valiant/valiant-orchescala/00-docs"))
+    .getOrElse(os.home / "dev-company" / "company-orchescala" / "00-docs")
   private val gitTemp  = sys.env.get("GIT_TEMP_PATH")
     .map(os.Path(_))
-    .getOrElse(os.Path("/Users/pme/git-temp"))
+    .getOrElse(os.home / "git-temp")
 
   test("the orch-doc jar ships the site app, the API page and the spec tools"):
     val files = os.read.lines(os.resource / "orch-doc-site" / "files.txt")

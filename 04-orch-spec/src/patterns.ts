@@ -130,7 +130,7 @@ const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 /** Platzhalter füllen; was keinen Wert hat, wird leer */
 export function fillPlaceholders(xml: string, values: Record<string, string | undefined>): string {
-  // eine Vorgabe darf die eingebauten nennen (`{{processId}}-informKube`)
+  // eine Vorgabe darf die eingebauten nennen (`{{processId}}-inform`)
   const resolved: Record<string, string> = {};
   for (const [k, v] of Object.entries(values)) resolved[k] = (v ?? '').replace(PH, (_, n: string) => values[n] ?? '');
   return xml.replace(PH, (_, name: string) => xmlEscape(resolved[name] ?? ''));

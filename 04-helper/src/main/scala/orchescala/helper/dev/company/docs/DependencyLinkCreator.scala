@@ -8,7 +8,7 @@ case class DependencyLinkCreator()(using
 ) extends DependencyCreator:
 
   def createIndex(dependencyGraph: String): Unit =
-    val indexPage = create("Valiant Process Documentation", dependencyGraph)
+    val indexPage = create(s"${apiConfig.companyName.capitalize} Process Documentation", dependencyGraph)
     os.write.over(apiConfig.basePath / "src" / "docs" / "index.md", indexPage)
 
   def createDependencies(dependencyGraph: String): Unit =

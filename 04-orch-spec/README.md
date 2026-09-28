@@ -407,9 +407,9 @@ eine Frage, die sich im Admin stellt: steht das drin?
 ### Pattern
 
 Vieles im BPMN ist Hauskonvention, die an jedem Prozess gleich aussieht:
-eine Benutzeraufgabe meldet sich über Task-Listener und einen Timer an MAP,
-eine Eskalation hängt als Timer an der Aufgabe und startet über einen Link
-den Eskalationsprozess, am Ende steht ein `processStatus`. Solche Bausteine
+eine Benutzeraufgabe meldet ihren Status über Task-Listener und einen Timer
+an ein Portal, eine Eskalation hängt als Timer an der Aufgabe und startet
+über einen Link den Eskalationsprozess, am Ende steht ein `processStatus`. Solche Bausteine
 legt der Admin als **Pattern** an; in der Spezifikation wählt man sie am
 Element, statt sie Stück für Stück zu zeichnen.
 
@@ -421,10 +421,10 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   │ PatternTarget        │  der Anker: sein Typ (Benutzeraufgabe, Call Activity …)
   │  · Listener, Eingaben│  ist der Typ, an den das Pattern passt. Was an ihm
   └──◯───────────────────┘  hängt, kommt an jedes Element, das es wählt
-     ↓ Timer ${timerStartEscalation}
-     ◉ Link «start-escalation»
+     ↓ Timer ${timerEscalation}
+     ◉ Link «escalate»
 
-  ◉ Link «start-escalation» → [Start Escalation Process] → ○
+  ◉ Link «escalate» → [Start Escalation Process] → ○
                               losgelöster Block: braucht der Prozess einmal
 ```
 
@@ -443,7 +443,7 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   Skripten. Im Admin bekommen sie Beschriftung, Vorgabe und Bedeutung.
   Eingebaut sind `{{targetId}}`, `{{targetName}}`, `{{processId}}` und
   `{{startMessage}}` (Nachricht des Nachrichten-Startereignisses); eine
-  Vorgabe darf sie nennen (`{{processId}}-informKube`).
+  Vorgabe darf sie nennen (`{{processId}}-inform`).
 - **Je Engine ein BPMN** (Camunda 7 / 8): angeboten wird ein Pattern nur, wo
   es für die Engine der Spezifikation eines gibt.
 
@@ -474,8 +474,8 @@ der Orchescala-Export nennt sie samt Werten und beschreibt am Ende jedes
 verwendete Pattern mit Doku-Link.
 
 Pattern reisen als Datei (Admin → Pattern → Exportieren / Importieren; der
-Import ergänzt, gleiche ID wird ersetzt). Geprüft über die **74 BPMN-Dateien**
-der valiant-Projekte mit 12 Pattern: 504 Stellen erkannt, jede lässt sich
+Import ergänzt, gleiche ID wird ersetzt). Geprüft über **74 BPMN-Dateien**
+aus Kundenprojekten mit 12 Pattern: 504 Stellen erkannt, jede lässt sich
 entfernen und wieder einfügen und wird danach mit denselben Werten erkannt;
 1187-mal an Elemente ohne das Pattern eingefügt und wiedererkannt; der Ablauf
 bleibt mit und ohne Pattern derselbe.
@@ -595,9 +595,9 @@ Worker kommen bewusst nicht von der Site: dort fehlt die API-Ebene
 (`personV1` in `valiant-graviton-personV1.GetCustomer`), der Import wäre
 geraten. Die stehen in der OpenAPI — mitsamt Mapping und Beschreibungen.
 
-Aus dem Browser greift dabei **CORS** — und beim Valiant-Server tut es das
-tatsächlich: `bpf.apps.grv.scbs.ch` ist erreichbar (ein Versuch mit `no-cors`
-liefert eine Antwort), sendet aber kein `Access-Control-Allow-Origin`. Der
+Aus dem Browser greift dabei **CORS** — und bei einem internen Doku-Server
+tut es das oft: der Server ist erreichbar (ein Versuch mit `no-cors` liefert
+eine Antwort), sendet aber kein `Access-Control-Allow-Origin`. Der
 Browserweg funktioniert dort also erst, wenn der Server diesen Header setzt.
 
 Weil `Failed to fetch` zwei ganz verschiedene Ursachen hat, unterscheidet die
@@ -651,7 +651,7 @@ Datei (frischer Checkout, Dev-Server), läuft alles wie bisher.
 Derselbe Weg hilft, solange der Doku-Server keine CORS-Freigabe hat:
 
 ```bash
-node tools/site2catalog.ts https://bpf.apps.grv.scbs.ch/site/ --out katalog.json
+node tools/site2catalog.ts https://docs.example.com/site/ --out katalog.json
 ```
 
 Die Datei dann im Admin über **Importieren** einlesen. Durchgespielt: 162

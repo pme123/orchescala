@@ -196,7 +196,8 @@ case class CompanySbtGenerator()(using
        |  lazy val repoCredentials: Credentials = (for {
        |    user <- sys.env.get("${companyNameUpper}_MVN_REPOSITORY_USERNAME")
        |    pwd  <- sys.env.get("${companyNameUpper}_MVN_REPOSITORY_PASSWORD")
-       |  } yield Credentials(artifactoryRealm, "bin.swisscom.com", user, pwd))
+       |    // the credentials belong to the host of the release repository
+       |  } yield Credentials(artifactoryRealm, java.net.URI.create(releaseRepoStr).getHost, user, pwd))
        |    .getOrElse(
        |      throw new IllegalArgumentException(
        |        "System Environment Variables ${companyNameUpper}_MVN_REPOSITORY_USERNAME and/ or ${companyNameUpper}_MVN_REPOSITORY_PASSWORD are not set."

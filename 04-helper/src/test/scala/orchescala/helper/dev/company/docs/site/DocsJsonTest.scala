@@ -9,9 +9,10 @@ import munit.FunSuite
   */
 class DocsJsonTest extends FunSuite:
 
+  // the 00-docs of a company-orchescala repo - set COMPANY_DOCS_PATH, otherwise the test is skipped
   private val docsPath = sys.env.get("COMPANY_DOCS_PATH")
     .map(os.Path(_))
-    .getOrElse(os.Path("/Users/pme/dev-valiant/valiant-orchescala/00-docs"))
+    .getOrElse(os.home / "dev-company" / "company-orchescala" / "00-docs")
   // orchescala's own 04-orch-doc (the tests may run from the root or from 04-helper)
   private val orchDocPath =
     Iterator.iterate(os.pwd)(_ / os.up).take(4).map(_ / "04-orch-doc").find(os.exists)
