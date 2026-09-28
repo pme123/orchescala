@@ -99,6 +99,24 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
         throw RuntimeException(s"$method $path: ${response.statusCode()} ${response.body()}")
       response.body()
 
+  private val rejectedTaskTopic = "orchescala-it-rejected-task"
+  private val rejectedProcessId = "orchescala-it-rejected-task-process"
+  private val rejectedBpmn      = bpmn
+    .replace(processId, rejectedProcessId)
+    .replace(longTaskTopic, rejectedTaskTopic)
+
+  /** Fails like a rejected service call: the response (with personal data) as details. */
+  private object RejectedTaskWorker extends OpWorker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
+    protected def operatonContext: OpContext = LongTaskWorker.context
+    protected def customTask: CustomTask[NoInput, NoOutput] =
+      CustomTask(InOutDescr(rejectedTaskTopic, NoInput(), NoOutput(), None))
+    override protected def runWorkZIO(in: NoInput): RunWorkZIOOutput[NoOutput] =
+      ZIO.fail(WorkerError.CustomError(orchescala.engine.LogSafe.withDetails(
+        "Customer rejected by the CRM (400)",
+        """{"detail":"email hans@muster.ch already used by customer 4711-0815"}"""
+      )))
+  end RejectedTaskWorker
+
   /** Done at once - completes while a lock renewal could still run. */
   private object FastTaskWorker extends OpWorker[NoInput, NoOutput], CustomWorkerDsl[NoInput, NoOutput]:
     protected def operatonContext: OpContext = LongTaskWorker.context
@@ -325,6 +343,45 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
         // removed with the correlation (C7 / Operaton delete it) - history keeps deleted ones as DELETED
         !marker.contains("\"state\":\"CREATED\"")
       )
+    }
+    ,
+    test("a failed task: the incident message without the details, the Cockpit details with them") {
+      val restUrl         = sys.env("OP_REST_IT")
+      given EngineConfig  = DefaultEngineConfig()
+      given WorkerConfig  = DefaultWorkerConfig(DefaultEngineConfig(), identityVerification = false)
+      val engineClient    = new OpLocalClient:
+        protected def operatonRestUrl: String = restUrl
+      val workerClient    = new OpWorkerClient:
+        protected def operatonRestUrl: String = restUrl
+        def client: ZIO[SharedOpExternalClientManager, Throwable, ExternalTaskClient] =
+          SharedOpExternalClientManager.getOrCreateClient(ZIO.attempt(externalClient.build()))
+      for
+        engine    <- OpProcessEngine.withClient(engineClient).provideLayer(SharedOpClientManager.layer)
+        _         <- engine.deploymentService.deploy(
+                       "it-rejected-task",
+                       Seq(DeploymentResource(s"$rejectedProcessId.bpmn", rejectedBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                       Some(EngineType.Op)
+                     )
+        _         <- OpWorkerRegistry(workerClient)
+                       .register(Set(RejectedTaskWorker))
+                       .provideLayer(SharedOpExternalClientManager.layer)
+                       .forkScoped
+        started   <- engine.processInstanceService.startProcessAsync(rejectedProcessId, JsonObject(), None, None, None)
+        pid        = started.processInstanceId
+        incidents <- engine.incidentService.getIncidents(None, Some(pid))
+                       .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no incident yet"))
+                       .retry(Schedule.spaced(1.second) && Schedule.recurs(30))
+        tasks     <- rest(restUrl, "GET", s"/external-task?processInstanceId=$pid", "")
+        taskId    <- ZIO.fromEither(io.circe.parser.parse(tasks).flatMap(_.hcursor.downN(0).get[String]("id")))
+        details   <- rest(restUrl, "GET", s"/external-task/$taskId/errorDetails", "")
+      yield
+        val message = incidents.head.incidentMessage.getOrElse("")
+        assertTrue(
+          message.contains("Customer rejected by the CRM (400)"),
+          !message.contains("hans@muster.ch"), // the incident list, cut at 666 characters
+          details.contains("Customer rejected by the CRM (400)"),
+          details.contains("hans@muster.ch already used by customer 4711-0815") // "Show stacktrace" in the Cockpit
+        )
     }
   ) @@ TestAspect.ifEnvSet("OP_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(4.minutes)
 end OpLockRenewalIntegrationTest

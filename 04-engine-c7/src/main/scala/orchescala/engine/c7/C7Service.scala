@@ -27,7 +27,7 @@ trait C7Service extends EngineService:
         case _ => ZIO.attempt(CString(value.toString))
         ).mapError: err =>
         EngineError.ProcessError(
-          s"Problem converting VariableDto '${valueDto.getType} -> $value: $err"
+          s"Problem converting VariableDto of type '${valueDto.getType}': $err"
         )
     end if
   end toVariableValue

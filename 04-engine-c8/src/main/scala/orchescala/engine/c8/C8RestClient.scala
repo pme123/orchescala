@@ -184,7 +184,7 @@ object C8RestClient:
       .fromEither(parser.decode[R](if body.isBlank then "{}" else body))
       .mapError: err =>
         EngineError.DecodingError(
-          s"Problem decoding C8 REST response of ${path.mkString("/")}: $err - ${body.take(maxErrorBodyLength)}"
+          s"Problem decoding C8 REST response of ${path.mkString("/")} (${body.length} characters): $err"
         )
 
 end C8RestClient

@@ -25,21 +25,21 @@ case class WorkerExecutor[
       // every worker - also a custom worker may act as the user of the IdentityCorrelation
       _                            <- IdentityVerification.notPending(context.generalVariables)
       validatedInput               <- InputValidator.validate(processVariables)
-      _                            <- logDebug(s"- validatedInput: $validatedInput")
+      _                            <- logDebug(s"- validatedInput: ${orchescala.engine.LogSafe.names(validatedInput)}")
       initializedOutput            <- Initializer.initVariables(validatedInput)
-      _                            <- logDebug(s"- initializedOutput: $initializedOutput")
+      _                            <- logDebug(s"- initializedOutput: ${orchescala.engine.LogSafe.names(initializedOutput)}")
       mockedOutput                 <- OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
-      _                            <- logDebug(s"- mockedOutput: $mockedOutput")
+      _                            <- logDebug(s"- mockedOutput: ${orchescala.engine.LogSafe.names(mockedOutput)}")
       // only run the work if it is not mocked
       output                       <-
         if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
         else ZIO.succeed(mockedOutput.get)
-      _                            <- logDebug(s"- output: $output")
+      _                            <- logDebug(s"- output: ${orchescala.engine.LogSafe.names(output)}")
       allOutputs: Map[String, Any]  = camundaOutputs(validatedInput, initializedOutput, output)
-      _                            <- logDebug(s"- allOutputs: $allOutputs")
+      _                            <- logDebug(s"- allOutputs: ${orchescala.engine.LogSafe.names(allOutputs)}")
       filteredOut: Map[String, Any] =
         filteredOutput(allOutputs, context.generalVariables.outputVariableSeq)
-      _                            <- logDebug(s"- filteredOut: $filteredOut")
+      _                            <- logDebug(s"- filteredOut: ${orchescala.engine.LogSafe.names(filteredOut)}")
       // make MockedOutput as error if mocked
       _                            <- ZIO.fail(MockedOutput(filteredOut)).when(mockedOutput.isDefined)
     yield filteredOut)

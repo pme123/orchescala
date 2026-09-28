@@ -51,7 +51,7 @@ class C7ProcessInstanceService(using
       tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
     for
-      _                <- ZIO.logDebug(s"Starting Process without Correlation '$processDefId' with variables: $in")
+      _                <- ZIO.logDebug(s"Starting Process without Correlation '$processDefId' with variables: ${orchescala.engine.LogSafe.names(in)}")
       apiClient        <- apiClientZIO
       processVariables <- C7VariableMapper.toC7Variables(in.asJson)
       instance         <-
@@ -76,11 +76,11 @@ class C7ProcessInstanceService(using
       correlation: IdentityCorrelation
   ): IO[EngineError, ProcessInfo] =
     for
-      _         <- ZIO.logDebug(s"Starting Process with Correlation '$processDefId' with variables: $in")
+      _         <- ZIO.logDebug(s"Starting Process with Correlation '$processDefId' with variables: ${orchescala.engine.LogSafe.names(in)}")
       apiClient <- apiClientZIO
       // Step 1: Start process WITHOUT correlation - marked as pending: a worker fetching a job before
       // step 3 waits for it (it ran without the user's identity before)
-      _                 <- ZIO.logDebug(s"Starting Process '$processDefId' (will sign correlation after): ${in.asJson}")
+      _                 <- ZIO.logDebug(s"Starting Process '$processDefId' (will sign correlation after): ${orchescala.engine.LogSafe.names(in)}")
       processVariables  <- C7VariableMapper.toC7Variables(withIdentityPending(in).asJson)
       instance          <-
         callStartProcessAsync(processDefId, businessKey, tenantId, apiClient, processVariables)
@@ -221,9 +221,8 @@ class C7ProcessInstanceService(using
             C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             ))
-      // names on INFO - the values (personal data) on DEBUG only
+      // names only - the values hold personal data
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': ${variables.map(_.key).mkString(", ")}")
-      _            <- ZIO.logDebug(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
 
 
@@ -402,8 +401,10 @@ class C7ProcessInstanceService(using
       .map:
         ZIO.succeed
       .getOrElse:
-        ZIO.logInfo(s"No valid MessageCorrelationResult found: $response") *>
-          ZIO.fail(EngineError.ProcessError(s"No valid MessageCorrelationResult found: $response"))
+        ZIO.logInfo(s"No valid MessageCorrelationResult found: ${response.map(r => Option(r.getResultType).map(_.getValue).orNull).mkString(", ")}") *>
+          ZIO.fail(EngineError.ProcessError(
+            s"No valid MessageCorrelationResult found: ${response.map(r => Option(r.getResultType).map(_.getValue).orNull).mkString(", ")}"
+          ))
   end mapMessageCorrelationResult
 
 end C7ProcessInstanceService

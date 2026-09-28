@@ -335,7 +335,7 @@ private trait InitProcessDsl[
     ZIO
       .attempt(customInit(inputObject))
       .mapError: err =>
-        InitProcessError(s"Error initializing InitIn ${inputObject}: $err")
+        InitProcessError(s"Error initializing InitIn ${orchescala.engine.LogSafe.names(inputObject)}: $err")
 
   protected def customInit(in: In): InitIn = ??? // this must be implemented if customInitZIO isn't
 
@@ -440,7 +440,7 @@ private trait RunWorkDsl[
         OutMocker(worker, context.generalVariables).mockedOutput(validatedInput)
       out                       <-
         if mockedOutput.isEmpty then WorkRunner(worker).run(validatedInput)
-        else ZIO.logInfo(s"Mocked output used: ${mockedOutput.get.asJson}").as(mockedOutput.get)
+        else ZIO.logInfo(s"Mocked output used: ${orchescala.engine.LogSafe.names(mockedOutput.get)}").as(mockedOutput.get)
     yield out
 
   /*

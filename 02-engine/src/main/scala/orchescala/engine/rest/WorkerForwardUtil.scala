@@ -1,6 +1,6 @@
 package orchescala.engine.rest
 
-import orchescala.engine.EngineConfig
+import orchescala.engine.{EngineConfig, LogSafe}
 import orchescala.engine.domain.EngineError
 import orchescala.engine.domain.EngineError.{ServiceRequestError, UnexpectedError}
 import orchescala.engine.rest.SttpClientBackend
@@ -86,7 +86,7 @@ object WorkerForwardUtil:
                         .orElse(ZIO.succeed(ServiceRequestError(response.code.code, truncateErrorBody(err))))
                         .flatMap(ZIO.fail(_))
     yield result).tapError: err =>
-      ZIO.logError(s"Error forwarding request to worker app: $err")
+      ZIO.logError(s"Error forwarding request to worker app: ${LogSafe.forLog(err.toString, "in the response")}")
 
   private val MaxErrorBodyLength = 500
 

@@ -60,7 +60,7 @@ class C7MessageService(using
               C7Service.withStatus(err)(EngineError.ProcessError(
                 s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${theBusinessKey.getOrElse("-")}): $err"
               ))
-        _         <- logInfo(s"Message '$name' sent successfully: $response.")
+        _         <- logInfo(s"Message '$name' sent successfully: ${Option(response).map(_.asScala.map(r => Option(r.getResultType).map(_.getValue).orNull).mkString(", ")).getOrElse("-")}")
         result    <- mapToMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
       yield result
       end for
@@ -90,6 +90,8 @@ class C7MessageService(using
       .map:
         ZIO.succeed
       .getOrElse:
-        ZIO.logInfo(s"No valid MessageCorrelationResult found: $response") *>
-          ZIO.fail(EngineError.ProcessError(s"No valid MessageCorrelationResult found: $response"))
+        ZIO.logInfo(s"No valid MessageCorrelationResult found: ${response.map(r => Option(r.getResultType).map(_.getValue).orNull).mkString(", ")}") *>
+          ZIO.fail(EngineError.ProcessError(
+            s"No valid MessageCorrelationResult found: ${response.map(r => Option(r.getResultType).map(_.getValue).orNull).mkString(", ")}"
+          ))
 end C7MessageService

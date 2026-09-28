@@ -43,8 +43,9 @@ object ServiceErrorSecretsSpec extends ZIOSpecDefault:
           !message.contains("cookie-secret"),
           !message.contains("query-secret"),
           !message.contains("body-secret"),
-          // still enough to know what failed
+          // still enough to know what failed - the response in the incident, not in the log
           message.contains("backend exploded"),
+          !orchescala.engine.LogSafe.forLog(message).contains("backend exploded"),
           message.contains("POST"),
           message.contains("http://service/login"),
           message.contains("page=2"),

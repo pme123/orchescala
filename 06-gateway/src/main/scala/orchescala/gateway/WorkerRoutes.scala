@@ -55,7 +55,7 @@ class WorkerRoutes()(using config: GatewayConfig):
                     ServiceRequestError(err)
                   case err               =>
                     ServiceRequestError(500, err.getMessage)
-                .tapError(err => ZIO.logError(s"Triggering Worker Error in WorkerApp: $err"))
+                .tapError(err => ZIO.logError(s"Triggering Worker Error in WorkerApp: ${orchescala.engine.LogSafe.forLog(err.toString, "in the response")}"))
     List(triggerWorkerEndpoint)
   end routes
   

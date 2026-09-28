@@ -64,13 +64,16 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           (renewLock *> ZIO.sleep(lockRenewInterval)).forever
     // forked in the job's scope: interrupted when the job ends (or times out). Not forked in an
     // acquire - that region is uninterruptible, its fibers too, and the interrupt would wait forever
-    val failed   = (kind: String, cause: Cause[Throwable], error: Throwable) =>
-      ZIO.logErrorCause(s"Worker execution for job $jobId $kind - reported as failed", cause) *>
-        onFailure(error)
     val job      =
       ZIO.scoped(renewing.forkScoped *> execution.unit)
-        .catchAll(error => failed("failed", Cause.fail(error), error))
-        .catchAllDefect(defect => failed("died", Cause.die(defect), defect))
+        // an error's details (bodies, variables) go into the incident - not into the log
+        .catchAll: error =>
+          ZIO.logError(
+            s"Worker execution for job $jobId failed - reported as failed: ${orchescala.engine.LogSafe.forLog(error.toString)}"
+          ) *> onFailure(error)
+        .catchAllDefect: defect =>
+          ZIO.logErrorCause(s"Worker execution for job $jobId died - reported as failed", Cause.die(defect)) *>
+            onFailure(defect)
         .timeout(workerTimeout)
         .flatMap:
           case Some(_) =>
@@ -157,7 +160,7 @@ trait BaseWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     ZIO.fromEither(json.as[BusinessKey].map(_.businessKey.getOrElse("no businessKey")))
       .mapError(ex =>
         ValidatorError(
-          s"Problem extract business Key from $json\n" + ex.getMessage
+          s"Problem extract business Key from ${orchescala.engine.LogSafe.names(json)}\n" + ex.getMessage
         )
       )
 

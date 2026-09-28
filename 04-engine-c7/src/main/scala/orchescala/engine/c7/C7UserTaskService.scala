@@ -40,7 +40,7 @@ class C7UserTaskService() (using
                      .mapError(err =>
                        C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting tasks: $err"))
                      )
-      _         <- logDebug(s"TaskDtos found: $taskDtos")
+      _         <- logDebug(s"TaskDtos found: ${taskDtos.size}")
     yield mapToUserTasks(taskDtos)
   
   def variables(
@@ -69,9 +69,8 @@ class C7UserTaskService() (using
             C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             ))
-      // names on INFO - the values (personal data) on DEBUG only
+      // names only - the values hold personal data
       _ <- logInfo(s"Variables for Process Instance '$processInstanceId': ${variables.map(_.key).mkString(", ")}")
-      _ <- ZIO.logDebug(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
     
   def complete(
@@ -86,7 +85,7 @@ class C7UserTaskService() (using
 
         // Get existing correlation from process or use provided one
         existingCorr <- getOrUpdateCorrelation(taskId, identityCorrelation)
-        _            <- logInfo(s"existingCorr existingCorr: $taskId")
+        _            <- ZIO.logDebug(s"existing correlation of $taskId: $existingCorr")
 
         // Get processInstanceId from task
         processInstanceId <- getProcessInstanceIdFromTask(taskId)
@@ -95,7 +94,7 @@ class C7UserTaskService() (using
         signedCorr <- existingCorr match
                         case Some(corr) => signCorrelation(corr, processInstanceId)
                         case None       => ZIO.succeed(None)
-        _          <- logInfo(s"existingCorr $signedCorr: $taskId")
+        _          <- ZIO.logDebug(s"signed correlation of $taskId: $signedCorr")
 
         // Build variables with signed correlation
         jsonObj = processVariables.add(
@@ -103,7 +102,6 @@ class C7UserTaskService() (using
                     signedCorr.asJson.deepDropNullValues
                   )
         _      <- logInfo(s"complete UserTask: $taskId - ${jsonObj.keys.mkString(", ")}")
-        _      <- ZIO.logDebug(s"complete UserTask: $taskId - $jsonObj")
 
         variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
         _            <- ZIO

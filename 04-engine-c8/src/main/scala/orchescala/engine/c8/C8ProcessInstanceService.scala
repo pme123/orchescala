@@ -40,7 +40,7 @@ class C8ProcessInstanceService(using
       tenantId: Option[String]
   ): IO[EngineError, ProcessInfo] =
     for
-      _        <- logDebug(s"Starting Process '$processDefId' with variables: $in")
+      _        <- logDebug(s"Starting Process '$processDefId' with variables: ${orchescala.engine.LogSafe.names(in)}")
       instance <- callStartProcessAsync(processDefId, businessKey, tenantId, in.asJson)
     yield ProcessInfo(
       processInstanceId = instance.processInstanceKey,
@@ -178,9 +178,8 @@ class C8ProcessInstanceService(using
             EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             )
-      // names on INFO - the values (personal data) on DEBUG only
+      // names only - the values hold personal data
       _             <- logInfo(s"Variables for Process Instance '$processInstanceId': ${variables.map(_.key).mkString(", ")}")
-      _             <- logDebug(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
 
   def startProcessByMessage(
@@ -282,7 +281,6 @@ class C8ProcessInstanceService(using
       .getOrElse(Json.obj())
     for
       _        <- logInfo(s"Send Message $messageName: ${variables.asObject.fold("-")(_.keys.mkString(", "))}")
-      _        <- logDebug(s"Send Message $messageName: $variables")
       response <- rest
                     .post[C8RestModel.MessageCorrelationResult](
                       Seq("messages", "correlation"),

@@ -95,11 +95,11 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       ProcessVariablesExtractor.extractGeneral()
         .flatMap: generalVariables =>
           (for
-            _                      <- logDebug(s"generalVariables: ${generalVariables.asJson}")
+            _                      <- logDebug(s"generalVariables: $generalVariables")
             given EngineRunContext <- createEngineRunContext(generalVariables, rootLookup)
             executor               <- createExecutor
             filteredOut            <- executor.execute(tryProcessVariables)
-            _                      <- logDebug(s"filteredOut: $filteredOut")
+            _                      <- logDebug(s"filteredOut: ${orchescala.engine.LogSafe.names(filteredOut)}")
             _                      <- externalTaskService.handleSuccess(
                                         filteredOut,
                                         generalVariables.isManualOutMapping
@@ -243,7 +243,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val businessKey       = summon[operaton.ExternalTask].getBusinessKey
 
       val logMsg            =
-        s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
+        s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | ${orchescala.engine.LogSafe.forLog(error.toString)}"
       (error match
         case _: IdentityCorrelationPendingError => logInfo(logMsg) // expected - tried again shortly
         case _                                  => logError(logMsg)
@@ -251,8 +251,10 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         ZIO.attemptBlocking(
           externalTaskService.handleFailure(
             taskId,
-            error.causeMsg,
-            s" ${error.causeMsg}\nSee the log of the Worker: ${niceClassName(worker.getClass)}",
+            // the incident message (Operaton keeps 666 characters) - the whole one in the details,
+            // the log has it without them
+            orchescala.engine.LogSafe.summary(error.causeMsg),
+            error.toString,
             Math.max(retries, 0), // < 0 not allowed
             retryTimeout(error).toMillis
           )

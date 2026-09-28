@@ -28,19 +28,19 @@ trait RestApiClient:
       // HTTP client's default of 1 minute
       reqWithTimeout  = summon[EngineRunContext].workerTimeout
                           .fold(reqWithOptBody)(reqWithOptBody.readTimeout)
-      _              <- ZIO.logDebug(s"Request created: ${reqWithTimeout.toCurl}")
+      _              <- ZIO.logDebug(s"Request created: ${RestApiClient.safeCurl(reqWithTimeout)}")
       req            <- auth(reqWithTimeout)
-      _              <- ZIO.logDebug(s"Request authenticated: ${req.toCurl}")
+      _              <- ZIO.logDebug(s"Request authenticated: ${RestApiClient.safeCurl(req)}")
       response       <- ZIO.scoped(sendRequest(req))
-      _              <- ZIO.logDebug(s"Response received: $response")
+      _              <- ZIO.logDebug(s"Response received: ${response.code}")
       statusCode      = response.code
       _              <- ZIO.logDebug(s"Status Code: $statusCode")
       body           <- readBody(statusCode, response, req)
-      _              <- ZIO.logDebug(s"Body read: $body")
+      _              <- ZIO.logDebug(s"Body read: ${orchescala.engine.LogSafe.names(body)}")
       headers         = response.headers.map(h => h.name -> h.value).toMap
-      _              <- ZIO.logDebug(s"Headers: ${headers.filter{ case k -> _ => k.toLowerCase().startsWith("auth")}}")
+      _              <- ZIO.logDebug(s"Headers: ${headers.keys.mkString(", ")}")
       out            <- decodeResponse[ServiceOut](body)
-      _              <- ZIO.logDebug(s"Response decoded: $out")
+      _              <- ZIO.logDebug(s"Response decoded: ${orchescala.engine.LogSafe.names(out)}")
     yield ServiceResponse(out, headers)
 
   end sendRequest
@@ -52,13 +52,14 @@ trait RestApiClient:
   ): IO[ServiceRequestError, String] =
     ZIO.fromEither(response.body)
       .tapError: err =>
-        ZIO.logDebug(s"Error response for request: ${request.toCurl}")
+        ZIO.logDebug(s"Error response for request: ${RestApiClient.safeCurl(request)}")
       .mapError(body =>
         ServiceRequestError(
           statusCode.code,
-          s"""Non-2xx response with code $statusCode:
-             |${RestApiClient.truncate(body)}
-             |${RestApiClient.safeCurl(request)}""".stripMargin
+          orchescala.engine.LogSafe.withDetails(
+            s"Non-2xx response with code $statusCode: ${RestApiClient.safeCurl(request)}",
+            RestApiClient.truncate(body)
+          )
         )
       )
   end readBody
@@ -93,7 +94,7 @@ trait RestApiClient:
       ZIO
         .attempt(NoOutput().asInstanceOf[ServiceOut])
         .mapError(err =>
-          ServiceBadBodyError(s"Problem creating body from response.\n$err\nBODY: $body")
+          ServiceBadBodyError(s"Problem creating body from response.\n$err${orchescala.engine.LogSafe.detailsSeparator}BODY: ${RestApiClient.truncate(body)}")
         )
     else
       if body.isBlank then
@@ -103,7 +104,7 @@ trait RestApiClient:
             ZIO
               .attempt(None.asInstanceOf[ServiceOut])
               .mapError: err =>
-                ServiceBadBodyError(s"Problem creating body from response.\n$err\nBODY: $body")
+                ServiceBadBodyError(s"Problem creating body from response.\n$err${orchescala.engine.LogSafe.detailsSeparator}BODY: ${RestApiClient.truncate(body)}")
           case other                        =>
             ZIO.fail(ServiceBadBodyError(
               s"There is no body in the response and the ServiceOut is neither NoOutput nor Option (Class is $other)."
@@ -114,7 +115,7 @@ trait RestApiClient:
           .decodeAccumulating[ServiceOut](body)
           .toEither)
           .mapError(err =>
-            ServiceBadBodyError(s"Problem creating body from response.\n$err\nBODY: $body")
+            ServiceBadBodyError(s"Problem creating body from response.\n$err${orchescala.engine.LogSafe.detailsSeparator}BODY: ${RestApiClient.truncate(body)}")
           )
 
   protected def requestWithOptBody[ServiceIn: InOutEncoder](

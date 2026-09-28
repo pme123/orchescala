@@ -267,7 +267,7 @@ def extractGeneralVariables(json: Json) =
     customDecodeAccumulating[GeneralVariables](json.hcursor)
   ).mapError(ex =>
     ValidatorError(
-      s"Problem extract general variables from $json\n" + ex.getMessage
+      s"Problem extract general variables from ${orchescala.engine.LogSafe.names(json)}\n" + ex.getMessage
     )
   )
 

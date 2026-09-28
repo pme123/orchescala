@@ -22,11 +22,15 @@ case class IdentityCorrelation(
     signature: Option[String] = None
 ):
 
+  /** No personal data (username, email, impersonateProcessValue - e.g. a customer id): the
+    * correlation is interpolated into log lines and error messages, directly or with the
+    * GeneralVariables.
+    */
   override def toString: String =
     s"""IdentityCorrelation:
-       |- username: $username
-       |- email: ${email.getOrElse("-")}
-       |- impersonateProcessValue: ${impersonateProcessValue.getOrElse("-")}
+       |- username: ***
+       |- email: ${email.map(_ => "***").getOrElse("-")}
+       |- impersonateProcessValue: ${impersonateProcessValue.map(_ => "***").getOrElse("-")}
        |- processInstanceId: ${processInstanceId.getOrElse("-")}
        |- issuedAt: $issuedAt
        |- signature: ${signature.map(_ => "***").getOrElse("-")}

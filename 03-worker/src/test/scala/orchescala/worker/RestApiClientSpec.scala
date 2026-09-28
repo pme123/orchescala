@@ -40,7 +40,8 @@ object RestApiClientSpec extends ZIOSpecDefault with RestApiClient:
               errorMsg =
                 """Problem creating body from response.
                   |NonEmptyList(ParsingFailure: expected json value got 'OK' (line 1, column 1))
-                  |BODY: OK""".stripMargin
+                  |--- Details ---
+                  |BODY: OK""".stripMargin // the details go into the incident, not into the log
             )
           )
 

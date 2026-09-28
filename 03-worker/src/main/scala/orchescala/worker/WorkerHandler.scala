@@ -142,11 +142,11 @@ case class ServiceHandler[
             )
       _                  <- ZIO.logDebug(s"Request created: ${rRequest.apiUri}")
       optWithServiceMock <- withServiceMock(rRequest, inputObject)
-      _                  <- ZIO.logDebug(s"optWithServiceMock: $optWithServiceMock")
+      _                  <- ZIO.logDebug(s"optWithServiceMock: ${orchescala.engine.LogSafe.names(optWithServiceMock)}")
       output             <- handleMocking(optWithServiceMock, rRequest).getOrElse(
                               runService(rRequest, inputObject)
                             )
-      _                  <- ZIO.logDebug(s"Output ready: $output")
+      _                  <- ZIO.logDebug(s"Output ready: ${orchescala.engine.LogSafe.names(output)}")
     yield output
     end for
   end runWorkZIO
@@ -222,9 +222,9 @@ case class ServiceHandler[
     ) match
       case (_, Some(json)) =>
         (for
-          _              <- ZIO.logDebug(s"Mocking Service with: $json")
+          _              <- ZIO.logDebug(s"Mocking Service with: ${orchescala.engine.LogSafe.names(json)}")
           mockedResponse <- decodeMock[MockedServiceResponse[ServiceOut]](json)
-          _              <- ZIO.logDebug(s"Mocked Response: $mockedResponse")
+          _              <- ZIO.logDebug(s"Mocked Response: ${orchescala.engine.LogSafe.names(mockedResponse)}")
           out            <- handleServiceMock(mockedResponse, runnableRequest, in)
         yield out)
           .map(Some.apply)
@@ -317,14 +317,14 @@ case class ServiceHandler[
       serviceOut <-
         summon[EngineRunContext]
           .sendRequest[ServiceIn, ServiceOut](runnableRequest)
-      _          <- ZIO.logDebug(s"Service Response: $serviceOut")
+      _          <- ZIO.logDebug(s"Service Response: ${orchescala.engine.LogSafe.names(serviceOut)}")
       eitherOut  <-
         ZIO
           .attempt(outputMapper(serviceOut, in))
           .mapError(err => ServiceMappingError(s"Problem mapping ServiceResponse to Out: $err"))
-      _          <- ZIO.logDebug(s"Either Output: $eitherOut")
+      _          <- ZIO.logDebug(s"Either Output: ${orchescala.engine.LogSafe.names(eitherOut)}")
       out        <- ZIO.fromEither(eitherOut)
-      _          <- ZIO.logDebug(s"Output: $out")
+      _          <- ZIO.logDebug(s"Output: ${orchescala.engine.LogSafe.names(out)}")
     yield out
   end runService
 

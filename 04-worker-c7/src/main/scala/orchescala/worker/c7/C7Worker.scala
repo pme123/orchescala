@@ -94,11 +94,11 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       ProcessVariablesExtractor.extractGeneral()
         .flatMap: generalVariables =>
           (for
-            _                      <- logDebug(s"generalVariables: ${generalVariables.asJson}")
+            _                      <- logDebug(s"generalVariables: $generalVariables")
             given EngineRunContext <- createEngineRunContext(generalVariables, rootLookup)
             executor               <- createExecutor
             filteredOut            <- executor.execute(tryProcessVariables)
-            _                      <- logDebug(s"filteredOut: $filteredOut")
+            _                      <- logDebug(s"filteredOut: ${orchescala.engine.LogSafe.names(filteredOut)}")
             _                      <- externalTaskService.handleSuccess(
                                         filteredOut,
                                         generalVariables.isManualOutMapping,
@@ -251,13 +251,14 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
       val retries           = calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
       val logMsg            =
-        s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | $error"
+        s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | ${orchescala.engine.LogSafe.forLog(error.toString)}"
 
       logInfo(s"Start: $logMsg") *>
         ZIO.attemptBlocking(
           externalTaskService.handleFailure(
             taskId,
-            error.causeMsg,
+            // the incident message (C7 keeps 666 characters) - the whole one in the details
+            orchescala.engine.LogSafe.summary(error.causeMsg),
             error.toString,
             Math.max(retries, 0),
             retryTimeout(error).toMillis
@@ -266,7 +267,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           {
             case _: NotFoundException =>
               logInfo(
-                s"External Task $taskId does not exist anymore - cancelled concurrently. Dropped error: $error"
+                s"External Task $taskId does not exist anymore - cancelled concurrently. Dropped error: ${orchescala.engine.LogSafe.forLog(error.toString)}"
               )
             case throwable            =>
               logError(logMsg) *> logError(

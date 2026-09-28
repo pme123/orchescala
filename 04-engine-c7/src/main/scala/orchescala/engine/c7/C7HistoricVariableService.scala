@@ -36,7 +36,7 @@ class C7HistoricVariableService(using
             C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
             ))
-      _ <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.asScala.toSeq.map(v => s"${v.getType}: ${v.getName} -> ${v.getValue}").mkString("\n", "\n", "\n")}")
+      _ <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.asScala.toSeq.map(v => s"${v.getName}: ${v.getType}").mkString(", ")}")
       variables    <-
         ZIO
           .attempt:

@@ -22,9 +22,7 @@ class C8HistoricVariableService(using
           .mapError(withContext(
             s"Problem getting Historic Variables for Process Instance '${processInstanceId.mkString}'"
           ))
-      _            <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.map(v =>
-                          s"${v.name} -> ${v.value.orNull}"
-                        )}")
+      _            <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.map(_.name).mkString(", ")}")
     yield mapToHistoricVariables(variableFilter, variableDtos)
 
   private def mapToHistoricVariables(

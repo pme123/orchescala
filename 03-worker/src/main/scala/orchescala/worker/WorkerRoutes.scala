@@ -43,7 +43,6 @@ case class WorkerRoutes(engineContext: EngineContext):
             AuthContext.withBearerToken(validatedToken):
               // the names only - the values (personal data, secrets) were in the INFO log
               ZIO.logInfo(s"Triggering worker: $topicName with variables: ${variables.asObject.fold("-")(_.keys.mkString(", "))}") *>
-                ZIO.logDebug(s"Triggering worker: $topicName with variables: $variables") *>
                 workers.get(topicName)
                   .fold(ZIO.fail(WorkerError.ServiceBadPathError(s"Worker not found: $topicName"))):
                     worker =>
@@ -59,11 +58,11 @@ case class WorkerRoutes(engineContext: EngineContext):
                                                          .initWorkFromService(variables)
                                                          .map(Option.apply)
                         _                     <- ZIO.logInfo(s"Worker '$topicName' done")
-                        _                     <- ZIO.logDebug(s"Worker '$topicName' response: $result")
+                        _                     <- ZIO.logDebug(s"Worker '$topicName' response: ${orchescala.engine.LogSafe.names(result)}")
                       yield result
                   .provideLayer(HttpClientProvider.live)
                   .tapError: err =>
-                    ZIO.logError(s"Triggering Worker Error in Gateway: $err")
+                    ZIO.logError(s"Triggering Worker Error in Gateway: ${orchescala.engine.LogSafe.forLog(err.toString, "in the response")}")
                   .mapError:
                     case err: WorkerError =>
                       ServiceRequestError(err)

@@ -137,9 +137,8 @@ class C8UserTaskService()(using
             EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             )
-      // names on INFO - the values (personal data) on DEBUG only
+      // names only - the values hold personal data
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': ${variables.map(_.key).mkString(", ")}")
-      _            <- ZIO.logDebug(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
 
 end C8UserTaskService

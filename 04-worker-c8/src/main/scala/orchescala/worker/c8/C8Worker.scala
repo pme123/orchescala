@@ -73,7 +73,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                               .map(gv => gv.copy(
                                 _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
                               ))
-        _                <- logDebug(s"generalVariables: ${generalVariables.asJson}")
+        _                <- logDebug(s"generalVariables: $generalVariables")
         _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
                               .executeWorker()
         _                <-
@@ -96,7 +96,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         _                      <- logDebug(s"EngineRunContext created")
         executor               <- createExecutor
         filteredOut            <- WorkerExecutor(worker).execute(processVariables)
-        _                      <- logDebug(s"filteredOut: $filteredOut")
+        _                      <- logDebug(s"filteredOut: ${orchescala.engine.LogSafe.names(filteredOut)}")
         _                      <- handleSuccess(filteredOut)
         _                      <- logDebug(s"Worker: ${worker.topic} completed successfully")
       yield ())
@@ -189,7 +189,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           jsonToVariablesMap(filteredOutput)
         .flatMap: variablesMap =>
           logInfo(s"handleSuccess BEFORE complete: ${job.getType}") *>
-            logDebug(s"handleSuccess BEFORE complete: $variablesMap") *>
+            logDebug(s"handleSuccess BEFORE complete: ${orchescala.engine.LogSafe.names(variablesMap)}") *>
             attemptBlocking:
               client.newCompleteCommand(job)
                 .variables((variablesMap + ("processInstanceKey" -> job.getProcessInstanceKey)).asJava)
@@ -278,7 +278,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                 "errorMsg"  -> error.toString
               )
               logError(
-                s"handleError: ${error.causeMsg} ${error.isMock} ${!generalVariables.handledErrorSeq.contains(
+                s"handleError: ${orchescala.engine.LogSafe.forLog(error.causeMsg)} ${error.isMock} ${!generalVariables.handledErrorSeq.contains(
                     error.errorCode.toString
                   )}"
               ) *>
@@ -299,14 +299,14 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
               case _: IdentityCorrelationPendingError =>
                 logInfo(s"Job ${job.getKey}: ${error.errorMsg}")
               case _ if job.getRetries > 1            =>
-                logWarning(s"Job ${job.getKey} failed (will be retried): $error")
+                logWarning(s"Job ${job.getKey} failed (will be retried): ${orchescala.engine.LogSafe.forLog(error.toString)}")
               case _                                  =>
-                logError(s"Job ${job.getKey} failed - no retries left: $error")
+                logError(s"Job ${job.getKey} failed - no retries left: ${orchescala.engine.LogSafe.forLog(error.toString)}")
         .flatMapError: throwable =>
           // throwable is frequently one of our own WorkerError/OrchescalaError cases here (e.g. the
           // ZIO.fail(error) above) - those override toString but not getMessage, which stays null
           // (Throwable's default), so use toString to actually see what went wrong.
-          logError(s"Problem handling Failure to C8: $throwable")
+          logError(s"Problem handling Failure to C8: ${orchescala.engine.LogSafe.forLog(throwable.toString)}")
         .ignore
         .ignore
   end C8WorkerRunner
@@ -323,7 +323,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     fromEither(io.circe.parser.parse(job.getVariables))
       .mapError(ex =>
         ValidatorError(
-          s"Problem Json Parsing process variables ${job.getVariables}\n" + ex.getMessage
+          orchescala.engine.LogSafe.withDetails(s"Problem Json Parsing process variables: ${ex.getMessage}", job.getVariables)
         )
       )
 end C8Worker
