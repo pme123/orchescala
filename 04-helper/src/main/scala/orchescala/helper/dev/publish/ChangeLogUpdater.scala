@@ -51,8 +51,9 @@ case class ChangeLogUpdater(
       .out
       .lines()
       .head
-    println(s"REMOTE: $remote")
-    commitsAddressUpdater(remote)
+    val webAddress     = ChangeLogUpdater.repositoryWebAddress(remote)
+    println(s"REMOTE: $webAddress")
+    commitsAddressUpdater(webAddress)
   end commitsAddress
 
   private lazy val gitLogNew = gitLog.out
@@ -107,6 +108,26 @@ case class ChangeLogUpdater(
 end ChangeLogUpdater
 
 object ChangeLogUpdater:
+
+  private val SshUrl  = """ssh://(?:[^@/]+@)?([^:/]+)(?::\d+)?/(.*)""".r
+  private val HttpUrl = """(https?)://(?:[^@/]*@)?(.*)""".r
+  private val ScpLike = """(?:[^@/]+@)?([^:/]+):(?!//)(.*)""".r
+
+  /** The web address of the repository from its git remote (`remote.origin.url`) - without
+    * credentials: the commit links go into the CHANGELOG, which is committed and published with
+    * the docs. A remote cloned with a token (`https://user:token@host/...`, typical in CI) put the
+    * token into every link.
+    *   - `https://user:token@host/group/repo.git` -> `https://host/group/repo.git`
+    *   - `ssh://git@host:2222/group/repo.git` -> `https://host/group/repo.git`
+    *   - `git@host:group/repo.git` -> `https://host/group/repo.git`
+    */
+  def repositoryWebAddress(remote: String): String =
+    remote.trim match
+      case SshUrl(host, path)    => s"https://$host/$path"
+      case HttpUrl(scheme, rest) => s"$scheme://$rest"
+      case ScpLike(host, path)   => s"https://$host/$path"
+      case other                 => other
+
   def verifyChangelog(
       newVersion: String,
       // standard for Github

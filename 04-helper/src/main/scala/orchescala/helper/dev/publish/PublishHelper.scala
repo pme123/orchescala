@@ -93,12 +93,8 @@ object PublishHelper extends Helpers:
   end verifyVersion
 
   def verifyChangelog(newVersion: String): Unit =
-    ChangeLogUpdater.verifyChangelog(
-      newVersion,
-      commitsAddress = _.replace(".git", "/commit/") // git
-        .replace("ssh://git@", "https://")           // ssh protocol
-        .replace(":2222", "") // ssh port
-    )
+    // ssh remotes are turned into https ones by ChangeLogUpdater.repositoryWebAddress
+    ChangeLogUpdater.verifyChangelog(newVersion)
 
   def verifySnapshots(): Unit =
     hasSnapshots("Settings")
