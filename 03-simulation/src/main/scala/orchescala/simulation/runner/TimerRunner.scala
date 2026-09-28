@@ -37,8 +37,9 @@ class TimerRunner(val timerScenario: STimerEvent)(using
         _                  <-
           logInfo(s"Fetching Job for ${timerScenario.inOut.id}: $processInstanceId")
         jobs               <-
+          // only timers: the first job was triggered - also an async continuation or another job
           jobService
-            .getJobs(processInstanceId = Some(processInstanceId))
+            .getJobs(processInstanceId = Some(processInstanceId), timersOnly = true)
             .mapError: err =>
               SimulationError.ProcessError(
                 summon[ScenarioData].error(err.errorMsg)

@@ -12,7 +12,8 @@ class C8JobService(using
 ) extends JobService, C8Service:
 
   def getJobs(
-      processInstanceId: Option[String]
+      processInstanceId: Option[String],
+      timersOnly: Boolean
   ): IO[EngineError, List[Job]] = ZIO.fail(ServiceError("Get Jobs not yet supported in Camunda 8"))
 
   def execute(jobId: String): IO[EngineError, Unit] =

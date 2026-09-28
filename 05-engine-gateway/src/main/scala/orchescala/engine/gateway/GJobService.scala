@@ -16,10 +16,11 @@ class GJobService(using
 ) extends JobService, GService:
 
   def getJobs(
-      processInstanceId: Option[String] = None
+      processInstanceId: Option[String] = None,
+      timersOnly: Boolean = false
   ): IO[EngineError, List[Job]] =
     tryServicesWithErrorCollection[JobService, List[Job]](
-      _.getJobs(processInstanceId),
+      _.getJobs(processInstanceId, timersOnly),
       "getJobs",
       processInstanceId,
       Some((jobs: List[Job]) => jobs.headOption.flatMap(_.id).getOrElse("NOT-SET"))

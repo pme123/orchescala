@@ -17,12 +17,14 @@ class C7JobService(using
 ) extends JobService, C7Service:
 
   def getJobs(
-      processInstanceId: Option[String] = None
+      processInstanceId: Option[String] = None,
+      timersOnly: Boolean = false
   ): IO[EngineError, List[Job]] =
     for
       apiClient <- apiClientZIO
       query     =  new JobQueryDto()
                      .processInstanceId(processInstanceId.orNull)
+                     .timers(if timersOnly then true else null)
       jobDtos   <-
         ZIO
           .attemptBlocking:
