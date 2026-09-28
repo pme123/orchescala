@@ -1,5 +1,5 @@
 // Element-IDs nach Hauskonvention — abgelesen an den bestehenden
-// Valiant-Prozessen: PascalCase des fachlichen Namens plus Typ-Suffix,
+// Globex-Prozessen: PascalCase des fachlichen Namens plus Typ-Suffix,
 // OHNE company-projekt-Prefix. Den Prefix tragen nur Prozess-IDs, Topics,
 // Message-Namen und DMN-Referenzen — Ablauf-Elemente (auch Benutzeraufgaben)
 // heissen nur nach ihrem Namen:
@@ -12,8 +12,8 @@
 //   Account opened        (end)     → AccountOpenedEndEvent
 //   start                 (start)   → StartStartEvent
 //
-// Umlaute verlieren dabei nur ihre Zeichen («Adressänderung prüfen (QMS)» →
-// AdressanderungPrufenQMSTask) — genau wie in den bestehenden IDs, und anders
+// Umlaute verlieren dabei nur ihre Zeichen («Kartenbestellung prüfen (Backoffice)» →
+// KartenbestellungPrufenBackofficeTask) — genau wie in den bestehenden IDs, und anders
 // als bei den Scala-Objektnamen (dort ä → ae, siehe `pascal` in
 // interactions.ts). Doppelte IDs zählen ohne Trenner hoch (HeatmapEvent1).
 
@@ -35,7 +35,7 @@ const SUFFIX: Partial<Record<StepKind, string>> = {
   event: 'Event',
 };
 
-/** «Adressänderung prüfen (QMS)» → `AdressanderungPrufenQMS` */
+/** «Kartenbestellung prüfen (Backoffice)» → `KartenbestellungPrufenBackoffice` */
 export function idPascal(text: string): string {
   const ascii = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u00df/g, 'ss');
   const parts = ascii.split(/[^A-Za-z0-9]+/).filter(Boolean);
@@ -143,7 +143,7 @@ export function renameStepId<T extends {
 
 // ── Firma und Projekt (`company-projekt`-Prefix) ─────────────────────────────
 
-/** `valiant-fil-is` → { company: 'valiant', project: 'fil-is' } */
+/** `globex-core-banking` → { company: 'globex', project: 'core-banking' } */
 export function splitPrefix(prefix: string): { company: string; project: string } {
   const [company, ...rest] = prefix.split('-').filter(Boolean);
   return { company: company ?? '', project: rest.join('-') };

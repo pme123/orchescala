@@ -27,8 +27,8 @@ npm install && npm run dev
 Dann <http://localhost:3002/orch-spec/?demo> öffnen — die App startet
 direkt mit den Beispieldaten aus `sample-data/` (ohne Ordnerauswahl, nur im
 Dev-Server; verlangt deren `model.json` eine Anmeldung, dann mit Login). Die Beispieldaten sind **echt**: sie
-wurden aus `mkk-openMkkV1.bpmn`, den OpenAPI-Dateien und den Scala-Quellen
-der valiant-Projekte erzeugt.
+wurden aus `savings-openSavingsV1.bpmn`, den OpenAPI-Dateien und den Scala-Quellen
+der globex-Projekte erzeugt.
 
 Ohne `?demo` startet die App normal und fragt nach dem Ordner; `sample-data/`
 lässt sich dabei als lokaler Ordner wählen.
@@ -60,7 +60,7 @@ Weitere Muster, die der Import auflöst:
   Gegenstück) hängen an keinem Sequenzfluss — sie kommen als eigene Blöcke ans
   Ende, statt zu verschwinden.
 
-Geprüft über alle **72 BPMN-Dateien** der valiant-Projekte: kein Element geht
+Geprüft über alle **72 BPMN-Dateien** der globex-Projekte: kein Element geht
 verloren, und ein erneuter Import derselben Datei ändert nichts
 (0 neu · 0 geändert · 0 entfallen).
 
@@ -155,7 +155,7 @@ Der Generator schreibt das ADT wie die Domain: die gemeinsamen Felder als
 Companion mit `example` je Fall und einem für den Typ. Ein ADT-Feld ist im
 JSON ein Objekt; die FEEL-Vervollständigung zeigt darin die Felder aller
 Fälle. Der Import liest `def x: T` und `case X(…)` aus der Domain — das `In`
-von `valiant-depot-open` kommt so mit drei gemeinsamen Feldern und zwei
+von `globex-depot-open` kommt so mit drei gemeinsamen Feldern und zwei
 Fällen herein, ein Feld, das schon gemeinsam ist, wird im Fall nicht
 nochmals geführt (der Klassenbauer meldet das sonst). Was die Domain nicht
 als `def` führt, aber in **allen** Fällen gleich steht — gleicher Name, Typ
@@ -210,9 +210,9 @@ heisst dort `CheckDuplicatesTask`, das Objekt `CheckDuplicatesUT`), wird
 deshalb vorgeschlagen und ist danach frei änderbar. Ohne eigenes `In`/`Out`
 erzeugt der Generator `type In = NoInput` — so schreibt es die Domain auch.
 
-Am MKK geprüft: aus dem Ablauf entstehen genau `ExtractClientKey`,
+Am Sparkonto geprüft: aus dem Ablauf entstehen genau `ExtractClientKey`,
 `CheckDuplicatesUT` und `CreatePrintDocuments` — dieselben drei Objekte, die
-in `valiant-mkk/01-domain` liegen.
+in `globex-savings/01-domain` liegen.
 
 ### Der Prozess als Klammer: In · InitIn · Out · InConfig
 
@@ -228,7 +228,7 @@ feste Gruppe:
 
 `InConfig` entsteht aus dem Ablauf und wird nur angezeigt: je Schleife `max…`,
 `counter…` und `timerWait…` mit Vorgaben, je Service und Teilprozess ein
-`…Mock: Option[<Objekt>.Out] = None` samt Import. Beim MKK ergibt das
+`…Mock: Option[<Objekt>.Out] = None` samt Import. Beim Sparkonto ergibt das
 `maxOpenAccount`, `timerWaitOpenAccount`, `counterOpenAccount`,
 `maxGetClientAdvisor` … und `duplicateCheckMock: Option[PostDuplicateCheck.Out]`
 — dieselben Felder wie in der handgeschriebenen Domain.
@@ -285,10 +285,10 @@ Domain deshalb nicht suchen — die App tut es, in dieser Reihenfolge:
 Vor dem Anlegen steht, was entsteht:
 
 ```
-Aus BPMN  Adressänderung  valiant-addresschange
-74 Schritte · Domain AddressChange aus Ordner valiant-addresschange
+Aus BPMN  Kartenbestellung  globex-ordercard
+74 Schritte · Domain OrderCard aus Ordner globex-ordercard
 · 15 Typen · 6 Interaktionen (ReconfirmationUT, AdjustProcessVariables, …)
-⚠ Typen weder im Projekt noch im Katalog: GravitonConsultant, ProcessCallOrigin
+⚠ Typen weder im Projekt noch im Katalog: CrmConsultant, ProcessCallOrigin
                                                               [Anlegen]
 ```
 
@@ -297,11 +297,11 @@ Was dabei entsteht, ohne Raten:
 - Aus `In`, `InitIn` und `Out` des Prozess-Objekts werden die Prozess-Klassen
   des Datenmodells; `InConfig` bleibt draussen (Implementations-Detail), auch
   als Feld im `In`.
-- **Eigene Typen** des Projekts (`NewAddress`, enums) werden eigene Typen der
+- **Eigene Typen** des Projekts (`NewCard`, enums) werden eigene Typen der
   Spezifikation — mit `Option`/`Seq`, Einschränkung, Vorgabe und
   `@description`. Ein Alias wie `type AddressType = Int :| any.In[(11, 15)]`
   wird zum Grundtyp mit Einschränkung. Typen aus **anderen Projekten**
-  (`GravitonConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
+  (`CrmConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
   sonst bleibt der Name stehen und wird gemeldet.
 - Ein Feld vom Typ `MergeContractsForCAM.In` — das In/Out eines Objekts —
   bleibt **derselbe Typ** wie bei der Interaktion, unter vollem Namen; gehört
@@ -311,13 +311,13 @@ Was dabei entsteht, ohne Raten:
   `val topicName` (auch wenn es nicht mit der Prozess-ID beginnt), Signal und
   Nachricht über den Namen im BPMN (`<bpmn:signal name>`, bis zum dynamischen
   Teil `${…}`) — auch gefangene Signale —, sonst über die Namenskonvention.
-  Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustAddressUT.In`
-  wird eine Kopie mit dem Hinweis `= AdjustAddressUT.In`, `NoInput` bleibt
+  Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustOrderUT.In`
+  wird eine Kopie mit dem Hinweis `= AdjustOrderUT.In`, `NoInput` bleibt
   leer. `val descr` wird die Beschreibung. Objekte des Pakets ohne Schritt
   werden gemeldet. Ein älterer Katalog ohne DSL-Angabe wird über Topic und
   Namensendung (`…UT`, `…SE`, `…ME`) gelesen — Benutzeraufgaben, deren
-  Objektname nicht der Konvention folgt (`ApproveAddressUT` für
-  `AdressanderungPrufenQMSTask`), findet erst ein neu erzeugter Katalog oder
+  Objektname nicht der Konvention folgt (`ApproveOrderUT` für
+  `KartenbestellungPrufenBackofficeTask`), findet erst ein neu erzeugter Katalog oder
   der Projekt-Ordner, denn nur dort steht `val name`.
 - **Schritte ohne Domain-Objekt** — Benutzeraufgaben, eigene Worker, Signale,
   Nachrichten, die die Domain nicht kennt — werden **vorbereitet**: eine
@@ -343,12 +343,12 @@ sie.
 
 ```
 [Fachlicher Titel]                                        [Anlegen]
-[valiant] [depot] [openDepot]                          V  [2]
+[globex] [depot] [openDepot]                          V  [2]
 ┌──────────────────────────┐ ┌──────────────────────────┐
 │ Camunda 7                │ │ Camunda 8                │
 │ External Tasks mit Topic │ │ zeebe:taskDefinition     │
 └──────────────────────────┘ └──────────────────────────┘
-Prozess-ID: valiant-depot-openDepotV2 · Vorlage templates/c8.bpmn
+Prozess-ID: globex-depot-openDepotV2 · Vorlage templates/c8.bpmn
 ```
 
 Die Prozess-ID entsteht aus **`company-project-processVversion`** und ist
@@ -407,9 +407,9 @@ eine Frage, die sich im Admin stellt: steht das drin?
 ### Pattern
 
 Vieles im BPMN ist Hauskonvention, die an jedem Prozess gleich aussieht:
-eine Benutzeraufgabe meldet sich über Task-Listener und einen Timer an MAP,
-eine Eskalation hängt als Timer an der Aufgabe und startet über einen Link
-den Eskalationsprozess, am Ende steht ein `processStatus`. Solche Bausteine
+eine Benutzeraufgabe meldet ihren Status über Task-Listener und einen Timer
+an ein Portal, eine Eskalation hängt als Timer an der Aufgabe und startet
+über einen Link den Eskalationsprozess, am Ende steht ein `processStatus`. Solche Bausteine
 legt der Admin als **Pattern** an; in der Spezifikation wählt man sie am
 Element, statt sie Stück für Stück zu zeichnen.
 
@@ -421,10 +421,10 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   │ PatternTarget        │  der Anker: sein Typ (Benutzeraufgabe, Call Activity …)
   │  · Listener, Eingaben│  ist der Typ, an den das Pattern passt. Was an ihm
   └──◯───────────────────┘  hängt, kommt an jedes Element, das es wählt
-     ↓ Timer ${timerStartEscalation}
-     ◉ Link «start-escalation»
+     ↓ Timer ${timerEscalation}
+     ◉ Link «escalate»
 
-  ◉ Link «start-escalation» → [Start Escalation Process] → ○
+  ◉ Link «escalate» → [Start Escalation Process] → ○
                               losgelöster Block: braucht der Prozess einmal
 ```
 
@@ -443,7 +443,7 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   Skripten. Im Admin bekommen sie Beschriftung, Vorgabe und Bedeutung.
   Eingebaut sind `{{targetId}}`, `{{targetName}}`, `{{processId}}` und
   `{{startMessage}}` (Nachricht des Nachrichten-Startereignisses); eine
-  Vorgabe darf sie nennen (`{{processId}}-informKube`).
+  Vorgabe darf sie nennen (`{{processId}}-inform`).
 - **Je Engine ein BPMN** (Camunda 7 / 8): angeboten wird ein Pattern nur, wo
   es für die Engine der Spezifikation eines gibt.
 
@@ -474,19 +474,19 @@ der Orchescala-Export nennt sie samt Werten und beschreibt am Ende jedes
 verwendete Pattern mit Doku-Link.
 
 Pattern reisen als Datei (Admin → Pattern → Exportieren / Importieren; der
-Import ergänzt, gleiche ID wird ersetzt). Geprüft über die **74 BPMN-Dateien**
-der valiant-Projekte mit 12 Pattern: 504 Stellen erkannt, jede lässt sich
+Import ergänzt, gleiche ID wird ersetzt). Geprüft über **74 BPMN-Dateien**
+aus Kundenprojekten mit 12 Pattern: 504 Stellen erkannt, jede lässt sich
 entfernen und wieder einfügen und wird danach mit denselben Werten erkannt;
 1187-mal an Elemente ohne das Pattern eingefügt und wiedererkannt; der Ablauf
 bleibt mit und ohne Pattern derselbe.
 
 ### Wo ein Prozess in der Domain liegt
 
-Aus `valiant-mkk-openMkkV1` lässt sich `valiant.mkk.domain.openMkk.v1` ·
-`OpenMkkV1` ableiten — der Name trägt die Version. Bei
-`valiant-addresschange` steht in der ID nichts, woraus sich `addressChange`
-gewinnen liesse; die Ableitung ergäbe `addresschange`, und der Bindestrich in
-`valiant-addresschange` wäre in einem Package-Namen nicht einmal erlaubt.
+Aus `globex-savings-openSavingsV1` lässt sich `globex.savings.domain.openSavings.v1` ·
+`OpenSavingsV1` ableiten — der Name trägt die Version. Bei
+`globex-ordercard` steht in der ID nichts, woraus sich `orderCard`
+gewinnen liesse; die Ableitung ergäbe `ordercard`, und der Bindestrich in
+`globex-ordercard` wäre in einem Package-Namen nicht einmal erlaubt.
 
 Deshalb steht die Zuordnung nicht im Namen, sondern im Katalog: der Scan
 merkt sich `val processName` und `val topicName` der Domain-Objekte. Ein
@@ -511,17 +511,17 @@ sortiert**:
 
 ```
 PROJEKT-ORDNER   oben steht, was bei gleichem Paket gewinnt
- 1  swisscom-fil-is         ~/dev-swisscom/projects/swisscom-fil-is   117 Typen  ↑ ↓ ×
- 2  valiant-addresschange   ~/dev-valiant/projects/…                   32 Typen  ↑ ↓ ×
+ 1  initech-core-banking         ~/dev-initech/projects/initech-core-banking   117 Typen  ↑ ↓ ×
+ 2  globex-ordercard   ~/dev-globex/projects/…                   32 Typen  ↑ ↓ ×
  …
- 8  valiant-fil-is          ~/dev-valiant/projects/valiant-fil-is     696 Typen  ↑ ↓ ×
+ 8  globex-core-banking          ~/dev-globex/projects/globex-core-banking     696 Typen  ↑ ↓ ×
 ```
 
 **Projekte wählen** nimmt den Ordner *über* den Projekten
-(`~/dev-valiant/projects`) — seine Unterordner mit einem `01-domain` kommen
+(`~/dev-globex/projects`) — seine Unterordner mit einem `01-domain` kommen
 alphabetisch in die Liste. Ist der gewählte Ordner selbst ein Projekt, kommt
 eben dieses. Mehrere Wurzeln lassen sich nacheinander hinzufügen, etwa
-`~/dev-swisscom/projects` und `~/dev-valiant/projects`.
+`~/dev-initech/projects` und `~/dev-globex/projects`.
 
 **Neu aufbauen** liest die Liste von oben nach unten frisch ein — rekursiv
 nach `.scala`, Tests und Build-Ordner bleiben draussen. Neu **aufbauen**, nicht
@@ -543,7 +543,7 @@ Gesammelt wird alles, was sich als Feldtyp verwenden lässt — die Objekte im
 `schema/`-Ordner ebenso wie die `In` / `Out` der Services. Der Parser kennt
 dabei drei Eigenheiten der Domain:
 
-- **geteilte Paketangaben** (`package valiant.graviton.domain` +
+- **geteilte Paketangaben** (`package globex.crm.domain` +
   `package account.v1`) werden zusammengesetzt,
 - **`In` als ADT** (`enum In: case Iban(…) case Generic(…)`) wird als
   Auswahl mit ihren Fällen erkannt,
@@ -552,21 +552,21 @@ dabei drei Eigenheiten der Domain:
   ausgeschriebene Definition.
 
 **Die Reihenfolge der Liste ist der Vorrang.** Dieselbe Schnittstelle liegt
-in mehreren Projekten — `client` gibt es unter `swisscom.fil.is.domain` und
-unter `valiant.fil.is.domain`. Beide zu führen hiesse zwei gleich heissende
+in mehreren Projekten — `client` gibt es unter `initech.core.banking.domain` und
+unter `globex.core.banking.domain`. Beide zu führen hiesse zwei gleich heissende
 Objekte in der Auswahl und einen Import auf gut Glück. Darum gewinnt das
 weiter oben stehende Projekt: kommt später ein Paket mit demselben Schlüssel
 (Paket ohne das Firmen-Segment, Version bleibt Teil davon — `client.v1` und
 `client.v4` sind zwei APIs), wird es verworfen und gemeldet:
 
 ```
-verworfen: valiant.fil.is.domain.client.v1.schema (19 Typen)
-           — Vorrang hat swisscom.fil.is.domain.client.v1.schema
+verworfen: globex.core.banking.domain.client.v1.schema (19 Typen)
+           — Vorrang hat initech.core.banking.domain.client.v1.schema
 ```
 
 Eingelesen werden nicht nur die Service-Projekte, sondern auch die
 **Prozess-Projekte** — deren `In`/`Out` sind das, was ein Subprozess-Aufruf
-braucht. Über 18 Projekte (`swisscom-fil-is` zuoberst) sind das **2095 Typen
+braucht. Über 18 Projekte (`initech-core-banking` zuoberst) sind das **2095 Typen
 aus 2625 Dateien**. Die Beispieldaten enthalten diesen Katalog bereits.
 
 `InConfig` und `InitIn` fremder Projekte werden dabei übersprungen: das sind
@@ -578,26 +578,26 @@ Wird ein Typ aus dem Katalog gewählt, setzt der Generator den passenden
 **Prozesse von der Doku-Site.** Wer die Quellen nicht lokal hat, holt die
 Prozesse über **Von URL laden**: die Orchescala-Doku-Site führt je Firma eine
 `catalog.html`, in der jeder Eintrag vollständig im Link steckt —
-`.../site/valiant/valiant-mkk/OpenApi.html#operation/Bpmn:%20openMkkV1`. Daraus
+`.../site/globex/globex-savings/OpenApi.html#operation/Bpmn:%20openSavingsV1`. Daraus
 entstehen die **Prozesse mit ihren `In`/`Out`** — also das, was sich als
-Subprozess rufen lässt. Über den Valiant-Katalog sind das **81 Prozesse aus 16
+Subprozess rufen lässt. Über den Globex-Katalog sind das **81 Prozesse aus 16
 Projekten**.
 
 Das Paket wird dabei aus Projekt und Prozessname abgeleitet
-(`valiant-mkk` + `openMkkV1` → `valiant.mkk.domain.openMkk.v1`). Sicher ist das
+(`globex-savings` + `openSavingsV1` → `globex.savings.domain.openSavings.v1`). Sicher ist das
 nur, wenn der Name die Version trägt; sonst ist der Katalogname die
-BPMN-Prozess-ID und nicht der Scala-Name (`valiant-addresschange` heisst dort
-`AddressChange`) — solche Einträge sind als «Import prüfen» markiert. Deshalb
+BPMN-Prozess-ID und nicht der Scala-Name (`globex-ordercard` heisst dort
+`OrderCard`) — solche Einträge sind als «Import prüfen» markiert. Deshalb
 **füllt der Site-Import nur Lücken**: was aus den Quellen schon exakt bekannt
 ist, bleibt stehen.
 
 Worker kommen bewusst nicht von der Site: dort fehlt die API-Ebene
-(`personV1` in `valiant-graviton-personV1.GetCustomer`), der Import wäre
+(`personV1` in `globex-crm-personV1.GetCustomer`), der Import wäre
 geraten. Die stehen in der OpenAPI — mitsamt Mapping und Beschreibungen.
 
-Aus dem Browser greift dabei **CORS** — und beim Valiant-Server tut es das
-tatsächlich: `bpf.apps.grv.scbs.ch` ist erreichbar (ein Versuch mit `no-cors`
-liefert eine Antwort), sendet aber kein `Access-Control-Allow-Origin`. Der
+Aus dem Browser greift dabei **CORS** — und bei einem internen Doku-Server
+tut es das oft: der Server ist erreichbar (ein Versuch mit `no-cors` liefert
+eine Antwort), sendet aber kein `Access-Control-Allow-Origin`. Der
 Browserweg funktioniert dort also erst, wenn der Server diesen Header setzt.
 
 Weil `Failed to fetch` zwei ganz verschiedene Ursachen hat, unterscheidet die
@@ -623,8 +623,8 @@ Der neue Katalog kennt weniger
 neuen Katalog. Die Spezifikationen bleiben, wie sie sind — die Verweise
 darin zeigen danach ins Leere und werden rot angezeigt.
 
-  valiant-graviton-person.GetConsultant
-  valiant-graviton-personV1.GetCustomer
+  globex-crm-person.GetConsultant
+  globex-crm-personV1.GetCustomer
   …
                               [Abbrechen]  [Trotzdem ersetzen]
 ```
@@ -651,7 +651,7 @@ Datei (frischer Checkout, Dev-Server), läuft alles wie bisher.
 Derselbe Weg hilft, solange der Doku-Server keine CORS-Freigabe hat:
 
 ```bash
-node tools/site2catalog.ts https://bpf.apps.grv.scbs.ch/site/ --out katalog.json
+node tools/site2catalog.ts https://docs.example.com/site/ --out katalog.json
 ```
 
 Die Datei dann im Admin über **Importieren** einlesen. Durchgespielt: 162
@@ -966,7 +966,7 @@ sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
 `processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen),
 `result.get("k")` → `result.k` und Zeitketten wie
 `dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
-alle valiant-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
+alle globex-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
 Setter, `append`, dynamische Variablennamen, `jsonPath`-Filter.
 Was kein Gegenstück hat (fremde Methoden, Java-Aufrufe), bleibt als JUEL
 stehen und wird am Feld gelb gemeldet — der Export übernimmt es für Camunda 7
@@ -1075,19 +1075,19 @@ Exportieren des Katalogs bleiben die Pfade zurück; die Reihenfolge reist mit.
 So sind die Beispieldaten entstanden:
 
 ```bash
-node tools/bpmn2spec.ts ~/dev-valiant/projects/valiant-mkk/src/main/resources/camunda/mkk-openMkkV1.bpmn sample-data/processes/valiant-mkk-openmkkv1.json
-node tools/openapi2catalog.ts ~/git-temp ~/dev-valiant/projects --out sample-data/model.json
-node tools/domain2catalog.ts ~/dev-swisscom/projects ~/dev-valiant/projects --out sample-data/model.json
+node tools/bpmn2spec.ts ~/dev-globex/projects/globex-savings/src/main/resources/camunda/savings-openSavingsV1.bpmn sample-data/processes/globex-savings-opensavingsv1.json
+node tools/openapi2catalog.ts ~/git-temp ~/dev-globex/projects --out sample-data/model.json
+node tools/domain2catalog.ts ~/dev-initech/projects ~/dev-globex/projects --out sample-data/model.json
 ```
 
 Die Ausgabe zeigt, was jedes Projekt beigetragen hat, und was die
 Vorrang-Regel verworfen hat:
 
 ```
-  117  swisscom-fil-is
-  696  valiant-fil-is
+  117  initech-core-banking
+  696  globex-core-banking
   …
-verworfen: valiant.fil.is.domain.client.v1 (13 Typen) — Vorrang hat swisscom.fil.is.domain.client.v1
+verworfen: globex.core.banking.domain.client.v1 (13 Typen) — Vorrang hat initech.core.banking.domain.client.v1
 ```
 
 ## Aufbau

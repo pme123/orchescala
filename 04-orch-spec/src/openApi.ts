@@ -3,11 +3,11 @@
 // Die `OpenApi.yml` jedes Projekts beschreibt alles, was von aussen ansprechbar
 // ist — und trägt dabei mehr als die element-templates:
 //
-//   POST /process/valiant-mkk-openMkkV1/async     «Process start»
+//   POST /process/globex-savings-openSavingsV1/async     «Process start»
 //        → der Prozess selbst, Eingaben aus dem Request-Schema
 //   GET  /process/…/{id}/variables                «Process variables»
 //        → seine Ausgaben
-//   POST /worker/valiant-mkk-openMkkV1-ExtractClientKey   «Worker: …»
+//   POST /worker/globex-savings-openSavingsV1-ExtractClientKey   «Worker: …»
 //        → ein Service; das **Topic steht im Pfad**
 //   GET  /process/{id}/userTask/X/variables       «UserTask variables: X»
 //   POST /userTask/X/{id}/complete                «UserTask complete: X»
@@ -127,7 +127,7 @@ function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
 }
 
 export interface OpenApiResult {
-  /** Projekt laut `info.title`, z. B. `valiant-mkk` */
+  /** Projekt laut `info.title`, z. B. `globex-savings` */
   project: string;
   services: ServiceDef[];
   /** `In`/`Out` der Prozesse — für die Typ-Auswahl */
@@ -139,7 +139,7 @@ export interface OpenApiResult {
 /** Eine bereits geparste OpenAPI in Katalog-Einträge übersetzen. */
 export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
   const doc = (raw ?? {}) as Doc;
-  // `info.title` ist manchmal ein Anzeigename («Valiant Kube»); für die
+  // `info.title` ist manchmal ein Anzeigename («Globex Cards»); für die
   // Gruppierung ist die Projekt-Kennung aus der Prozess-ID die bessere Wahl.
   const title = String(doc.info?.title ?? '').trim();
   const services = new Map<string, ServiceDef>();

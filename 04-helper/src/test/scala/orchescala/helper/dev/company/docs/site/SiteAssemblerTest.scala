@@ -7,12 +7,13 @@ import munit.FunSuite
   */
 class SiteAssemblerTest extends FunSuite:
 
-  private val docsPath = sys.env.get("COMPANY_DOCS_PATH")
+  // the 00-docs of a company-orchescala repo - only from COMPANY_DOCS_PATH, otherwise the test is
+  // skipped: no fallback, so the outcome never depends on what lies in a home directory
+  private val docsPath: Option[os.Path] = sys.env.get("COMPANY_DOCS_PATH").map(os.Path(_)).filter(os.exists)
+  // the project checkouts - only used together with COMPANY_DOCS_PATH
+  private val gitTemp = sys.env.get("GIT_TEMP_PATH")
     .map(os.Path(_))
-    .getOrElse(os.Path("/Users/pme/dev-valiant/valiant-orchescala/00-docs"))
-  private val gitTemp  = sys.env.get("GIT_TEMP_PATH")
-    .map(os.Path(_))
-    .getOrElse(os.Path("/Users/pme/git-temp"))
+    .getOrElse(os.home / "git-temp")
 
   test("the orch-doc jar ships the site app, the API page and the spec tools"):
     val files = os.read.lines(os.resource / "orch-doc-site" / "files.txt")
@@ -26,9 +27,10 @@ class SiteAssemblerTest extends FunSuite:
       assert(os.read(os.resource / "orch-doc-tools" / t).nonEmpty, s"spec tool $t missing")
 
   test("assemble builds the layout /site has, in a fresh dir"):
-    if !os.exists(docsPath) || !os.exists(gitTemp) then
-      println(s"Skipping: company 00-docs ($docsPath) or git-temp ($gitTemp) not available")
-    else
+    docsPath match
+    case None                             => println("Skipping: COMPANY_DOCS_PATH not set (or not found)")
+    case Some(_) if !os.exists(gitTemp)   => println(s"Skipping: git-temp ($gitTemp) not available")
+    case Some(docsPath)                   =>
       val out = os.temp.dir(prefix = "site-test")
       SiteAssembler(Seq(docsPath), gitTemp, out).assemble()
       assert(os.exists(out / "index.html"), "no index.html")

@@ -15,7 +15,7 @@
 // über `val topicName`, Signal und Nachricht über den Namen im BPMN.
 //
 // Typen aus dem Projekt selbst werden **eigene Typen** der Spezifikation;
-// Typen aus anderen Projekten (`GravitonConsultant`) zeigen auf den
+// Typen aus anderen Projekten (`CrmConsultant`) zeigen auf den
 // Domain-Katalog, wenn er sie kennt — sonst bleibt der Name stehen und wird
 // gemeldet.
 
@@ -405,7 +405,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     if (!t) return undefined;
     if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${o.owner}.${name}`);
     if (t.kind === 'alias' && t.target && t.target !== 'NoInput' && t.target !== 'NoOutput') {
-      // `type In = AdjustAddressUT.In` — dieselben Felder unter eigenem Namen
+      // `type In = AdjustOrderUT.In` — dieselben Felder unter eigenem Namen
       const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
         return conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
@@ -433,7 +433,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       // Signal / Nachricht: über den Namen im BPMN (bis zum dynamischen Teil)
       const key = (o.key ?? '').split('${')[0];
       if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
-      // sonst die Namenskonvention (`AdressanderungPrufenQMSTask` → `AdressanderungPrufenQMSUT`)
+      // sonst die Namenskonvention (`KartenbestellungPrufenBackofficeTask` → `KartenbestellungPrufenBackofficeUT`)
       return o.owner === suggestName(step, kind, processId, model);
     });
     if (!obj) continue;

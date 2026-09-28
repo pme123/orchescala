@@ -70,7 +70,7 @@ export function splitProjectInfo(md: string) {
   // summary may be wrapped over several lines) — its content, without the collapsible
   const takeDetails = (label: string) =>
     take(new RegExp(`<details>\\s*<summary>\\s*(?:<b>)?(?:<i>)?${label}(?:<\\/i>)?(?:<\\/b>)?\\s*<\\/summary>\\s*<p>([\\s\\S]*?)<\\/p>\\s*<\\/details>`))?.[1]?.trim();
-  // the company's own gateway variant (`Valiant Postman Instructions`, see
+  // the company's own gateway variant (`Globex Postman Instructions`, see
   // ApiConfig.companyPostmanInstructions) — keeps its label, the plain one is matched below
   const companyPostmanMatch = take(/<details>\s*<summary>\s*(?:<b>)?(?:<i>)?([\w-]+ Postman Instructions)(?:<\/i>)?(?:<\/b>)?\s*<\/summary>\s*<p>([\s\S]*?)<\/p>\s*<\/details>/);
   const companyPostman = companyPostmanMatch ? { title: companyPostmanMatch[1].trim(), text: companyPostmanMatch[2].trim() } : undefined;
@@ -407,7 +407,7 @@ function OperationView({ op, api, isDark, base, rewrite }: { op: Operation; api:
       return isResponse
         ? <>Out{note('the variables shown in the form of this UserTask — returned by this call')}</>
         : <>In{note('the values entered in the form of this UserTask — sent with this call')}</>;
-    // the heading is the short class (`In`), the owner (`OpenMkkV1.In`) shows in the root row below
+    // the heading is the short class (`In`), the owner (`OpenSavingsV1.In`) shows in the root row below
     const short = cls.replace(/^.*[.> ]/, '');
     const isIn = /^In\d*$/.test(short), isOut = /^Out\d*$/.test(short);
     return isResponse && isIn ? <>{short}{note('returned by this call')}</>
@@ -433,7 +433,7 @@ function OperationView({ op, api, isDark, base, rewrite }: { op: Operation; api:
         </h3>
         {b.schema && <SchemaTree schema={b.schema} schemas={api.schemas} isDark={isDark} />}
         {examples.length === 1 && (
-          // a single example needs no name of its own (`valiant-bpmn-productGroups`) — it is THE example
+          // a single example needs no name of its own (`globex-bpmn-productGroups`) — it is THE example
           <div className="mt-2"><ExampleBlock title="Example" value={examples[0].value} isDark={isDark} /></div>
         )}
         {examples.length > 1 && (
@@ -638,7 +638,7 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
     const all = api.operations;
     const exact = all.find(o => opId(o, all) === op) ?? all.find(o => o.operationId === op);
     if (exact || !op) return exact ?? all[0];
-    // catalog anchors like `Bpmn: openMkkV1` name the process, not an operationId
+    // catalog anchors like `Bpmn: openSavingsV1` name the process, not an operationId
     const name = op.split(': ').pop()!;
     return all.find(o => o.path.includes(name) || o.operationId.endsWith(name)) ?? all[0];
   }, [api, op]);

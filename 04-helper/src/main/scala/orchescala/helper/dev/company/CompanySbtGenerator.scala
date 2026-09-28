@@ -189,6 +189,14 @@ case class CompanySbtGenerator()(using
        |      )
        |  )
        |
+       |  // the credentials belong to the host of the release repository
+       |  lazy val releaseRepoHost: String      = Option(java.net.URI.create(releaseRepoStr).getHost)
+       |    .getOrElse(
+       |      throw new IllegalArgumentException(
+       |        s"${companyNameUpper}_MVN_RELEASE_REPOSITORY has no host: $$releaseRepoStr"
+       |      )
+       |    )
+       |
        |  lazy val artifactoryRealm             = "Artifactory Realm"
        |  lazy val releaseRepo: MavenRepository = artifactoryRealm at releaseRepoStr
        |  // not in use
@@ -196,7 +204,7 @@ case class CompanySbtGenerator()(using
        |  lazy val repoCredentials: Credentials = (for {
        |    user <- sys.env.get("${companyNameUpper}_MVN_REPOSITORY_USERNAME")
        |    pwd  <- sys.env.get("${companyNameUpper}_MVN_REPOSITORY_PASSWORD")
-       |  } yield Credentials(artifactoryRealm, "bin.swisscom.com", user, pwd))
+       |  } yield Credentials(artifactoryRealm, releaseRepoHost, user, pwd))
        |    .getOrElse(
        |      throw new IllegalArgumentException(
        |        "System Environment Variables ${companyNameUpper}_MVN_REPOSITORY_USERNAME and/ or ${companyNameUpper}_MVN_REPOSITORY_PASSWORD are not set."

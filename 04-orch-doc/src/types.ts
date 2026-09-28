@@ -17,13 +17,13 @@ export interface SiteIndex {
 }
 
 export interface CompanyRef {
-  /** folder name and URL segment, e.g. `valiant` */
+  /** folder name and URL segment, e.g. `globex` */
   id: string;
-  /** display name, e.g. `Valiant` */
+  /** display name, e.g. `Globex` */
   name: string;
   /** current release tag, e.g. `2026-08` */
   release?: string;
-  /** customer logo, relative to the site root — e.g. `valiant/logo.png` */
+  /** customer logo, relative to the site root — e.g. `globex/logo.png` */
   logo?: string;
   /** customer website, linked from the logo */
   url?: string;
@@ -79,7 +79,7 @@ export interface Project {
   workerVersion?: string;
   /** OpenApi.html, relative to the company folder */
   apiDocUrl: string;
-  /** project belongs to another company (e.g. swisscom-fil-is in the valiant docs) */
+  /** project belongs to another company (e.g. initech-core-banking in the globex docs) */
   external?: boolean;
   /** there is a dependency page for this project */
   hasDependencies: boolean;

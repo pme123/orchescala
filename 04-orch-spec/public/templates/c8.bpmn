@@ -7,7 +7,7 @@
     <bpmn:startEvent id="StartEvent_1" name="start">
       <bpmn:outgoing>Flow_0aj3t61</bpmn:outgoing>
     </bpmn:startEvent>
-    <bpmn:endEvent id="Event_0vlsji8" name="succeded">
+    <bpmn:endEvent id="Event_0vlsji8" name="succeeded">
       <bpmn:incoming>Flow_0aj3t61</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:sequenceFlow id="Flow_0aj3t61" sourceRef="StartEvent_1" targetRef="Event_0vlsji8" />

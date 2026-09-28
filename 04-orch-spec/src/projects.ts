@@ -1,8 +1,8 @@
 // Projekt-Ordner des Domain-Katalogs.
 //
 // Der Katalog entsteht aus mehreren Orchescala-Projekten. Liegt dasselbe
-// Paket in zweien (`swisscom.fil.is.domain.client` und
-// `valiant.fil.is.domain.client`), muss entschieden sein, welches gilt — und
+// Paket in zweien (`initech.core.banking.domain.client` und
+// `globex.core.banking.domain.client`), muss entschieden sein, welches gilt — und
 // diese Entscheidung gehört nicht in die Reihenfolge zufälliger Klicks,
 // sondern in eine Liste, die man sieht und umsortieren kann.
 //
@@ -36,7 +36,7 @@ async function istProjekt(dir: FileSystemDirectoryHandle): Promise<boolean> {
 
 /**
  * Was der Nutzer gewählt hat, in Projekte übersetzen: entweder **ein**
- * Projekt oder ein Ordner darüber (`~/dev-valiant/projects`), dessen
+ * Projekt oder ein Ordner darüber (`~/dev-mycompany/projects`), dessen
  * Unterordner die Projekte sind. Der zweite Fall ist der übliche.
  */
 export async function projectsInFolder(

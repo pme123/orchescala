@@ -9,17 +9,19 @@ import munit.FunSuite
   */
 class DocsJsonTest extends FunSuite:
 
-  private val docsPath = sys.env.get("COMPANY_DOCS_PATH")
-    .map(os.Path(_))
-    .getOrElse(os.Path("/Users/pme/dev-valiant/valiant-orchescala/00-docs"))
+  // the 00-docs of a company-orchescala repo - only from COMPANY_DOCS_PATH, otherwise the test is
+  // skipped: no fallback, so the outcome never depends on what lies in a home directory
+  private val docsPath: Option[os.Path] = sys.env.get("COMPANY_DOCS_PATH").map(os.Path(_)).filter(os.exists)
+  private val skipped                   = "COMPANY_DOCS_PATH not set (or not found)"
   // orchescala's own 04-orch-doc (the tests may run from the root or from 04-helper)
   private val orchDocPath =
     Iterator.iterate(os.pwd)(_ / os.up).take(4).map(_ / "04-orch-doc").find(os.exists)
       .getOrElse(os.pwd / "04-orch-doc")
 
   test("DocsJson writes docs.json, index.json and the pages"):
-    if !os.exists(docsPath) then println(s"Skipping: no company 00-docs at $docsPath")
-    else
+    docsPath match
+    case None           => println(s"Skipping: $skipped")
+    case Some(docsPath) =>
       val out = os.temp.dir(prefix = "docs-json")
       val r   = DocsJson.write(docsPath, out)
       assert(os.exists(out / "index.json"), "no index.json")
@@ -33,9 +35,11 @@ class DocsJsonTest extends FunSuite:
 
   test("DocsJson produces the same data as orch-doc's tools/docs2json.ts"):
     val node = scala.util.Try(os.proc("node", "--version").call(check = false).exitCode == 0).getOrElse(false)
-    if !os.exists(docsPath) || !os.exists(orchDocPath / "tools" / "docs2json.ts") || !node then
-      println(s"Skipping: company 00-docs ($docsPath), 04-orch-doc ($orchDocPath) or Node.js not available")
-    else
+    docsPath match
+    case None                                                                   => println(s"Skipping: $skipped")
+    case Some(_) if !os.exists(orchDocPath / "tools" / "docs2json.ts") || !node =>
+      println(s"Skipping: 04-orch-doc ($orchDocPath) or Node.js not available")
+    case Some(docsPath)                                                         =>
       val scalaOut = os.temp.dir(prefix = "docs-json-scala")
       val tsOut    = os.temp.dir(prefix = "docs-json-ts")
       val r        = DocsJson.write(docsPath, scalaOut)

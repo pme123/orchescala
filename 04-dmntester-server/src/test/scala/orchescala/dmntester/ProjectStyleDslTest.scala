@@ -80,7 +80,7 @@ class ProjectStyleDslTest extends FunSuite:
   trait CompanyDmnTester extends DmnTesterApp:
     override protected def starterConfig: DmnTesterStarterConfig =
       DmnTesterStarterConfig(
-        companyName = "valiant",
+        companyName = "globex",
         dmnConfigPaths = Seq(target),
         dmnSources = Seq(
           DmnSource(

@@ -78,7 +78,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
   def routes: Routes[Any, Response] =
     val protectedRoutes = Routes(
-      // Canonicalize only the exact /site path so relative links like ./valiant/... resolve
+      // Canonicalize only the exact /site path so relative links like ./globex/... resolve
       // below /site/ without causing a redirect loop on the already-canonical /site/ URL.
       Method.GET / "site" -> handler {
         (request: Request) =>
@@ -89,7 +89,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
       },
 
       // Serve the documentation site (the orch-doc app + its data, e.g. /site/, /site/index.json,
-      // /site/valiant/docs.json) and the classic sites of older releases (/site/valiant/2026-04/)
+      // /site/globex/docs.json) and the classic sites of older releases (/site/globex/2026-04/)
       Method.GET / "site" / trailing -> handler { (path: Path, request: Request) =>
         val relativePath = path.segments.mkString("/")
         companySiteRedirect(relativePath)
@@ -692,7 +692,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** Serves a static file from the classpath, detecting the content type from the file extension.
     *
     * Used to serve the documentation site (the orch-doc build, see the company's publishDocs)
-    * which is placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/valiant/...`).
+    * which is placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/globex/...`).
     */
   private def serveClasspathFile(resourcePath: String): ZIO[Any, Nothing, Response] =
     ZIO.attempt {

@@ -20,7 +20,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       assertTrue(
         openApiRoutes.needsCanonicalSiteRedirect("/site"),
         !openApiRoutes.needsCanonicalSiteRedirect("/site/"),
-        !openApiRoutes.needsCanonicalSiteRedirect("/site/valiant/index.html")
+        !openApiRoutes.needsCanonicalSiteRedirect("/site/globex/index.html")
       )
     },
     test("siteResourcePath resolves the site index for the canonical /site/ root") {
@@ -33,42 +33,42 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       assertTrue(
         openApiRoutes.siteResourcePath("assets/index-abc123.js") ==
           "site/assets/index-abc123.js",
-        openApiRoutes.siteResourcePath("valiant/docs.json") ==
-          "site/valiant/docs.json",
-        openApiRoutes.siteResourcePath("valiant/2026-04/catalog.html") ==
-          "site/valiant/2026-04/catalog.html"
+        openApiRoutes.siteResourcePath("globex/docs.json") ==
+          "site/globex/docs.json",
+        openApiRoutes.siteResourcePath("globex/2026-04/catalog.html") ==
+          "site/globex/2026-04/catalog.html"
       )
     },
     test("siteFolderRedirectLocation resolves nested folder URLs to index.html") {
       val resourceExists = Set(
-        "site/valiant/index.html",
-        "site/valiant/2026-04/index.html"
+        "site/globex/index.html",
+        "site/globex/2026-04/index.html"
       )
       val directoryExists = Set(
-        "site/valiant",
-        "site/valiant/2026-04"
+        "site/globex",
+        "site/globex/2026-04"
       )
 
       assertTrue(
         openApiRoutes.siteFolderRedirectLocation(
-          "valiant/2026-04",
-          "/site/valiant/2026-04/",
+          "globex/2026-04",
+          "/site/globex/2026-04/",
           resourceExists.contains,
           directoryExists.contains
-        ).contains("/site/valiant/2026-04/index.html"),
+        ).contains("/site/globex/2026-04/index.html"),
         openApiRoutes.siteFolderRedirectLocation(
-          "valiant/2026-04",
-          "/site/valiant/2026-04",
+          "globex/2026-04",
+          "/site/globex/2026-04",
           resourceExists.contains,
           directoryExists.contains
-        ).contains("/site/valiant/2026-04/index.html")
+        ).contains("/site/globex/2026-04/index.html")
       )
     },
     test("siteFolderRedirectLocation ignores direct file requests and unknown folders") {
       assertTrue(
         openApiRoutes.siteFolderRedirectLocation(
-          "valiant/development/catalog.html",
-          "/site/valiant/development/catalog.html",
+          "globex/development/catalog.html",
+          "/site/globex/development/catalog.html",
           _ => true,
           _ => true
         ).isEmpty,
@@ -82,20 +82,20 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
     },
     test("companySiteRedirect forwards a company folder / index to the app's company page") {
       val entries: String => Seq[String] =
-        dir => if dir == "site/valiant" then Seq("docs.json", "pages", "2026-04") else Seq.empty
+        dir => if dir == "site/globex" then Seq("docs.json", "pages", "2026-04") else Seq.empty
 
       assertTrue(
-        openApiRoutes.companySiteRedirect("valiant/index.html", entries).contains("/site/#/valiant"),
-        openApiRoutes.companySiteRedirect("valiant/", entries).contains("/site/#/valiant"),
-        openApiRoutes.companySiteRedirect("valiant", entries).contains("/site/#/valiant")
+        openApiRoutes.companySiteRedirect("globex/index.html", entries).contains("/site/#/globex"),
+        openApiRoutes.companySiteRedirect("globex/", entries).contains("/site/#/globex"),
+        openApiRoutes.companySiteRedirect("globex", entries).contains("/site/#/globex")
       )
     },
     test("companySiteRedirect ignores older-release sites, files and unknown companies") {
       val entries: String => Seq[String] =
-        dir => if dir == "site/valiant" then Seq("2026-04") else Seq.empty
+        dir => if dir == "site/globex" then Seq("2026-04") else Seq.empty
       assertTrue(
-        openApiRoutes.companySiteRedirect("valiant/2026-04/index.html", entries).isEmpty,
-        openApiRoutes.companySiteRedirect("valiant/docs.json", entries).isEmpty,
+        openApiRoutes.companySiteRedirect("globex/2026-04/index.html", entries).isEmpty,
+        openApiRoutes.companySiteRedirect("globex/docs.json", entries).isEmpty,
         openApiRoutes.companySiteRedirect("assets/app.css", entries).isEmpty,
         openApiRoutes.companySiteRedirect("unknown/index.html", entries).isEmpty
       )
@@ -106,7 +106,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         openApiRoutes.sanitizeOAuth2Target("/docs/openApis/sample").contains("/docs/openApis/sample"),
         openApiRoutes.sanitizeOAuth2Target("/site").contains("/site"),
         openApiRoutes.sanitizeOAuth2Target("/site/").contains("/site/"),
-        openApiRoutes.sanitizeOAuth2Target("/site/valiant/index.html").contains("/site/valiant/index.html")
+        openApiRoutes.sanitizeOAuth2Target("/site/globex/index.html").contains("/site/globex/index.html")
       )
     },
     test("sanitizeOAuth2Target rejects non-docs routes and open redirects") {
@@ -139,14 +139,14 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         openApiRoutes.sanitizeOAuth2Target("/site/</script><script>alert(1)</script>").isEmpty,
         openApiRoutes.sanitizeOAuth2Target("/docs/\"onmouseover=alert(1)").isEmpty,
         openApiRoutes.sanitizeOAuth2Target("/site/a b").isEmpty,
-        openApiRoutes.sanitizeOAuth2Target("/site/#/valiant").contains("/site/#/valiant"),
-        openApiRoutes.sanitizeOAuth2Target("/site/valiant/2026-04/a%20b.html").contains("/site/valiant/2026-04/a%20b.html")
+        openApiRoutes.sanitizeOAuth2Target("/site/#/globex").contains("/site/#/globex"),
+        openApiRoutes.sanitizeOAuth2Target("/site/globex/2026-04/a%20b.html").contains("/site/globex/2026-04/a%20b.html")
       )
     },
     suite("docs forwarding to the worker apps (SSRF)")(
       test("only a plain host name is a project name") {
         assertTrue(
-          openApiRoutes.isValidProjectName("valiant-product"),
+          openApiRoutes.isValidProjectName("globex-product"),
           openApiRoutes.isValidProjectName("sample"),
           !openApiRoutes.isValidProjectName("attacker.example"),
           !openApiRoutes.isValidProjectName("10.0.0.5"),
