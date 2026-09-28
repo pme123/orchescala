@@ -47,10 +47,23 @@ object LogSafe:
       case -1    => message
       case index => message.take(index)
 
-  /** The error message for a log line - its details left out, with where to find them. */
+  /** The error message for a log line - its details left out, with where to find them, and the
+    * values quoted by a decoding error masked.
+    */
   def forLog(message: String, fullMessageIn: String = "in the incident (Cockpit / Operate)"): String =
     message.indexOf(detailsSeparator) match
-      case -1    => message
-      case index => s"${message.take(index)} [details left out - the full error message is $fullMessageIn]"
+      case -1    => withoutQuotedValues(message)
+      case index =>
+        s"${withoutQuotedValues(message.take(index))} [details left out - the full error message is $fullMessageIn]"
+
+  // circe quotes the value that could not be decoded / parsed - e.g. a name where a number is due
+  private val wrongTypeValue = """Got value '.*?' with wrong type""".r
+  private val parsedValue    = """(expected [^']*? got) '.*?'""".r
+
+  private def withoutQuotedValues(message: String): String =
+    parsedValue.replaceAllIn(
+      wrongTypeValue.replaceAllIn(message, "Got a value with wrong type"),
+      m => scala.util.matching.Regex.quoteReplacement(s"${m.group(1)} '***'")
+    )
 
 end LogSafe

@@ -50,6 +50,18 @@ object LogSafeSpec extends ZIOSpecDefault:
       )
     }
     ,
+    test("a decoding error: the value it quotes is masked in the log") {
+      // e.g. an object where a text is due - circe quotes it (numbers it does not)
+      val decoding = io.circe.parser.decode[String]("""{"name":"Hans Muster"}""").left.toOption.get.toString
+      val parsing  = io.circe.parser.parse("Hans Muster").left.toOption.get.toString
+      assertTrue(
+        decoding.contains("Hans Muster"), // circe quotes it
+        !LogSafe.forLog(decoding).contains("Hans"),
+        LogSafe.forLog(decoding).contains("wrong type"),
+        parsing.contains("Hans"),
+        !LogSafe.forLog(parsing).contains("Hans")
+      )
+    },
     test("an error message: the whole one for the incident, without its details for the log") {
       val message = LogSafe.withDetails("Non-2xx response with code 400", """{"detail":"hans@muster.ch"}""")
       assertTrue(
