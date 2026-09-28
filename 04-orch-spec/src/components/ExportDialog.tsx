@@ -2,7 +2,9 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Copy, Download, X } from 'lucide-react';
 import { EXPORT_META, exportBpmn, exportFileName, exportSpec, type ExportKind } from '../exporters';
-import type { Model, ProcessSpec } from '../types';
+import { convertBpmn } from '../engineConvert';
+import { ENGINES } from '../template';
+import type { EngineId, Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
 
 const KINDS: ExportKind[] = ['fachlich', 'orchescala', 'scala', 'bpmn', 'json'];
@@ -13,9 +15,22 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   const c = cls(isDark);
   const [kind, setKind] = useState<ExportKind>('orchescala');
   const [copied, setCopied] = useState(false);
-  const text = useMemo(() => exportSpec(spec, kind, model, bpmn), [spec, kind, model, bpmn]);
-  // was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
-  const issues = useMemo(() => (kind === 'bpmn' ? exportBpmn(spec, bpmn ?? '').issues : []), [spec, kind, bpmn]);
+  // BPMN für die andere Engine: on the fly umgewandelt, die Spezifikation bleibt, wie sie ist
+  const own: EngineId = spec.engine ?? 'c7';
+  const [engine, setEngine] = useState<EngineId>(own);
+  const bpmnOut = useMemo(() => {
+    if (kind !== 'bpmn' || !bpmn) return null;
+    // was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
+    const w = exportBpmn(spec, bpmn);
+    if (engine === own) return w;
+    const conv = convertBpmn(w.xml, engine, { timeToLive: spec.timeToLive });
+    return { xml: conv.xml, issues: [...w.issues, ...conv.issues] };
+  }, [spec, kind, bpmn, engine, own]);
+  const text = useMemo(() => bpmnOut?.xml ?? exportSpec(spec, kind, model, bpmn), [bpmnOut, spec, kind, model, bpmn]);
+  const issues = bpmnOut?.issues ?? [];
+  const fileName = kind === 'bpmn' && engine !== own
+    ? exportFileName(spec, kind).replace(/\.bpmn$/, `-${engine}.bpmn`)
+    : exportFileName(spec, kind);
 
   const copy = async () => {
     try {
@@ -32,7 +47,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = exportFileName(spec, kind);
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -58,6 +73,20 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
           ))}
         </div>
         <p className={`text-[10px] mb-2 ${c.muted}`}>{EXPORT_META[kind].hint}</p>
+        {kind === 'bpmn' && !!bpmn && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className={`text-[10px] ${c.muted}`}>für</span>
+            {ENGINES.map(e => (
+              <button key={e.id} onClick={() => setEngine(e.id)}
+                className={`text-[10px] px-2 py-1 rounded border transition-colors ${
+                  engine === e.id
+                    ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
+                    : c.btn}`}>
+                {e.label}{e.id === own ? '' : ' · umgewandelt'}
+              </button>
+            ))}
+          </div>
+        )}
         {!!issues.length && (
           <div className={`mb-2 text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
             <div className="flex items-center gap-1 font-semibold"><AlertTriangle size={11} /> {issues.length} Stelle{issues.length === 1 ? '' : 'n'} zum Prüfen</div>
@@ -71,7 +100,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
           className={`flex-1 min-h-[16rem] text-[10px] leading-relaxed font-mono px-3 py-2 rounded border outline-none resize-none ${c.input}`} />
 
         <div className="flex items-center gap-2 pt-3">
-          <span className={`text-[10px] ${c.muted}`}>{text.length.toLocaleString('de-CH')} Zeichen · {exportFileName(spec, kind)}</span>
+          <span className={`text-[10px] ${c.muted}`}>{text.length.toLocaleString('de-CH')} Zeichen · {fileName}</span>
           <button onClick={copy} className={`ml-auto flex items-center gap-1.5 text-xs px-3 py-2 rounded border ${c.btn}`}>
             {copied ? <><Check size={12} /> Kopiert</> : <><Copy size={12} /> Kopieren</>}
           </button>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Prüffall für die Umwandlung Camunda 7 ⇄ 8 (engineConvert.ts): External Task mit
+     Mappings, Teilprozess mit in/out, DMN, Benutzeraufgabe mit Mehrfachausführung,
+     JUEL-Bedingung und -Timer, wartende Nachricht, Skript, Listener am End-Event,
+     Pool mit anderem Namen als die Prozess-ID (poolIds.ts). -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.17.0">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="globex-savings-openSavingsV1" processRef="Process_0jx2w61" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_0jx2w61" isExecutable="true" camunda:historyTimeToLive="180" camunda:versionTag="1.2">
+    <bpmn:startEvent id="StartEvent" name="start"><bpmn:outgoing>F1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="InitTask" name="init" camunda:asyncBefore="true" camunda:type="external" camunda:topic="Process_0jx2w61">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="_handledErrors">output-mocked</camunda:inputParameter>
+          <camunda:inputParameter name="amount">${client.amount + 1}</camunda:inputParameter>
+          <camunda:outputParameter name="accountId">${result.id}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F1</bpmn:incoming><bpmn:outgoing>F2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gw" default="F4"><bpmn:incoming>F2</bpmn:incoming><bpmn:outgoing>F3</bpmn:outgoing><bpmn:outgoing>F4</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:callActivity id="CallSub" name="sub" calledElement="globex-core-subV1">
+      <bpmn:extensionElements>
+        <camunda:in variables="all" />
+        <camunda:in source="client" target="client" />
+        <camunda:in sourceExpression="${client.name}" target="name" />
+        <camunda:out source="subResult" target="subResult" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>F3</bpmn:incoming><bpmn:outgoing>F5</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:businessRuleTask id="Decide" name="decide" camunda:decisionRef="globex-rules" camunda:resultVariable="rules" camunda:mapDecisionResult="singleEntry"><bpmn:incoming>F4</bpmn:incoming><bpmn:outgoing>F6</bpmn:outgoing></bpmn:businessRuleTask>
+    <bpmn:userTask id="Approve" name="approve" camunda:candidateGroups="backoffice" camunda:formKey="approveForm">
+      <bpmn:incoming>F5</bpmn:incoming><bpmn:incoming>F6</bpmn:incoming><bpmn:outgoing>F7</bpmn:outgoing>
+      <bpmn:multiInstanceLoopCharacteristics camunda:collection="${items.elements()}" camunda:elementVariable="item" />
+    </bpmn:userTask>
+    <bpmn:intermediateCatchEvent id="Wait" name="wait"><bpmn:incoming>F7</bpmn:incoming><bpmn:outgoing>F8</bpmn:outgoing><bpmn:timerEventDefinition id="T1"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${waitTime}</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="Msg" name="answer"><bpmn:incoming>F8</bpmn:incoming><bpmn:outgoing>F9</bpmn:outgoing><bpmn:messageEventDefinition id="M1" messageRef="Message_1" /></bpmn:intermediateCatchEvent>
+    <bpmn:scriptTask id="Script" name="script" scriptFormat="groovy"><bpmn:incoming>F9</bpmn:incoming><bpmn:outgoing>F10</bpmn:outgoing><bpmn:script>println 1</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="SucceededEndEvent" name="succeeded">
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable(&#34;processStatus&#34;, &#34;succeeded&#34;)}" event="start" />
+        <camunda:executionListener class="com.x.Listener" event="end" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>F10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F1" sourceRef="StartEvent" targetRef="InitTask" />
+    <bpmn:sequenceFlow id="F2" sourceRef="InitTask" targetRef="Gw" />
+    <bpmn:sequenceFlow id="F3" name="big" sourceRef="Gw" targetRef="CallSub"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${amount &gt; 3 &amp;&amp; client.vip == true}</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F4" sourceRef="Gw" targetRef="Decide" />
+    <bpmn:sequenceFlow id="F5" sourceRef="CallSub" targetRef="Approve" />
+    <bpmn:sequenceFlow id="F6" sourceRef="Decide" targetRef="Approve" />
+    <bpmn:sequenceFlow id="F7" sourceRef="Approve" targetRef="Wait" />
+    <bpmn:sequenceFlow id="F8" sourceRef="Wait" targetRef="Msg" />
+    <bpmn:sequenceFlow id="F9" sourceRef="Msg" targetRef="Script" />
+    <bpmn:sequenceFlow id="F10" sourceRef="Script" targetRef="SucceededEndEvent" />
+  </bpmn:process>
+  <bpmn:message id="Message_1" name="answer-received" />
+  <bpmn:error id="Error_1" name="validation-failed" errorCode="validation-failed" camunda:errorMessage="${validationErrors.toString()}" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="100" y="50" width="1600" height="300" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_di" bpmnElement="StartEvent"><dc:Bounds x="150" y="150" width="36" height="36" /></bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

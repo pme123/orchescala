@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1vo3ed9" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.46.1" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
   <bpmn:collaboration id="Collaboration_1k3x312">
-    <bpmn:participant id="COMPANY-PROJECT-PROCESSVERSIONParticipant" name="COMPANY-PROJECT-PROCESSVERSION" processRef="COMPANY-PROJECT-PROCESSVERSION" />
+    <bpmn:participant id="COMPANY-PROJECT-PROCESSVERSION-participant" name="COMPANY-PROJECT-PROCESSVERSION" processRef="COMPANY-PROJECT-PROCESSVERSION" />
   </bpmn:collaboration>
   <bpmn:process id="COMPANY-PROJECT-PROCESSVERSION" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" name="start">
@@ -14,7 +14,7 @@
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1k3x312">
-      <bpmndi:BPMNShape id="Participant_1p4l85k_di" bpmnElement="COMPANY-PROJECT-PROCESSVERSIONParticipant" isHorizontal="true">
+      <bpmndi:BPMNShape id="Participant_1p4l85k_di" bpmnElement="COMPANY-PROJECT-PROCESSVERSION-participant" isHorizontal="true">
         <dc:Bounds x="120" y="60" width="600" height="250" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>

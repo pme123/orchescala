@@ -12,6 +12,7 @@
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind } from './types';
 import { importExpression } from './juelFeel.ts';
+import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
 import { nowIsoWithTimezone, slugify, todayIso } from './util.ts';
@@ -198,6 +199,13 @@ interface IoResult {
   mock?: string;
 }
 
+/** fester Text aus einer zeebe-Quelle: `="a, b"` → `a, b`; alles andere, wie es steht */
+function feelText(source: string): string {
+  const t = source.trim();
+  const lit = /^=\s*"((?:[^"\\]|\\.)*)"$/.exec(t);
+  return lit ? lit[1].replace(/\\(["\\])/g, '$1') : t;
+}
+
 function readIo(el: Element): IoResult {
   const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [] };
   const ext = firstNamed(el, 'extensionElements');
@@ -229,6 +237,12 @@ function readIo(el: Element): IoResult {
       const target = attr(p, 'target') ?? '';
       if (!target) continue;
       const source = attr(p, 'source') ?? '';
+      // Steuerparameter wie in Camunda 7: behandelte Fehler und Mock am Schritt
+      if (target === '_handledErrors' || target === '_regexHandledErrors') {
+        res.handledErrors.push(...feelText(source).split(',').map(s => s.trim()).filter(Boolean));
+        continue;
+      }
+      if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; continue; }
       const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
       (TECHNICAL.has(target) ? res.technical : res.inputs).push(m);
     }
@@ -496,23 +510,27 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     if (name) step.messageName = name;
   }
 
+  const ext = firstNamed(el, 'extensionElements');
   // Benutzeraufgabe: wer sie bearbeiten darf
+  // (Camunda 7 am Element, Camunda 8 in zeebe:assignmentDefinition)
   if (kind === 'user') {
-    const groups = attr(el, 'candidateGroups');
+    const assign = ext ? firstNamed(ext, 'assignmentDefinition') : null;
+    const groups = attr(el, 'candidateGroups') ?? (assign ? attr(assign, 'candidateGroups') : undefined);
     if (groups) step.candidateGroups = groups;
-    const assignee = attr(el, 'assignee');
+    const assignee = attr(el, 'assignee') ?? (assign ? attr(assign, 'assignee') : undefined);
     if (assignee) step.assignee = assignee;
   }
 
   const template = attr(el, 'modelerTemplate');
   if (template) step.serviceId = template;
   // Camunda 7: camunda:topic am Element; Camunda 8: zeebe:taskDefinition type="…"
-  const ext = firstNamed(el, 'extensionElements');
   const taskDef = ext ? firstNamed(ext, 'taskDefinition') : null;
   const topic = attr(el, 'topic') ?? (taskDef ? attr(taskDef, 'type') : undefined);
   if (topic) step.topic = topic;
   // Entscheidung: die Decision Reference ist der Schlüssel in den DMN-Katalog
-  const decisionRef = attr(el, 'decisionRef');
+  // (Camunda 7 am Element, Camunda 8 in zeebe:calledDecision)
+  const calledDecision = ext ? firstNamed(ext, 'calledDecision') : null;
+  const decisionRef = attr(el, 'decisionRef') ?? (calledDecision ? attr(calledDecision, 'decisionId') : undefined);
   if (decisionRef && !step.topic) step.topic = decisionRef;
   // Camunda 7: calledElement am Element; Camunda 8: zeebe:calledElement processId="…"
   const calledEl = ext ? firstNamed(ext, 'calledElement') : null;
@@ -771,7 +789,7 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
     }
   }
   // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
-  const engine = /http:\/\/camunda\.org\/schema\/zeebe|executionPlatform="Camunda Cloud"/.test(xml) ? 'c8' : 'c7';
+  const engine = detectEngine(xml);
   // Pattern zuerst: was zu einem gehört, wird im Baum als Pattern gezeigt
   const detected = detectPatterns(doc, opts.patterns, engine);
   const ctx: BuildCtx = {

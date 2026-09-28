@@ -112,7 +112,7 @@ export function checkTemplate(xml: string): TemplateCheck {
  *
  * Ersetzt wird der Platzhalter **überall, wo er steht** — als Attribut ganz
  * oder als Teil davon, Element-IDs eingeschlossen
- * (`COMPANY-PROJECT-PROCESSVERSIONParticipant`). Das trifft genau die
+ * (`COMPANY-PROJECT-PROCESSVERSION-participant`). Das trifft genau die
  * Stellen, die ihn meinen: `processRef` des Pools, dessen Name, die
  * Diagramm-Ebene und die Topics der eigenen Worker
  * (`<prozess>.ExtractClientKey`). Weil in allen Attributen dasselbe ersetzt

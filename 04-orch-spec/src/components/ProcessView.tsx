@@ -22,9 +22,11 @@ import { allSteps, blockGroups, blockStart, importBpmn, mergeSpec, statusCounts,
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
-import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
+import { alignPoolIds, poolNames } from '../poolIds';
+import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
 import { nowIsoWithTimezone } from '../util';
+import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
 import StepDetail from './StepDetail';
@@ -122,6 +124,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   /** nur Schritte mit Befund (rotes oder oranges Dreieck) */
   const [findingsOnly, setFindingsOnly] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [engineOpen, setEngineOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
@@ -487,10 +490,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   modelRef.current = model;
 
   /** `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst) */
-  const applyXml = useCallback(async (text: string, from: string, quiet: boolean | 'silent' = false) => {
+  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false) => {
     const current = specRef.current;
     if (!current) return;
     try {
+      // Prozess-ID und -Name folgen dem Pool (Konvention, siehe poolIds.ts);
+      // eine gewählte Prozess-ID nur, wenn der Name im Diagramm geändert wurde.
+      // Ein offener Modeler lädt das angeglichene XML nach.
+      const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
+      const text = alignPoolIds(raw, { renameProcess: renamed }).xml;
       const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
       const { spec: merged0, report: r } = mergeSpec(fresh, current);
       // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
@@ -556,6 +564,26 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       if (next) update(next);
     } catch { /* unlesbares BPMN — meldet der Abgleich */ }
   }, [loaded, xml, patternDefs, update]);
+
+  // Engine wechseln: das umgewandelte Diagramm geht den Weg jeder Änderung —
+  // der Abgleich liest Engine, Topics und Mappings daraus neu ein
+  const convertEngine = useCallback(async (next: string | null, target: EngineId) => {
+    const cur = specRef.current;
+    if (!cur) return;
+    if (next) await applyXml(next, engineLabel(target), 'silent');
+    else update({ ...cur, engine: target });
+    setNotice({ tone: 'info', message: `In ${engineLabel(target)} umgewandelt.` });
+  }, [applyXml, update]);
+
+  // Ein Diagramm von vorher, dessen Prozess noch anders heisst als sein Pool:
+  // einmal beim Öffnen angleichen (gespeichert wird es wie jede Änderung)
+  const aligned = useRef<string | null>(null);
+  useEffect(() => {
+    if (!loaded || !xml || !canEdit || aligned.current === slug) return;
+    aligned.current = slug;
+    const next = alignPoolIds(xml);
+    if (next.xml !== xml) void applyXml(next.xml, 'Pool', 'silent');
+  }, [loaded, xml, canEdit, slug, applyXml]);
 
   const onFile = async (file: File) => {
     const text = await file.text();
@@ -750,7 +778,10 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 <div className={`flex items-center gap-2 mt-0.5 text-[10px] ${c.muted}`}>
                   <span className="font-mono truncate">{spec.processId || spec.name}</span>
                   {spec.project && <span className="font-mono opacity-70 truncate">· {spec.project}</span>}
-                  {spec.engine && <span className="flex-shrink-0 opacity-70">· {engineLabel(spec.engine)}</span>}
+                  {canEdit
+                    ? <button onClick={() => setEngineOpen(true)} title={`In ${engineLabel((spec.engine ?? 'c7') === 'c7' ? 'c8' : 'c7')} umwandeln …`}
+                        className="flex-shrink-0 opacity-70 hover:opacity-100 hover:underline">· {engineLabel(spec.engine)}</button>
+                    : spec.engine && <span className="flex-shrink-0 opacity-70">· {engineLabel(spec.engine)}</span>}
                   <span className="flex-shrink-0">· {spec.updatedAt.slice(0, 10)}</span>
 
                 </div>
@@ -835,6 +866,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       </div>
       </CommentsContext.Provider>
 
+      {engineOpen && <EngineDialog spec={spec} bpmn={xml ?? ''} isDark={isDark} onClose={() => setEngineOpen(false)}
+        onConvert={(next, target) => { setEngineOpen(false); void convertEngine(next, target); }} />}
       {exportOpen && <ExportDialog spec={spec} model={model} bpmn={xml ?? ''} isDark={isDark} onClose={() => setExportOpen(false)} />}
     </div>
   );

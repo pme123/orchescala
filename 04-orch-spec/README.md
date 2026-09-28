@@ -357,7 +357,7 @@ angelegten Prozesses vorbelegt.
 
 In den Vorlagen steht `COMPANY-PROJECT-PROCESSVERSION`, wo die ID hingehört.
 Ersetzt wird sie **überall, wo sie steht** — als Attribut ganz oder als Teil
-davon, Element-IDs eingeschlossen (`COMPANY-PROJECT-PROCESSVERSIONParticipant`).
+davon, Element-IDs eingeschlossen (`COMPANY-PROJECT-PROCESSVERSION-participant`).
 Das trifft genau die Stellen, die sie meinen: `processRef` des Pools, dessen
 Name und die Topics der eigenen Worker (`<prozess>.ExtractClientKey` wandert
 mit). Weil in allen Attributen dasselbe ersetzt wird, bleiben die Verweise
@@ -366,6 +366,25 @@ bei der nächsten Vorlage etwas übersehen. Gross-/Kleinschreibung zählt nicht.
 
 Bliebe die ID stehen, hiessen alle Prozesse gleich, und daran hängt mehr als
 es aussieht: Topics, die Zuordnung zur Domain und der Dateiname.
+
+**Pool und Prozess heissen gleich.** Massgeblich ist der Name des Pools:
+
+```
+Pool      name = globex-depot-openDepotV2    id = globex-depot-openDepotV2-participant
+Prozess   name = globex-depot-openDepotV2    id = globex-depot-openDepotV2
+```
+
+Ohne Pool — so legt der Camunda Modeler einen C8-Prozess an — gilt der Name
+des Prozesses. Wer den Pool (bzw. Prozess) im Diagramm umbenennt, bekommt
+Prozess-ID und -Name gleich mit. Trägt ein Prozess noch die ID des Modelers
+(`Process_0jx2w61`), wird er beim Einlesen («Aus BPMN») und beim Öffnen
+angeglichen. Eine **gewählte** Prozess-ID dagegen ist ein Vertrag
+(Deployment, Worker, Aufrufer): sie folgt nur einer Umbenennung im Diagramm,
+nie dem blossen Öffnen — sonst würde ein Prozess, dessen Pool etwas anders
+heisst, still umbenannt. Umbenannt wird überall, wo die alte ID als ganzer
+Wert steht (`processRef`, Diagramm, Nachrichtenflüsse, der Init-Worker mit der
+Prozess-ID als Topic). Ein Name mit Leerzeichen oder Umlauten taugt nicht als
+ID — dann bleibt alles, wie es ist (`src/poolIds.ts`).
 
 Aus dem Ergebnis entstehen in einem Zug das `.bpmn` und der Ablaufbaum; jeder
 Schritt beginnt als **Entwurf** — auch in Zweigen und Fehlerpfaden. Eine
@@ -962,8 +981,10 @@ einem Import (`${x}`) werden unverändert übernommen — in einem
 Camunda-8-Export mit Hinweis, denn dort wäre das ein fester Text.
 
 **Import** kann beides lesen: `camunda:inputOutput` / `camunda:in` wie bisher
-und für Camunda 8 `zeebe:ioMapping`, `zeebe:taskDefinition` (Topic) und
-`zeebe:calledElement` (gerufener Prozess). Eine FEEL-Quelle `=x` kommt als
+und für Camunda 8 `zeebe:ioMapping` (samt `_handledErrors` und `_outputMock`),
+`zeebe:taskDefinition` (Topic), `zeebe:calledElement` (gerufener Prozess),
+`zeebe:calledDecision` (Entscheidung) und `zeebe:assignmentDefinition`
+(Gruppen, Zuständige). Eine FEEL-Quelle `=x` kommt als
 `= x` in die Spezifikation — und **JUEL wird zu FEEL**: `${client.name}` wird
 `= client.name`, `${a == b ? 'x' : 'y'}` wird `= if a = b then "x" else "y"`,
 eine Vorlage wie `Hallo ${name}` wird `= "Hallo " + name`. Übersetzt wird
@@ -987,6 +1008,38 @@ unverändert. Ein fester Text ohne `${}` bleibt ein fester Text.
 
 Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 19 Benutzeraufgaben, 8 Signale) aus 62 OpenAPI-Dateien.
+
+### Camunda 7 ⇄ Camunda 8
+
+Ein Klick auf die Engine im Kopf («· Camunda 7») wandelt das Diagramm in die
+andere Engine um — und zurück. Der Dialog wandelt erst zur Probe und zeigt,
+was danach von Hand zu prüfen ist; umgestellt wird erst auf «Umwandeln».
+Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
+(`src/engineConvert.ts`, Regeln wie im Migrationsleitfaden `bpmn-c7-to-c8`):
+
+| Camunda 7 | Camunda 8 |
+| --- | --- |
+| `camunda:type="external"` `camunda:topic` | `zeebe:taskDefinition type` |
+| `camunda:inputOutput` | `zeebe:ioMapping` (fester Text wird `="…"`) |
+| `calledElement` + `camunda:in`/`out` (`variables="all"`) | `zeebe:calledElement` (`propagateAll…`) + `zeebe:ioMapping` |
+| `camunda:decisionRef` / `resultVariable` | `zeebe:calledDecision` |
+| `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
+| `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
+| `camunda:modelerTemplate` | `zeebe:modelerTemplate` (der Service-Verweis bleibt) |
+| Listener `execution.setVariable("x", v)` am End-Event | Output-Mapping `x` |
+| `${…}` in Bedingungen, Timern, Mappings | `=…` |
+
+Ohne Gegenstück fallen still weg: `async…`, `exclusive`, Job-Prioritäten,
+Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
+Spezifikation). **Gemeldet** wird, was Handarbeit braucht: andere Listener,
+Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
+Entscheidung und der Korrelationsschlüssel wartender Nachrichten
+(vorgeschlagen: `=businessKey`).
+
+**On the fly** geht es auch ohne Umstellen: **Export → BPMN** hat die Wahl
+«für Camunda 7 | Camunda 8». Die andere Engine wird beim Export umgewandelt
+(`…-bpmn-c8.bpmn`), Spezifikation und Diagramm bleiben, wie sie sind.
+
 ### Exporte
 
 | Export | für wen | Inhalt |
@@ -994,7 +1047,7 @@ Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 | **Fachlich** | Fachbereich, Review, Abnahme | Ablauf in Prosa, Beschreibungen, offene Punkte — ohne technische Ausdrücke |
 | **Orchescala** | Umsetzung und KI | Überblick als Baum, danach je Schritt ein Abschnitt mit stabiler ID: Topic, Service, Mappings, Fehler, Mocks, Zweige |
 | **Scala** | Umsetzung | das Datenmodell als Orchescala-Domain, dateiweise |
-| **BPMN** | Umsetzung, Import | das Diagramm im Stand des Editors |
+| **BPMN** | Umsetzung, Import | das Diagramm im Stand des Editors — für Camunda 7 oder 8 |
 | **JSON** | Sicherung / Weiterverarbeitung | die Spezifikation selbst |
 
 Der Orchescala-Export ist bewusst flach und explizit, damit daraus ohne

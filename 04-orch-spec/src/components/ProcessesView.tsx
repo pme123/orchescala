@@ -23,6 +23,7 @@ import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjec
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
 import { allSteps, importBpmn, statusCounts } from '../bpmn';
+import { alignPoolIds } from '../poolIds';
 import { DEFAULT_ENGINE, ENGINES, applyTemplate, loadTemplate } from '../template';
 import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status, type Step } from '../types';
 import { StatusChip, cls } from '../ui';
@@ -134,7 +135,9 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const fromBpmn = async (file: File) => {
     setError('');
     try {
-      const text = await file.text();
+      // Prozess-ID nach dem Pool (bzw. dem Prozessnamen), bevor die Domain
+      // über sie gesucht wird und sie den Dateinamen bestimmt — siehe poolIds.ts
+      const text = alignPoolIds(await file.text()).xml;
       const { spec, stepCount, unreachable } = importBpmn(text, file.name, { patterns: model?.patterns });
       if (unreachable.length) console.warn('[orch-spec] nicht erreichbare BPMN-Elemente:', unreachable);
       // Über die Prozess-ID die Domain suchen: Katalog, dann gemerkte Ordner
