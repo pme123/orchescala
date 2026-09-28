@@ -89,6 +89,20 @@ object DocsAuthCookieSpec extends ZIOSpecDefault:
         response <- docsRoutes(jwksUrl).runZIO(getDocs(token(Instant.now().minusSeconds(120))))
       yield assertTrue(isLoginRedirect(response))
     },
+    test("behind https the login cookies are Secure") {
+      for
+        jwksUrl  <- jwksServer
+        request   = Request.get(URL.decode("/docs").toOption.get).addHeader("X-Forwarded-Proto", "https")
+        response <- docsRoutes(jwksUrl).runZIO(request)
+        cookies   = response.headers.toList.filter(_.headerName.equalsIgnoreCase("set-cookie")).map(_.renderedValue)
+      yield assertTrue(
+        isLoginRedirect(response),
+        cookies.nonEmpty,
+        cookies.forall(_.contains("Secure")),
+        // no redirect_uri with http behind a proxy
+        response.header(Header.Location).exists(_.url.encode.contains("redirect_uri=https"))
+      )
+    },
     test("a valid token of the realm opens the docs") {
       for
         jwksUrl  <- jwksServer

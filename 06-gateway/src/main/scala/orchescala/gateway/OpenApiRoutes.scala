@@ -22,8 +22,13 @@ class OpenApiRoutes()(using config: GatewayConfig):
       promise: Promise[Nothing, Either[String, String]]
   )
 
-  private val oauth2CodeExchanges = ConcurrentHashMap[String, OAuth2CodeExchangeEntry]()
-  private val oauth2CodeExchangeTtlMillis = 10.minutes.toMillis
+  // keyed by state AND code: a duplicate callback of the same browser login gets the token again,
+  // a leaked code alone does not (the attacker brings his own state cookie)
+  private val oauth2CodeExchanges = ConcurrentHashMap[(String, String), OAuth2CodeExchangeEntry]()
+  // duplicate callbacks come within seconds - Keycloak's codes are valid for a minute
+  private val oauth2CodeExchangeTtlMillis = 1.minute.toMillis
+  // failed exchanges are removed at once, so only real logins of the last minute are kept
+  private val oauth2CodeExchangesMax      = 1000
   private val docsTokenCookieName         = "orchescala_docs_token"
   private val oauth2StateCookieName       = "orchescala_oauth_state"
   private val oauth2TargetCookieName      = "orchescala_oauth_target"
@@ -103,18 +108,13 @@ class OpenApiRoutes()(using config: GatewayConfig):
       // Rewrites relative "diagrams/" links so they resolve correctly under /docs/openApis/{projectName}/
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.html" -> handler {
         (_: String, projectName: String, _: Request) =>
-          forwardDocsRequest(
-            projectName,
-            "docs",
-            MediaType.text.html,
-            body => body//.replace("\"diagrams/\"", s"\"${projectName}/diagrams/\"")
-          )
+          forwardDocsRequest(projectName, Seq("docs"), MediaType.text.html)
       },
 
       // Forward OpenApi.yml for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.yml" -> handler {
         (_: String, projectName: String, _: Request) =>
-          forwardDocsRequest(projectName, "docs/OpenApi.yml", MediaType.text.yaml)
+          forwardDocsRequest(projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
       },
 
       // Forward BPMN/DMN diagrams for a project worker app
@@ -122,7 +122,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
         "diagramName"
       ) -> handler {
         (_: String, projectName: String, diagramName: String, _: Request) =>
-          forwardDocsRequest(projectName, s"docs/diagrams/$diagramName", MediaType.application.xml)
+          if isValidDiagramName(diagramName) then
+            forwardDocsRequest(projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
+          else ZIO.succeed(Response.status(Status.NotFound))
       },
 
       // The gateway's own API doc: orch-doc's single-file page (`OrchDocApi.html`, put into the
@@ -168,28 +170,38 @@ class OpenApiRoutes()(using config: GatewayConfig):
         // which avoids OAuth2 query params (code, state, …) ever landing on the main /docs page.
         (protectedRoutes @@ oauth2AuthMiddleware(auth)) ++ oauth2CallbackRoute(auth) ++ faviconRoute
 
+  /** Forwards a docs request to the worker app of the project.
+    *
+    * The project name comes from the request path, and the default `docsAppUrl` takes it as the
+    * host: `/site/x/attacker.example/OpenApi.html` made the gateway fetch any host and serve the
+    * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
+    * slashes) is accepted - the path goes into the URL as encoded segments.
+    */
   private def forwardDocsRequest(
       projectName: String,
-      path: String,
-      contentType: MediaType,
-      transform: String => String = identity
+      path: Seq[String],
+      contentType: MediaType
   ): ZIO[Any, Nothing, Response] =
-    config.docsAppUrl(projectName) match
+    (if isValidProjectName(projectName) then config.docsAppUrl(projectName) else None) match
       case None          =>
         ZIO.logWarning(
-          s"No docs URL configured for project: $projectName"
+          s"No docs URL for project: $projectName"
         ).as(Response.status(Status.NotFound))
       case Some(baseUrl) =>
         (for
-          _        <- ZIO.logInfo(s"Forwarding docs request to: $baseUrl/$path")
-          uri      <- ZIO.fromEither(Uri.parse(s"$baseUrl/$path"))
+          uri      <- ZIO.fromEither(Uri.parse(baseUrl).map(_.addPath(path)))
                         .mapError(err => s"Invalid docs URL: $err")
+          _        <- ZIO.logInfo(s"Forwarding docs request to: $uri")
           request   = basicRequest.get(uri)
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                         request.send(backend).mapError(_.getMessage)
           result   <- response.body match
                         case Right(body) =>
-                          ZIO.succeed(Response.text(transform(body)).addHeader(Header.ContentType(contentType)))
+                          ZIO.succeed(
+                            Response.text(body)
+                              .addHeader(Header.ContentType(contentType))
+                              .addHeader("X-Content-Type-Options", "nosniff")
+                          )
                         case Left(err)   =>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"
@@ -239,7 +251,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
                           s"Docs token ${TokenFingerprint(cookie.content)} rejected: $reason"
                         ) *>
                           redirectToLogin(auth, request)
-                            .map(_.addCookie(clearRootCookie(docsTokenCookieName))),
+                            .map(_.addCookie(clearRootCookie(docsTokenCookieName, isHttps(request)))),
                       _ => handler(request)
                     )
 
@@ -253,13 +265,16 @@ class OpenApiRoutes()(using config: GatewayConfig):
     val target      = deriveOAuth2Target(request)
     val redirectUri = deriveCallbackUri(request)
     val authUrl     = buildOAuthUrl(auth, state, redirectUri)
-    ZIO.logInfo(s"Redirecting to Keycloak: $authUrl \n- RedirectUri: $redirectUri\n- Target: $target\n- State: $state").as:
+    val secure      = isHttps(request)
+    // no state in the log - with it, a code from the log could be exchanged once more
+    ZIO.logInfo(s"Redirecting to Keycloak: ${auth.authorizationUrl}\n- RedirectUri: $redirectUri\n- Target: $target").as:
       Response(status = Status.Found, headers = Headers("location" -> authUrl))
         .addCookie(
           Cookie.Response(
             name       = oauth2StateCookieName,
             content    = state,
             path       = Some(Path.root),
+            isSecure   = secure,
             isHttpOnly = true,
             sameSite   = Some(Cookie.SameSite.Lax)
           )
@@ -269,6 +284,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
             name       = oauth2TargetCookieName,
             content    = target,
             path       = Some(Path.root),
+            isSecure   = secure,
             isHttpOnly = true,
             sameSite   = Some(Cookie.SameSite.Lax)
           )
@@ -296,30 +312,33 @@ class OpenApiRoutes()(using config: GatewayConfig):
         // directly from request.url, not reconstructed from a hard-coded string).
         // This guarantees it is byte-for-byte identical to the URI Keycloak received
         // during the authorization request, which is required for the token exchange.
-        val scheme      = request.rawHeader("X-Forwarded-Proto").getOrElse("http")
+        // the scheme as for the authorization request (deriveCallbackUri) - the raw header of
+        // several proxies (`https, http`) gave a different redirect_uri
+        val scheme      = forwardedProto(request)
         val host        = request.header(Header.Host).map(_.renderedValue).getOrElse("localhost")
         val callbackUri = s"$scheme://$host${request.url.path}"
+        val secure      = isHttps(request)
 
         (codeOpt, stateOpt) match
 
           // ── Valid callback: state matches ────────────────────────────────
           case (Some(code), Some(state)) if storedState.contains(state) =>
-            exchangeCodeForTokenOnce(auth, code, callbackUri)
+            exchangeCodeForTokenOnce(auth, code, state, callbackUri)
               .foldZIO(
                 err =>
                   ZIO.logError(s"OAuth2 token exchange failed: $err")
                     .as(
                       Response.text(s"OAuth2 token exchange failed:\n$err")
                         .status(Status.BadGateway)
-                        .addCookie(clearRootCookie(oauth2StateCookieName))
-                        .addCookie(clearRootCookie(oauth2TargetCookieName))
+                        .addCookie(clearRootCookie(oauth2StateCookieName, secure))
+                        .addCookie(clearRootCookie(oauth2TargetCookieName, secure))
                     ),
                 token =>
                   ZIO.succeed:
                     oauth2ContinuePageResponse(target)
-                      .addCookie(docsTokenCookie(token))
-                      .addCookie(clearRootCookie(oauth2StateCookieName))
-                      .addCookie(clearRootCookie(oauth2TargetCookieName))
+                      .addCookie(docsTokenCookie(token, secure))
+                      .addCookie(clearRootCookie(oauth2StateCookieName, secure))
+                      .addCookie(clearRootCookie(oauth2TargetCookieName, secure))
               )
 
           // ── State mismatch (CSRF / stale request) ───────────────────────
@@ -327,8 +346,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
             ZIO.logWarning("OAuth2: state mismatch – possible CSRF attempt or stale callback")
               .as(
                 Response.status(Status.Unauthorized)
-                  .addCookie(clearRootCookie(oauth2StateCookieName))
-                  .addCookie(clearRootCookie(oauth2TargetCookieName))
+                  .addCookie(clearRootCookie(oauth2StateCookieName, secure))
+                  .addCookie(clearRootCookie(oauth2TargetCookieName, secure))
               )
 
           // ── Missing code or state → restart the flow ────────────────────
@@ -336,8 +355,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
             ZIO.logWarning(s"OAuth2 callback: missing code or state, redirecting to $target")
               .as(
                 oauth2ContinuePageResponse(target)
-                  .addCookie(clearRootCookie(oauth2StateCookieName))
-                  .addCookie(clearRootCookie(oauth2TargetCookieName))
+                  .addCookie(clearRootCookie(oauth2StateCookieName, secure))
+                  .addCookie(clearRootCookie(oauth2TargetCookieName, secure))
               )
       }
     )
@@ -370,8 +389,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
            |      window.location.replace(${renderJsStringLiteral(target)});
            |    </script>
            |    <noscript>
-           |      <meta http-equiv=\"refresh\" content=\"0;url=$target\" />
-           |      <p><a href=\"$target\">Continue</a></p>
+           |      <meta http-equiv=\"refresh\" content=\"0;url=${escapeHtml(target)}\" />
+           |      <p><a href=\"${escapeHtml(target)}\">Continue</a></p>
            |    </noscript>
            |  </body>
            |</html>
@@ -390,14 +409,32 @@ class OpenApiRoutes()(using config: GatewayConfig):
       case '\n' => "\\n"
       case '\r' => "\\r"
       case '\t' => "\\t"
+      // `</script>` in the target ended the script element
+      case '<'  => "\\u003c"
+      case '>'  => "\\u003e"
+      case '&'  => "\\u0026"
       case c    => c.toString
     } + "\""
 
-  private[gateway] def docsTokenCookie(token: String): Cookie.Response =
+  private def escapeHtml(value: String): String =
+    value.flatMap {
+      case '&'  => "&amp;"
+      case '<'  => "&lt;"
+      case '>'  => "&gt;"
+      case '"'  => "&quot;"
+      case '\'' => "&#39;"
+      case c    => c.toString
+    }
+
+  /** @param secure
+    *   behind https (`X-Forwarded-Proto`) - the browser then never sends the token over http
+    */
+  private[gateway] def docsTokenCookie(token: String, secure: Boolean): Cookie.Response =
     Cookie.Response(
       name       = docsTokenCookieName,
       content    = token,
       path       = Some(Path.root),
+      isSecure   = secure,
       isHttpOnly = true,
       // `/site` is protected by the same OAuth2 middleware as `/docs`, so the cookie must be
       // available on both route trees after the callback lands on the original target page.
@@ -407,11 +444,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
       maxAge     = Some(1.hour)
     )
 
-  private def clearRootCookie(name: String): Cookie.Response =
+  private def clearRootCookie(name: String, secure: Boolean): Cookie.Response =
     Cookie.Response(
       name       = name,
       content    = "",
       path       = Some(Path.root),
+      isSecure   = secure,
       isHttpOnly = true,
       sameSite   = Some(Cookie.SameSite.Lax),
       maxAge     = Some(Duration.Zero)
@@ -426,6 +464,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
       .filter(_.nonEmpty)
       .filter(_.startsWith("/"))
       .filterNot(_.startsWith("//"))
+      // the target goes into the page after the login - no quotes, brackets or spaces
+      .filter(_.matches("[A-Za-z0-9/._~%#-]*"))
       .filter: path =>
         path == "/docs" ||
         path.startsWith("/docs/") ||
@@ -438,6 +478,13 @@ class OpenApiRoutes()(using config: GatewayConfig):
       .filter(_.nonEmpty)
       .map(path => s"site/$path")
       .getOrElse("site/index.html")
+
+  /** A plain host name - the default `docsAppUrl` takes the project name as host. */
+  private[gateway] def isValidProjectName(projectName: String): Boolean =
+    projectName.matches("[A-Za-z0-9]+(-[A-Za-z0-9]+)*")
+
+  private[gateway] def isValidDiagramName(diagramName: String): Boolean =
+    diagramName.matches("[A-Za-z0-9_-][A-Za-z0-9._-]*") && !diagramName.contains("..")
 
   private[gateway] def siteFolderRedirectLocation(relativePath: String, requestPath: String): Option[String] =
     siteFolderRedirectLocation(relativePath, requestPath, classpathResourceExists, classpathDirectoryExists)
@@ -580,28 +627,47 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * token endpoint fails with `invalid_grant / Code not valid`. This method deduplicates
     * concurrent or repeated exchanges so all duplicate callers share the first result.
     */
-  private def exchangeCodeForTokenOnce(
+  private[gateway] def exchangeCodeForTokenOnce(
       auth: DocsAuth.OAuth2AuthCode,
       code: String,
+      state: String,
       redirectUri: String
   ): ZIO[Any, String, String] =
+    exchangeCodeForTokenOnce(code, state, exchangeCodeForToken(auth, code, redirectUri))
+
+  private[gateway] def exchangeCodeForTokenOnce(
+      code: String,
+      state: String,
+      exchange: IO[String, String]
+  ): ZIO[Any, String, String] =
+    val key = (state, code)
     for
       _          <- cleanupExpiredOAuth2CodeExchanges
       nowMillis  <- Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS)
       promise    <- Promise.make[Nothing, Either[String, String]]
       newEntry    = OAuth2CodeExchangeEntry(nowMillis, promise)
-      existing    = Option(oauth2CodeExchanges.putIfAbsent(code, newEntry))
+      existing    =
+        if oauth2CodeExchanges.size >= oauth2CodeExchangesMax then None // full: no deduplication
+        else Option(oauth2CodeExchanges.putIfAbsent(key, newEntry))
       token      <- existing match
                       case Some(entry) =>
-                        ZIO.logInfo(s"OAuth2 duplicate callback detected for code=$code; reusing in-flight/completed exchange") *>
+                        // no code in the log - it could be exchanged once more
+                        ZIO.logInfo("OAuth2 duplicate callback detected; reusing in-flight/completed exchange") *>
                           entry.promise.await.flatMap(ZIO.fromEither(_))
 
                       case None =>
-                        exchangeCodeForToken(auth, code, redirectUri)
+                        exchange
                           .either
-                          .tap(result => promise.succeed(result).ignore)
+                          .tap: result =>
+                            promise.succeed(result).ignore *>
+                              // a failed code is not kept - callbacks with made-up codes fill nothing
+                              ZIO.succeed(oauth2CodeExchanges.remove(key, newEntry)).when(result.isLeft)
                           .flatMap(ZIO.fromEither(_))
     yield token
+    end for
+  end exchangeCodeForTokenOnce
+
+  private[gateway] def pendingCodeExchanges: Int = oauth2CodeExchanges.size
 
   private def cleanupExpiredOAuth2CodeExchanges: UIO[Unit] =
     Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS).map: nowMillis =>
@@ -657,6 +723,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
     val host   = request.header(Header.Host).map(_.renderedValue).getOrElse("localhost")
     val scheme = forwardedProto(request)
     s"$scheme://$host/docs/oauth2/callback"
+
+  private def isHttps(request: Request): Boolean =
+    forwardedProto(request).equalsIgnoreCase("https")
 
   private def forwardedProto(request: Request): String =
     request.rawHeader("X-Forwarded-Proto")

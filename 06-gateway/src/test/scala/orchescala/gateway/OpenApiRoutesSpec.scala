@@ -119,7 +119,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       )
     },
     test("docs token cookie is scoped to the gateway root so /site and /docs both stay authenticated") {
-      val cookie = openApiRoutes.docsTokenCookie("token-value")
+      val cookie = openApiRoutes.docsTokenCookie("token-value", secure = false)
 
       assertTrue(
         cookie.name == "orchescala_docs_token",
@@ -127,9 +127,84 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         cookie.path.contains(Path.root),
         cookie.isHttpOnly,
         cookie.sameSite.contains(Cookie.SameSite.Lax),
-        cookie.maxAge.contains(1.hour)
+        cookie.maxAge.contains(1.hour),
+        !cookie.isSecure
       )
-    }
+    },
+    test("behind https the docs token cookie is Secure") {
+      assertTrue(openApiRoutes.docsTokenCookie("token-value", secure = true).isSecure)
+    },
+    test("sanitizeOAuth2Target rejects targets that break out of the continue page (XSS)") {
+      assertTrue(
+        openApiRoutes.sanitizeOAuth2Target("/site/</script><script>alert(1)</script>").isEmpty,
+        openApiRoutes.sanitizeOAuth2Target("/docs/\"onmouseover=alert(1)").isEmpty,
+        openApiRoutes.sanitizeOAuth2Target("/site/a b").isEmpty,
+        openApiRoutes.sanitizeOAuth2Target("/site/#/valiant").contains("/site/#/valiant"),
+        openApiRoutes.sanitizeOAuth2Target("/site/valiant/2026-04/a%20b.html").contains("/site/valiant/2026-04/a%20b.html")
+      )
+    },
+    suite("docs forwarding to the worker apps (SSRF)")(
+      test("only a plain host name is a project name") {
+        assertTrue(
+          openApiRoutes.isValidProjectName("valiant-product"),
+          openApiRoutes.isValidProjectName("sample"),
+          !openApiRoutes.isValidProjectName("attacker.example"),
+          !openApiRoutes.isValidProjectName("10.0.0.5"),
+          !openApiRoutes.isValidProjectName("host:8080"),
+          !openApiRoutes.isValidProjectName("user@host"),
+          !openApiRoutes.isValidProjectName("-host"),
+          !openApiRoutes.isValidProjectName("")
+        )
+      },
+      test("a diagram name is a file name - no path traversal") {
+        assertTrue(
+          openApiRoutes.isValidDiagramName("my-process.bpmn"),
+          openApiRoutes.isValidDiagramName("decision_1.dmn"),
+          !openApiRoutes.isValidDiagramName(".."),
+          !openApiRoutes.isValidDiagramName("..%2Fadmin"),
+          !openApiRoutes.isValidDiagramName(".hidden"),
+          !openApiRoutes.isValidDiagramName("")
+        )
+      },
+      test("a host in the path is not forwarded to - the docsAppUrl is not even asked") {
+        val asked     = java.util.concurrent.ConcurrentLinkedQueue[String]()
+        val routes    = OpenApiRoutes()(using testConfig.copy(docsAppUrl = project =>
+          asked.add(project)
+          None
+        )).routes
+        val request   = Request.get(URL.decode("/site/c/attacker.example/OpenApi.html").toOption.get)
+        for response <- routes.runZIO(request)
+        yield assertTrue(response.status == Status.NotFound, asked.isEmpty)
+      }
+    ),
+    suite("docs OAuth2 code exchange")(
+      test("a duplicate callback of the same login reuses the exchange") {
+        val routes = OpenApiRoutes()(using testConfig)
+        for
+          calls  <- Ref.make(0)
+          exchange = calls.update(_ + 1).as("token")
+          first  <- routes.exchangeCodeForTokenOnce("code", "state", exchange)
+          second <- routes.exchangeCodeForTokenOnce("code", "state", exchange)
+          count  <- calls.get
+        yield assertTrue(first == "token", second == "token", count == 1)
+      },
+      test("a code with another state is not answered from the cache (leaked code)") {
+        val routes = OpenApiRoutes()(using testConfig)
+        for
+          calls  <- Ref.make(0)
+          _      <- routes.exchangeCodeForTokenOnce("code", "state", calls.update(_ + 1).as("token"))
+          replay <- routes.exchangeCodeForTokenOnce("code", "attacker-state", calls.update(_ + 1) *> ZIO.fail("invalid_grant")).either
+          count  <- calls.get
+        yield assertTrue(replay == Left("invalid_grant"), count == 2)
+      },
+      test("a failed exchange is not kept") {
+        val routes = OpenApiRoutes()(using testConfig)
+        for
+          _       <- ZIO.foreachDiscard(1 to 50): i =>
+                       routes.exchangeCodeForTokenOnce(s"made-up-$i", "state", ZIO.fail("invalid_grant")).ignore
+        yield assertTrue(routes.pendingCodeExchanges == 0)
+      }
+    )
   )
 end OpenApiRoutesSpec
 
