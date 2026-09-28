@@ -42,8 +42,8 @@ trait OAuth2Flow :
           Left(s"Token request to $identityUrl was interrupted.")
     catch
       case _: java.util.concurrent.RejectedExecutionException =>
-        Left(s"Token request to $identityUrl rejected: all token-call threads are stuck " +
-          "(identity provider not responding?)")
+        Left(s"Token request to $identityUrl rejected: ${OAuth2Flow.maxQueuedCalls} token calls are " +
+          "waiting already (identity provider not responding?)")
   end withHardTimeout
 
 end OAuth2Flow
@@ -52,19 +52,25 @@ object OAuth2Flow:
   // daemon threads: a call stuck in a half-dead connection must not prevent JVM shutdown.
   // Bounded pool: calls that ignore interruption leave their thread stuck - an unbounded
   // pool would then grow with every timed-out call until the JVM runs out of threads.
-  // If all threads are stuck, further submissions are rejected -> withHardTimeout fails fast.
+  // More calls at once than threads wait in a bounded queue - within their hard timeout. Without a
+  // queue (SynchronousQueue) the 17th concurrent call was rejected at once, as if the identity
+  // provider did not respond; a full queue still fails fast.
+  val maxThreads     = 16
+  val maxQueuedCalls = 256
+
   private lazy val tokenCallExecutor =
     val executor = new java.util.concurrent.ThreadPoolExecutor(
-      0,
-      16,
+      maxThreads,
+      maxThreads,
       60L,
       TimeUnit.SECONDS,
-      new java.util.concurrent.SynchronousQueue[Runnable](),
+      new java.util.concurrent.LinkedBlockingQueue[Runnable](maxQueuedCalls),
       { (r: Runnable) =>
         val t = new Thread(r, "oauth2-token-call")
         t.setDaemon(true)
         t
       }
     )
+    executor.allowCoreThreadTimeOut(true) // no idle threads kept
     executor
 end OAuth2Flow
