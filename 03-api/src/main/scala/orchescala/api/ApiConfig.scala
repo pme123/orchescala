@@ -36,7 +36,7 @@ case class ApiConfig(
     tempGitDir: os.Path = os.pwd / os.up / os.up / os.up / "git-temp",
     // Projects that are NOT part of this company's own catalog/docs, but must be scanned for
     // usages ("Used in ..." / "Uses ..." and worker compositions) - e.g. another company's
-    // projects that call this company's workers (globex-* calling initech-fil-is). They are
+    // projects that call this company's workers (globex-* calling initech-core-banking). They are
     // cloned into tempGitDir like the own projects, but never show up in catalog or docs.
     referenceProjectsConfigs: Seq[ProjectsConfig] = Seq.empty,
     // Additionally scan every project checkout found in tempGitDir for usages - so another
@@ -45,7 +45,7 @@ case class ApiConfig(
     // scans see them; catalog and docs stay strictly config-driven. Company meta-repos
     // (`*-orchescala`, `orchescala-*`) are skipped.
     scanTempGitDirForUsages: Boolean = true,
-    // Markdown instructions for the company's own gateway (e.g. Globex's BPF instead of the
+    // Markdown instructions for the company's own gateway (e.g. Globex's portal gateway instead of the
     // Orchescala gateway). If set, every project API gets a second collapsible
     // "<Company> Postman Instructions" with this text and a link to its PostmanOpenApi.yml -
     // and PostmanOpenApi.yml is published next to OpenApi.yml.

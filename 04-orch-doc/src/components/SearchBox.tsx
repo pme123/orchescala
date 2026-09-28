@@ -1,5 +1,5 @@
 // Search across every project API of every company - in the top bar, always at hand. Matches
-// the worker topic (`globex-fil-is-accountAndPortfolioV3.GetAccounts` - unique across all
+// the worker topic (`globex-core-banking-accountAndPortfolioV3.GetAccounts` - unique across all
 // projects), the operation (`Worker: GetAccounts`), the process / tag, the project and the
 // company; a hit opens the operation in the API view. Data: `<company>/search.json`, written by
 // the site assembly from the projects' OpenApi.yml (see types.ts SearchEntry).

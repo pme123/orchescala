@@ -80,8 +80,8 @@ case privateIndividual(
 - Put all these at the end of the class
 
 Additionally, update all usages throughout the whole project (src and test) (not just in the domain module but not in the worker/src/main folder - this is important):
-- Replace constructor calls with default values like `FilIsErrorElem()` with `FilIsErrorElem.example`
-- Replace constructor calls with some parameters like `FilIsErrorElem(errorType = "Custom")` with `FilIsErrorElem.example.copy(errorType = "Custom")`
+- Replace constructor calls with default values like `CoreBankingErrorElem()` with `CoreBankingErrorElem.example`
+- Replace constructor calls with some parameters like `CoreBankingErrorElem(errorType = "Custom")` with `CoreBankingErrorElem.example.copy(errorType = "Custom")`
 - Replace `NameValueField()` with `NameValueField.example`
 - Replace `ClientIdentificationReservation()` with `ClientIdentificationReservation.example`
 - Replace `inExample` with `In.example` / `outExample` with `Out.example` / `inExampleMinimal` with `In.exampleMinimal` / `outExampleMinimal` with `Out.exampleMinimal`

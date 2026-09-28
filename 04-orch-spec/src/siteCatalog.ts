@@ -15,7 +15,7 @@
 // Bewusst nur Prozesse: deren Paket lässt sich aus Projekt und Name sicher
 // ableiten (`globex-mkk` + `openMkkV1` → `globex.mkk.domain.openMkk.v1`),
 // weil der Name die Version trägt. Bei Workern fehlt in der Site die
-// API-Ebene (`personV1` in `globex-graviton-personV1.GetCustomer`) — dort
+// API-Ebene (`personV1` in `globex-crm-personV1.GetCustomer`) — dort
 // wäre der Import geraten. Worker kommen deshalb weiter aus den
 // element-templates, wo auch das Mapping steht.
 

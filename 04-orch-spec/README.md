@@ -288,7 +288,7 @@ Vor dem Anlegen steht, was entsteht:
 Aus BPMN  Adressänderung  globex-addresschange
 74 Schritte · Domain AddressChange aus Ordner globex-addresschange
 · 15 Typen · 6 Interaktionen (ReconfirmationUT, AdjustProcessVariables, …)
-⚠ Typen weder im Projekt noch im Katalog: GravitonConsultant, ProcessCallOrigin
+⚠ Typen weder im Projekt noch im Katalog: CrmConsultant, ProcessCallOrigin
                                                               [Anlegen]
 ```
 
@@ -301,7 +301,7 @@ Was dabei entsteht, ohne Raten:
   Spezifikation — mit `Option`/`Seq`, Einschränkung, Vorgabe und
   `@description`. Ein Alias wie `type AddressType = Int :| any.In[(11, 15)]`
   wird zum Grundtyp mit Einschränkung. Typen aus **anderen Projekten**
-  (`GravitonConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
+  (`CrmConsultant`) zeigen in den Domain-Katalog, wenn er sie kennt;
   sonst bleibt der Name stehen und wird gemeldet.
 - Ein Feld vom Typ `MergeContractsForCAM.In` — das In/Out eines Objekts —
   bleibt **derselbe Typ** wie bei der Interaktion, unter vollem Namen; gehört
@@ -511,10 +511,10 @@ sortiert**:
 
 ```
 PROJEKT-ORDNER   oben steht, was bei gleichem Paket gewinnt
- 1  initech-fil-is         ~/dev-initech/projects/initech-fil-is   117 Typen  ↑ ↓ ×
+ 1  initech-core-banking         ~/dev-initech/projects/initech-core-banking   117 Typen  ↑ ↓ ×
  2  globex-addresschange   ~/dev-globex/projects/…                   32 Typen  ↑ ↓ ×
  …
- 8  globex-fil-is          ~/dev-globex/projects/globex-fil-is     696 Typen  ↑ ↓ ×
+ 8  globex-core-banking          ~/dev-globex/projects/globex-core-banking     696 Typen  ↑ ↓ ×
 ```
 
 **Projekte wählen** nimmt den Ordner *über* den Projekten
@@ -543,7 +543,7 @@ Gesammelt wird alles, was sich als Feldtyp verwenden lässt — die Objekte im
 `schema/`-Ordner ebenso wie die `In` / `Out` der Services. Der Parser kennt
 dabei drei Eigenheiten der Domain:
 
-- **geteilte Paketangaben** (`package globex.graviton.domain` +
+- **geteilte Paketangaben** (`package globex.crm.domain` +
   `package account.v1`) werden zusammengesetzt,
 - **`In` als ADT** (`enum In: case Iban(…) case Generic(…)`) wird als
   Auswahl mit ihren Fällen erkannt,
@@ -552,21 +552,21 @@ dabei drei Eigenheiten der Domain:
   ausgeschriebene Definition.
 
 **Die Reihenfolge der Liste ist der Vorrang.** Dieselbe Schnittstelle liegt
-in mehreren Projekten — `client` gibt es unter `initech.fil.is.domain` und
-unter `globex.fil.is.domain`. Beide zu führen hiesse zwei gleich heissende
+in mehreren Projekten — `client` gibt es unter `initech.core.banking.domain` und
+unter `globex.core.banking.domain`. Beide zu führen hiesse zwei gleich heissende
 Objekte in der Auswahl und einen Import auf gut Glück. Darum gewinnt das
 weiter oben stehende Projekt: kommt später ein Paket mit demselben Schlüssel
 (Paket ohne das Firmen-Segment, Version bleibt Teil davon — `client.v1` und
 `client.v4` sind zwei APIs), wird es verworfen und gemeldet:
 
 ```
-verworfen: globex.fil.is.domain.client.v1.schema (19 Typen)
-           — Vorrang hat initech.fil.is.domain.client.v1.schema
+verworfen: globex.core.banking.domain.client.v1.schema (19 Typen)
+           — Vorrang hat initech.core.banking.domain.client.v1.schema
 ```
 
 Eingelesen werden nicht nur die Service-Projekte, sondern auch die
 **Prozess-Projekte** — deren `In`/`Out` sind das, was ein Subprozess-Aufruf
-braucht. Über 18 Projekte (`initech-fil-is` zuoberst) sind das **2095 Typen
+braucht. Über 18 Projekte (`initech-core-banking` zuoberst) sind das **2095 Typen
 aus 2625 Dateien**. Die Beispieldaten enthalten diesen Katalog bereits.
 
 `InConfig` und `InitIn` fremder Projekte werden dabei übersprungen: das sind
@@ -592,7 +592,7 @@ BPMN-Prozess-ID und nicht der Scala-Name (`globex-addresschange` heisst dort
 ist, bleibt stehen.
 
 Worker kommen bewusst nicht von der Site: dort fehlt die API-Ebene
-(`personV1` in `globex-graviton-personV1.GetCustomer`), der Import wäre
+(`personV1` in `globex-crm-personV1.GetCustomer`), der Import wäre
 geraten. Die stehen in der OpenAPI — mitsamt Mapping und Beschreibungen.
 
 Aus dem Browser greift dabei **CORS** — und bei einem internen Doku-Server
@@ -623,8 +623,8 @@ Der neue Katalog kennt weniger
 neuen Katalog. Die Spezifikationen bleiben, wie sie sind — die Verweise
 darin zeigen danach ins Leere und werden rot angezeigt.
 
-  globex-graviton-person.GetConsultant
-  globex-graviton-personV1.GetCustomer
+  globex-crm-person.GetConsultant
+  globex-crm-personV1.GetCustomer
   …
                               [Abbrechen]  [Trotzdem ersetzen]
 ```
@@ -1084,10 +1084,10 @@ Die Ausgabe zeigt, was jedes Projekt beigetragen hat, und was die
 Vorrang-Regel verworfen hat:
 
 ```
-  117  initech-fil-is
-  696  globex-fil-is
+  117  initech-core-banking
+  696  globex-core-banking
   …
-verworfen: globex.fil.is.domain.client.v1 (13 Typen) — Vorrang hat initech.fil.is.domain.client.v1
+verworfen: globex.core.banking.domain.client.v1 (13 Typen) — Vorrang hat initech.core.banking.domain.client.v1
 ```
 
 ## Aufbau

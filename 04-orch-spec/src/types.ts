@@ -480,7 +480,7 @@ export interface ServiceDef {
    * geschrieben — der Katalog ist nicht vom Benutzer pflegbar.
    */
   generated?: boolean;
-  group?: string;         // z. B. `globex-graviton`
+  group?: string;         // z. B. `globex-crm`
   description?: string;
   topic?: string;
   kind?: StepKind;        // 'service' (Worker), 'call' (Prozess), 'user' (Benutzeraufgabe)
@@ -509,7 +509,7 @@ export interface DomainField {
 }
 
 export interface DomainType {
-  /** voll qualifiziert, z. B. `globex.graviton.domain.account.v1.GetAccount.Out` */
+  /** voll qualifiziert, z. B. `globex.crm.domain.account.v1.GetAccount.Out` */
   id: string;
   /** aus der mitgelieferten `catalog.generated.json` — siehe ServiceDef.generated */
   generated?: boolean;
@@ -560,7 +560,7 @@ export type EngineId = 'c7' | 'c8';
 export interface ProjectFolder {
   /** stabil über Umsortieren hinweg; zugleich Schlüssel des Ordner-Zugriffs */
   id: string;
-  /** Ordnername, z. B. `initech-fil-is` */
+  /** Ordnername, z. B. `initech-core-banking` */
   name: string;
   /**
    * absoluter Pfad — nur das CLI kennt ihn. Im Browser gibt der Ordnerwähler
@@ -609,7 +609,7 @@ export interface Model {
   /**
    * Die Projekt-Ordner des Domain-Katalogs — **die Reihenfolge ist der
    * Vorrang**. Liegt dasselbe Paket in mehreren Projekten
-   * (`initech.fil.is.domain.client` und `globex.fil.is.domain.client`),
+   * (`initech.core.banking.domain.client` und `globex.core.banking.domain.client`),
    * gilt das weiter oben stehende; das andere wird verworfen.
    */
   projects?: ProjectFolder[];

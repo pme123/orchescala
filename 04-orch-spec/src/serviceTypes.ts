@@ -3,9 +3,9 @@
 // Ein Katalog-Eintrag (element-template) trägt seine Orchescala-Herkunft im
 // Namen. Daraus lassen sich Objekt und Package ableiten:
 //
-//   globex-graviton-accountV1.GetAccount
+//   globex-crm-accountV1.GetAccount
 //     → object  GetAccount
-//     → package globex.graviton.domain.account.v1
+//     → package globex.crm.domain.account.v1
 //     → Typen   GetAccount.In · GetAccount.Out
 //
 //   globex-product-openAccountV2            (Teilprozess)
@@ -27,7 +27,7 @@ export interface ServiceType {
   member: ServiceMember;
   /** Scala-Typ, z. B. `GetAccount.Out` */
   name: string;
-  /** Package des Objekts, z. B. `globex.graviton.domain.account.v1` */
+  /** Package des Objekts, z. B. `globex.crm.domain.account.v1` */
   pkg: string;
   /** vollständige import-Zeile */
   importPath: string;

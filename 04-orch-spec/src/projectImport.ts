@@ -15,7 +15,7 @@
 // über `val topicName`, Signal und Nachricht über den Namen im BPMN.
 //
 // Typen aus dem Projekt selbst werden **eigene Typen** der Spezifikation;
-// Typen aus anderen Projekten (`GravitonConsultant`) zeigen auf den
+// Typen aus anderen Projekten (`CrmConsultant`) zeigen auf den
 // Domain-Katalog, wenn er sie kennt — sonst bleibt der Name stehen und wird
 // gemeldet.
 

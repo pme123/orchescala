@@ -16,8 +16,8 @@
 // Service-Objekte. Dieselbe Logik wie in der App (src/domainScan.ts).
 //
 // **Die Reihenfolge der Ordner ist der Vorrang.** Liegt dasselbe Paket in
-// mehreren Projekten (`initech.fil.is.domain.client` und
-// `globex.fil.is.domain.client`), gewinnt das zuerst genannte; das spätere
+// mehreren Projekten (`initech.core.banking.domain.client` und
+// `globex.core.banking.domain.client`), gewinnt das zuerst genannte; das spätere
 // wird verworfen und am Ende gemeldet.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

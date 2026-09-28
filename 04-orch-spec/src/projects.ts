@@ -1,8 +1,8 @@
 // Projekt-Ordner des Domain-Katalogs.
 //
 // Der Katalog entsteht aus mehreren Orchescala-Projekten. Liegt dasselbe
-// Paket in zweien (`initech.fil.is.domain.client` und
-// `globex.fil.is.domain.client`), muss entschieden sein, welches gilt — und
+// Paket in zweien (`initech.core.banking.domain.client` und
+// `globex.core.banking.domain.client`), muss entschieden sein, welches gilt — und
 // diese Entscheidung gehört nicht in die Reihenfolge zufälliger Klicks,
 // sondern in eine Liste, die man sieht und umsortieren kann.
 //

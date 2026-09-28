@@ -143,7 +143,7 @@ export function renameStepId<T extends {
 
 // ── Firma und Projekt (`company-projekt`-Prefix) ─────────────────────────────
 
-/** `globex-fil-is` → { company: 'globex', project: 'fil-is' } */
+/** `globex-core-banking` → { company: 'globex', project: 'core-banking' } */
 export function splitPrefix(prefix: string): { company: string; project: string } {
   const [company, ...rest] = prefix.split('-').filter(Boolean);
   return { company: company ?? '', project: rest.join('-') };

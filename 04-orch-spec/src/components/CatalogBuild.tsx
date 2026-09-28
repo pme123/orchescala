@@ -10,8 +10,8 @@
 //    Domain-Typen. Gewählt wird ein Ordner über den Projekten
 //    (`~/dev-mycompany/projects`); seine Unterordner kommen als Projekte
 //    hinein. **Oben steht, was gewinnt**: dasselbe Paket aus einem weiter
-//    unten stehenden Projekt (`globex.fil.is.domain.client` nach
-//    `initech.fil.is.domain.client`) wird verworfen und gemeldet.
+//    unten stehenden Projekt (`globex.core.banking.domain.client` nach
+//    `initech.core.banking.domain.client`) wird verworfen und gemeldet.
 //    «Neu aufbauen» liest die Liste von oben nach unten frisch ein.
 //  · **OpenAPI einlesen** — die `03-api/OpenApi.yml` der Projekte. Sie
 //    beschreibt, was **tatsächlich deployed** ist: Worker, Prozesse,

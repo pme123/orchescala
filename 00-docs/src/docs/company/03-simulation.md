@@ -87,7 +87,7 @@ trait CompanySimulation extends OAuthSimulationDsl:
     s"$ssoBaseUrl/realms/${config.tenantId.get}/protocol/openid-connect",
     Map(
       "grant_type" -> "password",
-      "client_id" -> "bpf",
+      "client_id" -> "portal",
       "client_secret" -> ssoClientSecret,
       "username" -> ssoUser,
       "password" -> ssoPassword,

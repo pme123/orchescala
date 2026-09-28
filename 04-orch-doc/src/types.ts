@@ -79,7 +79,7 @@ export interface Project {
   workerVersion?: string;
   /** OpenApi.html, relative to the company folder */
   apiDocUrl: string;
-  /** project belongs to another company (e.g. initech-fil-is in the globex docs) */
+  /** project belongs to another company (e.g. initech-core-banking in the globex docs) */
   external?: boolean;
   /** there is a dependency page for this project */
   hasDependencies: boolean;

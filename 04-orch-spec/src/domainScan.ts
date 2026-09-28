@@ -8,7 +8,7 @@
 //
 // Drei Eigenheiten der Orchescala-Domain muss der Parser kennen:
 //
-//  1. **Geteilte Paketangaben.** `package globex.graviton.domain` gefolgt von
+//  1. **Geteilte Paketangaben.** `package globex.crm.domain` gefolgt von
 //     `package account.v1` ergibt zusammen das Paket.
 //  2. **`In` als ADT.** `enum In: case Iban(...) case Generic(...)` — ein enum
 //     mit Parametern, nicht nur eine Werteliste.
@@ -99,7 +99,7 @@ export interface ScanResult {
 // ── Vorrang der Quellen ──────────────────────────────────────────────────────
 //
 // Dieselbe Schnittstelle liegt in mehreren Projekten — `client` gibt es unter
-// `initech.fil.is.domain` und unter `globex.fil.is.domain`. Beide zu führen
+// `initech.core.banking.domain` und unter `globex.core.banking.domain`. Beide zu führen
 // hiesse, dass die Typ-Auswahl zwei gleich heissende Objekte anbietet und der
 // Import zur Glückssache wird.
 //
@@ -108,8 +108,8 @@ export interface ScanResult {
 // und gemeldet, damit die Reihenfolge bewusst gewählt bleibt.
 
 /**
- * Paket ohne das Firmen-Segment. `initech.fil.is.domain.client.v1` und
- * `globex.fil.is.domain.client.v1` ergeben denselben Schlüssel; die Version
+ * Paket ohne das Firmen-Segment. `initech.core.banking.domain.client.v1` und
+ * `globex.core.banking.domain.client.v1` ergeben denselben Schlüssel; die Version
  * bleibt Teil des Schlüssels, denn `client.v1` und `client.v4` sind zwei APIs.
  */
 export function packageKey(pkg: string): string {
