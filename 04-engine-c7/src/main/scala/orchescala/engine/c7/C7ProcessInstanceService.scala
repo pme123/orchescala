@@ -314,8 +314,28 @@ class C7ProcessInstanceService(using
               s"Problem sending message '$messageName' to start process: $err"
             ))
       result    <- mapMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
-    yield result
+      started   <- onlyStarted(messageName, result)
+    yield started
   end sendMessageToStartProcess
+
+  /** The C7 REST API cannot restrict a message to start events (no `startMessagesOnly`): it is
+    * correlated to a running instance waiting for it first. That was reported as a started process
+    * - and with an IdentityCorrelation the caller's identity was signed onto the other instance.
+    */
+  private[c7] def onlyStarted(
+      messageName: String,
+      result: MessageCorrelationResult
+  ): IO[EngineError, MessageCorrelationResult] =
+    result match
+      case started: MessageCorrelationResult.ProcessInstance => ZIO.succeed(started)
+      case execution: MessageCorrelationResult.Execution     =>
+        ZIO.logWarning(
+          s"Message '$messageName' was correlated to the running process instance ${execution.processInstanceId} - no process started"
+        ) *>
+          ZIO.fail(EngineError.ServiceRequestError(
+            409,
+            s"Message '$messageName' was correlated to a running process instance (${execution.processInstanceId}) - no process was started"
+          ))
 
   /** Map Camunda message correlation result to our domain model
     */

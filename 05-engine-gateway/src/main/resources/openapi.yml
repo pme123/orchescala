@@ -248,8 +248,8 @@ paths:
         Starts a new process instance by sending a message to a Message Start Event.
         This is used when a process is triggered by a message rather than being started directly.
 
-        Note: In Camunda 8, identity correlation signing is not supported for message-started processes
-        because the message correlation response doesn't include the processInstanceId.
+        Note: In Camunda 7 a message is correlated to a running process instance waiting for it
+        first (message names are engine wide). Then no process is started - answered with 409.
       operationId: Start Process By Message
       parameters:
       - name: messageName
