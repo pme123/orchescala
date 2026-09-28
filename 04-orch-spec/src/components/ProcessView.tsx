@@ -232,8 +232,19 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     timer.current = window.setTimeout(() => { void flush(); }, 1000);
   }, [flush]);
 
-  // beim Verlassen ausstehende Änderungen noch wegschreiben
-  useEffect(() => () => { if (pending.current) void flush(); }, [flush]);
+  // beim Verlassen ausstehende Änderungen noch wegschreiben — auch wenn die
+  // Seite neu lädt oder in den Hintergrund geht (dann gibt es kein Unmount)
+  useEffect(() => {
+    const now = () => { if (pending.current) void flush(); };
+    const hidden = () => { if (document.visibilityState === 'hidden') now(); };
+    window.addEventListener('pagehide', now);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', now);
+      document.removeEventListener('visibilitychange', hidden);
+      now();
+    };
+  }, [flush]);
 
   // Einen Schritt im Baum ersetzen (unveränderlich)
   const patchStep = useCallback((id: string, patch: Partial<Step>) => {
@@ -512,7 +523,11 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
       const text = alignPoolIds(raw, { renameProcess: renamed }).xml;
       const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
-      const { spec: merged0, report: r } = mergeSpec(fresh, current);
+      // das vorige BPMN als Bezug: was das Diagramm nicht geändert hat, bleibt
+      // wie in der Spezifikation (Service, Mappings — die kommen erst beim Export hinein)
+      let base = null;
+      try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unlesbar — ohne Bezug */ }
+      const { spec: merged0, report: r } = mergeSpec(fresh, current, base);
       // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
       // Das Umbenennen im Modeler löst den nächsten Speicherlauf aus, der das
       // BPMN mit den neuen IDs ablegt.
@@ -830,7 +845,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 {idProblem && (
                   <div className={`mt-0.5 text-[10px] ${idProblem.level === 'error'
                     ? (isDark ? 'text-rose-400' : 'text-rose-600') : (isDark ? 'text-amber-400' : 'text-amber-700')}`}>
-                    {idProblem.text}{idProblem.level === 'error' && idDraft !== (spec.processId ?? '') ? ' — nicht übernommen.' : ''}
+                    {idProblem.text}{idProblem.level === 'error' && idDraft !== (spec.processId ?? '') ? ' Nicht übernommen.' : ''}
                   </div>
                 )}
                 <div className={`flex items-center gap-2 mt-1 text-[10px] ${c.muted}`}>

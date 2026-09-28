@@ -888,7 +888,44 @@ function sig(s: Step): string {
     (s.outputs ?? []).map(o => `${o.name}=${o.expression}`)]);
 }
 
-function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>) {
+/**
+ * Was die Spezifikation am Schritt einstellt — Service, Topic, gerufener
+ * Prozess, Mappings, Mock. Ins BPMN kommt das erst beim Export; bis dahin
+ * steht im Diagramm der alte Stand. Ein Abgleich darf es darum nur ersetzen,
+ * wo das **Diagramm selbst** es geändert hat (Drei-Wege-Abgleich gegen das
+ * vorige BPMN) — sonst gingen Einstellungen verloren, sobald jemand im
+ * Diagramm etwas verschiebt oder die App es angleicht.
+ */
+const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock'] as const;
+
+/** Ein Wert unabhängig von seiner Engine-Form: `${x}` wie `=x`, `text` wie `="text"` */
+function normExpr(e: string): string {
+  const f = feelIfPossible(e.trim());
+  const lit = /^=\s*"((?:[^"\\]|\\.)*)"$/.exec(f);
+  if (lit) return lit[1].replace(/\\(["\\])/g, '$1');
+  return f.startsWith('=') ? `= ${f.slice(1).trim()}` : f;
+}
+
+const norm = (k: string, v: unknown): unknown =>
+  k === 'mock' && typeof v === 'string' ? normExpr(v)
+    : (k === 'inputs' || k === 'outputs') && Array.isArray(v) ? (v as Mapping[]).map(m => [m.name, normExpr(m.expression)])
+      : v;
+
+/** hat das Diagramm dasselbe — gleich bis auf die Schreibweise der Engine? */
+const same = (k: string, a: unknown, b: unknown): boolean =>
+  JSON.stringify(norm(k, a) ?? null) === JSON.stringify(norm(k, b) ?? null);
+
+function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
+  for (const k of SPEC_OWNED) {
+    // ohne voriges BPMN: nur nicht verlieren, was das Diagramm nicht kennt
+    const diagramUnchanged = base ? same(k, s[k], base[k]) : s[k] == null || same(k, s[k], []);
+    if (!diagramUnchanged) continue;
+    if (prev[k] === undefined) delete s[k];
+    else (s as Record<string, unknown>)[k] = prev[k];
+  }
+}
+
+function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>, base: Map<string, Step> | null) {
   for (const s of steps) {
     seen.add(s.id);
     const prev = old.get(s.id);
@@ -896,6 +933,7 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (s.kind !== 'goto') report.added.push(s.name);
       s.status = 'draft';
     } else {
+      keepSpecOwned(s, prev, base?.get(s.id));
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
       // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation
       for (const list of ['inputs', 'outputs'] as const) {
@@ -915,19 +953,25 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       s.status = changed ? 'changed' : prev.status;
       report.kept++;
     }
-    if (s.children) applyOld(s.children, old, report, seen);
-    for (const b of s.branches ?? []) applyOld(b.steps, old, report, seen);
+    if (s.children) applyOld(s.children, old, report, seen, base);
+    for (const b of s.branches ?? []) applyOld(b.steps, old, report, seen, base);
     // Fehler- und Nebenpfade gehören dazu — sonst gehen ihre fachlichen Texte
     // beim erneuten Import verloren und sie gelten fälschlich als entfallen.
-    for (const e of s.errors ?? []) if (e.steps) applyOld(e.steps, old, report, seen);
+    for (const e of s.errors ?? []) if (e.steps) applyOld(e.steps, old, report, seen, base);
   }
 }
 
-export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec): { spec: ProcessSpec; report: MergeReport } {
+/**
+ * Das neu eingelesene BPMN (`fresh`) mit der Spezifikation (`previous`)
+ * zusammenführen. `base` ist der Import des **vorigen** BPMN: was das
+ * Diagramm gegenüber ihm nicht geändert hat, bleibt, wie es in der
+ * Spezifikation steht (siehe `SPEC_OWNED`).
+ */
+export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: ProcessSpec | null = null): { spec: ProcessSpec; report: MergeReport } {
   const old = indexSteps(previous.steps, new Map());
   const report: MergeReport = { added: [], removed: [], changed: [], renamed: [], kept: 0 };
   const seen = new Set<string>();
-  applyOld(fresh.steps, old, report, seen);
+  applyOld(fresh.steps, old, report, seen, base ? indexSteps(base.steps, new Map()) : null);
   for (const [id, s] of old) if (!seen.has(id) && s.kind !== 'goto') report.removed.push(s.name || id);
 
   const spec: ProcessSpec = {

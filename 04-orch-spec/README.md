@@ -740,6 +740,13 @@ Was synchron läuft:
 - **Diagramm → Ablauf**: jede Änderung wird kurz danach neu eingelesen; die
   fachlichen Texte bleiben über die Element-ID erhalten. Das BPMN wird dabei
   als `processes/<slug>.bpmn` neben der Spezifikation gespeichert.
+  **Service-Einstellungen gehen dabei nicht verloren**: Service, Topic,
+  gerufener Prozess, Mappings und Mock stellt man in der Spezifikation ein,
+  ins BPMN kommen sie erst beim Export. Der Abgleich vergleicht darum das neue
+  Diagramm mit dem vorigen und ersetzt nur, was **das Diagramm** geändert hat
+  — bis auf die Schreibweise der Engine (`${x}` wie `=x`), damit auch ein
+  Wechsel C7 ⇄ C8 nichts überschreibt. Das gilt für jeden Abgleich: Änderung
+  im Modeler, «BPMN wählen», Pattern, Prozess-ID, Engine-Wechsel.
 - **Ablauf → Diagramm**: ein angeklickter Schritt wird im Diagramm ausgewählt
   und ins Bild geholt; ein umbenannter Schritt wird im Diagramm umbenannt —
   und der Weg zurück speichert die Datei.
