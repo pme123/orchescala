@@ -204,17 +204,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // geschrieben, bis ein Admin sie von Hand nach config/ verschiebt.
   const loadModel = useCallback(async (be: StorageBackend) => {
     const usePath = (p: string) => { modelPathRef.current = p; setModelPath(p); };
+    // Der Pfad gilt ab hier für diesen Ordner — schlägt schon das erste Lesen
+    // fehl, nennt die Meldung config/model.json, nicht die Datei des vorigen
+    // Ordners. Umgestellt wird nur, wenn es allein die alte Datei gibt.
+    usePath(MODEL_PATH);
     try {
-      let read = await be.read(MODEL_PATH);
-      usePath(MODEL_PATH);
-      if (read) {
-        // eine alte Kopie im Hauptordner gehört weg — sonst ist unklar, welche gilt
-        setLegacyModelLeftover(!!(await be.read(LEGACY_MODEL_PATH).catch(() => null)));
-      } else {
-        setLegacyModelLeftover(false);
-        read = await be.read(LEGACY_MODEL_PATH);
-        if (read) usePath(LEGACY_MODEL_PATH);
-      }
+      const neu = await be.read(MODEL_PATH);
+      // eine alte Kopie neben config/ gehört weg — sonst ist unklar, welche gilt
+      // (nur ein Hinweis: scheitert das Lesen, gibt es eben keinen)
+      const alt = neu ? null : await be.read(LEGACY_MODEL_PATH);
+      setLegacyModelLeftover(neu ? !!(await be.read(LEGACY_MODEL_PATH).catch(() => null)) : false);
+      if (alt) usePath(LEGACY_MODEL_PATH);
+      let read = neu ?? alt;
       if (!read) {
         const ids = idsRef.current;
         const fresh: Model = ids
