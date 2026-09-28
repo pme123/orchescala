@@ -69,7 +69,9 @@ class C7UserTaskService() (using
             C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             ))
-      _ <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+      // names on INFO - the values (personal data) on DEBUG only
+      _ <- logInfo(s"Variables for Process Instance '$processInstanceId': ${variables.map(_.key).mkString(", ")}")
+      _ <- ZIO.logDebug(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
     
   def complete(
@@ -100,7 +102,8 @@ class C7UserTaskService() (using
                     InputParams._identityCorrelation.toString,
                     signedCorr.asJson.deepDropNullValues
                   )
-        _      <- logInfo(s"complete UserTask: $taskId - $jsonObj")
+        _      <- logInfo(s"complete UserTask: $taskId - ${jsonObj.keys.mkString(", ")}")
+        _      <- ZIO.logDebug(s"complete UserTask: $taskId - $jsonObj")
 
         variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
         _            <- ZIO

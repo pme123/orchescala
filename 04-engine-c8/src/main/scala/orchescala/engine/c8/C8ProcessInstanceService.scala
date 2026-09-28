@@ -161,7 +161,9 @@ class C8ProcessInstanceService(using
             EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
             )
-      _             <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
+      // names on INFO - the values (personal data) on DEBUG only
+      _             <- logInfo(s"Variables for Process Instance '$processInstanceId': ${variables.map(_.key).mkString(", ")}")
+      _             <- logDebug(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables
 
   def startProcessByMessage(
@@ -257,7 +259,8 @@ class C8ProcessInstanceService(using
         ).getOrElse(Json.obj())))
       .getOrElse(Json.obj())
     for
-      _        <- logInfo(s"Send Message $messageName: $variables")
+      _        <- logInfo(s"Send Message $messageName: ${variables.asObject.fold("-")(_.keys.mkString(", "))}")
+      _        <- logDebug(s"Send Message $messageName: $variables")
       response <- rest
                     .post[C8RestModel.MessageCorrelationResult](
                       Seq("messages", "correlation"),
