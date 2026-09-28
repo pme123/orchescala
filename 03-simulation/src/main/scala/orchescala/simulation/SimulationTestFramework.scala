@@ -33,10 +33,14 @@ object SimulationFingerprint extends sbt.testing.SubclassFingerprint:
   final def requireNoArgConstructor() = true
 end SimulationFingerprint
 
+/** @param simulationTimeout
+  *   how long a simulation may run - then it is stopped and reported as failed
+  */
 final class SimulationTestRunner(
     val args: Array[String],
     val remoteArgs: Array[String],
-    testClassLoader: ClassLoader
+    testClassLoader: ClassLoader,
+    simulationTimeout: FiniteDuration = 5.minutes
 ) extends sbt.testing.Runner:
   private val maxLine = 85
 
@@ -46,6 +50,8 @@ final class SimulationTestRunner(
     taskDefs.map { td =>
       Task(
         td,
+        // a last resort only - the simulation itself is stopped after simulationTimeout
+        simulationTimeout + 1.minute,
         (loggers, eventHandler) =>
           runSimulationZIO(td)
             // last resort - a simulation that did not run must never be reported as a success
@@ -108,8 +114,15 @@ final class SimulationTestRunner(
                                          s"Interrupting Simulation: $status ${taskDef.fullyQualifiedName()}"
                                        ) *>
                                          fiber.interrupt.when(!status.isDone)
-                // Join the fiber to wait for completion
+                // Join the fiber to wait for completion - at most simulationTimeout: only the
+                // wait ended before (Await in Task.execute), the simulation ran on next to the
+                // following ones. Interrupted now by the finalizer above, when the scope closes.
                 logLevelAndTime <- fiber.join
+                                     .timeout(zio.Duration.fromScala(simulationTimeout))
+                                     .someOrElseZIO:
+                                       ZIO.logError(
+                                         s"Simulation ${taskDef.fullyQualifiedName()} did not finish within $simulationTimeout - stopped"
+                                       ).as((LogLevel.ERROR, simulationTimeout.toMillis))
                 _               <- ZIO.logInfo(
                                      s"Finished Simulation: $logLevelAndTime ${taskDef.fullyQualifiedName()}"
                                    )
@@ -175,6 +188,7 @@ end SimulationTestRunner
 
 class Task(
     val taskDef: sbt.testing.TaskDef,
+    maxWait: FiniteDuration,
     runUTestTask: (
         Seq[sbt.testing.Logger],
         sbt.testing.EventHandler
@@ -189,7 +203,7 @@ class Task(
   ): Array[sbt.testing.Task] =
     Await.ready(
       runUTestTask(loggers.toSeq, eventHandler),
-      5.minutes
+      maxWait
     )
     Array()
   end execute
