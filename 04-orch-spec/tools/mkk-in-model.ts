@@ -1,7 +1,7 @@
 // Beispieldaten: das Datenmodell (In) des MKK-Prozesses.
 //
 // Nachgebildet aus der echten Orchescala-Domain
-// (valiant-mkk/01-domain/.../openMkk/v1) — bewusst OHNE `InConfig` und
+// (globex-mkk/01-domain/.../openMkk/v1) — bewusst OHNE `InConfig` und
 // `InitIn`: das sind Implementations-Details und gehören nicht in die Spez.
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { Field, ProcessSpec, TypeDef } from '../src/types.ts';
@@ -104,7 +104,7 @@ const types: TypeDef[] = [
   },
 ];
 
-const path = process.argv[2] ?? 'sample-data/processes/valiant-mkk-openmkkv1.json';
+const path = process.argv[2] ?? 'sample-data/processes/globex-mkk-openmkkv1.json';
 const spec = JSON.parse(readFileSync(path, 'utf8')) as ProcessSpec;
 spec.types = types;
 writeFileSync(path, JSON.stringify(spec, null, 2));

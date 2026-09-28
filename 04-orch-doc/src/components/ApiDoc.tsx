@@ -70,7 +70,7 @@ export function splitProjectInfo(md: string) {
   // summary may be wrapped over several lines) — its content, without the collapsible
   const takeDetails = (label: string) =>
     take(new RegExp(`<details>\\s*<summary>\\s*(?:<b>)?(?:<i>)?${label}(?:<\\/i>)?(?:<\\/b>)?\\s*<\\/summary>\\s*<p>([\\s\\S]*?)<\\/p>\\s*<\\/details>`))?.[1]?.trim();
-  // the company's own gateway variant (`Valiant Postman Instructions`, see
+  // the company's own gateway variant (`Globex Postman Instructions`, see
   // ApiConfig.companyPostmanInstructions) — keeps its label, the plain one is matched below
   const companyPostmanMatch = take(/<details>\s*<summary>\s*(?:<b>)?(?:<i>)?([\w-]+ Postman Instructions)(?:<\/i>)?(?:<\/b>)?\s*<\/summary>\s*<p>([\s\S]*?)<\/p>\s*<\/details>/);
   const companyPostman = companyPostmanMatch ? { title: companyPostmanMatch[1].trim(), text: companyPostmanMatch[2].trim() } : undefined;
@@ -433,7 +433,7 @@ function OperationView({ op, api, isDark, base, rewrite }: { op: Operation; api:
         </h3>
         {b.schema && <SchemaTree schema={b.schema} schemas={api.schemas} isDark={isDark} />}
         {examples.length === 1 && (
-          // a single example needs no name of its own (`valiant-bpmn-productGroups`) — it is THE example
+          // a single example needs no name of its own (`globex-bpmn-productGroups`) — it is THE example
           <div className="mt-2"><ExampleBlock title="Example" value={examples[0].value} isDark={isDark} /></div>
         )}
         {examples.length > 1 && (

@@ -44,7 +44,7 @@ assembles everything `./helper.scala prepareDocs` produces — plus the pieces
 that on the server come from other pipelines — into `dist-site/` and serves it
 at <http://localhost:3004/>:
 
-1. **Docs data** for Valiant *and* Swisscom (`docs2json` over both `00-docs`).
+1. **Docs data** for Globex *and* Initech (`docs2json` over both `00-docs`).
 2. **The referenced APIs**: per project `OpenApi.yml` **at the version defined
    in `VERSIONS.conf`** — rendered in-app by the API view, taken from the checkouts in `~/git-temp` via
    `git show v<version>:…` — the working trees stay untouched. Plus the Redoc
@@ -95,14 +95,14 @@ Everything is defined in [`src/types.ts`](src/types.ts):
 site/
   index.html + assets/        ← this app (npm run build → dist/)
   index.json                  ← SiteIndex: companies (name, logo, url), specUrl, orchescalaUrl
-  valiant/
+  globex/
     docs.json                 ← CompanyDocs: release, projects, graph, dependencies,
                                 releaseTables, releaseNotes, catalog, devStats, pages
     pages/*.md                ← hand-written pages (pattern, onboarding, …)
     pattern/*.png             ← their images
-    valiant-mkk/OpenApi.html  ← per project, deployed by the project (unchanged)
+    globex-mkk/OpenApi.html  ← per project, deployed by the project (unchanged)
     2026-06/ …                ← older releases, classic static sites (unchanged)
-  swisscom/…
+  initech/…
   spec/                       ← orch-spec (optional, see below)
 ```
 
@@ -170,7 +170,7 @@ location (`https://<host>/site/spec/`).
 | --- | --- |
 | `npm run site` | assemble the complete site (docs + APIs + spec) and serve on :3004 |
 | `npm run dev` | dev server on :3003 with `sample-data/site/` |
-| `npm run sample` | regenerate the sample data from `valiant-orchescala/00-docs` |
+| `npm run sample` | regenerate the sample data from `globex-orchescala/00-docs` |
 | `npm run build` | type-check + production build → `dist/` |
 | `npm run build:spec` | build `../orch-spec` into `dist/spec/` |
 | `npm run build:all` | both |
@@ -181,7 +181,7 @@ location (`https://<host>/site/spec/`).
 src/
   types.ts         data contract (generator ↔ app)
   data.ts          loading + derived lookups (used by, catalog → project)
-  router.ts        hash routes (#/valiant/catalog?q=…)
+  router.ts        hash routes (#/globex/catalog?q=…)
   ui.tsx           cls(), chips, cards, section headers
   markdown.tsx     marked with relative images/links
   App.tsx          top bar, sidebar, home, route switch

@@ -109,7 +109,7 @@ You can customize the DmnTester Configuration.
 
 ```scala
 DmnTesterStarterConfig(
-  companyName = "valiant",
+  companyName = "globex",
   dmnSources = Seq(DmnSource(localDmnPath))
 )
 ```

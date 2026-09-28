@@ -30,7 +30,7 @@ class DmnConfigHandlerTest extends FunSuite:
       |    testCases=[]
       |    variables=[]
       |}
-      |decisionId=valiant-documents-documentInfo
+      |decisionId=globex-documents-documentInfo
       |dmnPath="c8/src/main/resources/documents-documentInfo.dmn"
       |isActive="false"
       |testUnit="true"
@@ -38,12 +38,12 @@ class DmnConfigHandlerTest extends FunSuite:
 
   test("read a DmnConfig as a project has it on disk"):
     val config = hocon.parse(projectConfig).fold(fail(_), identity)
-    assertEquals(config.decisionId, "valiant-documents-documentInfo")
+    assertEquals(config.decisionId, "globex-documents-documentInfo")
     assertEquals(config.acceptMissingRules, true)
     assertEquals(config.testUnit, true)
     assertEquals(config.isActive, false)
     assertEquals(config.dmnPathStr, "c8/src/main/resources/documents-documentInfo.dmn")
-    assertEquals(config.dmnConfigPathStr, "valiant-documents-documentInfo.conf")
+    assertEquals(config.dmnConfigPathStr, "globex-documents-documentInfo.conf")
     val input = config.data.inputs.head
     assertEquals(input.key, "docId")
     assertEquals(input.id, Some(41748))
@@ -64,7 +64,7 @@ class DmnConfigHandlerTest extends FunSuite:
 
   test("testUnit = false gives the -INT config file name"):
     val config = hocon.parse(projectConfig).fold(fail(_), identity).copy(testUnit = false)
-    assertEquals(config.dmnConfigPathStr, "valiant-documents-documentInfo-INT.conf")
+    assertEquals(config.dmnConfigPathStr, "globex-documents-documentInfo-INT.conf")
 
   test("dates, numbers, booleans and null survive the round trip"):
     val config = DmnConfig(

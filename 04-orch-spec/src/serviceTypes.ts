@@ -3,14 +3,14 @@
 // Ein Katalog-Eintrag (element-template) trägt seine Orchescala-Herkunft im
 // Namen. Daraus lassen sich Objekt und Package ableiten:
 //
-//   valiant-graviton-accountV1.GetAccount
+//   globex-graviton-accountV1.GetAccount
 //     → object  GetAccount
-//     → package valiant.graviton.domain.account.v1
+//     → package globex.graviton.domain.account.v1
 //     → Typen   GetAccount.In · GetAccount.Out
 //
-//   valiant-product-openAccountV2            (Teilprozess)
+//   globex-product-openAccountV2            (Teilprozess)
 //     → object  OpenAccountV2
-//     → package valiant.product.domain.openAccount.v2
+//     → package globex.product.domain.openAccount.v2
 //
 // Im Datenmodell steht ein solcher Feldtyp als `svc:<serviceId>:<In|Out>`.
 // Die Ableitung ist eine gute Vermutung, kein Beweis — bei ungewöhnlich
@@ -27,7 +27,7 @@ export interface ServiceType {
   member: ServiceMember;
   /** Scala-Typ, z. B. `GetAccount.Out` */
   name: string;
-  /** Package des Objekts, z. B. `valiant.graviton.domain.account.v1` */
+  /** Package des Objekts, z. B. `globex.graviton.domain.account.v1` */
   pkg: string;
   /** vollständige import-Zeile */
   importPath: string;
@@ -72,7 +72,7 @@ export function deriveObject(serviceId: string): Derived {
 
   // Üblich ist <firma>-<projekt>-<api><Version>. Fehlt die Versionsendung oder
   // die Projektebene, ist die Zerlegung nicht mehr eindeutig — dann ist der
-  // Import eine Vermutung (z. B. `valiant-documents-print-document`).
+  // Import eine Vermutung (z. B. `globex-documents-print-document`).
   const uncertain = segments.length < 3 || !m;
   const head = uncertain ? segments : segments.slice(0, -1);
   const pkg = [...head, 'domain', name, version].join('.');

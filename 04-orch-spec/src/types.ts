@@ -429,9 +429,9 @@ export interface ProcessSpec {
   name: string;
   /** fachlicher Titel, z. B. «Mietkautionskonto eröffnen» */
   title: string;
-  /** BPMN-Prozess-ID, z. B. `valiant-mkk-openMkkV1` */
+  /** BPMN-Prozess-ID, z. B. `globex-mkk-openMkkV1` */
   processId?: string;
-  /** Orchescala-Projekt, z. B. `valiant-mkk` */
+  /** Orchescala-Projekt, z. B. `globex-mkk` */
   project?: string;
   status: Status;
   /** Ausgangslage / Ziel (Markdown) */
@@ -480,7 +480,7 @@ export interface ServiceDef {
    * geschrieben — der Katalog ist nicht vom Benutzer pflegbar.
    */
   generated?: boolean;
-  group?: string;         // z. B. `valiant-graviton`
+  group?: string;         // z. B. `globex-graviton`
   description?: string;
   topic?: string;
   kind?: StepKind;        // 'service' (Worker), 'call' (Prozess), 'user' (Benutzeraufgabe)
@@ -509,7 +509,7 @@ export interface DomainField {
 }
 
 export interface DomainType {
-  /** voll qualifiziert, z. B. `valiant.graviton.domain.account.v1.GetAccount.Out` */
+  /** voll qualifiziert, z. B. `globex.graviton.domain.account.v1.GetAccount.Out` */
   id: string;
   /** aus der mitgelieferten `catalog.generated.json` — siehe ServiceDef.generated */
   generated?: boolean;
@@ -529,7 +529,7 @@ export interface DomainType {
   cases?: Array<{ name: string; fields?: DomainField[] }>;
   descr?: string;
   /**
-   * `val processName` eines Prozess-Objekts, z. B. `valiant-addresschange`.
+   * `val processName` eines Prozess-Objekts, z. B. `globex-addresschange`.
    * Damit findet ein BPMN-Prozess seine Domain, ohne dass Paket und
    * Objektname aus der ID geraten werden müssen.
    */
@@ -560,7 +560,7 @@ export type EngineId = 'c7' | 'c8';
 export interface ProjectFolder {
   /** stabil über Umsortieren hinweg; zugleich Schlüssel des Ordner-Zugriffs */
   id: string;
-  /** Ordnername, z. B. `swisscom-fil-is` */
+  /** Ordnername, z. B. `initech-fil-is` */
   name: string;
   /**
    * absoluter Pfad — nur das CLI kennt ihn. Im Browser gibt der Ordnerwähler
@@ -609,7 +609,7 @@ export interface Model {
   /**
    * Die Projekt-Ordner des Domain-Katalogs — **die Reihenfolge ist der
    * Vorrang**. Liegt dasselbe Paket in mehreren Projekten
-   * (`swisscom.fil.is.domain.client` und `valiant.fil.is.domain.client`),
+   * (`initech.fil.is.domain.client` und `globex.fil.is.domain.client`),
    * gilt das weiter oben stehende; das andere wird verworfen.
    */
   projects?: ProjectFolder[];

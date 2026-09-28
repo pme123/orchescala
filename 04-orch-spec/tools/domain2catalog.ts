@@ -3,7 +3,7 @@
 //   node tools/domain2catalog.ts <ordner…> [--out sample-data/model.json]
 //   node tools/domain2catalog.ts --from sample-data/model.json
 //
-// Ein Ordner darf ein Projekt sein (`…/valiant-mkk`) oder ein Ordner darüber
+// Ein Ordner darf ein Projekt sein (`…/globex-mkk`) oder ein Ordner darüber
 // (`…/projects`) — dann kommen alle Projekte darunter, alphabetisch.
 //
 // `--from` nimmt die **Projektliste aus der model.json** und liest sie in
@@ -16,8 +16,8 @@
 // Service-Objekte. Dieselbe Logik wie in der App (src/domainScan.ts).
 //
 // **Die Reihenfolge der Ordner ist der Vorrang.** Liegt dasselbe Paket in
-// mehreren Projekten (`swisscom.fil.is.domain.client` und
-// `valiant.fil.is.domain.client`), gewinnt das zuerst genannte; das spätere
+// mehreren Projekten (`initech.fil.is.domain.client` und
+// `globex.fil.is.domain.client`), gewinnt das zuerst genannte; das spätere
 // wird verworfen und am Ende gemeldet.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -64,8 +64,8 @@ class WorkerReferenceCreatorTest extends munit.FunSuite:
     assertEquals(workers.map(_.className), Seq("GetClientWorker", "GetProcessInstanceWorker", "PostSignalWorker"))
     assert(!out.toString.contains("Worker Reference Base Directory"), out.toString)
 
-  // The cross-company case: test-services is the own (and only) project - like swisscom-fil-is -
-  // and test-cms, which calls its PostSignal worker, belongs to another company - like valiant.
+  // The cross-company case: test-services is the own (and only) project - like initech-fil-is -
+  // and test-cms, which calls its PostSignal worker, belongs to another company - like globex.
   test("a reference project's usages are found, although it is not an own project"):
     val workers = ReferenceTestWorkerReferenceCreator.usedByWorkersOf(postSignalTopic)
     assertEquals(workers.map(_.className), Seq("CancelCreateAndSignDocumentWorker"))

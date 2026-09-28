@@ -55,7 +55,7 @@ export function suggestName(step: Step, kind: InteractionKind, processId: string
   if (kind === 'customTask' && step.topic) {
     const bekannt = (model?.domainTypes ?? []).find(t => t.topicName === step.topic && t.owner);
     if (bekannt) return bekannt.owner!;
-    // `valiant-depot-openPensionAccount3aV1-EvalNextPortfolioIdSuffix`
+    // `globex-depot-openPensionAccount3aV1-EvalNextPortfolioIdSuffix`
     const tail = step.topic.slice(processId.length).replace(/^[-.]/, '');
     // Trägt das Topic nur den Prozessnamen, hilft es nicht weiter
     if (tail && pascal(tail) !== pascal(processId.split(/[-.]/).pop() ?? '')) return pascal(tail);

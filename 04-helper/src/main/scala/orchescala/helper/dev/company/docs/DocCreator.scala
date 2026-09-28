@@ -533,7 +533,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     * gitBasePath (which also holds orphaned/unreleased checkouts and, via pullOtherProjects,
     * entire sibling companies' doc sites). No name-prefix filter: projectsConfig can and does
     * deliberately list projects from another company's namespace as real dependencies (e.g.
-    * valiant's config lists swisscom-fil-is directly, same repo, same list, not through the
+    * globex's config lists initech-fil-is directly, same repo, same list, not through the
     * separate sibling-company mechanism) - excluding those would silently drop catalog entries
     * (services, classes) that this company's own processes actually depend on.
     * prepareDocs()'s fetchConf already checks each one out at its released tag (VERSIONS.conf),

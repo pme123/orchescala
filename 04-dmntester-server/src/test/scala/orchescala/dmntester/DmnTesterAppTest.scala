@@ -17,7 +17,7 @@ class DmnTesterAppTest extends FunSuite:
     try socket.getLocalPort
     finally socket.close()
 
-  /** ---- company level (e.g. valiant-orchescala-dmn) -------------------- */
+  /** ---- company level (e.g. globex-orchescala-dmn) -------------------- */
   trait CompanyDmnTester extends DmnTesterApp:
     override protected def starterConfig: DmnTesterStarterConfig =
       DmnTesterStarterConfig(

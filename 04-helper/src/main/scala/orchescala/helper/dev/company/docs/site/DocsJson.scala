@@ -89,7 +89,7 @@ object DocsJson:
         name, projectGroup(name), colors.getOrElse(name, "white"),
         versionMap.get(camel(name)).filter(_.nonEmpty),
         versionMap.get(camel(name) + "Worker").filter(_.nonEmpty),
-        // API docs of other companies live in their own folder: ../../swisscom/<p>/OpenApi.html
+        // API docs of other companies live in their own folder: ../../initech/<p>/OpenApi.html
         if external then s"../${name.split("-").head}/$name/OpenApi.html" else s"$name/OpenApi.html",
         external, hasDepPage(name)
       ))

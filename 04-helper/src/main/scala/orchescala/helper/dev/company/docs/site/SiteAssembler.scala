@@ -35,7 +35,7 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
     // ── 2. referenced APIs at the defined versions ────────────────────────────
     var apiOk = 0; var apiHead = 0; var apiMissing = 0
     // the search index (`<company>/search.json`): every operation of every API - a project listed
-    // by two companies (swisscom-fil-is in valiant's docs) is indexed once, under its own company
+    // by two companies (initech-fil-is in globex's docs) is indexed once, under its own company
     val searchEntries = scala.collection.mutable.LinkedHashMap.empty[String, io.circe.Json]
     companies.foreach: co =>
       val docs     = parse(os.read(out / co / "docs.json")).toOption.get

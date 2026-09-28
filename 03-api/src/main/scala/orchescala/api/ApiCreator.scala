@@ -423,7 +423,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
          |</details>
          |""".stripMargin
 
-  /** The company's own gateway (e.g. Valiant's BPF) - only if `ApiConfig.companyPostmanInstructions`
+  /** The company's own gateway (e.g. Globex's BPF) - only if `ApiConfig.companyPostmanInstructions`
     * is set: the configured markdown plus a link to the PostmanOpenApi.yml (published next to
     * OpenApi.yml, see ProjectWebDAV). Same collapsible layout as the Postman Instructions, so
     * Redoc and orch-doc render it the same way.

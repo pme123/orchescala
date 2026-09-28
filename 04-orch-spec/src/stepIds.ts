@@ -1,5 +1,5 @@
 // Element-IDs nach Hauskonvention — abgelesen an den bestehenden
-// Valiant-Prozessen: PascalCase des fachlichen Namens plus Typ-Suffix,
+// Globex-Prozessen: PascalCase des fachlichen Namens plus Typ-Suffix,
 // OHNE company-projekt-Prefix. Den Prefix tragen nur Prozess-IDs, Topics,
 // Message-Namen und DMN-Referenzen — Ablauf-Elemente (auch Benutzeraufgaben)
 // heissen nur nach ihrem Namen:
@@ -143,7 +143,7 @@ export function renameStepId<T extends {
 
 // ── Firma und Projekt (`company-projekt`-Prefix) ─────────────────────────────
 
-/** `valiant-fil-is` → { company: 'valiant', project: 'fil-is' } */
+/** `globex-fil-is` → { company: 'globex', project: 'fil-is' } */
 export function splitPrefix(prefix: string): { company: string; project: string } {
   const [company, ...rest] = prefix.split('-').filter(Boolean);
   return { company: company ?? '', project: rest.join('-') };

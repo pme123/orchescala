@@ -1,6 +1,6 @@
 // Datenmodell → Orchescala-Domain (Scala 3).
 //
-// Erzeugt genau die Idiome, die in den valiant-Projekten stehen:
+// Erzeugt genau die Idiome, die in den globex-Projekten stehen:
 //
 //   case class In(@description("…") feld: Option[String] = None)
 //   object In:
@@ -419,10 +419,10 @@ function imports(t: TypeDef, idx: TypeIndex): string {
 }
 
 /**
- * Package-Pfad aus Projekt und Prozessname: `valiant.mkk.domain.openMkk.v1`.
+ * Package-Pfad aus Projekt und Prozessname: `globex.mkk.domain.openMkk.v1`.
  *
  * Trägt der Prozessname keine Version und wiederholt er nur das Projekt
- * (`valiant-addresschange`), bleibt sein letztes Segment übrig — ein
+ * (`globex-addresschange`), bleibt sein letztes Segment übrig — ein
  * Bindestrich wäre in einem Package-Namen nicht erlaubt.
  */
 export function packageOf(spec: ProcessSpec, model: Model | null = null): string {
@@ -447,7 +447,7 @@ export function packageOf(spec: ProcessSpec, model: Model | null = null): string
  * Wo dieser Prozess in der Domain wirklich liegt — erkennbar am
  * `val processName` seines Objekts. Ohne Katalog-Eintrag bleibt nur die
  * Ableitung aus der Prozess-ID, und die ist eine Vermutung:
- * `valiant-addresschange` gibt `addresschange` her, in der Domain heisst das
+ * `globex-addresschange` gibt `addresschange` her, in der Domain heisst das
  * Paket aber `addressChange`.
  */
 function domainHome(spec: ProcessSpec, model: Model | null): { pkg: string; object: string } | null {
