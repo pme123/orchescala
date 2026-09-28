@@ -27,8 +27,8 @@ object WorkerTimeoutSpec extends ZIOSpecDefault:
   private object ServiceClient extends RestApiClient
 
   def spec = suite("Worker timeout - one knob")(
-    test("the default is 1 minute") {
-      assertTrue(DefaultWorker.effective == 1.minute)
+    test("the default is 2 minutes") {
+      assertTrue(DefaultWorker.effective == 2.minutes)
     },
     test("raising `timeout` raises how long the job may run and the service call timeout") {
       assertTrue(

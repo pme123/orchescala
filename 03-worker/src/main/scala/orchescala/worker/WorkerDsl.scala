@@ -22,7 +22,7 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
     *   - its service calls may take as long (instead of the HTTP client's default of 1 minute)
     * For a slower worker: `override def timeout: Duration = 10.minutes`
     */
-  def timeout: Duration = 1.minute
+  def timeout: Duration = 2.minutes
 
   protected def regexMatchesAll(
       errorHandled: Boolean,
