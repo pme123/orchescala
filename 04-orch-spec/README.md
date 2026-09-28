@@ -646,7 +646,20 @@ gleicher Kennung (Service-ID, Topic, gerufener Prozess, Typ-ID) gewinnt sie,
 Einträge aus der `model.json` bleiben nur als Altbestand daneben sichtbar und
 werden beim Speichern nie mit ihr vermischt — der Katalog ist nicht vom
 Benutzer pflegbar, die `model.json` gehört den Spezifikationen. Fehlt die
-Datei (frischer Checkout, Dev-Server), läuft alles wie bisher.
+Datei, läuft alles wie bisher — nur ohne Service- und Firmentypen; die
+Typ-Auswahl sagt dann «Kein Katalog geladen».
+
+Im **Dev-Server** liegt keine Site daneben. Er nimmt
+`public/catalog.generated.json` oder, was `ORCH_SPEC_CATALOG` nennt — die
+Datei selbst oder den Site-Ordner, in dem `publishDocs` sie erzeugt; am
+einfachsten in einer `.env.local` (nicht versioniert):
+
+```bash
+ORCH_SPEC_CATALOG=~/dev-mycompany/mycompany-orchescala/00-docs/site
+```
+
+Der Dev-Server nennt beim Start, welchen Katalog er ausliefert, und liest ihn
+bei jedem Abruf neu — nach einem `publishDocs` genügt ein Reload.
 
 Derselbe Weg hilft, solange der Doku-Server keine CORS-Freigabe hat:
 

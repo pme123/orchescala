@@ -4,3 +4,4 @@ dist/
 /.claude/*
 /.idea/*
 /public/catalog.generated.json
+/.env.local

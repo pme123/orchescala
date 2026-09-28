@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 
 // Nur im Dev-Server: `sample-data/` unter /sample-data ausliefern, damit die
 // App mit `?demo` sofort mit echten Daten startet (ohne Ordnerauswahl).
@@ -27,9 +27,43 @@ function sampleData(): Plugin {
   };
 }
 
-export default defineConfig({
+// Nur im Dev-Server: der mitgelieferte Katalog. Im Build legt ihn der Helper
+// neben die App (`spec/catalog.generated.json` der Doku-Site); im Dev-Server
+// fehlt er — ohne ihn fehlen alle Service- und Firmentypen. Er kommt aus
+// `public/` oder aus `ORCH_SPEC_CATALOG` (Datei oder Site-Ordner, z. B. in
+// `.env.local`). Fehlt er, antwortet der Server 404 statt mit der index.html.
+function devCatalog(catalogEnv: string | undefined): Plugin {
+  const inPublic = path.resolve(__dirname, 'public', 'catalog.generated.json');
+  const fromEnv = (): string | null => {
+    if (!catalogEnv) return null;
+    const p = path.resolve(__dirname, catalogEnv.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
+    if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) return p;
+    return [path.join(p, 'spec', 'catalog.generated.json'), path.join(p, 'catalog.generated.json')]
+      .find(f => fs.existsSync(f)) ?? path.join(p, 'spec', 'catalog.generated.json');
+  };
+  return {
+    name: 'orch-spec:dev-catalog',
+    apply: 'serve',
+    configureServer(server) {
+      const log = server.config.logger;
+      const file = fs.existsSync(inPublic) ? inPublic : fromEnv();
+      if (!file) log.warn('  Kein Katalog: public/catalog.generated.json fehlt und ORCH_SPEC_CATALOG ist nicht gesetzt.');
+      else if (!fs.existsSync(file)) log.warn(`  Kein Katalog: ${file} fehlt (ORCH_SPEC_CATALOG).`);
+      else log.info(`  Katalog: ${file}`);
+      server.middlewares.use(`${server.config.base}catalog.generated.json`, (_req, res, next) => {
+        if (file === inPublic) return next();
+        if (!file || !fs.existsSync(file)) { res.statusCode = 404; return res.end(); }
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.end(fs.readFileSync(file)); // bei jedem Abruf frisch — ein neues publishDocs gilt nach einem Reload
+      });
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => ({
   base: '/orch-spec/',
-  plugins: [react(), tailwindcss(), sampleData()],
+  plugins: [react(), tailwindcss(), sampleData(), devCatalog(loadEnv(mode, __dirname, '').ORCH_SPEC_CATALOG)],
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
   },
@@ -59,4 +93,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

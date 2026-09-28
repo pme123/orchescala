@@ -2,7 +2,8 @@
 //
 // Reihenfolge der Gruppen, von nah nach fern: erst die **einfachen Typen**,
 // dann die **eigenen Typen** des Prozesses, dann die **Service-Objekte** aus
-// dem Katalog. Tippen filtert über alles; Enter nimmt den ersten Treffer.
+// dem Katalog. Tippen filtert über alles, Namenstreffer zuerst; Enter nimmt
+// den ersten Treffer.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Braces, ChevronDown, ListOrdered, Plug, Search, Type as TypeIcon, X } from 'lucide-react';
 import { SCALA_TYPES, type Model, type TypeDef } from '../types';
@@ -104,7 +105,22 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
       ];
     }
     const words = needle.split(/\s+/);
-    return entries.filter(e => words.every(w => e.haystack.includes(w))).slice(0, 120);
+    // Wer den Namen trifft, kommt vor denen, die nur ein Feld oder das Paket
+    // treffen — sonst steht `ProcessCallOrigin` hinter jedem `In` mit einem
+    // Feld `processCallOrigin` (und fällt womöglich hinter die Grenze).
+    const rang = (e: Entry) => {
+      const n = e.name.toLowerCase(), kurz = n.split('.').pop()!;
+      if (n === needle || kurz === needle) return 0;
+      if (n.startsWith(needle) || kurz.startsWith(needle)) return 1;
+      if (words.every(w => n.includes(w))) return 2;
+      return 3;
+    };
+    return entries
+      .filter(e => words.every(w => e.haystack.includes(w)))
+      .map((e, i) => ({ e, r: rang(e), i }))
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .map(x => x.e)
+      .slice(0, 120);
   }, [entries, q]);
 
   // Klick daneben und Escape schliessen
@@ -145,7 +161,9 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
             <Search size={11} className={c.muted} />
             <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter' && hits[0]) { e.preventDefault(); pick(hits[0].value); }
+                // der oberste Eintrag, wie er angezeigt wird (nach Gruppen)
+                const first = groups.map(g => hits.find(h => h.group === g)).find(Boolean);
+                if (e.key === 'Enter' && first) { e.preventDefault(); pick(first.value); }
               }}
               placeholder={`${entries.length} Typen durchsuchen …`}
               className={`flex-1 bg-transparent outline-none text-[11px] ${c.text}`} />
@@ -178,6 +196,11 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
               );
             })}
             {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden.</div>}
+            {!domain.length && (
+              <div className={`flex items-center gap-1.5 px-2 py-1.5 text-[9px] ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
+                <AlertTriangle size={9} /> Kein Katalog geladen — Service- und Firmentypen fehlen (Admin → Katalog).
+              </div>
+            )}
             {(truncated || moreServices) && (
               <div className={`px-2 py-1.5 text-[9px] ${c.muted}`}>
                 {truncated ? 'Weitere Treffer — Suche verfeinern.' : 'Weitere Service-Objekte über die Suche.'}
