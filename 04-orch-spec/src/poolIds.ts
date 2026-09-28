@@ -111,3 +111,25 @@ export function alignPoolIds(xml: string, opts: { renameProcess?: boolean } = {}
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   return { xml: out, renamed: [...map.entries()] };
 }
+
+/**
+ * Den Prozess umbenennen (aus dem Titel heraus): Pool bzw. Prozess bekommt
+ * den neuen Namen, ID und Pool-ID folgen. Taugt der Name nicht als ID, kommt
+ * das XML unverändert zurück.
+ */
+export function renameProcess(xml: string, processId: string, name: string): string {
+  if (!isIdLike(name)) return xml;
+  const doc = new DOMParser().parseFromString(xml, 'text/xml');
+  const root = doc.documentElement;
+  if (!root || doc.getElementsByTagName('parsererror').length) return xml;
+  const all = descendants(root);
+  const proc = all.find(e => local(e) === 'process' && e.getAttribute('id') === processId);
+  if (!proc) return xml;
+  proc.setAttribute('name', name);
+  const part = all.find(e => local(e) === 'participant' && e.getAttribute('processRef') === processId);
+  if (part) part.setAttribute('name', name);
+  let out = new XMLSerializer().serializeToString(doc);
+  const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];
+  if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
+  return alignPoolIds(out, { renameProcess: true }).xml;
+}

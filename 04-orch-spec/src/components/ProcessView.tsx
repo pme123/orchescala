@@ -22,7 +22,7 @@ import { allSteps, blockGroups, blockStart, importBpmn, mergeSpec, statusCounts,
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
-import { alignPoolIds, poolNames } from '../poolIds';
+import { alignPoolIds, isIdLike, poolNames, renameProcess } from '../poolIds';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
 import { nowIsoWithTimezone } from '../util';
@@ -516,6 +516,11 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         merged = renameStepId(merged, s.id, neu);
         setSelected(prev => (prev === s.id ? neu : prev));
       }
+      // Der Titel ist der Prozessname, solange er ihm entspricht — umbenannt
+      // im Diagramm, zieht er mit
+      if (current.title === current.processId && merged.processId !== current.processId) {
+        merged = { ...merged, title: merged.processId ?? merged.title };
+      }
       update({
         ...merged,
         comments: pruneComments(merged, new Set(allSteps(merged.steps).map(x => x.id)),
@@ -584,6 +589,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const next = alignPoolIds(xml);
     if (next.xml !== xml) void applyXml(next.xml, 'Pool', 'silent');
   }, [loaded, xml, canEdit, slug, applyXml]);
+
+  // Der Titel ist der Prozessname: taugt er als ID, benennt er beim Verlassen
+  // des Feldes Prozess und Pool im Diagramm mit um — ein fachlicher Titel
+  // (Leerzeichen, Umlaute) bleibt ein Titel
+  const commitTitle = () => {
+    const cur = specRef.current, x = xmlRef.current;
+    if (!cur || !x || !canEdit) return;
+    const name = cur.title.trim();
+    if (!cur.processId || name === cur.processId || !isIdLike(name)) return;
+    const next = renameProcess(x, cur.processId, name);
+    if (next !== x) void applyXml(next, 'Titel', 'silent');
+  };
 
   const onFile = async (file: File) => {
     const text = await file.text();
@@ -771,13 +788,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 <div data-cframe={processTarget} className="flex items-center gap-2">
                   <input value={spec.title} disabled={!canEdit}
                     onChange={e => update({ ...spec, title: e.target.value })}
+                    onBlur={commitTitle}
+                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                     placeholder="Fachlicher Titel"
                     className={`flex-1 min-w-0 bg-transparent outline-none text-sm font-semibold ${c.text} disabled:opacity-100`} />
                   <CommentBubble target={processTarget} title="Kommentare zum Prozess" />
                 </div>
                 <div className={`flex items-center gap-2 mt-0.5 text-[10px] ${c.muted}`}>
-                  <span className="font-mono truncate">{spec.processId || spec.name}</span>
-                  {spec.project && <span className="font-mono opacity-70 truncate">· {spec.project}</span>}
+                  {/* die ID nur, wo sie nicht schon der Titel ist */}
+                  {(spec.processId || spec.name) !== spec.title && (
+                    <span className="font-mono truncate" title="Prozess-ID">{spec.processId || spec.name} ·</span>
+                  )}
+                  {spec.project && <span className="font-mono opacity-70 truncate">{spec.project}</span>}
                   {canEdit
                     ? <button onClick={() => setEngineOpen(true)} title={`In ${engineLabel((spec.engine ?? 'c7') === 'c7' ? 'c8' : 'c7')} umwandeln …`}
                         className="flex-shrink-0 opacity-70 hover:opacity-100 hover:underline">· {engineLabel(spec.engine)}</button>
