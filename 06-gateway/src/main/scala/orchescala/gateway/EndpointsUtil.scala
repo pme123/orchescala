@@ -30,9 +30,19 @@ object EndpointsUtil:
         oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
           .and(jsonBody[ServiceRequestError]
             .example(ServiceRequestError(500, "Internal Server Error")))) {
-          case e: ServiceRequestError if e.errorCode >= 500 => true
+          case e: ServiceRequestError if e.errorCode == 500 => true
         },
-        oneOfDefaultVariant(jsonBody[ServiceRequestError])
+        // any other status as it is (403, 409, 503, ...) - not 400 for all of them
+        oneOfDefaultVariant(
+          statusCode
+            .and(jsonBody[ServiceRequestError])
+            .map((_, error) => error)(error => (httpStatus(error), error))
+        )
       )
     )
+
+  private[gateway] def httpStatus(error: ServiceRequestError): StatusCode =
+    if error.errorCode >= 400 && error.errorCode < 600 then StatusCode(error.errorCode)
+    else StatusCode.InternalServerError
+
 end EndpointsUtil

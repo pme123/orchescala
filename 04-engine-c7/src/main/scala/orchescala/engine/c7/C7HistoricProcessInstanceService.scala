@@ -22,9 +22,9 @@ class C7HistoricProcessInstanceService(using
             new HistoricProcessInstanceApi(apiClient)
               .getHistoricProcessInstance(processInstanceId)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
-            )
+            ))
       processInstance    <- mapToHistoricProcessInstance(processInstanceDto)
     yield processInstance
 

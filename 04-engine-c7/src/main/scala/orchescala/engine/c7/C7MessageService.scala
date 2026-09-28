@@ -57,9 +57,9 @@ class C7MessageService(using
                   .processVariables(mapToC7Variables(variables))
                   .resultEnabled(true))
             .mapError: err =>
-              EngineError.ProcessError(
+              C7Service.withStatus(err)(EngineError.ProcessError(
                 s"Problem sending Message '$name' (processInstanceId: ${processInstanceId.getOrElse("-")} / businessKey: ${theBusinessKey.getOrElse("-")}): $err"
-              )
+              ))
         _         <- logInfo(s"Message '$name' sent successfully: $response.")
         result    <- mapToMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
       yield result

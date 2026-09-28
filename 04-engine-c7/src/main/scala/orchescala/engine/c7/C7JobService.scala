@@ -28,9 +28,9 @@ class C7JobService(using
           .attemptBlocking:
             new JobApi(apiClient).queryJobs(null, null, query)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Jobs: $err"
-            )
+            ))
     yield mapToJobs(jobDtos)
 
   def execute(jobId: String): IO[EngineError, Unit] =
@@ -43,9 +43,9 @@ class C7JobService(using
             new JobApi(apiClient)
               .executeJob(jobId)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem executing Job '$jobId': $err"
-            )
+            ))
     yield ()
 
   private def mapToJobs(

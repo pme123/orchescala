@@ -33,18 +33,18 @@ class C7HistoricVariableService(using
             new HistoricVariableInstanceApi(apiClient)
               .queryHistoricVariableInstances(null, null, false, dto)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Historic Process Instance '$processInstanceId': $err"
-            )
+            ))
       _ <- ZIO.logDebug(s"VariableDtos found: ${variableDtos.asScala.toSeq.map(v => s"${v.getType}: ${v.getName} -> ${v.getValue}").mkString("\n", "\n", "\n")}")
       variables    <-
         ZIO
           .attempt:
             mapToHistoricVariables(variableFilter, variableDtos)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem mapping Historic Variables for Process Instance '${processInstanceId.mkString}': $err"
-            )
+            ))
     yield variables
 
   private def mapToHistoricVariables(

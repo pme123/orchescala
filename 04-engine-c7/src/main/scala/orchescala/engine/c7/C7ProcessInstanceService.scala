@@ -152,7 +152,7 @@ class C7ProcessInstanceService(using
       tenantId: Option[String],
       apiClient: ApiClient,
       processVariables: Map[String, VariableValueDto]
-  ): ZIO[Any, EngineError.ProcessError, ProcessInstanceWithVariablesDto] =
+  ): ZIO[Any, EngineError, ProcessInstanceWithVariablesDto] =
     val effectiveTenantId = tenantId.orElse(engineConfig.tenantId)
     ZIO
       .attemptBlocking:
@@ -174,9 +174,9 @@ class C7ProcessInstanceService(using
                 .businessKey(businessKey.orNull)
             )
       .mapError: err =>
-        EngineError.ProcessError(
+        C7Service.withStatus(err)(EngineError.ProcessError(
           s"Problem starting Process '$processDefId': ${err.getMessage}"
-        )
+        ))
   end callStartProcessAsync
 
   def getVariablesInternal(
@@ -191,18 +191,18 @@ class C7ProcessInstanceService(using
             new ProcessInstanceApi(apiClient)
               .getProcessInstanceVariables(processInstanceId, false)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Variables for Process Instance '$processInstanceId': $err"
-            )
+            ))
       variables    <-
         ZIO
           .foreach(filterVariables(variableFilter, variableDtos)):
             case k -> dto =>
               toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
-            )
+            ))
       _            <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
 
@@ -310,9 +310,9 @@ class C7ProcessInstanceService(using
                   .resultEnabled(true)
               )
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem sending message '$messageName' to start process: $err"
-            )
+            ))
       result    <- mapMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
     yield result
   end sendMessageToStartProcess

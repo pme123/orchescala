@@ -52,11 +52,25 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
                 .mapError(ex =>
                   EngineError.ProcessError(s"Problem updating cache: ${ex.getMessage}")
                 ).as(result)
-            case (errors, _, _)                      => ZIO.fail(EngineError.ProcessError(
-                s"All services failed for $operationName: ${errors.map(_.errorMsg).mkString("; ")}"
-              ))
+            case (errors, _, _)                      => ZIO.fail(allServicesFailed(operationName, errors))
   end match
 end tryServicesWithErrorCollection
+
+/** The error when no engine could do it.
+  *
+  * All of them answered with a client error (4xx): that status - the most specific one, as a 404
+  * of an engine only says the id is not one of its own (e.g. 401 of C7, 404 of C8 -> 401). Else
+  * (an engine not reachable, a 5xx, ...): 500 as before - every failure became a 500, so an
+  * unknown id or a rejected token looked like a gateway error.
+  */
+private[gateway] def allServicesFailed(operationName: String, errors: Seq[EngineError]): EngineError =
+  val message      = s"All services failed for $operationName: ${errors.map(_.errorMsg).mkString("; ")}"
+  val clientErrors = errors.collect:
+    case EngineError.ServiceRequestError(code, _) if code >= 400 && code < 500 => code
+  if errors.nonEmpty && clientErrors.size == errors.size then
+    EngineError.ServiceRequestError(clientErrors.find(_ != 404).getOrElse(404), message)
+  else EngineError.ProcessError(message)
+end allServicesFailed
 
 extension [S <: EngineService](services: Seq[S])
   private def sortedFromCache(cacheGetKey: Option[String]): Seq[S] =

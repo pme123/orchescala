@@ -91,7 +91,7 @@ class C7DeploymentService(using
                     )
                   result
               .mapError: err =>
-                EngineError.ProcessError(s"Problem deploying '$name' to C7: $err")
+                C7Service.withStatus(err)(EngineError.ProcessError(s"Problem deploying '$name' to C7: $err"))
     yield result
   end deploy
 
@@ -111,7 +111,7 @@ class C7DeploymentService(using
                         .asScala
                         .toSeq
                     .mapError: err =>
-                      EngineError.ProcessError(s"Problem getting deployments from C7: $err")
+                      C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting deployments from C7: $err"))
     yield dtos.map(mapDeploymentInfo)
   end getDeployments
 
@@ -128,9 +128,9 @@ class C7DeploymentService(using
                       new DeploymentApi(apiClient)
                         .deleteDeployment(deploymentId, cascade, false, false)
                     .mapError: err =>
-                      EngineError.ProcessError(
+                      C7Service.withStatus(err)(EngineError.ProcessError(
                         s"Problem deleting deployment '$deploymentId' from C7: $err"
-                      )
+                      ))
     yield ()
   end deleteDeployment
 
@@ -152,7 +152,7 @@ class C7DeploymentService(using
         val path     = directory.resolve(fileName)
         Files.write(path, resource.content)
     .mapError: err =>
-      EngineError.ProcessError(s"Problem creating temporary deployment resources: $err")
+      C7Service.withStatus(err)(EngineError.ProcessError(s"Problem creating temporary deployment resources: $err"))
 
   private def deleteTempResources(paths: Seq[Path]): IO[Nothing, Unit] =
     ZIO.attemptBlocking:

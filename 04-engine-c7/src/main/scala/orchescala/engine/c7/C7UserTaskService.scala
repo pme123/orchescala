@@ -38,7 +38,7 @@ class C7UserTaskService() (using
                      .attemptBlocking:
                        new TaskApi(apiClient).queryTasks(null, null, query)
                      .mapError(err =>
-                       EngineError.ProcessError(s"Problem getting tasks: $err")
+                       C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting tasks: $err"))
                      )
       _         <- logDebug(s"TaskDtos found: $taskDtos")
     yield mapToUserTasks(taskDtos)
@@ -57,18 +57,18 @@ class C7UserTaskService() (using
             new TaskApi(apiClient)
               .getFormVariables(taskId, variableFilter.map(_.mkString(",")).orNull, false)
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Variables for UserTask '$taskId' of ProcessInstance '$processInstanceId': $err"
-            )
+            ))
       variables <-
         ZIO
           .foreach(filterVariables(variableFilter, variableDtos)):
             case k -> dto =>
               toVariableValue(dto).map(v => JsonProperty(k, v.toJson))
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem converting Variables for Process Instance '$processInstanceId' to Json: $err"
-            )
+            ))
       _ <- logInfo(s"Variables for Process Instance '$processInstanceId': $variables")
     yield variables.toSeq
     
@@ -112,7 +112,7 @@ class C7UserTaskService() (using
                                   .variables(variableDtos.asJava)
                               )
                           .mapError(err =>
-                            EngineError.ProcessError(s"Problem completing task: $err")
+                            C7Service.withStatus(err)(EngineError.ProcessError(s"Problem completing task: $err"))
                           )
         _            <- logInfo(s"UserTask completed: $taskId")
       yield ()
@@ -171,7 +171,7 @@ class C7UserTaskService() (using
                 false
               ).asScala
           .mapError: err =>
-            EngineError.ProcessError(s"Problem getting form variables: $err")
+            C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting form variables: $err"))
 
       doOverrideImpersonation <- checkOverride(variables)
       impersonateProcessValue <- impersonateProcessValue(variables)
@@ -236,7 +236,7 @@ class C7UserTaskService() (using
                              .attemptBlocking:
                                new TaskApi(apiClient).getTask(taskId)
                              .mapError(err =>
-                               EngineError.ProcessError(s"Problem getting task: $err")
+                               C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting task: $err"))
                              )
       processInstanceId <- ZIO
                              .fromOption(Option(task.getProcessInstanceId))

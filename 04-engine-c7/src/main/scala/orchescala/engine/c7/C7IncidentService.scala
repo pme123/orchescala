@@ -49,9 +49,9 @@ class C7IncidentService(using
                 null                         // annotation
               )
           .mapError: err =>
-            EngineError.ProcessError(
+            C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem getting Incidents: $err"
-            )
+            ))
     yield mapToIncidents(incidentDtos)
 
   private def mapToIncidents(

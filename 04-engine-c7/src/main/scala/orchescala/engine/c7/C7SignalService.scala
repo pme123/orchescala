@@ -36,8 +36,8 @@ class C7SignalService(using
                   .withoutTenantId(withoutTenantId.getOrElse(false))
                   .variables(mapToC7Variables(variables)))
             .mapError: err =>
-              EngineError.ProcessError(
+              C7Service.withStatus(err)(EngineError.ProcessError(
                 s"Problem sending Signal '$name': $err"
-              )
+              ))
       yield ()
 end C7SignalService

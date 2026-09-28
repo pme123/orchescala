@@ -5,6 +5,7 @@ import orchescala.domain.CamundaVariable.*
 import orchescala.engine.domain.{EngineError, EngineType}
 import orchescala.engine.services.EngineService
 import org.camunda.community.rest.client.dto.VariableValueDto
+import org.camunda.community.rest.client.invoker.ApiException
 import zio.{IO, ZIO}
 
 trait C7Service extends EngineService:
@@ -30,3 +31,18 @@ trait C7Service extends EngineService:
         )
     end if
   end toVariableValue
+end C7Service
+
+object C7Service:
+
+  /** A client error (4xx) of the engine's REST API keeps its status - the gateway answers with it
+    * (e.g. 404 for an unknown id, 401 for a rejected token) instead of 500 for any error.
+    */
+  def withStatus(cause: Any)(error: EngineError): EngineError =
+    cause match
+      case ex: ApiException if ex.getCode >= 400 && ex.getCode < 500 =>
+        EngineError.ServiceRequestError(ex.getCode, error.errorMsg)
+      case _                                                          =>
+        error
+
+end C7Service
