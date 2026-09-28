@@ -3,7 +3,7 @@
 // Die Site führt je Firma eine `catalog.html` mit allen Einträgen der
 // Projekte. Jeder Eintrag steckt vollständig im Link:
 //
-//   .../site/globex/globex-mkk/OpenApi.html#operation/Bpmn:%20openMkkV1
+//   .../site/globex/globex-savings/OpenApi.html#operation/Bpmn:%20openSavingsV1
 //        │      │      │                                 │      └ Name
 //        │      │      └ Projekt                         └ Art
 //        │      └ Firma
@@ -13,7 +13,7 @@
 // (Call Activity) rufen lässt — mit ihren `In` und `Out`.
 //
 // Bewusst nur Prozesse: deren Paket lässt sich aus Projekt und Name sicher
-// ableiten (`globex-mkk` + `openMkkV1` → `globex.mkk.domain.openMkk.v1`),
+// ableiten (`globex-savings` + `openSavingsV1` → `globex.savings.domain.openSavings.v1`),
 // weil der Name die Version trägt. Bei Workern fehlt in der Site die
 // API-Ebene (`personV1` in `globex-crm-personV1.GetCustomer`) — dort
 // wäre der Import geraten. Worker kommen deshalb weiter aus den
@@ -25,9 +25,9 @@ export type SiteEntryKind = 'process' | 'worker' | 'message' | 'userTask';
 
 export interface SiteEntry {
   kind: SiteEntryKind;
-  /** Name laut Katalog, z. B. `openMkkV1` */
+  /** Name laut Katalog, z. B. `openSavingsV1` */
   name: string;
-  /** Projekt, z. B. `globex-mkk` */
+  /** Projekt, z. B. `globex-savings` */
   project: string;
   /** Firma, z. B. `globex` */
   company: string;
@@ -80,12 +80,12 @@ const upper = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 /**
  * Paket und Objekt eines Prozesses aus Projekt und Prozessnamen:
  *
- *   globex-mkk     + openMkkV1     → globex.mkk.domain.openMkk.v1 · OpenMkkV1
+ *   globex-savings     + openSavingsV1     → globex.savings.domain.openSavings.v1 · OpenSavingsV1
  *   globex-product + openAccountV2 → globex.product.domain.openAccount.v2
  *
  * Sicher ist das nur, wenn der Name die Version trägt und keine Bindestriche
  * enthält. Sonst ist der Katalogname die BPMN-Prozess-ID und nicht der
- * Scala-Name (`globex-addresschange` heisst dort `AddressChangeV1`) — solche
+ * Scala-Name (`globex-ordercard` heisst dort `OrderCardV1`) — solche
  * Einträge sind als «Import prüfen» markiert.
  */
 export function processTarget(project: string, name: string): { object: string; pkg: string; uncertain: boolean } {

@@ -175,7 +175,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const seen = new Set<string>();
   /** Objekte auf oberster Ebene, die wie ein Service/Prozess aussehen */
   const serviceObjects: string[] = [];
-  /** `val processName = "globex-addresschange"` je Objekt — der Schlüssel,
+  /** `val processName = "globex-ordercard"` je Objekt — der Schlüssel,
    *  mit dem sich ein BPMN-Prozess seiner Domain sicher zuordnen lässt. */
   const processNames = new Map<string, string>();
   /** `val topicName = "…"` je Objekt — dasselbe für Worker */

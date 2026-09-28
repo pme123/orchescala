@@ -12,8 +12,8 @@
 //   Account opened        (end)     → AccountOpenedEndEvent
 //   start                 (start)   → StartStartEvent
 //
-// Umlaute verlieren dabei nur ihre Zeichen («Adressänderung prüfen (QMS)» →
-// AdressanderungPrufenQMSTask) — genau wie in den bestehenden IDs, und anders
+// Umlaute verlieren dabei nur ihre Zeichen («Kartenbestellung prüfen (Backoffice)» →
+// KartenbestellungPrufenBackofficeTask) — genau wie in den bestehenden IDs, und anders
 // als bei den Scala-Objektnamen (dort ä → ae, siehe `pascal` in
 // interactions.ts). Doppelte IDs zählen ohne Trenner hoch (HeatmapEvent1).
 
@@ -35,7 +35,7 @@ const SUFFIX: Partial<Record<StepKind, string>> = {
   event: 'Event',
 };
 
-/** «Adressänderung prüfen (QMS)» → `AdressanderungPrufenQMS` */
+/** «Kartenbestellung prüfen (Backoffice)» → `KartenbestellungPrufenBackoffice` */
 export function idPascal(text: string): string {
   const ascii = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u00df/g, 'ss');
   const parts = ascii.split(/[^A-Za-z0-9]+/).filter(Boolean);

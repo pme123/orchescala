@@ -407,7 +407,7 @@ function OperationView({ op, api, isDark, base, rewrite }: { op: Operation; api:
       return isResponse
         ? <>Out{note('the variables shown in the form of this UserTask — returned by this call')}</>
         : <>In{note('the values entered in the form of this UserTask — sent with this call')}</>;
-    // the heading is the short class (`In`), the owner (`OpenMkkV1.In`) shows in the root row below
+    // the heading is the short class (`In`), the owner (`OpenSavingsV1.In`) shows in the root row below
     const short = cls.replace(/^.*[.> ]/, '');
     const isIn = /^In\d*$/.test(short), isOut = /^Out\d*$/.test(short);
     return isResponse && isIn ? <>{short}{note('returned by this call')}</>
@@ -638,7 +638,7 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
     const all = api.operations;
     const exact = all.find(o => opId(o, all) === op) ?? all.find(o => o.operationId === op);
     if (exact || !op) return exact ?? all[0];
-    // catalog anchors like `Bpmn: openMkkV1` name the process, not an operationId
+    // catalog anchors like `Bpmn: openSavingsV1` name the process, not an operationId
     const name = op.split(': ').pop()!;
     return all.find(o => o.path.includes(name) || o.operationId.endsWith(name)) ?? all[0];
   }, [api, op]);

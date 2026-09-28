@@ -3,7 +3,7 @@
 //   node tools/domain2catalog.ts <ordner…> [--out sample-data/model.json]
 //   node tools/domain2catalog.ts --from sample-data/model.json
 //
-// Ein Ordner darf ein Projekt sein (`…/globex-mkk`) oder ein Ordner darüber
+// Ein Ordner darf ein Projekt sein (`…/globex-savings`) oder ein Ordner darüber
 // (`…/projects`) — dann kommen alle Projekte darunter, alphabetisch.
 //
 // `--from` nimmt die **Projektliste aus der model.json** und liest sie in

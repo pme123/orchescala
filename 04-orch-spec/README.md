@@ -27,7 +27,7 @@ npm install && npm run dev
 Dann <http://localhost:3002/orch-spec/?demo> öffnen — die App startet
 direkt mit den Beispieldaten aus `sample-data/` (ohne Ordnerauswahl, nur im
 Dev-Server; verlangt deren `model.json` eine Anmeldung, dann mit Login). Die Beispieldaten sind **echt**: sie
-wurden aus `mkk-openMkkV1.bpmn`, den OpenAPI-Dateien und den Scala-Quellen
+wurden aus `savings-openSavingsV1.bpmn`, den OpenAPI-Dateien und den Scala-Quellen
 der globex-Projekte erzeugt.
 
 Ohne `?demo` startet die App normal und fragt nach dem Ordner; `sample-data/`
@@ -210,9 +210,9 @@ heisst dort `CheckDuplicatesTask`, das Objekt `CheckDuplicatesUT`), wird
 deshalb vorgeschlagen und ist danach frei änderbar. Ohne eigenes `In`/`Out`
 erzeugt der Generator `type In = NoInput` — so schreibt es die Domain auch.
 
-Am MKK geprüft: aus dem Ablauf entstehen genau `ExtractClientKey`,
+Am Sparkonto geprüft: aus dem Ablauf entstehen genau `ExtractClientKey`,
 `CheckDuplicatesUT` und `CreatePrintDocuments` — dieselben drei Objekte, die
-in `globex-mkk/01-domain` liegen.
+in `globex-savings/01-domain` liegen.
 
 ### Der Prozess als Klammer: In · InitIn · Out · InConfig
 
@@ -228,7 +228,7 @@ feste Gruppe:
 
 `InConfig` entsteht aus dem Ablauf und wird nur angezeigt: je Schleife `max…`,
 `counter…` und `timerWait…` mit Vorgaben, je Service und Teilprozess ein
-`…Mock: Option[<Objekt>.Out] = None` samt Import. Beim MKK ergibt das
+`…Mock: Option[<Objekt>.Out] = None` samt Import. Beim Sparkonto ergibt das
 `maxOpenAccount`, `timerWaitOpenAccount`, `counterOpenAccount`,
 `maxGetClientAdvisor` … und `duplicateCheckMock: Option[PostDuplicateCheck.Out]`
 — dieselben Felder wie in der handgeschriebenen Domain.
@@ -285,8 +285,8 @@ Domain deshalb nicht suchen — die App tut es, in dieser Reihenfolge:
 Vor dem Anlegen steht, was entsteht:
 
 ```
-Aus BPMN  Adressänderung  globex-addresschange
-74 Schritte · Domain AddressChange aus Ordner globex-addresschange
+Aus BPMN  Kartenbestellung  globex-ordercard
+74 Schritte · Domain OrderCard aus Ordner globex-ordercard
 · 15 Typen · 6 Interaktionen (ReconfirmationUT, AdjustProcessVariables, …)
 ⚠ Typen weder im Projekt noch im Katalog: CrmConsultant, ProcessCallOrigin
                                                               [Anlegen]
@@ -297,7 +297,7 @@ Was dabei entsteht, ohne Raten:
 - Aus `In`, `InitIn` und `Out` des Prozess-Objekts werden die Prozess-Klassen
   des Datenmodells; `InConfig` bleibt draussen (Implementations-Detail), auch
   als Feld im `In`.
-- **Eigene Typen** des Projekts (`NewAddress`, enums) werden eigene Typen der
+- **Eigene Typen** des Projekts (`NewCard`, enums) werden eigene Typen der
   Spezifikation — mit `Option`/`Seq`, Einschränkung, Vorgabe und
   `@description`. Ein Alias wie `type AddressType = Int :| any.In[(11, 15)]`
   wird zum Grundtyp mit Einschränkung. Typen aus **anderen Projekten**
@@ -311,13 +311,13 @@ Was dabei entsteht, ohne Raten:
   `val topicName` (auch wenn es nicht mit der Prozess-ID beginnt), Signal und
   Nachricht über den Namen im BPMN (`<bpmn:signal name>`, bis zum dynamischen
   Teil `${…}`) — auch gefangene Signale —, sonst über die Namenskonvention.
-  Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustAddressUT.In`
-  wird eine Kopie mit dem Hinweis `= AdjustAddressUT.In`, `NoInput` bleibt
+  Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustOrderUT.In`
+  wird eine Kopie mit dem Hinweis `= AdjustOrderUT.In`, `NoInput` bleibt
   leer. `val descr` wird die Beschreibung. Objekte des Pakets ohne Schritt
   werden gemeldet. Ein älterer Katalog ohne DSL-Angabe wird über Topic und
   Namensendung (`…UT`, `…SE`, `…ME`) gelesen — Benutzeraufgaben, deren
-  Objektname nicht der Konvention folgt (`ApproveAddressUT` für
-  `AdressanderungPrufenQMSTask`), findet erst ein neu erzeugter Katalog oder
+  Objektname nicht der Konvention folgt (`ApproveOrderUT` für
+  `KartenbestellungPrufenBackofficeTask`), findet erst ein neu erzeugter Katalog oder
   der Projekt-Ordner, denn nur dort steht `val name`.
 - **Schritte ohne Domain-Objekt** — Benutzeraufgaben, eigene Worker, Signale,
   Nachrichten, die die Domain nicht kennt — werden **vorbereitet**: eine
@@ -482,11 +482,11 @@ bleibt mit und ohne Pattern derselbe.
 
 ### Wo ein Prozess in der Domain liegt
 
-Aus `globex-mkk-openMkkV1` lässt sich `globex.mkk.domain.openMkk.v1` ·
-`OpenMkkV1` ableiten — der Name trägt die Version. Bei
-`globex-addresschange` steht in der ID nichts, woraus sich `addressChange`
-gewinnen liesse; die Ableitung ergäbe `addresschange`, und der Bindestrich in
-`globex-addresschange` wäre in einem Package-Namen nicht einmal erlaubt.
+Aus `globex-savings-openSavingsV1` lässt sich `globex.savings.domain.openSavings.v1` ·
+`OpenSavingsV1` ableiten — der Name trägt die Version. Bei
+`globex-ordercard` steht in der ID nichts, woraus sich `orderCard`
+gewinnen liesse; die Ableitung ergäbe `ordercard`, und der Bindestrich in
+`globex-ordercard` wäre in einem Package-Namen nicht einmal erlaubt.
 
 Deshalb steht die Zuordnung nicht im Namen, sondern im Katalog: der Scan
 merkt sich `val processName` und `val topicName` der Domain-Objekte. Ein
@@ -512,7 +512,7 @@ sortiert**:
 ```
 PROJEKT-ORDNER   oben steht, was bei gleichem Paket gewinnt
  1  initech-core-banking         ~/dev-initech/projects/initech-core-banking   117 Typen  ↑ ↓ ×
- 2  globex-addresschange   ~/dev-globex/projects/…                   32 Typen  ↑ ↓ ×
+ 2  globex-ordercard   ~/dev-globex/projects/…                   32 Typen  ↑ ↓ ×
  …
  8  globex-core-banking          ~/dev-globex/projects/globex-core-banking     696 Typen  ↑ ↓ ×
 ```
@@ -578,16 +578,16 @@ Wird ein Typ aus dem Katalog gewählt, setzt der Generator den passenden
 **Prozesse von der Doku-Site.** Wer die Quellen nicht lokal hat, holt die
 Prozesse über **Von URL laden**: die Orchescala-Doku-Site führt je Firma eine
 `catalog.html`, in der jeder Eintrag vollständig im Link steckt —
-`.../site/globex/globex-mkk/OpenApi.html#operation/Bpmn:%20openMkkV1`. Daraus
+`.../site/globex/globex-savings/OpenApi.html#operation/Bpmn:%20openSavingsV1`. Daraus
 entstehen die **Prozesse mit ihren `In`/`Out`** — also das, was sich als
 Subprozess rufen lässt. Über den Globex-Katalog sind das **81 Prozesse aus 16
 Projekten**.
 
 Das Paket wird dabei aus Projekt und Prozessname abgeleitet
-(`globex-mkk` + `openMkkV1` → `globex.mkk.domain.openMkk.v1`). Sicher ist das
+(`globex-savings` + `openSavingsV1` → `globex.savings.domain.openSavings.v1`). Sicher ist das
 nur, wenn der Name die Version trägt; sonst ist der Katalogname die
-BPMN-Prozess-ID und nicht der Scala-Name (`globex-addresschange` heisst dort
-`AddressChange`) — solche Einträge sind als «Import prüfen» markiert. Deshalb
+BPMN-Prozess-ID und nicht der Scala-Name (`globex-ordercard` heisst dort
+`OrderCard`) — solche Einträge sind als «Import prüfen» markiert. Deshalb
 **füllt der Site-Import nur Lücken**: was aus den Quellen schon exakt bekannt
 ist, bleibt stehen.
 
@@ -1075,7 +1075,7 @@ Exportieren des Katalogs bleiben die Pfade zurück; die Reihenfolge reist mit.
 So sind die Beispieldaten entstanden:
 
 ```bash
-node tools/bpmn2spec.ts ~/dev-globex/projects/globex-mkk/src/main/resources/camunda/mkk-openMkkV1.bpmn sample-data/processes/globex-mkk-openmkkv1.json
+node tools/bpmn2spec.ts ~/dev-globex/projects/globex-savings/src/main/resources/camunda/savings-openSavingsV1.bpmn sample-data/processes/globex-savings-opensavingsv1.json
 node tools/openapi2catalog.ts ~/git-temp ~/dev-globex/projects --out sample-data/model.json
 node tools/domain2catalog.ts ~/dev-initech/projects ~/dev-globex/projects --out sample-data/model.json
 ```

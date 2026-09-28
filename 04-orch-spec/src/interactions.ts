@@ -32,7 +32,7 @@ const UMLAUTE: Record<string, string> = {
 };
 
 /**
- * «Depot Activity Unlock KUBE» → `DepotActivityUnlockKUBE`.
+ * «Depot Activity Unlock Advisor» → `DepotActivityUnlockAdvisor`.
  * Umlaute werden umschrieben, sonst bliebe von «Rückbestätigung» ein
  * `RCkbestTigung` übrig.
  */

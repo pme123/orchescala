@@ -91,7 +91,7 @@ trait CompanySimulation extends OAuthSimulationDsl:
       "client_secret" -> ssoClientSecret,
       "username" -> ssoUser,
       "password" -> ssoPassword,
-      "scope" -> "fcs"
+      "scope" -> "api"
     ))
   //...
   private lazy val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", "http://host.lima.internal:8090/auth")

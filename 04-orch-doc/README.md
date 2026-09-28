@@ -100,7 +100,7 @@ site/
                                 releaseTables, releaseNotes, catalog, devStats, pages
     pages/*.md                ← hand-written pages (pattern, onboarding, …)
     pattern/*.png             ← their images
-    globex-mkk/OpenApi.html  ← per project, deployed by the project (unchanged)
+    globex-savings/OpenApi.html  ← per project, deployed by the project (unchanged)
     2026-06/ …                ← older releases, classic static sites (unchanged)
   initech/…
   spec/                       ← orch-spec (optional, see below)

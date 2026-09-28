@@ -48,7 +48,7 @@ export interface Mapping {
 }
 
 // Wiederholung: der Schritt/Block wird erneut ausgeführt, solange `condition`
-// gilt — im MKK-Muster «wait ${timer}» + «Tried ${max} times?».
+// gilt — im Sparkonto-Muster «wait ${timer}» + «Tried ${max} times?».
 export interface LoopSpec {
   condition: string;      // fachliche Bedingung für die Wiederholung
   maxAttempts?: string;   // z. B. `${maxOpenAccount}`
@@ -282,12 +282,12 @@ export const isAdt = (t: { kind: string; values?: EnumValue[]; fields?: Field[] 
 // Jede Stelle, an der der Prozess mit aussen spricht, hat in der Domain ein
 // eigenes Objekt mit eigenem `In` und/oder `Out`:
 //
-//   object KubeDepotUnlockUT      extends CompanyBpmnUserTaskDsl     · val name
+//   object AdvisorDepotUnlockUT      extends CompanyBpmnUserTaskDsl     · val name
 //   object EvalNextPortfolioIdSuffix extends CompanyBpmnCustomTaskDsl · val topicName
 //   object CancelOpenPensionAccountSE extends CompanyBpmnSignalEventDsl · val messageName
 //
 // Der Scala-Objektname lässt sich nicht aus dem BPMN ableiten (die Aufgabe
-// heisst dort `DepotActivityUnlockKUBETask`, das Objekt `KubeDepotUnlockUT`) —
+// heisst dort `DepotActivityUnlockAdvisorTask`, das Objekt `AdvisorDepotUnlockUT`) —
 // er wird deshalb hier geführt.
 export type InteractionKind = 'userTask' | 'customTask' | 'signal' | 'message';
 
@@ -305,7 +305,7 @@ export interface Interaction {
   /** Schritt im Ablauf (BPMN-Element-ID) */
   stepId: string;
   kind: InteractionKind;
-  /** Scala-Objekt, z. B. `KubeDepotUnlockUT` */
+  /** Scala-Objekt, z. B. `AdvisorDepotUnlockUT` */
   name: string;
   /** Wert für `name` / `topicName` / `messageName` */
   key: string;
@@ -425,13 +425,13 @@ export interface ProcessSpec {
   comments?: CommentThread[];
   version: number;
   slug: string;
-  /** technischer Prozessname inkl. Version, z. B. `openMkkV1` */
+  /** technischer Prozessname inkl. Version, z. B. `openSavingsV1` */
   name: string;
-  /** fachlicher Titel, z. B. «Mietkautionskonto eröffnen» */
+  /** fachlicher Titel, z. B. «Sparkonto eröffnen» */
   title: string;
-  /** BPMN-Prozess-ID, z. B. `globex-mkk-openMkkV1` */
+  /** BPMN-Prozess-ID, z. B. `globex-savings-openSavingsV1` */
   processId?: string;
-  /** Orchescala-Projekt, z. B. `globex-mkk` */
+  /** Orchescala-Projekt, z. B. `globex-savings` */
   project?: string;
   status: Status;
   /** Ausgangslage / Ziel (Markdown) */
@@ -529,7 +529,7 @@ export interface DomainType {
   cases?: Array<{ name: string; fields?: DomainField[] }>;
   descr?: string;
   /**
-   * `val processName` eines Prozess-Objekts, z. B. `globex-addresschange`.
+   * `val processName` eines Prozess-Objekts, z. B. `globex-ordercard`.
    * Damit findet ein BPMN-Prozess seine Domain, ohne dass Paket und
    * Objektname aus der ID geraten werden müssen.
    */
@@ -543,7 +543,7 @@ export interface DomainType {
   key?: string;
   /** `val descr` des umschliessenden Objekts */
   ownerDescr?: string;
-  /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustAddressUT.In` */
+  /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustOrderUT.In` */
   target?: string;
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
   source?: string;

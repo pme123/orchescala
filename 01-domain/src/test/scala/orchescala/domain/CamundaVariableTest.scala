@@ -21,7 +21,7 @@ class CamundaVariableTest extends FunSuite:
     assertEquals(
       variable,
       Map(
-        "addressChangeCountryPolicy" -> CBoolean(true),
+        "orderCardCountryPolicy" -> CBoolean(true),
         "expiresInDays" -> CInteger(3),
         "staffMemberId" -> CLong(2L),
         "leadInstruction" -> CString("hello"),
@@ -45,7 +45,7 @@ class CamundaVariableTest extends FunSuite:
 end CamundaVariableTest
 
 case class Out(
-    addressChangeCountryPolicy: Boolean = true,
+    orderCardCountryPolicy: Boolean = true,
     expiresInDays: Int = 3,
     staffMemberId: Long = 2L,
     leadInstruction: String = "hello",

@@ -449,7 +449,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const q = query.trim().toLowerCase();
     // gesucht wird auch im Objektnamen der Interaktion und im Namen des
     // Katalog-Services — so findet «Approve» die Aufgabe, deren Schritt
-    // «Adressänderung prüfen» heisst
+    // «Kartenbestellung prüfen» heisst
     const ia = spec?.interactions?.find(i => i.stepId === s.id);
     const svc = catalogEntry(s, model);
     const haystack = `${s.name} ${s.description ?? ''} ${s.serviceId ?? ''} ${s.topic ?? ''} ${ia?.name ?? ''} ${svc?.name ?? ''} ${s.calledProcess ?? ''}`.toLowerCase();
