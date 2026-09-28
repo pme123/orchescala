@@ -310,7 +310,9 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
 // Beide gehören **nicht** in die Spezifikation — sie ergeben sich aus ihr:
 //
 //  · `InConfig` aus den Schleifen (Timer, Zähler, Höchstzahl) und aus jedem
-//    Schritt, dessen Ergebnis sich für Tests überschreiben lässt (`…Mock`).
+//    Schritt, dessen Ergebnis sich für Tests überschreiben lässt (`…Mock`) —
+//    dazu kommen die eigenen Stellschrauben, die der Klassenbauer als Typ
+//    `inConfig` pflegt; sie stehen vorne und gewinnen bei gleichem Namen.
 //  · `InitIn` aus den Ausgaben des Init-Workers — der Schritt, dessen Topic
 //    der Prozess selbst ist.
 //
@@ -327,13 +329,22 @@ function mockField(name: string): string {
   return `${lowerFirst(name.replace(/[^A-Za-z0-9]/g, ''))}Mock`;
 }
 
-export function renderInConfig(spec: ProcessSpec, imports: Set<string>): string {
-  const params: string[] = [];
+export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: TypeIndex): string {
+  const own = (spec.types ?? []).find(t => t.inConfig);
+  const ownFields = own && idx ? (own.fields ?? []).filter(f => f.name.trim()) : [];
+  const seen = new Set<string>(ownFields.map(f => f.name));
+  if (own && idx) for (const l of importsOf(own, idx)) imports.add(l);
+  const params: string[] = ownFields.map(f => {
+    const d = f.description ? `${descriptionLine(f.description)}\n` : '';
+    const def = f.default?.trim() ? ` = ${f.default.trim()}` : f.optional ? ' = None' : '';
+    return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;
+  });
   for (const { name, kind } of loopSettings(spec)) {
+    if (seen.has(name)) continue;
+    seen.add(name);
     const d = DEFAULT_BY_KIND[kind];
     params.push(`${descriptionLine(d.descr)}\n${name}: ${d.type} = ${d.value}`);
   }
-  const seen = new Set<string>();
   for (const step of mockableSteps(spec)) {
     // Der Mock-Typ ist das `Out` des gerufenen Objekts — aus der Kennung des
     // Services bzw. des Prozesses abgeleitet, samt Import.
@@ -489,7 +500,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     for (const l of importsOf(t, idx)) processImports.add(l);
     processParts.push(indent(renderType({ ...t, name: t.root ? 'In' : 'Out' }, idx)));
   }
-  const inConfig = renderInConfig(spec, processImports);
+  const inConfig = renderInConfig(spec, processImports, idx);
   if (inConfig) processParts.push(indent(inConfig));
   const initIn = renderInitIn(spec, idx);
   if (initIn) processParts.push(indent(initIn));
@@ -533,7 +544,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     });
   }
 
-  for (const t of types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId)) {
+  for (const t of types.filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId)) {
     out.push({
       path: `${dir}/schema/${t.name}.scala`,
       content: `package ${pkg}.schema\n${imports(t, idx)}\n${renderType(t, idx)}\n`,

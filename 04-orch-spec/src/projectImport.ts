@@ -25,7 +25,7 @@ import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
-import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction } from './interactions';
+import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction } from './interactions';
 import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
 import { splitEnumCase } from './feel';
@@ -381,11 +381,19 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const conv = new Converter(domain, pkg, model, interactionOwners);
   const member = (obj: string, name: string) => domain.find(t => t.id === `${pkg}.${obj}.${name}`) ?? null;
 
-  // Prozess: In · InitIn · Out — InConfig ist Implementations-Detail
+  // Prozess: In · InitIn · Out · InConfig
   const inT = member(owner, 'In');
   if (inT && (inT.kind === 'case' || inT.kind === 'enum')) conv.convert(inT, { root: true }, 'In');
   const initT = member(owner, 'InitIn');
   if (initT?.kind === 'case') conv.convert(initT, { initIn: true }, 'InitIn');
+  // vom InConfig nur die eigenen Stellschrauben — Schleifen und Mocks
+  // erzeugt der Generator aus dem Ablauf
+  const cfgT = member(owner, 'InConfig');
+  if (cfgT?.kind === 'case') {
+    const erzeugt = new Set(loopSettings(spec).map(l => l.name));
+    const eigene = (cfgT.fields ?? []).filter(f => !erzeugt.has(f.name) && !/Mock$/.test(f.name));
+    if (eigene.length) conv.convert({ ...cfgT, fields: eigene }, { inConfig: true }, 'InConfig');
+  }
   const outT = member(owner, 'Out');
   if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
 

@@ -332,6 +332,11 @@ export interface TypeDef {
   interactionId?: string;
   /** das `InitIn` — Felder kommen aus dem Init-Worker, Typen werden gepflegt */
   initIn?: boolean;
+  /**
+   * das `InConfig` — die eigenen Stellschrauben des Prozesses; Schleifen und
+   * Mocks kommen beim Erzeugen aus dem Ablauf dazu
+   */
+  inConfig?: boolean;
   /** Felder der Klasse — bei einer Auswahl (ADT) die **gemeinsamen** Felder aller Fälle */
   fields?: Field[];
   values?: EnumValue[]; // kind 'enum'

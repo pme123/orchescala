@@ -63,7 +63,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
       value: t, name: t, group: 'einfach' as const, icon: TypeIcon, haystack: t.toLowerCase(),
     })),
     ...types
-      .filter(t => t.id !== selfId && !t.root)
+      .filter(t => t.id !== selfId && !t.root && !t.inConfig)
       .map(t => ({
         value: t.id,
         name: t.name,

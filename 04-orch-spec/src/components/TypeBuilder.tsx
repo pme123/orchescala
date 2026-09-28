@@ -1,8 +1,9 @@
 // Klassenbauer: das Datenmodell des Prozesses — allen voran das **In**.
 //
 // Links die Typen, in der Mitte die Felder, rechts der Scala-Code, der daraus
-// entsteht (live). Absichtlich nicht dabei: `InConfig` und `InitIn` — das sind
-// Implementations-Details und gehören nicht in die Spezifikation.
+// entsteht (live). `InConfig` entsteht zum grössten Teil aus dem Ablauf
+// (Schleifen, Mocks); eigene Stellschrauben lassen sich wie beim `InitIn`
+// als Felder pflegen.
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, Copy, Check, ListOrdered,
@@ -240,6 +241,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   };
 
   const hasRoot = types.some(t => t.root);
+  const inConfig = types.find(t => t.inConfig) ?? null;
+  /** eigene Stellschrauben — das erzeugte InConfig bekommt einen Typ zum Pflegen */
+  const addInConfig = () => {
+    const id = uid('t');
+    setTypes([...types, { id, name: 'InConfig', kind: 'case', inConfig: true, status: 'draft', fields: [emptyField()] }]);
+    pickType(id);
+  };
   const issuesOf = (id: string) => issues.filter(i => i.typeId === id);
   const globalIssues = issues.filter(i => !i.typeId);
 
@@ -272,13 +280,16 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 </button>
               );
             })}
-            <button onClick={() => { setShowConfig(true); setSelected(null); setSelectedIa(null); }}
-              title="Wird aus dem Ablauf erzeugt — Schleifen und Mocks"
+            <button onClick={() => { if (inConfig) pickType(inConfig.id); else { setShowConfig(true); setSelected(null); setSelectedIa(null); } }}
+              title="Eigene Stellschrauben — dazu erzeugt aus dem Ablauf: Schleifen und Mocks"
+              data-cframe-base={inConfig ? typeTarget(inConfig.id) : undefined}
               className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
-                showConfig ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
+                showConfig || (inConfig && selected === inConfig.id) ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
               <Braces size={11} className={c.muted} />
-              <span className={`flex-1 truncate text-[11px] font-mono ${c.muted2}`}>InConfig</span>
-              <span className={`text-[9px] ${c.muted}`}>erzeugt</span>
+              <span className={`flex-1 truncate text-[11px] font-mono ${inConfig ? `font-semibold ${c.text}` : c.muted2}`}>InConfig</span>
+              {inConfig && !!issuesOf(inConfig.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+              {inConfig && <CommentBubble target={typeTarget(inConfig.id)} aggregate quiet inButton />}
+              <span className={`text-[9px] ${c.muted}`}>{inConfig && !isEmptyType(inConfig) ? `${contentLabel(inConfig)} + erzeugt` : 'erzeugt'}</span>
             </button>
           </div>
 
@@ -357,10 +368,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
           })}
 
           <TypeGroup label="Klassen" isDark={isDark} all={types}
-            types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'case')}
+            types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && t.kind === 'case')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} />
           <TypeGroup label="Auswahlen" isDark={isDark} all={types}
-            types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.interactionId && t.kind === 'enum')}
+            types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && t.kind === 'enum')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} />
           {/* Legende — die Farben sagen, was los ist */}
           <div className={`text-[9px] px-2 pt-2 pb-1 leading-relaxed ${c.muted}`}>
@@ -402,7 +413,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       <div className="flex-1 min-w-0 overflow-y-auto">
        <div className="max-w-4xl mx-auto w-full">
         {showConfig ? (
-          <GeneratedConfig spec={spec} idx={idx} isDark={isDark} />
+          <GeneratedConfig spec={spec} idx={idx} isDark={isDark} canEdit={canEdit} onAdd={addInConfig} />
         ) : !current && !selectedIa ? (
           <div className={`h-full flex items-center justify-center text-center px-8 text-xs ${c.muted}`}>
             <div className="max-w-sm space-y-2">
@@ -413,8 +424,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 legst du direkt aus dem Typ-Feld heraus an.
               </p>
               <p className="opacity-70">
-                <span className="font-mono">InConfig</span> und <span className="font-mono">InitIn</span> gehören
-                nicht hierher — das sind Implementations-Details.
+                <span className="font-mono">InitIn</span> und <span className="font-mono">InConfig</span> entstehen
+                zum grössten Teil aus dem Ablauf — links unter «Prozess».
               </p>
             </div>
           </div>
@@ -429,7 +440,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
               setSelectedIa(null);
             }} />
         ) : current ? (
-          <TypeEditor key={current.id} type={current} types={types}
+          <TypeEditor key={current.id} type={current} types={types} spec={spec}
             isDark={isDark} canEdit={canEdit}
             issues={issuesOf(current.id)} idx={idx} model={model}
             onPatch={patch => patchType(current.id, patch)}
@@ -452,26 +463,44 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 // ── InConfig ─────────────────────────────────────────────────────────────────
 // Nur Ansicht: die Felder ergeben sich aus den Schleifen des Ablaufs und aus
 // jedem Schritt, dessen Ergebnis sich für Tests überschreiben lässt.
-function GeneratedConfig({ spec, idx, isDark }: { spec: ProcessSpec; idx: ReturnType<typeof indexTypes>; isDark: boolean }) {
+function GeneratedConfig({ spec, idx, isDark, canEdit, onAdd }: {
+  spec: ProcessSpec; idx: ReturnType<typeof indexTypes>; isDark: boolean; canEdit: boolean;
+  /** eigene Stellschrauben anlegen */
+  onAdd: () => void;
+}) {
   const c = cls(isDark);
-  void idx;
-  const code = renderInConfig(spec, new Set<string>());
+  const code = renderInConfig(spec, new Set<string>(), idx);
   return (
     <div className="p-4 space-y-3">
       <div>
         <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Prozess-Konfiguration</div>
         <div className={`text-sm font-semibold font-mono ${c.text}`}>InConfig</div>
       </div>
-      <p className={`text-[11px] leading-relaxed ${c.muted}`}>
-        Wird <span className="font-semibold">aus dem Ablauf erzeugt</span> und nicht von Hand gepflegt:
-        je Schleife <span className="font-mono">max…</span>, <span className="font-mono">counter…</span> und
-        <span className="font-mono"> timerWait…</span>, dazu je Service und Teilprozess ein
-        <span className="font-mono"> …Mock</span>, mit dem sich sein Ergebnis in Tests überschreiben lässt.
-      </p>
+      <GeneratedNote isDark={isDark} />
+      {canEdit && (
+        <button onClick={onAdd}
+          className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+          <Plus size={11} /> Eigene Stellschraube
+        </button>
+      )}
       {code
         ? <ScalaCode code={code} isDark={isDark} className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
         : <p className={`text-[11px] ${c.muted}`}>Noch nichts zu konfigurieren — der Ablauf hat weder Schleifen noch aufgerufene Services.</p>}
     </div>
+  );
+}
+
+/** Was aus dem Ablauf ins InConfig kommt */
+function GeneratedNote({ isDark }: { isDark: boolean }) {
+  const c = cls(isDark);
+  return (
+    <p className={`text-[11px] leading-relaxed ${c.muted}`}>
+      <span className="font-semibold">Aus dem Ablauf erzeugt</span>: je Schleife <span className="font-mono">max…</span>,
+      <span className="font-mono"> counter…</span> und <span className="font-mono">timerWait…</span>, dazu je Service und
+      Teilprozess ein <span className="font-mono">…Mock</span>, mit dem sich sein Ergebnis in Tests überschreiben lässt.
+      Eigene Stellschrauben stehen davor und brauchen einen Vorgabewert (oder sind optional) — der Prozess
+      startet auch ohne sie.
+    </p>
   );
 }
 
@@ -589,8 +618,8 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 }
 
 // ── Typ-Editor ───────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
-  type: TypeDef; types: TypeDef[];
+function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
+  type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string }[];
   idx: ReturnType<typeof indexTypes>;
@@ -618,6 +647,8 @@ function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPat
 
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId)?.message;
   const typeIssues = issues.filter(i => !i.field);
+  // das InConfig zeigt, was insgesamt entsteht — eigene und erzeugte Felder
+  const code = t.inConfig ? renderInConfig(spec, new Set<string>(), idx) : renderType(t, idx);
 
   return (
     <div className="p-4 space-y-4">
@@ -625,7 +656,7 @@ function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPat
       <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
-            {t.root ? 'Prozess-Eingabe' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
+            {t.root ? 'Prozess-Eingabe' : t.inConfig ? 'Prozess-Konfiguration' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
             <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
             {/* Das In eines Prozesses ist meist eine Klasse — kann aber ein ADT
                 sein (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
@@ -639,7 +670,7 @@ function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPat
               </select>
             )}
           </div>
-          <input value={t.name} disabled={!canEdit || t.root}
+          <input value={t.name} disabled={!canEdit || t.root || t.inConfig}
             onChange={e => onPatch({ name: e.target.value })}
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
         </div>
@@ -659,6 +690,8 @@ function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPat
         onChange={e => onPatch({ description: e.target.value })}
         placeholder="Wofür steht dieser Typ fachlich?"
         className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
+
+      {t.inConfig && <GeneratedNote isDark={isDark} />}
 
       {!!typeIssues.length && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
@@ -695,10 +728,10 @@ function TypeEditor({ type: t, types, isDark, canEdit, issues, idx, model, onPat
             className={`flex items-center gap-1 text-[10px] uppercase tracking-widest ${c.muted} hover:underline`}>
             {showCode ? <ChevronDown size={11} /> : <ChevronRight size={11} />} Scala
           </button>
-          {showCode && <CopyButton text={renderType(t, idx)} isDark={isDark} />}
+          {showCode && <CopyButton text={code} isDark={isDark} />}
         </div>
         {showCode && (
-          <ScalaCode code={renderType(t, idx)} isDark={isDark}
+          <ScalaCode code={code} isDark={isDark}
             className={`text-[10px] leading-relaxed px-3 py-2 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} />
         )}
       </div>

@@ -224,14 +224,20 @@ feste Gruppe:
 | **In** | was hineingeht | von Hand |
 | **Out** | was herauskommt | von Hand |
 | **InitIn** | die zu Beginn gesetzten Prozessvariablen | Felder aus dem Prozess, Typen von Hand |
-| **InConfig** | Stellschrauben für Tests | **vollständig erzeugt** |
+| **InConfig** | Stellschrauben des Prozesses | eigene Felder von Hand, Schleifen und Mocks erzeugt |
 
-`InConfig` entsteht aus dem Ablauf und wird nur angezeigt: je Schleife `max…`,
+`InConfig` entsteht zum grössten Teil aus dem Ablauf: je Schleife `max…`,
 `counter…` und `timerWait…` mit Vorgaben, je Service und Teilprozess ein
 `…Mock: Option[<Objekt>.Out] = None` samt Import. Beim Sparkonto ergibt das
 `maxOpenAccount`, `timerWaitOpenAccount`, `counterOpenAccount`,
 `maxGetClientAdvisor` … und `duplicateCheckMock: Option[PostDuplicateCheck.Out]`
-— dieselben Felder wie in der handgeschriebenen Domain.
+— dieselben Felder wie in der handgeschriebenen Domain. **Eigene
+Stellschrauben** (ein Schwellwert, ein Schalter) legt man wie beim `InitIn`
+als Felder an («Eigene Stellschraube»); sie stehen im erzeugten `InConfig`
+vorne und gewinnen bei gleichem Namen. Jedes braucht einen Vorgabewert oder
+ist optional — der Prozess startet auch ohne `InConfig`. Der Import aus der
+Domain übernimmt nur diese eigenen Felder; Schleifen und Mocks erzeugt der
+Generator ohnehin.
 
 **Der Init-Worker steht nicht im Ablauf.** Er ist Verdrahtung, keine
 Fachlichkeit — in Camunda 8 kann daraus ein Listener werden. Der Import
