@@ -69,18 +69,21 @@ class IncidentScenarioRunner(incidentScenario: IncidentScenario)(using
                     s"\nExpected: ${incidentScenario.incidentMsg}\nActual Message: $incidentMessage"
                 )
               )
-          case (None, id, rootCauseIncidentId) if !rootCauseIncidentId.contains(id)            =>
-            checkIncident(rootCauseIncidentId)(using
+          // the message is in the root incident (C7: e.g. of a called process)
+          case (None, id, Some(rootCauseIncidentId)) if rootCauseIncidentId != id              =>
+            checkIncident(Some(rootCauseIncidentId))(using
               summon[ScenarioData].info(
                 s"Incident Message only in Root incident $rootCauseIncidentId"
               )
             )
+          // no root incident (C8 has none): `!None.contains(id)` was true - the same incident was
+          // queried again and again, without a pause
           case _                                                                               =>
             ZIO.fail:
               SimulationError.ProcessError(
                 summon[ScenarioData]
                   .error(
-                    "The Incident does not contain any incidentMessage."
+                    s"The Incident (${incident.incidentType}) does not contain any incidentMessage."
                   )
               )
         end match
