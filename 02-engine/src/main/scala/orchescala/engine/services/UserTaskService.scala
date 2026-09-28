@@ -60,7 +60,7 @@ trait UserTaskService extends EngineService:
       @description(
         """
           |The maximum number of seconds to wait for the user task to become active.
-          |If not provided, it will wait 10 seconds.
+          |If not provided, it will wait 10 seconds - at most 60 seconds.
           |""".stripMargin
       )
       timeoutInSec: Option[Int]
@@ -105,7 +105,7 @@ trait UserTaskService extends EngineService:
       @description(
         """
           |The maximum number of seconds to wait for the user task to become active.
-          |If not provided, it will wait 10 seconds.
+          |If not provided, it will wait 10 seconds - at most 60 seconds.
           |""".stripMargin
       )
       timeoutInSec: Option[Int]
@@ -125,20 +125,35 @@ trait UserTaskService extends EngineService:
       variableFilter: Option[Seq[String]],
       timeoutInSec: Int
   ): IO[EngineError, (String, Seq[JsonProperty])] =
+    // a caller's timeout held the request (and a connection) open for as long as it asked for,
+    // polling the engine every second
+    val timeout = timeoutInSec.min(UserTaskService.maxTimeoutInSec)
     for
       userTask                <- getUserTask(processInstanceId, userTaskDefId)
       (userTaskId, variables) <-
-        if timeoutInSec <= 0 then
-          ZIO.fail(EngineError.ProcessError("Timeout waiting for UserTask"))
-        else if userTask.isEmpty then
-          getUserTaskVariableJsonProps(
-            processInstanceId,
-            userTaskDefId,
-            variableFilter,
-            timeoutInSec - 1
-          ).delay(1.second)
-        else
-          this.variables(userTask.get.id, processInstanceId, variableFilter)
-            .map(userTask.get.id -> _)
+        userTask match
+          // an active task is returned - also with timeoutInSec=0 (it failed before looking)
+          case Some(task)           =>
+            this.variables(task.id, processInstanceId, variableFilter)
+              .map(task.id -> _)
+          case None if timeout <= 0 =>
+            ZIO.fail(EngineError.ServiceRequestError(
+              404,
+              s"No active UserTask '$userTaskDefId' in Process Instance '$processInstanceId'"
+            ))
+          case None                 =>
+            getUserTaskVariableJsonProps(
+              processInstanceId,
+              userTaskDefId,
+              variableFilter,
+              timeout - 1
+            ).delay(1.second)
     yield (userTaskId, variables)
+    end for
+  end getUserTaskVariableJsonProps
+end UserTaskService
+
+object UserTaskService:
+  /** The longest a request waits for a user task to become active. */
+  val maxTimeoutInSec = 60
 end UserTaskService

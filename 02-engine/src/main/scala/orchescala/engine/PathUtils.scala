@@ -27,8 +27,10 @@ object PathUtils:
 
   lazy val timeoutInSecQuery    = query[Option[Int]]("timeoutInSec")
     .example(Some(10))
+    // 400 for more - the gateway polled the engine once a second for as long as asked
+    .validateOption(Validator.inRange(0, services.UserTaskService.maxTimeoutInSec))
     .description(
-      "The maximum number of seconds to wait for the user task to become active. If not provided, it will wait 10 seconds."
+      s"The maximum number of seconds to wait for the user task to become active (0 - ${services.UserTaskService.maxTimeoutInSec}). If not provided, it will wait 10 seconds."
     )
   lazy val timeToLiveInSecQuery = query[Option[Int]]("timeToLiveInSec")
     .example(Some(10))

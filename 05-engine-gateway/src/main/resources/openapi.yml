@@ -651,11 +651,13 @@ paths:
       - name: timeoutInSec
         in: query
         description: The maximum number of seconds to wait for the user task to become
-          active. If not provided, it will wait 10 seconds.
+          active (0 - 60). If not provided, it will wait 10 seconds.
         required: false
         schema:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 60
         example: 10
       responses:
         '200':
