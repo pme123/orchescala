@@ -32,6 +32,12 @@ class C7WorkerCalcRetriesTest extends FunSuite:
     testWorker.calcRetries(error, doRetryList, false)
   }
 
+  test("calcRetries - IdentityCorrelation pending: quick tries, also in test mode (a simulation)"):
+    val freshTask = new ExternalTaskImpl()
+    given ExternalTask = freshTask
+    assertEquals(testWorker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = true), 3)
+    assertEquals(testWorker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = false), 3)
+
   test("calcRetries - in test mode"):
     val error = UnexpectedError("Some unexpected error")
     val result = calcRetries(error, 3, inTestMode = true)

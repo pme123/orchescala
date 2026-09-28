@@ -167,10 +167,19 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       // AlreadyHandledError means checkError already resolved it (handleSuccess/handleBpmnError
       // ran). Everything else - including UnexpectedError and a MockedOutput that somehow wasn't
       // resolved as handled - must go through handleFailure
-      checkError(error, generalVariables)
-        .flatMap:
-          case AlreadyHandledError => ZIO.unit
-          case err                 => handleFailure(err, generalVariables._servicesMocked.contains(true))
+      val task = summon[operaton.ExternalTask]
+      error match
+        // the correlation follows the start within moments: handed back at once (see there)
+        case _: IdentityCorrelationPendingError if PendingIdentityRetries.unlockAgain(task.getId) =>
+          logInfo(s"Task ${task.getId}: IdentityCorrelation not set yet - handed back") *>
+            ZIO.sleep(PendingIdentityRetries.pause) *>
+            attemptBlocking(externalTaskService.unlock(task))
+              .catchAll(err => logWarning(s"Problem handing back task ${task.getId}: $err"))
+        case _                                                                                   =>
+          checkError(error, generalVariables)
+            .flatMap:
+              case AlreadyHandledError => ZIO.unit
+              case err                 => handleFailure(err, generalVariables._servicesMocked.contains(true))
 
     end handleError
 
@@ -298,9 +307,10 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       .map(_ - 1)
       .getOrElse:
         error match
-          case _ if inTestMode                                                     => 0
           // the correlation follows the start within moments - a few quick tries, then an incident
+          // (before inTestMode: a simulation with mocked services got 0 - an incident at once)
           case _: IdentityCorrelationPendingError                                  => 3
+          case _ if inTestMode                                                     => 0
           case _: ServiceError                                                     => 2
           case e: CustomError if e.causeError.exists(_.isInstanceOf[ServiceError]) => 2
           case _

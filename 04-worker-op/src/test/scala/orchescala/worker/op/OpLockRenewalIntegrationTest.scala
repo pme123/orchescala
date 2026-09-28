@@ -281,8 +281,9 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
                        """{"variables":{"_identityCorrelationPending":{"value":true,"type":"Boolean"}}}"""
                      )
         pid       <- ZIO.fromEither(io.circe.parser.parse(started).flatMap(_.hcursor.get[String]("id")))
+        startedAt <- Clock.instant
         // step 3, late: the correlation (not verified by this custom worker), the marker removed
-        _         <- ZIO.sleep(3.seconds)
+        _         <- ZIO.sleep(1.second)
         _         <- rest(
                        restUrl,
                        "POST",
@@ -295,12 +296,16 @@ object OpLockRenewalIntegrationTest extends ZIOSpecDefault:
                          EngineError.ProcessError("not yet completed")
                        )
                        .retry(Schedule.spaced(1.second) && Schedule.recurs(30))
+        doneAt    <- Clock.instant
+        tookMillis = doneAt.toEpochMilli - startedAt.toEpochMilli
         incidents <- engine.incidentService.getIncidents(None, Some(pid))
       yield assertTrue(
         finished.state == HistoricProcessInstance.ProcessState.COMPLETED,
         incidents.isEmpty,
         identityExecutions.get(pid) == 1,
-        identitySeen.get(pid) // before: it ran at once, without the identity
+        identitySeen.get(pid), // before: it ran at once, without the identity
+        // handed back (unlock), fetched again at once - a failure waited for the next long polling
+        tookMillis < 8000
       )
     }
     ,

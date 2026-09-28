@@ -22,6 +22,12 @@ class OpWorkerCalcRetriesTest extends FunSuite:
     given ExternalTask = task
     testWorker.calcRetries(error, doRetryList, inTestMode = false)
 
+  test("IdentityCorrelation pending: quick tries, also in test mode (a simulation)"):
+    val task = ExternalTaskImpl()
+    given ExternalTask = task
+    assertEquals(testWorker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = true), 3)
+    assertEquals(testWorker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = false), 3)
+
   test("first failure (retries still null): no NullPointerException, no retry for other errors"):
     assertEquals(calcRetries(UnexpectedError("boom"), None), 0)
 
