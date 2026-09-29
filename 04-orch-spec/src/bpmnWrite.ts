@@ -124,14 +124,15 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     }
 
     // Service: die Ausgaben werden von Hand gemappt, und der Worker weiss, welche Variablen es braucht
-    if (el && step.kind === 'service' && active(step.outputs).length) {
+    if (el && step.kind === 'service') {
       const vars: string[] = [];
       for (const m of active(step.outputs)) {
         for (const v of referencedVariables(importExpression(m.expression))) if (!vars.includes(v)) vars.push(v);
       }
-      setControl(doc, ensureExt(el), engine, '_manualOutMapping', engine === 'c8' ? '=true' : '#{true}');
-      setControl(doc, ensureExt(el), engine, '_outputVariables',
-        !vars.length ? undefined : engine === 'c8' ? `=[${vars.map(feelString).join(', ')}]` : vars.join(', '));
+      // ohne Variablen: `NONE`, und die Ausgaben gehen nicht von Hand
+      const list = vars.length ? vars.join(', ') : 'NONE';
+      setControl(doc, ensureExt(el), engine, '_manualOutMapping', !vars.length ? undefined : engine === 'c8' ? '=true' : '#{true}');
+      setControl(doc, ensureExt(el), engine, '_outputVariables', engine === 'c8' ? `=${feelString(list)}` : list);
     }
 
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist
