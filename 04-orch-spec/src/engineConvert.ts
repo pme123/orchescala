@@ -26,6 +26,10 @@ import { feelBody, feelToJuel } from './feelJuel';
 import { importExpression, isJuel } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 import type { WriteIssue, WriteResult } from './bpmnWrite';
+import { errorListSource, parseErrorList } from './errorCodes';
+
+/** `_handledErrors` / `_regexHandledErrors`: Liste in Camunda 8, Text mit Kommas in Camunda 7 */
+const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
 
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
 const ZEEBE_NS = 'http://camunda.org/schema/zeebe/1.0';
@@ -294,6 +298,7 @@ function toC8(defs: Element, ctx: Ctx) {
             : `ist eine ${local(complex) === 'list' ? 'Liste' : 'Map'} — als FEEL-Ausdruck neu schreiben.`);
           continue;
         }
+        if (tag === 'input' && ERROR_LISTS.has(target)) { io.push(zeebe(tag, { source: errorListSource(parseErrorList(p.textContent ?? ''), 'c8'), target })); continue; }
         io.push(zeebe(tag, { source: toFeelSource(p.textContent ?? '', where, issue), target }));
       }
     }
@@ -503,6 +508,10 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         const tag = local(p) === 'input' ? 'inputParameter' : 'outputParameter';
         const target = p.getAttribute('target') ?? '';
         const e = camunda(tag, { name: target });
+        if (tag === 'inputParameter' && ERROR_LISTS.has(target)) {
+          e.textContent = errorListSource(parseErrorList(p.getAttribute('source') ?? ''), 'c7', (x, why) => issue(`Eingabe «${target}»`, `«${x}» ist nicht nach JUEL übersetzbar (${why}) — von Hand anpassen.`));
+          return e;
+        }
         e.textContent = toJuelValue(p.getAttribute('source') ?? '', `${tag === 'inputParameter' ? 'Eingabe' : 'Ausgabe'} «${target}»`, issue);
         return e;
       });

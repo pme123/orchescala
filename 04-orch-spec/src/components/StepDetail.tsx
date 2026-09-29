@@ -278,8 +278,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const finding = stepFindings(step, spec, model, baseVariables);
   // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
   const inline = new Set([
-    ...(step.errors ?? []).map((e, i, all) => handledErrorIssue(e, i, all)?.text),
-    ...(step.regexHandledErrors ?? []).map(r => regexIssue(r, spec.engine)?.text),
+    ...(step.errors ?? []).map((e, i, all) => handledErrorIssue(e, i, all, { variables, engine: spec.engine })?.text),
+    ...(step.regexHandledErrors ?? []).map(r => regexIssue(r, spec.engine, variables)?.text),
   ]);
   const shownErrors = finding.errors.filter(t => !inline.has(t));
   const shownWarnings = finding.warnings.filter(t => !inline.has(t));
@@ -446,7 +446,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           ) : undefined}>
           <p className={`text-[10px] mb-1.5 leading-snug ${c.muted}`}>
             <b>Fehler</b>: der Code wird mit dem Fehlertyp (<span className="font-mono">messageType</span>) des Fehlers verglichen — z. B. <span className="font-mono">404</span>.{' '}
-            <b>Regex</b>: der Ausdruck wird gegen die Fehlermeldung (<span className="font-mono">message</span>) geprüft — z. B. <span className="font-mono">.*timeout.*</span>.
+            <b>Regex</b>: der Ausdruck wird gegen die Fehlermeldung (<span className="font-mono">message</span>) geprüft — z. B. <span className="font-mono">.*timeout.*</span>.{' '}
+            Mit <span className="font-mono">=</span> am Anfang ist der Eintrag ein FEEL-Ausdruck, der den Text liefert — sonst ein fester Text.
           </p>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
@@ -454,7 +455,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // behandelt ist der Normalfall — gelb/rot nur, wenn am Eintrag etwas nicht stimmt
-              const issue = handledErrorIssue(e, i, step.errors ?? []);
+              const issue = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
               return (
                 <div key={i} data-cframe={e.code ? sub(stepTarget(step.id), `error:${e.code}`) : undefined}
                   className={`rounded border ${
@@ -463,11 +464,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                     : issue ? (issue.level === 'error' ? errBox : warnBox) : c.border2}`}>
                 <div className="group flex items-center gap-1.5 text-[10px] px-2 py-1">
                   {e.side ? <GitFork size={10} className="flex-shrink-0" /> : <ShieldCheck size={10} className={`flex-shrink-0 ${c.muted}`} />}
-                  <input value={e.code} disabled={!canEdit || (e.boundary && !e.declared)}
-                    onChange={ev => setErr({ code: ev.target.value })}
-                    title={e.boundary && !e.declared ? 'Kommt vom Boundary-Event im Diagramm' : undefined}
-                    placeholder="Fehlercode, z. B. validation-failed"
-                    className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                  <FeelInput value={e.code} disabled={!canEdit || (e.boundary && !e.declared)} isDark={isDark}
+                    variables={variables}
+                    onChange={v => setErr({ code: v })}
+                    title={e.boundary && !e.declared ? 'Kommt vom Boundary-Event im Diagramm' : 'Fester Code — oder mit «=» ein FEEL-Ausdruck, der ihn liefert'}
+                    placeholder="Fehlercode, z. B. validation-failed — oder = …"
+                    className="flex-1 min-w-0" />
                   {e.interrupting === false && <span className={`text-[9px] ${c.muted}`}>nicht unterbrechend</span>}
                   {!!e.steps?.length && (
                     <button onClick={() => onGoto(e.steps![0].id)} className={`text-[9px] ${c.muted} hover:underline`}>Pfad →</button>
@@ -491,16 +493,18 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             <div className="mt-2 space-y-1">
               <p className={`text-[10px] ${c.muted}`}>Fehlercodes als regulärer Ausdruck <span className="font-mono">(_regexHandledErrors)</span></p>
               {step.regexHandledErrors.map((r, i) => {
-                const issue = regexIssue(r, spec.engine);
+                const issue = regexIssue(r, spec.engine, variables);
                 const setList = (list: string[]) => onPatch(step.id, { regexHandledErrors: list.length ? list : undefined });
                 return (
                   <div key={i} className={`rounded border ${issue ? (issue.level === 'error' ? errBox : warnBox) : c.border2}`}>
                     <div className="flex items-center gap-1.5 text-[10px] px-2 py-1">
                       <span className={`font-mono flex-shrink-0 ${c.muted}`}>.*</span>
-                      <input value={r} disabled={!canEdit}
-                        onChange={ev => setList((step.regexHandledErrors ?? []).map((x, k) => (k === i ? ev.target.value : x)))}
-                        placeholder="z. B. .*timeout.* (passt auf die Meldung)"
-                        className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                      <FeelInput value={r} disabled={!canEdit} isDark={isDark}
+                        variables={variables}
+                        onChange={v => setList((step.regexHandledErrors ?? []).map((x, k) => (k === i ? v : x)))}
+                        title="Fester Ausdruck — oder mit «=» ein FEEL-Ausdruck, der ihn liefert"
+                        placeholder="z. B. .*timeout.* (passt auf die Meldung) — oder = …"
+                        className="flex-1 min-w-0" />
                       {canEdit && (
                         <button onClick={() => setList((step.regexHandledErrors ?? []).filter((_, k) => k !== i))}
                           title="Ausdruck entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>

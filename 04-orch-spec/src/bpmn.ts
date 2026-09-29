@@ -15,6 +15,8 @@ import { feelIfPossible, importExpression } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
+import { parseErrorList } from './errorCodes.ts';
+export { feelString } from './errorCodes.ts';
 import { nowIsoWithTimezone, slugify, todayIso } from './util.ts';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
@@ -208,20 +210,6 @@ function feelText(source: string): string {
   return lit ? lit[1].replace(/\\(["\\])/g, '$1') : t;
 }
 
-/** Ein FEEL-Text: `"…"` mit maskiertem `\` und `"` — Gegenstück zu `feelText` */
-export const feelString = (v: string): string => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-
-/**
- * Codes aus `_handledErrors`: in Camunda 7 ein Text mit Kommas, in Camunda 8
- * eine Liste (`=["a", "b"]`) — beides wird zur Liste. Ein einzelner Text bleibt einer.
- */
-function feelTexts(source: string): string[] {
-  const t = source.trim();
-  const list = /^=\s*\[([\s\S]*)\]$/.exec(t);
-  if (list) return [...list[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => m[1].replace(/\\(["\\])/g, '$1'));
-  return feelText(t).split(',').map(s => s.trim()).filter(Boolean);
-}
-
 function readIo(el: Element): IoResult {
   const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [], regexErrors: [] };
   const ext = firstNamed(el, 'extensionElements');
@@ -255,7 +243,7 @@ function readIo(el: Element): IoResult {
       const source = attr(p, 'source') ?? '';
       // Steuerparameter wie in Camunda 7: behandelte Fehler und Mock am Schritt
       if (target === '_handledErrors' || target === '_regexHandledErrors') {
-        (target === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...feelTexts(source));
+        (target === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...parseErrorList(source));
         continue;
       }
       if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; continue; }
@@ -277,7 +265,7 @@ function readIo(el: Element): IoResult {
       const name = attr(p, 'name') ?? '';
       const value = paramValue(p);
       if (name === '_handledErrors' || name === '_regexHandledErrors') {
-        (name === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...value.split(',').map(s => s.trim()).filter(Boolean));
+        (name === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...parseErrorList(value));
         continue;
       }
       if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; continue; }

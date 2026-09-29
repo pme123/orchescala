@@ -21,7 +21,7 @@ import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import camundaModdle from 'camunda-bpmn-moddle/resources/camunda.json';
 import type { EngineId } from '../types';
-import { feelString } from '../bpmn';
+import { errorListSource } from '../errorCodes';
 
 /** Was wir von einem moddle-Element anfassen — bewusst schmal gehalten. */
 interface Moddle {
@@ -237,10 +237,8 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
               zio = moddle.createAny('zeebe:ioMapping', ZEEBE, {}) as Moddle & { $children?: Moddle[] };
               ext.values = [...(ext.values ?? []), zio];
             }
-            // in Camunda 8 eine Liste von Texten: `=["a", "b"]`
-            const lit = (vs: string[]) => `=[${vs.map(feelString).join(', ')}]`;
             const rest = (zio.$children ?? []).filter(k => k.target !== '_handledErrors' && k.target !== '_regexHandledErrors');
-            const put = (target: string, values: string[]) => moddle.createAny('zeebe:input', ZEEBE, { source: lit(values), target });
+            const put = (target: string, values: string[]) => moddle.createAny('zeebe:input', ZEEBE, { source: errorListSource(values, 'c8'), target });
             zio.$children = [
               ...rest,
               ...(codes.length ? [put('_handledErrors', codes)] : []),
@@ -258,8 +256,8 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
           const param = (name: string, value: string) => [moddle.create('camunda:InputParameter', { name, value })];
           io.inputParameters = [
             ...others,
-            ...(codes.length ? param('_handledErrors', codes.join(', ')) : []),
-            ...(regex?.length ? param('_regexHandledErrors', regex.join(', ')) : []),
+            ...(codes.length ? param('_handledErrors', errorListSource(codes, 'c7')) : []),
+            ...(regex?.length ? param('_regexHandledErrors', errorListSource(regex, 'c7')) : []),
           ];
           modeling.updateProperties(el, { extensionElements: ext });
         } catch { /* Schritt nicht im Diagramm */ }

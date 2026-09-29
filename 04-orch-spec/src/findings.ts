@@ -131,12 +131,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 
   // ── Behandelte Fehler: nur melden, was nicht stimmt ──────────────────────
   (step.errors ?? []).forEach((e, i, all) => {
-    const issue = handledErrorIssue(e, i, all);
+    const issue = handledErrorIssue(e, i, all, { variables, engine: spec.engine });
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
   });
 
   for (const r of step.regexHandledErrors ?? []) {
-    const rx = regexIssue(r);
+    const rx = regexIssue(r, spec.engine, variables);
     if (rx) (rx.level === 'error' ? errors : warnings).push(rx.text);
   }
 
@@ -151,8 +151,10 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 }
 
 /** Ist der Ausdruck in `_regexHandledErrors` ein gültiger regulärer Ausdruck? Sonst der Grund. */
-export function regexIssue(pattern: string | undefined, engine?: EngineId): { level: 'error' | 'warn'; text: string } | null {
+export function regexIssue(pattern: string | undefined, engine?: EngineId, variables?: VarNode[]): { level: 'error' | 'warn'; text: string } | null {
   if (!pattern?.trim()) return { level: 'error', text: 'Regulärer Ausdruck ist leer.' };
+  // `= …` liefert den Ausdruck erst zur Laufzeit — geprüft wird das FEEL
+  if (isFeel(pattern)) return feelEntryIssue(pattern.trim(), `Regex «${pattern.trim()}»`, { variables, engine });
   try { new RegExp(pattern); }
   catch (e) { return { level: 'error', text: `Regulärer Ausdruck «${pattern}» ungültig: ${(e as Error).message.replace(/^Invalid regular expression: /, '').replace(/^\/.*\/[a-z]*: /, '')}` }; }
   // in Camunda 7 ist es ein Text mit Kommas — ein Komma im Ausdruck trennt dort die Einträge
@@ -180,7 +182,7 @@ export function newErrorCode(existing: ErrorHandling[]): string {
  * Fehler ist der Normalfall und keine Warnung; gemeldet wird nur ein leerer,
  * doppelter oder noch nicht ersetzter Code. Nebenpfade haben keinen Code.
  */
-export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHandling[]): { level: 'error' | 'warn'; text: string } | null {
+export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHandling[], ctx: FeelCtx = {}): { level: 'error' | 'warn'; text: string } | null {
   // Ein Nebenpfad braucht keinen Code — nur ein Pfad, der nirgends hinführt, ist ein Fehler im Diagramm
   if (e.side) return e.steps?.length ? null : { level: 'warn', text: 'Der Pfad am Boundary-Event führt nirgends hin.' };
   const code = e.code.trim();
@@ -188,5 +190,23 @@ export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHan
   if (all.findIndex(x => !x.side && x.code.trim() === code) !== index) return { level: 'error', text: `Behandelter Fehler «${code}» kommt doppelt vor.` };
   if (e.boundary && !e.steps?.length) return { level: 'warn', text: `Der Pfad des Fehlers «${code}» am Boundary-Event führt nirgends hin.` };
   if (code.startsWith(NEW_ERROR_CODE)) return { level: 'warn', text: `Behandelter Fehler «${code}»: noch der Platzhalter — den echten Code eintragen.` };
+  return feelEntryIssue(code, `Behandelter Fehler «${code}»`, ctx);
+}
+
+interface FeelCtx { variables?: VarNode[]; engine?: EngineId }
+
+/**
+ * Ein Eintrag mit `=` ist ein FEEL-Ausdruck, der den Text liefert: gültig,
+ * Variablen bekannt, Ergebnis ein Text — und für Camunda 7 nach JUEL übersetzbar.
+ */
+function feelEntryIssue(entry: string, label: string, { variables, engine }: FeelCtx): { level: 'error' | 'warn'; text: string } | null {
+  if (!isFeel(entry)) return null;
+  const r = checkFeel(entry, variables ?? null, { accepts: ['string'], label: 'Text', kind: 'scalar' });
+  const first = r.issues.find(i => i.level === 'error') ?? r.issues[0];
+  if (first) return { level: first.level, text: `${label}: ${first.text}` };
+  if (engine !== 'c8') {
+    const j = feelToJuel(feelBody(entry) ?? '');
+    if (!j.ok) return { level: 'warn', text: `${label}: für Camunda 7 nicht nach JUEL übersetzbar (${j.reason}) — beim Export bleibt das FEEL stehen.` };
+  }
   return null;
 }
