@@ -99,11 +99,12 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
       if (old?.condition !== b.condition) bpmn.setCondition(b.id, b.condition);
     }
   }
-  if (patch.errors) {
+  if (patch.errors || 'regexHandledErrors' in patch) {
     // `_handledErrors` führt, was **nicht** allein am Boundary-Event hängt:
     // die schon deklarierten und die hier neu erfassten.
-    const held = patch.errors.filter(e => e.code && (e.declared || !e.boundary));
-    bpmn.setHandledErrors(id, held.filter(e => !e.regex).map(e => e.code), held.filter(e => e.regex).map(e => e.code));
+    const held = (patch.errors ?? before?.errors ?? []).filter(e => e.code && (e.declared || !e.boundary));
+    const regex = 'regexHandledErrors' in patch ? patch.regexHandledErrors : before?.regexHandledErrors;
+    bpmn.setHandledErrors(id, held.map(e => e.code), regex?.trim() || undefined);
   }
 };
 

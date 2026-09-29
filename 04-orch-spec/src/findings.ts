@@ -135,6 +135,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
   });
 
+  const rx = regexIssue(step.regexHandledErrors);
+  if (rx) errors.push(rx);
+
   // ── Zweige: Bedingungen ──────────────────────────────────────────────────
   for (const b of step.branches ?? []) {
     if (b.isDefault || !b.condition || !isFeel(b.condition)) continue;
@@ -143,6 +146,13 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   }
 
   return errors.length || warnings.length ? { errors, warnings } : NONE;
+}
+
+/** Ist der Ausdruck in `_regexHandledErrors` ein gültiger regulärer Ausdruck? Sonst der Grund. */
+export function regexIssue(pattern: string | undefined): string | null {
+  if (!pattern?.trim()) return null;
+  try { new RegExp(pattern); return null; }
+  catch (e) { return `Regulärer Ausdruck ungültig: ${(e as Error).message.replace(/^Invalid regular expression: /, '')}`; }
 }
 
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */

@@ -47,7 +47,7 @@ export interface BpmnHandle {
   /** Bedingung eines Sequenzflusses */
   setCondition: (flowId: string, condition: string | undefined) => void;
   /** `_handledErrors` eines Schritts */
-  setHandledErrors: (id: string, codes: string[], regexCodes?: string[]) => void;
+  setHandledErrors: (id: string, codes: string[], regex?: string) => void;
 }
 
 interface Props {
@@ -218,7 +218,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
           });
         } catch { /* Fluss nicht im Diagramm */ }
       },
-      setHandledErrors: (id, codes, regexCodes = []) => {
+      setHandledErrors: (id, codes, regex) => {
         try {
           const registry = modeler.get('elementRegistry') as { get: (id: string) => Moddled | undefined };
           const modeling = modeler.get('modeling') as { updateProperties: (el: unknown, p: object) => void };
@@ -233,9 +233,12 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
             ext.values = [...(ext.values ?? []), io];
           }
           const others = (io.inputParameters ?? []).filter(p => p.name !== '_handledErrors' && p.name !== '_regexHandledErrors');
-          const param = (name: string, list: string[]) =>
-            list.length ? [moddle.create('camunda:InputParameter', { name, value: list.join(', ') })] : [];
-          io.inputParameters = [...others, ...param('_handledErrors', codes), ...param('_regexHandledErrors', regexCodes)];
+          const param = (name: string, value: string) => [moddle.create('camunda:InputParameter', { name, value })];
+          io.inputParameters = [
+            ...others,
+            ...(codes.length ? param('_handledErrors', codes.join(', ')) : []),
+            ...(regex ? param('_regexHandledErrors', regex) : []),
+          ];
           modeling.updateProperties(el, { extensionElements: ext });
         } catch { /* Schritt nicht im Diagramm */ }
       },

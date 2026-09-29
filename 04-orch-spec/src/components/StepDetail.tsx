@@ -13,7 +13,7 @@ import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_ERROR_CODE, handledErrorIssue, stepFindings } from '../findings';
+import { NEW_ERROR_CODE, handledErrorIssue, regexIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -419,7 +419,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
-      {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
+      {(!!step.errors?.length || !!step.regexHandledErrors || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
         <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side).length} isDark={isDark}
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
@@ -448,14 +448,6 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                     title={e.boundary && !e.declared ? 'Kommt vom Boundary-Event im Diagramm' : undefined}
                     placeholder="Fehlercode, z. B. validation-failed"
                     className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
-                  {canEdit && (!e.boundary || e.declared) && !e.side && (
-                    <button onClick={() => setErr({ regex: !e.regex })}
-                      title="Der Code ist ein regulärer Ausdruck (_regexHandledErrors) statt eines festen Codes (_handledErrors)"
-                      className={`font-mono px-1 rounded border ${e.regex ? (isDark ? 'border-sky-500/50 text-sky-300' : 'border-sky-400 text-sky-700') : `${c.border2} ${c.muted}`}`}>
-                      .*
-                    </button>
-                  )}
-                  {!canEdit && e.regex && <span className={`font-mono ${c.muted}`}>.*</span>}
                   {e.interrupting === false && <span className={`text-[9px] ${c.muted}`}>nicht unterbrechend</span>}
                   {!!e.steps?.length && (
                     <button onClick={() => onGoto(e.steps![0].id)} className={`text-[9px] ${c.muted} hover:underline`}>Pfad →</button>
@@ -475,6 +467,22 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               );
             })}
           </div>
+          {(canEdit || step.regexHandledErrors) && (
+            <div className="mt-2">
+              <label className={`block text-[10px] mb-0.5 ${c.muted}`}>
+                Fehlercodes als regulärer Ausdruck <span className="font-mono">(_regexHandledErrors)</span>
+              </label>
+              <input value={step.regexHandledErrors ?? ''} disabled={!canEdit}
+                onChange={ev => onPatch(step.id, { regexHandledErrors: ev.target.value || undefined })}
+                placeholder="z. B. 4\d\d|timeout-.*"
+                className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${regexIssue(step.regexHandledErrors) ? 'border-rose-400' : c.input}`} />
+              {regexIssue(step.regexHandledErrors) && (
+                <p className={`text-[10px] flex items-start gap-1 mt-0.5 ${err}`}>
+                  <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{regexIssue(step.regexHandledErrors)}</span>
+                </p>
+              )}
+            </div>
+          )}
         </Section>
       )}
       {!!step.branches?.length && (

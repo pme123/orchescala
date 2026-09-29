@@ -83,8 +83,6 @@ export interface ErrorHandling {
   interrupting?: boolean;
   /** steht in `_handledErrors` des Schritts */
   declared?: boolean;
-  /** der Code ist ein regulärer Ausdruck — steht in `_regexHandledErrors` statt `_handledErrors` */
-  regex?: boolean;
   /** kommt von einem Boundary-Event — Code und Pfad stehen im Diagramm */
   boundary?: boolean;
   /** kein Fehler, sondern ein nicht-unterbrechender Nebenpfad am Schritt */
@@ -116,6 +114,8 @@ export interface Step {
   inVariant?: string;
   outVariant?: string;
   errors?: ErrorHandling[];
+  /** ein regulärer Ausdruck für weitere behandelte Fehlercodes — `_regexHandledErrors` */
+  regexHandledErrors?: string;
   mock?: string;          // `_outputMock` / Beispielantwort (JSON)
 
   // Struktur
