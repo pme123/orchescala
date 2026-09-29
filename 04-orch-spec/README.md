@@ -837,7 +837,7 @@ und jedes davon steht in einem Feld direkt am gewählten Element:
 | Prozess | **Time to Live** (Tage) | `camunda:historyTimeToLive` |
 | Benutzeraufgabe | **Zuständigkeit** — Gruppen und direkte Zuteilung | `camunda:candidateGroups` · `camunda:assignee` |
 | Verzweigung | **Zweige** — Beschriftung und Bedingung | Name und `conditionExpression` des Sequenzflusses |
-| Service-Task | **Behandelte Fehler** — mit `.*` ist der Code ein regulärer Ausdruck | `_handledErrors` · `_regexHandledErrors` |
+| Service-Task | **Behandelte Fehler** und reguläre Ausdrücke für Fehlercodes (jeder wird geprüft) | `_handledErrors` · `_regexHandledErrors` — Camunda 8 eine Liste, Camunda 7 ein Text mit Kommas |
 
 Diese Angaben gehen nicht nur in die Spezifikation, sondern **zurück ins
 Diagramm**. Das ist kein Komfort, sondern Notwendigkeit: der Abgleich mit der

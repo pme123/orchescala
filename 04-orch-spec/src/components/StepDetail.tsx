@@ -13,7 +13,7 @@ import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { handledErrorIssue, newErrorCode, regexIssue, stepFindings } from '../findings';
+import { NEW_REGEX, handledErrorIssue, newErrorCode, regexIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -419,15 +419,23 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
-      {(!!step.errors?.length || !!step.regexHandledErrors || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
+      {(!!step.errors?.length || !!step.regexHandledErrors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
         <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side).length} isDark={isDark}
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
-            <button
-              onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: newErrorCode(step.errors ?? []), declared: true }] })}
-              className={`text-[10px] ${c.muted} hover:underline`}>
-              + Fehler
-            </button>
+            <span className="flex items-center gap-2">
+              <button
+                onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: newErrorCode(step.errors ?? []), declared: true }] })}
+                className={`text-[10px] ${c.muted} hover:underline`}>
+                + Fehler
+              </button>
+              <button
+                onClick={() => onPatch(step.id, { regexHandledErrors: [...(step.regexHandledErrors ?? []), NEW_REGEX] })}
+                title="Fehlercodes als regulärer Ausdruck (_regexHandledErrors)"
+                className={`text-[10px] ${c.muted} hover:underline`}>
+                + Regex
+              </button>
+            </span>
           ) : undefined}>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
@@ -468,20 +476,33 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               );
             })}
           </div>
-          {(canEdit || step.regexHandledErrors) && (
-            <div className="mt-2">
-              <label className={`block text-[10px] mb-0.5 ${c.muted}`}>
-                Fehlercodes als regulärer Ausdruck <span className="font-mono">(_regexHandledErrors)</span>
-              </label>
-              <input value={step.regexHandledErrors ?? ''} disabled={!canEdit}
-                onChange={ev => onPatch(step.id, { regexHandledErrors: ev.target.value || undefined })}
-                placeholder="z. B. 4\d\d|timeout-.*"
-                className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${regexIssue(step.regexHandledErrors) ? 'border-rose-400' : c.input}`} />
-              {regexIssue(step.regexHandledErrors) && (
-                <p className={`text-[10px] flex items-start gap-1 mt-0.5 ${err}`}>
-                  <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{regexIssue(step.regexHandledErrors)}</span>
-                </p>
-              )}
+          {!!step.regexHandledErrors?.length && (
+            <div className="mt-2 space-y-1">
+              <p className={`text-[10px] ${c.muted}`}>Fehlercodes als regulärer Ausdruck <span className="font-mono">(_regexHandledErrors)</span></p>
+              {step.regexHandledErrors.map((r, i) => {
+                const issue = regexIssue(r, spec.engine);
+                const setList = (list: string[]) => onPatch(step.id, { regexHandledErrors: list.length ? list : undefined });
+                return (
+                  <div key={i} className={`rounded border ${issue ? (issue.level === 'error' ? errBox : warnBox) : c.border2}`}>
+                    <div className="flex items-center gap-1.5 text-[10px] px-2 py-1">
+                      <span className={`font-mono flex-shrink-0 ${c.muted}`}>.*</span>
+                      <input value={r} disabled={!canEdit}
+                        onChange={ev => setList((step.regexHandledErrors ?? []).map((x, k) => (k === i ? ev.target.value : x)))}
+                        placeholder="z. B. 4\d\d oder timeout-.*"
+                        className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                      {canEdit && (
+                        <button onClick={() => setList((step.regexHandledErrors ?? []).filter((_, k) => k !== i))}
+                          title="Ausdruck entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>
+                      )}
+                    </div>
+                    {issue && (
+                      <p className={`text-[10px] flex items-start gap-1 px-2 pb-1 ${issue.level === 'error' ? err : warn}`}>
+                        <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{issue.text}</span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </Section>

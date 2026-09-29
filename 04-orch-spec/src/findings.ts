@@ -6,7 +6,7 @@
 // als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
-import type { ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, Step } from './types';
+import type { EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, Step } from './types';
 import { INTERACTION_META } from './types';
 import { checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
@@ -135,8 +135,10 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
   });
 
-  const rx = regexIssue(step.regexHandledErrors);
-  if (rx) errors.push(rx);
+  for (const r of step.regexHandledErrors ?? []) {
+    const rx = regexIssue(r);
+    if (rx) (rx.level === 'error' ? errors : warnings).push(rx.text);
+  }
 
   // ── Zweige: Bedingungen ──────────────────────────────────────────────────
   for (const b of step.branches ?? []) {
@@ -149,11 +151,17 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 }
 
 /** Ist der Ausdruck in `_regexHandledErrors` ein gültiger regulärer Ausdruck? Sonst der Grund. */
-export function regexIssue(pattern: string | undefined): string | null {
-  if (!pattern?.trim()) return null;
-  try { new RegExp(pattern); return null; }
-  catch (e) { return `Regulärer Ausdruck ungültig: ${(e as Error).message.replace(/^Invalid regular expression: /, '')}`; }
+export function regexIssue(pattern: string | undefined, engine?: EngineId): { level: 'error' | 'warn'; text: string } | null {
+  if (!pattern?.trim()) return { level: 'error', text: 'Regulärer Ausdruck ist leer.' };
+  try { new RegExp(pattern); }
+  catch (e) { return { level: 'error', text: `Regulärer Ausdruck «${pattern}» ungültig: ${(e as Error).message.replace(/^Invalid regular expression: /, '').replace(/^\/.*\/[a-z]*: /, '')}` }; }
+  // in Camunda 7 ist es ein Text mit Kommas — ein Komma im Ausdruck trennt dort die Einträge
+  if (engine !== 'c8' && pattern.includes(',')) return { level: 'warn', text: `«${pattern}»: In Camunda 7 trennt das Komma die Einträge — den Ausdruck ohne Komma schreiben (z. B. {1,2} als {1}|{2}).` };
+  return null;
 }
+
+/** Platzhalter für einen neuen regulären Ausdruck (StepDetail «+ Regex») */
+export const NEW_REGEX = 'neuer-fehler-.*';
 
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';

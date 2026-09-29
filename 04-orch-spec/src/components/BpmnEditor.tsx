@@ -49,7 +49,7 @@ export interface BpmnHandle {
   /** Bedingung eines Sequenzflusses */
   setCondition: (flowId: string, condition: string | undefined) => void;
   /** `_handledErrors` eines Schritts */
-  setHandledErrors: (id: string, codes: string[], regex?: string, engine?: EngineId) => void;
+  setHandledErrors: (id: string, codes: string[], regex?: string[], engine?: EngineId) => void;
 }
 
 interface Props {
@@ -244,7 +244,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
             zio.$children = [
               ...rest,
               ...(codes.length ? [put('_handledErrors', codes)] : []),
-              ...(regex ? [put('_regexHandledErrors', [regex])] : []),
+              ...(regex?.length ? [put('_regexHandledErrors', regex)] : []),
             ];
             modeling.updateProperties(el, { extensionElements: ext });
             return;
@@ -259,7 +259,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
           io.inputParameters = [
             ...others,
             ...(codes.length ? param('_handledErrors', codes.join(', ')) : []),
-            ...(regex ? param('_regexHandledErrors', regex) : []),
+            ...(regex?.length ? param('_regexHandledErrors', regex.join(', ')) : []),
           ];
           modeling.updateProperties(el, { extensionElements: ext });
         } catch { /* Schritt nicht im Diagramm */ }

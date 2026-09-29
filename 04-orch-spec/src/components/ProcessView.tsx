@@ -104,7 +104,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
     // die schon deklarierten und die hier neu erfassten.
     const held = (patch.errors ?? before?.errors ?? []).filter(e => e.code && (e.declared || !e.boundary));
     const regex = 'regexHandledErrors' in patch ? patch.regexHandledErrors : before?.regexHandledErrors;
-    bpmn.setHandledErrors(id, held.map(e => e.code), regex?.trim() || undefined, engine);
+    bpmn.setHandledErrors(id, held.map(e => e.code), (regex ?? []).map(r => r.trim()).filter(Boolean), engine);
   }
 };
 

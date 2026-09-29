@@ -196,8 +196,8 @@ interface IoResult {
   outputs: Mapping[];
   technical: Mapping[];
   handledErrors: string[];
-  /** `_regexHandledErrors`: ein regulärer Ausdruck für die Codes */
-  regexErrors?: string;
+  /** `_regexHandledErrors`: reguläre Ausdrücke für die Codes */
+  regexErrors: string[];
   mock?: string;
 }
 
@@ -223,7 +223,7 @@ function feelTexts(source: string): string[] {
 }
 
 function readIo(el: Element): IoResult {
-  const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [] };
+  const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [], regexErrors: [] };
   const ext = firstNamed(el, 'extensionElements');
   if (!ext) return res;
 
@@ -255,9 +255,7 @@ function readIo(el: Element): IoResult {
       const source = attr(p, 'source') ?? '';
       // Steuerparameter wie in Camunda 7: behandelte Fehler und Mock am Schritt
       if (target === '_handledErrors' || target === '_regexHandledErrors') {
-        if (target === '_handledErrors') res.handledErrors.push(...feelTexts(source));
-        // mehrere Ausdrücke aus einer Liste gelten als Alternativen eines einzigen
-        else res.regexErrors = (/^=\s*\[/.test(source.trim()) ? feelTexts(source).join('|') : feelText(source).trim()) || undefined;
+        (target === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...feelTexts(source));
         continue;
       }
       if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; continue; }
@@ -279,8 +277,7 @@ function readIo(el: Element): IoResult {
       const name = attr(p, 'name') ?? '';
       const value = paramValue(p);
       if (name === '_handledErrors' || name === '_regexHandledErrors') {
-        if (name === '_handledErrors') res.handledErrors.push(...value.split(',').map(s => s.trim()).filter(Boolean));
-        else res.regexErrors = value.trim() || undefined;
+        (name === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...value.split(',').map(s => s.trim()).filter(Boolean));
         continue;
       }
       if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; continue; }
@@ -616,7 +613,7 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     }
   }
   if (errors.length) step.errors = errors;
-  if (io.regexErrors) step.regexHandledErrors = io.regexErrors;
+  if (io.regexErrors.length) step.regexHandledErrors = io.regexErrors;
 
   return step;
 }

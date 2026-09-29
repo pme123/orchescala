@@ -114,8 +114,8 @@ export interface Step {
   inVariant?: string;
   outVariant?: string;
   errors?: ErrorHandling[];
-  /** ein regulärer Ausdruck für weitere behandelte Fehlercodes — `_regexHandledErrors` */
-  regexHandledErrors?: string;
+  /** reguläre Ausdrücke für weitere behandelte Fehlercodes — `_regexHandledErrors` */
+  regexHandledErrors?: string[];
   mock?: string;          // `_outputMock` / Beispielantwort (JSON)
 
   // Struktur
