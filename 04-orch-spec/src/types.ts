@@ -83,6 +83,8 @@ export interface ErrorHandling {
   interrupting?: boolean;
   /** steht in `_handledErrors` des Schritts */
   declared?: boolean;
+  /** der Code ist ein regulärer Ausdruck — steht in `_regexHandledErrors` statt `_handledErrors` */
+  regex?: boolean;
   /** kommt von einem Boundary-Event — Code und Pfad stehen im Diagramm */
   boundary?: boolean;
   /** kein Fehler, sondern ein nicht-unterbrechender Nebenpfad am Schritt */

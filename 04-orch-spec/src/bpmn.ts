@@ -196,6 +196,8 @@ interface IoResult {
   outputs: Mapping[];
   technical: Mapping[];
   handledErrors: string[];
+  /** `_regexHandledErrors`: Codes als reguläre Ausdrücke */
+  regexErrors: string[];
   mock?: string;
 }
 
@@ -207,7 +209,7 @@ function feelText(source: string): string {
 }
 
 function readIo(el: Element): IoResult {
-  const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [] };
+  const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [], regexErrors: [] };
   const ext = firstNamed(el, 'extensionElements');
   if (!ext) return res;
 
@@ -239,7 +241,7 @@ function readIo(el: Element): IoResult {
       const source = attr(p, 'source') ?? '';
       // Steuerparameter wie in Camunda 7: behandelte Fehler und Mock am Schritt
       if (target === '_handledErrors' || target === '_regexHandledErrors') {
-        res.handledErrors.push(...feelText(source).split(',').map(s => s.trim()).filter(Boolean));
+        (target === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...feelText(source).split(',').map(s => s.trim()).filter(Boolean));
         continue;
       }
       if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; continue; }
@@ -261,7 +263,7 @@ function readIo(el: Element): IoResult {
       const name = attr(p, 'name') ?? '';
       const value = paramValue(p);
       if (name === '_handledErrors' || name === '_regexHandledErrors') {
-        res.handledErrors.push(...value.split(',').map(s => s.trim()).filter(Boolean));
+        (name === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...value.split(',').map(s => s.trim()).filter(Boolean));
         continue;
       }
       if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; continue; }
@@ -567,7 +569,10 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   }
 
   // Fehlerbehandlung: `_handledErrors` plus die Pfade der Boundary-Events
-  const errors: ErrorHandling[] = io.handledErrors.map(code => ({ code, declared: true }));
+  const errors: ErrorHandling[] = [
+    ...io.handledErrors.map(code => ({ code, declared: true })),
+    ...io.regexErrors.map(code => ({ code, declared: true, regex: true })),
+  ];
   for (const b of scope.boundaries.get(id) ?? []) {
     const bid = b.getAttribute('id') ?? '';
     const interrupting = b.getAttribute('cancelActivity') !== 'false';

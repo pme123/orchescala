@@ -102,7 +102,8 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
   if (patch.errors) {
     // `_handledErrors` führt, was **nicht** allein am Boundary-Event hängt:
     // die schon deklarierten und die hier neu erfassten.
-    bpmn.setHandledErrors(id, patch.errors.filter(e => e.code && (e.declared || !e.boundary)).map(e => e.code));
+    const held = patch.errors.filter(e => e.code && (e.declared || !e.boundary));
+    bpmn.setHandledErrors(id, held.filter(e => !e.regex).map(e => e.code), held.filter(e => e.regex).map(e => e.code));
   }
 };
 

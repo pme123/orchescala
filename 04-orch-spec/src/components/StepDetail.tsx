@@ -420,7 +420,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
-        <Section id="errors" label="Behandelte Fehler" count={step.errors?.length ?? 0} isDark={isDark}
+        <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side).length} isDark={isDark}
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
             <button
@@ -448,6 +448,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                     title={e.boundary && !e.declared ? 'Kommt vom Boundary-Event im Diagramm' : undefined}
                     placeholder="Fehlercode, z. B. validation-failed"
                     className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                  {canEdit && (!e.boundary || e.declared) && !e.side && (
+                    <button onClick={() => setErr({ regex: !e.regex })}
+                      title="Der Code ist ein regulärer Ausdruck (_regexHandledErrors) statt eines festen Codes (_handledErrors)"
+                      className={`font-mono px-1 rounded border ${e.regex ? (isDark ? 'border-sky-500/50 text-sky-300' : 'border-sky-400 text-sky-700') : `${c.border2} ${c.muted}`}`}>
+                      .*
+                    </button>
+                  )}
+                  {!canEdit && e.regex && <span className={`font-mono ${c.muted}`}>.*</span>}
                   {e.interrupting === false && <span className={`text-[9px] ${c.muted}`}>nicht unterbrechend</span>}
                   {!!e.steps?.length && (
                     <button onClick={() => onGoto(e.steps![0].id)} className={`text-[9px] ${c.muted} hover:underline`}>Pfad →</button>

@@ -837,7 +837,7 @@ und jedes davon steht in einem Feld direkt am gewählten Element:
 | Prozess | **Time to Live** (Tage) | `camunda:historyTimeToLive` |
 | Benutzeraufgabe | **Zuständigkeit** — Gruppen und direkte Zuteilung | `camunda:candidateGroups` · `camunda:assignee` |
 | Verzweigung | **Zweige** — Beschriftung und Bedingung | Name und `conditionExpression` des Sequenzflusses |
-| Service-Task | **Behandelte Fehler** | `_handledErrors` |
+| Service-Task | **Behandelte Fehler** — mit `.*` ist der Code ein regulärer Ausdruck | `_handledErrors` · `_regexHandledErrors` |
 
 Diese Angaben gehen nicht nur in die Spezifikation, sondern **zurück ins
 Diagramm**. Das ist kein Komfort, sondern Notwendigkeit: der Abgleich mit der
@@ -846,8 +846,8 @@ stünde, wäre danach weg.
 
 Fehler, die von einem **Boundary-Event** kommen, lassen sich hier nicht
 umbenennen oder löschen — Code und Pfad stehen im Diagramm, dort gehören sie
-auch geändert. Bearbeitbar sind die aus `_handledErrors` und die hier neu
-erfassten.
+auch geändert. Bearbeitbar sind die aus `_handledErrors` / `_regexHandledErrors` und die hier neu
+erfassten. Nebenpfade (Boundary-Events ohne Fehler) zählen nicht als behandelter Fehler.
 
 **Klassen** beschreibt der Requirements Engineer an drei Stellen: am Prozess
 (`In` · `Out`), an jeder Benutzeraufgabe (`In` · `Out`) und an jeder
