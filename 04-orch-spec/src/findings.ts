@@ -6,7 +6,7 @@
 // als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
-import type { Field, Interaction, Mapping, Model, ProcessSpec, Step } from './types';
+import type { ErrorHandling, Field, Interaction, Mapping, Model, ProcessSpec, Step } from './types';
 import { INTERACTION_META } from './types';
 import { checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
@@ -114,6 +114,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   check('inputs', step.inputs ?? [], inFields, domainIn, variables);
   check('outputs', step.outputs ?? [], outFields, domainOut, resultVars);
 
+  // ── Behandelte Fehler: nur melden, was nicht stimmt ──────────────────────
+  (step.errors ?? []).forEach((e, i, all) => {
+    const issue = handledErrorIssue(e, i, all);
+    if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
+  });
+
   // ── Zweige: Bedingungen ──────────────────────────────────────────────────
   for (const b of step.branches ?? []) {
     if (b.isDefault || !b.condition || !isFeel(b.condition)) continue;
@@ -122,4 +128,21 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   }
 
   return errors.length || warnings.length ? { errors, warnings } : NONE;
+}
+
+/** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
+export const NEW_ERROR_CODE = 'neuer-fehler';
+
+/**
+ * Was an einem behandelten Fehler nicht stimmt — sonst null. Ein behandelter
+ * Fehler ist der Normalfall und keine Warnung; gemeldet wird nur ein leerer,
+ * doppelter oder noch nicht ersetzter Code. Nebenpfade haben keinen Code.
+ */
+export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHandling[]): { level: 'error' | 'warn'; text: string } | null {
+  if (e.side) return null;
+  const code = e.code.trim();
+  if (!code) return { level: 'error', text: 'Behandelter Fehler ohne Code.' };
+  if (all.findIndex(x => !x.side && x.code.trim() === code) !== index) return { level: 'error', text: `Behandelter Fehler «${code}» kommt doppelt vor.` };
+  if (code === NEW_ERROR_CODE) return { level: 'warn', text: `Behandelter Fehler «${code}»: noch der Platzhalter — den echten Code eintragen.` };
+  return null;
 }

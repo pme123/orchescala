@@ -3,7 +3,7 @@
 import {
   GripVertical,
   Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand,
-  CornerDownRight, Zap, Repeat, AlertTriangle, Split, Merge, Unlink, Puzzle,
+  CornerDownRight, Zap, Repeat, ShieldCheck, Split, Merge, Unlink, Puzzle,
 } from 'lucide-react';
 import { useRef } from 'react';
 import { STATUS_META, type Status, type Step, type StepKind } from './types';
@@ -102,8 +102,8 @@ export function ErrorChip({ n, isDark }: { n: number; isDark: boolean }) {
   return (
     <span title={`${n} behandelte Fehler`}
       className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap ${
-        isDark ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-amber-50 text-amber-700 border-amber-300'}`}>
-      <AlertTriangle size={9} /> {n}
+        isDark ? 'bg-white/5 text-white/60 border-white/15' : 'bg-black/[0.03] text-black/60 border-black/15'}`}>
+      <ShieldCheck size={9} /> {n}
     </span>
   );
 }

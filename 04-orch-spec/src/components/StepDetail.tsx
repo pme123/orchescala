@@ -4,7 +4,7 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Asterisk, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import { marked } from 'marked';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
@@ -13,7 +13,7 @@ import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { stepFindings } from '../findings';
+import { NEW_ERROR_CODE, handledErrorIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -397,7 +397,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
             <button
-              onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: 'neuer-fehler', declared: true }] })}
+              onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: NEW_ERROR_CODE, declared: true }] })}
               className={`text-[10px] ${c.muted} hover:underline`}>
               + Fehler
             </button>
@@ -406,13 +406,16 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             {(step.errors ?? []).map((e, i) => {
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
+              // behandelt ist der Normalfall — gelb/rot nur, wenn am Eintrag etwas nicht stimmt
+              const issue = handledErrorIssue(e, i, step.errors ?? []);
               return (
                 <div key={i} data-cframe={e.code ? sub(stepTarget(step.id), `error:${e.code}`) : undefined}
-                  className={`group flex items-center gap-1.5 text-[10px] px-2 py-1 rounded border ${
+                  className={`rounded border ${
                   e.side
                     ? (isDark ? 'border-indigo-500/30 bg-indigo-500/10' : 'border-indigo-300 bg-indigo-50')
-                    : (isDark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-300 bg-amber-50')}`}>
-                  {e.side ? <GitFork size={10} className="flex-shrink-0" /> : <AlertTriangle size={10} className="flex-shrink-0" />}
+                    : issue ? (issue.level === 'error' ? errBox : warnBox) : c.border2}`}>
+                <div className="group flex items-center gap-1.5 text-[10px] px-2 py-1">
+                  {e.side ? <GitFork size={10} className="flex-shrink-0" /> : <ShieldCheck size={10} className={`flex-shrink-0 ${c.muted}`} />}
                   <input value={e.code} disabled={!canEdit || (e.boundary && !e.declared)}
                     onChange={ev => setErr({ code: ev.target.value })}
                     title={e.boundary && !e.declared ? 'Kommt vom Boundary-Event im Diagramm' : undefined}
@@ -427,6 +430,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                     <button onClick={() => onPatch(step.id, { errors: (step.errors ?? []).filter((_, k) => k !== i) })}
                       title="Fehler entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>
                   )}
+                </div>
+                {issue && (
+                  <p className={`text-[10px] flex items-start gap-1 px-2 pb-1 ${issue.level === 'error' ? err : warn}`}>
+                    <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{issue.text}</span>
+                  </p>
+                )}
                 </div>
               );
             })}

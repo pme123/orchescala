@@ -7,7 +7,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
-  AlertTriangle, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
+  AlertTriangle, ShieldCheck, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
   MessageSquare, Puzzle,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -1176,12 +1176,12 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${
               e.side
                 ? (p.isDark ? 'border-indigo-500/40' : 'border-indigo-400')
-                : (p.isDark ? 'border-amber-500/40' : 'border-amber-400')}`}>
+                : (p.isDark ? 'border-white/20' : 'border-black/20')}`}>
               <div className={`flex items-center gap-1.5 py-1 text-[10px] ${
                 e.side
                   ? (p.isDark ? 'text-indigo-300' : 'text-indigo-700')
-                  : (p.isDark ? 'text-amber-300' : 'text-amber-700')}`}>
-                {e.side ? <GitFork size={10} /> : <AlertTriangle size={10} />}
+                  : (p.isDark ? 'text-white/60' : 'text-black/60')}`}>
+                {e.side ? <GitFork size={10} /> : <ShieldCheck size={10} />}
                 <span className="font-semibold">{e.side ? 'Nebenpfad' : 'Fehler'}</span> «{e.code}»
                 {!e.side && e.interrupting === false && <span className={c.muted}>· nicht unterbrechend</span>}
                 <span className={`ml-auto ${c.muted}`}>{countSteps(e.steps)} Schritt{countSteps(e.steps) === 1 ? '' : 'e'}</span>
