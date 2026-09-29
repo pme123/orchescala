@@ -158,16 +158,27 @@ export function regexIssue(pattern: string | undefined): string | null {
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';
 
+/** Platzhalter für einen neuen Fehler, der noch nicht vergeben ist (`neuer-fehler`, `neuer-fehler-2` …) */
+export function newErrorCode(existing: ErrorHandling[]): string {
+  const taken = new Set(existing.map(e => e.code.trim()));
+  if (!taken.has(NEW_ERROR_CODE)) return NEW_ERROR_CODE;
+  let n = 2;
+  while (taken.has(`${NEW_ERROR_CODE}-${n}`)) n++;
+  return `${NEW_ERROR_CODE}-${n}`;
+}
+
 /**
  * Was an einem behandelten Fehler nicht stimmt — sonst null. Ein behandelter
  * Fehler ist der Normalfall und keine Warnung; gemeldet wird nur ein leerer,
  * doppelter oder noch nicht ersetzter Code. Nebenpfade haben keinen Code.
  */
 export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHandling[]): { level: 'error' | 'warn'; text: string } | null {
-  if (e.side) return null;
+  // Ein Nebenpfad braucht keinen Code — nur ein Pfad, der nirgends hinführt, ist ein Fehler im Diagramm
+  if (e.side) return e.steps?.length ? null : { level: 'warn', text: 'Der Pfad am Boundary-Event führt nirgends hin.' };
   const code = e.code.trim();
   if (!code) return { level: 'error', text: 'Behandelter Fehler ohne Code.' };
   if (all.findIndex(x => !x.side && x.code.trim() === code) !== index) return { level: 'error', text: `Behandelter Fehler «${code}» kommt doppelt vor.` };
-  if (code === NEW_ERROR_CODE) return { level: 'warn', text: `Behandelter Fehler «${code}»: noch der Platzhalter — den echten Code eintragen.` };
+  if (e.boundary && !e.steps?.length) return { level: 'warn', text: `Der Pfad des Fehlers «${code}» am Boundary-Event führt nirgends hin.` };
+  if (code.startsWith(NEW_ERROR_CODE)) return { level: 'warn', text: `Behandelter Fehler «${code}»: noch der Platzhalter — den echten Code eintragen.` };
   return null;
 }

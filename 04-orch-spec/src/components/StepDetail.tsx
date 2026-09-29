@@ -13,7 +13,7 @@ import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_ERROR_CODE, handledErrorIssue, regexIssue, stepFindings } from '../findings';
+import { handledErrorIssue, newErrorCode, regexIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -424,13 +424,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
             <button
-              onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: NEW_ERROR_CODE, declared: true }] })}
+              onClick={() => onPatch(step.id, { errors: [...(step.errors ?? []), { code: newErrorCode(step.errors ?? []), declared: true }] })}
               className={`text-[10px] ${c.muted} hover:underline`}>
               + Fehler
             </button>
           ) : undefined}>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
+              if (e.side) return null; // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // behandelt ist der Normalfall — gelb/rot nur, wenn am Eintrag etwas nicht stimmt
