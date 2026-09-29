@@ -37,7 +37,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    connectSharePoint, savedSharePoint, pendingFolder, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
+    savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -61,30 +61,47 @@ export default function App() {
   const needsLogin = auth.status !== 'disabled' && auth.status !== 'signedIn';
   const gated = needsLogin && !!dirHandle;
 
-  // SharePoint: Link auflösen und verbinden
+  // SharePoint: erst der Link, dann die Anmeldung. Der Link wird gemerkt, bevor
+  // es zu Microsoft geht — nach der Rückkehr verbindet ihn der Store. Ist man
+  // schon angemeldet, wird gleich hier verbunden.
   const doConnectSharePoint = async () => {
+    const link = spLink.trim();
+    if (!link) return;
     setSpBusy(true); setSpError('');
-    const res = await connectSharePoint(spLink);
+    rememberFolderLink(link);
+    const r = await auth.loginForSharePoint();
+    if (r === 'setup') { setSpBusy(false); setSpOpen(false); setSetupError(''); setSetupOpen(true); return; }
+    if (r !== 'ready') { setSpBusy(false); return; } // Redirect zu Microsoft läuft
+    const res = await connectPendingFolder();
     setSpBusy(false);
-    if (res.ok) { setSpOpen(false); setSpLink(''); }
-    else setSpError(res.message);
+    if (res && !res.ok) { setSpError(res.message); return; }
+    setSpOpen(false); setSpLink('');
   };
-  // Start des SharePoint-Modus: immer zuerst Anmeldung + Graph-Token sicherstellen
-  // (Redirect, falls nötig), erst dann der Link-Dialog
+  // nach der Rückkehr vom Login nicht verbunden → Link und Fehler wieder zeigen
+  useEffect(() => {
+    if (!folderLinkError) return;
+    setSpLink(folderLinkError.link); setSpError(folderLinkError.message); setSpOpen(true);
+    clearFolderLinkError();
+  }, [folderLinkError, clearFolderLinkError]);
+  // Gemerkter Ordner oder einer aus einem Link: anmelden, dann hinein.
+  // Sonst zuerst der Link-Dialog — angemeldet wird beim Verbinden.
   const [spPreparing, setSpPreparing] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupTenant, setSetupTenant] = useState('');
   const [setupClient, setSetupClient] = useState('');
   const [setupError, setSetupError] = useState('');
   const startSharePoint = async () => {
+    if (!pendingFolder && !savedSharePoint) { setSpError(''); setSpOpen(true); return; }
     setSpPreparing(true);
     try {
       const r = await auth.loginForSharePoint();
       // Ordner aus dem Link oder gemerkter Ordner → direkt hinein; sonst den Link erfragen
       if (r === 'ready') {
-        if (pendingFolder) { const res = await connectSharePoint(pendingFolder); if (!res.ok) { setSpError(res.message); setSpLink(pendingFolder); setSpOpen(true); } }
-        else if (savedSharePoint) await reconnectSharePoint();
-        else setSpOpen(true);
+        const link = pendingFolder;
+        if (link) {
+          const res = await connectPendingFolder();
+          if (res && !res.ok) { setSpError(res.message); setSpLink(link); setSpOpen(true); }
+        } else if (savedSharePoint) await reconnectSharePoint();
       }
       else if (r === 'setup') { setSetupError(''); setSetupOpen(true); }
     } finally {
@@ -387,9 +404,10 @@ export default function App() {
         <StartDialog isDark={isDark} icon={<Cloud size={14} />} title="SharePoint-Ordner verbinden"
           onClose={() => !spBusy && setSpOpen(false)} busy={spBusy}
           lead={<>Link zum Ordner aus SharePoint oder Teams einfügen (Ordner öffnen → «Link kopieren» bzw. die Adresse aus der
-            Browserzeile). In diesem Ordner liegen model.json und processes/ — fehlen sie, legt die App sie an.</>}
+            Browserzeile). In diesem Ordner liegen model.json und processes/ — fehlen sie, legt die App sie an.
+            {auth.status !== 'signedIn' && <> Danach geht es zur Anmeldung mit dem Microsoft-Konto; der Link bleibt gemerkt.</>}</>}
           error={spError}
-          primary={{ label: spBusy ? 'Verbinde …' : 'Verbinden', icon: spBusy ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />,
+          primary={{ label: spBusy ? 'Verbinde …' : auth.status === 'signedIn' ? 'Verbinden' : 'Anmelden und verbinden', icon: spBusy ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />,
             onClick: () => void doConnectSharePoint(), disabled: spBusy || !spLink.trim() }}>
           <div>
             <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.text}`}>Link zum Ordner</label>

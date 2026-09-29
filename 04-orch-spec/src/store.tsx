@@ -62,6 +62,13 @@ interface StoreCtx {
   savedSharePoint: SharePointFolder | null;
   /** SharePoint-Ordner aus einem Einrichtungs- oder Kommentar-Link, der nach der Anmeldung geöffnet wird */
   pendingFolder: string | null;
+  /** einen eingegebenen Ordner-Link über die Anmeldung (Redirect) hinweg merken — null vergisst ihn */
+  rememberFolderLink: (link: string | null) => void;
+  /** den gemerkten Ordner-Link jetzt verbinden (angemeldet); null, wenn keiner (mehr) wartet */
+  connectPendingFolder: () => Promise<{ ok: true } | { ok: false; message: string } | null>;
+  /** ein Ordner-Link, der nach der Anmeldung nicht verbunden werden konnte */
+  folderLinkError: { link: string; message: string } | null;
+  clearFolderLinkError: () => void;
   /** den gemerkten SharePoint-Ordner wieder öffnen (angemeldet) */
   reconnectSharePoint: () => Promise<void>;
   forgetSharePoint: () => void;
@@ -198,6 +205,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
+  const [folderLinkError, setFolderLinkError] = useState<{ link: string; message: string } | null>(null);
   const backendRef = useRef<StorageBackend | null>(null);
   const savedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const getTokenRef = useRef(auth.getToken);
@@ -442,6 +450,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await activateSharePoint(sp).catch(e => console.error('[orch-spec] SharePoint reconnect:', e));
   }, [activateSharePoint]);
 
+  const rememberFolderLink = useCallback((link: string | null) => {
+    try {
+      if (link) { localStorage.setItem(PENDING_FOLDER_KEY, link); localStorage.setItem(MODE_KEY, 'sharepoint'); }
+      else localStorage.removeItem(PENDING_FOLDER_KEY);
+    } catch { /* ignore */ }
+    setPendingFolder(link);
+  }, []);
+
+  // Wer den Link zuerst nimmt, verbindet — hier oder im Start-Effekt unten, nie beide
+  const takePendingFolder = (): string | null => {
+    try {
+      const link = localStorage.getItem(PENDING_FOLDER_KEY);
+      if (link) localStorage.removeItem(PENDING_FOLDER_KEY);
+      return link;
+    } catch { return null; }
+  };
+
+  const connectPendingFolder = useCallback(async () => {
+    const link = takePendingFolder();
+    setPendingFolder(null);
+    if (!link) return null;
+    autoRef.current = true;
+    return connectSharePoint(link);
+  }, [connectSharePoint]);
+
   const forgetSharePoint = useCallback(() => {
     storeSharePoint(null); setSavedSharePoint(null);
     try { localStorage.removeItem(PENDING_FOLDER_KEY); } catch { /* ignore */ }
@@ -479,10 +512,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPendingFolder(pending);
     if (pending) {
       if (auth.status === 'signedIn' || (auth.status === 'disabled' && graphBase())) {
-        try { localStorage.removeItem(PENDING_FOLDER_KEY); } catch { /* ignore */ }
-        setPendingFolder(null);
-        autoRef.current = true;
-        connectSharePoint(pending).then(r => { if (!r.ok) console.error('[orch-spec] Ordner aus dem Link:', r.message); });
+        const link = pending;
+        connectPendingFolder().then(r => {
+          if (r && !r.ok) {
+            console.error('[orch-spec] Ordner aus dem Link:', r.message);
+            setFolderLinkError({ link, message: r.message });
+          }
+        });
       }
       return;
     }
@@ -516,7 +552,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       } catch { /* IndexedDB nicht verfügbar oder Handle ungültig */ }
     })();
-  }, [auth.status, activate, activateSharePoint, connectSharePoint]);
+  }, [auth.status, activate, activateSharePoint, connectPendingFolder]);
 
   // ── Spezifikationen ───────────────────────────────────────────────────────
   const loadSpec = useCallback(async (slug: string) => {
@@ -628,7 +664,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       isDark, toggleTheme, storage,
       pickDirectory, savedHandleName, reconnectDirectory,
-      connectSharePoint, savedSharePoint, pendingFolder, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
+      connectSharePoint, savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder,
+      folderLinkError, clearFolderLinkError: () => setFolderLinkError(null), reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
