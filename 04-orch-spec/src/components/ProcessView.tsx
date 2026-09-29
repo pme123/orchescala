@@ -83,7 +83,7 @@ function ancestorsOf(steps: Step[], oben: string[] = [], out = new Map<string, s
 
 // Was der Fachbereich hier festlegt, gehört auch ins BPMN — sonst überschreibt
 // es der nächste Abgleich mit der Datei wieder.
-const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined, bpmn: BpmnHandle | null) => {
+const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined, bpmn: BpmnHandle | null, engine?: EngineId) => {
   if (!bpmn) return;
   if ('candidateGroups' in patch || 'assignee' in patch) {
     bpmn.setProps(id, {
@@ -104,7 +104,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
     // die schon deklarierten und die hier neu erfassten.
     const held = (patch.errors ?? before?.errors ?? []).filter(e => e.code && (e.declared || !e.boundary));
     const regex = 'regexHandledErrors' in patch ? patch.regexHandledErrors : before?.regexHandledErrors;
-    bpmn.setHandledErrors(id, held.map(e => e.code), regex?.trim() || undefined);
+    bpmn.setHandledErrors(id, held.map(e => e.code), regex?.trim() || undefined, engine);
   }
 };
 
@@ -252,7 +252,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const patchStep = useCallback((id: string, patch: Partial<Step>) => {
     if (!spec) return;
     if (typeof patch.name === 'string') bpmnRef.current?.rename(id, patch.name);
-    applyToBpmn(id, patch, byIdRef.current.get(id), bpmnRef.current);
+    applyToBpmn(id, patch, byIdRef.current.get(id), bpmnRef.current, spec.engine);
     const walk = (steps: Step[]): Step[] => steps.map(s => {
       if (s.id === id) return { ...s, ...patch };
       const next: Step = { ...s };

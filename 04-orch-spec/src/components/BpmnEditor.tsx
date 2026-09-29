@@ -20,6 +20,7 @@ import 'bpmn-js/dist/assets/bpmn-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import camundaModdle from 'camunda-bpmn-moddle/resources/camunda.json';
+import type { EngineId } from '../types';
 
 /** Was wir von einem moddle-Element anfassen — bewusst schmal gehalten. */
 interface Moddle {
@@ -47,7 +48,7 @@ export interface BpmnHandle {
   /** Bedingung eines Sequenzflusses */
   setCondition: (flowId: string, condition: string | undefined) => void;
   /** `_handledErrors` eines Schritts */
-  setHandledErrors: (id: string, codes: string[], regex?: string) => void;
+  setHandledErrors: (id: string, codes: string[], regex?: string, engine?: EngineId) => void;
 }
 
 interface Props {
@@ -218,15 +219,35 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
           });
         } catch { /* Fluss nicht im Diagramm */ }
       },
-      setHandledErrors: (id, codes, regex) => {
+      setHandledErrors: (id, codes, regex, engine) => {
         try {
           const registry = modeler.get('elementRegistry') as { get: (id: string) => Moddled | undefined };
           const modeling = modeler.get('modeling') as { updateProperties: (el: unknown, p: object) => void };
-          const moddle = modeler.get('moddle') as { create: (t: string, p: object) => Moddle };
+          const moddle = modeler.get('moddle') as { create: (t: string, p: object) => Moddle; createAny: (n: string, ns: string, p: object) => Moddle };
           const el = registry.get(id);
           const bo = el?.businessObject;
           if (!bo) return;
           const ext = bo.extensionElements ?? moddle.create('bpmn:ExtensionElements', { values: [] });
+          if (engine === 'c8') {
+            // Camunda 8: `zeebe:input` im `zeebe:ioMapping` — die App kennt die zeebe-Typen nicht, sie bleiben generische Elemente
+            const ZEEBE = 'http://camunda.org/schema/zeebe/1.0';
+            let zio = ext.values?.find(v => v.$type === 'zeebe:ioMapping') as (Moddle & { $children?: Moddle[] }) | undefined;
+            if (!zio) {
+              zio = moddle.createAny('zeebe:ioMapping', ZEEBE, {}) as Moddle & { $children?: Moddle[] };
+              ext.values = [...(ext.values ?? []), zio];
+            }
+            // FEEL-Text: `\` und `"` maskieren — der Import macht es rückgängig
+            const lit = (v: string) => `="${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+            const rest = (zio.$children ?? []).filter(k => k.target !== '_handledErrors' && k.target !== '_regexHandledErrors');
+            const put = (target: string, value: string) => moddle.createAny('zeebe:input', ZEEBE, { source: lit(value), target });
+            zio.$children = [
+              ...rest,
+              ...(codes.length ? [put('_handledErrors', codes.join(', '))] : []),
+              ...(regex ? [put('_regexHandledErrors', regex)] : []),
+            ];
+            modeling.updateProperties(el, { extensionElements: ext });
+            return;
+          }
           let io = ext.values?.find(v => v.$type === 'camunda:InputOutput');
           if (!io) {
             io = moddle.create('camunda:InputOutput', { inputParameters: [], outputParameters: [] });
