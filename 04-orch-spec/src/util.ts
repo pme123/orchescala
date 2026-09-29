@@ -17,12 +17,22 @@ const pad = (n: number) => String(n).padStart(2, '0');
  * Kommentar-Panel an der Stelle dieses Kommentars (App.tsx wertet die
  * Parameter beim Start aus; sie überleben den Microsoft-Login-Redirect).
  */
-export function deepLink(slug: string, commentId?: string): string {
+export function deepLink(slug: string, commentId?: string, setup?: LinkSetup | null): string {
   const u = new URL(import.meta.env.BASE_URL, document.baseURI);
+  // wie der Einrichtungs-Link (auth.setupLink): wer den Browser noch nicht
+  // eingerichtet hat, kommt so trotzdem direkt in den richtigen Ordner
+  if (setup) {
+    u.searchParams.set('tenant', setup.tenantId);
+    u.searchParams.set('client', setup.clientId);
+    if (setup.folderUrl) u.searchParams.set('folder', setup.folderUrl);
+  }
   u.searchParams.set('spec', slug);
   if (commentId) u.searchParams.set('comment', commentId);
   return u.toString();
 }
+
+/** Was ein weitergegebener Link zur Einrichtung mitbringt — IDs der Anmeldung, SharePoint-Ordner */
+export interface LinkSetup { tenantId: string; clientId: string; folderUrl?: string }
 
 export function todayIso(): string {
   const d = new Date();

@@ -107,7 +107,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 };
 
 export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
-  const { isDark, model, specs, loadSpec, saveSpec, loadBpmn, saveBpmn, knownUsers, searchDirectory } = useStore();
+  const { isDark, model, specs, loadSpec, saveSpec, loadBpmn, saveBpmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit } = usePermissions();
   const author = useAuthor();
@@ -444,6 +444,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     me: auth.user?.email ? { id: auth.user.id, name: auth.user.name, email: auth.user.email } : null,
     settings: teamsSettings,
     placeLabel: targetLabel,
+    linkSetup: auth.ids && { ...auth.ids, ...(storage?.kind === 'sharepoint' && storage.webUrl ? { folderUrl: storage.webUrl } : {}) },
     onDelivered: done => {
       const base = pending.current ?? specRef.current;
       if (!base) return;

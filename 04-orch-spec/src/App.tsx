@@ -37,7 +37,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    connectSharePoint, savedSharePoint, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
+    connectSharePoint, savedSharePoint, pendingFolder, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -80,8 +80,12 @@ export default function App() {
     setSpPreparing(true);
     try {
       const r = await auth.loginForSharePoint();
-      // gemerkter Ordner → direkt hinein; sonst den Link erfragen
-      if (r === 'ready') { if (savedSharePoint) await reconnectSharePoint(); else setSpOpen(true); }
+      // Ordner aus dem Link oder gemerkter Ordner → direkt hinein; sonst den Link erfragen
+      if (r === 'ready') {
+        if (pendingFolder) { const res = await connectSharePoint(pendingFolder); if (!res.ok) { setSpError(res.message); setSpLink(pendingFolder); setSpOpen(true); } }
+        else if (savedSharePoint) await reconnectSharePoint();
+        else setSpOpen(true);
+      }
       else if (r === 'setup') { setSetupError(''); setSetupOpen(true); }
     } finally {
       setSpPreparing(false);
@@ -314,20 +318,24 @@ export default function App() {
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <StartOption isDark={isDark} icon={<Cloud size={12} />} title="SharePoint"
-                text={savedSharePoint
+                text={pendingFolder
+                  ? <>Aus dem Link:{' '}
+                      <span className={`font-mono break-all ${c.muted2}`} title={pendingFolder}>{(() => { try { return decodeURI(pendingFolder); } catch { return pendingFolder; } })()}</span>
+                      {auth.status !== 'signedIn' && <> — zum Öffnen mit dem Microsoft-Konto anmelden.</>}</>
+                  : savedSharePoint
                   ? <>Zuletzt verbunden:{' '}
                       <span className={`font-mono break-all ${c.muted2}`} title={savedSharePoint.webUrl}>{savedSharePoint.webUrl || savedSharePoint.name}</span>
                       {auth.status !== 'signedIn' && <> — zum Öffnen mit dem Microsoft-Konto anmelden.</>}</>
                   : 'Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint. Funktioniert in jedem Browser.'}
-                remembered={savedSharePoint?.name ?? null}
+                remembered={pendingFolder ? null : savedSharePoint?.name ?? null}
                 primary={{
-                  label: spPreparing || (savedSharePoint && auth.status === 'loading') ? 'Anmeldung …'
-                    : savedSharePoint ? (auth.status === 'signedIn' ? 'Wieder verbinden' : 'Anmelden und verbinden')
+                  label: spPreparing || ((savedSharePoint || pendingFolder) && auth.status === 'loading') ? 'Anmeldung …'
+                    : savedSharePoint || pendingFolder ? (auth.status === 'signedIn' ? 'Verbinden' : 'Anmelden und verbinden')
                     : 'Ordner verbinden',
-                  onClick: startSharePoint, disabled: spPreparing || (!!savedSharePoint && auth.status === 'loading'), strong: true,
+                  onClick: startSharePoint, disabled: spPreparing || (!!(savedSharePoint || pendingFolder) && auth.status === 'loading'), strong: true,
                   title: auth.loginAvailable ? '' : 'Beim ersten Mal: Einrichtungs-Link vom Admin öffnen oder IDs eintragen',
                 }}
-                secondary={savedSharePoint ? { label: 'anderen SharePoint-Ordner wählen', onClick: forgetSharePoint } : undefined} />
+                secondary={savedSharePoint || pendingFolder ? { label: 'anderen SharePoint-Ordner wählen', onClick: forgetSharePoint } : undefined} />
               <StartOption isDark={isDark} icon={<FolderOpen size={12} />} title="Lokaler Ordner"
                 text="Ein Ordner auf dem Rechner, auch ein synchronisierter (OneDrive, Google Drive). Chrome oder Edge."
                 remembered={savedHandleName}

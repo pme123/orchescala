@@ -60,6 +60,8 @@ interface StoreCtx {
   reconnectDirectory: () => Promise<void>;
   connectSharePoint: (link: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   savedSharePoint: SharePointFolder | null;
+  /** SharePoint-Ordner aus einem Einrichtungs- oder Kommentar-Link, der nach der Anmeldung geöffnet wird */
+  pendingFolder: string | null;
   /** den gemerkten SharePoint-Ordner wieder öffnen (angemeldet) */
   reconnectSharePoint: () => Promise<void>;
   forgetSharePoint: () => void;
@@ -195,6 +197,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [specs, setSpecs] = useState<SpecListItem[]>([]);
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
+  const [pendingFolder, setPendingFolder] = useState<string | null>(null);
   const backendRef = useRef<StorageBackend | null>(null);
   const savedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const getTokenRef = useRef(auth.getToken);
@@ -391,6 +394,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : await window.showDirectoryPicker({ mode: 'readwrite' });
       await persistHandle(dir);
       storeSharePoint(null); setSavedSharePoint(null);
+      // ein Ordner aus einem Link gilt nicht mehr, sobald man selbst einen wählt
+      try { localStorage.removeItem(PENDING_FOLDER_KEY); } catch { /* ignore */ }
+      setPendingFolder(null);
       await activate(new LocalBackend(dir), { kind: 'local', name: dir.name || 'Ordner' });
     } catch (e: unknown) {
       if (e instanceof Error && e.name !== 'AbortError') console.error('[orch-spec] pickDirectory:', e);
@@ -438,6 +444,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const forgetSharePoint = useCallback(() => {
     storeSharePoint(null); setSavedSharePoint(null);
+    try { localStorage.removeItem(PENDING_FOLDER_KEY); } catch { /* ignore */ }
+    setPendingFolder(null);
   }, []);
 
   // «Anderen Ordner wählen» trennt nur die Anzeige — der bisherige Speicher
@@ -460,11 +468,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Beim Start den gemerkten Ordner wiederherstellen (SharePoint sobald die
   // Anmeldung steht; lokal direkt, wenn die Berechtigung noch gilt).
   useEffect(() => {
-    const pending = (() => { try { return localStorage.getItem(PENDING_FOLDER_KEY); } catch { return null; } })();
-    if (pending && !loadSharePoint()) {
+    // Ein Link bringt seinen Ordner mit — der gilt, auch wenn ein anderer
+    // gemerkt ist (ein Kommentar-Link aus Teams zeigt in genau diesen Ordner).
+    // Ist es der gemerkte, geht es einfach normal weiter.
+    let pending = (() => { try { return localStorage.getItem(PENDING_FOLDER_KEY); } catch { return null; } })();
+    if (pending && pending === loadSharePoint()?.webUrl) {
+      try { localStorage.removeItem(PENDING_FOLDER_KEY); } catch { /* ignore */ }
+      pending = null;
+    }
+    setPendingFolder(pending);
+    if (pending) {
       if (auth.status === 'signedIn' || (auth.status === 'disabled' && graphBase())) {
         try { localStorage.removeItem(PENDING_FOLDER_KEY); } catch { /* ignore */ }
-        connectSharePoint(pending).then(r => { if (!r.ok) console.error('[orch-spec] Einrichtungs-Link:', r.message); });
+        setPendingFolder(null);
+        autoRef.current = true;
+        connectSharePoint(pending).then(r => { if (!r.ok) console.error('[orch-spec] Ordner aus dem Link:', r.message); });
       }
       return;
     }
@@ -610,7 +628,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       isDark, toggleTheme, storage,
       pickDirectory, savedHandleName, reconnectDirectory,
-      connectSharePoint, savedSharePoint, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
+      connectSharePoint, savedSharePoint, pendingFolder, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,

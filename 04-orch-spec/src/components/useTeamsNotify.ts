@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { CommentEntry, CommentThread, TeamsNotifySettings } from '../types';
 import { buildTeamsHtml, ensureOneOnOneChat, resolveTeamsUser, sendChatMessage, TEAMS_SCOPES, teamsDelayMs, teamsFail, teamsMock, TeamsError } from '../teams';
-import { deepLink } from '../util';
+import { deepLink, type LinkSetup } from '../util';
 
 export type TeamsProblem = { reason: 'consent' | 'forbidden' | 'error'; message: string };
 type TokenResult = { ok: true; token: string } | { ok: false; reason: 'noAccount' | 'interaction' | 'error'; message: string };
@@ -31,6 +31,8 @@ export function useTeamsNotify(opts: {
   me: { id?: string; name: string; email?: string } | null;
   settings: TeamsNotifySettings | undefined;
   placeLabel: (target: string) => string;
+  /** Einrichtung für die Links — Empfänger/innen ohne eingerichteten Browser */
+  linkSetup?: LinkSetup | null;
   /** Zugestellte quittieren (in der Spezifikation) */
   onDelivered: (done: { entryId: string; email: string }[]) => void;
   tryToken: (scopes: string[]) => Promise<TokenResult>;
@@ -99,11 +101,11 @@ export function useTeamsNotify(opts: {
             recipientName: user.displayName,
             senderName: o.me.name,
             processName: o.processName,
-            processLink: deepLink(o.slug),
+            processLink: deepLink(o.slug, undefined, o.linkSetup),
             lines: items.map(({ thread, entry }) => ({
               place: o.placeLabel(thread.target),
               text: entry.text,
-              link: deepLink(o.slug, entry.id),
+              link: deepLink(o.slug, entry.id, o.linkSetup),
               // Antwort in einem Faden, den die Empfängerin angefangen hat
               ...(thread.entries[0] !== entry && (thread.entries[0]?.email ?? '').toLowerCase() === email ? { reply: true } : {}),
             })),
