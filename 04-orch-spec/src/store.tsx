@@ -60,6 +60,8 @@ interface StoreCtx {
   reconnectDirectory: () => Promise<void>;
   connectSharePoint: (link: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   savedSharePoint: SharePointFolder | null;
+  /** den gemerkten SharePoint-Ordner wieder öffnen (angemeldet) */
+  reconnectSharePoint: () => Promise<void>;
   forgetSharePoint: () => void;
   disconnect: () => void;
   /** der Speicher vor «anderen Ordner wählen» — solange man noch zurück kann */
@@ -425,6 +427,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activateSharePoint, tokenProvider]);
 
+  // gemerkter Ordner schon (wieder) verbunden — der Start-Effekt unten tut es dann nicht nochmals
+  const autoRef = useRef(false);
+  const reconnectSharePoint = useCallback(async () => {
+    const sp = loadSharePoint();
+    if (!sp) return;
+    autoRef.current = true;
+    await activateSharePoint(sp).catch(e => console.error('[orch-spec] SharePoint reconnect:', e));
+  }, [activateSharePoint]);
+
   const forgetSharePoint = useCallback(() => {
     storeSharePoint(null); setSavedSharePoint(null);
   }, []);
@@ -448,7 +459,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Beim Start den gemerkten Ordner wiederherstellen (SharePoint sobald die
   // Anmeldung steht; lokal direkt, wenn die Berechtigung noch gilt).
-  const autoRef = useRef(false);
   useEffect(() => {
     const pending = (() => { try { return localStorage.getItem(PENDING_FOLDER_KEY); } catch { return null; } })();
     if (pending && !loadSharePoint()) {
@@ -600,7 +610,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       isDark, toggleTheme, storage,
       pickDirectory, savedHandleName, reconnectDirectory,
-      connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
+      connectSharePoint, savedSharePoint, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
       specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,

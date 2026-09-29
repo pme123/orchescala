@@ -37,7 +37,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
+    connectSharePoint, savedSharePoint, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -53,9 +53,13 @@ export default function App() {
     try { sessionStorage.removeItem(DEEP_LINK_KEY); } catch { /* ignore */ }
     setView({ kind: 'spec', ...deepLink });
   }, [deepLink, storage, model]);
-  // Anmeldung aktiv und noch nicht angemeldet → Gate; Admin nur mit Rolle
-  const gated = auth.status !== 'disabled' && auth.status !== 'signedIn';
   const dirHandle = storage; // Kurzname: verbundener Speicher (lokal oder SharePoint)
+  // Anmeldung aktiv und noch nicht angemeldet → Gate; Admin nur mit Rolle.
+  // Erst der Ordner, dann die Anmeldung: ob sie nötig ist, sagt die model.json
+  // des Ordners, und beim SharePoint-Ordner führt die Startkarte selbst hinein.
+  // Ohne Ordner steht deshalb die Startkarte da, nicht das Gate.
+  const needsLogin = auth.status !== 'disabled' && auth.status !== 'signedIn';
+  const gated = needsLogin && !!dirHandle;
 
   // SharePoint: Link auflösen und verbinden
   const doConnectSharePoint = async () => {
@@ -76,7 +80,8 @@ export default function App() {
     setSpPreparing(true);
     try {
       const r = await auth.loginForSharePoint();
-      if (r === 'ready') setSpOpen(true);
+      // gemerkter Ordner → direkt hinein; sonst den Link erfragen
+      if (r === 'ready') { if (savedSharePoint) await reconnectSharePoint(); else setSpOpen(true); }
       else if (r === 'setup') { setSetupError(''); setSetupOpen(true); }
     } finally {
       setSpPreparing(false);
@@ -91,7 +96,7 @@ export default function App() {
     setTimeout(() => { void startSharePoint(); }, 50);
   };
 
-  const denied = auth.status === 'signedIn' && !canView;
+  const denied = auth.status === 'signedIn' && !canView && !!dirHandle;
 
   // Doku-Button: nur zeigen, wenn eine Ebene über der App tatsächlich eine
   // index.html liegt (die App wird unter /orch-spec/ in eine Doku-Seite
@@ -117,6 +122,21 @@ export default function App() {
   useEffect(() => { if (model) applyConfig(model.auth); }, [model, applyConfig]);
 
   const c = cls(isDark);
+  // Für welchen Ordner angemeldet wird — und der Weg zu einem anderen
+  const folderOfGate = dirHandle && (
+    <div className={`flex items-center gap-2 rounded border px-3 py-2 mb-3 ${c.border2}`}>
+      <span className={c.muted2}>{dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}</span>
+      <span className="min-w-0 flex-1">
+        <span className={`block text-xs font-semibold truncate ${c.text}`}>{dirHandle.name}</span>
+        <span className={`block text-[10px] truncate ${c.muted}`} title={dirHandle.webUrl}>
+          {dirHandle.kind === 'sharepoint' ? dirHandle.webUrl ?? 'SharePoint-Ordner' : 'lokaler Ordner'}
+        </span>
+      </span>
+      <button onClick={() => { disconnect(); setView({ kind: 'list' }); }}
+        className={`text-[10px] flex-shrink-0 ${c.muted} hover:underline`}>anderer Ordner</button>
+    </div>
+  );
+
   const bg = isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]';
   const border = isDark ? 'border-white/8' : 'border-black/8';
   const topBg = isDark ? 'bg-[#0c0d0f]' : 'bg-[#eae9e5]';
@@ -209,7 +229,8 @@ export default function App() {
               ? undefined
               : auth.status === 'error'
                 ? undefined
-                : 'Mit dem Microsoft-Konto anmelden. Die Anmeldung läuft über Microsoft Entra ID; die App selbst speichert keine Zugangsdaten.'}>
+                : 'Dieser Ordner verlangt eine Anmeldung mit dem Microsoft-Konto. Sie läuft über Microsoft Entra ID; die App selbst speichert keine Zugangsdaten.'}>
+            {folderOfGate}
             {auth.status === 'loading' ? (
               <div className="flex justify-center">
                 <span className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border ${isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700'}`}>
@@ -240,6 +261,7 @@ export default function App() {
             title="Keine Berechtigung für diese App"
             lead="Das Konto ist angemeldet, hat aber keine der Rollen dieser App. Die Zuweisung erfolgt in Entra unter «Unternehmensanwendungen → Benutzer und Gruppen»."
             footnote={auth.user?.roles.length ? <>Rollen des Kontos: {auth.user.roles.join(', ')}</> : 'Das Konto trägt keine App-Rollen.'}>
+            {folderOfGate}
             <div className="space-y-3">
               {/* das Konto, wie bei den Kommentaren: Kürzel, Name, E-Mail */}
               {auth.user && (
@@ -277,6 +299,11 @@ export default function App() {
             footnote={<>Im Ordner liegen <span className="font-semibold">model.json</span> (Katalog und Einstellungen) und der
               Unterordner <span className="font-semibold">processes/</span> mit den Spezifikationen. Fehlen sie, werden sie angelegt.</>}>
             {/* zurück zum Speicher, der eben noch offen war — ohne neue Berechtigung oder Anmeldung */}
+            {auth.status === 'error' && auth.error && (
+              <div className={`mb-3 flex items-start gap-1.5 text-[11px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
+                <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" /> <span>Anmeldung: {auth.error}</span>
+              </div>
+            )}
             {previousStorage && (
               <button onClick={() => void resumePrevious()}
                 className={`w-full mb-3 flex items-center justify-center gap-2 text-xs px-3 py-2 rounded border transition-colors ${
@@ -287,11 +314,17 @@ export default function App() {
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <StartOption isDark={isDark} icon={<Cloud size={12} />} title="SharePoint"
-                text="Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint. Funktioniert in jedem Browser."
+                text={savedSharePoint
+                  ? <>Zuletzt verbunden:{' '}
+                      <span className={`font-mono break-all ${c.muted2}`} title={savedSharePoint.webUrl}>{savedSharePoint.webUrl || savedSharePoint.name}</span>
+                      {auth.status !== 'signedIn' && <> — zum Öffnen mit dem Microsoft-Konto anmelden.</>}</>
+                  : 'Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint. Funktioniert in jedem Browser.'}
                 remembered={savedSharePoint?.name ?? null}
                 primary={{
-                  label: spPreparing ? 'Anmeldung …' : savedSharePoint ? 'Wieder verbinden' : 'Ordner verbinden',
-                  onClick: startSharePoint, disabled: spPreparing, strong: true,
+                  label: spPreparing || (savedSharePoint && auth.status === 'loading') ? 'Anmeldung …'
+                    : savedSharePoint ? (auth.status === 'signedIn' ? 'Wieder verbinden' : 'Anmelden und verbinden')
+                    : 'Ordner verbinden',
+                  onClick: startSharePoint, disabled: spPreparing || (!!savedSharePoint && auth.status === 'loading'), strong: true,
                   title: auth.loginAvailable ? '' : 'Beim ersten Mal: Einrichtungs-Link vom Admin öffnen oder IDs eintragen',
                 }}
                 secondary={savedSharePoint ? { label: 'anderen SharePoint-Ordner wählen', onClick: forgetSharePoint } : undefined} />
