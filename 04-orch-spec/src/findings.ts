@@ -161,7 +161,7 @@ export function regexIssue(pattern: string | undefined, engine?: EngineId): { le
 }
 
 /** Platzhalter für einen neuen regulären Ausdruck (StepDetail «+ Regex») */
-export const NEW_REGEX = 'neuer-fehler-.*';
+export const NEW_REGEX = '.*neue-meldung.*';
 
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';

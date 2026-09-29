@@ -276,6 +276,13 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
   // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
   const finding = stepFindings(step, spec, model, baseVariables);
+  // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
+  const inline = new Set([
+    ...(step.errors ?? []).map((e, i, all) => handledErrorIssue(e, i, all)?.text),
+    ...(step.regexHandledErrors ?? []).map(r => regexIssue(r, spec.engine)?.text),
+  ]);
+  const shownErrors = finding.errors.filter(t => !inline.has(t));
+  const shownWarnings = finding.warnings.filter(t => !inline.has(t));
 
   return (
     <div className="p-4 space-y-4">
@@ -322,13 +329,13 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       </div>
 
       {/* Befunde — was rot oder orange im Baum steht, hier ausgeschrieben */}
-      {(finding.errors.length > 0 || finding.warnings.length > 0) && (
+      {(shownErrors.length > 0 || shownWarnings.length > 0) && (
         <div className={`text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${
-          finding.errors.length
+          shownErrors.length
             ? (isDark ? 'border-rose-500/30 bg-rose-500/5' : 'border-rose-300 bg-rose-50')
             : (isDark ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-300 bg-amber-50')}`}>
-          {finding.errors.map((t, i) => <div key={`e${i}`} className={`flex items-start gap-1 ${err}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /><span>{t}</span></div>)}
-          {finding.warnings.map((t, i) => <div key={`w${i}`} className={`flex items-start gap-1 ${warn}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /><span>{t}</span></div>)}
+          {shownErrors.map((t, i) => <div key={`e${i}`} className={`flex items-start gap-1 ${err}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /><span>{t}</span></div>)}
+          {shownWarnings.map((t, i) => <div key={`w${i}`} className={`flex items-start gap-1 ${warn}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /><span>{t}</span></div>)}
         </div>
       )}
 
@@ -437,6 +444,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               </button>
             </span>
           ) : undefined}>
+          <p className={`text-[10px] mb-1.5 leading-snug ${c.muted}`}>
+            <b>Fehler</b>: der Code wird mit dem Fehlertyp (<span className="font-mono">messageType</span>) des Fehlers verglichen — z. B. <span className="font-mono">404</span>.{' '}
+            <b>Regex</b>: der Ausdruck wird gegen die Fehlermeldung (<span className="font-mono">message</span>) geprüft — z. B. <span className="font-mono">.*timeout.*</span>.
+          </p>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
               if (e.side) return null; // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste
@@ -488,7 +499,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                       <span className={`font-mono flex-shrink-0 ${c.muted}`}>.*</span>
                       <input value={r} disabled={!canEdit}
                         onChange={ev => setList((step.regexHandledErrors ?? []).map((x, k) => (k === i ? ev.target.value : x)))}
-                        placeholder="z. B. 4\d\d oder timeout-.*"
+                        placeholder="z. B. .*timeout.* (passt auf die Meldung)"
                         className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
                       {canEdit && (
                         <button onClick={() => setList((step.regexHandledErrors ?? []).filter((_, k) => k !== i))}
