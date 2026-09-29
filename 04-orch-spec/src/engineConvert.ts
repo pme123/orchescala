@@ -254,7 +254,7 @@ function toC8(defs: Element, ctx: Ctx) {
       if (called) el.removeAttribute('calledElement');
       for (const [xs, tag] of [[ins, 'input'], [outs, 'output']] as const) {
         for (const x of xs) {
-          if (x.getAttribute('businessKey')) { issue('Business Key', 'camunda:in businessKey hat in Camunda 8 kein Gegenstück — als Variable übergeben.'); continue; }
+          if (x.getAttribute('businessKey')) continue; // wird unten als Variable «businessKey» übergeben
           if (x.getAttribute('variables') === 'all') continue;
           const target = x.getAttribute('target') ?? '';
           const src = x.getAttribute('source');
@@ -263,6 +263,10 @@ function toC8(defs: Element, ctx: Ctx) {
           const source = src ? `=${src}` : toFeelSource(expr ?? '', where, issue);
           io.push(zeebe(tag, { source, target }));
         }
+      }
+      // Der Business Key geht immer an den Teilprozess — in Camunda 8 als Variable
+      if (!io.some(p => local(p) === 'input' && p.getAttribute('target') === 'businessKey')) {
+        io.unshift(zeebe('input', { source: '=businessKey', target: 'businessKey' }));
       }
     }
 
@@ -471,9 +475,12 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         if (called.getAttribute('propagateAllParentVariables') !== 'false') add.push(camunda('in', { variables: 'all' }));
         if (called.getAttribute('propagateAllChildVariables') !== 'false') add.push(camunda('out', { variables: 'all' }));
       }
+      // Der Business Key geht immer an den Teilprozess — Camunda 7 hat dafür `camunda:in businessKey`
+      add.push(camunda('in', { businessKey: '#{execution.processBusinessKey}' }));
       for (const p of io) {
         const tag = local(p) === 'input' ? 'in' : 'out';
         const target = p.getAttribute('target') ?? '';
+        if (tag === 'in' && target === 'businessKey') continue;
         const source = p.getAttribute('source') ?? '';
         const where = `${tag === 'in' ? 'Eingabe' : 'Ausgabe'} «${target}»`;
         const plain = plainVar(source);

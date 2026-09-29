@@ -152,12 +152,37 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     }
   }
 
+  // Der Business Key geht an jeden Teilprozess — auch ohne Mapping-Zeilen
+  for (const el of byId.values()) {
+    if (local(el) === 'callActivity') ensureBusinessKey(doc, ensureExt(el), engine);
+  }
+
   let out = new XMLSerializer().serializeToString(doc);
   // Die XML-Deklaration soll bleiben — und auf einer eigenen Zeile stehen
   const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   out = out.replace(/^(<\?xml[^>]*\?>)(?!\n)/, '$1\n');
   return { xml: out, issues };
+}
+
+// ── Business Key an den Teilprozess ──────────────────────────────────────────
+// Camunda 7 hat dafür `camunda:in businessKey`, in Camunda 8 ist der Business
+// Key eine Variable und wird als Eingabe `businessKey` übergeben.
+function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
+  if (engine === 'c8') {
+    let io = firstNamed(ext, 'ioMapping');
+    if (io && kids(io).some(p => local(p) === 'input' && attr(p, 'target') === 'businessKey')) return;
+    const p = doc.createElementNS(ZEEBE_NS, 'zeebe:input');
+    p.setAttribute('source', '=businessKey');
+    p.setAttribute('target', 'businessKey');
+    if (io) { const rest = kids(io); for (const k of rest) k.remove(); for (const k of [p, ...rest]) appendEl(io, k); }
+    else { io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping'); appendEl(ext, io); appendEl(io, p); }
+    return;
+  }
+  if (kids(ext).some(p => local(p) === 'in' && attr(p, 'businessKey'))) return;
+  const p = doc.createElementNS(CAMUNDA_NS, 'camunda:in');
+  p.setAttribute('businessKey', '#{execution.processBusinessKey}');
+  appendEl(ext, p);
 }
 
 // ── Camunda 8 ────────────────────────────────────────────────────────────────
