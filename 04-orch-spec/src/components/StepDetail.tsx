@@ -279,7 +279,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
   const inline = new Set([
     ...(step.errors ?? []).map((e, i, all) => handledErrorIssue(e, i, all, { variables, engine: spec.engine })?.text),
-    ...(step.regexHandledErrors ?? []).map(r => regexIssue(r, spec.engine, variables)?.text),
+    ...(step.regexHandledErrors ?? []).map(r => regexIssue(r, spec.engine, variables, (step.regexHandledErrors ?? []).length <= 1)?.text),
   ]);
   const shownErrors = finding.errors.filter(t => !inline.has(t));
   const shownWarnings = finding.warnings.filter(t => !inline.has(t));
@@ -447,7 +447,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           <p className={`text-[10px] mb-1.5 leading-snug ${c.muted}`}>
             <b>Fehler</b>: der Code wird mit dem Fehlertyp (<span className="font-mono">messageType</span>) des Fehlers verglichen — z. B. <span className="font-mono">404</span>.{' '}
             <b>Regex</b>: der Ausdruck wird gegen die Fehlermeldung (<span className="font-mono">message</span>) geprüft — z. B. <span className="font-mono">.*timeout.*</span>.{' '}
-            Mit <span className="font-mono">=</span> am Anfang ist der Eintrag ein FEEL-Ausdruck, der den Text liefert — sonst ein fester Text.
+            Mit <span className="font-mono">=</span> am Anfang ist der Eintrag ein FEEL-Ausdruck, der einen Text oder eine Liste von Texten liefert — sonst ein fester Text.
           </p>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
@@ -493,7 +493,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             <div className="mt-2 space-y-1">
               <p className={`text-[10px] ${c.muted}`}>Fehlercodes als regulärer Ausdruck <span className="font-mono">(_regexHandledErrors)</span></p>
               {step.regexHandledErrors.map((r, i) => {
-                const issue = regexIssue(r, spec.engine, variables);
+                const issue = regexIssue(r, spec.engine, variables, (step.regexHandledErrors ?? []).length <= 1);
                 const setList = (list: string[]) => onPatch(step.id, { regexHandledErrors: list.length ? list : undefined });
                 return (
                   <div key={i} className={`rounded border ${issue ? (issue.level === 'error' ? errBox : warnBox) : c.border2}`}>
