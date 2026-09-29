@@ -9,7 +9,7 @@
 // vorher verglichen und nur dann gefragt, wenn wirklich etwas fehlt.
 import { useRef, useState } from 'react';
 import { AlertTriangle, Download, Upload } from 'lucide-react';
-import { losses, readCatalogFile, referenced, type CatalogFile, type Losses } from '../catalogImport';
+import { losses, readCatalogFile, referenced, withoutGenerated, type CatalogFile, type Losses } from '../catalogImport';
 import type { Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
 import { StateChip, useFlash } from './adminUi';
@@ -33,8 +33,8 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
     const payload = {
       version: 1,
       company: model.company ?? '',
-      services,
-      domainTypes: types,
+      services: withoutGenerated(services),
+      domainTypes: withoutGenerated(types),
       domainSources: (model.domainSources ?? []).filter(x => /^https?:/i.test(x)),
       // Die Reihenfolge reist mit, die lokalen Pfade nicht.
       projects: (model.projects ?? []).map(({ path, ...rest }) => rest),

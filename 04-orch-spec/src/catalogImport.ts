@@ -90,5 +90,26 @@ export function readCatalogFile(text: string): { ok: true; data: CatalogFile } |
   if (!Array.isArray(d.services) && !Array.isArray(d.domainTypes)) {
     return { ok: false, message: 'Darin steht kein Katalog (weder services noch domainTypes).' };
   }
-  return { ok: true, data: d };
+  return {
+    ok: true,
+    data: {
+      ...d,
+      ...(Array.isArray(d.services) ? { services: withoutGenerated(d.services) } : {}),
+      ...(Array.isArray(d.domainTypes) ? { domainTypes: withoutGenerated(d.domainTypes) } : {}),
+    },
+  };
+}
+
+/**
+ * Ohne die Marke `generated`. Sie sagt nur, dass ein Eintrag aus der gerade
+ * mitgelieferten `catalog.generated.json` stammt — in einer Datei hat sie
+ * nichts verloren: Ein Export mit der Marke käme beim Import als «mitgeliefert»
+ * herein und würde beim Speichern aus der model.json gefiltert.
+ */
+export function withoutGenerated<T extends { generated?: boolean }>(entries: T[]): T[] {
+  return entries.map(e => {
+    if (!('generated' in e)) return e;
+    const { generated: _, ...rest } = e;
+    return rest as T;
+  });
 }
