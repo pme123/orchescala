@@ -99,6 +99,9 @@ export interface Step {
 
   inputs?: Mapping[];
   outputs?: Mapping[];
+  /** gewählte Ausprägung des Service-`In` bzw. `Out`, wenn es ein enum mit Fällen ist (siehe variants.ts) */
+  inVariant?: string;
+  outVariant?: string;
   errors?: ErrorHandling[];
   mock?: string;          // `_outputMock` / Beispielantwort (JSON)
 
@@ -479,6 +482,8 @@ export interface ServiceParam {
   expression?: string;    // Vorgabe — aus dem Template bzw. `#{name}`
   description?: string;
   required?: boolean;
+  /** nur in diesen Ausprägungen (OpenAPI `oneOf`) — fehlt: in allen */
+  variants?: string[];
   [key: string]: unknown;
 }
 

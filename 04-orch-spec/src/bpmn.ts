@@ -867,7 +867,7 @@ export interface MergeReport {
 }
 
 // Was die Spezifikation festlegt, überlebt den Abgleich mit dem BPMN.
-const KEEP_KEYS = ['description', 'notes', 'open', 'candidateGroups', 'assignee'] as const;
+const KEEP_KEYS = ['description', 'notes', 'open', 'candidateGroups', 'assignee', 'inVariant', 'outVariant'] as const;
 
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
   for (const s of steps ?? []) {

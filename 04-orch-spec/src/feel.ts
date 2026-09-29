@@ -26,6 +26,7 @@ import { typeShape } from './scalaTypes';
 import { domainMember, initOutputs, loopSettings, resolveType } from './interactions';
 import { domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
+import { chosenVariant, variantsOf } from './variants';
 
 export type FeelType =
   | 'string' | 'number' | 'boolean' | 'date' | 'date time' | 'time' | 'duration'
@@ -265,8 +266,12 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
 }
 
 /** Erwarteter Typ eines Feldes laut Domain-Katalog — `null`, wenn unbekannt. */
+/** Ein Feld des Domain-Typs — bei einem enum auch aus seinen Fällen */
+const domainField = (dom: DomainType | null, name: string) =>
+  dom?.fields?.find(f => f.name === name) ?? dom?.cases?.flatMap(c => c.fields ?? []).find(f => f.name === name);
+
 export function expectedFromDomain(dom: DomainType | null, name: string, model: Model | null): ExpectedType | null {
-  const p = dom?.fields?.find(f => f.name === name);
+  const p = domainField(dom, name);
   if (!p) return null;
   const shape = typeShape(p.type);
   let accepts: FeelType[];
@@ -288,7 +293,7 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
 
 /** Ist das Feld laut Domain-Katalog Pflicht (nicht `Option[…]`)? null = Feld unbekannt. */
 export function domainRequired(dom: DomainType | null, name: string): boolean | null {
-  const p = dom?.fields?.find(f => f.name === name);
+  const p = domainField(dom, name);
   if (!p) return null;
   return !typeShape(p.type).optional && !p.default;
 }
@@ -306,8 +311,12 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
     for (const f of ownOut.fields ?? []) add(nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()));
   } else {
     const dom = stepDomainMember(step, spec, model, 'Out');
-    if (dom?.fields?.length) {
-      for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source: `Ergebnis (${dom.name})` });
+    if (dom?.fields?.length || dom?.cases?.some(c => c.fields?.length)) {
+      // enum mit Fällen: die gemeinsamen Felder und die der gewählten Ausprägung
+      const v = dom.cases?.length ? variantsOf(step, spec, model, 'outputs', service) : null;
+      // ohne Wahl kein Fall — ein Name, den es nicht gibt (leer hiesse: alle)
+      const enumCase = v ? chosenVariant(step, 'outputs', v).name ?? '\u0000' : undefined;
+      for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)]), enumCase).children ?? []) add({ ...n, source: `Ergebnis (${dom.name})` });
     } else {
       for (const p of service?.outputs ?? []) add({ name: p.name, type: 'any', label: '?', source: 'Ergebnis (Katalog)', ...(p.description ? { description: p.description } : {}) });
     }

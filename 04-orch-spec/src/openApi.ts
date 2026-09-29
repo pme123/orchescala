@@ -112,7 +112,7 @@ function responseSchema(op: Operation, doc: Doc): Schema | undefined {
  */
 function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
   const out: ServiceParam[] = [];
-  for (const [name, { raw, required }] of collect(schema, doc)) {
+  for (const [name, { raw, required, variants }] of fieldsWithVariants(schema, doc)) {
     if (SKIP_FIELD(name)) continue;
     const p = deref(raw, doc) ?? raw;
     const descr = (raw.description ?? p.description ?? '').trim();
@@ -121,7 +121,33 @@ function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
       expression: `= ${name}`,
       ...(descr ? { description: descr } : {}),
       ...(required ? { required: true } : {}),
+      ...(variants ? { variants } : {}),
     });
+  }
+  return out;
+}
+
+type VariantField = { raw: Schema; required: boolean; variants?: string[] };
+
+/**
+ * Wie `collect`, aber ein ADT (`oneOf` / `anyOf` mit mehreren Fällen) bleibt
+ * erkennbar: Felder, die nur manche Fälle haben, tragen deren Namen
+ * (`variants`) und sind nur dort Pflicht. Was alle Fälle haben, ist gemeinsam.
+ */
+function fieldsWithVariants(schema: Schema | undefined, doc: Doc): Map<string, VariantField> {
+  const s = deref(schema, doc);
+  const alts = [...(s?.oneOf ?? []), ...(s?.anyOf ?? [])];
+  if (!s || alts.length < 2) return collect(schema, doc);
+  const out: Map<string, VariantField> = collect({ ...s, oneOf: undefined, anyOf: undefined }, doc);
+  const each = alts.map(v => ({ name: deref(v, doc)?.title || v.$ref?.split('/').pop() || '', fields: collect(v, doc) }));
+  for (const name of new Set(each.flatMap(e => [...e.fields.keys()]))) {
+    if (out.has(name)) continue;
+    const having = each.filter(e => e.fields.has(name));
+    const raw = having[0].fields.get(name)!.raw;
+    const required = having.every(e => e.fields.get(name)!.required);
+    out.set(name, having.length === each.length
+      ? { raw, required }
+      : { raw, required, variants: having.map(e => e.name).filter(Boolean) });
   }
   return out;
 }

@@ -20,6 +20,7 @@ import FeelInput from './FeelInput';
 import { CommentBubble, useActiveComment } from './Comments';
 import { processTarget, stepTarget, sub } from '../comments';
 import { splitPrefix } from '../stepIds';
+import { chosenVariant, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
 interface Props {
@@ -215,11 +216,24 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const ownKind = ia?.kind ?? interactionKind(step, spec.processId ?? '');
   const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';
   const domainOut = useMemo(() => stepDomainMember(step, spec, model, 'Out'), [step, spec, model]);
+  // enum mit Fällen: der Schritt wählt seine Ausprägung (siehe variants.ts)
+  const variantsIn = useMemo(() => variantsOf(step, spec, model, 'inputs', service), [step, spec, model, service]);
+  const variantsOut = useMemo(() => variantsOf(step, spec, model, 'outputs', service), [step, spec, model, service]);
+  const variantsFor = (list: 'inputs' | 'outputs') => (list === 'inputs' ? variantsIn : variantsOut);
+  const chosenFor = (list: 'inputs' | 'outputs') => chosenVariant(step, list, variantsFor(list));
+  const setVariant = (list: 'inputs' | 'outputs', name: string | null) => {
+    const v = variantsFor(list);
+    if (!v) return;
+    onPatch(step.id, { [variantKey(list)]: name ?? undefined, [list]: rowsForVariant(step[list] ?? [], v, name) });
+  };
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass, quelle: 'Modell' };
     const params = (list === 'inputs' ? service?.inputs : service?.outputs) ?? [];
-    return params.length ? { names: params.map(p => p.name), quelle: 'Katalog' } : null;
+    // ohne gewählte Ausprägung nur die gemeinsamen Felder
+    const v = variantsFor(list), chosen = chosenFor(list);
+    const names = params.map(p => p.name).filter(n => variantAllows(v, chosen, n));
+    return params.length ? { names, quelle: 'Katalog' } : null;
   };
 
   const setMapping = (list: 'inputs' | 'outputs', i: number, patch: Partial<Mapping>) =>
@@ -368,7 +382,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
       {/* Service-Auswahl mit vorbereitetem Mapping */}
       {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && (
-        <ServicePicker step={step} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} current={service} />
+        <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} current={service} />
       )}
 
       {step.calledProcess && (
@@ -386,10 +400,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={variables} refFields={classFieldDefs('inputs')} domain={domainIn} types={spec.types ?? []} model={model} engine={spec.engine}
         implicitIn={implicitIn} reference={reference('inputs')} fromPattern={fromPattern.inputs} patternName={patternName}
+        variants={variantsIn} chosen={chosenFor('inputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
         implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternName={patternName}
+        variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
       {(!!step.errors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
@@ -728,8 +744,8 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
 }
 
 // ── Service-Katalog ──────────────────────────────────────────────────────────
-function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
-  step: Step; model: Model | null; isDark: boolean; canEdit: boolean; current: ServiceDef | null;
+function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }: {
+  step: Step; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; current: ServiceDef | null;
   onPatch: (id: string, patch: Partial<Step>) => void;
 }) {
   const c = cls(isDark);
@@ -758,18 +774,32 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
   const apply = (svc: ServiceDef) => {
     const keep = (list: Mapping[] | undefined) => new Map((list ?? []).map(m => [m.name, m]));
     const oldIn = keep(step.inputs), oldOut = keep(step.outputs);
+    // Ausprägungen des neuen Service: eine gewählte bleibt, wenn es sie dort
+    // auch gibt; die Felder der anderen kommen nicht als Zeilen herein
+    const next: Step = { ...step, serviceId: svc.id, topic: svc.topic ?? step.topic, calledProcess: svc.calledProcess ?? step.calledProcess };
+    const variantState = (list: 'inputs' | 'outputs') => {
+      const v = variantsOf(next, spec, model, list, svc);
+      const was = step[variantKey(list)];
+      const name = v && typeof was === 'string' && v.cases.some(x => x.name === was) ? was : null;
+      return { v, name, chosen: { name, inferred: false, mixed: [] } as Chosen };
+    };
+    const vin = variantState('inputs'), vout = variantState('outputs');
+    const inParams = (svc.inputs ?? []).filter(pm => variantAllows(vin.v, vin.chosen, pm.name));
+    const outParams = (svc.outputs ?? []).filter(pm => variantAllows(vout.v, vout.chosen, pm.name));
     onPatch(step.id, {
       serviceId: svc.id,
+      inVariant: vin.name ?? undefined,
+      outVariant: vout.name ?? undefined,
       ...(svc.topic ? { topic: svc.topic } : {}),
       ...(svc.calledProcess ? { calledProcess: svc.calledProcess } : {}),
       // Was schon erfasst war, bleibt: Ausdruck, Bedeutung und die Abwahl
-      inputs: (svc.inputs ?? []).map(pm => ({
+      inputs: inParams.map(pm => ({
         name: pm.name,
         expression: oldIn.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldIn.get(pm.name)?.description ?? pm.description ? { description: oldIn.get(pm.name)?.description ?? pm.description } : {}),
         ...(oldIn.get(pm.name)?.disabled ? { disabled: true } : {}),
       })),
-      outputs: (svc.outputs ?? []).map(pm => ({
+      outputs: outParams.map(pm => ({
         name: pm.name,
         expression: oldOut.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
@@ -833,8 +863,12 @@ function ServicePicker({ step, model, isDark, canEdit, onPatch, current }: {
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternName, onChange, onAdd, onRemove, onFill, onConvert }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
+  /** Ausprägungen des In bzw. Out (enum mit Fällen) — null: keine */
+  variants: Variants | null;
+  chosen: Chosen;
+  onVariant: (list: 'inputs' | 'outputs', name: string | null) => void;
   /** Name → Pattern: diese Zeilen steuert ein Pattern bei — Implementation, ausgeblendet */
   fromPattern: Map<string, string>;
   patternName: (id: string) => string;
@@ -862,8 +896,13 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
 }) {
   const c = cls(isDark);
   const all = step[list] ?? [];
+  // Felder anderer Ausprägungen sind ausgeblendet — ohne Wahl gelten nur die gemeinsamen
+  const allowed = (name: string) => variantAllows(variants, chosen, name);
+  const hiddenByVariant = all.filter(m => !fromPattern.has(m.name) && !allowed(m.name)).length;
+  // Eingaben: der Service erwartet genau einen Fall — dieselbe Regel wie in findings.ts
+  const needsChoice = !!variants && !chosen.name && !chosen.mixed.length && list === 'inputs' && !implicitIn && !fromPattern.size;
   // was ein Pattern beisteuert, steht nicht hier — seine Parameter stehen am Pattern
-  const rows = all.filter(m => !fromPattern.has(m.name));
+  const rows = all.filter(m => !fromPattern.has(m.name) && allowed(m.name));
   const byPattern = all.filter(m => fromPattern.has(m.name));
   const byPatternNames = [...new Set(byPattern.map(m => patternName(fromPattern.get(m.name)!)))];
   // JUEL aus einem älteren Stand: was sich übersetzen lässt, bekommt oben den Knopf
@@ -912,7 +951,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // sagt `required`. Ein Pflichtfeld muss der Service bekommen; die Zeile
   // lässt sich deshalb weder abwählen noch entfernen.
   const pflichtGrund = (name: string): string | null => {
-    if (list !== 'inputs' || !name || implicitIn) return null;
+    if (list !== 'inputs' || !name || implicitIn || !allowed(name)) return null;
     if (refFields) {
       const f = refFields.find(x => x.name === name);
       return f && !f.optional ? `Pflichtfeld: «${name}» ist im In nicht optional` : null;
@@ -971,6 +1010,29 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           </div>
         )}
       </div>
+      {variants && (
+        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+          <span className={`text-[10px] ${c.muted}`} title={`${list === 'inputs' ? 'Das In' : 'Das Out'} ist ein enum mit Fällen — der Service bekommt bzw. liefert genau einen davon.`}>
+            Ausprägung
+          </span>
+          <select value={chosen.name ?? ''} disabled={!canEdit}
+            onChange={e => onVariant(list, e.target.value || null)}
+            title={needsChoice ? 'Der Service erwartet genau eine Ausprägung — ohne Wahl bekommt er keine.' : undefined}
+            className={`text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${needsChoice ? warnBox : ''}`}>
+            <option value="">— nur gemeinsame Felder —</option>
+            {variants.cases.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
+          </select>
+          {chosen.inferred && <span className={`text-[10px] ${c.muted}`} title="Nicht gewählt, sondern aus den aktiven Zeilen erkannt">erkannt</span>}
+          {!!hiddenByVariant && !chosen.mixed.length && (
+            <span className={`text-[10px] ${c.muted}`}>· {hiddenByVariant} Feld{hiddenByVariant === 1 ? '' : 'er'} anderer Ausprägungen ausgeblendet</span>
+          )}
+        </div>
+      )}
+      {!!chosen.mixed.length && (
+        <p className={`text-[10px] mb-1 ${warn}`}>
+          Aktive Zeilen aus mehreren Ausprägungen ({chosen.mixed.join(', ')}) — der Service {list === 'inputs' ? 'bekommt' : 'liefert'} nur eine. Ausprägung wählen; die übrigen werden abgewählt.
+        </p>
+      )}
       {!!byPattern.length && (
         <p className={`text-[10px] mb-1 ${c.muted}`} title={byPattern.map(m => m.name).join(', ')}>
           {byPattern.length} {list === 'inputs' ? (byPattern.length === 1 ? 'Eingabe' : 'Eingaben') : (byPattern.length === 1 ? 'Ausgabe' : 'Ausgaben')} vom
@@ -994,7 +1056,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
       )}
       {open && <div className="space-y-1">
         {all.map((m, i) => {
-          if (fromPattern.has(m.name)) return null;
+          if (fromPattern.has(m.name) || !allowed(m.name)) return null;
           const off = !!m.disabled;
           const fehlt = list === 'inputs' && !!bekannt && !!m.name && !bekannt.has(m.name);
           const dupl = !off && doppelt.has(m.name);

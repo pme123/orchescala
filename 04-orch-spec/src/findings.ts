@@ -13,6 +13,7 @@ import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
 import { patternMappings } from './patterns';
+import { chosenVariant, variantAllows, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -80,7 +81,17 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // und fehlende Pflichtfelder meldet es nicht: den Aufruf legt das Pattern fest
   const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
   const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
-    const used = rows.filter(m => !m.disabled && m.name.trim());
+    // enum mit Fällen: nur die gemeinsamen Felder und die der gewählten Ausprägung zählen
+    const variants = refFields ? null : variantsOf(step, spec, model, list, service);
+    const chosen = chosenVariant(step, list, variants);
+    const allowed = (n: string) => variantAllows(variants, chosen, n);
+    if (chosen.mixed.length) {
+      warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen.`);
+    } else if (variants && !chosen.name && list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
+      // der Service bekommt genau einen Fall — ohne Wahl bekäme er keinen
+      warnings.push(`Keine Ausprägung gewählt — der Service erwartet eine davon (${variants.cases.map(c => c.name).join(', ')}).`);
+    }
+    const used = rows.filter(m => !m.disabled && m.name.trim() && allowed(m.name));
     const active = used.filter(m => !fromPattern[list].has(m.name));
     // doppelt zählt auch bei Zeilen des Patterns — dieselbe Eingabe zweimal ist ein Fehler im BPMN
     const names = new Map<string, number>();
@@ -92,8 +103,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
       const required = refFields
         ? refFields.filter(f => !f.optional).map(f => f.name)
-        : (dom?.fields ?? []).filter(p => domainRequired(dom, p.name)).map(p => p.name)
-          .concat((service?.inputs ?? []).filter(p => p.required && !dom?.fields?.some(f => f.name === p.name)).map(p => p.name));
+        : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name)).map(p => p.name)
+          .concat((service?.inputs ?? []).filter(p => p.required && domainRequired(dom, p.name) == null).map(p => p.name))
+          .filter(allowed);
       for (const n of required) if (!active.some(m => m.name === n)) errors.push(`Pflichtfeld «${n}» fehlt in den Eingaben.`);
     }
     for (const m of active) {
