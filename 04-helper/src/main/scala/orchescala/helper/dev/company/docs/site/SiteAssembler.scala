@@ -128,12 +128,28 @@ object SiteAssembler:
   def copySiteApp(out: os.Path): Unit =
     val base  = os.resource / "orch-doc-site"
     val files = os.read.lines(base / "files.txt").filter(_.nonEmpty)
+    clearAppAssets(out, files)
     files.foreach: rel =>
       val target = out / os.RelPath(rel)
       os.makeDir.all(target / os.up)
       os.write.over(target, os.read.bytes(base / os.RelPath(rel)))
     println(s"  ✓ documentation app (${files.size} files) from the orchescala-orch-doc jar")
   end copySiteApp
+
+  /** The `assets/` folders the apps bring (`assets/`, `spec/assets/`) emptied before the copy - their
+    * files carry a hash in the name, so each release adds new ones and the old ones would pile up.
+    * Only folders of the jar's index are touched; the classic sites (`<company>/<tag>/assets`) stay.
+    */
+  def clearAppAssets(out: os.Path, files: Seq[String]): Unit =
+    files
+      .flatMap: rel =>
+        val segs = rel.split('/').toSeq
+        Option.when(segs.init.contains("assets"))(segs.take(segs.indexOf("assets") + 1).mkString("/"))
+      .distinct
+      .map(dir => out / os.RelPath(dir))
+      .filter(os.isDir)
+      .foreach(os.remove.all)
+  end clearAppAssets
 
   /** The search index entries of one project API (see orch-doc `types.ts` SearchEntry): every
     * operation with its path - for workers `/worker/<topic>`, the topic being unique across all

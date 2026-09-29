@@ -26,6 +26,18 @@ class SiteAssemblerTest extends FunSuite:
     Seq("openapi2catalog.js", "domain2catalog.js", "site2catalog.js").foreach: t =>
       assert(os.read(os.resource / "orch-doc-tools" / t).nonEmpty, s"spec tool $t missing")
 
+  test("clearAppAssets empties the apps' assets folders - and nothing else"):
+    val out = os.temp.dir(prefix = "site-assets")
+    os.write(out / "assets" / "index-OLD.js", "old", createFolders = true)
+    os.write(out / "spec" / "assets" / "index-OLD.js", "old", createFolders = true)
+    os.write(out / "spec" / "catalog.generated.json", "{}")
+    os.write(out / "valiant" / "1.0" / "assets" / "classic.js", "keep", createFolders = true)
+    SiteAssembler.clearAppAssets(out, Seq("index.html", "assets/index-NEW.js", "spec/index.html", "spec/assets/index-NEW.js"))
+    assert(!os.exists(out / "assets"), "old assets/ still there")
+    assert(!os.exists(out / "spec" / "assets"), "old spec/assets/ still there")
+    assert(os.exists(out / "spec" / "catalog.generated.json"), "catalog removed")
+    assert(os.exists(out / "valiant" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
+
   test("assemble builds the layout /site has, in a fresh dir"):
     docsPath match
     case None                             => println("Skipping: COMPANY_DOCS_PATH not set (or not found)")

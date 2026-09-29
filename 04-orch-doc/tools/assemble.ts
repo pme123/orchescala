@@ -21,7 +21,7 @@
 //        (`git show v<version>:…` — the working trees stay untouched)
 //   spec/                         orch-spec
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
@@ -184,6 +184,8 @@ if (oldReleases) for (const co of siteIndex.companies) {
 // ── 5. build the apps ─────────────────────────────────────────────────────────
 if (!noBuild) {
   run('npx', ['vite', 'build'], rootDir);
+  // hashed file names: without this, every build leaves its assets behind
+  rmSync(join(out, 'assets'), { recursive: true, force: true });
   cpSync(join(rootDir, 'dist'), out, { recursive: true });
   // orch-spec: the sibling module in orchescala (04-orch-spec) - or a plain sibling checkout
   const specDir = ['../04-orch-spec', '../orch-spec'].map(d => resolve(rootDir, d)).find(existsSync) ?? resolve(rootDir, '../04-orch-spec');
