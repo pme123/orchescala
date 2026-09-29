@@ -55,6 +55,17 @@ export interface LoopSpec {
   waitFor?: string;       // z. B. `${timerWaitOpenAccount}`
 }
 
+// Mehrfachausführung (Multi-Instance): der Schritt läuft je Element einer
+// Sammlung. Gelesen aus dem BPMN; die Namen gelten im Schritt und in allem,
+// was darin liegt (FEEL kennt dort `loopCounter` und das Element).
+export interface MultiInstanceSpec {
+  /** FEEL-Ausdruck der Sammlung ohne `=`, z. B. `order.items` */
+  collection?: string;
+  /** Name der Variable für das aktuelle Element (`inputElement` bzw. `elementVariable`) */
+  element?: string;
+  sequential?: boolean;
+}
+
 // Ein Gateway-Zweig. `steps` ist der Block bis zur Zusammenführung.
 export interface Branch {
   id: string;
@@ -110,6 +121,8 @@ export interface Step {
   branches?: Branch[];    // bei kind 'gateway'
   children?: Step[];      // bei kind 'subprocess'
   loop?: LoopSpec;
+  /** Mehrfachausführung — der Schritt läuft je Element einer Sammlung */
+  multiInstance?: MultiInstanceSpec;
   gotoId?: string;        // bei kind 'goto': Ziel-Schritt
   back?: boolean;         // bei kind 'goto': Rücksprung (Schleife) statt Zusammenlauf
 

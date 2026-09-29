@@ -6,9 +6,9 @@
 // als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
-import type { ErrorHandling, Field, Interaction, Mapping, Model, ProcessSpec, Step } from './types';
+import type { ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, Step } from './types';
 import { INTERACTION_META } from './types';
-import { checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type VarNode } from './feel';
+import { checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
@@ -30,15 +30,18 @@ const NONE: Finding = { errors: [], warnings: [] };
 export function collectFindings(spec: ProcessSpec, model: Model | null, steps: Step[]): Map<string, Finding> {
   const out = new Map<string, Finding>();
   const variables = processVariables(spec, model);
+  const scopes = multiInstanceScopes(spec.steps);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables);
+    const f = stepFindings(step, spec, model, variables, scopes);
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
 }
 
-export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, variables: VarNode[]): Finding {
+export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps)): Finding {
   if (step.kind === 'goto') return NONE;
+  // in einer Mehrfachausführung kommen `loopCounter` und das Element dazu
+  const variables = withMultiInstance(baseVariables, scopes.get(step.id));
   const errors: string[] = [];
   const warnings: string[] = [];
   const types = spec.types ?? [];
@@ -73,7 +76,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const outFields: Field[] | null = ia?.outTypeId ? (types.find(t => t.id === ia.outTypeId)?.fields ?? []).filter(f => f.name) : null;
   const domainIn = stepDomainMember(step, spec, model, 'In');
   const domainOut = stepDomainMember(step, spec, model, 'Out');
-  const resultVars = resultVariables(step, spec, model, service);
+  const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
 
   const ownKind = ia?.kind ?? interactionKind(step, processId);
   const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';

@@ -537,6 +537,22 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   const called = el.getAttribute('calledElement') ?? (calledEl ? attr(calledEl, 'processId') : undefined);
   if (called) step.calledProcess = called;
 
+  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+  if (mi) {
+    // Camunda 7: collection / elementVariable am Element; Camunda 8: zeebe:loopCharacteristics
+    const lc = firstNamed(mi, 'extensionElements');
+    const zb = lc ? firstNamed(lc, 'loopCharacteristics') : null;
+    const coll = (zb ? attr(zb, 'inputCollection') : undefined) ?? attr(mi, 'collection');
+    const elem = (zb ? attr(zb, 'inputElement') : undefined) ?? attr(mi, 'elementVariable');
+    const imported = coll ? importExpression(coll) : '';
+    const collection = imported.startsWith('=') ? imported.slice(1).trim() : imported || undefined;
+    step.multiInstance = {
+      ...(collection ? { collection } : {}),
+      ...(elem?.trim() ? { element: elem.trim() } : {}),
+      ...(mi.getAttribute('isSequential') === 'true' ? { sequential: true } : {}),
+    };
+  }
+
   if (io.inputs.length) step.inputs = io.inputs;
   if (io.outputs.length) step.outputs = io.outputs;
   if (io.mock) step.mock = io.mock;

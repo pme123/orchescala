@@ -12,7 +12,7 @@ import { catalogEntry, createMemberType, interactionKind, suggestName } from '..
 import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, processVariables, resultVariables, stepDomainMember, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_ERROR_CODE, handledErrorIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -206,8 +206,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     classFieldDefs(list)?.map(f => f.name) ?? null;
   // Die Prozessvariablen mit ihren Pfaden — für FEEL-Prüfung und Vorschläge;
   // bei den Ausgaben zuerst das Ergebnis des Services (die Felder seines Out)
-  const variables = useMemo(() => processVariables(spec, model), [spec, model]);
-  const resultVars = useMemo(() => resultVariables(step, spec, model, service), [step, spec, model, service]);
+  const scopes = useMemo(() => multiInstanceScopes(spec.steps).get(step.id), [spec.steps, step.id]);
+  const baseVariables = useMemo(() => processVariables(spec, model), [spec, model]);
+  const variables = useMemo(() => withMultiInstance(baseVariables, scopes), [baseVariables, scopes]);
+  const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
   // Die Scala-Typen des Service-Objekts aus dem Domain-Katalog — Massstab für
   // Typ und Pflicht, wo der Schritt keine eigene In-/Out-Klasse hat
   const domainIn = useMemo(() => stepDomainMember(step, spec, model, 'In'), [step, spec, model]);
@@ -273,7 +275,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
   const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
   // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
-  const finding = stepFindings(step, spec, model, variables);
+  const finding = stepFindings(step, spec, model, baseVariables);
 
   return (
     <div className="p-4 space-y-4">
@@ -377,6 +379,15 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           <div className="mt-1">{step.loop.condition}</div>
           {step.loop.maxAttempts && <div>höchstens <span className="font-mono">{step.loop.maxAttempts}</span> Versuche</div>}
           {step.loop.waitFor && <div className="font-mono">{step.loop.waitFor}</div>}
+        </div>
+      )}
+
+      {/* Mehrfachausführung: je Element einer Sammlung — aus dem BPMN gelesen */}
+      {step.multiInstance && (
+        <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-violet-500/30 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-700'}`}>
+          <div className="flex items-center gap-1.5 font-semibold"><Repeat size={10} /> Mehrfachausführung{step.multiInstance.sequential ? ' (nacheinander)' : ' (parallel)'}</div>
+          {step.multiInstance.collection && <div>je Element von <span className="font-mono">{step.multiInstance.collection}</span></div>}
+          {step.multiInstance.element && <div>Element heisst <span className="font-mono">{step.multiInstance.element}</span> · Zähler <span className="font-mono">loopCounter</span></div>}
         </div>
       )}
 

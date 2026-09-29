@@ -19,7 +19,8 @@
 // bei ihnen bleibt die Prüfung stumm, statt falsch zu warnen.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
-import type { DomainType, Field, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
+import type { DomainType, Field, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
+import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
@@ -427,6 +428,90 @@ function optionalOnPath(body: string, vars: VarNode[]): { path: string; label: s
 
 const quoted = (msg: string): string => /'([^']*)'/.exec(msg)?.[1] ?? '';
 
+// Camunda-Funktionen, die `feelin` nicht kennt (Scala-FEEL der Engine hat sie).
+// Sie stehen im Auswertekontext; die Namen mit Leerzeichen erkennt der Parser
+// dort selbst. `is defined` und `get or else` dürfen auf Unbekanntes zeigen —
+// dafür sind sie da (siehe `guardedSpans`).
+const CAMUNDA_FUNCTIONS: Record<string, unknown> = {
+  'is defined': (v: unknown) => v !== undefined && v !== null,
+  'get or else': (v: unknown, d: unknown) => v ?? d,
+  trim: (s: unknown) => typeof s === 'string' ? s.trim() : null,
+  'from json': (s: unknown) => { try { return typeof s === 'string' ? JSON.parse(s) : null; } catch { return null; } },
+  'to json': (o: unknown) => JSON.stringify(o) ?? null,
+};
+
+// Namen, die die Engine in Multi-Instance-Aktivitäten setzt: `loopCounter`
+// und das Element der Sammlung (Name aus dem BPMN)
+
+/** Die Mehrfachausführungen, in denen ein Schritt liegt — er selbst und seine Vorfahren (Subprozesse) */
+export function multiInstanceScopes(steps: Step[] | undefined): Map<string, MultiInstanceSpec[]> {
+  const out = new Map<string, MultiInstanceSpec[]>();
+  const visit = (list: Step[] | undefined, inherited: MultiInstanceSpec[]) => {
+    for (const s of list ?? []) {
+      const own = s.multiInstance ? [...inherited, s.multiInstance] : inherited;
+      out.set(s.id, own);
+      // die Kinder eines Subprozesses und die Pfade an Gateways/Fehlern liegen im selben Bereich
+      visit(s.children, own);
+      for (const b of s.branches ?? []) visit(b.steps, inherited);
+      for (const e of s.errors ?? []) visit(e.steps, inherited);
+    }
+  };
+  visit(steps, []);
+  return out;
+}
+
+/**
+ * Die Variablen, die in einer Mehrfachausführung dazukommen: `loopCounter`
+ * und das Element der Sammlung. Zeigt die Sammlung auf eine Liste mit bekannten
+ * Feldern, hat das Element diese Felder; sonst bleibt sein Typ offen.
+ */
+export function withMultiInstance(vars: VarNode[], scopes: MultiInstanceSpec[] | undefined): VarNode[] {
+  if (!scopes?.length) return vars;
+  const out = [...vars];
+  const add = (n: VarNode) => { if (!out.some(v => v.name === n.name)) out.unshift(n); };
+  add({ name: 'loopCounter', type: 'number', label: 'Int', source: 'Mehrfachausführung', description: 'Nummer des aktuellen Durchlaufs, ab 1' });
+  for (const mi of scopes) {
+    const name = mi.element?.trim();
+    if (!name) continue;
+    const coll = mi.collection?.trim() ?? '';
+    let pool = vars;
+    let hit: VarNode | undefined;
+    if (/^[A-Za-z_]\w*(\s*\.\s*[A-Za-z_]\w*)*$/.test(coll)) {
+      for (const seg of coll.replace(/\s/g, '').split('.')) { hit = pool.find(v => v.name === seg); if (!hit) break; pool = hit.children ?? []; }
+    } else hit = undefined;
+    const fields = hit?.type === 'list' && hit.children?.length ? hit.children : null;
+    add({
+      name, source: 'Mehrfachausführung', description: `Aktuelles Element von «${coll || 'Sammlung'}»`,
+      type: fields ? 'context' : 'any', label: fields ? 'Element' : '?',
+      ...(fields ? { children: fields } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Bereiche im Ausdruck, in denen Fehlendes erlaubt ist: das Argument von
+ * `is defined(…)` und das erste von `get or else(…, …)`. Was `feelin` dort
+ * als «nicht gefunden» meldet, ist genau die Absicherung — keine Warnung.
+ */
+function guardedSpans(body: string): { from: number; to: number }[] {
+  const spans: { from: number; to: number }[] = [];
+  const code = body.replace(/"(?:[^"\\]|\\.)*"/g, m => '"'.padEnd(m.length - 1, '_') + '"');
+  for (const m of code.matchAll(/\b(is\s+defined|get\s+or\s+else)\s*\(/g)) {
+    const from = m.index! + m[0].length;
+    let depth = 1;
+    let to = code.length;
+    for (let i = from; i < code.length; i++) {
+      const c = code[i];
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') { if (--depth === 0) { to = i; break; } }
+      else if (c === ',' && depth === 1 && /^get/.test(m[1])) { to = i; break; }
+    }
+    spans.push({ from, to });
+  }
+  return spans;
+}
+
 export interface FeelCheck {
   issues: FeelIssue[];
   /** Typ des Ergebnisses — null, wenn nicht auswertbar */
@@ -439,7 +524,20 @@ export interface FeelCheck {
  * auf den Prozess). `expected` = was das Zielfeld verlangt.
  */
 export function checkFeel(expression: string, vars: VarNode[] | null, expected: ExpectedType | null = null): FeelCheck {
-  const body = expression.trimStart().slice(1).trim();
+  const source = expression.trimStart().slice(1).trim();
+  // `feelin` kennt die Schreibweise `` `mein-name` `` nicht: der Name wird durch
+  // einen Platzhalter ersetzt, der im Kontext denselben Wert trägt
+  const aliases = new Map<string, string>();
+  const parts = source.split(/("(?:[^"\\]|\\.)*")/);
+  const body = parts.map((part, i) => i % 2 ? part : part.replace(/`([^`]+)`/g, (_, name: string) => {
+    const alias = `__q${aliases.size}`;
+    aliases.set(alias, name);
+    return alias;
+  })).join('').trim();
+  const shown = (msg: string): string => msg.replace(/__q\d+/g, a => aliases.get(a) ?? a);
+  if (aliases.size && vars) {
+    vars = [...vars, ...[...aliases].flatMap(([alias, name]) => vars!.filter(v => v.name === name).map(v => ({ ...v, name: alias })))];
+  }
   if (!body) return { issues: [{ level: 'error', text: 'Nach «=» fehlt der FEEL-Ausdruck.' }], result: null };
   // `liste[0]` ist in FEEL immer null — Listen zählen ab 1
   if (/\[\s*0\s*\]/.test(body.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
@@ -449,7 +547,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   let value: unknown;
   let warnings: { type: string; message: string; position: { from: number; to: number } }[];
   try {
-    const r = evaluate(body, vars ? sampleContext(vars) : {});
+    const r = evaluate(body, { ...CAMUNDA_FUNCTIONS, ...(vars ? sampleContext(vars) : {}) });
     value = r.value;
     warnings = r.warnings;
   } catch (e) {
@@ -463,15 +561,23 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   const issues: FeelIssue[] = [];
   if (!vars) return { issues, result: feelType(value) };
 
-  const unknown = touchesUnknown(body, vars);
+  const unknown = touchesUnknown(body, vars) || /\bfrom\s+json\s*\(/.test(body);
+  const guarded = guardedSpans(body);
+  // `if is defined(x) and x != null …` — das zweite `x` ist abgesichert, auch wenn es fehlt
+  const guardedNames = new Set([...body.matchAll(/\b(?:is\s+defined|get\s+or\s+else)\s*\(\s*([A-Za-z_]\w*)/g)].map(m => m[1]));
   let pathFailed = false;
   for (const w of warnings) {
+    if (guarded.some(g => w.position.from >= g.from && w.position.to <= g.to)) continue;
+    if (w.type === 'NO_VARIABLE_FOUND' && guardedNames.has(quoted(w.message))) { pathFailed = true; continue; }
     switch (w.type) {
       case 'NO_VARIABLE_FOUND': {
-        const name = quoted(w.message);
+        const name = shown(quoted(w.message));
         // eine unbekannte Funktion meldet feelin zuerst als Variable
         if (warnings.some(x => x.type === 'NO_FUNCTION_FOUND' && x.position.from === w.position.from)) {
           issues.push({ level: 'error', text: `Funktion «${name}» gibt es nicht.` });
+        } else if (new RegExp(`\\b(?:for|some|every)\\s+${name}\\s+in\\b[^\\]]*\\[[^\\]]*(?<![\\w.])${name}\\s*\\.`).test(body)) {
+          // `for i in items[i.active = true]` — die Schleifenvariable gilt erst nach dem `in`
+          issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }
@@ -484,9 +590,9 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         // Typ unbekannt oder Map — kein Urteil, auch nicht über das Ergebnis
         if (chain && openOnPath(vars, chain)) { pathFailed = true; break; }
         if (pathFailed && w.type === 'NO_PROPERTY_FOUND') break; // Folgefehler auf null
-        const key = quoted(w.message);
+        const key = shown(quoted(w.message));
         const prefix = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*\.\s*$/.exec(body.slice(0, w.position.from))?.[1]?.replace(/\s/g, '');
-        issues.push({ level: 'error', text: prefix ? `Pfad «${prefix}.${key}» gibt es nicht — «${prefix}» hat kein Feld «${key}».` : `Feld «${key}» gibt es nicht.` });
+        issues.push({ level: 'error', text: prefix ? `Pfad «${shown(prefix)}.${key}» gibt es nicht — «${shown(prefix)}» hat kein Feld «${key}».` : `Feld «${key}» gibt es nicht.` });
         pathFailed = true;
         break;
       }
@@ -496,10 +602,10 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       case 'NOT_COMPARABLE':
       case 'INVALID_ARGUMENTS':
         if (unknown || pathFailed) break;
-        issues.push({ level: 'error', text: `Typen passen nicht zusammen: ${w.message}` });
+        issues.push({ level: 'error', text: `Typen passen nicht zusammen: ${shown(w.message)}` });
         break;
       default:
-        issues.push({ level: 'warn', text: w.message });
+        issues.push({ level: 'warn', text: shown(w.message) });
     }
   }
 
@@ -534,9 +640,14 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
 export interface Completion {
   /** was eingesetzt wird */
   insert: string;
-  node: VarNode;
+  /** Variable bzw. Feld — fehlt bei Funktionen und Schlüsselwörtern */
+  node?: VarNode;
+  /** Funktion bzw. Schlüsselwort mit Erklärung */
+  doc?: FeelDoc;
   /** voller Pfad zur Anzeige */
   path: string;
+  /** Zeichen, die der Cursor nach dem Einsetzen zurückspringt (in die Klammer) */
+  back?: number;
 }
 
 export interface CompletionResult {
@@ -575,10 +686,80 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
     }
   }
   const needle = partial.toLowerCase();
-  const items = pool
+  const items: Completion[] = pool
     .filter(v => v.name.toLowerCase().startsWith(needle) && v.name !== partial)
     .concat(needle ? pool.filter(v => !v.name.toLowerCase().startsWith(needle) && v.name.toLowerCase().includes(needle)) : [])
     .map(node => ({ insert: node.name, node, path: `${chain ?? ''}${node.name}` }));
+
+  // Funktionen und Schlüsselwörter: nur ausserhalb eines Pfads und erst ab dem
+  // ersten Buchstaben. Namen aus mehreren Wörtern (`upper case`) erkennt man
+  // auch, wenn schon das erste Wort getippt ist: es zählt das längste Ende
+  // des Getippten, mit dem ein Name beginnt.
+  let from = cursor - partial.length;
+  if (!chain && partial) {
+    const words = /((?:[A-Za-z_]\w*\s+){0,3}[A-Za-z_]\w*)$/.exec(before)?.[1]?.split(/\s+/) ?? [partial];
+    let typed = partial;
+    for (let n = words.length; n >= 1; n--) {
+      const t = words.slice(-n).join(' ').toLowerCase();
+      if (FEEL_DOCS.some(d => d.name.startsWith(t))) { typed = words.slice(-n).join(' '); break; }
+    }
+    const t = typed.toLowerCase();
+    // eine Funktion, die schon dasselbe heisst, bleibt dabei — `string` neben `string join`
+    const docs = FEEL_DOCS.filter(d => d.name.startsWith(t) && (d.name !== typed || d.kind === 'function'));
+    // mehrere Wörter getippt: nur Funktionen passen, keine Variablen
+    if (docs.length && typed !== partial) { from = cursor - typed.length; items.length = 0; }
+    items.push(...docs.map(doc => ({ insert: doc.insert, doc, path: doc.name, back: doc.back })));
+  }
   if (!items.length) return null;
-  return { from: cursor - partial.length, to: cursor, items };
+  return { from, to: cursor, items };
+}
+
+// ── Einfärben ────────────────────────────────────────────────────────────────
+
+export type FeelTokenKind = 'variable' | 'string' | 'feel' | 'comment' | 'plain';
+export interface FeelToken { text: string; kind: FeelTokenKind }
+
+const DOC_NAMES = FEEL_DOCS.map(d => d.name).sort((a, b) => b.length - a.length);
+const DOC_KIND = new Map(FEEL_DOCS.map(d => [d.name, d.kind]));
+
+/**
+ * Den Ausdruck in Stücke zerlegen, die das Eingabefeld einfärbt: Zeichenketten
+ * (grün), Variablen und ihre Pfade (blau), FEEL selbst — Funktionen und
+ * Schlüsselwörter — (violett). Alles andere bleibt, wie es ist.
+ */
+export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
+  const names = new Set(vars.map(v => v.name));
+  const out: FeelToken[] = [];
+  const push = (t: string, kind: FeelTokenKind) => {
+    if (!t) return;
+    const last = out[out.length - 1];
+    if (last && last.kind === kind) last.text += t; else out.push({ text: t, kind });
+  };
+  let i = 0;
+  let afterDot = false;
+  while (i < text.length) {
+    const rest = text.slice(i);
+    let m: RegExpExecArray | null;
+    if ((m = /^"(?:[^"\\]|\\.)*"?/.exec(rest))) { push(m[0], 'string'); i += m[0].length; afterDot = false; continue; }
+    if ((m = /^(?:\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$))/.exec(rest))) { push(m[0], 'comment'); i += m[0].length; continue; }
+    if ((m = /^`[^`]*`?/.exec(rest))) { push(m[0], names.has(m[0].replace(/`/g, '')) || afterDot ? 'variable' : 'plain'); i += m[0].length; afterDot = false; continue; }
+    if ((m = /^[A-Za-z_]\w*/.exec(rest))) {
+      const word = m[0];
+      const prev = text[i - 1];
+      const inPath = afterDot;
+      // Funktions- und Schlüsselwörter, auch mit Leerzeichen im Namen (`upper case`)
+      const doc = inPath || (prev && /[\w]/.test(prev)) ? undefined
+        : DOC_NAMES.find(n => n.startsWith(word) && rest.startsWith(n) && !/\w/.test(rest[n.length] ?? ' '));
+      const call = /^\s*\(/.test(rest.slice((doc ?? word).length));
+      if (doc && (call || DOC_KIND.get(doc) === 'keyword' || !names.has(doc))) {
+        push(doc, 'feel'); i += doc.length; afterDot = false; continue;
+      }
+      push(word, inPath || names.has(word) ? 'variable' : 'plain');
+      i += word.length; afterDot = false; continue;
+    }
+    if (rest[0] === '.' && text[i + 1] !== '.' && /[\w`]/.test(text[i - 1] ?? '')) { push('.', 'plain'); i++; afterDot = true; continue; }
+    push(rest[0], 'plain'); i++;
+    if (!/\s/.test(rest[0])) afterDot = false;
+  }
+  return out;
 }

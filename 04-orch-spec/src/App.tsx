@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2 } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -8,6 +8,7 @@ import ProcessView from './components/ProcessView';
 import AdminView from './components/AdminView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
 import { AccountChip, Breadcrumb, HeaderButton } from './components/Header';
+import FeelCheatSheet from './components/FeelCheatSheet';
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
@@ -36,6 +37,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 }
 
 export default function App() {
+  const [feelOpen, setFeelOpen] = useState(false);
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
     savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
@@ -197,7 +199,9 @@ export default function App() {
           )}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Navigation: Doku, Admin */}
+          {/* Navigation: FEEL-Spickzettel, Doku, Admin */}
+          <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
+            title="FEEL-Spickzettel — Syntax, Funktionen, Camunda 7 → 8" onClick={() => setFeelOpen(true)} />
           {docHref && (
             <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
           )}
@@ -239,6 +243,8 @@ export default function App() {
           <img src="favicon.png" alt="" className="w-5 h-5" />
         </a>
       </div>
+
+      {feelOpen && <FeelCheatSheet isDark={isDark} onClose={() => setFeelOpen(false)} />}
 
       {/* Main content */}
       <div className={`flex-1 ${view.kind === 'spec' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
