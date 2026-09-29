@@ -19,7 +19,8 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, ProcessSpec } from './types';
-import { TECHNICAL, allSteps, paramExpression } from './bpmn';
+import { TECHNICAL, allSteps, feelString, paramExpression } from './bpmn';
+import { referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
 import { importExpression } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
@@ -122,6 +123,17 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
     }
 
+    // Service: die Ausgaben werden von Hand gemappt, und der Worker weiss, welche Variablen es braucht
+    if (el && step.kind === 'service' && active(step.outputs).length) {
+      const vars: string[] = [];
+      for (const m of active(step.outputs)) {
+        for (const v of referencedVariables(importExpression(m.expression))) if (!vars.includes(v)) vars.push(v);
+      }
+      setControl(doc, ensureExt(el), engine, '_manualOutMapping', engine === 'c8' ? '=true' : '#{true}');
+      setControl(doc, ensureExt(el), engine, '_outputVariables',
+        !vars.length ? undefined : engine === 'c8' ? `=[${vars.map(feelString).join(', ')}]` : vars.join(', '));
+    }
+
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist
     for (const b of step.branches ?? []) {
       if (b.isDefault || !b.condition) continue;
@@ -163,6 +175,30 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   out = out.replace(/^(<\?xml[^>]*\?>)(?!\n)/, '$1\n');
   return { xml: out, issues };
+}
+
+// ── Steuerparameter am Schritt ───────────────────────────────────────────────
+/** `_manualOutMapping` & Co. setzen (oder mit `undefined` entfernen) — Camunda 7 als lokale Variable, Camunda 8 als Eingabe */
+function setControl(doc: Document, ext: Element, engine: EngineId, name: string, value: string | undefined) {
+  if (engine === 'c8') {
+    let io = firstNamed(ext, 'ioMapping');
+    for (const p of io ? kids(io) : []) if (local(p) === 'input' && attr(p, 'target') === name) removeEl(p);
+    if (value === undefined) return;
+    if (!io) { io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping'); appendEl(ext, io); }
+    const p = doc.createElementNS(ZEEBE_NS, 'zeebe:input');
+    p.setAttribute('source', value);
+    p.setAttribute('target', name);
+    appendEl(io, p);
+    return;
+  }
+  let io = firstNamed(ext, 'inputOutput');
+  for (const p of io ? kids(io) : []) if (local(p) === 'inputParameter' && attr(p, 'name') === name) removeEl(p);
+  if (value === undefined) return;
+  if (!io) { io = doc.createElementNS(CAMUNDA_NS, 'camunda:inputOutput'); appendEl(ext, io); }
+  const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
+  p.setAttribute('name', name);
+  p.textContent = value;
+  appendEl(io, p);
 }
 
 // ── Business Key an den Teilprozess ──────────────────────────────────────────

@@ -763,3 +763,40 @@ export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
   }
   return out;
 }
+
+const FEEL_WORDS = new Set([
+  'true', 'false', 'null', 'if', 'then', 'else', 'for', 'in', 'return', 'some', 'every', 'satisfies',
+  'and', 'or', 'not', 'between', 'instance', 'of', 'function', 'external', 'partial', 'item',
+]);
+
+/**
+ * Die Variablen, auf die ein FEEL-Ausdruck zugreift — der erste Namensteil
+ * eines Pfads (`consultant.name` → `consultant`), in Reihenfolge des
+ * Auftretens. Nicht dazu zählen: Text in Anführungszeichen, Funktionsnamen
+ * (`upper case(x)`), Pfadteile nach dem Punkt, Schlüsselwörter und die
+ * Laufvariablen von `for`/`some`/`every`. Gilt auch für Ausdrücke mit
+ * `if … then … else`, Filtern (`items[price > 1]`) und Kontexten.
+ */
+export function referencedVariables(expression: string): string[] {
+  if (!isFeel(expression)) return [];
+  const names: string[] = [];
+  // Text durch Leerraum ersetzen, `name`-Schreibweise in Backticks als Namen erhalten
+  const quoted: string[] = [];
+  const code = expression.trimStart().slice(1)
+    .replace(/"(?:[^"\\]|\\.)*"/g, ' ')
+    .replace(/`([^`]+)`/g, (_, n: string) => ` __bq${quoted.push(n) - 1} `);
+  const bound = new Set<string>();
+  for (const m of code.matchAll(/\b(?:for|some|every)\s+([A-Za-z_][\w]*)\s+in\b/g)) bound.add(m[1]);
+  for (const m of code.matchAll(/,\s*([A-Za-z_][\w]*)\s+in\b/g)) bound.add(m[1]);
+  // Schlüssel eines Kontexts (`{ a: x }`) sind keine Variablen
+  for (const m of code.matchAll(/[{,]\s*([A-Za-z_][\w]*)\s*:/g)) bound.add(m[1]);
+  for (const m of code.matchAll(/(?<![\w.])([A-Za-z_][\w]*)(?![\w])/g)) {
+    const name = m[1].replace(/^__bq(\d+)$/, (_, i: string) => quoted[+i]);
+    const rest = code.slice(m.index! + name.length);
+    if (FEEL_WORDS.has(name) || bound.has(m[1])) continue;
+    if (/^\s*\(/.test(rest)) continue;                     // Funktionsaufruf
+    if (/^\s+[A-Za-z_]/.test(rest) && !/^\s+(?:in|and|or|then|else|return|satisfies|instance|between|of)\b/.test(rest)) continue; // Teil eines Funktionsnamens mit Leerzeichen
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}

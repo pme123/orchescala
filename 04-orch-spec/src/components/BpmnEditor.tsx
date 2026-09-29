@@ -21,6 +21,7 @@ import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import camundaModdle from 'camunda-bpmn-moddle/resources/camunda.json';
 import type { EngineId } from '../types';
+import { feelString } from '../bpmn';
 
 /** Was wir von einem moddle-Element anfassen — bewusst schmal gehalten. */
 interface Moddle {
@@ -236,14 +237,14 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
               zio = moddle.createAny('zeebe:ioMapping', ZEEBE, {}) as Moddle & { $children?: Moddle[] };
               ext.values = [...(ext.values ?? []), zio];
             }
-            // FEEL-Text: `\` und `"` maskieren — der Import macht es rückgängig
-            const lit = (v: string) => `="${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+            // in Camunda 8 eine Liste von Texten: `=["a", "b"]`
+            const lit = (vs: string[]) => `=[${vs.map(feelString).join(', ')}]`;
             const rest = (zio.$children ?? []).filter(k => k.target !== '_handledErrors' && k.target !== '_regexHandledErrors');
-            const put = (target: string, value: string) => moddle.createAny('zeebe:input', ZEEBE, { source: lit(value), target });
+            const put = (target: string, values: string[]) => moddle.createAny('zeebe:input', ZEEBE, { source: lit(values), target });
             zio.$children = [
               ...rest,
-              ...(codes.length ? [put('_handledErrors', codes.join(', '))] : []),
-              ...(regex ? [put('_regexHandledErrors', regex)] : []),
+              ...(codes.length ? [put('_handledErrors', codes)] : []),
+              ...(regex ? [put('_regexHandledErrors', [regex])] : []),
             ];
             modeling.updateProperties(el, { extensionElements: ext });
             return;

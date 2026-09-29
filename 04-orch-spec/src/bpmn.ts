@@ -208,6 +208,20 @@ function feelText(source: string): string {
   return lit ? lit[1].replace(/\\(["\\])/g, '$1') : t;
 }
 
+/** Ein FEEL-Text: `"…"` mit maskiertem `\` und `"` — Gegenstück zu `feelText` */
+export const feelString = (v: string): string => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+/**
+ * Codes aus `_handledErrors`: in Camunda 7 ein Text mit Kommas, in Camunda 8
+ * eine Liste (`=["a", "b"]`) — beides wird zur Liste. Ein einzelner Text bleibt einer.
+ */
+function feelTexts(source: string): string[] {
+  const t = source.trim();
+  const list = /^=\s*\[([\s\S]*)\]$/.exec(t);
+  if (list) return [...list[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => m[1].replace(/\\(["\\])/g, '$1'));
+  return feelText(t).split(',').map(s => s.trim()).filter(Boolean);
+}
+
 function readIo(el: Element): IoResult {
   const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [] };
   const ext = firstNamed(el, 'extensionElements');
@@ -241,8 +255,9 @@ function readIo(el: Element): IoResult {
       const source = attr(p, 'source') ?? '';
       // Steuerparameter wie in Camunda 7: behandelte Fehler und Mock am Schritt
       if (target === '_handledErrors' || target === '_regexHandledErrors') {
-        if (target === '_handledErrors') res.handledErrors.push(...feelText(source).split(',').map(s => s.trim()).filter(Boolean));
-        else res.regexErrors = feelText(source).trim() || undefined;
+        if (target === '_handledErrors') res.handledErrors.push(...feelTexts(source));
+        // mehrere Ausdrücke aus einer Liste gelten als Alternativen eines einzigen
+        else res.regexErrors = (/^=\s*\[/.test(source.trim()) ? feelTexts(source).join('|') : feelText(source).trim()) || undefined;
         continue;
       }
       if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; continue; }

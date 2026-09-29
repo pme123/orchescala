@@ -1009,6 +1009,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | --- | --- | --- |
 | Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.name}` |
 | Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
+| Service mit Ausgaben | `_manualOutMapping` = `=true`, `_outputVariables` = Liste `=["a", "b"]` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
 
