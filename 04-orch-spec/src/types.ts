@@ -613,6 +613,11 @@ export interface ProjectFolder {
   root?: string;
   /** Zahl der Typen aus diesem Projekt beim letzten Aufbau */
   types?: number;
+  /**
+   * Farbe des Projekts (`#rrggbb`) — wie `ProjectConfig.color` in Orchescala.
+   * Ein Worker oder Teilprozess aus diesem Projekt bekommt sie im Diagramm.
+   */
+  color?: string;
   [key: string]: unknown;
 }
 

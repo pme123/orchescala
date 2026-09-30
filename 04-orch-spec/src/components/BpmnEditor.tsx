@@ -48,6 +48,8 @@ export interface BpmnHandle {
   setProps: (id: string | null, props: Record<string, unknown>) => void;
   /** Bedingung eines Sequenzflusses */
   setCondition: (flowId: string, condition: string | undefined) => void;
+  /** Hintergrundfarbe eines Elements — `undefined` nimmt sie weg */
+  setColor: (id: string, fill: string | undefined) => void;
   /** `_handledErrors` eines Schritts */
   setHandledErrors: (id: string, codes: string[], regex?: string[], engine?: EngineId) => void;
 }
@@ -204,6 +206,15 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
           const modeling = modeler.get('modeling') as { updateProperties: (el: unknown, p: object) => void };
           const el = id === null ? canvas.getRootElement() : registry.get(id);
           if (el) modeling.updateProperties(el, props);
+        } catch { /* Element nicht im Diagramm */ }
+      },
+      setColor: (id, fill) => {
+        try {
+          const registry = modeler.get('elementRegistry') as { get: (id: string) => unknown };
+          const modeling = modeler.get('modeling') as { setColor: (els: unknown[], c: { fill?: string } | undefined) => void };
+          const el = registry.get(id);
+          // bpmn-js schreibt `bioc:fill` und `color:background-color` — wie der Camunda Modeler
+          if (el) modeling.setColor([el], fill ? { fill } : undefined);
         } catch { /* Element nicht im Diagramm */ }
       },
       setCondition: (flowId, condition) => {

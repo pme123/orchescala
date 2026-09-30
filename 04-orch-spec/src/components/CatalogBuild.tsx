@@ -19,7 +19,7 @@
 //  · **Von URL laden** — die Orchescala-Doku-Site. Von dort kommen die
 //    Prozesse aller Projekte mit ihren `In`/`Out`, auch ohne die Quellen
 //    lokal zu haben.
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown, ChevronRight, ChevronUp, FolderOpen, Globe, RefreshCw, Upload, X,
 } from 'lucide-react';
@@ -371,6 +371,8 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
               {projects.map((p, i) => (
                 <div key={p.id} className={`flex items-center gap-2 px-2 py-1 text-[11px] ${i ? `border-t ${c.border2}` : ''}`}>
                   <span className={`w-5 text-right tabular-nums ${c.muted}`}>{i + 1}</span>
+                  <ColorPick value={p.color} disabled={!canEdit || !!busy} className={c.border2}
+                    onChange={color => void saveProjects(projects.map(x => (x.id === p.id ? { ...x, color } : x)))} />
                   <span className={`font-mono ${c.text}`}>{p.name}</span>
                   {p.path && <span className={`font-mono text-[10px] truncate ${c.muted}`}>{p.path}</span>}
                   <span className={`ml-auto text-[10px] flex-shrink-0 ${c.muted}`}>
@@ -426,5 +428,29 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Projektfarbe (wie `ProjectConfig.color`). Gespeichert wird erst, wenn die
+ * Farbe kurz stehen bleibt — beim Ziehen im Farbwähler nicht bei jedem Schritt.
+ */
+function ColorPick({ value, disabled, className, onChange }: {
+  value: string | undefined; disabled?: boolean; className?: string; onChange: (color: string) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? '#ffffff');
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => { setDraft(value ?? '#ffffff'); }, [value]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return (
+    <input type="color" value={draft} disabled={disabled}
+      onChange={e => {
+        const v = e.target.value;
+        setDraft(v);
+        window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => onChange(v), 500);
+      }}
+      title={value ? `Projektfarbe ${value} — Worker und Teilprozesse aus diesem Projekt bekommen sie im Diagramm` : 'Projektfarbe wählen (wie ProjectConfig.color)'}
+      className={`w-4 h-4 p-0 border rounded cursor-pointer flex-shrink-0 ${value ? '' : 'opacity-40'} ${className ?? ''}`} />
   );
 }

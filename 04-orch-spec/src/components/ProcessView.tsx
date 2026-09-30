@@ -5,6 +5,7 @@
 // Zweige, Schleifen und Fehlerpfade sichtbar, Details standardmässig
 // eingeklappt. Änderungen werden automatisch gespeichert (wie im arch-review).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
@@ -253,6 +254,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (!spec) return;
     if (typeof patch.name === 'string') bpmnRef.current?.rename(id, patch.name);
     applyToBpmn(id, patch, byIdRef.current.get(id), bpmnRef.current, spec.engine);
+    // Worker oder Teilprozess gewählt → das Element bekommt die Farbe seines Projekts
+    if ('serviceId' in patch || 'topic' in patch || 'calledProcess' in patch) {
+      const s = { ...byIdRef.current.get(id), ...patch };
+      if (s.kind === 'service' || s.kind === 'call') {
+        const ref = s.kind === 'call' ? s.calledProcess ?? s.topic : s.topic ?? s.serviceId;
+        bpmnRef.current?.setColor(id, projectColor(ref, spec.project, model?.projects));
+      }
+    }
     const walk = (steps: Step[]): Step[] => steps.map(s => {
       if (s.id === id) return { ...s, ...patch };
       const next: Step = { ...s };

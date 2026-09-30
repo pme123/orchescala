@@ -960,6 +960,26 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
   }
 }
 
+/**
+ * Leere Einträge bei den behandelten Fehlern — ein eben hinzugefügter oder
+ * geleerter Regex bzw. Fehlercode — kommen nicht ins BPMN. Der Abgleich darf
+ * sie darum nicht verwerfen, solange das Diagramm die übrigen unverändert hat.
+ */
+function keepEmptyErrors(s: Step, prev: Step) {
+  const regex = prev.regexHandledErrors ?? [];
+  const filled = regex.map(r => r.trim()).filter(Boolean);
+  if (filled.length < regex.length && JSON.stringify(filled) === JSON.stringify(s.regexHandledErrors ?? [])) {
+    s.regexHandledErrors = regex;
+  }
+  const blank = (e: ErrorHandling) => !e.code?.trim() && !e.boundary && !e.side;
+  const errs = prev.errors ?? [];
+  if (!errs.some(blank)) return;
+  const codes = (list: ErrorHandling[]) => JSON.stringify(list.map(e => e.code).sort());
+  if (codes(errs.filter(e => !blank(e))) !== codes(s.errors ?? [])) return;
+  const fresh = new Map((s.errors ?? []).map(e => [e.code, e]));
+  s.errors = errs.map(e => (blank(e) ? e : fresh.get(e.code) ?? e));
+}
+
 function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>, base: Map<string, Step> | null) {
   for (const s of steps) {
     seen.add(s.id);
@@ -969,6 +989,7 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       s.status = 'draft';
     } else {
       keepSpecOwned(s, prev, base?.get(s.id));
+      keepEmptyErrors(s, prev);
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
       // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation
       for (const list of ['inputs', 'outputs'] as const) {
