@@ -71,6 +71,21 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null): T
   };
 }
 
+// ── Unfertiges ───────────────────────────────────────────────────────────────
+/**
+ * Ein Feld kommt erst in den Code, wenn es fertig ist: mit Namen, mit Typ und —
+ * bei einem eigenen Typ — einem, den es noch gibt und der einen Namen hat.
+ * Sonst stünde `: String` oder eine interne id im Code, und das Projekt
+ * kompiliert nicht. Die Prüfungen im Klassenbauer melden es weiterhin.
+ */
+export function isFinished(f: Field, idx: TypeIndex): boolean {
+  const type = f.type?.trim();
+  if (!f.name?.trim() || !type) return false;
+  return isScalar(type) || !!parseDomainRef(type) || !!parseServiceRef(type) || !!idx.byId.get(type)?.name?.trim();
+}
+
+const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fields ?? []).filter(f => isFinished(f, idx));
+
 // ── Typ-Ausdruck ─────────────────────────────────────────────────────────────
 /** `Option[Seq[String :| ValidEmail]]` — in dieser Reihenfolge geschachtelt. */
 export function fieldType(f: Field, idx: TypeIndex): string {
@@ -147,7 +162,7 @@ function scaladoc(text: string): string {
 }
 
 function caseClass(t: TypeDef, idx: TypeIndex): string {
-  const fields = t.fields ?? [];
+  const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
     const def = f.default?.trim() ? ` = ${f.default.trim()}` : '';
@@ -158,7 +173,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 }
 
 function companion(t: TypeDef, idx: TypeIndex): string {
-  const fields = t.fields ?? [];
+  const fields = finished(t.fields, idx);
   const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
   // exampleMinimal lässt alles weg, was fehlen darf
   const optional = fields.filter(f => f.optional);
@@ -197,7 +212,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).filter(v => v.name);
   const first = cases[0]?.name ?? 'unknown';
   // Gemeinsame Felder: als `def` im Rumpf verlangt, in jedem Fall zuerst
-  const common = (t.fields ?? []).filter(f => f.name);
+  const common = finished(t.fields, idx);
   // Die Bedeutung eines gemeinsamen Feldes steht **einmal** — am `def`, nicht
   // in jedem Fall nochmals
   const commonDefs = common.map(f => {
@@ -205,7 +220,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
   });
   const commonBare = common.map(f => ({ ...f, description: undefined }));
-  const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...(v.fields ?? []).filter(f => !common.some(c => c.name === f.name))];
+  const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))];
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);
@@ -325,7 +340,7 @@ const DEFAULT_BY_KIND: Record<'timer' | 'max' | 'counter', { type: string; value
 
 export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: TypeIndex): string {
   const own = (spec.types ?? []).find(t => t.inConfig);
-  const ownFields = own && idx ? (own.fields ?? []).filter(f => f.name.trim()) : [];
+  const ownFields = own && idx ? finished(own.fields, idx) : [];
   const seen = new Set<string>(ownFields.map(f => f.name));
   if (own && idx) for (const l of importsOf(own, idx)) imports.add(l);
   const params: string[] = ownFields.map(f => {
@@ -375,7 +390,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
  */
 export function renderInitIn(spec: ProcessSpec, idx: TypeIndex): string {
   const t = (spec.types ?? []).find(t => t.initIn);
-  if (!t || !(t.fields ?? []).length) return '';
+  if (!t || !finished(t.fields, idx).length) return '';
   return renderType({ ...t, name: 'InitIn' }, idx);
 }
 
@@ -404,11 +419,12 @@ export function allFields(t: TypeDef): Field[] {
 
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   const lines: string[] = [];
-  if (allFields(t).some(f => f.constraint?.trim())) {
+  const fields = allFields(t).filter(f => isFinished(f, idx));
+  if (fields.some(f => f.constraint?.trim())) {
     lines.push('import io.github.iltotore.iron.*', 'import io.github.iltotore.iron.constraint.all.*');
   }
   const external = new Map<string, string>(); // importPath → Anmerkung
-  for (const f of allFields(t)) {
+  for (const f of fields) {
     const dom = idx.domainOf(f.type);
     if (dom) { external.set(dom.importPath, ''); continue; }
     const svc = idx.serviceOf(f.type);
@@ -531,7 +547,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   const sorted = [...(spec.interactions ?? [])].map((ia, i) => ({ ia, i, section: sectionOf(ia) }))
     .sort((a, b) => (a.section ? 1 : 0) - (b.section ? 1 : 0) || (a.section ?? '').localeCompare(b.section ?? '') || a.i - b.i);
   for (const { ia, section } of sorted) {
-    if (geschrieben.has(ia.name)) continue;
+    // ohne Namen gäbe es `object  extends …` — erst, wenn sie einen hat
+    if (!ia.name?.trim() || geschrieben.has(ia.name)) continue;
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,
@@ -540,7 +557,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     });
   }
 
-  for (const t of types.filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId)) {
+  for (const t of types.filter(t => t.name?.trim() && !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId)) {
     out.push({
       path: `${dir}/schema/${t.name}.scala`,
       content: `package ${pkg}.schema\n${imports(t, idx)}\n${renderType(t, idx)}\n`,
