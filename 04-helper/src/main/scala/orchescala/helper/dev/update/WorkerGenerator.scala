@@ -10,8 +10,9 @@ case class WorkerGenerator()(using config: DevConfig):
     createOrUpdate(workerConfigPath / "logback.xml", logbackXml)
   end generate
 
-  def createProcessWorker(setupElement: SetupElement): Unit =
-    createWorker(setupElement, processWorker, processWorkerTest)
+  // initIn: the expression customInit returns - e.g. `InitIn.example` if InitIn has required fields
+  def createProcessWorker(setupElement: SetupElement, initIn: String = "InitIn()"): Unit =
+    createWorker(setupElement, processWorker(initIn), processWorkerTest(initIn))
 
   def createEventWorker(setupElement: SetupElement): Unit =
     createWorker(setupElement, eventWorker, eventWorkerTest)
@@ -66,7 +67,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |  )
        |end $objName""".stripMargin
 
-  private def processWorker(setupElement: SetupElement) =
+  private def processWorker(initIn: String)(setupElement: SetupElement) =
     val SetupElement(_, processName, workerName, version) = setupElement
     s"""package ${config.projectPackage}
        |package worker.$processName${version.versionPackage}
@@ -78,7 +79,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |  lazy val inOutExample = example
        |
        |  override def customInit(in: In): InitIn =
-       |    InitIn() //TODO add variable initialisation (to simplify the process expressions) or remove function
+       |    $initIn //TODO add variable initialisation (to simplify the process expressions) or remove function
        |    // NoInput() // if no initialization is needed
        |  
        |end ${workerName}Worker""".stripMargin
@@ -150,19 +151,19 @@ case class WorkerGenerator()(using config: DevConfig):
         |  ) = ???
         |
         |""".stripMargin
-  private def processWorkerTest(setupElement: SetupElement) =
+  private def processWorkerTest(initIn: String)(setupElement: SetupElement) =
     workerTest(setupElement):
       s"""
          |  test("customInit"):
          |    val in = In.example
-         |    val out = InitIn()
+         |    val out = $initIn
          |    assertEquals(
          |      worker.customInit(in),
          |      out
          |    )
          |  test("customInit minimal"):
          |    val in = In.exampleMinimal
-         |    val out = InitIn()
+         |    val out = $initIn
          |    assertEquals(
          |      worker.customInit(in),
          |      out

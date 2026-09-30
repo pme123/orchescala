@@ -13,6 +13,7 @@ import { engineLabel } from './template.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
 import { engineExpression } from './feelJuel.ts';
+import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
@@ -394,6 +395,29 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
   if (kind === 'scala') return scalaBundle(spec, model);
   if (kind === 'fachlich') return exportFachlich(spec, model);
   return exportOrchescala(spec, model);
+}
+
+// ── Für den Helper ───────────────────────────────────────────────────────────
+/**
+ * Der Befehl, der im Projekt den Prozess anlegt — BPMN und Scala-Klassen in
+ * **einem** Argument: `orchspec:` + base64url(gzip(JSON)). So braucht der
+ * Helper weder Dateien noch eine Anmeldung an SharePoint; `v` erlaubt, das
+ * Format später zu ändern (der Helper lehnt eine unbekannte Version ab).
+ *
+ * Das BPMN ist dasselbe wie im BPMN-Export, für die Engine der Spezifikation.
+ */
+export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = ''): string {
+  const payload = JSON.stringify({
+    v: 1,
+    ...(bpmn ? { bpmn: exportBpmn(spec, bpmn).xml } : {}),
+    scala: scalaBundle(spec, model),
+  });
+  const zipped = gzipSync(strToU8(payload), { level: 9 });
+  let binary = '';
+  for (let i = 0; i < zipped.length; i += 0x8000) binary += String.fromCharCode(...zipped.subarray(i, i + 0x8000));
+  // base64url ohne «=»: braucht in der Shell keine Anführungszeichen
+  const b64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `./helper.scala processFromSpec orchspec:${b64}`;
 }
 
 /**

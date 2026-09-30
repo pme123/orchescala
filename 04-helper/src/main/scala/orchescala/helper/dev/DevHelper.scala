@@ -53,6 +53,30 @@ trait DevHelper:
             println(s"Invalid arguments for command $command: $other")
             println("Usage: process <processName> [version: Int]")
             println("Example: process myProcess 1")
+      case Command.processFromSpec =>
+        args match
+          // copy & paste: first the BPMN, then the Scala classes
+          case Seq()                        =>
+            createProcessFromSpec(Some(OrchSpecInput.bpmn()), OrchSpecInput.scalaClasses())
+          // «Für Helper kopieren» in Orch Spec: BPMN and Scala classes in one argument.
+          // The copied text is the whole command - pasted after a typed `./helper.scala processFromSpec`
+          // the command is doubled: so take the `orchspec:` argument wherever it is.
+          case arguments if arguments.exists(_.trim.startsWith(OrchSpecInput.commandPrefix)) =>
+            val argument             = arguments.find(_.trim.startsWith(OrchSpecInput.commandPrefix)).get
+            val (bpmn, scalaClasses) = OrchSpecInput.fromCommand(argument.trim)
+            createProcessFromSpec(bpmn, scalaClasses)
+          case Seq(bpmnExport, scalaExport) =>
+            createProcessFromSpec(Some(readFile(bpmnExport)), readFile(scalaExport))
+          case Seq(file) if file.endsWith(".bpmn")     =>
+            createProcessFromSpec(Some(readFile(file)), "")
+          case Seq(scalaExport)             =>
+            createProcessFromSpec(None, readFile(scalaExport))
+          case other                        =>
+            println(s"Invalid arguments for command $command: $other")
+            println(s"Usage: $command [bpmnExport] [scalaExport] | orchspec:…")
+            println(s"Example: $command                    (copy & paste the BPMN and the Scala classes)")
+            println(s"Example: $command orchspec:H4sI…     (Orch Spec: Export > Für Helper kopieren)")
+            println(s"Example: $command my-process-bpmn-c7.bpmn my-process-scala.scala")
       case Command.customTask   =>
         args match
           case Seq(processName, bpmnName)                                           =>
@@ -152,7 +176,7 @@ trait DevHelper:
   end printBadActivity
 
   private enum Command:
-    case update, process, customTask, serviceTask, userTask, decision, signalEvent, messageEvent,
+    case update, process, processFromSpec, customTask, serviceTask, userTask, decision, signalEvent, messageEvent,
       timerEvent, publish, deploy, dockerUp, dockerStop, dockerDown
 
   def update(): Unit =
@@ -170,6 +194,12 @@ trait DevHelper:
       version
     ))
   end createProcess
+
+  // creates the process from the exports of Orch Spec - the BPMN and the Scala classes
+  def createProcessFromSpec(bpmn: Option[String], scalaClasses: String): Unit =
+    OrchSpecGenerator().createProcess(bpmn, scalaClasses)
+
+  private def readFile(path: String): String = os.read(os.Path(path, os.pwd))
 
   private def createCustomTask(processName: String, bpmnName: String, version: Option[Int]): Unit =
     SetupGenerator().createProcessElement(SetupElement(

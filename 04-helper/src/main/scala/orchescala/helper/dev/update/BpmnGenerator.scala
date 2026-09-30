@@ -161,7 +161,7 @@ case class BpmnGenerator()(using config: DevConfig):
        |end $domainName""".stripMargin
   end eventDefinition
 
-  private def domainPath(processName: String, version: Option[Int]) =
+  private[update] def domainPath(processName: String, version: Option[Int]) =
     val subProject = config.subProjects.find(_ == processName)
     val dir        = config.projectDir / ModuleConfig.domainModule.packagePath(
       config.projectPath,

@@ -146,6 +146,103 @@ src           - main -> myproject-myProcessV1.bpmn
               - test -> mycompany.myproject.worker.myProcess.v1.MyProcessWorkerTest 
 ```
 
+### processFromSpec
+Creates a Process from the exports of _Orch Spec_ - the BPMN and the Scala classes.
+
+Usage:
+```
+./helper.scala processFromSpec [bpmnExport] [scalaExport] | orchspec:…
+```
+
+The simplest way: in _Orch Spec_ _Export_ > **Für Helper kopieren** - it copies the whole command
+with the BPMN and the Scala classes in one argument (`orchspec:` + base64url(gzip(JSON))).
+Paste it in the terminal of your project and press Enter:
+```
+./helper.scala processFromSpec orchspec:H4sIAPO9vGoCA-0cW3IbN_IqKCW1ll…
+```
+No files and no SharePoint login needed - the command contains everything.
+
+Without arguments, the helper asks for the exports - copy them in _Orch Spec_ (_Export_ > _BPMN_ / _Scala_ > _Kopieren_):
+```
+./helper.scala processFromSpec
+1/2 BPMN - in Orch Spec: Export > BPMN > Kopieren, then press Enter here (or paste it here):
+  ✓ myproject-myProcessV1 (Camunda 7)
+2/2 Scala classes - in Orch Spec: Export > Scala > Kopieren, then press Enter here (or paste it here - finish with a line END):
+  ✓ 5 files
+```
+Enter takes the export from the clipboard (macOS: `pbpaste`, Windows: `Get-Clipboard`, Linux: `wl-paste`/`xclip`).
+You can also paste it into the terminal - but a terminal may cut long lines of a paste, so the clipboard is safer.
+
+Or with the exported files:
+```
+./helper.scala processFromSpec ~/Downloads/myproject-myProcess-bpmn-c7.bpmn ~/Downloads/myproject-myProcess-scala.scala
+```
+
+The names (process, version, object) come from the process id of the BPMN - the same way _Orch Spec_ derives them
+(`myproject-myProcessV2` -> `myProcess`, `v2`, `MyProcessV2`).
+
+This creates the same files as `process`, but with the content of the specification:
+```
+// the BPMN - to camunda8 if it is a Camunda 8 diagram; without BPMN export the template
+src           - main -> myproject-myProcessV1.bpmn
+// the domain - In, Out, InConfig, InitIn of the specification (In gets the inConfig)
+01-domain     - main -> mycompany.myproject.domain.myProcess.v1.MyProcess
+// the interactions (UserTasks, CustomTasks, Signals, Messages) and the classes in schema/
+01-domain     - main -> mycompany.myproject.domain.myProcess.v1.MyUserTaskUT
+                        mycompany.myproject.domain.myProcess.v1.schema.MyClass
+// the Simulation
+03-simulation - test -> mycompany.myproject.simulation.MyProcessSimulation
+// the InitWorker and a Worker for each CustomTask, Signal and Message
+03-worker     - main -> mycompany.myproject.worker.myProcess.v1.MyProcessWorker
+              - test -> mycompany.myproject.worker.myProcess.v1.MyProcessWorkerTest
+```
+
+`In` gets the `inConfig` (`extends WithConfig[InConfig]`) - an enum `In` in each of its cases.
+
+The process is registered in the `WorkerApp` and in the `ApiProjectCreator`:
+```scala
+object WorkerApp extends CompanyWorkerApp:
+  workers(
+    myProcessWorkers,
+    ..
+  )
+  ..
+  private lazy val myProcessWorkers =
+    import mycompany.myproject.worker.myProcess.v1.*
+    Seq(
+      MyProcessWorker(),
+      MyCustomTaskWorker(),
+    )
+  end myProcessWorkers
+end WorkerApp
+```
+```scala
+object ApiProjectCreator extends CompanyApiCreator:
+  ..
+  document(
+    myProcessApi,
+    ..
+  )
+  ..
+  private lazy val myProcessApi =
+    import mycompany.myproject.domain.myProcess.v1.*
+    api(MyProcess.example)(
+      MyUserTaskUT.example,
+      MyCustomTask.example,
+    )
+  end myProcessApi
+end ApiProjectCreator
+```
+If one of them has not this form (`workers(` / `document(` and `end WorkerApp` / `end ApiProjectCreator`),
+the snippet is printed - add it manually.
+
+The package of the Scala classes must be `<projectPackage>.domain.<processName>.v<version>` -
+so company and project of the process in _Orch Spec_ must match the project.
+If it differs from the names of the BPMN, you get a warning (the Scala classes win).
+
+Existing files are not overwritten - so you can run it again after adding new classes in _Orch Spec_.
+Changes of existing classes you have to merge manually.
+
 ### customTask
 Creates a new Custom Task.
 

@@ -10,7 +10,7 @@ case class SimulationGenerator()(using config: DevConfig):
   end generate
 
   def createSimulation(setupElement: SetupElement): Unit =
-    os.write.over(
+    createIfNotExists(
       simulationTestPath / s"${setupElement.bpmnName}Simulation.scala",
       process(setupElement)
     )
