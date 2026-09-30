@@ -19,7 +19,7 @@ import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, 
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
-import { blockIndex, blockStart, mockField } from './bpmn.ts';
+import { allSteps, blockIndex, blockStart, mockField } from './bpmn.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -783,9 +783,11 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   const geschrieben = new Set<string>();
   const sorted = [...(spec.interactions ?? [])].map((ia, i) => ({ ia, i, section: sectionOf(ia) }))
     .sort((a, b) => (a.section ? 1 : 0) - (b.section ? 1 : 0) || (a.section ?? '').localeCompare(b.section ?? '') || a.i - b.i);
+  // eine Interaktion, deren Schritt nicht mehr im Ablauf steht, kommt nicht in den Code
+  const stepIds = new Set(allSteps(spec.steps).map(s => s.id));
   for (const { ia, section } of sorted) {
     // ohne Namen gäbe es `object  extends …` — erst, wenn sie einen hat
-    if (!ia.name?.trim() || geschrieben.has(ia.name)) continue;
+    if (!ia.name?.trim() || geschrieben.has(ia.name) || !stepIds.has(ia.stepId)) continue;
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,

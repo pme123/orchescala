@@ -18,7 +18,7 @@ import { isAdt,
 import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
 } from '../interactions';
-import { blockIndex, blockStart, type BlockRef } from '../bpmn';
+import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
 import { casesOf, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
@@ -137,6 +137,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const interactions = useMemo(() => spec.interactions ?? [], [spec.interactions]);
   // Zu welchem eigenen Block ein Schritt gehört — die Seitenleiste klammert die Interaktionen so wie der Ablauf
   const blocks = useMemo(() => blockIndex(spec.steps), [spec.steps]);
+  // eine Interaktion, deren Schritt nicht mehr im Ablauf steht — z. B. im Diagramm gelöscht
+  const stepIds = useMemo(() => new Set(allSteps(spec.steps).map(s => s.id)), [spec.steps]);
   const offen = useMemo(() => missingInteractions(spec, model), [spec, model]);
 
   // Sprung aus dem Ablauf: den gewünschten Typ zeigen und die Anfrage quittieren
@@ -325,8 +327,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                     className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
                       selectedIa === ia.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                     <Workflow size={11} className={c.muted} />
-                    <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${c.text}`}>{ia.name}</span>
-                    {mangel && <AlertTriangle size={10} className={amber(isDark)} />}
+                    <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${stepIds.has(ia.stepId) ? c.text : `line-through ${c.muted}`}`}>{ia.name}</span>
+                    {!stepIds.has(ia.stepId)
+                      ? <span title="Der Schritt ist nicht mehr im Ablauf — die Interaktion wird nicht exportiert" className={`text-[9px] ${amber(isDark)}`}>entfällt</span>
+                      : mangel && <AlertTriangle size={10} className={amber(isDark)} />}
                     <CommentBubble target={iaTarget(ia.id)} quiet inButton />
                     <span className={`text-[9px] ${c.muted}`}>{INTERACTION_META[ia.kind].suffix || 'W'}</span>
                   </button>
@@ -434,10 +438,16 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
           <InteractionEditor key={selectedIa}
             ia={interactions.find(i => i.id === selectedIa)!} isDark={isDark} canEdit={canEdit}
             types={types}
+            orphan={!stepIds.has(interactions.find(i => i.id === selectedIa)?.stepId ?? '')}
             onPatch={patch => patchIa(selectedIa, patch)}
             onOpen={member => openMember(interactions.find(i => i.id === selectedIa)!, member)}
             onRemove={() => {
-              onChange({ ...spec, interactions: interactions.filter(i => i.id !== selectedIa) });
+              // ihr In und Out gehören nur ihr — sie gehen mit
+              onChange({
+                ...spec,
+                interactions: interactions.filter(i => i.id !== selectedIa),
+                types: (spec.types ?? []).filter(t => t.interactionId !== selectedIa),
+              });
               setSelectedIa(null);
             }} />
         ) : current ? (
@@ -508,8 +518,10 @@ function GeneratedNote({ isDark }: { isDark: boolean }) {
 // ── Interaktion ──────────────────────────────────────────────────────────────
 // Kopf der Interaktion: Objektname, Schlüssel (`val name` / `topicName` /
 // `messageName`) und Beschreibung. `In` und `Out` liegen daneben in der Liste.
-function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemove }: {
+function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen, onRemove }: {
   ia: Interaction; isDark: boolean; canEdit: boolean; types: TypeDef[];
+  /** der Schritt steht nicht mehr im Ablauf */
+  orphan: boolean;
   onPatch: (patch: Partial<Interaction>) => void;
   onOpen: (member: 'In' | 'Out') => void;
   onRemove: () => void;
@@ -520,6 +532,20 @@ function InteractionEditor({ ia, isDark, canEdit, types, onPatch, onOpen, onRemo
 
   return (
     <div className="p-4 space-y-4">
+      {orphan && (
+        <div className={`flex items-center gap-2 text-[11px] px-3 py-2 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
+          <AlertTriangle size={12} className="flex-shrink-0" />
+          <span className="flex-1">
+            Der Schritt <span className="font-mono">{ia.stepId}</span> steht nicht mehr im Ablauf — die Interaktion
+            wird nicht exportiert. Bleibt der Schritt weg, kann sie samt In und Out entfernt werden.
+          </span>
+          {canEdit && (
+            <button onClick={onRemove} className={`flex items-center gap-1 px-2 py-1 rounded border ${c.btn}`}>
+              <Trash2 size={11} /> Entfernen
+            </button>
+          )}
+        </div>
+      )}
       <div data-cframe={iaTarget(ia.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
