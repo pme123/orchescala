@@ -583,7 +583,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             {isServiceWorker(step) && <option value="service">_outputServiceMock — die Antwort des Services</option>}
           </select>
           <p className={`text-[10px] mt-1 leading-snug ${c.muted}`}>
-            Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span></>}
+            Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span>, <span className="font-mono">_identityCorrelation = _identityCorrelation</span></>}
             {step.mockKind && <>, dazu <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockField(step.name)}</span> und im InConfig das Feld <span className="font-mono">{mockField(step.name)}</span></>}.
           </p>
           {step.mock && !/^=\s*\w+Mock$|getVariable/.test(step.mock) && (

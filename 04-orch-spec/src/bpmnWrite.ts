@@ -146,6 +146,8 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       setControl(doc, ext, engine, '_outputServiceMock', kind === 'service' ? pass(mockField(step.name)) : undefined, call);
       setControl(doc, ext, engine, '_servicesMocked', pass('_servicesMocked'), call);
       setControl(doc, ext, engine, '_mockedWorkers', call ? pass('_mockedWorkers') : undefined, call);
+      // wer den Prozess gestartet hat — der Teilprozess prüft dieselbe Identität
+      setControl(doc, ext, engine, '_identityCorrelation', call ? pass('_identityCorrelation') : undefined, call);
     }
 
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist

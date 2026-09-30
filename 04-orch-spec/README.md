@@ -1010,7 +1010,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.name}` |
 | Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
 | Service | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
-| Mock-Steuerung (immer) | `_servicesMocked` = `=_servicesMocked`, am Teilprozess dazu `_mockedWorkers` | dasselbe mit `#{execution.getVariable('…')}` (am Teilprozess als `camunda:in`) |
+| Mock-Steuerung (immer) | `_servicesMocked` = `=_servicesMocked`, am Teilprozess dazu `_mockedWorkers` und `_identityCorrelation` | dasselbe mit `#{execution.getVariable('…')}` (am Teilprozess als `camunda:in`) |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` |
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
