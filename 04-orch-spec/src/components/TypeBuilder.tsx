@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, fieldType, indexTypes, renderType } from '../scala';
+import { checkTypes, constraintKind, defaultIsUsed, fieldType, indexTypes, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -753,6 +753,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
+  // der Typ, zu dem das Feld gehört — er bestimmt, ob es eine Vorgabe gibt
+  const owner = types.find(t => t.id === selfId);
   // Der Typ als Chip: die Farbe sagt, was es ist — einfach (grau), eigene
   // Klasse (blau), Auswahl oder Ausprägung (violett), Katalog (teal, Stecker),
   // unbekannt (rot). Eigene Typen sind anklickbar und springen dorthin.
@@ -839,13 +841,20 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
 
       <div className="flex items-center gap-1.5">
         {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} />}
-        {/* FEEL wie überall: mit «=» — der Export schreibt es als Scala. Ohne «=» ein Scala-Ausdruck (wie bisher) */}
-        <FeelInput value={f.default ?? ''} disabled={!canEdit} isDark={isDark}
-          variables={[]}
-          onChange={v => onChange({ default: v || undefined })}
-          placeholder="Vorgabe, z. B. = [1, 2]"
-          title={'Vorgabewert als FEEL mit «=», z. B. = [90, 110, 140], = "CH", = date("2026-01-01") oder = {ort: "Bern"} — der Export schreibt ihn als Scala.\nOhne «=» ein Scala-Ausdruck, wörtlich übernommen.'}
-          className="w-44" />
+        {/* Vorgaben gibt es nur im InConfig und bei optionalen Feldern der Prozess-Eingabe
+            (dort setzt sie der Init-Worker im InitIn). FEEL mit «=», ohne «=» ein Scala-Ausdruck */}
+        {(owner?.inConfig || owner?.root || f.default) && (
+          <FeelInput value={f.default ?? ''} isDark={isDark}
+            disabled={!canEdit || (!!owner && !defaultIsUsed(owner, f) && !f.default)}
+            variables={[]}
+            onChange={v => onChange({ default: v || undefined })}
+            placeholder={owner?.root && !f.optional ? 'Vorgabe nur bei optional' : 'Vorgabe, z. B. = [1, 2]'}
+            title={(owner?.root
+              ? 'Wert, wenn das optionale Feld fehlt — der Init-Worker setzt ihn im InitIn (dort ist das Feld Pflicht).\n'
+              : owner?.inConfig ? 'Vorgabewert der Konfiguration.\n' : 'Vorgaben gibt es nur im InConfig und bei optionalen Feldern der Prozess-Eingabe — hier wird sie nicht verwendet.\n')
+              + 'Als FEEL mit «=», z. B. = [90, 110, 140], = "CH", = date("2026-01-01") oder = {ort: "Bern"} — der Export schreibt ihn als Scala. Ohne «=» ein Scala-Ausdruck, wörtlich übernommen.'}
+            className="w-44" />
+        )}
         <input value={f.example ?? ''} disabled={!canEdit} onChange={e => onChange({ example: e.target.value || undefined })}
           placeholder="Beispiel"
           title="Beispielwert für example — ohne Angabe leitet die App einen ab"

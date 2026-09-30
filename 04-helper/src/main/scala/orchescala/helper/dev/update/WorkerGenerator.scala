@@ -12,7 +12,9 @@ case class WorkerGenerator()(using config: DevConfig):
 
   // initIn: the expression customInit returns - e.g. `InitIn.example` if InitIn has required fields
   def createProcessWorker(setupElement: SetupElement, initIn: String = "InitIn()"): Unit =
-    createWorker(setupElement, processWorker(initIn), processWorkerTest(initIn))
+    // a multi-line expression goes on with the indentation of the method body
+    val expression = initIn.replace("\n", "\n    ")
+    createWorker(setupElement, processWorker(expression), processWorkerTest(expression))
 
   def createEventWorker(setupElement: SetupElement): Unit =
     createWorker(setupElement, eventWorker, eventWorkerTest)

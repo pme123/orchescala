@@ -311,7 +311,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${defaultClause(f, idx)}`;
+    return `${d}${f.name}: ${fieldType(f, idx)}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
   return `case class ${t.name}(${body})`;
@@ -343,7 +343,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${defaultClause(f, idx)}`;
+    return `${d}${f.name}: ${fieldType(f, idx)}`;
   });
   return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
 }
@@ -527,15 +527,57 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
 }
 
 /**
+ * Vorgabewerte stehen nie in einer Klasse — einzig im `InConfig`, wo es
+ * Konfigurationen sind. Beim `In` des Prozesses hat eine Vorgabe nur bei einem
+ * **optionalen** Feld Sinn: das Feld bleibt `Option[…]`, und der Init-Worker
+ * setzt dasselbe Feld im `InitIn` — dort Pflicht — auf den Wert aus dem `In`
+ * oder die Vorgabe:
+ *
+ *   In      debitAccountForFee: Option[Int]
+ *   InitIn  debitAccountForFee: Int
+ *   Worker  InitIn(debitAccountForFee = in.debitAccountForFee.getOrElse(90))
+ */
+export function defaultsForInit(spec: ProcessSpec, idx: TypeIndex): Field[] {
+  const root = (spec.types ?? []).find(t => t.root && t.kind === 'case');
+  return finished(root?.fields, idx)
+    .filter(f => f.optional && f.default?.trim())
+    .map(f => ({ ...f, optional: false }));
+}
+
+/** Wo eine Vorgabe verwendet wird: im InConfig, und bei optionalen Feldern der Prozess-Eingabe. */
+export function defaultIsUsed(t: TypeDef, f: Field): boolean {
+  return !!t.inConfig || (!!t.root && t.kind === 'case' && !!f.optional);
+}
+
+/**
  * `InitIn` — die Felder ergeben sich aus den Ausgaben des Init-Workers, die
  * **Typen** stehen dort aber nicht. Deshalb legt der Klassenbauer dafür einen
- * Typ an (`initIn`), der wie jeder andere bearbeitet wird; hier wird nur
- * gerendert, was dort steht.
+ * Typ an (`initIn`), der wie jeder andere bearbeitet wird. Dazu kommen die
+ * Felder mit Vorgabe aus dem `In` (siehe `defaultsForInit`).
  */
 export function renderInitIn(spec: ProcessSpec, idx: TypeIndex): string {
   const t = (spec.types ?? []).find(t => t.initIn);
-  if (!t || !finished(t.fields, idx).length) return '';
-  return renderType({ ...t, name: 'InitIn' }, idx);
+  const own = finished(t?.fields, idx);
+  const fromIn = defaultsForInit(spec, idx).filter(f => !own.some(o => o.name === f.name));
+  if (!own.length && !fromIn.length) return '';
+  return renderType({ ...(t ?? { id: 'initIn', kind: 'case' as const }), name: 'InitIn', fields: [...own, ...fromIn] }, idx);
+}
+
+/**
+ * Was der Init-Worker im `customInit` zurückgibt, wenn das `In` Vorgaben hat —
+ * die übrigen Felder des InitIn kommen (noch) aus dem Beispiel. `null`: keine Vorgaben.
+ */
+export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | null {
+  const fromIn = defaultsForInit(spec, idx);
+  if (!fromIn.length) return null;
+  const own = finished((spec.types ?? []).find(t => t.initIn)?.fields, idx);
+  const args = fromIn.map(f => {
+    const r = scalaDefault(f, idx);
+    const value = r.scala ?? `??? /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
+    return `  ${f.name} = in.${f.name}.getOrElse(${value})`;
+  });
+  const rest = own.some(o => !fromIn.some(f => f.name === o.name));
+  return `${rest ? 'InitIn.example.copy' : 'InitIn'}(\n${args.join(',\n')}\n)`;
 }
 
 function firstLine(text: string): string {
@@ -660,6 +702,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   if (inConfig) processParts.push(indent(inConfig));
   const initIn = renderInitIn(spec, idx);
   if (initIn) processParts.push(indent(initIn));
+  const customInit = initInExpression(spec, idx);
 
   if (processParts.length) {
     out.push({
@@ -668,6 +711,10 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
       content: [
         ...(processImports.size
           ? ['// oben in der Datei ergänzen:', ...[...processImports].map(l => `// ${l}`), '']
+          : []),
+        // gehört in den Worker, nicht in die Domain — der Helper setzt ihn dort ein
+        ...(customInit
+          ? ['// im InitWorker (customInit):', ...customInit.split('\n').map(l => `// ${l}`), '']
           : []),
         `// in object ${objectName} einfügen`,
         '// (InConfig und InitIn werden aus dem Ablauf erzeugt — nicht von Hand pflegen)',
@@ -789,9 +836,16 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       // in einem ADT darf derselbe Feldname in mehreren Fällen stehen
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
       seen.add(f.name);
-      // eine FEEL-Vorgabe muss sich nach Scala übersetzen lassen
-      const dflt = isFinished(f, idxAll) ? scalaDefault(f, idxAll) : null;
-      if (dflt?.issue) issues.push({ typeId: t.id, field: f.id, message: dflt.issue });
+      // eine Vorgabe gibt es nur im InConfig und bei optionalen Feldern der
+      // Prozess-Eingabe — und eine FEEL-Vorgabe muss sich nach Scala übersetzen lassen
+      if (f.default?.trim() && !defaultIsUsed(t, f)) {
+        issues.push({ typeId: t.id, field: f.id, message: t.root
+          ? `Vorgabe von «${f.name}» wird nicht verwendet — nur bei einem optionalen Feld (der Init-Worker setzt es dann im InitIn).`
+          : `Vorgabe von «${f.name}» wird nicht verwendet — Vorgaben gibt es nur im InConfig und bei optionalen Feldern der Prozess-Eingabe.` });
+      } else {
+        const dflt = isFinished(f, idxAll) ? scalaDefault(f, idxAll) : null;
+        if (dflt?.issue) issues.push({ typeId: t.id, field: f.id, message: dflt.issue });
+      }
       const domId = parseDomainRef(f.type);
       if (domId) {
         if (model?.domainTypes && !model.domainTypes.some(d => d.id === domId)) {

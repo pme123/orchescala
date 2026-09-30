@@ -113,6 +113,13 @@ Tippen.
   **Einschränkung** (Iron-Refinement wie `ValidEmail`, `MinLength[3]`,
   `FixedLength[2]` — als Vorlage mit Wert, oder frei), **Vorgabe**,
   **Beispiel** und die fachliche Bedeutung (wird zu `@description`).
+- **Vorgaben** stehen nie in einer Klasse — einzig im `InConfig`, wo es
+  Konfigurationen sind (dort als Default-Parameter). Beim `In` des Prozesses
+  hat eine Vorgabe nur bei einem **optionalen** Feld Sinn: das Feld bleibt
+  `Option[…]`, das `InitIn` bekommt dasselbe Feld als Pflicht, und der
+  Init-Worker setzt es — `fee = in.fee.getOrElse(90)`. Der Export gibt diesen
+  `customInit` als Hinweis mit, `./helper.scala processFromSpec` setzt ihn in
+  den Worker. Überall sonst wird eine Vorgabe nicht verwendet und gemeldet.
 - Die **Vorgabe** ist FEEL, wenn sie mit `=` beginnt — wie überall in der App.
   Der Export wertet sie aus und schreibt sie nach dem Typ des Feldes als Scala:
   `= [90, 110, 140]` → `Seq(90, 110, 140)`, `= "CH"` → `Some("CH")` bei einem

@@ -81,12 +81,17 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(processObject.content.contains(
       """      shabNumber: Option[String],
         |      @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
-        |      inConfig: Option[InConfig] = None
+        |      inConfig: Option[InConfig]
         |  ) extends WithConfig[InConfig]:
         |    lazy val defaultConfig = InConfig()
         |
         |  object In:""".stripMargin
     ))
+
+  test("process object - the examples of In set the inConfig"):
+    assert(processObject.content.contains("      shabNumber = Some(\"Beispiel\"),\n      inConfig = None\n    )"), processObject.content)
+    val empty = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", "")
+    assert(empty.content.contains("    lazy val example = In(inConfig = None)"))
 
   test("process object - Out is added if missing"):
     assert(processObject.content.contains("  case class Out()\n"))
@@ -130,15 +135,15 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |        clientKey: Long,
         |        amount: Int,
         |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
-        |        inConfig: Option[InConfig] = None
+        |        inConfig: Option[InConfig]
         |    )
         |    case Empty(
         |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
-        |        inConfig: Option[InConfig] = None
+        |        inConfig: Option[InConfig]
         |    )
         |  end In""".stripMargin
     ), obj.content)
-    assert(obj.content.contains("    lazy val example = In.Empty()\n"))
+    assert(obj.content.contains("    lazy val example = In.Empty(inConfig = None)\n"))
     assert(obj.content.contains("    In.example,\n    Out.exampleMinimal,"))
     assertEquals(obj.warnings, Seq.empty)
 
@@ -300,5 +305,25 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("fromCommand - not readable"):
     intercept[IllegalArgumentException](OrchSpecInput.fromCommand("orchspec:no-gzip"))
+
+  test("process object - customInit of the init worker from the export"):
+    val block =
+      """// oben in der Datei ergänzen:
+        |// import a.b.X
+        |
+        |// im InitWorker (customInit):
+        |// InitIn(
+        |//   fee = in.fee.getOrElse(90)
+        |// )
+        |
+        |// in object Proc einfügen
+        |
+        |  case class In(
+        |      fee: Option[Int]
+        |  )""".stripMargin
+    val obj   = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block)
+    assertEquals(obj.customInit, Some("InitIn(\n  fee = in.fee.getOrElse(90)\n)"))
+    assert(!obj.content.contains("getOrElse"), "the customInit belongs to the worker, not to the domain")
+    assertEquals(processObject.customInit, None)
 
 end OrchSpecGeneratorTest

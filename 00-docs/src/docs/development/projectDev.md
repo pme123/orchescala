@@ -199,6 +199,15 @@ src           - main -> myproject-myProcessV1.bpmn
 
 `In` gets the `inConfig` (`extends WithConfig[InConfig]`) - an enum `In` in each of its cases.
 
+Defaults are only in the `InConfig`. An optional field of `In` with a default in _Orch Spec_ stays an `Option` -
+the `InitIn` gets the same field as required, and the InitWorker sets it in `customInit`:
+```scala
+override def customInit(in: In): InitIn =
+  InitIn(
+    fee = in.fee.getOrElse(90)
+  )
+```
+
 The process is registered in the `WorkerApp` and in the `ApiProjectCreator`:
 ```scala
 object WorkerApp extends CompanyWorkerApp:

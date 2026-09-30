@@ -85,7 +85,8 @@ case class OrchSpecGenerator()(using config: DevConfig):
     // workers
     WorkerGenerator().createProcessWorker(
       setupElement,
-      if processObject.hasInitIn then "InitIn.example" else "InitIn()"
+      processObject.customInit
+        .getOrElse(if processObject.hasInitIn then "InitIn.example" else "InitIn()")
     )
     val interactions = classFiles.flatMap(f => OrchSpecExport.interaction(f.content))
     val workers      = objectName +: interactions.collect:
@@ -455,6 +456,21 @@ case class OrchSpecProcessObject(
 
   lazy val hasInitIn: Boolean = defines("InitIn")
 
+  /** What the init worker returns in `customInit` - the export puts it as comment before the classes:
+    * {{{
+    * // im InitWorker (customInit):
+    * // InitIn(
+    * //   debitAccountForFee = in.debitAccountForFee.getOrElse(90)
+    * // )
+    * }}}
+    * (the optional fields of `In` with a default - in `InitIn` they are required)
+    */
+  lazy val customInit: Option[String] =
+    val start = blockLines.indexWhere(_.trim == "// im InitWorker (customInit):")
+    Option.when(start >= 0):
+      blockLines.drop(start + 1).takeWhile(_.startsWith("// ")).map(_.stripPrefix("// ")).mkString("\n")
+    .filter(_.nonEmpty)
+
   /** What differs in an existing process object - only what comes from Orch Spec: the types of
     * the export (`In`, `Out`, `InConfig`, `InitIn`) and the imports. The rest is implementation.
     */
@@ -523,19 +539,34 @@ case class OrchSpecProcessObject(
   private def minimal(name: String) =
     if isEnum(name) then s"$name.example" else s"$name.exampleMinimal"
 
+  // without a value - in the domain objects only the InConfig has defaults; the examples set it
   private def inConfigField(indent: String) =
     s"""$indent@description("A way to override process configuration.\\n\\n**SHOULD NOT BE USED on Production!**")
-       |${indent}inConfig: Option[InConfig] = None""".stripMargin
+       |${indent}inConfig: Option[InConfig]""".stripMargin
 
   private val withConfigEnd =
     """  ) extends WithConfig[InConfig]:
       |    lazy val defaultConfig = InConfig()""".stripMargin
 
-  /** `In` gets the `inConfig` field and extends `WithConfig[InConfig]`. */
+  /** `In` gets the `inConfig` field and extends `WithConfig[InConfig]` - its examples `inConfig = None`. */
   private def withConfig(lines: Seq[String]): Seq[String] =
     if lines.exists(_.contains("WithConfig")) then lines
-    else if isEnum("In") then enumWithConfig(lines)
-    else classWithConfig(lines)
+    else if isEnum("In") then inConfigInExamples(enumWithConfig(lines))
+    else inConfigInExamples(classWithConfig(lines))
+
+  /** `lazy val example = In(…)` / `In.Case(…)` gets `inConfig = None` as last argument. */
+  private def inConfigInExamples(lines: Seq[String]): Seq[String] =
+    val opening = """(\s*)lazy val example(?:: In(?:\.\w+)?)? = In(?:\.\w+)?\(""".r
+    val empty   = """(.*lazy val example(?:: In(?:\.\w+)?)? = In(?:\.\w+)?)\(\)""".r
+    lines.indices.foldLeft(lines): (done, i) =>
+      done(i) match
+        case empty(head)     => done.updated(i, s"$head(inConfig = None)")
+        case opening(indent) =>
+          val end = done.indexWhere(_ == s"$indent)", i)
+          if end < 0 then done
+          else done.patch(end - 1, Seq(done(end - 1) + ",", s"$indent  inConfig = None"), 1)
+        case _               => done
+  end inConfigInExamples
 
   private def classWithConfig(lines: Seq[String]): Seq[String] =
     val start = lines.indexWhere(_.startsWith("  case class In("))
@@ -553,7 +584,8 @@ case class OrchSpecProcessObject(
   end classWithConfig
 
   /** An enum with fields (ADT): the enum extends `WithConfig[InConfig]`, each case gets the
-    * `inConfig` field - a case without fields too (`case B` -> `case B(inConfig: ..)`, `In.B` -> `In.B()`).
+    * `inConfig` field - a case without fields too (`case B` -> `case B(inConfig: ..)`,
+    * `In.B` -> `In.B(inConfig = None)`).
     */
   private def enumWithConfig(lines: Seq[String]): Seq[String] =
     val start    = lines.indexWhere(_ == "  enum In:")
@@ -569,7 +601,7 @@ case class OrchSpecProcessObject(
         case (done, line)           => done :+ line
       val bare    = lines.slice(start + 1, end).collect { case bareCase(name) => name }
       val applied = lines.drop(end).map: line =>
-        bare.foldLeft(line)((l, name) => l.replaceAll(s"\\bIn\\.$name\\b(?![\\w(])", s"In.$name()"))
+        bare.foldLeft(line)((l, name) => l.replaceAll(s"\\bIn\\.$name\\b(?![\\w(])", s"In.$name(inConfig = None)"))
       lines.take(start) ++
         Seq("  enum In extends WithConfig[InConfig]:", "    lazy val defaultConfig = InConfig()", "") ++
         cases ++ applied
@@ -596,7 +628,7 @@ case class OrchSpecProcessObject(
        |    given ApiSchema[In]  = deriveApiSchema
        |    given InOutCodec[In] = deriveInOutCodec
        |
-       |    lazy val example = In()
+       |    lazy val example = In(inConfig = None)
        |    lazy val exampleMinimal = example
        |  end In""".stripMargin
 
