@@ -5,13 +5,14 @@
 //                Fehler, Mocks — vollständig und eindeutig
 //  · json        die Spezifikation selbst (Sicherung / Weiterverarbeitung)
 
-import type { AppliedPattern, Branch, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
+import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
 import { STATUS_META } from './types.ts';
 import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
 import { engineLabel } from './template.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
+import { convertBpmn } from './engineConvert.ts';
 import { engineExpression } from './feelJuel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
@@ -389,6 +390,18 @@ export function exportBpmn(spec: ProcessSpec, bpmn: string): WriteResult {
   return writeBpmn(bpmn, spec);
 }
 
+/**
+ * Das Diagramm für eine Engine: die eigene wie es ist, die andere on the fly
+ * umgewandelt — die Spezifikation bleibt, wie sie ist. Dasselbe für den
+ * BPMN-Export und den Helper-Befehl.
+ */
+export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7'): WriteResult {
+  const written = exportBpmn(spec, bpmn);
+  if (!bpmn || engine === (spec.engine ?? 'c7')) return written;
+  const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive });
+  return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
+}
+
 export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | null, bpmn = ''): string {
   if (kind === 'bpmn') return exportBpmn(spec, bpmn).xml;
   if (kind === 'json') return JSON.stringify(spec, null, 2);
@@ -404,12 +417,12 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
  * Helper weder Dateien noch eine Anmeldung an SharePoint; `v` erlaubt, das
  * Format später zu ändern (der Helper lehnt eine unbekannte Version ab).
  *
- * Das BPMN ist dasselbe wie im BPMN-Export, für die Engine der Spezifikation.
+ * Das BPMN ist dasselbe wie im BPMN-Export für die gewählte Engine.
  */
-export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = ''): string {
+export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId): string {
   const payload = JSON.stringify({
     v: 1,
-    ...(bpmn ? { bpmn: exportBpmn(spec, bpmn).xml } : {}),
+    ...(bpmn ? { bpmn: exportBpmnFor(spec, bpmn, engine).xml } : {}),
     scala: scalaBundle(spec, model),
   });
   const zipped = gzipSync(strToU8(payload), { level: 9 });

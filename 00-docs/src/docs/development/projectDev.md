@@ -154,7 +154,7 @@ Usage:
 ./helper.scala processFromSpec [bpmnExport] [scalaExport] | orchspec:…
 ```
 
-The simplest way: in _Orch Spec_ _Export_ > **Für Helper kopieren** - it copies the whole command
+The simplest way: in _Orch Spec_ _Export_ > **Process from Spec** - it copies the whole command
 with the BPMN and the Scala classes in one argument (`orchspec:` + base64url(gzip(JSON))).
 Paste it in the terminal of your project and press Enter:
 ```

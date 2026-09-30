@@ -13,7 +13,7 @@ object OrchSpecInput:
 
   val commandPrefix = "orchspec:"
 
-  /** The argument of «Für Helper kopieren» in Orch Spec: `orchspec:` + base64url(gzip(JSON)) with
+  /** The argument of «Process from Spec» in Orch Spec: `orchspec:` + base64url(gzip(JSON)) with
     * `{ v: 1, bpmn?: String, scala: String }` - returns the BPMN (if the spec has a diagram) and the
     * Scala classes.
     */
@@ -25,7 +25,7 @@ object OrchSpecInput:
       finally in.close()
     .getOrElse:
       throw IllegalArgumentException(
-        "The argument is not readable - copy it again in Orch Spec (Export > Für Helper kopieren)."
+        "The argument is not readable - copy it again in Orch Spec (Export > Process from Spec)."
       )
     val cursor = io.circe.parser.parse(json).fold(e => throw IllegalArgumentException(e.getMessage), _.hcursor)
     cursor.get[Int]("v") match

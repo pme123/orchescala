@@ -58,7 +58,7 @@ trait DevHelper:
           // copy & paste: first the BPMN, then the Scala classes
           case Seq()                        =>
             createProcessFromSpec(Some(OrchSpecInput.bpmn()), OrchSpecInput.scalaClasses())
-          // «Für Helper kopieren» in Orch Spec: BPMN and Scala classes in one argument.
+          // «Process from Spec» in Orch Spec: BPMN and Scala classes in one argument.
           // The copied text is the whole command - pasted after a typed `./helper.scala processFromSpec`
           // the command is doubled: so take the `orchspec:` argument wherever it is.
           case arguments if arguments.exists(_.trim.startsWith(OrchSpecInput.commandPrefix)) =>
@@ -75,7 +75,7 @@ trait DevHelper:
             println(s"Invalid arguments for command $command: $other")
             println(s"Usage: $command [bpmnExport] [scalaExport] | orchspec:…")
             println(s"Example: $command                    (copy & paste the BPMN and the Scala classes)")
-            println(s"Example: $command orchspec:H4sI…     (Orch Spec: Export > Für Helper kopieren)")
+            println(s"Example: $command orchspec:H4sI…     (Orch Spec: Export > Process from Spec)")
             println(s"Example: $command my-process-bpmn-c7.bpmn my-process-scala.scala")
       case Command.customTask   =>
         args match

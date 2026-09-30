@@ -1,8 +1,7 @@
 // Export-Dialog: Zielgruppe wählen, Ergebnis prüfen, kopieren oder speichern.
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Copy, Download, Terminal, X } from 'lucide-react';
-import { EXPORT_META, exportBpmn, exportFileName, exportSpec, helperCommand, type ExportKind } from '../exporters';
-import { convertBpmn } from '../engineConvert';
+import { EXPORT_META, exportBpmnFor, exportFileName, exportSpec, helperCommand, type ExportKind } from '../exporters';
 import { ENGINES } from '../template';
 import type { EngineId, Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
@@ -22,14 +21,10 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   // BPMN für die andere Engine: on the fly umgewandelt, die Spezifikation bleibt, wie sie ist
   const own: EngineId = spec.engine ?? 'c7';
   const [engine, setEngine] = useState<EngineId>(own);
-  const bpmnOut = useMemo(() => {
-    if (kind !== 'bpmn' || !bpmn) return null;
-    // was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
-    const w = exportBpmn(spec, bpmn);
-    if (engine === own) return w;
-    const conv = convertBpmn(w.xml, engine, { timeToLive: spec.timeToLive });
-    return { xml: conv.xml, issues: [...w.issues, ...conv.issues] };
-  }, [spec, kind, bpmn, engine, own]);
+  // samt dem, was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
+  const bpmnOut = useMemo(
+    () => (kind === 'bpmn' && bpmn ? exportBpmnFor(spec, bpmn, engine) : null),
+    [spec, kind, bpmn, engine]);
   const text = useMemo(() => bpmnOut?.xml ?? exportSpec(spec, kind, model, bpmn), [bpmnOut, spec, kind, model, bpmn]);
   const issues = bpmnOut?.issues ?? [];
   const fileName = kind === 'bpmn' && engine !== own
@@ -48,7 +43,8 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
 
   // BPMN und Scala-Klassen in einem Befehl — `./helper.scala processFromSpec orchspec:…`
   const copyForHelper = async () => {
-    const command = helperCommand(spec, model, bpmn);
+    // das BPMN für die Engine, die im BPMN-Reiter gewählt ist
+    const command = helperCommand(spec, model, bpmn, engine);
     try {
       await navigator.clipboard.writeText(command);
       setHelperShown(null);
@@ -71,7 +67,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={onClose}>
-      <div className={`max-w-3xl w-full max-h-[85vh] flex flex-col rounded-xl border p-5 ${c.border2} ${c.panelStrong}`}
+      <div className={`max-w-5xl w-full max-h-[85vh] flex flex-col rounded-xl border p-5 ${c.border2} ${c.panelStrong}`}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 mb-3">
           <h3 className={`text-sm font-semibold ${c.text}`}>Export — {spec.title}</h3>
@@ -94,7 +90,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
           <div className="flex items-center gap-1.5 mb-2">
             <span className={`text-[10px] ${c.muted}`}>für</span>
             {ENGINES.map(e => (
-              <button key={e.id} onClick={() => setEngine(e.id)}
+              <button key={e.id} onClick={() => { setEngine(e.id); setHelperShown(null); }}
                 className={`text-[10px] px-2 py-1 rounded border transition-colors ${
                   engine === e.id
                     ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
@@ -123,18 +119,18 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
           className={`flex-1 min-h-[16rem] text-[10px] leading-relaxed font-mono px-3 py-2 rounded border outline-none resize-none ${c.input}`} />
 
         <div className="flex items-center gap-2 pt-3">
-          <span className={`text-[10px] ${c.muted}`}>{(helperShown ?? text).length.toLocaleString('de-CH')} Zeichen · {helperShown !== null ? 'Befehl für ./helper.scala' : fileName}</span>
+          <span className={`min-w-0 truncate text-[10px] ${c.muted}`}>{(helperShown ?? text).length.toLocaleString('de-CH')} Zeichen · {helperShown !== null ? 'Befehl für ./helper.scala' : fileName}</span>
           <button onClick={copyForHelper}
-            title={'Befehl für das Projekt: ./helper.scala processFromSpec orchspec:… — BPMN und Scala-Klassen in einem.\nIm Projektordner ins Terminal einfügen und Enter drücken.'}
-            className={`ml-auto flex items-center gap-1.5 text-xs px-3 py-2 rounded border ${c.btn}`}>
+            title={`Befehl für das Projekt: ./helper.scala processFromSpec orchspec:… — BPMN (${ENGINES.find(e => e.id === engine)?.label ?? engine}) und Scala-Klassen in einem.\nIm Projektordner ins Terminal einfügen und Enter drücken.`}
+            className={`ml-auto shrink-0 whitespace-nowrap flex items-center gap-1.5 text-xs px-3 py-2 rounded border ${c.btn}`}>
             {helperCopied !== null
               ? <><Check size={12} /> Befehl kopiert ({helperCopied} KB)</>
-              : <><Terminal size={12} /> Für Helper kopieren</>}
+              : <><Terminal size={12} /> Process from Spec</>}
           </button>
-          <button onClick={copy} className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded border ${c.btn}`}>
+          <button onClick={copy} className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 text-xs px-3 py-2 rounded border ${c.btn}`}>
             {copied ? <><Check size={12} /> Kopiert</> : <><Copy size={12} /> Kopieren</>}
           </button>
-          <button onClick={save} className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded font-semibold ${c.btnPrimary}`}>
+          <button onClick={save} className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 text-xs px-3 py-2 rounded font-semibold ${c.btnPrimary}`}>
             <Download size={12} /> Speichern
           </button>
         </div>
