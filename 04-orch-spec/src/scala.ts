@@ -748,6 +748,9 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   if (inConfig) processParts.push(indent(inConfig));
   const initIn = renderInitIn(spec, idx);
   if (initIn) processParts.push(indent(initIn));
+  // die eigenen Felder des InitIn bringen ihre Imports mit — die aus dem In hat das In schon
+  const initInType = types.find(t => t.initIn);
+  if (initIn && initInType) for (const l of importsOf(initInType, idx)) processImports.add(l);
   const customInit = initInExpression(spec, idx);
 
   if (processParts.length) {
