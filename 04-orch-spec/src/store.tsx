@@ -87,6 +87,8 @@ interface StoreCtx {
   /** mitgelieferter Katalog (catalog.generated.json) — null, wenn keiner ausgeliefert ist */
   generatedCatalog: CatalogFile | null;
   specs: SpecListItem[];
+  /** die Liste wird gerade (neu) gelesen */
+  specsLoading: boolean;
   refreshSpecs: () => Promise<void>;
   loadSpec: (slug: string) => Promise<{ data: ProcessSpec; version: string } | null>;
   /** das BPMN zur Spezifikation — `processes/<slug>.bpmn` */
@@ -202,6 +204,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { alive = false; };
   }, []);
   const [specs, setSpecs] = useState<SpecListItem[]>([]);
+  // bis die Liste zum ersten Mal gelesen ist: laden, nicht «leer»
+  const [specsLoading, setSpecsLoading] = useState(true);
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
@@ -273,17 +277,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSpecsIn = useCallback(async (be: StorageBackend) => {
     const items: SpecListItem[] = [];
+    setSpecsLoading(true);
     try {
-      for (const f of await be.list(DIR)) {
-        if (!f.name.endsWith('.json')) continue;
-        const read = await be.read(`${DIR}/${f.name}`);
-        if (!read) continue;
-        try {
-          items.push({ slug: f.name.replace(/\.json$/, ''), data: JSON.parse(read.text) as ProcessSpec, version: read.version });
-        } catch { /* unlesbare Datei überspringen */ }
-      }
+      // parallel lesen — bei SharePoint ist jede Datei ein eigener Aufruf;
+      // höchstens 8 gleichzeitig, damit der Dienst nicht drosselt
+      const files = (await be.list(DIR)).filter(f => f.name.endsWith('.json'));
+      let next = 0;
+      const worker = async () => {
+        while (next < files.length) {
+          const f = files[next++];
+          try {
+            const read = await be.read(`${DIR}/${f.name}`);
+            if (read) items.push({ slug: f.name.replace(/\.json$/, ''), data: JSON.parse(read.text) as ProcessSpec, version: read.version });
+          } catch { /* unlesbare Datei überspringen */ }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(8, files.length) }, worker));
     } catch (e) {
       console.error('[orch-spec] refreshSpecs:', e);
+    } finally {
+      setSpecsLoading(false);
     }
     items.sort((a, b) => (a.data.title || a.slug).localeCompare(b.data.title || b.slug, 'de'));
     setSpecs(items);
@@ -388,10 +401,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setStorage(info);
     setSavedHandleName(null);
     savedHandleRef.current = null;
-    await loadModel(be);
-    await loadUsersIn(be);
-    try { await be.ensureDir(DIR); } catch { /* readonly? Liste bleibt leer */ }
-    await refreshSpecsIn(be);
+    // Modell, Benutzer und Liste unabhängig voneinander — gleichzeitig lesen
+    await Promise.all([
+      loadModel(be),
+      loadUsersIn(be),
+      (async () => {
+        try { await be.ensureDir(DIR); } catch { /* readonly? Liste bleibt leer */ }
+        await refreshSpecsIn(be);
+      })(),
+    ]);
   }, [loadModel, loadUsersIn, refreshSpecsIn]);
 
   // ── lokaler Ordner ────────────────────────────────────────────────────────
@@ -668,7 +686,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       folderLinkError, clearFolderLinkError: () => setFolderLinkError(null), reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
-      specs, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
+      specs, specsLoading, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
       {children}

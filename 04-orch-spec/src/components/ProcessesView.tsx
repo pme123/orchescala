@@ -17,7 +17,7 @@
 // Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
 import { collectFindings } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
@@ -51,7 +51,7 @@ function relativeTime(iso: string | undefined): string {
 }
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, specs, createSpec, saveBpmn, deleteSpec, model } = useStore();
+  const { isDark, specs, specsLoading, createSpec, saveBpmn, deleteSpec, model } = useStore();
   const { canEdit, canDelete } = usePermissions();
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -432,7 +432,11 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         </div>
       )}
 
-      {!specs.length ? (
+      {!specs.length && specsLoading ? (
+        <div className={`text-xs ${c.muted} py-10 flex items-center justify-center gap-2`}>
+          <Loader2 size={14} className="animate-spin" /> Spezifikationen werden geladen …
+        </div>
+      ) : !specs.length ? (
         <div className={`text-xs ${c.muted} py-10 text-center`}>
           Noch keine Spezifikation. {canEdit ? '«Aus BPMN» liest die Struktur direkt aus der Implementation.' : ''}
         </div>
