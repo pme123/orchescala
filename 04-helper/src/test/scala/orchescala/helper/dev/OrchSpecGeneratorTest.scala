@@ -147,14 +147,22 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(!obj.content.contains("WithConfig[InConfig]:"))
     assertEquals(obj.warnings.size, 1)
 
-  lazy val workerRegistration = OrchSpecRegistration(
+  private def workers(entries: Seq[String]) = OrchSpecRegistration(
     "WorkerApp",
     "workers(",
     "procWorkers",
-    """  private lazy val procWorkers =
-      |    Seq(ProcWorker())
-      |  end procWorkers""".stripMargin
+    entries,
+    es => s"""  private lazy val procWorkers =
+             |    Seq(
+             |${es.map(e => s"      $e,").mkString("\n")}
+             |    )
+             |  end procWorkers""".stripMargin
   )
+  lazy val workerRegistration = workers(Seq("ProcWorker()"))
+
+  private def registered(result: RegistrationResult): String = result match
+    case RegistrationResult.Registered(content, _) => content
+    case other                                     => fail(s"not registered: $other")
 
   test("registration - adds the name to the list and the block at the end"):
     val workerApp =
@@ -167,33 +175,89 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |end WorkerApp
         |""".stripMargin
     assertEquals(
-      workerRegistration.register(workerApp),
-      Right(Some(
-        """object WorkerApp extends CompanyWorkerApp:
-          |  workers(
-          |    procWorkers,
-          |    //TODO add workers here
-          |  )
-          |  dependencies(
-          |  )
-          |
-          |  private lazy val procWorkers =
-          |    Seq(ProcWorker())
-          |  end procWorkers
-          |
-          |end WorkerApp
-          |""".stripMargin
-      ))
+      registered(workerRegistration.register(workerApp)),
+      """object WorkerApp extends CompanyWorkerApp:
+        |  workers(
+        |    procWorkers,
+        |    //TODO add workers here
+        |  )
+        |  dependencies(
+        |  )
+        |
+        |  private lazy val procWorkers =
+        |    Seq(
+        |      ProcWorker(),
+        |    )
+        |  end procWorkers
+        |
+        |end WorkerApp
+        |""".stripMargin
     )
 
+  lazy val registeredApp =
+    registered(workerRegistration.register("object WorkerApp:\n  workers(\n  )\nend WorkerApp\n"))
+
   test("registration - nothing to do if registered"):
-    val registered = workerRegistration.register(
-      "object WorkerApp:\n  workers(\n  )\nend WorkerApp\n"
-    ).toOption.flatten.get
-    assertEquals(workerRegistration.register(registered), Right(None))
+    assertEquals(workerRegistration.register(registeredApp), RegistrationResult.Unchanged)
+
+  test("registration - a re-run adds the missing entries to the block"):
+    val result = workers(Seq("ProcWorker()", "CheckWorker()")).register(registeredApp)
+    assertEquals(result match { case RegistrationResult.Registered(_, added) => added; case _ => Nil }, Seq("CheckWorker()"))
+    assert(registered(result).contains("      ProcWorker(),\n      CheckWorker(),\n    )\n  end procWorkers"))
+
+  test("registration - a re-run adds a comma to the last entry"):
+    val handWritten =
+      """object WorkerApp:
+        |  workers(
+        |    procWorkers
+        |  )
+        |  private lazy val procWorkers =
+        |    val client = Client()
+        |    Seq(
+        |      ProcWorker(client)
+        |    )
+        |  end procWorkers
+        |end WorkerApp
+        |""".stripMargin
+    assert(registered(workers(Seq("ProcWorker()", "CheckWorker()")).register(handWritten))
+      .contains("      ProcWorker(client),\n      CheckWorker(),\n    )"))
+
+  test("registration - a re-run fills an empty api"):
+    val api      = OrchSpecRegistration(
+      "ApiProjectCreator",
+      "document(",
+      "procApi",
+      Seq("CheckUT.example"),
+      _ => ""
+    )
+    val existing =
+      """object ApiProjectCreator:
+        |  document(
+        |    procApi,
+        |  )
+        |  private lazy val procApi =
+        |    api(Proc.example)()
+        |  end procApi
+        |end ApiProjectCreator
+        |""".stripMargin
+    assert(registered(api.register(existing)).contains("    api(Proc.example)(\n      CheckUT.example,\n    )\n  end procApi"))
 
   test("registration - unexpected form"):
-    assert(workerRegistration.register("object WorkerApp:\n  val x = 1\n").isLeft)
+    assert(workerRegistration.register("object WorkerApp:\n  val x = 1\n").isInstanceOf[RegistrationResult.Manual])
+
+  test("differences - whole file, blanks at the line ends do not count"):
+    assertEquals(OrchSpecExport.differences("a  \nb\n\n", "a\nb"), Seq.empty)
+    assertEquals(OrchSpecExport.differences("a\nc", "a\nb"), Seq(OrchSpecExport.whole))
+
+  test("differences - process object: only the types of the export and the imports"):
+    val implemented = processObject.content
+      .replace("""val descr: String = """"", """val descr: String = "Documents the contact."""")
+      .replace("    InitIn.exampleMinimal\n  )", "    InitIn.example\n  )")
+    assertEquals(processObject.differences(implemented), Seq.empty)
+    val changedIn   = implemented.replace("      shabNumber: Option[String],", "      shabNumber: Option[String],\n      newField: Int,")
+    assertEquals(processObject.differences(changedIn), Seq("In"))
+    val noImport    = implemented.replace("import valiant.graviton.domain.work.v1.PostWorkActivity\n", "")
+    assertEquals(processObject.differences(noImport), Seq("imports"))
 
   test("names from the process id - like Orch Spec"):
     assertEquals(

@@ -240,8 +240,14 @@ The package of the Scala classes must be `<projectPackage>.domain.<processName>.
 so company and project of the process in _Orch Spec_ must match the project.
 If it differs from the names of the BPMN, you get a warning (the Scala classes win).
 
-Existing files are not overwritten - so you can run it again after adding new classes in _Orch Spec_.
-Changes of existing classes you have to merge manually.
+Existing files are never overwritten - so you can run it again after changes in _Orch Spec_:
+- new classes, workers and tests are created,
+- new workers and interactions are added to the `WorkerApp` and the `ApiProjectCreator`,
+- the classes and the BPMN are compared with _Orch Spec_ - `UNCHANGED`, or
+  `DIFFERS from Orch Spec` (for the process object only the types of the export - `In`, `Out`, `InConfig`, `InitIn` -
+  and the imports, the rest is implementation).
+
+To take a new version of a class or of the BPMN: delete it and run the command again - or merge it manually.
 
 ### customTask
 Creates a new Custom Task.

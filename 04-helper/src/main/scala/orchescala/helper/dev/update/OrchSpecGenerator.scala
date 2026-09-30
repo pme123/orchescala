@@ -48,11 +48,11 @@ case class OrchSpecGenerator()(using config: DevConfig):
     // domain
     classFiles.foreach: file =>
       val inSchema = file.path.segments.contains("schema")
-      createIfNotExists(
+      createOrCompare(
         domainDir / file.path.relativeTo(OrchSpecExport.processDir(files)),
         if hasSchema && !inSchema then OrchSpecExport.withImport(file.content, schemaImport)
         else file.content
-      )
+      )()
     val processObject = OrchSpecProcessObject(
       pkg,
       objectName,
@@ -60,12 +60,8 @@ case class OrchSpecGenerator()(using config: DevConfig):
       processFile.headOption.map(_.content).getOrElse(""),
       Option.when(hasSchema)(schemaImport)
     )
-    val processPath   = domainDir / s"$objectName.scala"
-    if os.exists(processPath) then
-      println(
-        s"${Console.RED}NOT Updated - $processPath - merge the process object of the Scala export manually.${Console.RESET}"
-      )
-    else createIfNotExists(processPath, processObject.content)
+    // only what comes from Orch Spec is compared - the rest of the process object is implementation
+    createOrCompare(domainDir / s"$objectName.scala", processObject.content)(processObject.differences)
     processObject.warnings.foreach(w => println(s"${Console.YELLOW}WARNING: $w${Console.RESET}"))
 
     // bpmn
@@ -81,7 +77,7 @@ case class OrchSpecGenerator()(using config: DevConfig):
               case _: BpmnProcessType.C8 => BpmnProcessType.C7()
               case other                 => other
         val name        = processId.stripPrefix(s"${config.companyName}-")
-        createIfNotExists(os.pwd / processType.diagramPath / s"$name.bpmn", xml)
+        createOrCompare(os.pwd / processType.diagramPath / s"$name.bpmn", xml)()
       case None      =>
         BpmnProcessGenerator(config.bpmnProcessType).createBpmn(setupElement)
     end match
@@ -107,7 +103,7 @@ case class OrchSpecGenerator()(using config: DevConfig):
     // simulation
     SimulationGenerator().createSimulation(setupElement)
 
-    // registration in the WorkerApp and the API documentation
+    // registration in the WorkerApp and the API documentation - on a re-run the missing entries are added
     val versionPackage = version.versionPackage
     register(
       config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) / "WorkerApp.scala",
@@ -115,12 +111,14 @@ case class OrchSpecGenerator()(using config: DevConfig):
         "WorkerApp",
         "workers(",
         s"${processName}Workers",
-        s"""  private lazy val ${processName}Workers =
-           |    import ${config.projectPackage}.worker.$processName$versionPackage.*
-           |    Seq(
-           |${workers.map(w => s"      ${w}Worker(),").mkString("\n")}
-           |    )
-           |  end ${processName}Workers""".stripMargin
+        workers.map(w => s"${w}Worker()"),
+        entries =>
+          s"""  private lazy val ${processName}Workers =
+             |    import ${config.projectPackage}.worker.$processName$versionPackage.*
+             |    Seq(
+             |${entries.map(e => s"      $e,").mkString("\n")}
+             |    )
+             |  end ${processName}Workers""".stripMargin
       )
     )
     register(
@@ -129,32 +127,55 @@ case class OrchSpecGenerator()(using config: DevConfig):
         "ApiProjectCreator",
         "document(",
         s"${processName}Api",
-        s"""  private lazy val ${processName}Api =
-           |    import ${config.projectPackage}.domain.$processName$versionPackage.*
-           |    api($objectName.example)(${
-            if interactions.isEmpty then ")"
-            else interactions.map((name, _) => s"      $name.example,").mkString("\n", "\n", "\n    )")
-          }
-           |  end ${processName}Api""".stripMargin
+        interactions.map((name, _) => s"$name.example"),
+        entries =>
+          s"""  private lazy val ${processName}Api =
+             |    import ${config.projectPackage}.domain.$processName$versionPackage.*
+             |    api($objectName.example)(${
+              if entries.isEmpty then ")"
+              else entries.map(e => s"      $e,").mkString("\n", "\n", "\n    )")
+            }
+             |  end ${processName}Api""".stripMargin
       )
     )
   end createProcess
 
+  /** Creates the file - an existing one is never overwritten, only compared with Orch Spec
+    * (`differences`: what differs, empty if nothing).
+    */
+  private def createOrCompare(file: os.Path, content: String)(
+      differences: String => Seq[String] = OrchSpecExport.differences(_, content)
+  ): Unit =
+    if !os.exists(file) then createIfNotExists(file, content)
+    else
+      differences(os.read(file)) match
+        case Seq()                  =>
+          println(s"UNCHANGED: $file")
+        case Seq(OrchSpecExport.whole) =>
+          println(
+            s"${Console.YELLOW}DIFFERS from Orch Spec: $file - merge it manually, or delete it and run again.${Console.RESET}"
+          )
+        case parts                  =>
+          println(
+            s"${Console.YELLOW}DIFFERS from Orch Spec: $file (${parts.mkString(", ")}) - merge it manually, or delete it and run again.${Console.RESET}"
+          )
+  end createOrCompare
+
   private def register(file: os.Path, registration: OrchSpecRegistration): Unit =
-    val registered =
+    val result =
       if os.exists(file) then registration.register(os.read(file))
-      else Left(s"$file does not exist")
-    registered match
-      case Right(None)          =>
-        println(s"EXISTS: ${registration.name} in $file")
-      case Right(Some(content)) =>
-        println(s"${Console.BLUE}Updated - $file (${registration.name})${Console.RESET}")
+      else RegistrationResult.Manual(s"$file does not exist.", registration.snippet(registration.entries))
+    result match
+      case RegistrationResult.Unchanged                =>
+        println(s"UNCHANGED: ${registration.name} in $file")
+      case RegistrationResult.Registered(content, added) =>
+        println(s"${Console.BLUE}Updated - $file (${registration.name}: ${added.mkString(", ")})${Console.RESET}")
         os.write.over(file, content)
-      case Left(reason)         =>
+      case RegistrationResult.Manual(reason, snippet)  =>
         println(
           s"""${Console.RED}NOT Updated - $reason
              |Add it manually to ${registration.objectName}:${Console.RESET}
-             |${registration.snippet}""".stripMargin
+             |$snippet""".stripMargin
         )
     end match
   end register
@@ -216,41 +237,105 @@ case class OrchSpecFile(path: os.RelPath, content: String, insert: Boolean = fal
   *     ..
   *   )
   *   ..
-  *   private lazy val myProcessWorkers = ..   // block - added at the end
+  *   private lazy val myProcessWorkers =   // block - added at the end
+  *     import ..
+  *     Seq(
+  *       MyProcessWorker(),     // entries
+  *     )
   *   end myProcessWorkers
   * end WorkerApp
   * }}}
+  * Is the block already there (a re-run), the missing entries are added to it.
   */
-case class OrchSpecRegistration(objectName: String, listStart: String, name: String, block: String):
+case class OrchSpecRegistration(
+    objectName: String,
+    listStart: String,
+    name: String,
+    // `MyProcessWorker()` / `MyUserTaskUT.example`
+    entries: Seq[String],
+    block: Seq[String] => String
+):
 
-  /** The new content - `None` if it is already registered, `Left` if the object has not the expected form. */
-  def register(content: String): Either[String, Option[String]] =
+  def register(content: String): RegistrationResult =
     val lines = content.linesIterator.toSeq
-    val list  = lines.indexWhere(_.trim == listStart)
-    val end   = lines.indexWhere(_.trim == s"end $objectName")
-    if content.contains(s"lazy val $name ") || content.contains(s"lazy val $name\n") then Right(None)
-    else if list < 0 || end < list then
-      Left(s"$objectName has no `$listStart` or no `end $objectName`.")
-    else
-      // trailing commas are fine - the closing parenthesis is always on its own line
-      val entry = " " * (lines(list).indexWhere(_ != ' ') + 2) + s"$name,"
-      val body  = lines.slice(list + 1, end).reverse.dropWhile(_.isBlank).reverse
-      Right(Some(
-        (lines.take(list + 1) ++ (entry +: body) ++ ("" +: block.linesIterator.toSeq :+ "") ++ lines.drop(end))
-          .mkString("\n") + "\n"
-      ))
-    end if
+    val start = lines.indexWhere(_.matches(s"""\\s*(private\\s+)?lazy val $name\\s*=.*"""))
+    if start >= 0 then addEntries(lines, start)
+    else addBlock(lines)
   end register
 
-  lazy val snippet: String =
+  def snippet(missing: Seq[String]): String =
     s"""  $listStart
        |    $name,
        |    ..
        |  )
        |
-       |$block""".stripMargin
+       |${block(missing)}""".stripMargin
+
+  private def addBlock(lines: Seq[String]): RegistrationResult =
+    val list = lines.indexWhere(_.trim == listStart)
+    val end  = lines.indexWhere(_.trim == s"end $objectName")
+    if list < 0 || end < list then
+      RegistrationResult.Manual(s"$objectName has no `$listStart` or no `end $objectName`.", snippet(entries))
+    else
+      // trailing commas are fine - the closing parenthesis is always on its own line
+      val entry = " " * (indentOf(lines(list)) + 2) + s"$name,"
+      val body  = lines.slice(list + 1, end).reverse.dropWhile(_.isBlank).reverse
+      RegistrationResult.Registered(
+        (lines.take(list + 1) ++ (entry +: body) ++ ("" +: block(entries).linesIterator.toSeq :+ "") ++ lines.drop(end))
+          .mkString("\n") + "\n",
+        Seq(name)
+      )
+    end if
+  end addBlock
+
+  /** A re-run: the block is there - the new entries go before its last closing parenthesis. */
+  private def addEntries(lines: Seq[String], start: Int): RegistrationResult =
+    val end     = lines.indexWhere(_.trim == s"end $name", start)
+    val inBlock = if end < 0 then lines.drop(start) else lines.slice(start, end)
+    val missing = entries.filterNot: e =>
+      val key = e.takeWhile(c => c.isLetterOrDigit || c == '_')
+      inBlock.exists(s"""\\b$key\\b""".r.findFirstIn(_).isDefined)
+    val manual  = (reason: String) =>
+      RegistrationResult.Manual(reason, s"  // in $name\n${missing.map(e => s"      $e,").mkString("\n")}")
+    if missing.isEmpty then RegistrationResult.Unchanged
+    else if end < 0 then manual(s"$objectName has no `end $name`.")
+    else
+      val closing = (start until end).findLast(i => lines(i).trim == ")")
+      val empty   = (start until end).findLast(i => lines(i).stripTrailing.endsWith(")()"))
+      (closing, empty) match
+        // `api(MyProcess.example)()` - the first run had no interactions
+        case (_, Some(i)) if closing.forall(_ < i) =>
+          val indent = " " * indentOf(lines(i))
+          val opened = lines(i).stripTrailing.dropRight(1)
+          RegistrationResult.Registered(
+            lines.patch(i, (opened +: missing.map(e => s"$indent  $e,")) :+ s"$indent)", 1).mkString("\n") + "\n",
+            missing
+          )
+        case (Some(i), _)                          =>
+          val indent = " " * (indentOf(lines(i)) + 2)
+          // the last entry may have no trailing comma
+          val last   = (start until i).findLast(j => !lines(j).isBlank).get
+          val comma  =
+            if lines(last).stripTrailing.endsWith(",") || lines(last).stripTrailing.endsWith("(") then lines(last)
+            else lines(last).stripTrailing + ","
+          RegistrationResult.Registered(
+            lines.patch(last, Seq(comma), 1).patch(i, missing.map(e => s"$indent$e,"), 0).mkString("\n") + "\n",
+            missing
+          )
+        case _                                     =>
+          manual(s"$name has not the expected form.")
+      end match
+    end if
+  end addEntries
+
+  private def indentOf(line: String) = line.indexWhere(_ != ' ')
 
 end OrchSpecRegistration
+
+enum RegistrationResult:
+  case Unchanged
+  case Registered(content: String, added: Seq[String])
+  case Manual(reason: String, snippet: String)
 
 object OrchSpecExport:
 
@@ -316,6 +401,16 @@ object OrchSpecExport:
       .headOption
   end processId
 
+  /** Marks a file that differs as a whole (and not only in parts). */
+  val whole = "whole"
+
+  /** `Seq(whole)` if the existing file differs from the export - blanks at the line ends do not count. */
+  def differences(existing: String, exported: String): Seq[String] =
+    if normalized(existing) == normalized(exported) then Seq.empty else Seq(whole)
+
+  private[update] def normalized(text: String): Seq[String] =
+    text.linesIterator.map(_.stripTrailing).toSeq.reverse.dropWhile(_.isEmpty).reverse
+
   def isC8(bpmn: String): Boolean =
     bpmn.contains("http://camunda.org/schema/zeebe/1.0")
 
@@ -359,6 +454,25 @@ case class OrchSpecProcessObject(
   private def isEnum(name: String)  = body.exists(_.startsWith(s"  enum $name:"))
 
   lazy val hasInitIn: Boolean = defines("InitIn")
+
+  /** What differs in an existing process object - only what comes from Orch Spec: the types of
+    * the export (`In`, `Out`, `InConfig`, `InitIn`) and the imports. The rest is implementation.
+    */
+  def differences(existing: String): Seq[String] =
+    val existingLines  = OrchSpecExport.normalized(existing)
+    val generatedLines = OrchSpecExport.normalized(content)
+    val types          = Seq("In", "Out", "InConfig", "InitIn")
+      .filter(defines)
+      .filter(t => section(generatedLines, t) != section(existingLines, t))
+    val missingImports = (imports ++ schemaImport).filterNot(i => existingLines.exists(_.trim == i.trim))
+    types ++ Option.when(missingImports.nonEmpty)("imports")
+  end differences
+
+  // from `case class In(` / `enum In` to the last `end In` (of the companion)
+  private def section(lines: Seq[String], name: String): Seq[String] =
+    val start = lines.indexWhere(l => l.startsWith(s"  case class $name(") || l.matches(s"  enum $name\\b.*"))
+    val end   = lines.lastIndexWhere(_ == s"  end $name")
+    if start < 0 || end < start then Seq.empty else lines.slice(start, end + 1)
 
   // an enum without fields (`case a, b`) cannot carry the inConfig
   lazy val warnings: Seq[String] =
