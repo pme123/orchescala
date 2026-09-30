@@ -18,7 +18,7 @@
 // angefasst; abgewählte Zeilen kommen nicht ins BPMN. Steuerparameter
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
-import type { EngineId, Mapping, ProcessSpec } from './types';
+import type { EngineId, Mapping, ProcessSpec, Step } from './types';
 import { TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockField, paramExpression } from './bpmn';
 import { referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
@@ -123,6 +123,8 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
     }
 
+    if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
+
     // Service: die Ausgaben werden von Hand gemappt, und der Worker weiss, welche Variablen es braucht
     if (el && step.kind === 'service') {
       const vars: string[] = [];
@@ -197,6 +199,65 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   out = out.replace(/^(<\?xml[^>]*\?>)(?!\n)/, '$1\n');
   return { xml: out, issues };
+}
+
+// ── Implementierung ──────────────────────────────────────────────────────────
+/**
+ * Topic bzw. gerufener Prozess — so, wie die Spezifikation sie kennt (wählt man
+ * den Service, übernimmt der Schritt beides aus dem Katalog). Ein Task, der
+ * erst in Orch Spec angelegt oder zum Service gemacht wurde, hätte sie sonst
+ * nirgends im Diagramm, und die Engine wüsste nicht, was sie ausführen soll.
+ *
+ *   Camunda 7   camunda:type="external" camunda:topic="…"   bzw.  calledElement="…"
+ *   Camunda 8   <zeebe:taskDefinition type="…" />           bzw.  <zeebe:calledElement processId="…" />
+ *
+ * Fehlt sie auch im Diagramm, wird das gemeldet.
+ */
+function writeImplementation(
+  doc: Document, el: Element, ensureExt: (el: Element) => Element, engine: EngineId, step: Step,
+  processId: string | undefined, issues: WriteIssue[],
+) {
+  const zeebe = (name: string): Element | undefined => {
+    const ext = firstNamed(el, 'extensionElements');
+    return ext ? kids(ext).find(c => local(c) === name) : undefined;
+  };
+  const zeebeOrNew = (name: string, attrs: Record<string, string> = {}): Element => {
+    const found = zeebe(name);
+    if (found) return found;
+    const created = doc.createElementNS(ZEEBE_NS, `zeebe:${name}`);
+    for (const [k, v] of Object.entries(attrs)) created.setAttribute(k, v);
+    prependEl(ensureExt(el), created);
+    return created;
+  };
+  const missing = (text: string) => issues.push({ stepId: step.id, where: 'Implementierung', text });
+
+  if (local(el) === 'serviceTask') {
+    // der Init-Worker der Vorlage hört auf die Prozess-ID (Orchescala-Konvention)
+    const topic = step.topic?.trim() || (el.getAttribute('id') === 'InitProcessTask' ? processId?.trim() : undefined);
+    if (engine === 'c8') {
+      if (topic) zeebeOrNew('taskDefinition').setAttribute('type', topic);
+      else if (!zeebe('taskDefinition')?.getAttribute('type')) missing('Service Task ohne Job-Typ — im Schritt einen Service wählen.');
+      return;
+    }
+    // eine andere Implementierung (Java-Klasse, Ausdruck) bleibt, wie sie ist
+    if (['class', 'expression', 'delegateExpression'].some(a => attr(el, a))) return;
+    if (topic) {
+      el.setAttributeNS(CAMUNDA_NS, 'camunda:type', 'external');
+      el.setAttributeNS(CAMUNDA_NS, 'camunda:topic', topic);
+    } else if (!attr(el, 'topic')) missing('Service Task ohne Topic — im Schritt einen Service wählen.');
+  }
+
+  if (local(el) === 'callActivity') {
+    const called = step.calledProcess?.trim();
+    if (engine === 'c8') {
+      // Orchescala: die Variablen des Teilprozesses kommen über die Ausgaben zurück, nicht alle
+      if (called) zeebeOrNew('calledElement', { propagateAllChildVariables: 'false' }).setAttribute('processId', called);
+      else if (!zeebe('calledElement')?.getAttribute('processId')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
+      return;
+    }
+    if (called) el.setAttribute('calledElement', called);
+    else if (!el.getAttribute('calledElement')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
+  }
 }
 
 // ── Steuerparameter am Schritt ───────────────────────────────────────────────
