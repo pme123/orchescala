@@ -135,8 +135,8 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       setControl(doc, ensureExt(el), engine, '_outputVariables', engine === 'c8' ? `=${feelString(list)}` : list);
     }
 
-    // Mocks: der gewählte `_output…Mock` zeigt aufs Feld im InConfig; ohne
-    // Wahl reicht der Schritt die Mock-Steuerung des Prozesses weiter
+    // Mocks: der gewählte `_output…Mock` zeigt aufs Feld im InConfig. Die
+    // Mock-Steuerung des Prozesses geht immer mit — das Feld kann leer sein
     if (el && (step.kind === 'service' || step.kind === 'call') && !isInitWorker(step, spec.processId)) {
       const ext = ensureExt(el);
       const call = step.kind === 'call';
@@ -144,8 +144,8 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       const pass = (name: string) => (engine === 'c8' ? `=${name}` : `#{execution.getVariable('${name}')}`);
       setControl(doc, ext, engine, '_outputMock', kind === 'output' ? pass(mockField(step.name)) : undefined, call);
       setControl(doc, ext, engine, '_outputServiceMock', kind === 'service' ? pass(mockField(step.name)) : undefined, call);
-      setControl(doc, ext, engine, '_servicesMocked', kind ? undefined : pass('_servicesMocked'), call);
-      setControl(doc, ext, engine, '_mockedWorkers', call && !kind ? pass('_mockedWorkers') : undefined, call);
+      setControl(doc, ext, engine, '_servicesMocked', pass('_servicesMocked'), call);
+      setControl(doc, ext, engine, '_mockedWorkers', call ? pass('_mockedWorkers') : undefined, call);
     }
 
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist

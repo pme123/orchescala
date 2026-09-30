@@ -578,14 +578,13 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           <select value={step.mockKind ?? ''} disabled={!canEdit}
             onChange={e => onPatch(step.id, { mockKind: (e.target.value || undefined) as Step['mockKind'] })}
             className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`}>
-            <option value="">kein eigener Mock — {step.kind === 'call' ? '_servicesMocked und _mockedWorkers' : '_servicesMocked'} weiterreichen</option>
+            <option value="">kein eigener Mock</option>
             <option value="output">_outputMock — das Ergebnis {step.kind === 'call' ? 'des Teilprozesses' : 'des Workers'}</option>
             {isServiceWorker(step) && <option value="service">_outputServiceMock — die Antwort des Services</option>}
           </select>
           <p className={`text-[10px] mt-1 leading-snug ${c.muted}`}>
-            {step.mockKind
-              ? <>Beim Export: <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockField(step.name)}</span> und im InConfig das Feld <span className="font-mono">{mockField(step.name)}</span>.</>
-              : <>Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span></>} — der Prozess steuert das Mocking.</>}
+            Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span></>}
+            {step.mockKind && <>, dazu <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockField(step.name)}</span> und im InConfig das Feld <span className="font-mono">{mockField(step.name)}</span></>}.
           </p>
           {step.mock && !/^=\s*\w+Mock$|getVariable/.test(step.mock) && (
             <pre className={`mt-1 text-[10px] px-2 py-1.5 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} title="bisheriger Wert im BPMN — beim Export ersetzt">{step.mock}</pre>

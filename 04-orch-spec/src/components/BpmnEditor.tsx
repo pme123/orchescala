@@ -314,7 +314,8 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
 
   return (
     <div className={`bpmn-host relative h-full w-full ${readOnly ? 'bpmn-readonly' : ''}`}>
-      <div ref={hostRef} className="h-full w-full" />
+      {/* eigener Stapelkontext: das Kontextmenü von bpmn-js (z-index 100) bleibt unter Dialogen */}
+      <div ref={hostRef} className="h-full w-full isolate" />
       {loading && (
         <div className={`absolute inset-0 flex items-center justify-center text-xs pointer-events-none ${isDark ? 'text-white/40' : 'text-black/40'}`}>
           Diagramm wird geladen …
