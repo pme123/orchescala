@@ -571,11 +571,13 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
     if (w.type === 'NO_VARIABLE_FOUND' && guardedNames.has(quoted(w.message))) { pathFailed = true; continue; }
     switch (w.type) {
       case 'NO_VARIABLE_FOUND': {
-        const name = shown(quoted(w.message));
+        const raw = quoted(w.message);
+        const name = shown(raw);
+        const re = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // feelin meldet auch Namen wie «??»
         // eine unbekannte Funktion meldet feelin zuerst als Variable
         if (warnings.some(x => x.type === 'NO_FUNCTION_FOUND' && x.position.from === w.position.from)) {
           issues.push({ level: 'error', text: `Funktion «${name}» gibt es nicht.` });
-        } else if (new RegExp(`\\b(?:for|some|every)\\s+${name}\\s+in\\b[^\\]]*\\[[^\\]]*(?<![\\w.])${name}\\s*\\.`).test(body)) {
+        } else if (new RegExp(`\\b(?:for|some|every)\\s+${re}\\s+in\\b[^\\]]*\\[[^\\]]*(?<![\\w.])${re}\\s*\\.`).test(body)) {
           // `for i in items[i.active = true]` — die Schleifenvariable gilt erst nach dem `in`
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
         } else {
