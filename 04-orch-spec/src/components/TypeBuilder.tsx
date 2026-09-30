@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, defaultIsUsed, fieldType, indexTypes, renderType } from '../scala';
+import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -155,7 +155,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     onFocusedIa?.();
   }, [focusIaId, onFocusedIa]);
 
-  const idx = useMemo(() => indexTypes(types, model), [types, model]);
+  const idx = useMemo(() => indexTypes(types, model, homeOf(spec)), [types, model, spec]);
   const issues = useMemo(() => checkTypes(types, model), [types, model]);
   const current = types.find(t => t.id === selected) ?? (selectedIa || showConfig ? null : types[0] ?? null);
 
@@ -755,6 +755,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   const c = cls(isDark);
   // der Typ, zu dem das Feld gehört — er bestimmt, ob es eine Vorgabe gibt
   const owner = types.find(t => t.id === selfId);
+  // der Beispielwert aus der Domain (`defaultClientKey`), den das example ohne eigene Angabe nimmt
+  const fromDomain = idx.defaultOf(f);
   // Der Typ als Chip: die Farbe sagt, was es ist — einfach (grau), eigene
   // Klasse (blau), Auswahl oder Ausprägung (violett), Katalog (teal, Stecker),
   // unbekannt (rot). Eigene Typen sind anklickbar und springen dorthin.
@@ -856,8 +858,10 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             className="w-44" />
         )}
         <input value={f.example ?? ''} disabled={!canEdit} onChange={e => onChange({ example: e.target.value || undefined })}
-          placeholder="Beispiel"
-          title="Beispielwert für example — ohne Angabe leitet die App einen ab"
+          placeholder={fromDomain?.name ?? 'Beispiel'}
+          title={fromDomain
+            ? `Beispielwert für example — ohne Angabe ${fromDomain.name} aus ${fromDomain.pkg}`
+            : 'Beispielwert für example — ohne Angabe leitet die App einen ab'}
           className={`w-32 text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
         <input value={f.description ?? ''} disabled={!canEdit} onChange={e => onChange({ description: e.target.value || undefined })}
           placeholder="fachliche Bedeutung (@description)"

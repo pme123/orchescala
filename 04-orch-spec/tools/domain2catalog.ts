@@ -21,8 +21,8 @@
 // wird verworfen und am Ende gemeldet.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isDomainSource, mergeDomainTypes, scanFiles, type DiscardedPackage } from '../src/domainScan.ts';
-import type { DomainType, ProjectFolder } from '../src/types.ts';
+import { isDomainSource, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from '../src/domainScan.ts';
+import type { DomainDefault, DomainType, ProjectFolder } from '../src/types.ts';
 
 const args = process.argv.slice(2);
 const pick = (flag: string) => {
@@ -83,6 +83,7 @@ const shortPath = (p: string) => {
 const model = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : { version: 1, services: [] };
 const bekannt = new Map<string, ProjectFolder>((model.projects ?? []).map((p: ProjectFolder) => [p.name, p]));
 let types: DomainType[] = [];
+let defaults: DomainDefault[] = [];
 const discarded: DiscardedPackage[] = [];
 const projects: ProjectFolder[] = [];
 let alleDateien = 0;
@@ -99,6 +100,7 @@ for (const dir of dirs) {
   for (const f of walk(dir)) files.push({ path: shortPath(f), text: readFileSync(f, 'utf8') });
   alleDateien += files.length;
   const gelesen = scanFiles(files);
+  defaults = mergeDefaults(defaults, gelesen.defaults);
   skipped += gelesen.skipped.length;
   discarded.push(...gelesen.discarded);
   const vorher = types.length;
@@ -114,6 +116,7 @@ for (const dir of dirs) {
 
 const files = { length: alleDateien };
 model.domainTypes = types;
+model.domainDefaults = defaults;
 model.projects = projects;
 // In `domainSources` bleiben nur die Adressen (Doku-Site); die Projekte
 // stehen in der Liste, mitsamt ihrer Reihenfolge.
@@ -124,7 +127,7 @@ const count = (k: string) => types.filter(t => t.kind === k).length;
 const inObjects = types.filter(t => t.owner).length;
 console.log(`${out}: ${types.length} Typen aus ${files.length} Dateien — `
   + `${count('case')} case class, ${count('enum')} enum, ${count('alias')} type-Alias, ${count('member')} ergänzt; `
-  + `${inObjects} davon in Objekten (In/Out)`);
+  + `${inObjects} davon in Objekten (In/Out); ${defaults.length} Beispielwerte (default…)`);
 for (const p of projects) console.log(`  ${String(p.types).padStart(5)}  ${p.name}`);
 if (skipped) console.log(`ohne package übersprungen: ${skipped}`);
 for (const d of discarded) {

@@ -10,9 +10,9 @@
 // Reihenfolge; `mergeDomainTypes` behält das zuerst Gelesene und meldet, was
 // es dabei verworfen hat.
 
-import { isDomainSource, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
+import { isDomainSource, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
 import { delHandle, ensureRead, getHandle, putHandle } from './handles.ts';
-import type { DomainType, ProjectFolder } from './types.ts';
+import type { DomainDefault, DomainType, ProjectFolder } from './types.ts';
 import { uid } from './util.ts';
 
 const IGNORE = ['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules', '.idea'];
@@ -80,6 +80,8 @@ export async function readSources(
 
 export interface RebuildResult {
   types: DomainType[];
+  /** Beispielwerte `default…` — in der Reihenfolge der Projekte */
+  defaults: DomainDefault[];
   /** je Projekt die Zahl der beigesteuerten Typen */
   projects: ProjectFolder[];
   discarded: DiscardedPackage[];
@@ -123,6 +125,7 @@ export async function rebuild(
   onProgress: (text: string) => void,
 ): Promise<RebuildResult> {
   let types: DomainType[] = [];
+  let defaults: DomainDefault[] = [];
   const discarded: DiscardedPackage[] = [];
   const missing: ProjectFolder[] = [];
   const gezaehlt: ProjectFolder[] = [];
@@ -144,6 +147,7 @@ export async function rebuild(
     await readSources(handle, p.name, quellen, n => onProgress(`${p.name}: ${n} Dateien gelesen …`));
     files += quellen.length;
     const gelesen = scanFiles(quellen);
+    defaults = mergeDefaults(defaults, gelesen.defaults);
     skipped += gelesen.skipped.length;
     discarded.push(...gelesen.discarded);
     const vorher = types.length;
@@ -152,7 +156,7 @@ export async function rebuild(
     discarded.push(...zusammen.discarded);
     gezaehlt.push({ ...p, types: types.length - vorher });
   }
-  return { types, projects: gezaehlt, discarded, missing, files, skipped };
+  return { types, defaults, projects: gezaehlt, discarded, missing, files, skipped };
 }
 
 /** Einen Projekt-Ordner merken, damit der Aufbau ihn ohne Wählen wiederfindet. */

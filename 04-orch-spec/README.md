@@ -142,6 +142,19 @@ Felder auf `None` setzt. Das `In` kommt als Einfüge-Block für das
 Prozess-Objekt, jeder weitere Typ als eigene Datei unter `schema/`; Iron-Imports
 werden gesetzt, wenn eine Einschränkung im Spiel ist.
 
+**Beispielwerte aus der Domain.** Die Projekte schreiben in ihren Beispielen
+`clientKey = defaultClientKey` — Werte, die auf oberster Ebene eines Pakets
+stehen (`val defaultClientKey: Long = …`, meist in `exports.scala`). Der
+Domain-Katalog sammelt sie mit; hat ein Feld kein eigenes Beispiel, nimmt das
+`example` den Wert `default` + Feldname — bei `Option` als `Some(…)`, bei `Seq`
+als `Seq(…)`. Nur mit **genau passendem Typ**: ein ungetyptes
+`val defaultIban = "CH…"` ist ein `String` und kommt nicht in ein `Iban`-Feld.
+Gibt es den Namen mehrfach, geht die Firmen-Bibliothek vor (sie steht im
+`-Yimports`, braucht keinen Import), dann das eigene Projekt, dann die
+Reihenfolge des Katalogs; ein Wert aus einem anderen Projekt bringt seinen
+Import mit. Im Klassenbauer steht der gefundene Wert als Platzhalter im
+Beispiel-Feld.
+
 ### Auswahl mit Fällen — ein enum als ADT
 
 Eine **Auswahl** (enum) hat normalerweise nur Werte (`case de, fr`). Ihre

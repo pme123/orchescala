@@ -15,7 +15,7 @@
 // bewusst **nicht** — das sind Implementations-Details.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration } from 'feelin';
-import type { EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
+import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
@@ -51,24 +51,54 @@ export interface TypeIndex {
   serviceOf: (typeRef: string) => ServiceType | null;
   /** Katalog-Typ hinter einem `dom:`-Verweis */
   domainOf: (typeRef: string) => DomainType | null;
+  /** Beispielwert aus der Domain für das Feld (`clientKey` → `defaultClientKey`) — nur mit passendem Typ */
+  defaultOf: (f: Field) => DomainDefault | null;
 }
 
-export function indexTypes(types: TypeDef[] = [], model: Model | null = null): TypeIndex {
+/**
+ * Pakete, die jedes Projekt ohne Import sieht — dieselben wie im `-Yimports`
+ * des Helpers: `orchescala.domain` und die Firmen-Bibliothek `<firma>.orchescala.domain`.
+ */
+export const isAutoImported = (pkg: string): boolean => pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(pkg);
+
+const typeKey = (t: string): string => {
+  const clean = t.replace(/\s+/g, ' ').trim();
+  // `valiant.orchescala.domain.Iban` → `Iban`; zusammengesetzte Typen bleiben, wie sie sind
+  return /^[\w.]+$/.test(clean) ? clean.split('.').pop()! : clean;
+};
+
+/**
+ * @param home Paket des eigenen Projekts (`valiant.product`) — bei gleich
+ *             heissenden Beispielwerten geht nach der Firmen-Bibliothek das eigene Projekt vor.
+ */
+export function indexTypes(types: TypeDef[] = [], model: Model | null = null, home = ''): TypeIndex {
   const byId = new Map(types.map(t => [t.id, t]));
   const serviceOf = (ref: string) => serviceTypeOf(ref, model);
   const domainOf = (ref: string) => domainTypeOf(ref, model);
+  const nameOf = (ref: string): string => {
+    if (isScalar(ref)) return ref;
+    // Ein Katalog-Typ bleibt auch ohne geladenen Katalog lesbar
+    if (parseDomainRef(ref)) return domainOf(ref)?.name ?? domainNameOf(ref);
+    const svc = serviceOf(ref);
+    if (svc) return svc.name;
+    return byId.get(ref)?.name ?? ref;
+  };
+  // Vorrang: Firmen-Bibliothek (ohne Import), eigenes Projekt, dann die Reihenfolge des Katalogs
+  const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);
+  const defaults = (model?.domainDefaults ?? []).filter(d => d.type)
+    .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
+  const defaultOf = (f: Field): DomainDefault | null => {
+    if (!f.name?.trim() || f.enumCase) return null;
+    const name = `default${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
+    const wanted = typeKey(f.constraint?.trim() ? `${nameOf(f.type)} :| ${f.constraint.trim()}` : nameOf(f.type));
+    return defaults.find(d => d.name === name && typeKey(d.type!) === wanted) ?? null;
+  };
   return {
     byId,
     serviceOf,
     domainOf,
-    nameOf: (ref: string) => {
-      if (isScalar(ref)) return ref;
-      // Ein Katalog-Typ bleibt auch ohne geladenen Katalog lesbar
-      if (parseDomainRef(ref)) return domainOf(ref)?.name ?? domainNameOf(ref);
-      const svc = serviceOf(ref);
-      if (svc) return svc.name;
-      return byId.get(ref)?.name ?? ref;
-    },
+    defaultOf,
+    nameOf,
   };
 }
 
@@ -273,6 +303,9 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
 function baseExample(f: Field, idx: TypeIndex): string {
   // eine Ausprägung: ihr Companion hat ein eigenes example
   if (f.enumCase) return `${idx.nameOf(f.type)}.${f.enumCase}.example`;
+  // `clientKey = defaultClientKey` — wie es die Projekte von Hand tun
+  const fromDomain = idx.defaultOf(f);
+  if (fromDomain) return fromDomain.name;
   if (parseDomainRef(f.type)) return `${idx.nameOf(f.type)}.example`;
   const svc = idx.serviceOf(f.type);
   if (svc) return `${svc.name}.example`;
@@ -611,6 +644,9 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   }
   const external = new Map<string, string>(); // importPath → Anmerkung
   for (const f of fields) {
+    // der Beispielwert aus einem anderen Projekt braucht seinen Import
+    const d = f.example?.trim() ? null : idx.defaultOf(f);
+    if (d && !isAutoImported(d.pkg)) external.set(`${d.pkg}.${d.name}`, '');
     const dom = idx.domainOf(f.type);
     if (dom) { external.set(dom.importPath, ''); continue; }
     const svc = idx.serviceOf(f.type);
@@ -681,11 +717,21 @@ function srcDir(spec: ProcessSpec, model: Model | null): string {
   return `01-domain/src/main/scala/${packageOf(spec, model).replace(/\./g, '/')}`;
 }
 
+/** Paket des eigenen Projekts: `valiant-product` → `valiant.product`. */
+export const homeOf = (spec: ProcessSpec): string => (spec.project ?? '').split('-').filter(Boolean).join('.');
+
+/** Die Imports einer Interaktion — die ihres `In` und `Out` (Katalog-Typen, Beispielwerte). */
+function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex): string {
+  const typeOf = (id: string | undefined) => (spec.types ?? []).find(t => t.id === id);
+  const lines = [...new Set([typeOf(ia.inTypeId), typeOf(ia.outTypeId)].flatMap(t => (t ? importsOf(t, idx) : [])))];
+  return lines.length ? `\n${lines.join('\n')}\n` : '';
+}
+
 /** Alle Dateien, die aus dem Datenmodell entstehen. */
 export function scalaFiles(spec: ProcessSpec, model: Model | null = null): ScalaFile[] {
   const types = spec.types ?? [];
   if (!types.length && !(spec.interactions ?? []).length) return [];
-  const idx = indexTypes(types, model);
+  const idx = indexTypes(types, model, homeOf(spec));
   const dir = srcDir(spec, model);
   const pkg = packageOf(spec, model);
   const out: ScalaFile[] = [];
@@ -743,7 +789,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,
-      content: `package ${pkg}\n\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
+      content: `package ${pkg}\n${interactionImports(ia, spec, idx)}\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
       ...(section ? { section } : {}),
     });
   }

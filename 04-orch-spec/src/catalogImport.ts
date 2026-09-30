@@ -11,7 +11,7 @@
 
 import { allSteps } from './bpmn.ts';
 import { parseDomainRef } from './serviceTypes.ts';
-import type { DomainType, ProcessSpec, ServiceDef } from './types.ts';
+import type { DomainDefault, DomainType, ProcessSpec, ServiceDef } from './types.ts';
 
 export interface Referenced {
   /** Service-IDs, Topics und gerufene Prozesse aus allen Schritten */
@@ -77,6 +77,7 @@ export interface CatalogFile {
   company?: string;
   services?: ServiceDef[];
   domainTypes?: DomainType[];
+  domainDefaults?: DomainDefault[];
   domainSources?: string[];
   projects?: Array<{ id: string; name: string; types?: number }>;
   /** Projektname → Farbe (`ProjectConfig.color`) — schreibt `prepareDocs` aus der Orchescala-Konfiguration */

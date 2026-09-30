@@ -161,6 +161,8 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
     if (s.calledProcess) kennt.add(s.calledProcess);
   }
   const typIds = new Set(genTypes.map(t => t.id));
+  const genDefaults = (gen.domainDefaults ?? []).map(d => ({ ...d, generated: true }));
+  const defaultIds = new Set(genDefaults.map(d => `${d.pkg}.${d.name}`));
   return {
     ...user,
     services: [
@@ -169,6 +171,7 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
         && !(s.topic && kennt.has(s.topic)) && !(s.calledProcess && kennt.has(s.calledProcess))),
     ],
     domainTypes: [...genTypes, ...(user.domainTypes ?? []).filter(t => !typIds.has(t.id))],
+    domainDefaults: [...genDefaults, ...(user.domainDefaults ?? []).filter(d => !defaultIds.has(`${d.pkg}.${d.name}`))],
     domainSources: gen.domainSources ?? user.domainSources,
     ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),
   };
@@ -180,6 +183,7 @@ function stripGenerated(m: Model): Model {
     ...m,
     services: m.services.filter(s => !s.generated),
     domainTypes: m.domainTypes?.filter(t => !t.generated),
+    domainDefaults: m.domainDefaults?.filter(d => !d.generated),
     projectColors: undefined,
   };
 }

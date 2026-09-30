@@ -546,6 +546,22 @@ export interface DomainField {
   [key: string]: unknown;
 }
 
+/**
+ * Ein Beispielwert aus der Domain: `val defaultClientKey: Long = 74854564837991L`
+ * auf oberster Ebene eines Pakets. Heisst ein Feld `clientKey`, nimmt das
+ * `example` diesen Wert — wie es die Projekte von Hand tun.
+ */
+export interface DomainDefault {
+  /** `defaultClientKey` */
+  name: string;
+  /** `valiant.orchescala.domain` */
+  pkg: string;
+  /** angegeben oder aus dem Literal abgeleitet (`Long`) — ohne Typ wird der Wert nicht verwendet */
+  type?: string;
+  /** aus dem generierten Katalog — gehört nicht in die model.json */
+  generated?: boolean;
+}
+
 export interface DomainType {
   /** voll qualifiziert, z. B. `globex.crm.domain.account.v1.GetAccount.Out` */
   id: string;
@@ -647,6 +663,8 @@ export interface Model {
   services: ServiceDef[];
   /** Domain-Katalog: die Typen der Service-Projekte */
   domainTypes?: DomainType[];
+  /** Beispielwerte der Domain (`defaultClientKey` …) — in der Reihenfolge des Vorrangs */
+  domainDefaults?: DomainDefault[];
   /** zuletzt eingelesene Quellordner — als Gedächtnisstütze im Admin */
   domainSources?: string[];
   /**

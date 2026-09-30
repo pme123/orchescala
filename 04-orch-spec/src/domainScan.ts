@@ -20,7 +20,7 @@
 // gleich formatiert, und was der Parser nicht sicher erkennt, lässt er lieber
 // weg, statt zu raten.
 
-import type { DomainField, DomainType } from './types';
+import type { DomainDefault, DomainField, DomainType } from './types';
 import { parseParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
@@ -90,6 +90,8 @@ export function packageOfFile(lines: string[]): string {
 
 export interface ScanResult {
   types: DomainType[];
+  /** Beispielwerte `default…` — in Datei-Reihenfolge, je Paket und Name einmal */
+  defaults: DomainDefault[];
   /** Dateien ohne erkennbares `package` — dort wäre die Zuordnung geraten */
   skipped: string[];
   /** verworfene Pakete (siehe `mergeDomainTypes`) */
@@ -160,6 +162,53 @@ export function mergeDomainTypes(prior: DomainType[], incoming: DomainType[]): M
     types: [...byId.values()].sort((a, b) => a.id.localeCompare(b.id)),
     discarded: [...dropped.values()].sort((a, b) => b.count - a.count),
   };
+}
+
+// ── Beispielwerte ────────────────────────────────────────────────────────────
+//
+// Die Projekte setzen in ihren Beispielen `clientKey = defaultClientKey` —
+// Werte, die auf oberster Ebene eines Pakets stehen (meist `exports.scala`):
+//
+//   val defaultClientKey: Long = 74854564837991L
+//   lazy val defaultResponsibleUser = 57441573686194L
+//
+// Nur oberste Ebene (ohne Einrückung): ein Wert in einem `object` bräuchte den
+// Objektnamen davor. Der Typ steht da oder folgt aus dem Literal; ohne Typ wird
+// der Wert gesammelt, aber nicht verwendet — lieber kein Beispielwert als einer,
+// der nicht kompiliert.
+const DEFAULT_TOP = /^(?:final\s+)?(?:lazy\s+val|val|def)\s+(default[A-Z]\w*)\s*(?::\s*([^=]+?))?\s*=\s*(.*?)\s*$/;
+
+function literalType(value: string): string | undefined {
+  if (/^-?\d+L$/.test(value)) return 'Long';
+  if (/^-?\d+$/.test(value)) return 'Int';
+  if (/^-?\d+\.\d+$/.test(value)) return 'Double';
+  if (/^"(?:[^"\\]|\\.)*"$/.test(value)) return 'String';
+  if (/^(true|false)$/.test(value)) return 'Boolean';
+  if (/^BigDecimal\(/.test(value)) return 'BigDecimal';
+  if (/^LocalDate\.(parse|of)\(/.test(value)) return 'LocalDate';
+  if (/^LocalDateTime\.(parse|of)\(/.test(value)) return 'LocalDateTime';
+  return undefined;
+}
+
+/** Die Beispielwerte einer Scala-Datei (siehe oben). */
+export function scanDefaults(source: string): DomainDefault[] {
+  const lines = source.split('\n');
+  const pkg = packageOfFile(lines);
+  if (!pkg) return [];
+  const out: DomainDefault[] = [];
+  for (const line of lines) {
+    const m = DEFAULT_TOP.exec(line);
+    if (!m) continue;
+    const type = m[2]?.trim().replace(/\s+/g, ' ') || literalType(m[3]);
+    out.push({ name: m[1], pkg, ...(type ? { type } : {}) });
+  }
+  return out;
+}
+
+/** Beispielwerte vereinen: der zuerst gelesene gewinnt, je Paket und Name einmal. */
+export function mergeDefaults(prior: DomainDefault[], incoming: DomainDefault[]): DomainDefault[] {
+  const seen = new Set(prior.map(d => `${d.pkg}.${d.name}`));
+  return [...prior, ...incoming.filter(d => !seen.has(`${d.pkg}.${d.name}`) && seen.add(`${d.pkg}.${d.name}`))];
 }
 
 /** Die `In`/`Out`, die ein Service-Objekt immer hat. */
@@ -374,7 +423,9 @@ export function scanFiles(files: Array<{ path: string; text: string }>): ScanRes
   const found: DomainType[] = [];
   const byId = new Map<string, DomainType>();
   const skipped: string[] = [];
+  let defaults: DomainDefault[] = [];
   for (const f of files) {
+    defaults = mergeDefaults(defaults, scanDefaults(f.text));
     const types = scanScala(f.text, f.path);
     if (!types.length && !packageOfFile(f.text.split('\n'))) { skipped.push(f.path); continue; }
     for (const t of types) {
@@ -388,7 +439,7 @@ export function scanFiles(files: Array<{ path: string; text: string }>): ScanRes
   // in Datei-Reihenfolge, aber je id nur der zuletzt gewonnene Eintrag
   const ordered = found.filter(t => byId.get(t.id) === t);
   const { types, discarded } = mergeDomainTypes([], ordered);
-  return { types, skipped, discarded };
+  return { types, defaults, skipped, discarded };
 }
 
 /** Nur Domain-Quellen — Tests, Ziel- und Build-Ordner bleiben draussen. */

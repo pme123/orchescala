@@ -266,12 +266,13 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       const res = await onSave({
         ...model,
         domainTypes: r.types,
+        domainDefaults: r.defaults,
         projects: r.projects,
         domainSources: [...new Set([...sources.filter(x => /^https?:/i.test(x)), ...projects.map(p => p.name)])],
       });
       setDropped(r.discarded);
       setMsg(res.ok
-        ? `${r.types.length} Typen aus ${r.files} Dateien in ${projects.length} Projekten`
+        ? `${r.types.length} Typen und ${r.defaults.length} Beispielwerte aus ${r.files} Dateien in ${projects.length} Projekten`
           + (r.skipped ? ` · ${r.skipped} ohne package übersprungen` : '')
         : res.message);
     } catch (e) {
