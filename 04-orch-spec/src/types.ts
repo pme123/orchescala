@@ -658,5 +658,10 @@ export interface Model {
   projects?: ProjectFolder[];
   /** Pattern, die die Spezifikationen an ihren Elementen wählen können */
   patterns?: PatternDef[];
+  /**
+   * Projektfarben aus dem generierten Katalog (`prepareDocs`, `ProjectConfig.color`) —
+   * nur im Speicher, nie in der model.json. Eine Farbe am Projekt-Ordner geht vor.
+   */
+  projectColors?: Record<string, string>;
   [key: string]: unknown;
 }

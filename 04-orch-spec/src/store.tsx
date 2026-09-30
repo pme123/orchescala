@@ -170,6 +170,7 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
     ],
     domainTypes: [...genTypes, ...(user.domainTypes ?? []).filter(t => !typIds.has(t.id))],
     domainSources: gen.domainSources ?? user.domainSources,
+    ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),
   };
 }
 
@@ -179,6 +180,7 @@ function stripGenerated(m: Model): Model {
     ...m,
     services: m.services.filter(s => !s.generated),
     domainTypes: m.domainTypes?.filter(t => !t.generated),
+    projectColors: undefined,
   };
 }
 

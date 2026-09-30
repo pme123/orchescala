@@ -741,8 +741,11 @@ Modeler ist das vollständige bpmn-js — mit der Camunda-Erweiterung, ohne die
 beim Speichern alle `camunda:`-Elemente verloren gingen. Er wird erst geladen,
 wenn das Diagramm aufgeklappt wird (eigener Chunk, ~170 kB gzip).
 
-**Projektfarben:** Jeder Projekt-Ordner (Admin → Katalog) kann eine Farbe
-tragen, wie `ProjectConfig.color` in Orchescala. Wird an einem Schritt ein
+**Projektfarben:** Sie kommen aus der Orchescala-Konfiguration —
+`prepareDocs` schreibt `ProjectConfig.color` aller `ProjectsPerGitRepoConfig`
+als `projectColors` in den Spec-Katalog (`catalog.generated.json`; `#fff`
+gilt als keine Farbe). Im Admin (→ Katalog → Projekt-Ordner) lässt sich die
+Farbe je Projekt überschreiben. Wird an einem Schritt ein
 Worker oder Teilprozess gewählt, bekommt das Element die Farbe des Projekts,
 mit dessen Namen Topic bzw. gerufener Prozess beginnt — das eigene Projekt
 nicht (wie `colorForId`). Geschrieben wird `color:background-color` (und

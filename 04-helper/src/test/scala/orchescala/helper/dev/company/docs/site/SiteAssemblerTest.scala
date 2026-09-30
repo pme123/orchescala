@@ -38,6 +38,20 @@ class SiteAssemblerTest extends FunSuite:
     assert(os.exists(out / "spec" / "catalog.generated.json"), "catalog removed")
     assert(os.exists(out / "valiant" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
 
+  test("writeProjectColors adds the colors to the catalog - keeps what is there, leaves out #fff"):
+    val out = os.temp.dir(prefix = "spec-colors") / "spec" / "catalog.generated.json"
+    os.write(out, """{"services": [{"id": "a"}]}""", createFolders = true)
+    SpecCatalog.writeProjectColors(Seq("globex-cards" -> "#c8feda", "globex-services" -> "#fff"), out)
+    val json = io.circe.parser.parse(os.read(out)).toOption.get.hcursor
+    assertEquals(json.downField("projectColors").downField("globex-cards").as[String], Right("#c8feda"))
+    assert(json.downField("projectColors").downField("globex-services").failed, "#fff is no color")
+    assertEquals(json.downField("services").downN(0).downField("id").as[String], Right("a"))
+
+  test("writeProjectColors creates the catalog if there is none (no Node.js)"):
+    val out = os.temp.dir(prefix = "spec-colors") / "spec" / "catalog.generated.json"
+    SpecCatalog.writeProjectColors(Seq("globex-cards" -> "#c8feda"), out)
+    assert(os.read(out).contains("globex-cards"))
+
   test("assemble builds the layout /site has, in a fresh dir"):
     docsPath match
     case None                             => println("Skipping: COMPANY_DOCS_PATH not set (or not found)")

@@ -171,13 +171,16 @@ export function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
 /**
  * Farbe für einen gerufenen Worker oder Teilprozess — wie `colorForId` in
  * Orchescala: das Projekt, mit dessen Namen die Kennung beginnt, ausser dem
- * eigenen. Ohne Treffer keine Farbe.
+ * eigenen. Die Farbe am Projekt-Ordner (Admin) geht vor der aus dem
+ * generierten Katalog (`prepareDocs`). Ohne Treffer keine Farbe.
  */
-export function projectColor(ref: string | undefined, ownProject: string | undefined, projects: ProjectFolder[] | undefined): string | undefined {
+export function projectColor(ref: string | undefined, ownProject: string | undefined, projects: ProjectFolder[] | undefined, generated?: Record<string, string>): string | undefined {
   if (!ref) return undefined;
   const own = ownProject?.trim();
-  const hit = (projects ?? [])
-    .filter(p => p.color && p.name && ref.startsWith(p.name) && !(own && ref.startsWith(own)))
-    .sort((a, b) => b.name.length - a.name.length)[0];
-  return hit?.color;
+  const colors = new Map<string, string>(Object.entries(generated ?? {}));
+  for (const p of projects ?? []) if (p.color && p.name) colors.set(p.name, p.color);
+  const hit = [...colors]
+    .filter(([name]) => name && ref.startsWith(name) && !(own && ref.startsWith(own)))
+    .sort((a, b) => b[0].length - a[0].length)[0];
+  return hit?.[1];
 }

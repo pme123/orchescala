@@ -79,6 +79,8 @@ export interface CatalogFile {
   domainTypes?: DomainType[];
   domainSources?: string[];
   projects?: Array<{ id: string; name: string; types?: number }>;
+  /** Projektname → Farbe (`ProjectConfig.color`) — schreibt `prepareDocs` aus der Orchescala-Konfiguration */
+  projectColors?: Record<string, string>;
 }
 
 /** Was in einer eingelesenen Katalog-Datei steht — oder warum sie nicht taugt. */
@@ -87,7 +89,9 @@ export function readCatalogFile(text: string): { ok: true; data: CatalogFile } |
   try { raw = JSON.parse(text); }
   catch { return { ok: false, message: 'Die Datei ist kein gültiges JSON.' }; }
   const d = (raw ?? {}) as CatalogFile;
-  if (!Array.isArray(d.services) && !Array.isArray(d.domainTypes)) {
+  // nur Projektfarben: das schreibt `prepareDocs` auch ohne Node.js
+  const colors = d.projectColors && typeof d.projectColors === 'object' && Object.keys(d.projectColors).length > 0;
+  if (!Array.isArray(d.services) && !Array.isArray(d.domainTypes) && !colors) {
     return { ok: false, message: 'Darin steht kein Katalog (weder services noch domainTypes).' };
   }
   return {

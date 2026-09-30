@@ -78,7 +78,8 @@ trait DocCreator extends DependencyCreator, Helpers:
   end publishDocs
 
   private def assembleSite(docsDirs: Seq[os.Path]): os.Path =
-    SiteAssembler(docsDirs, gitBasePath, siteDir).assemble(catalogSourceDirs(), Some(specCatalogMdPath))
+    SiteAssembler(docsDirs, gitBasePath, siteDir)
+      .assemble(catalogSourceDirs(), Some(specCatalogMdPath), apiConfig.projectsConfig.colors)
 
   /** The sources of the spec catalog: the company project itself FIRST - its `01-domain` holds
     * the types every project shares (`ProcessCallOrigin`, `ValidationError` ...), and first means

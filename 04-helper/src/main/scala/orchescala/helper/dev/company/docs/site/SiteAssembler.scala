@@ -23,7 +23,14 @@ import io.circe.parser.parse
   */
 case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path):
 
-  def assemble(projectDirsForCatalog: Seq[os.Path] = Seq.empty, catalogMd: Option[os.Path] = None): os.Path =
+  /** @param projectColors project name -> color (`ProjectConfig.color`) - orch-spec colors the
+    *                      workers and call activities of these projects in its diagrams
+    */
+  def assemble(
+      projectDirsForCatalog: Seq[os.Path] = Seq.empty,
+      catalogMd: Option[os.Path] = None,
+      projectColors: Seq[(String, String)] = Seq.empty
+  ): os.Path =
     os.makeDir.all(out)
     // ── 1. markdown sources -> site data ──────────────────────────────────────
     docsDirs.foreach: d =>
@@ -102,6 +109,7 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
     // ── 5. the spec catalog ───────────────────────────────────────────────────
     if projectDirsForCatalog.nonEmpty then
       SpecCatalog.generate(projectDirsForCatalog, catalogMd, out / "spec" / "catalog.generated.json")
+    SpecCatalog.writeProjectColors(projectColors, out / "spec" / "catalog.generated.json")
     println(s"\nSite assembled in $out")
     println(s"  APIs: $apiOk at their defined version · $apiHead on HEAD (tag missing) · $apiMissing skipped")
     out

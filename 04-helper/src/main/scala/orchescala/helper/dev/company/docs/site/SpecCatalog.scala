@@ -36,6 +36,26 @@ object SpecCatalog:
         run(toolsDir / "site2catalog.js", Seq(md.toString, "--out", outFile.toString))
   end generate
 
+  /** Adds the project colors (`ProjectConfig.color`, from all `ProjectsPerGitRepoConfig`s) to the
+    * catalog as `projectColors: { "<project>": "#rrggbb" }` - orch-spec colors a worker or call
+    * activity of such a project in the diagram. The default `#fff` means "no color" and is left
+    * out. Works without Node.js: a missing catalog gets a file with just the colors.
+    */
+  def writeProjectColors(colors: Seq[(String, String)], outFile: os.Path): Unit =
+    val set = colors.filter { case (name, color) => name.nonEmpty && !Set("", "#fff", "#ffffff").contains(color.trim.toLowerCase) }
+    if set.nonEmpty then
+      val base = Option.when(os.exists(outFile))(os.read(outFile))
+        .flatMap(io.circe.parser.parse(_).toOption)
+        .flatMap(_.asObject)
+        .getOrElse(io.circe.JsonObject.empty)
+      val json = base.add(
+        "projectColors",
+        io.circe.Json.obj(set.map { case (name, color) => name -> io.circe.Json.fromString(color.trim) }*)
+      )
+      os.write.over(outFile, io.circe.Json.fromJsonObject(json).spaces2, createFolders = true)
+      println(s"  ✓ project colors in spec catalog: ${set.map(_._1).mkString(", ")}")
+  end writeProjectColors
+
   private def run(script: os.Path, args: Seq[String]): Unit =
     val r = os.proc("node", script.toString, args).call(check = false, stdout = os.Inherit, stderr = os.Inherit)
     if r.exitCode != 0 then

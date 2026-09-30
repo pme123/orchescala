@@ -259,7 +259,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       const s = { ...byIdRef.current.get(id), ...patch };
       if (s.kind === 'service' || s.kind === 'call') {
         const ref = s.kind === 'call' ? s.calledProcess ?? s.topic : s.topic ?? s.serviceId;
-        bpmnRef.current?.setColor(id, projectColor(ref, spec.project, model?.projects));
+        bpmnRef.current?.setColor(id, projectColor(ref, spec.project, model?.projects, model?.projectColors));
       }
     }
     const walk = (steps: Step[]): Step[] => steps.map(s => {

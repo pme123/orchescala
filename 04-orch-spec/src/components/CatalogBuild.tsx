@@ -371,7 +371,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
               {projects.map((p, i) => (
                 <div key={p.id} className={`flex items-center gap-2 px-2 py-1 text-[11px] ${i ? `border-t ${c.border2}` : ''}`}>
                   <span className={`w-5 text-right tabular-nums ${c.muted}`}>{i + 1}</span>
-                  <ColorPick value={p.color} disabled={!canEdit || !!busy} className={c.border2}
+                  <ColorPick value={p.color} fallback={model.projectColors?.[p.name]} disabled={!canEdit || !!busy} className={c.border2}
                     onChange={color => void saveProjects(projects.map(x => (x.id === p.id ? { ...x, color } : x)))} />
                   <span className={`font-mono ${c.text}`}>{p.name}</span>
                   {p.path && <span className={`font-mono text-[10px] truncate ${c.muted}`}>{p.path}</span>}
@@ -435,12 +435,16 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
  * Projektfarbe (wie `ProjectConfig.color`). Gespeichert wird erst, wenn die
  * Farbe kurz stehen bleibt — beim Ziehen im Farbwähler nicht bei jedem Schritt.
  */
-function ColorPick({ value, disabled, className, onChange }: {
-  value: string | undefined; disabled?: boolean; className?: string; onChange: (color: string) => void;
+function ColorPick({ value, fallback, disabled, className, onChange }: {
+  value: string | undefined;
+  /** Farbe aus der Orchescala-Konfiguration (generierter Katalog) — gilt, solange hier keine gesetzt ist */
+  fallback?: string;
+  disabled?: boolean; className?: string; onChange: (color: string) => void;
 }) {
-  const [draft, setDraft] = useState(value ?? '#ffffff');
+  const shown = value ?? (fallback && /^#[0-9a-f]{6}$/i.test(fallback) ? fallback : fallback ? expandHex(fallback) : '#ffffff');
+  const [draft, setDraft] = useState(shown);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => { setDraft(value ?? '#ffffff'); }, [value]);
+  useEffect(() => { setDraft(shown); }, [shown]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return (
     <input type="color" value={draft} disabled={disabled}
@@ -450,7 +454,15 @@ function ColorPick({ value, disabled, className, onChange }: {
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => onChange(v), 500);
       }}
-      title={value ? `Projektfarbe ${value} — Worker und Teilprozesse aus diesem Projekt bekommen sie im Diagramm` : 'Projektfarbe wählen (wie ProjectConfig.color)'}
-      className={`w-4 h-4 p-0 border rounded cursor-pointer flex-shrink-0 ${value ? '' : 'opacity-40'} ${className ?? ''}`} />
+      title={value ? `Projektfarbe ${value} — Worker und Teilprozesse aus diesem Projekt bekommen sie im Diagramm`
+        : fallback ? `Projektfarbe ${fallback} aus der Orchescala-Konfiguration (prepareDocs) — hier überschreiben`
+          : 'Projektfarbe wählen (wie ProjectConfig.color)'}
+      className={`w-4 h-4 p-0 border rounded cursor-pointer flex-shrink-0 ${value || fallback ? '' : 'opacity-40'} ${className ?? ''}`} />
   );
+}
+
+/** `#abc` → `#aabbcc` (der Farbwähler kennt nur die lange Form); anderes → weiss */
+function expandHex(c: string): string {
+  const m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(c.trim());
+  return m ? `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}` : '#ffffff';
 }
