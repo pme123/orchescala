@@ -326,4 +326,60 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(!obj.content.contains("getOrElse"), "the customInit belongs to the worker, not to the domain")
     assertEquals(processObject.customInit, None)
 
+  private def blockOf(name: String) = OrchSpecRegistration(
+    "WorkerApp",
+    "workers(",
+    name,
+    Seq("X()"),
+    _ => s"  private lazy val $name =\n    Seq()\n  end $name"
+  )
+  private lazy val sortedApp =
+    """object WorkerApp extends CompanyWorkerApp:
+      |  workers(
+      |    aWorkers,
+      |    cWorkers
+      |  )
+      |
+      |  private lazy val aWorkers =
+      |    Seq()
+      |  end aWorkers
+      |
+      |  // the c process
+      |  private lazy val cWorkers =
+      |    Seq()
+      |  end cWorkers
+      |end WorkerApp
+      |""".stripMargin
+
+  test("registration - the process goes alphabetically into the list and among the blocks"):
+    assertEquals(
+      registered(blockOf("bWorkers").register(sortedApp)),
+      """object WorkerApp extends CompanyWorkerApp:
+        |  workers(
+        |    aWorkers,
+        |    bWorkers,
+        |    cWorkers
+        |  )
+        |
+        |  private lazy val aWorkers =
+        |    Seq()
+        |  end aWorkers
+        |
+        |  private lazy val bWorkers =
+        |    Seq()
+        |  end bWorkers
+        |
+        |  // the c process
+        |  private lazy val cWorkers =
+        |    Seq()
+        |  end cWorkers
+        |end WorkerApp
+        |""".stripMargin
+    )
+
+  test("registration - the last one alphabetically goes to the end"):
+    val result = registered(blockOf("dWorkers").register(sortedApp))
+    assert(result.contains("    cWorkers,\n    dWorkers,\n  )"), result)
+    assert(result.contains("  end cWorkers\n\n  private lazy val dWorkers =\n    Seq()\n  end dWorkers\n\nend WorkerApp"), result)
+
 end OrchSpecGeneratorTest

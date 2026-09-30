@@ -242,6 +242,9 @@ object ApiProjectCreator extends CompanyApiCreator:
   end myProcessApi
 end ApiProjectCreator
 ```
+The entry and the block go in alphabetically - next to their alphabetical neighbour, the order of the others stays
+(in `document(…)` it is the order of the API documentation).
+
 If one of them has not this form (`workers(` / `document(` and `end WorkerApp` / `end ApiProjectCreator`),
 the snippet is printed - add it manually.
 

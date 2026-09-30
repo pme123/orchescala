@@ -278,16 +278,79 @@ case class OrchSpecRegistration(
     if list < 0 || end < list then
       RegistrationResult.Manual(s"$objectName has no `$listStart` or no `end $objectName`.", snippet(entries))
     else
-      // trailing commas are fine - the closing parenthesis is always on its own line
-      val entry = " " * (indentOf(lines(list)) + 2) + s"$name,"
-      val body  = lines.slice(list + 1, end).reverse.dropWhile(_.isBlank).reverse
+      val withEntry = insertEntry(lines, list)
       RegistrationResult.Registered(
-        (lines.take(list + 1) ++ (entry +: body) ++ ("" +: block(entries).linesIterator.toSeq :+ "") ++ lines.drop(end))
-          .mkString("\n") + "\n",
+        insertBlock(withEntry, end + withEntry.size - lines.size).mkString("\n") + "\n",
         Seq(name)
       )
     end if
   end addBlock
+
+  // alphabetically next to its neighbour: after the closest name before it, else before the
+  // closest after it - the order of the others stays (in `document(…)` it is the order of the docs)
+  private def neighbours(names: Seq[(Int, String)]): (Option[Int], Option[Int]) =
+    val before = names.filter(_._2.compareToIgnoreCase(name) < 0)
+    val after  = names.filter(_._2.compareToIgnoreCase(name) > 0)
+    (
+      before.maxByOption(_._2.toLowerCase).map(_._1),
+      after.minByOption(_._2.toLowerCase).map(_._1)
+    )
+  end neighbours
+
+  /** The name alphabetically in the list (see `neighbours`). Comments (`//TODO add workers here`)
+    * are no entries. Trailing commas are fine - the closing parenthesis is always on its own line.
+    */
+  private def insertEntry(lines: Seq[String], list: Int): Seq[String] =
+    val entry = " " * (indentOf(lines(list)) + 2) + s"$name,"
+    val close = lines.indexWhere(_.trim == ")", list + 1)
+    val items =
+      if close < 0 then Seq.empty
+      else
+        (list + 1 until close)
+          .filter(i => !lines(i).isBlank && !lines(i).trim.startsWith("//"))
+          .map(i => i -> lines(i).trim.stripSuffix(",").trim)
+    neighbours(items) match
+      case (Some(i), _)    =>
+        val comma = if lines(i).stripTrailing.endsWith(",") then lines(i) else lines(i).stripTrailing + ","
+        lines.patch(i, Seq(comma, entry), 1)
+      case (None, Some(i)) =>
+        lines.patch(i, Seq(entry), 0)
+      case _               =>
+        lines.patch(list + 1, Seq(entry), 0)
+    end match
+  end insertEntry
+
+  /** The block alphabetically among the blocks of its kind (`…Workers` / `…Api`, see `neighbours`)
+    * - after the `end` of the one before, else before the one after (with the comments above it),
+    * else at the end of the object.
+    */
+  private def insertBlock(lines: Seq[String], end: Int): Seq[String] =
+    val blockLines = block(entries).linesIterator.toSeq
+    val suffix     = "[A-Z][a-z0-9]*$".r.findFirstIn(name).getOrElse("")
+    val start      = s"""\\s*(?:private\\s+)?lazy val (\\w+$suffix)\\s*=.*""".r
+    val blocks     = (0 until end).flatMap(i =>
+      lines(i) match
+        case start(other) => Seq(i -> other)
+        case _            => Seq.empty
+    )
+    val blockEnd   = (i: Int) =>
+      val other = blocks.find(_._1 == i).get._2
+      Some(lines.indexWhere(_.trim == s"end $other", i)).filter(e => e >= 0 && e < end)
+    neighbours(blocks) match
+      case (Some(i), _) if blockEnd(i).isDefined =>
+        val at    = blockEnd(i).get + 1
+        val after = if lines.lift(at).exists(!_.isBlank) then Seq("") else Seq.empty
+        lines.patch(at, ("" +: blockLines) ++ after, 0)
+      case (_, Some(i))                          =>
+        val comments = (i - 1 to 0 by -1).takeWhile(j => lines(j).trim.startsWith("//")).size
+        val at       = i - comments
+        val before   = if at > 0 && !lines(at - 1).isBlank then Seq("") else Seq.empty
+        lines.patch(at, before ++ blockLines :+ "", 0)
+      case _                                     =>
+        val body = lines.take(end).reverse.dropWhile(_.isBlank).reverse
+        body ++ ("" +: blockLines :+ "") ++ lines.drop(end)
+    end match
+  end insertBlock
 
   /** A re-run: the block is there - the new entries go before its last closing parenthesis. */
   private def addEntries(lines: Seq[String], start: Int): RegistrationResult =
