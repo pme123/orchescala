@@ -23,6 +23,7 @@ import { casesOf, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
+import FeelInput from './FeelInput';
 import { checkTypes, constraintKind, fieldType, indexTypes, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
@@ -838,10 +839,13 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
 
       <div className="flex items-center gap-1.5">
         {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} />}
-        <input value={f.default ?? ''} disabled={!canEdit} onChange={e => onChange({ default: e.target.value || undefined })}
-          placeholder="Vorgabe"
-          title="Vorgabewert als Scala-Ausdruck, z. B. \u00abCH\u00bb oder Seq.empty"
-          className={`w-28 text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+        {/* FEEL wie überall: mit «=» — der Export schreibt es als Scala. Ohne «=» ein Scala-Ausdruck (wie bisher) */}
+        <FeelInput value={f.default ?? ''} disabled={!canEdit} isDark={isDark}
+          variables={[]}
+          onChange={v => onChange({ default: v || undefined })}
+          placeholder="Vorgabe, z. B. = [1, 2]"
+          title={'Vorgabewert als FEEL mit «=», z. B. = [90, 110, 140], = "CH", = date("2026-01-01") oder = {ort: "Bern"} — der Export schreibt ihn als Scala.\nOhne «=» ein Scala-Ausdruck, wörtlich übernommen.'}
+          className="w-44" />
         <input value={f.example ?? ''} disabled={!canEdit} onChange={e => onChange({ example: e.target.value || undefined })}
           placeholder="Beispiel"
           title="Beispielwert für example — ohne Angabe leitet die App einen ab"

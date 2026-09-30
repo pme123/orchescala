@@ -113,10 +113,20 @@ Tippen.
   **Einschränkung** (Iron-Refinement wie `ValidEmail`, `MinLength[3]`,
   `FixedLength[2]` — als Vorlage mit Wert, oder frei), **Vorgabe**,
   **Beispiel** und die fachliche Bedeutung (wird zu `@description`).
+- Die **Vorgabe** ist FEEL, wenn sie mit `=` beginnt — wie überall in der App.
+  Der Export wertet sie aus und schreibt sie nach dem Typ des Feldes als Scala:
+  `= [90, 110, 140]` → `Seq(90, 110, 140)`, `= "CH"` → `Some("CH")` bei einem
+  optionalen Feld, `= 3` → `3L` bei `Long`, `= date("2026-01-01")` →
+  `LocalDate.parse("2026-01-01")`, `= "de"` → `Sprache.de`, `= {ort: "Bern"}` →
+  `Adresse(ort = "Bern", plz = None)`. Ohne `=` bleibt sie ein Scala-Ausdruck
+  und wird wörtlich übernommen. Lässt sie sich nicht übersetzen, steht im Code
+  `= ??? /* TODO Vorgabe «= …»: … */` — das Projekt kompiliert, die Stelle ist
+  zu finden.
 - Feld-IDs sind stabil: Umbenennen bricht keine Verweise.
 - **Geprüft wird sofort**: ungültige Scala-Namen, Schlüsselwörter, doppelte
-  Felder, verwaiste Typverweise, Einschränkungen auf zusammengesetzten Typen
-  und Zyklen über Pflichtfelder.
+  Felder, verwaiste Typverweise, Einschränkungen auf zusammengesetzten Typen,
+  Zyklen über Pflichtfelder und Vorgaben, die sich nicht nach Scala übersetzen
+  lassen. Unfertige Felder (ohne Name oder Typ) kommen nicht in den Code.
 
 Erzeugt wird die Orchescala-Domain im Hausstil: `case class` mit
 `@description`-Annotationen, Companion mit `given ApiSchema` /

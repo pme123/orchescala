@@ -14,6 +14,7 @@
 // Datei unter `schema/`. `InConfig` und `InitIn` erzeugt der Generator
 // bewusst **nicht** — das sind Implementations-Details.
 
+import { evaluate, FeelDate, FeelDateTime, FeelDuration } from 'feelin';
 import type { EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
@@ -69,6 +70,151 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null): T
       return byId.get(ref)?.name ?? ref;
     },
   };
+}
+
+// ── Vorgabe ──────────────────────────────────────────────────────────────────
+//
+// Die Vorgabe eines Feldes ist FEEL, wenn sie mit «=» beginnt — wie überall in
+// Orch Spec. Beim Export wird sie ausgewertet und nach dem Typ des Feldes in
+// Scala geschrieben:
+//
+//   Seq[Int]            = [90, 110, 140]          → Seq(90, 110, 140)
+//   Option[String]      = "CH"                    → Some("CH")
+//   Long / BigDecimal   = 3                       → 3L / BigDecimal("3")
+//   LocalDate           = date("2026-01-01")      → LocalDate.parse("2026-01-01")
+//   Sprache (enum)      = "de"                    → Sprache.de
+//   Adresse (Klasse)    = {ort: "Bern"}           → Adresse(ort = "Bern", …)
+//   Map[String, Int]    = {a: 1}                  → Map("a" -> 1)
+//
+// Ohne «=» bleibt die Vorgabe, was sie war: ein Scala-Ausdruck, wörtlich.
+
+type FieldShape = Pick<Field, 'type' | 'optional' | 'collection' | 'map' | 'enumCase' | 'constraint'>;
+
+class DefaultError extends Error {}
+
+const isContext = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+  && !(v instanceof FeelDate) && !(v instanceof FeelDateTime) && !(v instanceof FeelDuration);
+const scalaIdent = (name: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `\`${name}\``);
+const scalaString = (v: string) => JSON.stringify(v);
+
+/** Die Vorgabe als Scala-Ausdruck — oder warum es nicht geht. Ohne Vorgabe: `{ scala: null }`. */
+export function scalaDefault(f: Field, idx: TypeIndex): { scala: string | null; issue?: string } {
+  const d = f.default?.trim();
+  if (!d) return { scala: null };
+  if (!d.startsWith('=')) return { scala: d };
+  const body = d.slice(1).trim();
+  if (!body) return { scala: null, issue: 'Nach «=» fehlt der FEEL-Ausdruck.' };
+  let value: unknown;
+  try {
+    value = evaluate(body, {}).value;
+  } catch {
+    return { scala: null, issue: `Vorgabe «${d}» ist kein gültiges FEEL.` };
+  }
+  try {
+    return { scala: feelToScala(value, f, idx) };
+  } catch (e) {
+    return { scala: null, issue: `Vorgabe «${d}»: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * ` = …` für die Parameterliste. Eine unübersetzbare Vorgabe wird nicht
+ * übernommen: `???` mit einem TODO, in dem der FEEL-Ausdruck steht — das
+ * Projekt kompiliert, und die Stelle ist zu finden. Als Blockkommentar, weil
+ * das Komma zum nächsten Feld dahinter folgt.
+ */
+function defaultClause(f: Field, idx: TypeIndex): string {
+  const r = scalaDefault(f, idx);
+  if (r.scala != null) return ` = ${r.scala}`;
+  return r.issue ? ` = ??? /* TODO ${r.issue.replace(/\*\//g, '* /')} */` : '';
+}
+
+function feelToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
+  if (v === null || v === undefined) {
+    if (f.optional) return 'None';
+    throw new DefaultError('null geht nur bei einem optionalen Feld.');
+  }
+  if (f.optional) return `Some(${feelToScala(v, { ...f, optional: false }, idx)})`;
+  if (f.collection) {
+    if (!Array.isArray(v)) throw new DefaultError('erwartet eine Liste, z. B. [1, 2].');
+    return v.length ? `Seq(${v.map(x => feelToScala(x, { ...f, collection: false }, idx)).join(', ')})` : 'Seq.empty';
+  }
+  if (f.map) {
+    if (!isContext(v)) throw new DefaultError('erwartet einen Kontext, z. B. {schluessel: 1}.');
+    const entries = Object.entries(v).map(([k, x]) => `${scalaString(k)} -> ${feelToScala(x, { ...f, map: false }, idx)}`);
+    return entries.length ? `Map(${entries.join(', ')})` : 'Map.empty';
+  }
+  return singleToScala(v, f, idx);
+}
+
+function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
+  const type = f.type;
+  // ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe` — wie beim example
+  const refined = (lit: string) => (f.constraint?.trim() ? `${lit}.refineUnsafe` : lit);
+  const number = (what: string): number => {
+    if (typeof v !== 'number') throw new DefaultError(`erwartet ${what}.`);
+    return v;
+  };
+  if (isScalar(type)) {
+    switch (type) {
+      case 'String':
+      case 'Iban':
+        if (typeof v !== 'string') throw new DefaultError('erwartet einen Text in Anführungszeichen.');
+        return refined(scalaString(v));
+      case 'Iso8601Duration':
+        if (v instanceof FeelDuration || typeof v === 'string') return scalaString(String(v));
+        throw new DefaultError('erwartet eine Dauer, z. B. duration("PT1M") oder "PT1M".');
+      case 'Boolean':
+        if (typeof v !== 'boolean') throw new DefaultError('erwartet true oder false.');
+        return String(v);
+      case 'Int': {
+        const n = number('eine ganze Zahl');
+        if (!Number.isInteger(n)) throw new DefaultError('erwartet eine ganze Zahl.');
+        return refined(String(n));
+      }
+      case 'Long': {
+        const n = number('eine ganze Zahl');
+        if (!Number.isInteger(n)) throw new DefaultError('erwartet eine ganze Zahl.');
+        return refined(`${n}L`);
+      }
+      case 'Double': {
+        const n = number('eine Zahl');
+        return refined(Number.isInteger(n) ? `${n}.0` : String(n));
+      }
+      case 'BigDecimal':
+        return `BigDecimal(${scalaString(String(number('eine Zahl')))})`;
+      case 'LocalDate':
+        if (v instanceof FeelDate || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v))) return `LocalDate.parse(${scalaString(String(v))})`;
+        throw new DefaultError('erwartet ein Datum, z. B. date("2026-01-01").');
+      case 'LocalDateTime': {
+        const text = v instanceof FeelDateTime || typeof v === 'string' ? String(v) : '';
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)) return `LocalDateTime.parse(${scalaString(text)})`;
+        throw new DefaultError('erwartet Datum und Zeit ohne Zeitzone, z. B. date and time("2026-01-01T08:00:00").');
+      }
+    }
+    throw new DefaultError(`für ${type} gibt es keine Übersetzung — ohne «=» als Scala-Ausdruck angeben.`);
+  }
+  const own = idx.byId.get(type);
+  if (!own || f.enumCase) throw new DefaultError('für diesen Typ ohne «=» als Scala-Ausdruck angeben.');
+  if (own.kind === 'enum') {
+    if (isAdt(own)) throw new DefaultError('für eine Auswahl mit Fällen ohne «=» als Scala-Ausdruck angeben.');
+    const values = (own.values ?? []).map(x => x.name).filter(Boolean);
+    if (typeof v !== 'string' || !values.includes(v)) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
+    return `${own.name}.${scalaIdent(v)}`;
+  }
+  // eine Klasse aus einem Kontext: fehlende optionale Felder sind None
+  if (!isContext(v)) throw new DefaultError(`erwartet einen Kontext für ${own.name}, z. B. {feld: 1}.`);
+  const fields = finished(own.fields, idx);
+  const unknown = Object.keys(v).filter(k => !fields.some(x => x.name === k));
+  if (unknown.length) throw new DefaultError(`${own.name} hat kein Feld ${unknown.map(k => `«${k}»`).join(', ')}.`);
+  const args = fields.flatMap(x => {
+    if (x.name in v) return [`${x.name} = ${feelToScala(v[x.name], x, idx)}`];
+    if (x.default?.trim()) return [];
+    if (x.optional) return [`${x.name} = None`];
+    throw new DefaultError(`für ${own.name} fehlt «${x.name}».`);
+  });
+  return `${own.name}(${args.join(', ')})`;
 }
 
 // ── Unfertiges ───────────────────────────────────────────────────────────────
@@ -165,8 +311,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    const def = f.default?.trim() ? ` = ${f.default.trim()}` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
+    return `${d}${f.name}: ${fieldType(f, idx)}${defaultClause(f, idx)}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
   return `case class ${t.name}(${body})`;
@@ -198,8 +343,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    const def = f.default?.trim() ? ` = ${f.default.trim()}` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
+    return `${d}${f.name}: ${fieldType(f, idx)}${defaultClause(f, idx)}`;
   });
   return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
 }
@@ -345,7 +489,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
   if (own && idx) for (const l of importsOf(own, idx)) imports.add(l);
   const params: string[] = ownFields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    const def = f.default?.trim() ? ` = ${f.default.trim()}` : f.optional ? ' = None' : '';
+    const def = defaultClause(f, idx!) || (f.optional ? ' = None' : '');
     return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;
   });
   for (const { name, kind } of loopSettings(spec)) {
@@ -645,6 +789,9 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       // in einem ADT darf derselbe Feldname in mehreren Fällen stehen
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
       seen.add(f.name);
+      // eine FEEL-Vorgabe muss sich nach Scala übersetzen lassen
+      const dflt = isFinished(f, idxAll) ? scalaDefault(f, idxAll) : null;
+      if (dflt?.issue) issues.push({ typeId: t.id, field: f.id, message: dflt.issue });
       const domId = parseDomainRef(f.type);
       if (domId) {
         if (model?.domainTypes && !model.domainTypes.some(d => d.id === domId)) {
