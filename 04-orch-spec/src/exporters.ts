@@ -13,6 +13,7 @@ import { engineLabel } from './template.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
 import { engineExpression } from './feelJuel.ts';
+import { splitPrefix } from './stepIds.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -395,6 +396,17 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
   return exportOrchescala(spec, model);
 }
 
+/**
+ * `projekt-prozessVersion` ohne die Firma, z. B. `savings-openSavingsV1.bpmn`
+ * für `globex-savings-openSavingsV1` — aus der aktuellen Prozess-ID, nicht aus
+ * dem Slug; ändert sich Projekt oder Version, folgt der Name. Die beiden
+ * Markdown-Exporte tragen die Art als Zusatz.
+ */
 export function exportFileName(spec: ProcessSpec, kind: ExportKind): string {
-  return `${spec.slug}-${kind}.${EXPORT_META[kind].ext}`;
+  const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(spec.processId?.trim() ?? '');
+  const prefix = m?.[1] ?? spec.project?.trim() ?? '';
+  const process = m?.[2] ?? spec.name?.trim();
+  const base = [splitPrefix(prefix).project, process].filter(Boolean).join('-') || spec.slug;
+  const ext = EXPORT_META[kind].ext;
+  return ext === 'md' ? `${base}-${kind}.${ext}` : `${base}.${ext}`;
 }
