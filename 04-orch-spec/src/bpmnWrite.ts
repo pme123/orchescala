@@ -187,6 +187,11 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     if (local(el) === 'callActivity') ensureBusinessKey(doc, ensureExt(el), engine);
   }
 
+  // Was der Linter des Modelers beanstandet und sich aus dem Diagramm selbst ergibt
+  tidyGlobals(defs, issues);
+  nameBoundaryEvents(defs, spec);
+  checkStartMessage(defs, spec, issues);
+
   // Die Steuerparameter (`_…`) stehen immer am Schluss — Eingaben bleiben vor Ausgaben
   for (const el of byId.values()) {
     const ext = firstNamed(el, 'extensionElements');
@@ -199,6 +204,111 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   out = out.replace(/^(<\?xml[^>]*\?>)(?!\n)/, '$1\n');
   return { xml: out, issues };
+}
+
+// ── Aufräumen ────────────────────────────────────────────────────────────────
+const GLOBALS = ['message', 'error', 'signal', 'escalation'];
+const REF_ATTRS = ['messageRef', 'errorRef', 'signalRef', 'escalationRef'];
+
+const allElements = (root: Element): Element[] => [root, ...kids(root).flatMap(allElements)];
+/** Ein Verweis-Attribut — mit oder ohne Präfix (`errorRef`, `camunda:errorRef`) */
+const refAttrs = (el: Element): Attr[] =>
+  Array.from(el.attributes).filter(a => REF_ATTRS.includes(a.localName || a.name.replace(/^.*:/, '')));
+
+/**
+ * Nachrichten, Fehler, Signale und Eskalationen: jede nur einmal, und nur,
+ * wenn sie gebraucht wird (Linter-Regel `global`). Kopiert man im Editor ein
+ * Nachrichten-Ereignis, entsteht eine zweite `bpmn:message` mit demselben
+ * Namen — für die Engine dieselbe Nachricht. Die Kopie fällt weg, ihre
+ * Verweise zeigen auf das Original. Gleich heisst: gleicher Name, gleicher
+ * Code und gleicher Inhalt (Camunda 8: `zeebe:subscription`); sonst bleiben
+ * beide und es wird gemeldet.
+ */
+function tidyGlobals(defs: Element, issues: WriteIssue[]) {
+  const globals = kids(defs).filter(el => GLOBALS.includes(local(el)));
+  const serializer = new XMLSerializer();
+  const content = (el: Element) => kids(el).map(c => serializer.serializeToString(c)).join('');
+  const keyOf = (el: Element) => [local(el), el.getAttribute('name') ?? '', el.getAttribute('errorCode') ?? '', el.getAttribute('escalationCode') ?? ''].join('|');
+  const replaced = new Map<string, string>();
+  const kept = new Map<string, Element>();
+  for (const el of globals) {
+    const name = el.getAttribute('name');
+    if (!name) continue;
+    const first = kept.get(keyOf(el));
+    if (!first) { kept.set(keyOf(el), el); continue; }
+    if (content(first) !== content(el)) {
+      issues.push({ stepId: el.getAttribute('id') ?? '', where: 'Diagramm', text: `«${name}» gibt es zweimal mit verschiedenem Inhalt — von Hand bereinigen.` });
+      continue;
+    }
+    replaced.set(el.getAttribute('id') ?? '', first.getAttribute('id') ?? '');
+  }
+  const everything = allElements(defs);
+  for (const el of everything) {
+    for (const a of refAttrs(el)) {
+      const to = replaced.get(a.value);
+      if (to) a.value = to;
+    }
+  }
+  for (const el of globals) if (replaced.has(el.getAttribute('id') ?? '')) removeEl(el);
+  // was niemand mehr braucht
+  const used = new Set(everything.flatMap(el => refAttrs(el).map(a => a.value)));
+  for (const el of globals) {
+    if (el.parentNode && !used.has(el.getAttribute('id') ?? '')) removeEl(el);
+  }
+}
+
+/**
+ * Ein Boundary-Event ohne Namen (Linter-Regel `label-required`) heisst, wie es
+ * die Projekte tun: nach dem Fehler, der Nachricht oder dem Signal, auf das es
+ * hört — ein Catch-all nach den behandelten Fehlern des Schritts
+ * (`_handledErrors`), sonst «Catch All». Beim nächsten Abgleich wird der Name
+ * der Code des Fehlerfalls — bei den behandelten Fehlern derselbe.
+ */
+function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
+  const byId = new Map(allElements(defs).map(el => [el.getAttribute('id') ?? '', el] as [string, Element]));
+  const steps = new Map(allSteps(spec.steps).map(s => [s.id, s] as [string, Step]));
+  const nameOfRef = (def: Element, ref: string, code?: string): string | undefined => {
+    const id = def.getAttribute(ref);
+    const target = id ? byId.get(id) : undefined;
+    return target ? (target.getAttribute('name') || (code ? target.getAttribute(code) : null) || undefined) : undefined;
+  };
+  for (const el of byId.values()) {
+    if (local(el) !== 'boundaryEvent' || el.getAttribute('name')?.trim()) continue;
+    const def = kids(el).find(c => local(c).endsWith('EventDefinition'));
+    if (!def) continue;
+    let name: string | undefined;
+    switch (local(def)) {
+      case 'errorEventDefinition': {
+        const handled = (steps.get(el.getAttribute('attachedToRef') ?? '')?.errors ?? []).filter(e => e.declared).map(e => e.code);
+        name = def.getAttribute('errorRef') ? nameOfRef(def, 'errorRef', 'errorCode') : handled.length ? handled.join(', ') : 'Catch All';
+        break;
+      }
+      case 'messageEventDefinition': name = nameOfRef(def, 'messageRef'); break;
+      case 'signalEventDefinition': name = nameOfRef(def, 'signalRef'); break;
+      case 'escalationEventDefinition': name = nameOfRef(def, 'escalationRef', 'escalationCode'); break;
+    }
+    if (name) el.setAttribute('name', name);
+  }
+}
+
+/**
+ * Startet der Prozess mit einer Nachricht, heisst sie in den Projekten wie der
+ * Prozess. Eine andere ist meist aus einem kopierten Prozess übrig — sie wird
+ * nicht umbenannt (wer sie sendet, hängt daran), aber gemeldet.
+ */
+function checkStartMessage(defs: Element, spec: ProcessSpec, issues: WriteIssue[]) {
+  const processId = spec.processId?.trim();
+  if (!processId) return;
+  const byId = new Map(kids(defs).map(el => [el.getAttribute('id') ?? '', el] as [string, Element]));
+  for (const proc of kids(defs).filter(el => local(el) === 'process')) {
+    for (const start of kids(proc).filter(el => local(el) === 'startEvent')) {
+      const def = kids(start).find(c => local(c) === 'messageEventDefinition');
+      const name = def ? byId.get(def.getAttribute('messageRef') ?? '')?.getAttribute('name') : undefined;
+      if (name && name !== processId) {
+        issues.push({ stepId: start.getAttribute('id') ?? '', where: 'Start-Nachricht', text: `heisst «${name}», nicht wie der Prozess «${processId}» — aus einem kopierten Prozess?` });
+      }
+    }
+  }
 }
 
 // ── Implementierung ──────────────────────────────────────────────────────────
