@@ -11,7 +11,7 @@ import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
-import { blockIndex, blockStart } from '../bpmn';
+import { blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, newErrorCode, regexIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
@@ -573,9 +573,23 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </Section>
       )}
 
-      {step.mock && (
-        <Section id="mock" label="Mock (Beispielantwort)" count={1} isDark={isDark}>
-          <pre className={`text-[10px] px-2 py-1.5 rounded border overflow-x-auto ${c.border2} ${c.muted2}`}>{step.mock}</pre>
+      {(step.kind === 'service' || step.kind === 'call') && !isInitWorker(step, spec.processId) && (
+        <Section id="mock" label="Mock" count={step.mockKind ? 1 : 0} isDark={isDark}>
+          <select value={step.mockKind ?? ''} disabled={!canEdit}
+            onChange={e => onPatch(step.id, { mockKind: (e.target.value || undefined) as Step['mockKind'] })}
+            className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`}>
+            <option value="">kein eigener Mock — {step.kind === 'call' ? '_servicesMocked und _mockedWorkers' : '_servicesMocked'} weiterreichen</option>
+            <option value="output">_outputMock — das Ergebnis {step.kind === 'call' ? 'des Teilprozesses' : 'des Workers'}</option>
+            {isServiceWorker(step) && <option value="service">_outputServiceMock — die Antwort des Services</option>}
+          </select>
+          <p className={`text-[10px] mt-1 leading-snug ${c.muted}`}>
+            {step.mockKind
+              ? <>Beim Export: <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockField(step.name)}</span> und im InConfig das Feld <span className="font-mono">{mockField(step.name)}</span>.</>
+              : <>Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span></>} — der Prozess steuert das Mocking.</>}
+          </p>
+          {step.mock && !/^=\s*\w+Mock$|getVariable/.test(step.mock) && (
+            <pre className={`mt-1 text-[10px] px-2 py-1.5 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} title="bisheriger Wert im BPMN — beim Export ersetzt">{step.mock}</pre>
+          )}
         </Section>
       )}
 

@@ -19,7 +19,7 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, ProcessSpec } from './types';
-import { TECHNICAL, allSteps, feelString, paramExpression } from './bpmn';
+import { TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockField, paramExpression } from './bpmn';
 import { referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
 import { importExpression } from './juelFeel';
@@ -135,6 +135,19 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       setControl(doc, ensureExt(el), engine, '_outputVariables', engine === 'c8' ? `=${feelString(list)}` : list);
     }
 
+    // Mocks: der gewählte `_output…Mock` zeigt aufs Feld im InConfig; ohne
+    // Wahl reicht der Schritt die Mock-Steuerung des Prozesses weiter
+    if (el && (step.kind === 'service' || step.kind === 'call') && !isInitWorker(step, spec.processId)) {
+      const ext = ensureExt(el);
+      const call = step.kind === 'call';
+      const kind = step.mockKind === 'service' && !isServiceWorker(step) ? undefined : step.mockKind;
+      const pass = (name: string) => (engine === 'c8' ? `=${name}` : `#{execution.getVariable('${name}')}`);
+      setControl(doc, ext, engine, '_outputMock', kind === 'output' ? pass(mockField(step.name)) : undefined, call);
+      setControl(doc, ext, engine, '_outputServiceMock', kind === 'service' ? pass(mockField(step.name)) : undefined, call);
+      setControl(doc, ext, engine, '_servicesMocked', kind ? undefined : pass('_servicesMocked'), call);
+      setControl(doc, ext, engine, '_mockedWorkers', call && !kind ? pass('_mockedWorkers') : undefined, call);
+    }
+
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist
     for (const b of step.branches ?? []) {
       if (b.isDefault || !b.condition) continue;
@@ -170,6 +183,12 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     if (local(el) === 'callActivity') ensureBusinessKey(doc, ensureExt(el), engine);
   }
 
+  // Die Steuerparameter (`_…`) stehen immer am Schluss — Eingaben bleiben vor Ausgaben
+  for (const el of byId.values()) {
+    const ext = firstNamed(el, 'extensionElements');
+    if (ext) controlsLast(ext);
+  }
+
   let out = new XMLSerializer().serializeToString(doc);
   // Die XML-Deklaration soll bleiben — und auf einer eigenen Zeile stehen
   const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];
@@ -179,8 +198,20 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
 }
 
 // ── Steuerparameter am Schritt ───────────────────────────────────────────────
-/** `_manualOutMapping` & Co. setzen (oder mit `undefined` entfernen) — Camunda 7 als lokale Variable, Camunda 8 als Eingabe */
-function setControl(doc: Document, ext: Element, engine: EngineId, name: string, value: string | undefined) {
+/**
+ * `_manualOutMapping` & Co. setzen (oder mit `undefined` entfernen) — Camunda 7
+ * als lokale Variable bzw. am Teilprozess als `camunda:in`, Camunda 8 als Eingabe.
+ */
+function setControl(doc: Document, ext: Element, engine: EngineId, name: string, value: string | undefined, call = false) {
+  if (engine === 'c7' && call) {
+    for (const p of kids(ext)) if (local(p) === 'in' && attr(p, 'target') === name) removeEl(p);
+    if (value === undefined) return;
+    const p = doc.createElementNS(CAMUNDA_NS, 'camunda:in');
+    p.setAttribute('sourceExpression', value);
+    p.setAttribute('target', name);
+    appendEl(ext, p);
+    return;
+  }
   if (engine === 'c8') {
     let io = firstNamed(ext, 'ioMapping');
     for (const p of io ? kids(io) : []) if (local(p) === 'input' && attr(p, 'target') === name) removeEl(p);
@@ -202,6 +233,30 @@ function setControl(doc: Document, ext: Element, engine: EngineId, name: string,
   appendEl(io, p);
 }
 
+/** Reihenfolge: fachliche Eingaben, `_…`-Eingaben, fachliche Ausgaben, `_…`-Ausgaben */
+function controlsLast(ext: Element) {
+  const isControl = (p: Element) => (attr(p, 'target') ?? attr(p, 'name') ?? '').startsWith('_');
+  const reorder = (parent: Element, isIn: (p: Element) => boolean) => {
+    const all = kids(parent);
+    const sorted = [
+      ...all.filter(p => isIn(p) && !isControl(p)), ...all.filter(p => isIn(p) && isControl(p)),
+      ...all.filter(p => !isIn(p) && !isControl(p)), ...all.filter(p => !isIn(p) && isControl(p)),
+    ];
+    if (sorted.every((p, i) => p === all[i])) return;
+    for (const p of all) removeEl(p);
+    for (const p of sorted) appendEl(parent, p);
+  };
+  const zio = firstNamed(ext, 'ioMapping');
+  if (zio) reorder(zio, p => local(p) === 'input');
+  const cio = firstNamed(ext, 'inputOutput');
+  if (cio) reorder(cio, p => local(p) === 'inputParameter');
+  // am Teilprozess (Camunda 7): `camunda:in` mit `_…` ans Ende
+  const rest = kids(ext);
+  const ins = rest.filter(p => local(p) === 'in' && isControl(p));
+  const behind = ins.length && rest.slice(rest.indexOf(ins[0])).some(p => !ins.includes(p));
+  if (behind) for (const p of ins) { removeEl(p); appendEl(ext, p); }
+}
+
 // ── Business Key an den Teilprozess ──────────────────────────────────────────
 // Camunda 7 hat dafür `camunda:in businessKey`, in Camunda 8 ist der Business
 // Key eine Variable und wird als Eingabe `businessKey` übergeben.
@@ -212,7 +267,7 @@ function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
     const p = doc.createElementNS(ZEEBE_NS, 'zeebe:input');
     p.setAttribute('source', '=businessKey');
     p.setAttribute('target', 'businessKey');
-    if (io) { const rest = kids(io); for (const k of rest) k.remove(); for (const k of [p, ...rest]) appendEl(io, k); }
+    if (io) { const rest = kids(io); for (const k of rest) removeEl(k); for (const k of [p, ...rest]) appendEl(io, k); }
     else { io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping'); appendEl(ext, io); appendEl(io, p); }
     return;
   }

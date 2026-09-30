@@ -18,7 +18,7 @@ import type { EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from 
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
-import { blockIndex, blockStart } from './bpmn.ts';
+import { blockIndex, blockStart, mockField } from './bpmn.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -323,12 +323,6 @@ const DEFAULT_BY_KIND: Record<'timer' | 'max' | 'counter', { type: string; value
   max:     { type: 'Int', value: '10', descr: 'Höchstzahl der Versuche.' },
 };
 
-const lowerFirst = (s: string) => s.replace(/^(.)/, c => c.toLowerCase());
-
-function mockField(name: string): string {
-  return `${lowerFirst(name.replace(/[^A-Za-z0-9]/g, ''))}Mock`;
-}
-
 export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: TypeIndex): string {
   const own = (spec.types ?? []).find(t => t.inConfig);
   const ownFields = own && idx ? (own.fields ?? []).filter(f => f.name.trim()) : [];
@@ -346,8 +340,9 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     params.push(`${descriptionLine(d.descr)}\n${name}: ${d.type} = ${d.value}`);
   }
   for (const step of mockableSteps(spec)) {
-    // Der Mock-Typ ist das `Out` des gerufenen Objekts — aus der Kennung des
-    // Services bzw. des Prozesses abgeleitet, samt Import.
+    // Nur Schritte mit gewähltem Mock. Der Typ ist das `Out` des gerufenen
+    // Objekts bzw. die Service-Antwort — aus der Kennung abgeleitet, samt Import.
+    if (!step.mockKind) continue;
     const ref = step.serviceId ?? step.calledProcess ?? step.topic;
     if (!ref) continue;
     const { object, pkg, uncertain } = deriveObject(ref);
@@ -355,8 +350,9 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     if (seen.has(field)) continue;
     seen.add(field);
     imports.add(`import ${pkg}.${object}${uncertain ? '  // Pfad prüfen' : ''}`);
-    params.push(`${descriptionLine(`Ergebnis von «${step.name}» für Tests überschreiben.`)}\n`
-      + `${field}: Option[${object}.Out] = None`);
+    const type = step.mockKind === 'service' ? `MockedServiceResponse[${object}.ServiceOut]` : `${object}.Out`;
+    params.push(`${descriptionLine(`For testing you can mock the Process ${step.name} _${ref}_.`)}\n`
+      + `${field}: Option[${type}] = None`);
   }
   if (!params.length) return '';
   return [

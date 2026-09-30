@@ -117,6 +117,13 @@ export interface Step {
   /** reguläre Ausdrücke für weitere behandelte Fehlercodes — `_regexHandledErrors` */
   regexHandledErrors?: string[];
   mock?: string;          // `_outputMock` / Beispielantwort (JSON)
+  /**
+   * Womit sich der Schritt in Tests mocken lässt: `output` = `_outputMock`
+   * (das Ergebnis des Workers bzw. Teilprozesses), `service` = `_outputServiceMock`
+   * (die Antwort des Services, nur bei Service-Workern). Ohne Wahl reicht der
+   * Schritt `_servicesMocked` weiter. Beim Export entsteht das Feld im `InConfig`.
+   */
+  mockKind?: 'output' | 'service';
 
   // Struktur
   gatewayType?: GatewayType;

@@ -201,6 +201,7 @@ interface IoResult {
   /** `_regexHandledErrors`: reguläre Ausdrücke für die Codes */
   regexErrors: string[];
   mock?: string;
+  mockKind?: 'output' | 'service';
 }
 
 /** fester Text aus einer zeebe-Quelle: `="a, b"` → `a, b`; alles andere, wie es steht */
@@ -209,6 +210,14 @@ function feelText(source: string): string {
   const lit = /^=\s*"((?:[^"\\]|\\.)*)"$/.exec(t);
   return lit ? lit[1].replace(/\\(["\\])/g, '$1') : t;
 }
+
+/** Name des Mock-Felds im `InConfig` für einen Schritt: «Create Contract» → `createContractMock` */
+export function mockField(name: string): string {
+  return `${name.replace(/[^A-Za-z0-9]/g, '').replace(/^(.)/, c => c.toLowerCase())}Mock`;
+}
+
+/** Service-Worker: ein Service aus dem Katalog — nur er kennt `_outputServiceMock` */
+export const isServiceWorker = (s: Step): boolean => s.kind === 'service' && (!!s.serviceId || s.mockKind === 'service');
 
 function readIo(el: Element): IoResult {
   const res: IoResult = { inputs: [], outputs: [], technical: [], handledErrors: [], regexErrors: [] };
@@ -224,6 +233,10 @@ function readIo(el: Element): IoResult {
       const business = attr(c, 'businessKey');
       if (business) { res.technical.push({ name: 'businessKey', expression: business }); continue; }
       if (!target) continue;
+      if (n === 'in' && (target === '_outputMock' || target === '_outputServiceMock')) {
+        res.mockKind = target === '_outputMock' ? 'output' : 'service';
+        continue;
+      }
       // `source` ist ein Variablenname, `sourceExpression` ein JUEL-Ausdruck —
       // beides wird zu FEEL, der Sprache der Spezifikation
       const plain = attr(c, 'source');
@@ -246,7 +259,7 @@ function readIo(el: Element): IoResult {
         (target === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...parseErrorList(source));
         continue;
       }
-      if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; continue; }
+      if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; res.mockKind = target === '_outputMock' ? 'output' : 'service'; continue; }
       const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
       (TECHNICAL.has(target) ? res.technical : res.inputs).push(m);
     }
@@ -268,7 +281,7 @@ function readIo(el: Element): IoResult {
         (name === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...parseErrorList(value));
         continue;
       }
-      if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; continue; }
+      if (name === '_outputMock' || name === '_outputServiceMock') { res.mock = value; res.mockKind = name === '_outputMock' ? 'output' : 'service'; continue; }
       (TECHNICAL.has(name) ? res.technical : res.inputs).push({ name, expression: TECHNICAL.has(name) ? value : fachlich(p) });
     }
     for (const p of childrenNamed(io, 'outputParameter')) {
@@ -560,6 +573,7 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   if (io.inputs.length) step.inputs = io.inputs;
   if (io.outputs.length) step.outputs = io.outputs;
   if (io.mock) step.mock = io.mock;
+  if (io.mockKind) step.mockKind = io.mockKind;
 
   if (kind === 'subprocess') {
     if (el.getAttribute('triggeredByEvent') === 'true') step.eventSubprocess = true;
@@ -917,7 +931,7 @@ function sig(s: Step): string {
  * vorige BPMN) — sonst gingen Einstellungen verloren, sobald jemand im
  * Diagramm etwas verschiebt oder die App es angleicht.
  */
-const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock'] as const;
+const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind'] as const;
 
 /** Ein Wert unabhängig von seiner Engine-Form: `${x}` wie `=x`, `text` wie `="text"` */
 function normExpr(e: string): string {
