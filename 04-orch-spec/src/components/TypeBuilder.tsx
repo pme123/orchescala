@@ -869,9 +869,10 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
 
       <div className="flex items-center gap-1.5">
         {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} />}
-        {/* Vorgaben gibt es nur im InConfig und bei optionalen Feldern der Prozess-Eingabe
-            (dort setzt sie der Init-Worker im InitIn). FEEL mit «=», ohne «=» ein Scala-Ausdruck */}
-        {(owner?.inConfig || owner?.root || f.default) && (
+        {/* Vorgaben gibt es nur im InConfig, im InitIn (initialisiert Prozessvariablen) und bei
+            optionalen Feldern der Prozess-Eingabe (dort setzt sie der Init-Worker im InitIn).
+            FEEL mit «=», ohne «=» ein Scala-Ausdruck */}
+        {(owner?.inConfig || owner?.initIn || owner?.root || f.default) && (
           <FeelInput value={f.default ?? ''} isDark={isDark}
             disabled={!canEdit || (!!owner && !defaultIsUsed(owner, f) && !f.default)}
             variables={[]}
@@ -879,7 +880,9 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             placeholder={owner?.root && !f.optional ? 'Vorgabe nur bei optional' : 'Vorgabe, z. B. = [1, 2]'}
             title={(owner?.root
               ? 'Wert, wenn das optionale Feld fehlt — der Init-Worker setzt ihn im InitIn (dort ist das Feld Pflicht).\n'
-              : owner?.inConfig ? 'Vorgabewert der Konfiguration.\n' : 'Vorgaben gibt es nur im InConfig und bei optionalen Feldern der Prozess-Eingabe — hier wird sie nicht verwendet.\n')
+              : owner?.inConfig ? 'Vorgabewert der Konfiguration.\n'
+                : owner?.initIn ? 'Anfangswert der Prozessvariable.\n'
+                  : 'Vorgaben gibt es nur im InConfig, im InitIn und bei optionalen Feldern der Prozess-Eingabe — hier wird sie nicht verwendet.\n')
               + 'Als FEEL mit «=», z. B. = [90, 110, 140], = "CH", = date("2026-01-01") oder = {ort: "Bern"} — der Export schreibt ihn als Scala. Ohne «=» ein Scala-Ausdruck, wörtlich übernommen.'}
             className="w-44" />
         )}

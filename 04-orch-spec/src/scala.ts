@@ -344,7 +344,9 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}`;
+    // InitIn initialisiert Prozessvariablen — Vorgaben wie im InConfig
+    const def = t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
+    return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
   return `case class ${t.name}(${body})`;
@@ -579,7 +581,7 @@ export function defaultsForInit(spec: ProcessSpec, idx: TypeIndex): Field[] {
 
 /** Wo eine Vorgabe verwendet wird: im InConfig, und bei optionalen Feldern der Prozess-Eingabe. */
 export function defaultIsUsed(t: TypeDef, f: Field): boolean {
-  return !!t.inConfig || (!!t.root && t.kind === 'case' && !!f.optional);
+  return !!t.inConfig || !!t.initIn || (!!t.root && t.kind === 'case' && !!f.optional);
 }
 
 /**
@@ -892,7 +894,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       if (f.default?.trim() && !defaultIsUsed(t, f)) {
         issues.push({ typeId: t.id, field: f.id, message: t.root
           ? `Vorgabe von «${f.name}» wird nicht verwendet — nur bei einem optionalen Feld (der Init-Worker setzt es dann im InitIn).`
-          : `Vorgabe von «${f.name}» wird nicht verwendet — Vorgaben gibt es nur im InConfig und bei optionalen Feldern der Prozess-Eingabe.` });
+          : `Vorgabe von «${f.name}» wird nicht verwendet — Vorgaben gibt es nur im InConfig, im InitIn und bei optionalen Feldern der Prozess-Eingabe.` });
       } else {
         const dflt = isFinished(f, idxAll) ? scalaDefault(f, idxAll) : null;
         if (dflt?.issue) issues.push({ typeId: t.id, field: f.id, message: dflt.issue });
