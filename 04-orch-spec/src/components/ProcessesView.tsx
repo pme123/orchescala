@@ -18,7 +18,7 @@
 // Spezifikation **und** BPMN.
 import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
-import { collectFindings } from '../findings';
+import { collectFindings, withRequiredInputs } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
@@ -177,7 +177,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   /** Anlegen — mit Domain, wenn eine da ist, sonst nur die Struktur. */
   const createPending = async () => {
     if (!pending) return;
-    const spec = pending.enriched?.spec ?? pending.bare.spec;
+    // fehlende Pflicht-Eingaben gleich als Zeile — ein Service-Aufruf beginnt nicht mit einem Fehler
+    const spec = withRequiredInputs(pending.enriched?.spec ?? pending.bare.spec, model).spec;
     const res = await createSpec(spec);
     if (!res.ok) { setError(res.message); return; }
     // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich

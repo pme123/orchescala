@@ -6,12 +6,13 @@
 // als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
-import type { EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, Step } from './types';
+import type { DomainType, EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
+import { isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
 import { chosenVariant, variantAllows, variantsOf } from './variants';
 
@@ -42,6 +43,65 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
+}
+
+/** Die Pflicht-Eingaben: nicht optional im eigenen In, in der Domain — oder laut Katalog `required`. */
+function requiredNames(refFields: Field[] | null, dom: DomainType | null, service: ServiceDef | null): string[] {
+  return refFields
+    ? refFields.filter(f => !f.optional).map(f => f.name)
+    : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name)).map(p => p.name)
+      .concat((service?.inputs ?? []).filter(p => p.required && domainRequired(dom, p.name) == null).map(p => p.name));
+}
+
+/**
+ * Die Pflicht-Eingaben eines Schritts, die noch keine Zeile haben — nach
+ * derselben Regel wie der Befund «Pflichtfeld … fehlt». Nicht bei
+ * Benutzeraufgaben, eigenen Workern und dem Init-Worker (die lesen ihr In aus
+ * den Prozessvariablen) und nicht, wenn ein Pattern den Aufruf festlegt.
+ * Eine abgewählte Zeile zählt als vorhanden: das hat jemand so entschieden.
+ */
+export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Model | null): string[] {
+  const processId = spec.processId ?? '';
+  const initWorker = isInitWorker(step, processId);
+  const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
+  const kind = ia?.kind ?? interactionKind(step, processId);
+  if (initWorker || kind === 'userTask' || kind === 'customTask') return [];
+  if (patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7').inputs.size) return [];
+  const types = spec.types ?? [];
+  const refFields = ia?.inTypeId ? (types.find(t => t.id === ia.inTypeId)?.fields ?? []).filter(f => f.name) : null;
+  const service = catalogEntry(step, model);
+  const dom = stepDomainMember(step, spec, model, 'In');
+  const variants = refFields ? null : variantsOf(step, spec, model, 'inputs', service);
+  const chosen = chosenVariant(step, 'inputs', variants);
+  const have = new Set((step.inputs ?? []).map(m => m.name.trim()));
+  return [...new Set(requiredNames(refFields, dom, service))]
+    .filter(n => variantAllows(variants, chosen, n) && !have.has(n));
+}
+
+/**
+ * Fehlende Pflicht-Eingaben als Zeile ergänzen (`= name`, mit der Bedeutung
+ * aus dem Katalog) — beim Import, damit ein Service-Aufruf nicht mit einem
+ * Fehler beginnt. Ändert nur, was fehlt; `added` nennt «Schritt: Feld».
+ */
+export function withRequiredInputs(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; added: string[] } {
+  const added: string[] = [];
+  const visit = (steps: Step[]): Step[] => steps.map(s => {
+    let next = s;
+    if (s.kind === 'service' || s.kind === 'call' || s.kind === 'send') {
+      const missing = missingRequiredInputs(s, spec, model);
+      if (missing.length) {
+        const descr = new Map((catalogEntry(s, model)?.inputs ?? []).map(p => [p.name, p.description]));
+        next = { ...s, inputs: [...(s.inputs ?? []), ...missing.map(name => ({ name, expression: `= ${name}`, ...(descr.get(name) ? { description: descr.get(name) } : {}) }))] };
+        added.push(...missing.map(n => `${s.name}: ${n}`));
+      }
+    }
+    if (next.children) next = { ...next, children: visit(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: visit(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: visit(e.steps) } : e)) };
+    return next;
+  });
+  const steps = visit(spec.steps);
+  return { spec: added.length ? { ...spec, steps } : spec, added };
 }
 
 export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps)): Finding {
@@ -111,11 +171,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
     // Prozessvariablen, ohne Mapping
     if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
-      const required = refFields
-        ? refFields.filter(f => !f.optional).map(f => f.name)
-        : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name)).map(p => p.name)
-          .concat((service?.inputs ?? []).filter(p => p.required && domainRequired(dom, p.name) == null).map(p => p.name))
-          .filter(allowed);
+      const required = requiredNames(refFields, dom, service).filter(allowed);
       for (const n of required) if (!active.some(m => m.name === n)) errors.push(`Pflichtfeld «${n}» fehlt in den Eingaben.`);
     }
     for (const m of active) {
