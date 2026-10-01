@@ -47,15 +47,32 @@ export async function projectsInFolder(
   }
   // Der Ordner darüber wird als `root` gemerkt: ein Zugriff für alle
   // Projekte darunter — der Browser fragt dann einmal, nicht je Projekt.
-  await putHandle(rootKey(dir.name), dir);
+  // Zwei Ordner gleichen Namens (`~/dev-a/projects`, `~/dev-b/projects`)
+  // bekommen je einen eigenen Schlüssel: «projects», «projects (2)» …
+  const root = await rootLabelFor(dir);
+  await putHandle(rootKey(root), dir);
   const gefunden: Array<{ project: ProjectFolder; handle: FileSystemDirectoryHandle }> = [];
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind !== 'directory' || IGNORE.includes(name) || name.startsWith('.')) continue;
     const unter = handle as FileSystemDirectoryHandle;
-    if (await istProjekt(unter)) gefunden.push({ project: { id: uid('p'), name, root: dir.name }, handle: unter });
+    if (await istProjekt(unter)) gefunden.push({ project: { id: uid('p'), name, root }, handle: unter });
   }
   gefunden.sort((a, b) => a.project.name.localeCompare(b.project.name));
   return gefunden;
+}
+
+/**
+ * Der Name, unter dem ein Ordner über den Projekten gemerkt wird: sein
+ * eigener — ausser ein **anderer** Ordner gleichen Namens ist schon gemerkt;
+ * dann «Name (2)», «Name (3)» … Derselbe Ordner behält seinen Namen.
+ */
+async function rootLabelFor(dir: FileSystemDirectoryHandle): Promise<string> {
+  for (let n = 1; ; n++) {
+    const label = n === 1 ? dir.name : `${dir.name} (${n})`;
+    const known = await getHandle(rootKey(label));
+    if (!known) return label;
+    try { if (await known.isSameEntry(dir)) return label; } catch { /* nicht vergleichbar — weiter */ }
+  }
 }
 
 /** Rekursiv alle Scala-Quellen eines Ordners lesen. */

@@ -15,7 +15,7 @@
 
 import type {
   DomainField, DomainType, Field, Interaction, InteractionKind, Mapping, Model,
-  ProcessSpec, ServiceDef, Step, TypeDef,
+  ProcessSpec, ServiceDef, ServiceParam, Step, TypeDef,
 } from './types.ts';
 import { INTERACTION_META } from './types.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
@@ -209,7 +209,30 @@ export function catalogEntry(step: Step, model: Model | null): ServiceDef | null
     || (step.serviceId && s.id === step.serviceId)
     || (step.topic && (s.id === step.topic || s.topic === step.topic))
     || (ref && s.kind === 'rule' && s.id.toLowerCase() === ref)
-    || (step.calledProcess && s.calledProcess === step.calledProcess)) ?? null;
+    || (step.calledProcess && s.calledProcess === step.calledProcess))
+    // eine Entscheidung, die der Katalog (noch) nicht kennt — er ist so alt wie
+    // sein letzter Aufbau —, die Domain aber schon: der Eintrag aus dem Domain-Objekt
+    ?? (ref ? decisionFromDomain(ref, model) : null);
+}
+
+/** Ein Katalog-Eintrag aus einem Domain-Objekt der Art Decision (`decisionId`, `In`, `Out`). */
+function decisionFromDomain(ref: string, model: Model | null): ServiceDef | null {
+  const types = model?.domainTypes ?? [];
+  const hit = types.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === ref);
+  if (!hit?.owner || !hit.key) return null;
+  const member = (m: 'In' | 'Out') => types.find(t => t.owner === hit.owner && t.pkg === hit.pkg && t.name === `${hit.owner}.${m}`) ?? domainMember(hit.owner!, m, model);
+  // keine Pflicht-Eingaben: eine Entscheidung liest ihr In direkt aus den Prozessvariablen
+  const params = (m: 'In' | 'Out'): ServiceParam[] => (member(m)?.fields ?? []).map(f => ({
+    name: f.name,
+    ...(f.description ? { description: f.description } : {}),
+  }));
+  return {
+    id: hit.key, name: hit.owner, kind: 'rule', topic: hit.key,
+    ...(hit.ownerDescr ? { description: hit.ownerDescr } : {}),
+    inputs: params('In'), outputs: params('Out'),
+    // nicht aus dem Katalog — sondern aus der Domain des Projekts
+    fromDomain: true,
+  };
 }
 
 /**
