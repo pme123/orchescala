@@ -74,6 +74,52 @@ const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\
 const asText = (feel: string): string =>
   (/^"(?:[^"\\]|\\.)*"$/.test(feel) || /^string\(.*\)$/.test(feel) || (/^(?:"|string\()/.test(feel) && feel.includes(' + ')) ? feel : `string(${feel})`);
 
+/**
+ * Spin `.jsonPath("…")` → FEEL-Pfad. Gelesen wird ein String-Literal mit
+ * `$` (Wurzel), `.feld`, `[n]` (Java ab 0 → FEEL ab 1), `[*]` und Filtern
+ * `[?(@.code == 22 || @.code == 24)]` → `[item.code = 22 or item.code = 24]`.
+ * Rekursion (`..`) und Funktionen kennt FEEL so nicht — dann bleibt es JUEL.
+ */
+function jsonPathToFeel(base: string, pathLiteral: string): string {
+  const m = /^"((?:[^"\\]|\\.)*)"$/.exec(pathLiteral);
+  if (!m) throw new Unsupported('jsonPath nur mit festem Pfad');
+  let path = m[1].replace(/\\"/g, '"');
+  if (path.includes('..')) throw new Unsupported('jsonPath mit «..» hat kein FEEL-Gegenstück');
+  if (path.startsWith('$')) path = path.slice(1);
+  let out = base;
+  let i = 0;
+  while (i < path.length) {
+    if (path[i] === '.') {
+      const f = /^\.([A-Za-z_]\w*)/.exec(path.slice(i));
+      if (!f) throw new Unsupported(`jsonPath «${m[1]}» nicht lesbar`);
+      out += `.${f[1]}`; i += f[0].length; continue;
+    }
+    if (path.startsWith('[*]', i)) { i += 3; continue; }
+    const idx = /^\[(\d+)\]/.exec(path.slice(i));
+    if (idx) { out += `[${Number(idx[1]) + 1}]`; i += idx[0].length; continue; }
+    if (path.startsWith('[?(', i)) {
+      // bis zur passenden Klammer — Text in Anführungszeichen zählt nicht
+      let depth = 0, j = i + 2, q: string | null = null;
+      for (; j < path.length; j++) {
+        const ch = path[j];
+        if (q) { if (ch === q) q = null; continue; }
+        if (ch === '"' || ch === "'") q = ch;
+        else if (ch === '(') depth++;
+        else if (ch === ')' && --depth === 0) break;
+      }
+      if (path[j + 1] !== ']') throw new Unsupported(`jsonPath-Filter in «${m[1]}» nicht lesbar`);
+      const cond = path.slice(i + 3, j)
+        .replace(/'((?:[^'\\]|\\.)*)'/g, (_, x: string) => JSON.stringify(x))
+        .replace(/@\./g, 'item.').replace(/(^|[^\w.])@(?![\w.])/g, '$1item')
+        .replace(/\s*==\s*/g, ' = ').replace(/\s*\|\|\s*/g, ' or ').replace(/\s*&&\s*/g, ' and ')
+        .replace(/!(?!=)/g, 'not ').trim();
+      out += `[${cond}]`; i = j + 2; continue;
+    }
+    throw new Unsupported(`jsonPath «${m[1]}» nicht lesbar`);
+  }
+  return out;
+}
+
 /** Methodenaufrufe mit FEEL-Gegenstück: `a.concat(b)` → `a + b` usw. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
@@ -94,7 +140,7 @@ function method(target: string, name: string, args: string[]): string {
     case 'intValue': case 'longValue': case 'doubleValue': return one(a => `number(${a})`);
     // Spin (Camunda 7 JSON): in FEEL ist die Variable schon JSON — eine Liste
     // ist eine Liste, ein Feld ein Feld, ein Wert ein Wert
-    case 'elements': case 'value': case 'stringValue': case 'numberValue': case 'boolValue': case 'listValue':
+    case 'elements': case 'elementList': case 'value': case 'stringValue': case 'numberValue': case 'boolValue': case 'listValue':
       return one(a => a);
     case 'prop': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
@@ -119,7 +165,7 @@ function method(target: string, name: string, args: string[]): string {
     case 'get': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}`
       // `.get(0)` einer Liste: Java zählt ab 0, FEEL ab 1
       : /^\d+$/.test(b) ? `${a}[${Number(b) + 1}]` : `${a}[${b} + 1]`));
-    case 'jsonPath': return two((a, b) => `${a}.${b.replace(/^"\$?\.?|"$/g, '')}`);
+    case 'jsonPath': return two((a, b) => jsonPathToFeel(a, b));
     default: throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`);
   }
 }
@@ -165,7 +211,8 @@ export function juelToFeel(body: string): FeelResult {
     const unary = (): string => {
       if (isOp('!', 'not')) { take(); return `not(${unary()})`; }
       if (isOp('-')) { take(); return `-${unary()}`; }
-      if (isOp('empty')) { take(); const x = unary(); return `(${x} = null or ${x} = "")`; }
+      // JUEL `empty`: null, leerer Text — oder eine leere Liste
+      if (isOp('empty')) { take(); const x = unary(); return `(${x} = null or ${x} = "" or ${x} = [])`; }
       return postfix();
     };
     const postfix = (): string => {
