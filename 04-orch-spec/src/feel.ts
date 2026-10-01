@@ -274,7 +274,12 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
 export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | null, member: 'In' | 'Out'): DomainType | null {
   const all = model?.domainTypes ?? [];
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
-  const owner = step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
+  // eine Entscheidung (DMN) heisst über ihre decisionId — die Schreibweise kann abweichen
+  const decision = step.kind === 'rule' && step.topic
+    ? all.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase())?.owner
+    : undefined;
+  const owner = decision ? decision
+    : step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
     : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
     : ia?.name;
   return owner ? domainMember(owner, member, model) : null;
@@ -333,7 +338,22 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
     for (const f of ownOut.fields ?? []) add(nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()));
   } else {
     const dom = stepDomainMember(step, spec, model, 'Out');
-    if (dom?.fields?.length || dom?.cases?.some(c => c.fields?.length)) {
+    if (step.kind === 'rule' && step.resultVariable) {
+      // Entscheidung: das Ergebnis steht in **einer** Variable — je nach Form ein
+      // Wert, ein Objekt mit den Feldern des Out oder eine Liste davon
+      const fields = dom ? domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? [] : [];
+      const form = step.decisionResult ?? dom?.decisionResult ?? (spec.engine === 'c8'
+        ? (fields.length === 1 ? 'singleEntry' : 'singleResult')
+        : 'resultList');
+      const source = `Ergebnis der Entscheidung${dom ? ` (${dom.name})` : ''}`;
+      const name = step.resultVariable;
+      const label = dom ? `${dom.name} · ${form}` : form;
+      if (!fields.length) add({ name, type: 'any', label, source });
+      else if (form === 'singleEntry') add({ ...fields[0], name, label, source });
+      else if (form === 'collectEntries') add({ name, type: 'list', label, source });
+      else if (form === 'resultList') add({ name, type: 'list', children: fields, label, source });
+      else add({ name, type: 'context', children: fields, label, source });
+    } else if (dom?.fields?.length || dom?.cases?.some(c => c.fields?.length)) {
       // enum mit Fällen: die gemeinsamen Felder und die der gewählten Ausprägung
       const v = dom.cases?.length ? variantsOf(step, spec, model, 'outputs', service) : null;
       // ohne Wahl kein Fall — ein Name, den es nicht gibt (leer hiesse: alle)

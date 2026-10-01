@@ -538,6 +538,11 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   const calledDecision = ext ? firstNamed(ext, 'calledDecision') : null;
   const decisionRef = attr(el, 'decisionRef') ?? (calledDecision ? attr(calledDecision, 'decisionId') : undefined);
   if (decisionRef && !step.topic) step.topic = decisionRef;
+  // … und wohin das Ergebnis geht, in welcher Form (Camunda 7: Vorgabe resultList)
+  const resultVariable = attr(el, 'resultVariable') ?? (calledDecision ? attr(calledDecision, 'resultVariable') : undefined);
+  if (decisionRef && resultVariable) step.resultVariable = resultVariable;
+  const mapping = attr(el, 'mapDecisionResult');
+  if (decisionRef && mapping && ['singleEntry', 'singleResult', 'collectEntries', 'resultList'].includes(mapping)) step.decisionResult = mapping as Step['decisionResult'];
   // Camunda 7: calledElement am Element; Camunda 8: zeebe:calledElement processId="…"
   const calledEl = ext ? firstNamed(ext, 'calledElement') : null;
   const called = el.getAttribute('calledElement') ?? (calledEl ? attr(calledEl, 'processId') : undefined);

@@ -20,7 +20,7 @@
 // gleich formatiert, und was der Parser nicht sicher erkennt, lässt er lieber
 // weg, statt zu raten.
 
-import type { DomainDefault, DomainField, DomainType } from './types';
+import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
 import { parseParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
@@ -235,6 +235,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const dsls = new Map<string, string>();
   /** `val descr = "…"` je Objekt */
   const descrs = new Map<string, string>();
+  /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
+  const decisionResults = new Map<string, DecisionResult>();
   let owner: string | null = null;
   let doc = '';
 
@@ -284,6 +286,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
 
     const de = owner ? DESCR.exec(line) : null;
     if (owner && de) { descrs.set(owner, de[1]); continue; }
+    const dr = owner ? /^\s+lazy val example\s*=\s*(singleEntry|singleResult|collectEntries|resultList)\s*\(/.exec(line) : null;
+    if (owner && dr) { decisionResults.set(owner, dr[1] as DecisionResult); continue; }
 
     const mark = owner ? SERVICE_MARK.exec(line) : null;
     if (owner && mark) {
@@ -410,6 +414,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (key) { t.keyName = key.keyName; t.key = key.key; }
     const descr = descrs.get(t.owner);
     if (descr) t.ownerDescr = descr;
+    const dr = decisionResults.get(t.owner);
+    if (dr) t.decisionResult = dr;
   }
   return out;
 }

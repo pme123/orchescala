@@ -93,6 +93,9 @@ export interface ErrorHandling {
   [key: string]: unknown;
 }
 
+/** Form eines DMN-Ergebnisses — wie `camunda:mapDecisionResult` bzw. die Fabrik im Domain-Objekt */
+export type DecisionResult = 'singleEntry' | 'singleResult' | 'collectEntries' | 'resultList';
+
 export interface Step {
   id: string;             // stabil; bei Import die BPMN-Element-ID
   kind: StepKind;
@@ -122,6 +125,17 @@ export interface Step {
    * Schritt `_servicesMocked` weiter. Beim Export entsteht das Feld im `InConfig`.
    */
   mockKind?: 'output' | 'service';
+  /**
+   * Entscheidung (DMN): in welche Prozessvariable das Ergebnis geht
+   * (`camunda:resultVariable` bzw. `zeebe:calledDecision resultVariable`) …
+   */
+  resultVariable?: string;
+  /**
+   * … und in welcher Form (`camunda:mapDecisionResult`): ein Wert
+   * (`singleEntry`), ein Objekt (`singleResult`), eine Liste von Werten
+   * (`collectEntries`) oder von Objekten (`resultList`, Vorgabe in Camunda 7).
+   */
+  decisionResult?: DecisionResult;
 
   // Struktur
   gatewayType?: GatewayType;
@@ -607,6 +621,8 @@ export interface DomainType {
   /** Schlüssel des Objekts: `name` (Benutzeraufgabe), `messageName`, `decisionId` — und sein Wert */
   keyName?: string;
   key?: string;
+  /** Entscheidung: die Form des Ergebnisses laut `lazy val example = singleResult(…)` */
+  decisionResult?: DecisionResult;
   /** `val descr` des umschliessenden Objekts */
   ownerDescr?: string;
   /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustOrderUT.In` */
