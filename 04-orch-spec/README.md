@@ -443,8 +443,10 @@ in `ENGINES` ergänzen (`src/template.ts`).
 
 In der Liste hat jede Spezifikation rechts einen Papierkorb. Vorher wird
 gefragt, denn weg ist weg: entfernt werden
-**beide** Dateien, `processes/<slug>.json` und `processes/<slug>.bpmn` —
-lokal endgültig, in SharePoint in den Papierkorb der Site.
+die Dateien `processes/<slug>.json`, `processes/<slug>.bpmn` und das
+Änderungsprotokoll `processes/<slug>.audit.jsonl` — lokal endgültig, in
+SharePoint in den Papierkorb der Site. Archivierte Teile des Protokolls
+(`<slug>.audit-<Zeitstempel>.jsonl`) bleiben liegen.
 
 Löschen darf nur, wer **Admin** ist — oder alle, wenn keine Anmeldung
 verlangt ist (dann gilt ohnehin «alles erlaubt»). Editor und Viewer sehen den
@@ -860,6 +862,57 @@ Teilen eines Schritts oder Typs: der fachliche unter dem jeweiligen Schritt,
 der Orchescala-Export zusätzlich als Zeile in der Schritt-Tabelle. Erledigte
 bleiben in der Datei, aber aus den Exporten heraus.
 
+### Verlauf — wer hat wann was geändert
+
+Seit der Abgleich mit BPMN und Domain Werte der Spezifikation überschreibt
+(eine Vorgabe kommt immer aus der Domain, eine Vorgabe der Spezifikation
+fällt weg, wenn die Domain keine hat …), protokolliert die App **jede
+Änderung**. Der Knopf mit der Uhr in der Werkzeugleiste öffnet den
+**Verlauf** rechts, wo sonst die Kommentare stehen — ist ein Schritt gewählt,
+gleich gefiltert auf ihn:
+
+```
+Verlauf  3 Einträge                                              ✕
+[🔍 Suchen — Stelle, Feld, Wert, Notiz …                         ]
+[Check data         ▾] [Alle Personen       ▾] [Letzte 7 Tage     ▾]
+Von Hand  Abgleich BPMN  Abgleich Domain  Umwandlung  Beim Laden
+┌ 09:14 Pascal Mengelt                                   Von Hand ┐
+│ ~ Check data · Eingabe kind · Ausdruck                          │
+│   =a → =b                                                       │
+└─────────────────────────────────────────────────────────────────┘
+┌ 08:50 Pascal Mengelt                              Abgleich BPMN ┐
+│ Mit BPMN abgleichen: openSavings-impl.bpmn                      │
+│ ~ Service Check data · Status   Entwurf → Angepasst             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- **Jeder Eintrag**: Zeitpunkt, wer (die Anmeldung, wie bei Kommentaren),
+  **Herkunft** — von Hand, Abgleich BPMN, Abgleich Domain, Umwandlung
+  (Engine, JUEL → FEEL), beim Laden (ausgemusterte Felder, Pool angeglichen,
+  Typnamen mit dem Katalog verknüpft) —, beim Abgleich dessen Bericht
+  (neu, entfallen, geändert, umbenannt, nur in der Spezifikation …), und je
+  Änderung die Stelle mit Feld und **vorher → nachher**.
+- **Die Stellen** sind dieselben wie bei den Kommentaren (`step:<id>#in:<name>`,
+  `type:<id>#field:<id>` …) samt ihrem Namen zum Zeitpunkt der Änderung —
+  ein Klick springt hin; was es nicht mehr gibt, steht mit «(entfallen)» in
+  der Auswahl.
+- **Filtern** nach Element (Schritt, Typ …), nach **Person**, nach
+  **Zeitraum** (heute, letzte 7 oder 30 Tage, von–bis), nach Herkunft
+  und mit einer **Textsuche** über Stelle, Feld, vorher/nachher, Notiz und
+  Bericht — alle Wörter müssen vorkommen; passt nur eine Änderung, bleibt
+  vom Eintrag nur sie stehen.
+- **Erfasst** wird alles, weil die App zwei Stände vergleicht (`src/audit.ts`,
+  `diffSpecs`) statt an jeder Stelle einzeln zu protokollieren: von Hand ist,
+  was sich zwischen zwei Speicherläufen ändert; eine Änderung mit Herkunft
+  (Abgleich, Pattern, Umwandlung …) wird ein eigener Eintrag mit ihrem Grund.
+  Kommentare stehen nicht drin — sie sind selbst ein Verlauf.
+- **Tippen** erzeugt je Autosave eine Zeile; die Anzeige fasst aufeinander
+  folgende Einträge derselben Person innerhalb von zehn Minuten zusammen
+  (erstes «vorher», letztes «nachher» je Feld).
+
+Das Protokoll liegt **neben** der Spezifikation, nie in ihr — in keinem
+Export, nicht in der JSON (siehe [Datenablage](#datenablage-im-geteilten-ordner)).
+
 ### Status je Schritt
 
 **Entwurf · In Prüfung · Final · Umgesetzt · Abgenommen · Angepasst** — am
@@ -1155,7 +1208,8 @@ Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 ├── users.json                wer hier arbeitet — Vorschläge bei «@» in Kommentaren
 └── processes/
     ├── <slug>.json           die Spezifikation
-    └── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
+    ├── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
+    └── <slug>.audit.jsonl    ihr Änderungsprotokoll (Verlauf), eine Zeile je Eintrag
 ```
 
 Fehlen `config/model.json` oder `processes/`, legt die App sie an. Eine
@@ -1166,6 +1220,14 @@ Ordner mit der `model.json` im Hauptordner laufen weiter; der Admin-Bereich
 weist darauf hin, sie von Hand nach `config/` zu verschieben. Änderungen werden ca. eine
 Sekunde nach der letzten Eingabe automatisch gespeichert; Konflikte werden
 über lastModified bzw. ETag erkannt.
+
+Das **Änderungsprotokoll** wird nur angehängt, und erst, wenn die
+Spezifikation gespeichert ist — schlägt das fehl, geht es mit dem nächsten
+Speichern nochmals. Wer gleichzeitig anhängt, bekommt einen Konflikt
+(lastModified bzw. ETag) und liest neu. Über 2000 Einträge wandert der ältere
+Teil in ein Archiv `<slug>.audit-<Zeitstempel>.jsonl`; die laufende Datei
+behält die letzten 1000. Eine kaputte Zeile kostet nur sich selbst. Die
+Liste der Spezifikationen liest nur `.json` und sieht die Protokolle nicht.
 
 ## Anmeldung (Microsoft Entra ID)
 
@@ -1266,6 +1328,7 @@ verworfen: globex.core.banking.domain.client.v1 (13 Typen) — Vorrang hat inite
 | `src/xmlFormat.ts` | Einrückung beim Schreiben ins BPMN (Mappings, Pattern) |
 | `src/components/PatternAdmin.tsx` | Pattern im Admin: Liste, Editor, Datei |
 | `src/store.tsx` | Ordner, Laden/Speichern, Konflikte |
+| `src/audit.ts`, `src/components/AuditPanel.tsx` | Änderungsprotokoll: Vergleich zweier Stände, Ablage, Verlauf |
 | `src/backend.ts`, `src/graph.ts` | lokaler Ordner bzw. SharePoint über Graph |
 | `src/auth.tsx` | Entra-Anmeldung (MSAL) |
 | `src/components/BpmnEditor.tsx` | bpmn-js im Editor, Abgleich in beide Richtungen |
