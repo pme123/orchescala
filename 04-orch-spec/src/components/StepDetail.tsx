@@ -12,7 +12,7 @@ import { catalogEntry, createMemberType, interactionKind, suggestName } from '..
 import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, newErrorCode, regexIssue, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -521,7 +521,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 onPatch(step.id, { branches: (step.branches ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // Bedingung als FEEL: gültig, Pfade bekannt, Ergebnis Ja/Nein
               const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
-                ? [...checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung', kind: 'scalar' }).issues, ...juelIssues(b.condition, spec.engine)]
+                ? [...checkFeel(b.condition, variables, conditionExpected(spec.engine)).issues, ...juelIssues(b.condition, spec.engine)]
                 : !b.isDefault && b.condition && isJuel(b.condition)
                   ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
                       ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'

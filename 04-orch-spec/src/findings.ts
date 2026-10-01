@@ -8,7 +8,7 @@
 
 import type { EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, Step } from './types';
 import { INTERACTION_META } from './types';
-import { checkFeel, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
@@ -152,7 +152,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // ── Zweige: Bedingungen ──────────────────────────────────────────────────
   for (const b of step.branches ?? []) {
     if (b.isDefault || !b.condition || !isFeel(b.condition)) continue;
-    const r = checkFeel(b.condition, variables, { accepts: ['boolean'], label: 'Bedingung', kind: 'scalar' });
+    const r = checkFeel(b.condition, variables, conditionExpected(spec.engine));
     for (const i of r.issues) (i.level === 'error' ? errors : warnings).push(`Zweig «${b.label}»: ${i.text}`);
   }
 

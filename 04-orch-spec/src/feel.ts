@@ -19,7 +19,7 @@
 // bei ihnen bleibt die Prüfung stumm, statt falsch zu warnen.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
-import type { DomainType, Field, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
+import type { DomainType, EngineId, Field, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
@@ -65,6 +65,14 @@ export interface ExpectedType {
 }
 
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
+
+/**
+ * Was die Bedingung eines Zweigs liefern muss. In Camunda 7 wird `null` in
+ * JUEL zu `false` — ein fehlender optionaler Wert nimmt einfach den anderen
+ * Zweig. In Camunda 8 muss es ein Boolean sein, `null` gibt einen Incident.
+ */
+export const conditionExpected = (engine: EngineId | undefined): ExpectedType =>
+  ({ accepts: engine === 'c8' ? ['boolean'] : ['boolean', 'nil'], label: 'Bedingung', kind: 'scalar' });
 
 export interface FeelIssue {
   level: 'error' | 'warn';
