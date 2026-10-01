@@ -160,12 +160,14 @@ export interface ProcessIdCheck {
  * bekannten Firma nur eine Warnung — sonst liesse sich kein neues Projekt
  * anfangen. Ohne bekannte Prefixe zählt nur das Muster.
  */
-export function checkProcessId(id: string, prefixes: string[] = []): ProcessIdCheck | null {
+export function checkProcessId(id: string, prefixes: string[] = [], legacy = false): ProcessIdCheck | null {
   const t = id.trim();
   const error = (text: string): ProcessIdCheck => ({ level: 'error', text });
   if (!t) return error('Die Prozess-ID fehlt.');
   const parts = t.split('-');
   if (parts.length < 3) return error(`Drei Teile: company-projekt-prozessVersion, z. B. ${EXAMPLE_ID}.`);
+  // ein alter Name bleibt, wie er ist — keine Konvention, keine bekannten Prefixe
+  if (legacy) return null;
   const proc = parts[parts.length - 1];
   if (!PROCESS_ID_PATTERN.test(t)) {
     // der Vorschlag gleich richtig: klein beginnend, ohne Sonderzeichen, mit Version

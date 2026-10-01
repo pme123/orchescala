@@ -465,6 +465,12 @@ export interface ProcessSpec {
   processId?: string;
   /** Orchescala-Projekt, z. B. `globex-savings` */
   project?: string;
+  /**
+   * Alter Name, der der Konvention (`company-projekt-prozessVersion`) nicht
+   * folgt und bleiben muss — z. B. `valiant-product-orderCard`. Dann wird nur
+   * noch geprüft, dass die ID drei Teile hat.
+   */
+  legacyProcessId?: boolean;
   status: Status;
   /** Ausgangslage / Ziel (Markdown) */
   description?: string;

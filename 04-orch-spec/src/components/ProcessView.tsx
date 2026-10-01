@@ -643,18 +643,21 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const otherPrefixes = useMemo(
     () => knownPrefixes(model, specs.filter(s => s.slug !== slug).map(s => s.data.project)),
     [model, specs, slug]);
-  const idProblem = idDraft.trim() ? checkProcessId(idDraft, otherPrefixes) : null;
+  const legacyId = !!spec?.legacyProcessId;
+  const idProblem = idDraft.trim() ? checkProcessId(idDraft, otherPrefixes, legacyId) : null;
+  // die Markierung nur dort anbieten, wo sie etwas ändert: die Konvention passt nicht (oder sie ist schon gesetzt)
+  const offerLegacy = legacyId || (!!idDraft.trim() && !!checkProcessId(idDraft, [], false) && !checkProcessId(idDraft, [], true));
   const commitProcessId = () => {
     const cur = specRef.current, x = xmlRef.current;
     const id = idDraft.trim();
-    if (!cur || !canEdit || id === (cur.processId ?? '') || checkProcessId(id, otherPrefixes)?.level === 'error') return;
+    if (!cur || !canEdit || id === (cur.processId ?? '') || checkProcessId(id, otherPrefixes, !!cur.legacyProcessId)?.level === 'error') return;
     if (x && cur.processId) {
       const next = renameProcess(x, cur.processId, id);
       if (next !== x) void applyXml(next, 'Prozess-ID', 'silent');
       return;
     }
     // ohne Diagramm: nur die Spezifikation
-    const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(id);
+    const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(id) ?? (cur.legacyProcessId ? /^(.*)-([^-]+)$/.exec(id) : null);
     update({ ...cur, processId: id, ...(m ? { project: m[1] } : {}) });
   };
 
@@ -867,6 +870,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                     ? (isDark ? 'text-rose-400' : 'text-rose-600') : (isDark ? 'text-amber-400' : 'text-amber-700')}`}>
                     {idProblem.text}{idProblem.level === 'error' && idDraft !== (spec.processId ?? '') ? ' Nicht übernommen.' : ''}
                   </div>
+                )}
+                {offerLegacy && (
+                  <label className={`mt-0.5 flex items-center gap-1 text-[10px] ${c.muted2}`}
+                    title="Ein bestehender Prozess, dessen ID der Konvention company-projekt-prozessVersion nicht folgt und so bleiben muss — die Prüfung entfällt">
+                    <input type="checkbox" checked={legacyId} disabled={!canEdit}
+                      onChange={e => {
+                        const cur = specRef.current;
+                        if (!cur) return;
+                        update({ ...cur, legacyProcessId: e.target.checked || undefined });
+                      }} />
+                    alter Name — ohne Namenskonvention
+                  </label>
                 )}
                 <div className={`flex items-center gap-2 mt-1 text-[10px] ${c.muted}`}>
                   {spec.project && <span className="font-mono opacity-70 truncate">{spec.project}</span>}
