@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
-import { collectFindings, type Finding } from '../findings';
+import { collectFindings, withRequiredInputs, type Finding } from '../findings';
 import { catalogEntry, healLooseTypes } from '../interactions';
 import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, pruneComments, stepTarget, sub, threadOf } from '../comments';
 import { TEAMS_SCOPES } from '../teams';
@@ -193,6 +193,19 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (healed) update({ ...spec, types: healed });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec?.types, model, canEdit]);
+
+  // Fehlende Pflicht-Eingaben eines Services (wie beim Import und Abgleich) —
+  // einmal beim Öffnen, sobald der Katalog da ist; gespeichert mit dem Autosave
+  const requiredHealed = useRef<string | null>(null);
+  useEffect(() => {
+    // der Katalog kann nach der Spezifikation kommen — dann noch einmal
+    const key = `${slug}:${model?.services.length ?? 0}`;
+    if (!spec || !model || !canEdit || requiredHealed.current === key) return;
+    requiredHealed.current = key;
+    const r = withRequiredInputs(spec, model);
+    if (r.added.length) update(r.spec);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec, model, canEdit, slug]);
 
   // JUEL aus einem älteren Stand bzw. Katalog: was sich übersetzen lässt,
   // wird FEEL — gespeichert mit dem nächsten Autosave; der Rest bleibt JUEL
