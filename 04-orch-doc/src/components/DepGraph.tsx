@@ -3,7 +3,8 @@
 // Layout: one band per project group; bands are ordered by how "high" their
 // projects sit in the dependency chain (things nobody depends on come first).
 // Inside a band, nodes are ordered by the centre of their dependents, which
-// keeps most edges short. Hover highlights a project's in- and outgoing edges;
+// keeps most edges short. Hover highlights exactly the projects of the
+// project's "depends on" list (direct edges bold, indirect ones dashed);
 // click opens its dependency page.
 import { useMemo, useState } from 'react';
 import { href } from '../router';
@@ -78,11 +79,24 @@ export default function DepGraph({ docs, isDark, focus, width = 960, onSelect }:
   }, [docs, width]);
 
   const byName = new Map(nodes.map(n => [n.name, n]));
-  const related = new Set<string>();
-  if (active) {
-    related.add(active);
-    edges.forEach(e => { if (e.from === active) related.add(e.to); if (e.to === active) related.add(e.from); });
-  }
+  // what `active` depends on: its "depends on" list; without a dependency page
+  // the transitive closure of the graph edges
+  const reach = (start: string) => {
+    const seen = new Set<string>(), todo = [start];
+    while (todo.length) {
+      const n = todo.pop()!;
+      for (const e of edges) if (e.from === n && !seen.has(e.to)) { seen.add(e.to); todo.push(e.to); }
+    }
+    return seen;
+  };
+  const listed = active ? docs.dependencies.find(d => d.project === active)?.dependsOn : undefined;
+  const down = !active ? new Set<string>()
+    : listed ? new Set(listed.map(d => d.project).filter(n => byName.has(n))) : reach(active);
+  down.delete(active ?? '');
+  const related = new Set<string>(active ? [active, ...down] : []);
+  // an edge is highlighted if it leads from `active` (or one of its dependencies) to a dependency
+  const onPath = (e: { from: string; to: string }) => !!active &&
+    (e.from === active || down.has(e.from)) && down.has(e.to);
   const stroke = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)';
   const strokeHi = isDark ? '#6ccbe6' : '#0f6e8c';
   const textColor = isDark ? '#e8e8e8' : '#1a1a1a';
@@ -110,18 +124,20 @@ export default function DepGraph({ docs, isDark, focus, width = 960, onSelect }:
         </g>
       ))}
       {/* edges */}
-      {edges.map((e, i) => {
+      {/* highlighted edges last, so they sit on top of the dimmed ones */}
+      {[...edges].sort((a, b) => Number(onPath(a)) - Number(onPath(b))).map(e => {
         const a = byName.get(e.from), b = byName.get(e.to);
         if (!a || !b) return null;
-        const hi = !!active && (e.from === active || e.to === active);
+        const hi = onPath(e);
+        const direct = hi && e.from === active;
         const dim = !!active && !hi;
         const down = b.y > a.y;
         const x1 = a.x + a.w / 2, y1 = down ? a.y + NODE_H : a.y;
         const x2 = b.x + b.w / 2, y2 = down ? b.y : b.y + NODE_H;
         const dy = (y2 - y1) / 2;
         const d = `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
-        return <path key={i} d={d} fill="none" stroke={hi ? strokeHi : stroke} strokeWidth={hi ? 1.8 : 1}
-          opacity={dim ? 0.25 : 1} markerEnd={`url(#${hi ? 'arrHi' : 'arr'})`} />;
+        return <path key={`${e.from}>${e.to}`} d={d} fill="none" stroke={hi ? strokeHi : stroke} strokeWidth={direct ? 1.8 : hi ? 1.2 : 1}
+          strokeDasharray={hi && !direct ? '4 3' : undefined} opacity={dim ? 0.25 : 1} markerEnd={`url(#${hi ? 'arrHi' : 'arr'})`} />;
       })}
       {/* nodes */}
       {nodes.map(n => {
