@@ -1190,7 +1190,10 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
         <Puzzle size={10} />
         <span className="font-semibold">{p.patternName(pattern)}</span>
         <span className={c.muted}>· {what}</span>
-        <span className={`ml-auto ${c.muted}`}>{n} Schritt{n === 1 ? '' : 'e'}</span>
+        <span className={`ml-auto flex items-center gap-1.5 ${c.muted}`}>
+          {!open && (() => { const f = nestedFindings(steps, p.findings); return <FindingCount errors={f.errors} warnings={f.warnings} title={f.texts.join('\n')} isDark={p.isDark} />; })()}
+          {n} Schritt{n === 1 ? '' : 'e'}
+        </span>
       </button>
       {open && <StepList {...p} steps={steps} depth={p.depth + 1} />}
     </div>
@@ -1301,13 +1304,16 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-          {/* Befund: rot = Fehler, orange = Warnung — die ersten Meldungen im Tooltip */}
-          {finding && (
-            <span title={[...finding.errors, ...finding.warnings].slice(0, 4).join('\n')}
-              className={`flex items-center gap-0.5 text-[9px] ${finding.errors.length ? (p.isDark ? 'text-rose-400' : 'text-rose-600') : (p.isDark ? 'text-amber-400' : 'text-amber-600')}`}>
-              <AlertTriangle size={10} />{finding.errors.length + finding.warnings.length}
-            </span>
-          )}
+          {/* Befund: rot = Fehler, orange = Warnung — die ersten Meldungen im Tooltip.
+              Zugeklappt zählen die Befunde der Schritte darunter mit, sonst sähe man sie nicht */}
+          {(() => {
+            const below = hasChildren && !isOpen ? nestedFindings(stepsBelow(step), p.findings) : { errors: 0, warnings: 0, texts: [] };
+            const own = { errors: finding?.errors.length ?? 0, warnings: finding?.warnings.length ?? 0 };
+            const texts = [...(finding ? [...finding.errors, ...finding.warnings] : []).slice(0, 4), ...below.texts].slice(0, 6);
+            const nBelow = below.errors + below.warnings;
+            return <FindingCount errors={own.errors + below.errors} warnings={own.warnings + below.warnings} isDark={p.isDark}
+              title={`${texts.join('\n')}${nBelow ? `\n— davon ${nBelow} in den Schritten darunter (zugeklappt)` : ''}`} />;
+          })()}
           {step.description && <span className={`text-[9px] ${c.muted}`} title="fachlich beschrieben">✎</span>}
           {/* Kommentare am Schritt samt seiner Teile — ohne erst beim Überfahren */}
           <CommentBubble target={stepTarget(step.id)} aggregate quiet />
@@ -1389,3 +1395,30 @@ function BranchBlock({ branch, index, gatewayId, ...p }: ListProps & { branch: B
 
 /** Schritte eines Blocks — ohne Rücksprünge, über alle Ebenen. */
 const countSteps = (steps: Step[] | undefined): number => allSteps(steps).filter(s => s.kind !== 'goto').length;
+
+/** Befunde in den Schritten darunter (alle Ebenen) — für Zeilen, die zugeklappt sind */
+function nestedFindings(steps: Step[] | undefined, findings: Map<string, Finding>): { errors: number; warnings: number; texts: string[] } {
+  let errors = 0, warnings = 0;
+  const texts: string[] = [];
+  for (const s of allSteps(steps)) {
+    const f = findings.get(s.id);
+    if (!f) continue;
+    errors += f.errors.length; warnings += f.warnings.length;
+    for (const t of [...f.errors, ...f.warnings]) if (texts.length < 4) texts.push(`${s.name}: ${t}`);
+  }
+  return { errors, warnings, texts };
+}
+/** die Schritte unter einem Schritt — Zweige, Fehler- und Nebenpfade, Subprozess */
+const stepsBelow = (step: Step): Step[] =>
+  [...(step.branches ?? []).flatMap(b => b.steps), ...(step.errors ?? []).flatMap(e => e.steps ?? []), ...(step.children ?? [])];
+
+/** Dreieck mit Zahl: rot bei Fehlern, sonst orange */
+function FindingCount({ errors, warnings, title, isDark }: { errors: number; warnings: number; title: string; isDark: boolean }) {
+  if (!errors && !warnings) return null;
+  return (
+    <span title={title}
+      className={`flex items-center gap-0.5 text-[9px] ${errors ? (isDark ? 'text-rose-400' : 'text-rose-600') : (isDark ? 'text-amber-400' : 'text-amber-600')}`}>
+      <AlertTriangle size={10} />{errors + warnings}
+    </span>
+  );
+}
