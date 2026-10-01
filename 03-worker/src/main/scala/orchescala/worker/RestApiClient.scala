@@ -58,7 +58,7 @@ trait RestApiClient:
           statusCode.code,
           orchescala.engine.LogSafe.withDetails(
             s"Non-2xx response with code $statusCode: ${RestApiClient.safeCurl(request)}",
-            RestApiClient.truncate(body)
+            RestApiClient.truncate(body) + RestApiClient.requestBodyDetails(request)
           )
         )
       )
@@ -80,9 +80,10 @@ trait RestApiClient:
         .mapError: ex =>
           val unexpectedError =
             s"""Unexpected error while sending request: ${ex.getMessage} / ${if ex.getCause != null then ex.getCause.getMessage else "no cause"} / ${ex.getClass}.
-               | -> ${RestApiClient.safeCurl(req)}
-               |""".stripMargin
-          ServiceUnexpectedError(unexpectedError)
+               | -> ${RestApiClient.safeCurl(req)}""".stripMargin
+          ServiceUnexpectedError(
+            orchescala.engine.LogSafe.withDetails(unexpectedError, RestApiClient.requestBodyDetails(req).trim)
+          )
 
   protected def decodeResponse[
       ServiceOut: {InOutDecoder, ClassTag} // output of service
@@ -182,6 +183,43 @@ object RestApiClient:
     * body were stored in the engine. Now: every header / query parameter with a sensitive name is
     * masked, the body is left out.
     */
+  // a request body field whose value is a secret - narrower than for headers: `authorName` stays
+  private val sensitiveBodyField = "(?i).*(passw|pwd|secret|token|api[-_]?key|credential).*".r
+
+  /** The request body for the details of an error - the incident (Cockpit), never the log: needed
+    * to fix the error (it was left out completely). Values of secret fields are masked (JSON, form).
+    */
+  def requestBodyDetails(request: Request[?, ?]): String =
+    val body = request.body match
+      case StringBody(b, _, _) => b
+      case ByteArrayBody(b, _) => String(b, java.nio.charset.StandardCharsets.UTF_8)
+      case _                   => ""
+    if body.isBlank then ""
+    else s"\n--- Request body ---\n${truncate(maskBody(body))}"
+  end requestBodyDetails
+
+  private[worker] def maskBody(body: String): String =
+    io.circe.parser.parse(body) match
+      case Right(json)                => maskJson(json).noSpaces
+      case Left(_) if body.contains("=") => // a form: key=value&...
+        body.split("&").map: field =>
+          field.split("=", 2) match
+            case Array(key, _) if sensitiveBodyField.matches(java.net.URLDecoder.decode(key, "UTF-8")) =>
+              s"$key=masked"
+            case _                                                                                  => field
+        .mkString("&")
+      case Left(_)                    => body
+
+  private def maskJson(json: io.circe.Json): io.circe.Json =
+    json.arrayOrObject(
+      json,
+      values => io.circe.Json.fromValues(values.map(maskJson)),
+      obj =>
+        io.circe.Json.fromFields(obj.toList.map: (key, value) =>
+          key -> (if sensitiveBodyField.matches(key) then io.circe.Json.fromString("masked") else maskJson(value))
+        )
+    )
+
   def safeCurl(request: Request[?, ?]): String =
     val uri     = request.uri.copy(querySegments = request.uri.querySegments.map:
       case QuerySegment.KeyValue(k, _, ke, ve) if isSensitive(k) => QuerySegment.KeyValue(k, "masked", ke, ve)
