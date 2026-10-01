@@ -113,7 +113,17 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
       const required = new Set(missingRequiredInputs(s, spec, model));
       const wanted = new Set(s.outputVariables ?? []);
       const rows = (list: 'inputs' | 'outputs'): Mapping[] | null => {
-        const have = s[list] ?? [];
+        // eine abgewählte Ausgabe, die der Prozess laut BPMN braucht (`_outputVariables`),
+        // wird angehakt — z. B. beim Öffnen ergänzt, bevor der Abgleich die Liste brachte.
+        // Wer sie abwählt, nimmt sie beim Export aus `_outputVariables` heraus.
+        let enabled = false;
+        const have = (s[list] ?? []).map(m => {
+          if (list !== 'outputs' || !m.disabled || !wanted.has(m.name.trim())) return m;
+          enabled = true;
+          added.push(`${s.name}: ${m.name}`);
+          const { disabled: _, ...rest } = m;
+          return rest;
+        });
         // bei Ausgaben zählt auch ein Feld, das eine bestehende Zeile schon liest
         const used = new Set([...have.map(m => m.name.trim()), ...(list === 'outputs' ? have.flatMap(m => referencedVariables(m.expression)) : [])]);
         const seen = new Set<string>();
@@ -125,7 +135,7 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
           if (on) added.push(`${s.name}: ${f.name}`);
           neu.push({ name: f.name, expression: `= ${f.name}`, ...(f.description ? { description: f.description } : {}), ...(on ? {} : { disabled: true }) });
         }
-        return neu.length ? [...have, ...neu] : null;
+        return neu.length || enabled ? [...have, ...neu] : null;
       };
       const ins = rows('inputs'), outs = rows('outputs');
       if (ins || outs) { changed = true; next = { ...s, ...(ins ? { inputs: ins } : {}), ...(outs ? { outputs: outs } : {}) }; }
