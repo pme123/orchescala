@@ -128,16 +128,6 @@ function signalRefOf(el: Element, defs: Map<string, string>): string | undefined
   return undefined;
 }
 
-function timerExpression(el: Element): string | undefined {
-  for (const c of kids(el)) {
-    if (local(c) === 'timerEventDefinition') {
-      const v = kids(c).map(text).filter(Boolean)[0];
-      if (v) return v;
-    }
-  }
-  return undefined;
-}
-
 // `errorRef` zeigt auf ein <bpmn:error>; interessant ist dessen errorCode/name.
 function errorCodeOf(el: Element, errors: Map<string, string>): string | undefined {
   for (const c of kids(el)) {
@@ -512,8 +502,6 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     step.eventDirection = tag === 'intermediateThrowEvent' ? 'throw' : 'catch';
     const ref = signalRefOf(el, ctx.signals);
     if (ref) step.messageName = ref;
-    const timer = timerExpression(el);
-    if (timer) step.notes = `Timer: ${timer}`;
   }
   if (kind === 'start' || kind === 'end') {
     const ev = eventKindOf(el);
@@ -902,7 +890,7 @@ export interface MergeReport {
 }
 
 // Was die Spezifikation festlegt, überlebt den Abgleich mit dem BPMN.
-const KEEP_KEYS = ['description', 'notes', 'open', 'candidateGroups', 'assignee', 'inVariant', 'outVariant'] as const;
+const KEEP_KEYS = ['description', 'candidateGroups', 'assignee', 'inVariant', 'outVariant'] as const;
 
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
   for (const s of steps ?? []) {

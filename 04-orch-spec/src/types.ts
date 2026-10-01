@@ -100,8 +100,6 @@ export interface Step {
   status: Status;
   /** fachliche Beschreibung (Markdown) — das, was die Stakeholder lesen */
   description?: string;
-  /** technische Notiz (Markdown) — für die Umsetzung */
-  notes?: string;
 
   // Service-/Worker-Anbindung
   serviceId?: string;     // Katalog-Eintrag (= Camunda modelerTemplate)
@@ -146,8 +144,6 @@ export interface Step {
   /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
   messageName?: string;
 
-  /** offene fachliche Fragen zu diesem Schritt */
-  open?: string;
 
   // ── Weitere Angaben, die die Spezifikation festlegt ──────────────────────
   /** Benutzeraufgabe: wer sie sieht (`camunda:candidateGroups`) */

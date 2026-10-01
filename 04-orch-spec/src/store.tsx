@@ -11,7 +11,7 @@
 // Übernommen aus arch-review — bewusst dieselbe Mechanik (Konflikterkennung
 // über Version/ETag, gemerkter Ordner, Autosave im Aufrufer).
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { DirectoryUser, Model, ProcessSpec, ServiceDef, ServiceParam, UsersFile } from './types';
+import type { DirectoryUser, Model, ProcessSpec, ServiceDef, ServiceParam, Step, UsersFile } from './types';
 import { feelIfPossible } from './juelFeel';
 import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
@@ -175,6 +175,23 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
     domainSources: gen.domainSources ?? user.domainSources,
     ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),
   };
+}
+
+/**
+ * «Offene Frage» (`open`) und «Technische Notiz» (`notes`) am Schritt gibt es
+ * nicht mehr — dafür sind die Kommentare da. Alte Einträge fallen beim Laden
+ * weg und verschwinden mit dem nächsten Speichern aus der Datei.
+ */
+function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
+  const clean = (steps: Step[] | undefined): Step[] | undefined => steps?.map(s => {
+    const { open: _o, notes: _n, ...rest } = s as Step & { open?: unknown; notes?: unknown };
+    const next: Step = { ...rest };
+    if (s.children) next.children = clean(s.children);
+    if (s.branches) next.branches = s.branches.map(b => ({ ...b, steps: clean(b.steps) ?? [] }));
+    if (s.errors) next.errors = s.errors.map(e => (e.steps ? { ...e, steps: clean(e.steps) } : e));
+    return next;
+  });
+  return { ...spec, steps: clean(spec.steps) ?? [] };
 }
 
 /** ohne die generierten Einträge — nur das gehört in die model.json */
@@ -585,7 +602,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const read = await be.read(`${DIR}/${slug}.json`);
       if (!read) return null;
-      return { data: JSON.parse(read.text) as ProcessSpec, version: read.version };
+      return { data: withoutRetiredFields(JSON.parse(read.text) as ProcessSpec), version: read.version };
     } catch {
       return null;
     }

@@ -1163,7 +1163,6 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             </span>
           )}
           {step.description && <span className={`text-[9px] ${c.muted}`} title="fachlich beschrieben">✎</span>}
-          {step.open && <span className={p.isDark ? 'text-amber-400' : 'text-amber-600'} title={step.open}>❓</span>}
           {/* Kommentare am Schritt samt seiner Teile — ohne erst beim Überfahren */}
           <CommentBubble target={stepTarget(step.id)} aggregate quiet />
           <BlockChip step={step} isDark={p.isDark} />

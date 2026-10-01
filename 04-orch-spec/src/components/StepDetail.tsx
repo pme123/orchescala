@@ -351,13 +351,6 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />}
       </Field>
 
-      <Field label="Offene Frage" isDark={isDark}>
-        <textarea value={step.open ?? ''} disabled={!canEdit} rows={2}
-          onChange={e => onPatch(step.id, { open: e.target.value })}
-          placeholder="Was ist fachlich noch zu klären?"
-          className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
-      </Field>
-
       {step.kind === 'user' && (
         <Section id="assign" label="Zuständigkeit" isDark={isDark}
           comment={sub(stepTarget(step.id), 'assignment')}
@@ -591,12 +584,6 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           )}
         </Section>
       )}
-
-      <Section id="notes" label="Technische Notiz" count={step.notes?.trim() ? 1 : 0} isDark={isDark}>
-        <textarea value={step.notes ?? ''} disabled={!canEdit} rows={2}
-          onChange={e => onPatch(step.id, { notes: e.target.value })}
-          className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
-      </Section>
     </div>
   );
 }

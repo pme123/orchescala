@@ -106,7 +106,6 @@ function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out:
       out.push(`${'  '.repeat(depth + 1)}Zuständig: ${[s.candidateGroups, s.assignee].filter(Boolean).join(' · ')}`);
     }
     if (s.patterns?.length) out.push(`${'  '.repeat(depth + 1)}Pattern: ${patternText(s.patterns, pn)}`);
-    if (s.open) out.push(`${'  '.repeat(depth + 1)}❓ Offen: ${s.open}`);
     out.push(...kommentarZeilen(spec, stepTarget(s.id), '  '.repeat(depth + 1)));
     for (const b of s.branches ?? []) {
       out.push(`${bullet(depth + 1)} *${b.label}*`);
@@ -156,26 +155,11 @@ function exportFachlich(spec: ProcessSpec, model: Model | null): string {
   out.push('## Ablauf', '');
   fachlichSteps(spec, spec.steps, 0, out, pn);
 
-  const open = collectOpen(spec.steps);
-  if (open.length) {
-    out.push('', '## Offene Punkte', '');
-    for (const [name, q] of open) out.push(`- **${name}**: ${q}`);
-  }
   out.push('', '---', '',
     `Schritte: ${Object.values(counts).reduce((a, b) => a + b, 0)} — ` +
     Object.entries(counts).filter(([, n]) => n > 0)
       .map(([k, n]) => `${STATUS_META[k as Status].label} ${n}`).join(' · '));
   return out.join('\n');
-}
-
-function collectOpen(steps: Step[], out: Array<[string, string]> = []): Array<[string, string]> {
-  for (const s of steps) {
-    if (s.open) out.push([s.name, s.open]);
-    collectOpen(s.children ?? [], out);
-    for (const b of s.branches ?? []) collectOpen(b.steps, out);
-    for (const e of s.errors ?? []) collectOpen(e.steps ?? [], out);
-  }
-  return out;
 }
 
 // ── Orchescala-Export ────────────────────────────────────────────────────────
@@ -350,8 +334,6 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       ]), ['Zweig', 'Bedingung', 'Schritte']));
     }
     if (s.mock) out.push('**Mock**', '', '```json', s.mock, '```', '');
-    if (s.notes) out.push('**Technische Notiz**', '', s.notes, '');
-    if (s.open) out.push(`> ❓ **Offen:** ${s.open}`, '');
     const zeilen = kommentarZeilen(spec, stepTarget(s.id), '');
     if (zeilen.length) out.push('**Offene Kommentare**', '', ...zeilen, '');
   }
