@@ -164,7 +164,8 @@ export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'ti
 /** Schritte, deren Ergebnis sich für Tests überschreiben lässt (`…Mock`). */
 export function mockableSteps(spec: ProcessSpec): Step[] {
   // der Init-Worker nicht: gemockt wird dort der Prozess selbst (outputMock)
-  return allSteps(spec.steps).filter(s => (s.kind === 'service' || s.kind === 'call') && !isInitWorker(s, spec.processId));
+  // ebenso wenig ein Schritt im Block eines Patterns: den füllt das Pattern
+  return allSteps(spec.steps).filter(s => (s.kind === 'service' || s.kind === 'call') && !isInitWorker(s, spec.processId) && !s.pattern);
 }
 
 /**

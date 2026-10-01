@@ -156,7 +156,8 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
 }
 
 export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps)): Finding {
-  if (step.kind === 'goto') return NONE;
+  // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn
+  if (step.kind === 'goto' || step.pattern) return NONE;
   // in einer Mehrfachausführung kommen `loopCounter` und das Element dazu
   const variables = withMultiInstance(baseVariables, scopes.get(step.id));
   const errors: string[] = [];
@@ -221,6 +222,17 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     const names = new Map<string, number>();
     for (const m of used) names.set(m.name, (names.get(m.name) ?? 0) + 1);
     for (const [n, k] of names) if (k > (fromPattern.times[list].get(n) ?? 1)) errors.push(`${list === 'inputs' ? 'Eingabe' : 'Ausgabe'} «${n}» kommt doppelt vor.`);
+    // Eingaben, die das Modell bzw. der Katalog nicht kennt: eine Erweiterung,
+    // die dort noch fehlt — dieselbe Regel wie in der Tabelle (Warnung)
+    if (list === 'inputs') {
+      const known = refFields ? refFields.map(f => f.name) : (service?.inputs ?? []).map(p => p.name);
+      if (refFields || known.length) {
+        const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name));
+        if (ext.length) {
+          warnings.push(`${ext.map(m => `«${m.name}»`).join(', ')} noch nicht im ${refFields ? 'Modell' : 'Katalog'} — Erweiterung, dort nachziehen.`);
+        }
+      }
+    }
     // Pflichtfelder, die fehlen oder abgewählt sind — nicht bei Benutzer-
     // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
     // Prozessvariablen, ohne Mapping

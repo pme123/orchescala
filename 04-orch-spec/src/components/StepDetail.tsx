@@ -196,6 +196,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // beschreibt den Aufruf des Prozesses (In/Out), nicht den Init-Worker —
   // der liest das In aus den Prozessvariablen und liefert das InitIn.
   const initWorker = isInitWorker(step, spec.processId);
+  // Schritt im Block eines Patterns (Link-Ziel → Aufruf …): das Pattern füllt ihn
+  const ofPattern = step.pattern ? (model?.patterns?.find(d => d.id === step.pattern)?.name ?? step.pattern) : null;
   const service = initWorker ? null : catalogEntry(step, model);
 
   // Woran sich das Mapping messen lässt: die Klasse der Interaktion, sonst der
@@ -400,7 +402,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           </span>
         </Row>
       )}
-      {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && (
+      {/* Teil eines Pattern-Blocks: Aufruf, Ein- und Ausgaben legt das Pattern fest */}
+      {ofPattern && (
+        <div className={`text-[10px] px-2 py-1.5 rounded border ${patternTone(isDark)}`}>
+          <div className="flex items-center gap-1.5 font-semibold"><Puzzle size={10} /> Teil des Patterns «{ofPattern}»</div>
+          <div className="mt-0.5">Aufruf, Ein- und Ausgaben füllt das Pattern — sie stehen hier nicht und werden nicht geprüft. Geändert wird am Element, das das Pattern trägt.</div>
+        </div>
+      )}
+      {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && !ofPattern && (
         <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} current={service} />
       )}
 
@@ -413,6 +422,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </Row>
       )}
 
+      {!ofPattern && <>
       <InteractionClasses step={step} spec={spec} isDark={isDark} canEdit={canEdit} entry={service} model={model}
         onSpecChange={onSpecChange} onEditType={onEditType} />
 
@@ -426,6 +436,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternTimes={fromPattern.times.outputs} patternName={patternName}
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
+      </>}
 
       {(!!step.errors?.length || !!step.regexHandledErrors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
         <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side).length} isDark={isDark}

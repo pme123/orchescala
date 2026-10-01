@@ -406,6 +406,21 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const counts = useMemo(() => (spec ? statusCounts(spec) : null), [spec]);
   const containers = useMemo(() => (spec ? containerIds(spec.steps) : []), [spec]);
   const ancestors = useMemo(() => (spec ? ancestorsOf(spec.steps) : new Map<string, string[]>()), [spec]);
+  const ancestorsRef = useRef(ancestors);
+  ancestorsRef.current = ancestors;
+  // Das gewählte Element im Baum zeigen — auch wenn es im Diagramm gewählt
+  // wurde: eingeklappte Zweige darüber öffnen, dann in den Blick scrollen
+  // (`nearest`: was schon zu sehen ist, bleibt, wo es ist). Eine eingeklappte
+  // Pattern-Zeile öffnet sich selbst (PatternFold).
+  useEffect(() => {
+    if (!selected) return;
+    const oben = ancestorsRef.current.get(selected) ?? [];
+    if (oben.length) setCollapsed(prev => (oben.some(id => prev.has(id)) ? new Set([...prev].filter(id => !oben.includes(id))) : prev));
+    const timers = [0, 60, 200].map(nach => window.setTimeout(() => {
+      document.querySelector(`[data-step="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: 'nearest' });
+    }, nach));
+    return () => timers.forEach(t => window.clearTimeout(t));
+  }, [selected]);
 
   // ── Kommentare ───────────────────────────────────────────────────────────
   const commentCounts = useMemo(() => (spec ? countIndex(spec) : { exact: new Map(), under: new Map() }), [spec]);
@@ -1181,6 +1196,9 @@ interface ListProps {
 function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
   const c = cls(p.isDark);
   const [open, setOpen] = useState(false);
+  // steckt das gewählte Element darin, geht die Zeile auf — sonst sähe man es nicht
+  const holdsSelected = useMemo(() => !!p.selected && allSteps(steps).some(s => s.id === p.selected), [steps, p.selected]);
+  useEffect(() => { if (holdsSelected) setOpen(true); }, [holdsSelected]);
   const n = countSteps(steps);
   return (
     <div className={`ml-6 pl-3 border-l-2 border-dashed ${p.isDark ? 'border-fuchsia-500/40' : 'border-fuchsia-300'}`}>
