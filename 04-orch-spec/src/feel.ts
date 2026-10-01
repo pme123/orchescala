@@ -202,8 +202,10 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
 
 /**
  * Alle Prozessvariablen mit ihren Pfaden. Bei gleichem Namen gilt die erste
- * Quelle: `In` vor `InitIn` vor `InConfig` vor den Prozessvariablen vor den
- * Ausgaben.
+ * Quelle — und zuerst kommt, was im Prozess **wirksam** ist: das `InitIn`
+ * (der Init-Worker setzt es zu Beginn; ein optionales Feld des `In` hat dort
+ * seinen Pflicht-Zwilling mit Vorgabe), dann das `InConfig` (immer mit
+ * Vorgabe), dann das `In`, die Prozessvariablen und die Ausgaben.
  */
 export function processVariables(spec: ProcessSpec, model: Model | null): VarNode[] {
   const types = spec.types ?? [];
@@ -212,17 +214,9 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   const have = new Set<string>();
   const add = (n: VarNode) => { if (n.name && !have.has(n.name)) { have.add(n.name); out.push(n); } };
 
-  // Das In — als ADT die gemeinsamen Felder und die aller Fälle (im JSON
-  // stehen sie nebeneinander; welcher Fall es ist, entscheidet sich zur Laufzeit)
-  const root = types.find(t => t.root);
-  const rootFields = root?.kind === 'enum'
-    ? [...(root.fields ?? []), ...(root.values ?? []).flatMap(v => v.fields ?? [])]
-    : (root?.fields ?? []);
-  for (const f of rootFields) add(nodeOfField(f, 'In', b, 0, new Set()));
-
+  // Das InitIn — als Typ beschrieben; sonst kennt man nur die Namen (unten, nach dem In)
   const initIn = types.find(t => t.initIn);
   if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, 'InitIn', b, 0, new Set()));
-  else for (const o of initOutputs(spec)) add({ name: o.name, type: 'any', label: '?', source: 'InitIn', ...(o.description ? { description: o.description } : {}) });
 
   // Das InConfig — eigene Stellschrauben und die der Schleifen; alle mit
   // Vorgabe, also immer da
@@ -232,6 +226,18 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     const t = l.kind === 'timer' ? 'Iso8601Duration' : 'Int';
     add(nodeOf(l.name, t, { optional: false, collection: false, source: 'InConfig', label: t }, b, 0, new Set()));
   }
+
+  // Das In — als ADT die gemeinsamen Felder und die aller Fälle (im JSON
+  // stehen sie nebeneinander; welcher Fall es ist, entscheidet sich zur Laufzeit)
+  const root = types.find(t => t.root);
+  const rootFields = root?.kind === 'enum'
+    ? [...(root.fields ?? []), ...(root.values ?? []).flatMap(v => v.fields ?? [])]
+    : (root?.fields ?? []);
+  for (const f of rootFields) add(nodeOfField(f, 'In', b, 0, new Set()));
+
+  // ohne InitIn-Typ: die Ausgaben des Init-Workers, Typ unbekannt — nach dem
+  // In, damit dessen Typ nicht verloren geht
+  if (!initIn) for (const o of initOutputs(spec)) add({ name: o.name, type: 'any', label: '?', source: 'InitIn', ...(o.description ? { description: o.description } : {}) });
 
   for (const v of spec.variables ?? []) {
     const t = (v.type ?? '').trim();
