@@ -13,7 +13,7 @@ import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_REGEX, handledErrorIssue, newErrorCode, regexIssue, stepFindings } from '../findings';
+import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -1196,8 +1196,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const feelIssues: FeelIssue[] = [
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : []),
+            // ein Skript aus dem BPMN (Groovy): beschrieben, nicht übersetzt
+            ...(!off && isScriptValue(m.expression) ? [{ level: 'warn' as const, text: scriptWarning(engine) }] : []),
             // JUEL, das der Import nicht übersetzen konnte — bleibt, bis es jemand als FEEL schreibt
-            ...(!off && !feel && isJuel(m.expression)
+            ...(!off && !feel && !isScriptValue(m.expression) && isJuel(m.expression)
               ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
                   ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
                   : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }]

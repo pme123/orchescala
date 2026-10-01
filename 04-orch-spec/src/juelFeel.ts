@@ -120,6 +120,26 @@ function jsonPathToFeel(base: string, pathLiteral: string): string {
   return out;
 }
 
+/** Steht der Ausdruck ganz in einem Klammerpaar — `(a or b)`, nicht `(a) or (b)`? */
+function wrapped(feel: string): boolean {
+  if (!feel.startsWith('(') || !feel.endsWith(')')) return false;
+  let depth = 0;
+  for (const part of feel.split(/"(?:[^"\\]|\\.)*"/)) {
+    for (let i = 0; i < part.length; i++) {
+      if (part[i] === '(') depth++;
+      else if (part[i] === ')') depth--;
+    }
+  }
+  // die erste Klammer schliesst erst am Ende: kein Zwischenstand auf 0
+  let d = 0;
+  const flat = feel.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (let i = 0; i < flat.length - 1; i++) {
+    if (flat[i] === '(') d++;
+    else if (flat[i] === ')' && --d === 0) return false;
+  }
+  return depth === 0;
+}
+
 /** Methodenaufrufe mit FEEL-Gegenstück: `a.concat(b)` → `a + b` usw. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
@@ -274,8 +294,9 @@ export function juelToFeel(body: string): FeelResult {
         if (t.v === '(') {
           const inner = expr();
           expect(')');
-          // eine Klammer um ein if/then/else ist in FEEL unnötig
-          return inner.startsWith('if ') ? inner : `(${inner})`;
+          // eine Klammer um ein if/then/else ist in FEEL unnötig — und eine zweite um
+          // etwas, das schon ganz in Klammern steht (`(empty x)` → `(x = null or …)`)
+          return inner.startsWith('if ') || wrapped(inner) ? inner : `(${inner})`;
         }
       }
       throw new Unsupported(t.t === 'end' ? 'Ausdruck unvollständig' : `unerwartet: «${'v' in t ? t.v : ''}»`);

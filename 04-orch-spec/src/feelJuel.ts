@@ -17,8 +17,11 @@
 //   Logik            and · or · not(x)       → && · || · !(x)
 //   Bedingung        if c then a else b      → (c ? a : b)
 //   Listenindex      items[1]                → items[0]  (FEEL zählt ab 1)
+//   Filter           items[item.x = 1]       → S(items).jsonPath("$[?(@.x == 1)]").elementList()
+//   Anzahl           count(x)                → x.size()
+//   leere Liste      x = []                  → empty x
 //
-// Alles andere — Funktionen, Filter, Kontexte, Datumswerte, for/some/every —
+// Alles andere — übrige Funktionen, Kontexte, Datumswerte, for/some/every —
 // hat kein JUEL-Gegenstück; die Übersetzung meldet das statt zu raten.
 
 import { parseExpression, SyntaxError as FeelSyntaxError } from 'feelin';
@@ -70,6 +73,41 @@ export function feelToJuel(body: string): JuelResult {
     const [a, op, b] = children(n).filter(k => !k.type.isError);
     return !!a && !!op && !!b && text(op) === '+' && (stringy(a) || stringy(b));
   };
+  /**
+   * Die Bedingung eines Filters (`item.code = 22 or …`) als JSONPath-Filter
+   * (`@.code == 22 || …`) — so liest Spin in Camunda 7 eine JSON-Liste.
+   */
+  const jpCond = (n: SyntaxNode): string => {
+    const kids = children(n).filter(k => !k.type.isError);
+    const operand = (x: SyntaxNode): string => {
+      if (x.name === 'VariableName' && text(x) === 'item') return '@';
+      if (x.name === 'PathExpression') return `${operand(kids0(x))}.${text(children(x).filter(k => !k.type.isError)[2] ?? x)}`;
+      if (x.name === 'StringLiteral') return `'${JSON.parse(text(x)).replace(/'/g, "\\'")}'`;
+      if (x.name === 'NumericLiteral' || x.name === 'BooleanLiteral' || x.name === 'null') return text(x);
+      throw new Unsupported(`im Filter nur «item.feld» und feste Werte — nicht «${text(x)}»`);
+    };
+    switch (n.name) {
+      case 'ParenthesizedExpression': { const inner = kids.find(k => k.name !== '(' && k.name !== ')'); if (!inner) throw new Unsupported('leere Klammer'); return `(${jpCond(inner)})`; }
+      case 'Conjunction': case 'Disjunction': return kids.filter(k => k.name !== 'and' && k.name !== 'or').map(jpCond).join(n.name === 'Conjunction' ? ' && ' : ' || ');
+      case 'Comparison': {
+        const [a, op, b] = kids;
+        if (!a || !op || !b || op.name !== 'CompareOp') throw new Unsupported('im Filter nur einfache Vergleiche');
+        const o = text(op);
+        return `${operand(a)} ${o === '=' ? '==' : o} ${operand(b)}`;
+      }
+      case 'FunctionInvocation': {
+        const [fn, , params] = kids;
+        const args = params ? children(params) : [];
+        if (fn && text(fn) === 'not' && args.length === 1) return `!(${jpCond(args[0])})`;
+        break;
+      }
+    }
+    throw new Unsupported(`Filter «${text(n)}» hat kein JSONPath-Gegenstück`);
+  };
+  const kids0 = (x: SyntaxNode): SyntaxNode => children(x).filter(k => !k.type.isError)[0];
+  /** eine leere Liste `[]` */
+  const emptyList = (x: SyntaxNode | undefined): boolean => !!x && x.name === 'List' && !children(x).some(k => k.name !== '[' && k.name !== ']');
+
   /** Argument von `concat`: `string(x)` braucht dort kein string() mehr */
   const textArg = (n: SyntaxNode): string => { const inner = stringCall(n); return inner ? tr(inner) : tr(n); };
 
@@ -117,6 +155,11 @@ export function feelToJuel(body: string): JuelResult {
           const o = text(op);
           const b = rest[0];
           if (!b) throw new Unsupported('unvollständiger Vergleich');
+          // `x = []` — die leere Liste heisst in JUEL `empty`
+          if ((o === '=' || o === '!=') && (emptyList(b) || emptyList(a))) {
+            const x = tr(emptyList(b) ? a : b);
+            return o === '=' ? `empty ${x}` : `!empty ${x}`;
+          }
           return `${tr(a)} ${o === '=' ? '==' : o} ${tr(b)}`;
         }
         if (op.name === 'between') {
@@ -140,6 +183,19 @@ export function feelToJuel(body: string): JuelResult {
       case 'Disjunction': {
         const parts = kids.filter(k => k.name !== 'and' && k.name !== 'or');
         if (parts.length < 2) throw new Unsupported('unvollständige Verknüpfung');
+        // `x = null or x = "" or x = []` ist JUELs `empty x` (so übersetzt es der Import)
+        if (n.name === 'Disjunction') {
+          // `a or b or c` steht geschachtelt da — erst glätten
+          const flat = (x: SyntaxNode): SyntaxNode[] => (x.name === 'Disjunction'
+            ? children(x).filter(k => !k.type.isError && k.name !== 'or').flatMap(flat) : [x]);
+          const tested = parts.flatMap(flat).map(c => {
+            const [a, op, b] = c.name === 'Comparison' ? children(c).filter(k => !k.type.isError) : [];
+            return a && op?.name === 'CompareOp' && text(op) === '=' && b ? { x: text(a), v: emptyList(b) ? '[]' : text(b) } : null;
+          });
+          const x = tested[0]?.x;
+          if (x && tested.every(t => t?.x === x) && new Set(tested.map(t => t!.v)).size === 3
+            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) return `empty ${tr(kids0(parts.flatMap(flat)[0]))}`;
+        }
         return parts.map(tr).join(n.name === 'Conjunction' ? ' && ' : ' || ');
       }
       case 'IfExpression': {
@@ -154,12 +210,15 @@ export function feelToJuel(body: string): JuelResult {
         if (name === 'not' && args.length === 1) return `!(${tr(args[0])})`;
         // `string(x)` allein: JUEL hat kein toString — «leer + x» macht Text daraus
         if (name === 'string' && args.length === 1) return `"".concat(${tr(args[0])})`;
+        // `count(x)` — eine Liste (Java oder Spin) hat `size()`
+        if (name === 'count' && args.length === 1) return `${tr(args[0])}.size()`;
         throw new Unsupported(`Funktion «${name}()» hat kein JUEL-Gegenstück`);
       }
       case 'FilterExpression': {
         const [base, , index] = kids;
         if (!base || !index) throw new Unsupported('unvollständiger Index');
-        if (index.name !== 'NumericLiteral') throw new Unsupported('Filter «[…]» gibt es in JUEL nicht — nur ein fester Index wie [1]');
+        // ein Filter über `item`: in Camunda 7 liest Spin die JSON-Liste per JSONPath
+        if (index.name !== 'NumericLiteral') return `S(${tr(base)}).jsonPath("$[?(${jpCond(index)})]").elementList()`;
         const i = Number(text(index));
         if (!Number.isInteger(i) || i < 1) throw new Unsupported('Index muss eine positive ganze Zahl sein (FEEL zählt ab 1)');
         return `${tr(base)}[${i - 1}]`;

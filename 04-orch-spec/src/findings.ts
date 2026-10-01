@@ -187,6 +187,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
           const j = body != null ? feelToJuel(body) : null;
           if (j && !j.ok) warnings.push(`«${m.name}»: für Camunda 7 nicht nach JUEL übersetzbar (${j.reason}).`);
         }
+      } else if (isScriptValue(m.expression)) {
+        warnings.push(`«${m.name}»: ${scriptWarning(spec.engine)}`);
       } else if (isJuel(m.expression)) {
         warnings.push(`«${m.name}»: JUEL aus dem Import, nicht nach FEEL übersetzbar.`);
       }
@@ -233,6 +235,18 @@ export function regexIssue(pattern: string | undefined, engine?: EngineId, varia
 
 /** Platzhalter für einen neuen regulären Ausdruck (StepDetail «+ Regex») */
 export const NEW_REGEX = '.*neue-meldung.*';
+
+/** Ein Mapping-Wert, der ein Skript aus dem BPMN beschreibt (`«groovy» …`) */
+export const isScriptValue = (expression: string): boolean => expression.trimStart().startsWith('«');
+
+/**
+ * Ein übernommenes Skript: die Spezifikation beschreibt es nur. In Camunda 7
+ * bleibt es beim Export unverändert im Diagramm; Camunda 8 kennt keine
+ * Skripte in Mappings — dort gehört es als FEEL neu geschrieben.
+ */
+export const scriptWarning = (engine: EngineId | undefined): string => (engine === 'c8'
+  ? 'Skript aus dem BPMN — Camunda 8 kennt keine Skripte in Mappings: als «= …» (FEEL) neu schreiben.'
+  : 'Skript aus dem BPMN — beim Export für Camunda 7 bleibt es unverändert im Diagramm; für Camunda 8 müsste es als «= …» (FEEL) neu geschrieben werden.');
 
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';
