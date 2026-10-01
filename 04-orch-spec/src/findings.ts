@@ -18,9 +18,15 @@ import { chosenVariant, variantAllows, variantsOf } from './variants';
 export interface Finding {
   errors: string[];
   warnings: string[];
+  /**
+   * Meldungen, die das Panel des Schritts schon am Ort zeigt (Mapping-Zeile,
+   * behandelter Fehler) — die Liste oben am Schritt nennt sie nicht noch einmal.
+   * Gezählt (Baum, Filter) werden sie trotzdem.
+   */
+  inline?: string[];
 }
 
-const NONE: Finding = { errors: [], warnings: [] };
+const NONE: Finding = { errors: [], warnings: [], inline: [] };
 
 /**
  * Alle Befunde eines Prozesses, je Schritt — einmal gerechnet, dann per
@@ -127,6 +133,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       }
     }
   };
+  // was ab hier gemeldet wird, steht im Panel am Ort — an der Mapping-Zeile bzw. am Fehler
+  const atPlace = { errors: errors.length, warnings: warnings.length };
   check('inputs', step.inputs ?? [], inFields, domainIn, variables);
   check('outputs', step.outputs ?? [], outFields, domainOut, resultVars);
 
@@ -148,7 +156,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     for (const i of r.issues) (i.level === 'error' ? errors : warnings).push(`Zweig «${b.label}»: ${i.text}`);
   }
 
-  return errors.length || warnings.length ? { errors, warnings } : NONE;
+  const inline = [...errors.slice(atPlace.errors), ...warnings.slice(atPlace.warnings)];
+  return errors.length || warnings.length ? { errors, warnings, inline } : NONE;
 }
 
 /** Ist der Ausdruck in `_regexHandledErrors` ein gültiger regulärer Ausdruck? Sonst der Grund. */

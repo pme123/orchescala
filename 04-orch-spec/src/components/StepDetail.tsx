@@ -277,10 +277,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
   const finding = stepFindings(step, spec, model, baseVariables);
   // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
-  const inline = new Set([
-    ...(step.errors ?? []).map((e, i, all) => handledErrorIssue(e, i, all, { variables, engine: spec.engine })?.text),
-    ...(step.regexHandledErrors ?? []).map(r => regexIssue(r, spec.engine, variables, (step.regexHandledErrors ?? []).length <= 1)?.text),
-  ]);
+  const inline = new Set(finding.inline ?? []);
   const shownErrors = finding.errors.filter(t => !inline.has(t));
   const shownWarnings = finding.warnings.filter(t => !inline.has(t));
 
