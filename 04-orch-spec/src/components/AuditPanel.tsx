@@ -2,9 +2,10 @@
 // Panel rechts, wie die Kommentare: neueste Einträge oben, je Eintrag wer,
 // wann, woher (von Hand, Abgleich, Umwandlung, beim Laden) und was — Stelle,
 // Feld, vorher → nachher. Filtern lässt es sich nach Element (ein Schritt,
-// ein Typ …) und nach Herkunft; ein Klick auf die Stelle springt hin.
+// ein Typ …), nach Person, nach Herkunft und mit einer Textsuche; ein Klick
+// auf die Stelle springt hin.
 import { useEffect, useMemo, useState } from 'react';
-import { History, Loader2, X } from 'lucide-react';
+import { History, Loader2, Search, X } from 'lucide-react';
 import { auditBase, coalesce, SOURCE_LABEL, type AuditChange, type AuditEntry, type AuditSource } from '../audit';
 import { allSteps } from '../bpmn';
 import { commentTargets, whenFull, whenLabel } from '../comments';
@@ -45,6 +46,9 @@ export default function AuditPanel(p: Props) {
 
   const [entries, setEntries] = useState<AuditEntry[] | null | undefined>(undefined);
   const [hidden, setHidden] = useState<Set<AuditSource>>(new Set());
+  /** Person (Name) oder '' = alle */
+  const [who, setWho] = useState('');
+  const [query, setQuery] = useState('');
 
   // nach jedem Speichern neu lesen — das Protokoll wächst mit
   const { load, slug, version } = p;
@@ -81,10 +85,30 @@ export default function AuditPanel(p: Props) {
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], 'de'));
   }, [merged, current, focus]);
 
-  const shown = useMemo(() => merged
-    .filter(e => !hidden.has(e.source))
-    .map(e => (focus ? { ...e, changes: e.changes.filter(ch => auditBase(ch.target) === focus) } : e))
-    .filter(e => e.changes.length), [merged, hidden, focus]);
+  // wer im Protokoll vorkommt — neueste zuerst gesehen, alphabetisch gezeigt
+  const authors = useMemo(() => [...new Set(merged.map(e => e.author))].sort((a, b) => a.localeCompare(b, 'de')), [merged]);
+
+  /**
+   * Textsuche: alle Wörter müssen vorkommen. Passen Person, Notiz oder
+   * Bericht, bleibt der ganze Eintrag; sonst nur die Änderungen, die passen
+   * (Stelle, Feld, vorher, nachher).
+   */
+  const shown = useMemo(() => {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const hit = (text: string) => { const t = text.toLowerCase(); return words.every(w => t.includes(w)); };
+    const changeText = (ch: AuditChange) => [ch.label, ch.field, ch.before, ch.after].filter(Boolean).join(' ');
+    return merged
+      .filter(e => !hidden.has(e.source) && (!who || e.author === who))
+      .map(e => (focus ? { ...e, changes: e.changes.filter(ch => auditBase(ch.target) === focus) } : e))
+      .map(e => {
+        if (!words.length) return e;
+        const head = [e.author, e.email, e.note, SOURCE_LABEL[e.source], ...Object.entries(e.report ?? {}).flat(2)].filter(Boolean).join(' ');
+        if (hit(head)) return e;
+        return { ...e, changes: e.changes.filter(ch => hit(`${head} ${changeText(ch)}`)) };
+      })
+      .filter(e => e.changes.length);
+  }, [merged, hidden, focus, who, query]);
+  const filtered = !!focus || !!who || !!query.trim() || hidden.size > 0;
 
   const toggleSource = (s: AuditSource) => setHidden(prev => {
     const n = new Set(prev);
@@ -101,19 +125,36 @@ export default function AuditPanel(p: Props) {
         <History size={13} className={c.muted} />
         <span className={`text-xs font-semibold flex-1 min-w-0 truncate ${c.text}`}>
           Verlauf
-          {entries && <span className={`ml-2 text-[10px] font-normal ${c.muted}`}>{shown.length} Einträge</span>}
+          {entries && <span className={`ml-2 text-[10px] font-normal ${c.muted}`}>{shown.length} {shown.length === 1 ? 'Eintrag' : 'Einträge'}</span>}
         </span>
         <button type="button" onClick={onClose} title="Schliessen (Esc)" className={iconBtn}><X size={13} /></button>
       </div>
 
       {/* Filter: Element und Herkunft */}
       <div className={`px-3 py-1.5 border-b ${c.border} space-y-1.5`}>
-        <select value={focus ?? ''} onChange={e => p.onFocus(e.target.value || null)}
-          title="Nur die Änderungen an diesem Element"
-          className={`w-full text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
-          <option value="">Alle Stellen</option>
-          {elements.map(([key, label]) => <option key={key} value={key}>{label}{current.has(key) ? '' : ' (entfallen)'}</option>)}
-        </select>
+        <div className="relative">
+          <Search size={11} className={`absolute left-2 top-1/2 -translate-y-1/2 ${c.muted}`} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Suchen — Stelle, Feld, Wert, Notiz …"
+            className={`w-full text-[11px] pl-6 pr-6 py-1 rounded border outline-none ${c.input}`} />
+          {query && (
+            <button type="button" onClick={() => setQuery('')} title="Suche leeren"
+              className={`absolute right-1.5 top-1/2 -translate-y-1/2 ${c.muted}`}><X size={11} /></button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          <select value={focus ?? ''} onChange={e => p.onFocus(e.target.value || null)}
+            title="Nur die Änderungen an diesem Element"
+            className={`flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
+            <option value="">Alle Stellen</option>
+            {elements.map(([key, label]) => <option key={key} value={key}>{label}{current.has(key) ? '' : ' (entfallen)'}</option>)}
+          </select>
+          <select value={who} onChange={e => setWho(e.target.value)}
+            title="Nur die Änderungen dieser Person"
+            className={`flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
+            <option value="">Alle Personen</option>
+            {authors.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
         <div className="flex flex-wrap gap-1">
           {SOURCES.map(s => (
             <button key={s} type="button" onClick={() => toggleSource(s)}
@@ -133,6 +174,10 @@ export default function AuditPanel(p: Props) {
             {entries.length ? 'Keine Änderungen für diese Auswahl.' : 'Noch keine Änderungen protokolliert — das Protokoll beginnt mit der nächsten Änderung.'}
           </p>
         )}
+        {entries && !!shown.length && filtered && (
+          <button type="button" onClick={() => { setQuery(''); setWho(''); setHidden(new Set()); p.onFocus(null); }}
+            className={`text-[10px] underline ${c.muted}`}>Alle Filter zurücksetzen</button>
+        )}
         {shown.map(e => (
           <div key={e.id} className={`rounded border ${c.border} px-2.5 py-2 space-y-1`}>
             <div className="flex items-center gap-1.5 min-w-0">
@@ -141,7 +186,7 @@ export default function AuditPanel(p: Props) {
               <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded border flex-shrink-0 ${sourceTone(e.source, isDark)}`}>{SOURCE_LABEL[e.source]}</span>
             </div>
             {e.note && <p className={`text-[10px] italic ${c.muted2}`}>{e.note}</p>}
-            {e.report && !focus && (
+            {e.report && !focus && !query.trim() && (
               <div className={`text-[10px] ${c.muted}`}>
                 {Object.entries(e.report).map(([k, v]) => (
                   <div key={k} className="truncate" title={v.join('\n')}><span className={c.muted2}>{k}:</span> {v.join(', ')}</div>
@@ -151,7 +196,7 @@ export default function AuditPanel(p: Props) {
             <ul className="space-y-0.5">
               {e.changes.map((ch, i) => <ChangeLine key={i} ch={ch} isDark={isDark} exists={current.has(ch.target) || current.has(auditBase(ch.target))} onGoto={p.onGoto} />)}
             </ul>
-            {!!e.more && !focus && <p className={`text-[10px] ${c.muted}`}>… und {e.more} weitere Änderungen</p>}
+            {!!e.more && !focus && !query.trim() && <p className={`text-[10px] ${c.muted}`}>… und {e.more} weitere Änderungen</p>}
           </div>
         ))}
       </div>

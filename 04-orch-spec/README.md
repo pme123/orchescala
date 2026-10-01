@@ -873,7 +873,8 @@ gleich gefiltert auf ihn:
 
 ```
 Verlauf  3 Einträge                                              ✕
-[Check data                                                    ▾]
+[🔍 Suchen — Stelle, Feld, Wert, Notiz …                         ]
+[Check data                  ▾] [Alle Personen                  ▾]
 Von Hand  Abgleich BPMN  Abgleich Domain  Umwandlung  Beim Laden
 ┌ 09:14 Pascal Mengelt                                   Von Hand ┐
 │ ~ Check data · Eingabe kind · Ausdruck                          │
@@ -895,6 +896,10 @@ Von Hand  Abgleich BPMN  Abgleich Domain  Umwandlung  Beim Laden
   `type:<id>#field:<id>` …) samt ihrem Namen zum Zeitpunkt der Änderung —
   ein Klick springt hin; was es nicht mehr gibt, steht mit «(entfallen)» in
   der Auswahl.
+- **Filtern** nach Element (Schritt, Typ …), nach **Person**, nach Herkunft
+  und mit einer **Textsuche** über Stelle, Feld, vorher/nachher, Notiz und
+  Bericht — alle Wörter müssen vorkommen; passt nur eine Änderung, bleibt
+  vom Eintrag nur sie stehen.
 - **Erfasst** wird alles, weil die App zwei Stände vergleicht (`src/audit.ts`,
   `diffSpecs`) statt an jeder Stelle einzeln zu protokollieren: von Hand ist,
   was sich zwischen zwei Speicherläufen ändert; eine Änderung mit Herkunft
