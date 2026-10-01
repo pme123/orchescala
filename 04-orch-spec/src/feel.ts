@@ -67,12 +67,13 @@ export interface ExpectedType {
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
 
 /**
- * Was die Bedingung eines Zweigs liefern muss. In Camunda 7 wird `null` in
- * JUEL zu `false` — ein fehlender optionaler Wert nimmt einfach den anderen
- * Zweig. In Camunda 8 muss es ein Boolean sein, `null` gibt einen Incident.
+ * Was die Bedingung eines Zweigs liefern muss: ein Boolean — `null` geht auch.
+ * In Camunda 7 wird es in JUEL zu `false`, in Camunda 8 schreibt der Export
+ * die Bedingung null-sicher (`(…) = true`, siehe nullSafeCondition). Ein
+ * fehlender optionaler Wert nimmt so in beiden Engines den anderen Zweig.
  */
-export const conditionExpected = (engine: EngineId | undefined): ExpectedType =>
-  ({ accepts: engine === 'c8' ? ['boolean'] : ['boolean', 'nil'], label: 'Bedingung', kind: 'scalar' });
+export const conditionExpected = (_engine?: EngineId): ExpectedType =>
+  ({ accepts: ['boolean', 'nil'], label: 'Bedingung', kind: 'scalar' });
 
 export interface FeelIssue {
   level: 'error' | 'warn';

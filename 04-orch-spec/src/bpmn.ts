@@ -11,7 +11,7 @@
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind } from './types';
-import { feelIfPossible, importExpression } from './juelFeel.ts';
+import { feelIfPossible, importExpression, stripNullSafe } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -330,7 +330,8 @@ function readScope(container: Element): Scope {
       id: el.getAttribute('id') ?? '',
       source, target,
       name: nameOf(el) || undefined,
-      condition: importExpression(text(firstNamed(el, 'conditionExpression'))) || undefined,
+      // die null-sichere Hülle von Camunda 8 (`(…) = true`) gehört dem Export, nicht der Spezifikation
+      condition: stripNullSafe(importExpression(text(firstNamed(el, 'conditionExpression')))) || undefined,
     };
     out.set(source, [...(out.get(source) ?? []), f]);
     inCount.set(target, (inCount.get(target) ?? 0) + 1);

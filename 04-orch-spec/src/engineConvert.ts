@@ -23,7 +23,7 @@
 
 import type { EngineId } from './types';
 import { feelBody, feelToJuel } from './feelJuel';
-import { importExpression, isJuel } from './juelFeel';
+import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 import type { WriteIssue, WriteResult } from './bpmnWrite';
 import { errorListSource, parseErrorList } from './errorCodes';
@@ -362,7 +362,11 @@ function toC8(defs: Element, ctx: Ctx) {
     // ── Bedingungen und Timer
     if (name === 'conditionExpression') {
       if (el.getAttribute('language')) issue('Bedingung', `Skript-Bedingung (${el.getAttribute('language')}) — als FEEL neu schreiben.`);
-      else el.textContent = toFeel(el.textContent ?? '', 'Bedingung', issue);
+      else {
+        // null-sicher wie im Export: in Camunda 7 war `null` einfach `false`
+        const feel = toFeel(el.textContent ?? '', 'Bedingung', issue);
+        el.textContent = feel.startsWith('=') ? `=${nullSafeCondition(feel.slice(1))}` : feel;
+      }
     }
     if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) {
       el.textContent = toFeel(el.textContent ?? '', 'Timer', issue);
@@ -560,7 +564,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     }
 
     // ── Bedingungen und Timer
-    if (name === 'conditionExpression') el.textContent = toJuel(el.textContent ?? '', 'Bedingung', issue);
+    // die Hülle `(…) = true` braucht Camunda 7 nicht — dort ist `null` ohnehin `false`
+    if (name === 'conditionExpression') el.textContent = toJuel(stripNullSafe(el.textContent ?? '').replace(/^= /, '='), 'Bedingung', issue);
     if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) el.textContent = toJuel(el.textContent ?? '', 'Timer', issue);
     if (name === 'message') {
       const n = el.getAttribute('name');

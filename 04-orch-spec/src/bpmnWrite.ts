@@ -22,7 +22,7 @@ import type { EngineId, Mapping, ProcessSpec, Step } from './types';
 import { TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockField, paramExpression } from './bpmn';
 import { referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
-import { importExpression } from './juelFeel';
+import { importExpression, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
@@ -159,11 +159,14 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       if (body == null) continue;
       const flow = byId.get(b.id);
       if (!flow || local(flow) !== 'sequenceFlow') continue;
-      // unverändert seit dem Import → der alte Text bleibt wörtlich
+      // unverändert seit dem Import → der alte Text bleibt wörtlich — in
+      // Camunda 8 nur, wenn er schon null-sicher ist (siehe nullSafeCondition)
       const before = firstNamed(flow, 'conditionExpression');
-      if (before && importExpression(before.textContent ?? '').trim() === b.condition.trim()) continue;
+      const old = before?.textContent ?? '';
+      const safe = engine !== 'c8' || stripNullSafe(old) !== old || /^=\s*(true|false)\s*$/.test(old.trim());
+      if (before && safe && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) continue;
       let text: string;
-      if (engine === 'c8') text = `=${body}`;
+      if (engine === 'c8') text = `=${nullSafeCondition(body)}`;
       else {
         const r = feelToJuel(body);
         if (r.ok) text = `\${${r.juel}}`;

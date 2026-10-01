@@ -256,6 +256,40 @@ export const isJuel = (text: string): boolean => /[$#]\{/.test(text);
  * Lässt sich JUEL nicht übersetzen, bleibt der Wert unverändert — die
  * Oberfläche zeigt ihn dann als alten JUEL-Ausdruck an.
  */
+/**
+ * Bedingungen eines Zweigs in Camunda 8 null-sicher: `(…) = true`. In
+ * Camunda 7 wird `null` zu `false` (JUEL); in Camunda 8 muss eine Bedingung
+ * einen Boolean liefern, sonst gibt es einen Incident — `null = true` ist
+ * dagegen schlicht `false`. So verhalten sich beide Engines gleich.
+ */
+const NULL_SAFE = /^\(([\s\S]*)\)\s*=\s*true$/;
+/** Klammern ausgeglichen (ausserhalb von Texten)? Nur dann ist `(…) = true` eine Hülle. */
+function balanced(s: string): boolean {
+  let depth = 0;
+  for (const part of s.split(/"(?:[^"\\]|\\.)*"/)) {
+    for (const ch of part) {
+      if (ch === '(') depth++;
+      else if (ch === ')' && --depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
+/** FEEL-Rumpf einer Bedingung → null-sicher (ein Literal oder schon gehüllt bleibt). */
+export function nullSafeCondition(body: string): string {
+  const b = body.trim();
+  if (/^(true|false)$/.test(b)) return b;
+  const m = NULL_SAFE.exec(b);
+  if (m && balanced(m[1])) return b;
+  return `(${b}) = true`;
+}
+/** Die Hülle wieder ab: `=(x > 3) = true` bzw. `= (x > 3) = true` → `= x > 3`. Anderes bleibt. */
+export function stripNullSafe(expression: string): string {
+  const t = expression.trim();
+  if (!t.startsWith('=')) return expression;
+  const m = NULL_SAFE.exec(t.slice(1).trim());
+  return m && balanced(m[1]) ? `= ${m[1].trim()}` : expression;
+}
+
 export function importExpression(text: string): string {
   const t = text.trim();
   if (!t) return t;
