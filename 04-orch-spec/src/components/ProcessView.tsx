@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
-import { collectFindings, withRequiredInputs, type Finding } from '../findings';
+import { collectFindings, withServiceRows, type Finding } from '../findings';
 import { catalogEntry, healLooseTypes } from '../interactions';
 import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, rememberPlaces, stepTarget, sub, threadOf } from '../comments';
 import { TEAMS_SCOPES } from '../teams';
@@ -208,16 +208,17 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec?.types, model, canEdit]);
 
-  // Fehlende Pflicht-Eingaben eines Services (wie beim Import und Abgleich) —
-  // einmal beim Öffnen, sobald der Katalog da ist; gespeichert mit dem Autosave
+  // Alle Felder eines Service-Aufrufs als Zeilen — Pflicht-Eingaben und gebrauchte
+  // Ausgaben angehakt (wie beim Import und Abgleich) — einmal beim Öffnen, sobald
+  // der Katalog da ist; gespeichert mit dem Autosave
   const requiredHealed = useRef<string | null>(null);
   useEffect(() => {
     // der Katalog kann nach der Spezifikation kommen — dann noch einmal
     const key = `${slug}:${model?.services.length ?? 0}`;
     if (!spec || !model || !canEdit || requiredHealed.current === key) return;
     requiredHealed.current = key;
-    const r = withRequiredInputs(spec, model);
-    if (r.added.length) update(r.spec, { source: 'load', note: 'Fehlende Pflicht-Eingaben ergänzt' });
+    const r = withServiceRows(spec, model);
+    if (r.changed) update(r.spec, { source: 'load', note: 'Felder der Services als Zeilen ergänzt (Pflicht-Eingaben angehakt)' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec, model, canEdit, slug]);
 
@@ -895,8 +896,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
               report: { ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}) },
             };
-            // fehlende Pflicht-Eingaben gleich als Zeile — wie beim Anlegen
-            void commitPlan(withRequiredInputs(p.spec, model).spec, p.text, p.report, p.renames, origin);
+            // alle Felder der Services als Zeilen, Pflicht-Eingaben angehakt — wie beim Anlegen
+            void commitPlan(withServiceRows(p.spec, model).spec, p.text, p.report, p.renames, origin);
           }} />
       )}
 

@@ -8,13 +8,13 @@
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, conditionExpected, domainRequired, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
 import { isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
-import { chosenVariant, variantAllows, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, variantAllows, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -79,20 +79,61 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
 }
 
 /**
- * Fehlende Pflicht-Eingaben als Zeile ergänzen (`= name`, mit der Bedeutung
- * aus dem Katalog) — beim Import, damit ein Service-Aufruf nicht mit einem
- * Fehler beginnt. Ändert nur, was fehlt; `added` nennt «Schritt: Feld».
+ * Alle Felder eines Service-Aufrufs als Zeilen — beim Import, beim Abgleich und
+ * beim Öffnen: was der Service bekommen bzw. liefern kann, steht da; **angehakt**
+ * sind nur die Pflicht-Eingaben und die Ausgaben, die der Prozess braucht
+ * (`_outputVariables`), der Rest ist abgewählt (sichtbar, kommt nicht ins BPMN).
+ * Bestehende Zeilen bleiben, wie sie sind. Nicht bei Benutzeraufgaben, eigenen
+ * Workern, dem Init-Worker und Entscheidungen (die lesen bzw. schreiben ihre
+ * Variablen direkt) und nicht, wenn ein Pattern den Aufruf festlegt.
+ * `added` nennt «Schritt: Feld» der neu angehakten Zeilen.
  */
-export function withRequiredInputs(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; added: string[] } {
+export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; added: string[]; changed: boolean } {
   const added: string[] = [];
+  let changed = false;
+  const processId = spec.processId ?? '';
+  const types = spec.types ?? [];
   const visit = (steps: Step[]): Step[] => steps.map(s => {
     let next = s;
-    if (s.kind === 'service' || s.kind === 'call' || s.kind === 'send') {
-      const missing = missingRequiredInputs(s, spec, model);
-      if (missing.length) {
-        const descr = new Map((catalogEntry(s, model)?.inputs ?? []).map(p => [p.name, p.description]));
-        next = { ...s, inputs: [...(s.inputs ?? []), ...missing.map(name => ({ name, expression: `= ${name}`, ...(descr.get(name) ? { description: descr.get(name) } : {}) }))] };
-        added.push(...missing.map(n => `${s.name}: ${n}`));
+    const ia = (spec.interactions ?? []).find(i => i.stepId === s.id) ?? null;
+    const kind = ia?.kind ?? interactionKind(s, processId);
+    const eligible = (s.kind === 'service' || s.kind === 'call' || s.kind === 'send')
+      && !isInitWorker(s, processId) && kind !== 'userTask' && kind !== 'customTask'
+      && !patternMappings(model?.patterns, s.patterns, spec.engine ?? 'c7').inputs.size;
+    if (eligible) {
+      const service = catalogEntry(s, model);
+      const fieldsOf = (list: 'inputs' | 'outputs'): Array<{ name: string; description?: string }> => {
+        const typeId = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
+        const own = typeId ? types.find(t => t.id === typeId) : undefined;
+        if (own) return [...(own.fields ?? []), ...(own.values ?? []).flatMap(v => v.fields ?? [])].filter(f => f.name).map(f => ({ name: f.name, description: f.description }));
+        const dom = stepDomainMember(s, spec, model, list === 'inputs' ? 'In' : 'Out');
+        if (dom) return [...(dom.fields ?? []), ...(dom.cases ?? []).flatMap(c => c.fields ?? [])].map(f => ({ name: f.name, description: f.description }));
+        return ((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).map(p => ({ name: p.name, description: p.description }));
+      };
+      const required = new Set(missingRequiredInputs(s, spec, model));
+      const wanted = new Set(s.outputVariables ?? []);
+      const rows = (list: 'inputs' | 'outputs'): Mapping[] | null => {
+        const have = s[list] ?? [];
+        // bei Ausgaben zählt auch ein Feld, das eine bestehende Zeile schon liest
+        const used = new Set([...have.map(m => m.name.trim()), ...(list === 'outputs' ? have.flatMap(m => referencedVariables(m.expression)) : [])]);
+        const seen = new Set<string>();
+        const neu: Mapping[] = [];
+        for (const f of fieldsOf(list)) {
+          if (!f.name || used.has(f.name) || seen.has(f.name)) continue;
+          seen.add(f.name);
+          const on = list === 'inputs' ? required.has(f.name) : wanted.has(f.name);
+          if (on) added.push(`${s.name}: ${f.name}`);
+          neu.push({ name: f.name, expression: `= ${f.name}`, ...(f.description ? { description: f.description } : {}), ...(on ? {} : { disabled: true }) });
+        }
+        return neu.length ? [...have, ...neu] : null;
+      };
+      const ins = rows('inputs'), outs = rows('outputs');
+      if (ins || outs) { changed = true; next = { ...s, ...(ins ? { inputs: ins } : {}), ...(outs ? { outputs: outs } : {}) }; }
+      // gebrauchte Ausgaben aus mehreren Ausprägungen: der Service liefert eine —
+      // welche, entscheidet er; die Ausgaben lesen dann aus allen (`*`)
+      if (outs && next.outVariant == null) {
+        const v = variantsOf(next, spec, model, 'outputs', service);
+        if (v && chosenVariant(next, 'outputs', v).mixed.length) next = { ...next, outVariant: ALL_VARIANTS };
       }
     }
     if (next.children) next = { ...next, children: visit(next.children) };
@@ -101,7 +142,7 @@ export function withRequiredInputs(spec: ProcessSpec, model: Model | null): { sp
     return next;
   });
   const steps = visit(spec.steps);
-  return { spec: added.length ? { ...spec, steps } : spec, added };
+  return { spec: changed ? { ...spec, steps } : spec, added, changed };
 }
 
 export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps)): Finding {

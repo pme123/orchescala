@@ -135,6 +135,12 @@ export interface Step {
    * (`singleEntry`), ein Objekt (`singleResult`), eine Liste von Werten
    * (`collectEntries`) oder von Objekten (`resultList`, Vorgabe in Camunda 7).
    */
+  /**
+   * `_outputVariables` aus dem BPMN — die Variablen, die der Service liefert
+   * und der Prozess braucht. Daraus werden beim Import die Ausgaben bzw. die
+   * angehakten Zeilen (siehe withServiceRows).
+   */
+  outputVariables?: string[];
   decisionResult?: DecisionResult;
 
   // Struktur

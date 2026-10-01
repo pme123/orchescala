@@ -566,6 +566,14 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 
   if (io.inputs.length) step.inputs = io.inputs;
   if (io.outputs.length) step.outputs = io.outputs;
+  // `_outputVariables`: was der Service liefert und der Prozess braucht — ohne
+  // eigene Ausgaben (kein manuelles Mapping) sind das die Ausgaben selbst
+  const ov = io.technical.find(m => m.name === '_outputVariables');
+  const outVars = ov ? parseErrorList(ov.expression).filter(n => n && n.toUpperCase() !== 'NONE' && !n.startsWith('=')) : [];
+  if (outVars.length) {
+    step.outputVariables = outVars;
+    if (!io.outputs.length) step.outputs = outVars.map(name => ({ name, expression: `= ${name}` }));
+  }
   if (io.mock) step.mock = io.mock;
   if (io.mockKind) step.mockKind = io.mockKind;
 
