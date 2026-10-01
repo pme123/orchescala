@@ -24,7 +24,7 @@ import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
-import { domainMember, initOutputs, loopSettings, resolveType } from './interactions';
+import { domainMember, initOutputs, interactionKind, loopSettings, resolveType } from './interactions';
 import { domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
 import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
@@ -251,6 +251,23 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
       if (o.disabled) continue;
       add({ name: o.name, type: 'any', label: '?', source: `Ausgabe von ${s.name || s.id}`, ...(o.description ? { description: o.description } : {}) });
     }
+  }
+
+  // Eigene Worker und Benutzeraufgaben schreiben ihr `Out` direkt in die
+  // Prozessvariablen — ohne Mapping. Die Felder: aus der beschriebenen
+  // Interaktion, sonst aus der Domain (der Init-Worker ist oben das InitIn).
+  for (const s of allSteps(spec.steps)) {
+    const kind = interactionKind(s, spec.processId ?? '');
+    if (kind !== 'customTask' && kind !== 'userTask') continue;
+    const source = `Ergebnis von ${s.name || s.id}`;
+    const ia = (spec.interactions ?? []).find(i => i.stepId === s.id);
+    const own = ia?.outTypeId ? types.find(t => t.id === ia.outTypeId) : undefined;
+    if (own) {
+      for (const f of own.fields ?? []) add({ ...nodeOfField(f, source, b, 0, new Set()), source });
+      continue;
+    }
+    const dom = stepDomainMember(s, spec, model, 'Out');
+    if (dom) for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source });
   }
   return out;
 }
