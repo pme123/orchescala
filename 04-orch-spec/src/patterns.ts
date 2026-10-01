@@ -1276,7 +1276,16 @@ export function updatePattern(xml: string, def: PatternDef, engine: EngineId, ta
 
 // ── Für die Oberfläche ───────────────────────────────────────────────────────
 /** Name → Pattern-ID der Ein- bzw. Ausgaben, die Pattern an einem Element beisteuern */
-export interface PatternMappings { inputs: Map<string, string>; outputs: Map<string, string> }
+export interface PatternMappings {
+  inputs: Map<string, string>;
+  outputs: Map<string, string>;
+  /**
+   * Wie oft ein Name vom Pattern kommen darf — die ältere Prozess-Event-Form
+   * trägt `processInstanceId` als lokale Eingabe **und** als `camunda:in`;
+   * das ist kein Doppel. Fehlt der Name, gilt einmal.
+   */
+  times: { inputs: Map<string, number>; outputs: Map<string, number> };
+}
 
 /**
  * Welche Ein- und Ausgaben kommen von den Pattern am Element? Das ist
@@ -1285,13 +1294,14 @@ export interface PatternMappings { inputs: Map<string, string>; outputs: Map<str
  * steht als Parameter am Pattern. Gelesen aus dem Anker aller Schreibweisen.
  */
 export function patternMappings(defs: PatternDef[] | undefined, applied: AppliedPattern[] | undefined, engine: EngineId): PatternMappings {
-  const res: PatternMappings = { inputs: new Map(), outputs: new Map() };
+  const res: PatternMappings = { inputs: new Map(), outputs: new Map(), times: { inputs: new Map(), outputs: new Map() } };
   for (const a of applied ?? []) {
     const def = defs?.find(d => d.id === a.id);
     if (!def) continue;
     for (const x of recognisedFor(def, engine)) {
       const fr = parseFragment(x);
       if ('error' in fr || !fr.anchor) continue;
+      const count = { inputs: new Map<string, number>(), outputs: new Map<string, number>() };
       for (const { el } of fr.items) {
         const n = local(el);
         const isIn = n === 'in' || n === 'input' || n === 'inputParameter';
@@ -1300,6 +1310,11 @@ export function patternMappings(defs: PatternDef[] | undefined, applied: Applied
         if (!name || name.includes('{{')) continue;
         if (isIn && !res.inputs.has(name)) res.inputs.set(name, def.id);
         if (isOut && !res.outputs.has(name)) res.outputs.set(name, def.id);
+        const list = isIn ? count.inputs : isOut ? count.outputs : null;
+        if (list) list.set(name, (list.get(name) ?? 0) + 1);
+      }
+      for (const k of ['inputs', 'outputs'] as const) {
+        for (const [n, c] of count[k]) res.times[k].set(n, Math.max(res.times[k].get(n) ?? 1, c));
       }
     }
   }

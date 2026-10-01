@@ -192,7 +192,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // Ein aus dem BPMN gelesener Schritt trägt oft kein Template, aber ein
   // Topic — und im OpenAPI-Katalog **ist** das Topic die Kennung. Deshalb
   // beide Wege probieren, sonst bleibt der Eintrag ungenutzt.
-  const service = catalogEntry(step, model);
+  // Der Init-Worker nicht: sein Topic ist der Prozess, und dessen Eintrag
+  // beschreibt den Aufruf des Prozesses (In/Out), nicht den Init-Worker —
+  // der liest das In aus den Prozessvariablen und liefert das InitIn.
+  const initWorker = isInitWorker(step, spec.processId);
+  const service = initWorker ? null : catalogEntry(step, model);
 
   // Woran sich das Mapping messen lässt: die Klasse der Interaktion, sonst der
   // Katalog-Eintrag. Gibt es beides nicht, ist das Mapping frei.
@@ -212,12 +216,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
   // Die Scala-Typen des Service-Objekts aus dem Domain-Katalog — Massstab für
   // Typ und Pflicht, wo der Schritt keine eigene In-/Out-Klasse hat
-  const domainIn = useMemo(() => stepDomainMember(step, spec, model, 'In'), [step, spec, model]);
+  const domainIn = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'In')), [initWorker, step, spec, model]);
   // Benutzeraufgaben und eigene Worker lesen ihr In aus den Prozessvariablen —
   // ein Mapping ist dort Zusatz, kein Pflichtfeld kann «fehlen»
   const ownKind = ia?.kind ?? interactionKind(step, spec.processId ?? '');
-  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';
-  const domainOut = useMemo(() => stepDomainMember(step, spec, model, 'Out'), [step, spec, model]);
+  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask' || initWorker;
+  const domainOut = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'Out')), [initWorker, step, spec, model]);
   // enum mit Fällen: der Schritt wählt seine Ausprägung (siehe variants.ts)
   const variantsIn = useMemo(() => variantsOf(step, spec, model, 'inputs', service), [step, spec, model, service]);
   const variantsOut = useMemo(() => variantsOf(step, spec, model, 'outputs', service), [step, spec, model, service]);
@@ -389,7 +393,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       )}
 
       {/* Service-Auswahl mit vorbereitetem Mapping */}
-      {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && (
+      {initWorker && (
+        <Row label="Init-Worker" isDark={isDark}>
+          <span title="Sein Topic ist der Prozess selbst: er liest das In aus den Prozessvariablen und liefert das InitIn — kein Service-Aufruf.">
+            Topic <span className="font-mono">{step.topic}</span> — liest das In, liefert das InitIn
+          </span>
+        </Row>
+      )}
+      {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && (
         <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} current={service} />
       )}
 
@@ -407,12 +418,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
       <MappingTable key={`${step.id}-in`} title="Eingaben" list="inputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={variables} refFields={classFieldDefs('inputs')} domain={domainIn} types={spec.types ?? []} model={model} engine={spec.engine}
-        implicitIn={implicitIn} reference={reference('inputs')} fromPattern={fromPattern.inputs} patternName={patternName}
+        implicitIn={implicitIn} reference={reference('inputs')} fromPattern={fromPattern.inputs} patternTimes={fromPattern.times.inputs} patternName={patternName}
         variants={variantsIn} chosen={chosenFor('inputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
-        implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternName={patternName}
+        implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternTimes={fromPattern.times.outputs} patternName={patternName}
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
 
@@ -970,7 +981,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }:
 // kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
 // oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
 // stellt Abgewähltes nicht wieder her.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** Ausprägungen des In bzw. Out (enum mit Fällen) — null: keine */
   variants: Variants | null;
@@ -978,6 +989,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   onVariant: (list: 'inputs' | 'outputs', name: string | null) => void;
   /** Name → Pattern: diese Zeilen steuert ein Pattern bei — Implementation, ausgeblendet */
   fromPattern: Map<string, string>;
+  /** wie oft das Pattern einen Namen selbst mitbringt — so oft ist er kein Doppel */
+  patternTimes: Map<string, number>;
   patternName: (id: string) => string;
   /** Benutzeraufgabe oder eigener Worker: das In kommt aus den Prozessvariablen, ein Mapping ist keine Pflicht */
   implicitIn: boolean;
@@ -1053,7 +1066,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
   const zaehler = new Map<string, number>();
   for (const m of all) if (m.name && !m.disabled) zaehler.set(m.name, (zaehler.get(m.name) ?? 0) + 1);
-  const doppelt = new Set([...zaehler].filter(([, n]) => n > 1).map(([name]) => name));
+  const doppelt = new Set([...zaehler].filter(([name, n]) => n > (patternTimes.get(name) ?? 1)).map(([name]) => name));
   // Pflicht: das Feld der In-Klasse ist nicht optional — oder der Katalog
   // sagt `required`. Ein Pflichtfeld muss der Service bekommen; die Zeile
   // lässt sich deshalb weder abwählen noch entfernen.

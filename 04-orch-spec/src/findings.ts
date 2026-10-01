@@ -113,7 +113,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const types = spec.types ?? [];
   const processId = spec.processId ?? '';
   const ia: Interaction | null = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
-  const service = catalogEntry(step, model);
+  // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
+  const initWorker = isInitWorker(step, processId);
+  const service = initWorker ? null : catalogEntry(step, model);
 
   // ── Interaktion: was der DSL verlangt ────────────────────────────────────
   if (ia) {
@@ -141,12 +143,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // ── Mappings: Pflicht, doppelt, FEEL ─────────────────────────────────────
   const inFields: Field[] | null = ia?.inTypeId ? (types.find(t => t.id === ia.inTypeId)?.fields ?? []).filter(f => f.name) : null;
   const outFields: Field[] | null = ia?.outTypeId ? (types.find(t => t.id === ia.outTypeId)?.fields ?? []).filter(f => f.name) : null;
-  const domainIn = stepDomainMember(step, spec, model, 'In');
-  const domainOut = stepDomainMember(step, spec, model, 'Out');
+  const domainIn = initWorker ? null : stepDomainMember(step, spec, model, 'In');
+  const domainOut = initWorker ? null : stepDomainMember(step, spec, model, 'Out');
   const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
 
   const ownKind = ia?.kind ?? interactionKind(step, processId);
-  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask';
+  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask' || initWorker;
   // was ein Pattern am Element beisteuert, ist Implementation — nicht geprüft,
   // und fehlende Pflichtfelder meldet es nicht: den Aufruf legt das Pattern fest
   const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
@@ -163,10 +165,11 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     }
     const used = rows.filter(m => !m.disabled && m.name.trim() && allowed(m.name));
     const active = used.filter(m => !fromPattern[list].has(m.name));
-    // doppelt zählt auch bei Zeilen des Patterns — dieselbe Eingabe zweimal ist ein Fehler im BPMN
+    // doppelt zählt auch bei Zeilen des Patterns — dieselbe Eingabe zweimal ist ein
+    // Fehler im BPMN, ausser das Pattern bringt den Namen selbst mehrmals mit
     const names = new Map<string, number>();
     for (const m of used) names.set(m.name, (names.get(m.name) ?? 0) + 1);
-    for (const [n, k] of names) if (k > 1) errors.push(`${list === 'inputs' ? 'Eingabe' : 'Ausgabe'} «${n}» kommt doppelt vor.`);
+    for (const [n, k] of names) if (k > (fromPattern.times[list].get(n) ?? 1)) errors.push(`${list === 'inputs' ? 'Eingabe' : 'Ausgabe'} «${n}» kommt doppelt vor.`);
     // Pflichtfelder, die fehlen oder abgewählt sind — nicht bei Benutzer-
     // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
     // Prozessvariablen, ohne Mapping

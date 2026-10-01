@@ -89,10 +89,67 @@ Objektnamen der Interaktion und den Namen des Katalog-Services.
 **«Mit BPMN abgleichen»** liest die BPMN-Datei erneut ein und übernimmt die
 Struktur — die fachlichen Texte (Beschreibung, Notiz, offene Frage, Bedeutung
 der Mappings) bleiben über die stabile BPMN-Element-ID erhalten, auch in
-Fehler- und Nebenpfaden. Der Bericht danach zeigt, was neu ist, was sich
-geändert hat und was entfallen ist; neue Schritte stehen auf **Entwurf**,
-technisch geänderte auf **Angepasst**. Ein bereits gesetzter Status bleibt
-sonst unangetastet — er gehört der Spezifikation, nicht dem Import.
+Fehler- und Nebenpfaden.
+
+Übernommen wird nicht sofort: wie beim Anlegen aus BPMN steht zuerst eine
+**Vorschau**, und wie dort sucht die App über die Prozess-ID die **Domain**
+(Katalog, gemerkte Projekt-Ordner, sonst Ordner oder ZIP wählen):
+
+```
+↻ Mit BPMN abgleichen  openSavings-impl.bpmn                               ✕
+ABLAUF                                  DATENMODELL
+12 behalten · 1 neu · 1 geändert · …    ☑ mit der Domain abgleichen — OpenSavings aus Katalog
++ Check data                            9 unverändert · 1 neu · 2 geändert · 1 nur in der Spezifikation
+~ Open account                          + Language   ~ In   ~ CheckDataUT.In   ? In.oldField
+− succeeded                             ☐ was die Domain nicht mehr kennt, entfernen
+Status für Neues [Umgesetzt ▾]  für Geändertes [Angepasst ▾]   💬 1 Kommentar an entfallenen Stellen bleibt
+                                                                    [Abbrechen] [Übernehmen]
+```
+
+- **Status**: neue Schritte, Klassen und Interaktionen bekommen den Status
+  «für Neues» (Vorgabe Entwurf), technisch geänderte den Status «für
+  Geändertes» (Vorgabe Angepasst). Kommt das BPMN aus der Implementation,
+  setzt man beides z. B. auf **Umgesetzt**. Unverändertes behält seinen
+  Status — ausser es steht noch von einem früheren Abgleich auf
+  **Angepasst**: stimmt es jetzt mit der Implementation überein, bestätigt
+  der Abgleich es mit dem Status «für Geändertes» (in der Vorschau
+  «✓ Review → Umgesetzt»; mit der Vorgabe Angepasst bleibt alles, wie es
+  ist). Das gilt auch für den Prozess selbst. Vorbereitete Interaktionen
+  ohne Domain-Objekt bleiben Entwurf.
+- **Datenmodell**: die Klassen aus der Domain werden mit den gepflegten
+  **zusammengeführt**, nicht ersetzt (`domainMerge.ts`). Die Struktur —
+  Felder, Typen, Optional/Seq/Map, Einschränkung, Werte — kommt aus der
+  Domain; Beschreibungen, Beispiele und eine Vorgabe, die die Domain nicht
+  kennt, bleiben, ebenso die **IDs** von Typen, Feldern und Interaktionen.
+  Zugeordnet wird über die Rolle (In, Out, InitIn, InConfig), die In/Out
+  einer Interaktion über ihren Schritt, alles andere über den Namen. Was die
+  Domain nicht (mehr) kennt, bleibt stehen und wird gemeldet; auf Wunsch
+  wird es entfernt — aber nur, was schon umgesetzt war: ein Entwurf ist der
+  Domain voraus, nicht veraltet.
+- **Interaktionen**: Schritte ohne Interaktion werden wie beim Anlegen als
+  Entwurf mit In/Out vorbereitet (abwählbar).
+- **Pattern** werden wie beim Anlegen mit den Pattern aus dem Admin erkannt;
+  die Vorschau zeigt, welche dazukommen, wegfallen oder andere Parameter
+  haben («~ Prozess-Event (Benutzeraufgabe) «Rückbestätigung erfassen
+  (KUBE)»: subStatusKey=… → …»).
+- **Kommentare** gehen nie verloren. Fäden an einer Stelle, die es danach
+  nicht mehr gibt, stehen im Kommentar-Panel unter «Ohne Stelle» — mit dem
+  Namen, den die Stelle zuletzt hatte («Ende succeeded»).
+
+**«Mit Domain abgleichen»** (Datenbank-Symbol neben dem Abgleich-Knopf)
+macht dasselbe ohne neue Datei, mit dem gespeicherten BPMN: der Ablauf
+bleibt, abgeglichen werden Klassen und Interaktionen — etwa nachdem die
+Domain im Projekt gewachsen ist. Neues aus der Domain steht dort von
+vornherein auf **Umgesetzt**.
+
+Auch **beim Anlegen aus BPMN** wählt man den Status (Vorgabe Umgesetzt — das
+BPMN kommt aus der Implementation). Er gilt für Prozess, Schritte und das
+Datenmodell aus der Domain; Vorbereitetes ohne Domain-Objekt bleibt Entwurf.
+
+Der Bericht danach zeigt, was im Ablauf neu ist, sich geändert hat oder
+entfallen ist. Ein bereits gesetzter Status bleibt sonst unangetastet — er
+gehört der Spezifikation, nicht dem Import. Änderungen im Modeler, Pattern
+und Engine-Wechsel gehen weiterhin direkt hinein, ohne Vorschau.
 
 ### Klassenbauer — das Datenmodell des Prozesses
 
@@ -319,7 +376,9 @@ Domain deshalb nicht suchen — die App tut es, in dieser Reihenfolge:
 3. sonst fragt sie nach dem **Projekt-Ordner** (Chrome/Edge) oder einem
    **ZIP** — oder legt den Prozess ohne Domain an.
 
-Vor dem Anlegen steht, was entsteht:
+Vor dem Anlegen steht, was entsteht — auch die **erkannten Pattern** (mit
+den Definitionen aus Admin → Pattern), je Pattern mit Anzahl, die Stellen im
+Tooltip; sind keine definiert, steht das da:
 
 ```
 Aus BPMN  Kartenbestellung  globex-ordercard

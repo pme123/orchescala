@@ -98,6 +98,28 @@ export function PatternChip({ name, params, isDark, title }: { name: string; par
   );
 }
 
+/**
+ * Die beim Import erkannten Pattern: je Pattern ein Chip mit Anzahl, im
+ * Tooltip die Stellen. Ohne Definitionen im Admin wird nichts erkannt —
+ * das steht dann da, statt einer leeren Zeile.
+ */
+export function PatternSummary({ items, nameOf, hasDefs, isDark }: {
+  items: Array<{ id: string; where: string[] }>; nameOf: (id: string) => string; hasDefs: boolean; isDark: boolean;
+}) {
+  const muted = isDark ? 'text-white/40' : 'text-black/40';
+  if (!hasDefs) return <p className={`text-[10px] ${muted}`}>Pattern: keine definiert (Admin → Pattern) — nichts erkannt.</p>;
+  if (!items.length) return <p className={`text-[10px] ${muted}`}>Pattern: keine erkannt.</p>;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className={`text-[10px] mr-0.5 ${muted}`}>Pattern erkannt:</span>
+      {items.map(p => (
+        <PatternChip key={p.id} isDark={isDark} name={`${nameOf(p.id)}${p.where.length > 1 ? ` ×${p.where.length}` : ''}`}
+          title={[`Pattern «${nameOf(p.id)}»`, ...p.where.map(w => `· ${w}`)].join('\n')} />
+      ))}
+    </div>
+  );
+}
+
 export function ErrorChip({ n, isDark }: { n: number; isDark: boolean }) {
   return (
     <span title={`${n} behandelte Fehler`}

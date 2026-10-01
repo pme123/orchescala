@@ -137,17 +137,23 @@ export function removeEntry(spec: ProcessSpec, threadId: string, entryId: string
 }
 
 /**
- * Fäden zu Schritten und Typen, die es nicht mehr gibt, aufräumen. Prozess,
- * Interaktionen und unbekannte Ziele bleiben — die zeigt das Panel unter
- * «Ohne Stelle».
+ * Fäden bleiben, auch wenn ihre Stelle verschwindet (ein Abgleich entfernt
+ * einen Schritt, ein Feld …) — was besprochen wurde, soll gelesen und
+ * abgehakt werden. Damit man im Panel unter «Ohne Stelle» noch weiss, worum
+ * es ging, merkt sich der Faden den Namen der Stelle von `before`.
  */
-export function pruneComments(spec: ProcessSpec, lebendeStepIds: Set<string>, lebendeTypeIds: Set<string>): CommentThread[] {
-  return (spec.comments ?? []).filter(t => {
-    const base = baseOf(t.target);
-    if (base.startsWith('step:')) return lebendeStepIds.has(base.slice(5));
-    if (base.startsWith('type:')) return lebendeTypeIds.has(base.slice(5));
-    return true;
+export function rememberPlaces(before: ProcessSpec, after: ProcessSpec, stepsBefore: Step[], stepsAfter: Step[]): CommentThread[] | undefined {
+  if (!after.comments?.length) return after.comments;
+  const vorher = new Map(commentTargets(before, stepsBefore).map(t => [t.key, t.label]));
+  const jetzt = new Set(commentTargets(after, stepsAfter).map(t => t.key));
+  let changed = false;
+  const comments = after.comments.map(t => {
+    const label = vorher.get(t.target);
+    if (jetzt.has(t.target) || !label || t.place === label) return t;
+    changed = true;
+    return { ...t, place: label };
   });
+  return changed ? comments : after.comments;
 }
 
 // ── Stellen ──────────────────────────────────────────────────────────────────

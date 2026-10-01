@@ -391,6 +391,11 @@ export interface CommentThread {
    * `type:<id>`) oder ein Teil davon (`step:<id>#in:<name>` …, siehe comments.ts)
    */
   target: string;
+  /**
+   * wie die Stelle hiess, als es sie noch gab — ein Abgleich, der sie
+   * entfernt, merkt sich das; das Panel zeigt den Faden unter «Ohne Stelle»
+   */
+  place?: string;
   resolved?: boolean;
   /** wer abgehakt hat, und wann */
   resolvedBy?: string;

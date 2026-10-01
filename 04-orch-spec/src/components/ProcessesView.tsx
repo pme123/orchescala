@@ -22,11 +22,11 @@ import { collectFindings, withRequiredInputs } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
 import { usePermissions } from '../auth';
-import { allSteps, importBpmn, statusCounts } from '../bpmn';
+import { allSteps, importBpmn, patternSummary, statusCounts, withStatus } from '../bpmn';
 import { alignPoolIds } from '../poolIds';
 import { DEFAULT_ENGINE, ENGINES, applyTemplate, loadTemplate } from '../template';
-import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status, type Step } from '../types';
-import { StatusChip, cls } from '../ui';
+import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status } from '../types';
+import { PatternSummary, StatusChip, cls } from '../ui';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
 
@@ -65,6 +65,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     bare: { spec: ProcessSpec; prepared: string[] };
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Status des neuen Prozesses — aus der Implementation gelesen ist «Umgesetzt» die Vorgabe */
+  const [createStatus, setCreateStatus] = useState<Status>('implemented');
   /** Spezifikation, deren Löschen gerade bestätigt werden soll */
   const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -178,7 +180,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const createPending = async () => {
     if (!pending) return;
     // fehlende Pflicht-Eingaben gleich als Zeile — ein Service-Aufruf beginnt nicht mit einem Fehler
-    const spec = withRequiredInputs(pending.enriched?.spec ?? pending.bare.spec, model).spec;
+    const spec = withRequiredInputs(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model).spec;
     const res = await createSpec(spec);
     if (!res.ok) { setError(res.message); return; }
     // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich
@@ -204,14 +206,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       const { spec } = importBpmn(xml, `${slugify(processId)}.bpmn`, { patterns: model?.patterns });
       // Der Ablauf kommt aus der Vorlage, ist aber noch nicht umgesetzt —
       // und zwar auf allen Ebenen: Unterschritte, Zweige und Fehlerpfade.
-      const entwurf = (steps: Step[]): Step[] => steps.map(s => ({
-        ...s,
-        status: 'draft' as Status,
-        ...(s.children ? { children: entwurf(s.children) } : {}),
-        ...(s.branches ? { branches: s.branches.map(b => ({ ...b, steps: entwurf(b.steps) })) } : {}),
-        ...(s.errors ? { errors: s.errors.map(e => (e.steps ? { ...e, steps: entwurf(e.steps) } : e)) } : {}),
-      }));
-      const neu = { ...spec, title: title || processId, engine, status: 'draft' as Status, steps: entwurf(spec.steps) };
+      const neu = { ...withStatus(spec, 'draft'), title: title || processId, engine };
       const res = await createSpec(neu);
       if (!res.ok) { setError(res.message); return; }
       const w = await saveBpmn(neu.slug, xml);
@@ -271,6 +266,10 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             <span className={`text-[10px] font-mono ${c.muted}`}>{pending.spec.processId}</span>
             <button onClick={() => setPending(null)} className={`ml-auto ${c.muted}`}><X size={12} /></button>
           </div>
+          <div className="mb-1.5">
+            <PatternSummary items={patternSummary(pending.spec)} isDark={isDark} hasDefs={!!model?.patterns?.length}
+              nameOf={id => model?.patterns?.find(d => d.id === id)?.name ?? id} />
+          </div>
           {pending.enriched ? (
             <div className="space-y-1">
               <p className={`text-[10px] ${c.muted2}`}>
@@ -319,6 +318,14 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             </div>
           )}
           <div className="flex items-center gap-2 mt-2">
+            <label className={`flex items-center gap-1.5 text-[10px] ${c.muted2}`}
+              title="Gilt für Prozess, Schritte und das Datenmodell aus der Domain — Vorbereitetes ohne Domain-Objekt bleibt Entwurf">
+              Status
+              <select value={createStatus} onChange={e => setCreateStatus(e.target.value as Status)}
+                className={`text-[11px] px-1.5 py-1 rounded border outline-none ${c.input}`}>
+                {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+              </select>
+            </label>
             <button onClick={createPending} disabled={!!busy}
               className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-40 ${c.btnPrimary}`}>
               {pending.enriched ? 'Anlegen' : 'Ohne Domain anlegen'}

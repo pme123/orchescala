@@ -9,17 +9,17 @@ import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare, Puzzle, History,
+  MessageSquare, Puzzle, History, Database,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
 import { collectFindings, withRequiredInputs, type Finding } from '../findings';
 import { catalogEntry, healLooseTypes } from '../interactions';
-import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, pruneComments, stepTarget, sub, threadOf } from '../comments';
+import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, rememberPlaces, stepTarget, sub, threadOf } from '../comments';
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
-import { allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport } from '../bpmn';
+import { DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
@@ -27,7 +27,7 @@ import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolI
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
 import { nowIsoWithTimezone } from '../util';
-import { bpmnReport, makeEntry, type AuditEntry, type AuditOrigin } from '../audit';
+import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -35,6 +35,7 @@ import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
 import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
+import SyncPanel from './SyncPanel';
 import type { BpmnHandle } from './BpmnEditor';
 
 // Der Modeler ist gross — er kommt erst, wenn das Diagramm gezeigt wird.
@@ -135,6 +136,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const [engineOpen, setEngineOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
+  /** gewähltes BPMN, das in der Vorschau wartet («Mit BPMN abgleichen») */
+  const [sync, setSync] = useState<{ raw: string; from: string; mode?: 'bpmn' | 'domain' } | null>(null);
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
   /** Sprung aus dem Ablauf ins Datenmodell — dort wird dieser Typ gezeigt */
   const [focusType, setFocusType] = useState<string | null>(null);
@@ -214,7 +217,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (!spec || !model || !canEdit || requiredHealed.current === key) return;
     requiredHealed.current = key;
     const r = withRequiredInputs(spec, model);
-    if (r.added.length) update(r.spec);
+    if (r.added.length) update(r.spec, { source: 'load', note: 'Fehlende Pflicht-Eingaben ergänzt' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec, model, canEdit, slug]);
 
@@ -583,61 +586,84 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   modelRef.current = model;
 
   /**
+   * Das Diagramm `raw` mit der Spezifikation zusammenführen — ohne zu
+   * speichern. Kommt es aus dem Modeler (`from === 'Diagramm'`), benennt der
+   * die Schritte gleich mit um; sonst ist das hier ohne Nebenwirkung und
+   * lässt sich für die Vorschau beliebig oft rechnen.
+   */
+  const planXml = useCallback((raw: string, from: string, st: MergeStatus = DEFAULT_MERGE_STATUS) => {
+    const current = specRef.current;
+    if (!current) return null;
+    // Prozess-ID und -Name folgen dem Pool (Konvention, siehe poolIds.ts);
+    // eine gewählte Prozess-ID nur, wenn der Name im Diagramm geändert wurde.
+    // Ein offener Modeler lädt das angeglichene XML nach.
+    const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
+    let text = alignPoolIds(raw, { renameProcess: renamed }).xml;
+    const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
+    // das vorige BPMN als Bezug: was das Diagramm nicht geändert hat, bleibt
+    // wie in der Spezifikation (Service, Mappings — die kommen erst beim Export hinein)
+    let base = null;
+    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unlesbar — ohne Bezug */ }
+    const { spec: merged0, report } = mergeSpec(fresh, current, base, st);
+    // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
+    // Kommt die Änderung aus dem Modeler, benennt er um — das löst den
+    // nächsten Speicherlauf aus, der das BPMN mit den neuen IDs ablegt.
+    // Sonst (Pattern, Datei, Titel) zeigt der Modeler noch den alten Stand:
+    // dann im neuen XML umbenennen, das er gleich lädt.
+    let merged = merged0;
+    const renames: Array<[string, string]> = [];
+    const vorher = new Map(allSteps(current.steps).map(s => [s.id, s.name]));
+    for (const s of allSteps(merged0.steps)) {
+      const alt = vorher.get(s.id);
+      if (alt === undefined || alt === s.name || !derivable(s)) continue;
+      const ids = new Set(allSteps(merged.steps).map(x => x.id));
+      const neu = conventionalId(s, x => x !== s.id && ids.has(x));
+      if (!neu || neu === s.id) continue;
+      if (from === 'Diagramm') {
+        if (bpmnRef.current?.setId(s.id, neu) !== 'renamed') continue;
+      } else {
+        const nx = renameIdInXml(text, s.id, neu);
+        if (!nx) continue;
+        text = nx;
+      }
+      // samt Interaktionen und Kommentaren an diesem Schritt
+      merged = renameStepId(merged, s.id, neu);
+      renames.push([s.id, neu]);
+    }
+    return { spec: merged, text, report, renames };
+  }, []);
+
+  /**
+   * Das Ergebnis übernehmen und das BPMN ablegen. Kommentare bleiben alle —
+   * auch die an Stellen, die es nicht mehr gibt: die stehen im Panel unter
+   * «Ohne Stelle», bis jemand sie erledigt.
+   */
+  const commitPlan = useCallback(async (next: ProcessSpec, text: string, r: MergeReport | null, renames: Array<[string, string]>, origin: AuditOrigin) => {
+    for (const [alt, neu] of renames) setSelected(prev => (prev === alt ? neu : prev));
+    const before = specRef.current;
+    update(before ? { ...next, comments: rememberPlaces(before, next, allSteps(before.steps), allSteps(next.steps)) } : next, origin);
+    setXml(text);
+    if (r) setReport(r);
+    const w = await saveBpmn(slug, text);
+    if (!w.ok) setSaveState({ error: w.message });
+  }, [update, saveBpmn, slug]);
+
+  /**
    * `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst).
    * `origin`: woher das Diagramm kommt — ohne ist es «Mit BPMN abgleichen» mit einer Datei.
    */
   const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin) => {
-    const current = specRef.current;
-    if (!current) return;
     try {
-      // Prozess-ID und -Name folgen dem Pool (Konvention, siehe poolIds.ts);
-      // eine gewählte Prozess-ID nur, wenn der Name im Diagramm geändert wurde.
-      // Ein offener Modeler lädt das angeglichene XML nach.
-      const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
-      let text = alignPoolIds(raw, { renameProcess: renamed }).xml;
-      const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
-      // das vorige BPMN als Bezug: was das Diagramm nicht geändert hat, bleibt
-      // wie in der Spezifikation (Service, Mappings — die kommen erst beim Export hinein)
-      let base = null;
-      try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unlesbar — ohne Bezug */ }
-      const { spec: merged0, report: r } = mergeSpec(fresh, current, base);
-      // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
-      // Kommt die Änderung aus dem Modeler, benennt er um — das löst den
-      // nächsten Speicherlauf aus, der das BPMN mit den neuen IDs ablegt.
-      // Sonst (Pattern, Datei, Titel) zeigt der Modeler noch den alten Stand:
-      // dann im neuen XML umbenennen, das er gleich lädt.
-      let merged = merged0;
-      const vorher = new Map(allSteps(current.steps).map(s => [s.id, s.name]));
-      for (const s of allSteps(merged0.steps)) {
-        const alt = vorher.get(s.id);
-        if (alt === undefined || alt === s.name || !derivable(s)) continue;
-        const ids = new Set(allSteps(merged.steps).map(x => x.id));
-        const neu = conventionalId(s, x => x !== s.id && ids.has(x));
-        if (!neu || neu === s.id) continue;
-        if (from === 'Diagramm') {
-          if (bpmnRef.current?.setId(s.id, neu) !== 'renamed') continue;
-        } else {
-          const nx = renameIdInXml(text, s.id, neu);
-          if (!nx) continue;
-          text = nx;
-        }
-        merged = renameStepId(merged, s.id, neu);
-        setSelected(prev => (prev === s.id ? neu : prev));
-      }
-      update({
-        ...merged,
-        comments: pruneComments(merged, new Set(allSteps(merged.steps).map(x => x.id)),
-          new Set((merged.types ?? []).map(t => t.id))),
-      }, { ...(origin ?? { source: 'bpmn-sync', note: `Mit BPMN abgleichen: ${from}` }), report: bpmnReport(r) });
-      setXml(text);
-      if (!quiet) setReport(r);
-      else if (quiet !== 'silent' && (r.added.length || r.removed.length || r.changed.length)) setReport(r);
-      const w = await saveBpmn(slug, text);
-      if (!w.ok) setSaveState({ error: w.message });
+      const plan = planXml(raw, from);
+      if (!plan) return;
+      const r = plan.report;
+      const show = !quiet || (quiet !== 'silent' && (r.added.length || r.removed.length || r.changed.length));
+      await commitPlan(plan.spec, plan.text, show ? r : null, plan.renames,
+        { ...(origin ?? { source: 'bpmn-sync', note: `Mit BPMN abgleichen: ${from}` }), report: bpmnReport(r) });
     } catch (e) {
       setSaveState({ error: e instanceof Error ? e.message : String(e) });
     }
-  }, [update, saveBpmn, slug]);
+  }, [planXml, commitPlan]);
 
   // ── Pattern ───────────────────────────────────────────────────────────────
   // Ein Pattern wird direkt ins BPMN geschrieben — nicht erst beim Export.
@@ -723,10 +749,10 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     update({ ...cur, processId: id, ...(m ? { project: m[1] } : {}) });
   };
 
+  // Eine gewählte Datei geht nicht direkt hinein: erst die Vorschau mit
+  // Domain, Datenmodell und Status — wie beim Anlegen
   const onFile = async (file: File) => {
-    const text = await file.text();
-    await applyXml(text, file.name);
-    setShowDiagram(true);
+    setSync({ raw: await file.text(), from: file.name });
   };
 
   if (!spec) return <div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Lade Spezifikation …</div>;
@@ -778,6 +804,11 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 <button onClick={() => fileRef.current?.click()}
                   title="Mit BPMN abgleichen — BPMN wählen: der Ablauf aus der Implementation, fachliche Texte bleiben"
                   className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
+                {xml && (
+                  <button onClick={() => setSync({ raw: xml, from: 'Domain', mode: 'domain' })}
+                    title="Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt"
+                    className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncDataIcon size={14} /></button>
+                )}
               </>
             )}
           </>
@@ -851,17 +882,36 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         </div>
       )}
 
+      {sync && canEdit && (
+        <SyncPanel raw={sync.raw} from={sync.from} mode={sync.mode} current={spec} model={model} isDark={isDark} plan={planXml}
+          onClose={() => setSync(null)}
+          onApply={p => {
+            setSync(null);
+            setShowDiagram(true);
+            // fürs Protokoll: Ablauf und Datenmodell getrennt berichtet
+            const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
+            const origin: AuditOrigin = {
+              source: sync.mode === 'domain' ? 'domain-sync' : 'bpmn-sync',
+              note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
+              report: { ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}) },
+            };
+            // fehlende Pflicht-Eingaben gleich als Zeile — wie beim Anlegen
+            void commitPlan(withRequiredInputs(p.spec, model).spec, p.text, p.report, p.renames, origin);
+          }} />
+      )}
+
       {report && (
         <div className={`flex-shrink-0 text-[10px] px-3 py-1.5 border-b ${c.border} ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
           <div className="flex items-center gap-2">
             <span className={c.muted2}>
               Abgleich: {report.kept} behalten · {report.added.length} neu · {report.changed.length} geändert
               {report.renamed.length ? ` · ${report.renamed.length} umbenannt` : ''} · {report.removed.length} entfallen
+              {report.confirmed.length ? ` · ${report.confirmed.length} bestätigt` : ''}
             </span>
             <button onClick={() => setReport(null)} className={`ml-auto ${c.muted}`}><X size={10} /></button>
           </div>
           {[...report.added.map(n => `+ ${n}`), ...report.changed.map(n => `~ ${n}`),
-            ...report.renamed.map(n => `✎ ${n}`), ...report.removed.map(n => `− ${n}`)]
+            ...report.renamed.map(n => `✎ ${n}`), ...report.removed.map(n => `− ${n}`), ...report.confirmed.map(n => `✓ ${n}`)]
             .slice(0, 8).map((l, i) => <div key={i} className={`font-mono ${c.muted}`}>{l}</div>)}
         </div>
       )}

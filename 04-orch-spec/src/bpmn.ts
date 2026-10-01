@@ -581,9 +581,12 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     // Pfad ab dem Boundary-Event. Der angehängte Schritt gilt dabei als
     // «Vorgänger»: führt der Pfad dorthin zurück, ist das eine Wiederholung
     // (Retry) und keine Zusammenführung.
+    // Läuft er in den Hauptfluss zurück (z. B. über ein Gateway vor dem
+    // nächsten Schritt), endet er dort mit «weiter bei …» — sonst nähme er den
+    // Rest des Prozesses mit, der hier noch nicht aufgebaut ist.
     const flows = scope.boundaryOut.get(bid) ?? [];
     const steps = flows.length
-      ? walk(ctx, scope, flows[0].target, new Set(), new Set([...path, id]), id)
+      ? walk(ctx, scope, flows[0].target, mainFlowAfter(ctx, scope, id), new Set([...path, id]), id, {}, true)
       : undefined;
     // Ohne Namen und ohne Fehlerbezug ist es kein Fehlerfall, sondern ein
     // Nebenpfad — dann beschriftet ihn sein erster Schritt statt der Element-ID.
@@ -695,8 +698,46 @@ function canReach(scope: Scope, from: string, to: string): boolean {
 interface LoopHint { cond?: string; wait?: string }
 const MAX_RE = /\$\{([^}]+)\}/;
 
+/**
+ * Was der Hauptfluss ab `id` noch erreicht (nur Sequenzflüsse) und noch nicht
+ * aufgebaut ist — dort endet ein Pfad ab einem Boundary-Event von `id`.
+ * Schon aufgebaute Knoten erkennt `walk` selbst (Schleife bzw. Zusammenlauf).
+ * Ohne die Paarung werfendes → fangendes Ereignis: ein gemeinsamer Abschluss
+ * wie «activation-canceled» steht beim ersten Pfad, der ihn braucht.
+ */
+function mainFlowAfter(ctx: BuildCtx, scope: Scope, id: string): Set<string> {
+  const seen = new Set<string>();
+  const stack = (scope.out.get(id) ?? []).map(f => f.target);
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n === id || seen.has(n)) continue;
+    seen.add(n);
+    for (const f of scope.out.get(n) ?? []) if (!scope.linkedCatch.has(f.target)) stack.push(f.target);
+  }
+  for (const n of seen) if (ctx.byId.has(n)) seen.delete(n);
+  return seen;
+}
+
+/** Name des Schritts, bei dem es ab `id` weitergeht — namenlose Zusammenführungen übersprungen */
+function continuesAt(scope: Scope, id: string): string {
+  const seen = new Set<string>();
+  let cur: string | undefined = id;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const el = scope.nodes.get(cur);
+    const n = el ? nameOf(el) : '';
+    if (n || !el || !local(el).endsWith('Gateway')) return n || cur;
+    const outs: Flow[] = scope.out.get(cur) ?? [];
+    if (outs.length !== 1) return defaultName(local(el), cur);
+    cur = outs[0].target;
+  }
+  return id;
+}
+
+// `rejoin`: der Block ist ein Pfad ab einem Boundary-Event und `stops` ist der
+// Hauptfluss — endet er dort, steht am Schluss ein Verweis «weiter bei …».
 function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<string>, path: Set<string>,
-              prev: string | null = null, hint: LoopHint = {}): Step[] {
+              prev: string | null = null, hint: LoopHint = {}, rejoin = false): Step[] {
   const out: Step[] = [];
   let cur = startId;
   const localSeen = new Set<string>();
@@ -762,6 +803,9 @@ function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<st
     if (!scope.linkedCatch.has(cur)) out.push(step);
     prev = cur;
     cur = flows[0]?.target ?? null;
+  }
+  if (rejoin && cur && stops.has(cur)) {
+    out.push({ id: `${cur}__join__${out.length}`, kind: 'goto', name: continuesAt(scope, cur), status: 'implemented', gotoId: cur });
   }
   return out;
 }
@@ -887,8 +931,25 @@ export interface MergeReport {
   changed: string[];
   /** nur umbenannt — «alt → neu» */
   renamed: string[];
+  /** standen auf «Angepasst», sind unverändert — bekommen den gewählten Status */
+  confirmed: string[];
   kept: number;
 }
+
+/**
+ * Welchen Status der Abgleich setzt: `added` für neue Schritte, `changed`
+ * für technisch geänderte. Ohne Angabe Entwurf bzw. Angepasst — wer das BPMN
+ * aus der Implementation holt, kann beides z. B. auf «Umgesetzt» setzen.
+ * Ist `changed` nicht «Angepasst», gilt er auch für das, was schon von einem
+ * früheren Abgleich auf «Angepasst» steht und jetzt mit dem BPMN
+ * übereinstimmt — der Abgleich bestätigt es (siehe `settle`).
+ */
+export interface MergeStatus { added: Status; changed: Status }
+export const DEFAULT_MERGE_STATUS: MergeStatus = { added: 'draft', changed: 'changed' };
+
+/** Status eines unveränderten Elements: «Angepasst» wird bestätigt, sonst bleibt er. */
+export const settle = (prev: Status | undefined, st: MergeStatus): Status | undefined =>
+  prev === 'changed' && st.changed !== 'changed' ? st.changed : prev;
 
 // Was die Spezifikation festlegt, überlebt den Abgleich mit dem BPMN.
 const KEEP_KEYS = ['description', 'candidateGroups', 'assignee', 'inVariant', 'outVariant'] as const;
@@ -969,13 +1030,13 @@ function keepEmptyErrors(s: Step, prev: Step) {
   s.errors = errs.map(e => (blank(e) ? e : fresh.get(e.code) ?? e));
 }
 
-function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>, base: Map<string, Step> | null) {
+function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>, base: Map<string, Step> | null, st: MergeStatus) {
   for (const s of steps) {
     seen.add(s.id);
     const prev = old.get(s.id);
     if (!prev) {
       if (s.kind !== 'goto') report.added.push(s.name);
-      s.status = 'draft';
+      s.status = st.added;
     } else {
       keepSpecOwned(s, prev, base?.get(s.id));
       keepEmptyErrors(s, prev);
@@ -991,18 +1052,19 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       }
       // Status gehört der Spezifikation: er bleibt, wie er gesetzt wurde.
       // Nur wenn sich technisch etwas geändert hat, springt er auf «Angepasst»
-      // — das ist genau das Signal, das jemand prüfen muss.
+      // (bzw. den gewählten Status) — das Signal, das jemand prüfen muss.
       if (prev.name !== s.name && s.kind !== 'goto') report.renamed.push(`${prev.name} → ${s.name}`);
       const changed = sig(prev) !== sig(s);
       if (changed && s.kind !== 'goto') report.changed.push(s.name);
-      s.status = changed ? 'changed' : prev.status;
+      s.status = changed ? st.changed : settle(prev.status, st)!;
+      if (!changed && s.status !== prev.status && s.kind !== 'goto') report.confirmed.push(s.name);
       report.kept++;
     }
-    if (s.children) applyOld(s.children, old, report, seen, base);
-    for (const b of s.branches ?? []) applyOld(b.steps, old, report, seen, base);
+    if (s.children) applyOld(s.children, old, report, seen, base, st);
+    for (const b of s.branches ?? []) applyOld(b.steps, old, report, seen, base, st);
     // Fehler- und Nebenpfade gehören dazu — sonst gehen ihre fachlichen Texte
     // beim erneuten Import verloren und sie gelten fälschlich als entfallen.
-    for (const e of s.errors ?? []) if (e.steps) applyOld(e.steps, old, report, seen, base);
+    for (const e of s.errors ?? []) if (e.steps) applyOld(e.steps, old, report, seen, base, st);
   }
 }
 
@@ -1012,11 +1074,12 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
  * Diagramm gegenüber ihm nicht geändert hat, bleibt, wie es in der
  * Spezifikation steht (siehe `SPEC_OWNED`).
  */
-export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: ProcessSpec | null = null): { spec: ProcessSpec; report: MergeReport } {
+export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: ProcessSpec | null = null,
+                          st: MergeStatus = DEFAULT_MERGE_STATUS): { spec: ProcessSpec; report: MergeReport } {
   const old = indexSteps(previous.steps, new Map());
-  const report: MergeReport = { added: [], removed: [], changed: [], renamed: [], kept: 0 };
+  const report: MergeReport = { added: [], removed: [], changed: [], renamed: [], confirmed: [], kept: 0 };
   const seen = new Set<string>();
-  applyOld(fresh.steps, old, report, seen, base ? indexSteps(base.steps, new Map()) : null);
+  applyOld(fresh.steps, old, report, seen, base ? indexSteps(base.steps, new Map()) : null, st);
   for (const [id, s] of old) if (!seen.has(id) && s.kind !== 'goto') report.removed.push(s.name || id);
 
   const spec: ProcessSpec = {
@@ -1031,7 +1094,10 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: Proce
     // Pattern am Prozess kommen aus dem BPMN — wie die Struktur
     patterns: fresh.patterns,
     timeToLive: previous.timeToLive ?? fresh.timeToLive,
-    status: previous.status === 'draft' ? 'draft' : (report.added.length || report.changed.length || report.removed.length ? 'changed' : previous.status),
+    // der Prozess springt nur auf «Angepasst», wenn das auch für die Schritte gilt
+    status: previous.status === 'draft' ? 'draft'
+      : st.changed !== 'changed' ? settle(previous.status, st)!
+        : (report.added.length || report.changed.length || report.removed.length ? 'changed' : previous.status),
     createdAt: previous.createdAt,
     updatedAt: nowIsoWithTimezone(),
   };
@@ -1103,11 +1169,92 @@ export function allSteps(steps: Step[] | undefined, out: Step[] = []): Step[] {
   return out;
 }
 
+/**
+ * Einen Status für alles setzen, was ein Import anlegt: Prozess, Schritte auf
+ * allen Ebenen (Unterschritte, Zweige, Fehlerpfade) und das Datenmodell aus
+ * der Domain. Vorbereitetes ohne Domain-Objekt bleibt Entwurf — das ist
+ * nirgends umgesetzt.
+ */
+export function withStatus(spec: ProcessSpec, status: Status): ProcessSpec {
+  const walk = (steps: Step[]): Step[] => steps.map(s => ({
+    ...s,
+    status,
+    ...(s.children ? { children: walk(s.children) } : {}),
+    ...(s.branches ? { branches: s.branches.map(b => ({ ...b, steps: walk(b.steps) })) } : {}),
+    ...(s.errors ? { errors: s.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) } : {}),
+  }));
+  const keep = <T extends { status?: Status }>(x: T): T => (x.status === 'draft' ? x : { ...x, status });
+  return {
+    ...spec,
+    status,
+    steps: walk(spec.steps),
+    ...(spec.types ? { types: spec.types.map(keep) } : {}),
+    ...(spec.interactions ? { interactions: spec.interactions.map(keep) } : {}),
+  };
+}
+
 export function statusCounts(spec: ProcessSpec): Record<Status, number> {
   // aus STATUSES aufgebaut, damit ein neuer Status nirgends vergessen wird
   const counts = Object.fromEntries(STATUSES.map(s => [s, 0])) as Record<Status, number>;
   for (const s of allSteps(spec.steps)) if (s.kind !== 'goto') counts[s.status] = (counts[s.status] ?? 0) + 1;
   return counts;
+}
+
+// ── Pattern im Überblick ─────────────────────────────────────────────────────
+
+/** Ein angewandtes Pattern und wo es steht — `stepId` null: am Prozess. */
+export interface PatternUse { id: string; stepId: string | null; where: string; params: Record<string, string> }
+
+/** Alle Pattern einer Spezifikation: am Prozess und an den Schritten (nicht deren Teile). */
+export function patternUses(spec: ProcessSpec): PatternUse[] {
+  const out: PatternUse[] = (spec.patterns ?? []).map(p => ({ id: p.id, stepId: null, where: 'Prozess', params: p.params ?? {} }));
+  for (const s of allSteps(spec.steps)) {
+    if (s.kind === 'goto') continue;
+    for (const p of s.patterns ?? []) out.push({ id: p.id, stepId: s.id, where: s.name || s.id, params: p.params ?? {} });
+  }
+  return out;
+}
+
+/** Je Pattern: wie oft und wo — in der Reihenfolge des ersten Auftretens. */
+export function patternSummary(spec: ProcessSpec): Array<{ id: string; where: string[] }> {
+  const by = new Map<string, string[]>();
+  for (const u of patternUses(spec)) by.set(u.id, [...(by.get(u.id) ?? []), u.where]);
+  return [...by.entries()].map(([id, where]) => ({ id, where }));
+}
+
+export interface PatternDiff {
+  added: PatternUse[];
+  removed: PatternUse[];
+  /** gleiches Pattern an gleicher Stelle, andere Parameter */
+  changed: Array<{ use: PatternUse; before: Record<string, string> }>;
+}
+
+/**
+ * Was sich an den Pattern geändert hat — je Stelle (Prozess bzw. Schritt-ID)
+ * verglichen. Kommt ein Pattern an einer Stelle mehrmals vor (zwei
+ * Mail-Timer), werden die Vorkommen der Reihe nach gepaart.
+ */
+export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDiff {
+  const key = (u: PatternUse) => `${u.stepId ?? ''}\u0000${u.id}`;
+  const group = (us: PatternUse[]) => {
+    const m = new Map<string, PatternUse[]>();
+    for (const u of us) m.set(key(u), [...(m.get(key(u)) ?? []), u]);
+    return m;
+  };
+  const vorher = group(patternUses(before));
+  const diff: PatternDiff = { added: [], removed: [], changed: [] };
+  for (const [k, list] of group(patternUses(after))) {
+    const alt = vorher.get(k) ?? [];
+    vorher.delete(k);
+    list.forEach((u, i) => {
+      const a = alt[i];
+      if (!a) diff.added.push(u);
+      else if (JSON.stringify(a.params) !== JSON.stringify(u.params)) diff.changed.push({ use: u, before: a.params });
+    });
+    diff.removed.push(...alt.slice(list.length));
+  }
+  for (const list of vorher.values()) diff.removed.push(...list);
+  return diff;
 }
 
 /**

@@ -384,8 +384,9 @@ export function CommentsPanel(p: PanelProps) {
   // was besprochen wurde, soll gelesen und abgehakt werden, nicht verschwinden
   const targets = useMemo(() => {
     const known = new Set(p.targets.map(t => t.key));
+    const place = new Map(comments.filter(t => t.place).map(t => [t.target, t.place!]));
     const orphans = [...new Set(comments.map(t => t.target).filter(k => !known.has(k)))]
-      .map(key => ({ key, label: key, group: ORPHAN_GROUP }));
+      .map(key => ({ key, label: place.get(key) ?? key, group: ORPHAN_GROUP }));
     return [...p.targets, ...orphans];
   }, [p.targets, comments]);
 
@@ -627,7 +628,7 @@ export function CommentsPanel(p: PanelProps) {
                     className={`w-full flex items-start gap-2 text-left px-2 py-1.5 rounded transition-colors ${c.hover}`}>
                     <span className="flex-1 min-w-0 space-y-0.5">
                       {t.group === ORPHAN_GROUP
-                        ? <span className={`block text-[11px] font-mono truncate ${c.muted2}`}>{t.key}</span>
+                        ? <span className={`block text-[11px] truncate ${t.label === t.key ? 'font-mono' : ''} ${c.muted2}`} title={t.key}>{t.label}</span>
                         : <TargetPath t={t} isDark={isDark} small />}
                       {letzter && (
                         <span className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
@@ -708,7 +709,9 @@ export function CommentsPanel(p: PanelProps) {
           </div>
           <div className="mt-1 flex items-center gap-2">
             {activeInfo.group === ORPHAN_GROUP
-              ? <p className={`text-[11px] leading-snug break-words ${c.muted2}`}>Stelle gibt es nicht mehr <span className="font-mono">({activeInfo.key})</span></p>
+              ? <p className={`text-[11px] leading-snug break-words ${c.muted2}`}>
+                  {activeInfo.label !== activeInfo.key && <>«{activeInfo.label}» — </>}Stelle gibt es nicht mehr <span className="font-mono">({activeInfo.key})</span>
+                </p>
               : <TargetPath t={activeInfo} isDark={isDark} />}
             <span className="ml-auto flex-shrink-0">
               <CountChip open={countOf(activeInfo.key).open} resolved={countOf(activeInfo.key).resolved} showResolved={showResolved} isDark={isDark} />
