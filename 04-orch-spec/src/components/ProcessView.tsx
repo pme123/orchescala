@@ -9,7 +9,7 @@ import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare, Puzzle,
+  MessageSquare, Puzzle, History,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
@@ -27,11 +27,13 @@ import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolI
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
 import { nowIsoWithTimezone } from '../util';
+import { bpmnReport, makeEntry, type AuditEntry, type AuditOrigin } from '../audit';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
 import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
+import AuditPanel from './AuditPanel';
 import type { BpmnHandle } from './BpmnEditor';
 
 // Der Modeler ist gross — er kommt erst, wenn das Diagramm gezeigt wird.
@@ -110,10 +112,12 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 };
 
 export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
-  const { isDark, model, specs, loadSpec, saveSpec, loadBpmn, saveBpmn, knownUsers, searchDirectory, storage } = useStore();
+  const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit } = usePermissions();
   const author = useAuthor();
+  const authorRef = useRef(author);
+  authorRef.current = author;
   /** Hinweis über dem Inhalt — z. B. fehlende Berechtigung für Teams */
   const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn'; scopes?: string[] } | null>(null);
   const c = cls(isDark);
@@ -139,6 +143,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  /** Änderungsprotokoll: offen? für welches Element? (null = alle) */
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditFocus, setAuditFocus] = useState<string | null>(null);
   const [xml, setXml] = useState<string | null>(null);
   const xmlRef = useRef<string | null>(null);
   xmlRef.current = xml;
@@ -175,6 +182,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       if (!alive || !r) return;
       setSpec(r.data);
       setVersion(r.version);
+      auditBase.current = r.data;
+      latest.current = r.data;
+      auditQueue.current = [...r.audit];
       // Subprozesse und Fehlerpfade zu Beginn zugeklappt: erst der Überblick
       const start = new Set<string>();
       for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
@@ -190,7 +200,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   useEffect(() => {
     if (!spec || !model || !canEdit) return;
     const healed = healLooseTypes(spec.types ?? [], model);
-    if (healed) update({ ...spec, types: healed });
+    if (healed) update({ ...spec, types: healed }, { source: 'load', note: 'Typnamen mit dem Katalog verknüpft' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec?.types, model, canEdit]);
 
@@ -202,7 +212,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (!spec || !canEdit || juelHealed.current === slug) return;
     juelHealed.current = slug;
     const healed = healJuel(spec);
-    if (healed) update(healed);
+    if (healed) update(healed, { source: 'conversion', note: 'JUEL in FEEL übersetzt' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec, canEdit, slug]);
 
@@ -212,28 +222,60 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const versionRef = useRef<string | null>(null);
   versionRef.current = version;
 
+  // ── Änderungsprotokoll (siehe audit.ts) ───────────────────────────────────
+  // `auditBase` ist der Stand beim letzten Schnitt. Geschnitten wird bei jedem
+  // Speichern (alles bis dahin war Handarbeit) und vor wie nach einer
+  // Änderung mit Herkunft (Abgleich, Umwandlung …) — die wird ein eigener
+  // Eintrag. Die Einträge warten, bis die Spezifikation gespeichert ist.
+  const auditBase = useRef<ProcessSpec | null>(null);
+  const auditQueue = useRef<AuditEntry[]>([]);
+  /** der neueste Stand — auch zwischen update() und dem nächsten Rendern */
+  const latest = useRef<ProcessSpec | null>(null);
+  const cutAudit = useCallback((to: ProcessSpec | null, origin: AuditOrigin = { source: 'manual' }) => {
+    const from = auditBase.current;
+    if (!from || !to) return;
+    const e = makeEntry(from, to, origin, authorRef.current);
+    if (e) auditQueue.current.push(e);
+    auditBase.current = to;
+  }, []);
+
   const flush = useCallback(async () => {
     const data = pending.current;
     if (!data) return;
     pending.current = null;
-    const res = await saveSpec(data, versionRef.current);
+    cutAudit(data);
+    const audit = auditQueue.current.splice(0);
+    const res = await saveSpec(data, versionRef.current, audit);
+    // nicht gespeichert (oder nur das Protokoll nicht): mit dem nächsten Speichern nochmals
+    if (res.status !== 'saved' || res.auditError) auditQueue.current.unshift(...audit);
     if (res.status === 'saved') {
       setVersion(res.version);
       setSaveState({ at: new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) });
+      if (res.auditError) setNotice({ tone: 'warn', message: `Gespeichert, aber das Änderungsprotokoll nicht: ${res.auditError} Es wird mit dem nächsten Speichern nachgeholt.` });
     } else if (res.status === 'conflict') {
       setSaveState({ error: 'Die Datei wurde inzwischen geändert — Seite neu laden.' });
     } else {
       setSaveState({ error: res.message });
     }
-  }, [saveSpec]);
+  }, [saveSpec, cutAudit]);
 
-  const update = useCallback((next: ProcessSpec) => {
+  /**
+   * Jede Änderung geht hier durch. `origin` sagt, woher eine Änderung kommt,
+   * die nicht von Hand ist (oder einen Grund hat) — sie wird ein eigener
+   * Eintrag im Protokoll; ohne gilt sie als Handarbeit.
+   */
+  const update = useCallback((next: ProcessSpec, origin?: AuditOrigin) => {
     const data = { ...next, updatedAt: nowIsoWithTimezone() };
+    if (origin) {
+      cutAudit(latest.current);
+      cutAudit(data, origin);
+    }
+    latest.current = data;
     setSpec(data);
     pending.current = data;
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => { void flush(); }, 1000);
-  }, [flush]);
+  }, [flush, cutAudit]);
 
   // beim Verlassen ausstehende Änderungen noch wegschreiben — auch wenn die
   // Seite neu lädt oder in den Hintergrund geht (dann gibt es kein Unmount)
@@ -336,7 +378,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         void saveBpmn(slug, nx).then(w => { if (!w.ok) setSaveState({ error: w.message }); });
       }
     }
-    update({ ...renamePrefix(current, oldPrefix, newPrefix), project: newPrefix });
+    update({ ...renamePrefix(current, oldPrefix, newPrefix), project: newPrefix },
+      { source: 'manual', note: `Firma/Projekt gewechselt: ${oldPrefix} → ${newPrefix}` });
   }, [update, saveBpmn, slug]);
 
   const byId = useMemo(() => new Map(allSteps(spec?.steps).map(s => [s.id, s])), [spec]);
@@ -400,6 +443,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       if (teil) ziel = teil.key;
     }
     setCommentsOpen(true);
+    setAuditOpen(false);
     selectComment(ziel);
   }, [commentCounts, targets, selectComment]);
 
@@ -524,8 +568,11 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const modelRef = useRef(model);
   modelRef.current = model;
 
-  /** `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst) */
-  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false) => {
+  /**
+   * `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst).
+   * `origin`: woher das Diagramm kommt — ohne ist es «Mit BPMN abgleichen» mit einer Datei.
+   */
+  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin) => {
     const current = specRef.current;
     if (!current) return;
     try {
@@ -567,7 +614,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         ...merged,
         comments: pruneComments(merged, new Set(allSteps(merged.steps).map(x => x.id)),
           new Set((merged.types ?? []).map(t => t.id))),
-      });
+      }, { ...(origin ?? { source: 'bpmn-sync', note: `Mit BPMN abgleichen: ${from}` }), report: bpmnReport(r) });
       setXml(text);
       if (!quiet) setReport(r);
       else if (quiet !== 'silent' && (r.added.length || r.removed.length || r.changed.length)) setReport(r);
@@ -594,8 +641,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       : action === 'remove' ? removePattern(x, def, engine, targetId, defs, params)
         : updatePattern(x, def, engine, targetId, params, defs, previous);
     if (!r.changed) { setNotice({ tone: 'warn', message: r.issues.join(' ') || 'Nichts geändert.' }); return; }
-    await applyXml(r.xml, `Pattern ${def.name}`, 'silent');
     const was = action === 'add' ? 'eingefügt' : action === 'remove' ? 'entfernt' : 'angepasst';
+    await applyXml(r.xml, `Pattern ${def.name}`, 'silent', { source: 'manual', note: `Pattern «${def.name}» ${was}` });
     setNotice({ tone: r.issues.length ? 'warn' : 'info', message: [`Pattern «${def.name}» im Diagramm ${was}.`, ...r.issues].join(' ') });
   }, [applyXml]);
 
@@ -608,7 +655,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (!loaded || !xml || !cur) return;
     try {
       const next = syncPatterns(cur, importBpmn(xml, cur.slug, { patterns: patternDefs }).spec);
-      if (next) update(next);
+      if (next) update(next, { source: 'load', note: 'Pattern-Angaben aus dem Diagramm nachgezogen' });
     } catch { /* unlesbares BPMN — meldet der Abgleich */ }
   }, [loaded, xml, patternDefs, update]);
 
@@ -617,8 +664,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const convertEngine = useCallback(async (next: string | null, target: EngineId) => {
     const cur = specRef.current;
     if (!cur) return;
-    if (next) await applyXml(next, engineLabel(target), 'silent');
-    else update({ ...cur, engine: target });
+    const origin: AuditOrigin = { source: 'conversion', note: `In ${engineLabel(target)} umgewandelt` };
+    if (next) await applyXml(next, engineLabel(target), 'silent', origin);
+    else update({ ...cur, engine: target }, origin);
     setNotice({ tone: 'info', message: `In ${engineLabel(target)} umgewandelt.` });
   }, [applyXml, update]);
 
@@ -629,7 +677,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (!loaded || !xml || !canEdit || aligned.current === slug) return;
     aligned.current = slug;
     const next = alignPoolIds(xml);
-    if (next.xml !== xml) void applyXml(next.xml, 'Pool', 'silent');
+    if (next.xml !== xml) void applyXml(next.xml, 'Pool', 'silent', { source: 'load', note: 'Prozess-ID und -Name an den Pool angeglichen' });
   }, [loaded, xml, canEdit, slug, applyXml]);
 
   // Die Prozess-ID hat ihr eigenes Feld (der Titel ist fachlich). Sie wird
@@ -653,7 +701,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (!cur || !canEdit || id === (cur.processId ?? '') || checkProcessId(id, otherPrefixes, !!cur.legacyProcessId)?.level === 'error') return;
     if (x && cur.processId) {
       const next = renameProcess(x, cur.processId, id);
-      if (next !== x) void applyXml(next, 'Prozess-ID', 'silent');
+      if (next !== x) void applyXml(next, 'Prozess-ID', 'silent', { source: 'manual', note: `Prozess-ID geändert: ${cur.processId} → ${id}` });
       return;
     }
     // ohne Diagramm: nur die Spezifikation
@@ -735,7 +783,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 </span>
           )}
           {/* Kommentare: Übersicht und Schrittfolge im Panel rechts */}
-          <button onClick={() => { setCommentsOpen(!commentsOpen); if (commentsOpen) setActiveComment(null); }}
+          {/* Änderungsprotokoll — für den gewählten Schritt, sonst für alles */}
+          <button onClick={() => {
+            if (auditOpen) { setAuditOpen(false); return; }
+            setAuditFocus(tab === 'flow' && selected ? stepTarget(selected) : null);
+            setAuditOpen(true); setCommentsOpen(false); setActiveComment(null);
+          }}
+            title={auditOpen ? 'Verlauf schliessen' : 'Verlauf — wer hat wann was geändert'}
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
+              auditOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10') : c.btn}`}>
+            <History size={12} />
+          </button>
+          <button onClick={() => { setCommentsOpen(!commentsOpen); if (commentsOpen) setActiveComment(null); else setAuditOpen(false); }}
             title={commentsOpen ? 'Kommentare schliessen' : 'Alle Kommentare — Übersicht und Durchgehen'}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
               commentsOpen
@@ -804,7 +863,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 <div className={`flex-shrink-0 border-b ${c.border} relative`} style={{ height }}>
                   <Suspense fallback={<div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Modeler wird geladen …</div>}>
                     <BpmnEditor xml={xml} isDark={isDark} canEdit={canEdit}
-                      onChange={text => { void applyXml(text, 'Diagramm', true); }}
+                      onChange={text => { void applyXml(text, 'Diagramm', true, { source: 'manual', note: 'Im Diagramm geändert' }); }}
                       onSelect={id => setSelected(id)}
                       onReady={h => { bpmnRef.current = h; h.select(selected); }}
                       onError={m => setSaveState({ error: m })} />
@@ -837,7 +896,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
             {/* rechts: Titel und Filter über den Eigenschaften — die Breite
                 lässt sich an der Trennlinie ziehen */}
-            <div style={{ width: commentsOpen && !narrow ? Math.max(360, panelW - commentsW + 120) : panelW }}
+            <div style={{ width: (commentsOpen || auditOpen) && !narrow ? Math.max(360, panelW - commentsW + 120) : panelW }}
               className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
               <PanelWidthHandle isDark={isDark} width={panelW} onWidth={w => {
                 setPanelW(w);
@@ -958,6 +1017,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               focusTypeId={focusType} onFocused={() => setFocusType(null)}
               focusIaId={focusIa} onFocusedIa={() => setFocusIa(null)} />
           </div>
+        )}
+        {auditOpen && !commentsOpen && (
+          <AuditPanel slug={slug} version={version} spec={spec} isDark={isDark} load={loadAudit}
+            focus={auditFocus} onFocus={setAuditFocus} onGoto={gotoTarget}
+            onClose={() => setAuditOpen(false)}
+            width={commentsW} overlay={narrow}
+            onWidth={w => { setCommentsW(w); localStorage.setItem(COMMENTS_W_KEY, String(w)); }} />
         )}
         {commentsOpen && (
           <CommentsPanel spec={spec} isDark={isDark} targets={targets}
