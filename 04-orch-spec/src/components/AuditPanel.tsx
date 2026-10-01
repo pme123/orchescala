@@ -2,7 +2,8 @@
 // Panel rechts, wie die Kommentare: neueste Einträge oben, je Eintrag wer,
 // wann, woher (von Hand, Abgleich, Umwandlung, beim Laden) und was — Stelle,
 // Feld, vorher → nachher. Filtern lässt es sich nach Element (ein Schritt,
-// ein Typ …), nach Person, nach Herkunft und mit einer Textsuche; ein Klick
+// ein Typ …), nach Person, nach Zeitraum, nach Herkunft und mit einer
+// Textsuche; ein Klick
 // auf die Stelle springt hin.
 import { useEffect, useMemo, useState } from 'react';
 import { History, Loader2, Search, X } from 'lucide-react';
@@ -31,6 +32,30 @@ interface Props {
 
 const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'conversion', 'load'];
 
+type Range = 'all' | 'today' | '7' | '30' | 'custom';
+// als Liste: Object.keys stellte die Zahlen-Schlüssel ('7', '30') nach vorn
+const RANGES: Range[] = ['all', 'today', '7', '30', 'custom'];
+const RANGE_LABEL: Record<Range, string> = { all: 'Jederzeit', today: 'Heute', 7: 'Letzte 7 Tage', 30: 'Letzte 30 Tage', custom: 'Zeitraum …' };
+
+/** Lokaler Tagesanfang von `yyyy-mm-dd` (bzw. heute minus `days`) in ms. */
+const dayStart = (iso?: string, days = 0): number => {
+  const d = iso ? new Date(`${iso}T00:00:00`) : new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - days);
+  return d.getTime();
+};
+
+/** Von–bis in ms (bis exklusiv) — null = keine Grenze. */
+function bounds(range: Range, from: string, to: string): [number | null, number | null] {
+  switch (range) {
+    case 'today': return [dayStart(), null];
+    case '7': return [dayStart(undefined, 6), null];
+    case '30': return [dayStart(undefined, 29), null];
+    case 'custom': return [from ? dayStart(from) : null, to ? dayStart(to, -1) : null];
+    default: return [null, null];
+  }
+}
+
 const sourceTone = (s: AuditSource, isDark: boolean) => ({
   manual: isDark ? 'border-white/20 text-white/60' : 'border-black/20 text-black/60',
   'bpmn-sync': isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700',
@@ -49,6 +74,9 @@ export default function AuditPanel(p: Props) {
   /** Person (Name) oder '' = alle */
   const [who, setWho] = useState('');
   const [query, setQuery] = useState('');
+  const [range, setRange] = useState<Range>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   // nach jedem Speichern neu lesen — das Protokoll wächst mit
   const { load, slug, version } = p;
@@ -97,8 +125,10 @@ export default function AuditPanel(p: Props) {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const hit = (text: string) => { const t = text.toLowerCase(); return words.every(w => t.includes(w)); };
     const changeText = (ch: AuditChange) => [ch.label, ch.field, ch.before, ch.after].filter(Boolean).join(' ');
+    const [lo, hi] = bounds(range, from, to);
+    const inRange = (at: string) => { const t = new Date(at).getTime(); return (lo == null || t >= lo) && (hi == null || t < hi); };
     return merged
-      .filter(e => !hidden.has(e.source) && (!who || e.author === who))
+      .filter(e => !hidden.has(e.source) && (!who || e.author === who) && inRange(e.at))
       .map(e => (focus ? { ...e, changes: e.changes.filter(ch => auditBase(ch.target) === focus) } : e))
       .map(e => {
         if (!words.length) return e;
@@ -107,8 +137,8 @@ export default function AuditPanel(p: Props) {
         return { ...e, changes: e.changes.filter(ch => hit(`${head} ${changeText(ch)}`)) };
       })
       .filter(e => e.changes.length);
-  }, [merged, hidden, focus, who, query]);
-  const filtered = !!focus || !!who || !!query.trim() || hidden.size > 0;
+  }, [merged, hidden, focus, who, query, range, from, to]);
+  const filtered = !!focus || !!who || !!query.trim() || hidden.size > 0 || range !== 'all';
 
   const toggleSource = (s: AuditSource) => setHidden(prev => {
     const n = new Set(prev);
@@ -154,7 +184,22 @@ export default function AuditPanel(p: Props) {
             <option value="">Alle Personen</option>
             {authors.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
+          <select value={range} onChange={e => setRange(e.target.value as Range)}
+            title="Nur Änderungen in diesem Zeitraum"
+            className={`flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
+            {RANGES.map(r => <option key={r} value={r}>{RANGE_LABEL[r]}</option>)}
+          </select>
         </div>
+        {range === 'custom' && (
+          <div className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
+            <span>von</span>
+            <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)}
+              className={`flex-1 min-w-0 text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
+            <span>bis</span>
+            <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)}
+              className={`flex-1 min-w-0 text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
+          </div>
+        )}
         <div className="flex flex-wrap gap-1">
           {SOURCES.map(s => (
             <button key={s} type="button" onClick={() => toggleSource(s)}
@@ -174,8 +219,8 @@ export default function AuditPanel(p: Props) {
             {entries.length ? 'Keine Änderungen für diese Auswahl.' : 'Noch keine Änderungen protokolliert — das Protokoll beginnt mit der nächsten Änderung.'}
           </p>
         )}
-        {entries && !!shown.length && filtered && (
-          <button type="button" onClick={() => { setQuery(''); setWho(''); setHidden(new Set()); p.onFocus(null); }}
+        {!!entries?.length && filtered && (
+          <button type="button" onClick={() => { setQuery(''); setWho(''); setRange('all'); setFrom(''); setTo(''); setHidden(new Set()); p.onFocus(null); }}
             className={`text-[10px] underline ${c.muted}`}>Alle Filter zurücksetzen</button>
         )}
         {shown.map(e => (

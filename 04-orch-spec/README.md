@@ -874,7 +874,7 @@ gleich gefiltert auf ihn:
 ```
 Verlauf  3 Einträge                                              ✕
 [🔍 Suchen — Stelle, Feld, Wert, Notiz …                         ]
-[Check data                  ▾] [Alle Personen                  ▾]
+[Check data         ▾] [Alle Personen       ▾] [Letzte 7 Tage     ▾]
 Von Hand  Abgleich BPMN  Abgleich Domain  Umwandlung  Beim Laden
 ┌ 09:14 Pascal Mengelt                                   Von Hand ┐
 │ ~ Check data · Eingabe kind · Ausdruck                          │
@@ -896,7 +896,8 @@ Von Hand  Abgleich BPMN  Abgleich Domain  Umwandlung  Beim Laden
   `type:<id>#field:<id>` …) samt ihrem Namen zum Zeitpunkt der Änderung —
   ein Klick springt hin; was es nicht mehr gibt, steht mit «(entfallen)» in
   der Auswahl.
-- **Filtern** nach Element (Schritt, Typ …), nach **Person**, nach Herkunft
+- **Filtern** nach Element (Schritt, Typ …), nach **Person**, nach
+  **Zeitraum** (heute, letzte 7 oder 30 Tage, von–bis), nach Herkunft
   und mit einer **Textsuche** über Stelle, Feld, vorher/nachher, Notiz und
   Bericht — alle Wörter müssen vorkommen; passt nur eine Änderung, bleibt
   vom Eintrag nur sie stehen.
