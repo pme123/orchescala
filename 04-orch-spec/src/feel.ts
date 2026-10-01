@@ -27,7 +27,7 @@ import { typeShape } from './scalaTypes';
 import { domainMember, initOutputs, loopSettings, resolveType } from './interactions';
 import { domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
-import { chosenVariant, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
 
 export type FeelType =
   | 'string' | 'number' | 'boolean' | 'date' | 'date time' | 'time' | 'duration'
@@ -331,7 +331,8 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
       // enum mit Fällen: die gemeinsamen Felder und die der gewählten Ausprägung
       const v = dom.cases?.length ? variantsOf(step, spec, model, 'outputs', service) : null;
       // ohne Wahl kein Fall — ein Name, den es nicht gibt (leer hiesse: alle)
-      const enumCase = v ? chosenVariant(step, 'outputs', v).name ?? '\u0000' : undefined;
+      const chosen = v ? chosenVariant(step, 'outputs', v).name : null;
+      const enumCase = !v || chosen === ALL_VARIANTS ? undefined : chosen ?? '\u0000';
       for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)]), enumCase).children ?? []) add({ ...n, source: `Ergebnis (${dom.name})` });
     } else {
       for (const p of service?.outputs ?? []) add({ name: p.name, type: 'any', label: '?', source: 'Ergebnis (Katalog)', ...(p.description ? { description: p.description } : {}) });

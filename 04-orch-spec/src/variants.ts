@@ -5,7 +5,9 @@
 // alle Felder zugleich. Der Schritt wählt deshalb seine Ausprägung
 // (`inVariant` / `outVariant`). Ohne Wahl gelten nur die gemeinsamen Felder;
 // die Felder der Fälle sind ausgeblendet, nicht Pflicht und werden nicht
-// geprüft.
+// geprüft. Bei den **Ausgaben** geht auch «alle Ausprägungen» (`*`): der
+// Service liefert zwar nur einen Fall, aber welchen, entscheidet er — die
+// Ausgaben dürfen deshalb die Felder aller Fälle lesen.
 //
 // Quelle der Fälle: der Domain-Katalog (`cases` des enum), sonst die
 // OpenAPI (`oneOf` → `variants` am Parameter).
@@ -41,6 +43,9 @@ const NONE: Chosen = { name: null, inferred: false, mixed: [] };
 
 export const variantKey = (list: MappingList) => (list === 'inputs' ? 'inVariant' : 'outVariant');
 
+/** Wahl «alle Ausprägungen» — nur bei den Ausgaben */
+export const ALL_VARIANTS = '*';
+
 function build(cases: VariantCase[], common: string[]): Variants | null {
   if (cases.length < 2 || !cases.some(c => c.fields.length)) return null;
   const all = new Set(common);
@@ -72,6 +77,7 @@ export function variantsOf(step: Step, spec: ProcessSpec, model: Model | null, l
 export function chosenVariant(step: Step, list: MappingList, v: Variants | null): Chosen {
   if (!v) return NONE;
   const explicit = step[variantKey(list)];
+  if (list === 'outputs' && explicit === ALL_VARIANTS) return { name: ALL_VARIANTS, inferred: false, mixed: [] };
   if (typeof explicit === 'string' && v.cases.some(c => c.name === explicit)) return { name: explicit, inferred: false, mixed: [] };
   const active = new Set((step[list] ?? []).filter(m => !m.disabled && v.specific.has(m.name)).map(m => m.name));
   if (!active.size) return NONE;
@@ -84,7 +90,7 @@ export function chosenVariant(step: Step, list: MappingList, v: Variants | null)
 
 /** Gehört das Feld zur gewählten Ausprägung (oder zu allen)? */
 export function variantAllows(v: Variants | null, chosen: Chosen, name: string): boolean {
-  if (!v || !v.specific.has(name)) return true;
+  if (!v || !v.specific.has(name) || chosen.name === ALL_VARIANTS) return true;
   return !!chosen.name && !!v.cases.find(c => c.name === chosen.name)?.fields.some(f => f.name === name);
 }
 
@@ -92,7 +98,7 @@ export function variantAllows(v: Variants | null, chosen: Chosen, name: string):
 export function variantFieldsOf(v: Variants, chosen: string | null): VariantCase['fields'] {
   const fields = new Map<string, VariantCase['fields'][number]>();
   for (const c of v.cases) for (const f of c.fields) if (v.common.has(f.name) && !fields.has(f.name)) fields.set(f.name, f);
-  for (const f of v.cases.find(c => c.name === chosen)?.fields ?? []) fields.set(f.name, f);
+  for (const c of v.cases) if (c.name === chosen || chosen === ALL_VARIANTS) for (const f of c.fields) if (!fields.has(f.name)) fields.set(f.name, f);
   return [...fields.values()];
 }
 
@@ -102,6 +108,8 @@ export function variantFieldsOf(v: Variants, chosen: string | null): VariantCase
  * Zurückwechseln die erfassten Ausdrücke wiederfindet.
  */
 export function rowsForVariant(rows: Mapping[], v: Variants, chosen: string | null): Mapping[] {
+  // alle Ausprägungen: nichts abgewählt, nichts dazu — fehlende Felder über «+ aus Katalog»
+  if (chosen === ALL_VARIANTS) return rows.map(m => (v.specific.has(m.name) && m.disabled ? (({ disabled: _, ...rest }) => rest)(m) : m));
   const want = chosen ? v.cases.find(c => c.name === chosen)?.fields ?? [] : [];
   const wanted = new Set(want.map(f => f.name));
   const out = rows.map(m => {

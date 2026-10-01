@@ -20,7 +20,7 @@ import FeelInput from './FeelInput';
 import { CommentBubble, useActiveComment } from './Comments';
 import { processTarget, stepTarget, sub } from '../comments';
 import { splitPrefix } from '../stepIds';
-import { chosenVariant, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
+import { ALL_VARIANTS, chosenVariant, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
 interface Props {
@@ -898,7 +898,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }:
     const variantState = (list: 'inputs' | 'outputs') => {
       const v = variantsOf(next, spec, model, list, svc);
       const was = step[variantKey(list)];
-      const name = v && typeof was === 'string' && v.cases.some(x => x.name === was) ? was : null;
+      const name = v && typeof was === 'string' && (v.cases.some(x => x.name === was) || (list === 'outputs' && was === ALL_VARIANTS)) ? was : null;
       return { v, name, chosen: { name, inferred: false, mixed: [] } as Chosen };
     };
     const vin = variantState('inputs'), vout = variantState('outputs');
@@ -1140,6 +1140,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             title={needsChoice ? 'Der Service erwartet genau eine Ausprägung — ohne Wahl bekommt er keine.' : undefined}
             className={`text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${needsChoice ? warnBox : ''}`}>
             <option value="">— nur gemeinsame Felder —</option>
+            {/* der Service liefert einen Fall — welchen, entscheidet er: die Ausgaben dürfen alle lesen */}
+            {list === 'outputs' && <option value={ALL_VARIANTS}>— alle Ausprägungen —</option>}
             {variants.cases.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
           </select>
           {chosen.inferred && <span className={`text-[10px] ${c.muted}`} title="Nicht gewählt, sondern aus den aktiven Zeilen erkannt">erkannt</span>}
