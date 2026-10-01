@@ -87,6 +87,12 @@ export interface RebuildResult {
   discarded: DiscardedPackage[];
   /** Projekte, deren Ordner nicht (mehr) lesbar ist */
   missing: ProjectFolder[];
+  /**
+   * Ordner über den Projekten (`root`), auf die der Zugriff fehlt. Ein
+   * fehlendes Projekt, dessen Wurzel lesbar ist, liegt dort nicht (z. B. ein
+   * zweiter Ordner gleichen Namens) — es braucht seinen eigenen Zugriff.
+   */
+  rootsWithoutAccess: string[];
   files: number;
   skipped: number;
 }
@@ -156,7 +162,8 @@ export async function rebuild(
     discarded.push(...zusammen.discarded);
     gezaehlt.push({ ...p, types: types.length - vorher });
   }
-  return { types, defaults, projects: gezaehlt, discarded, missing, files, skipped };
+  const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
+  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped };
 }
 
 /**

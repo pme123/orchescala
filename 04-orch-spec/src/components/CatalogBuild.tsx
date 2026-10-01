@@ -261,12 +261,16 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       // Nichts speichern, solange ein Projekt fehlt: sonst wäre der Katalog
       // um dessen Typen ärmer, nur weil der Browser den Zugriff vergessen hat.
       if (r.missing.length) {
-        const roots = [...new Set(r.missing.map(p => p.root).filter(Boolean))] as string[];
-        const single = r.missing.filter(p => !p.root);
+        // Wurzel ohne Zugriff → ein Knopf für alle darunter; liegt ein Projekt
+        // nicht in seiner (lesbaren) Wurzel — etwa ein zweiter Ordner gleichen
+        // Namens —, braucht es seinen eigenen Zugriff
+        const roots = r.rootsWithoutAccess.filter(x => r.missing.some(p => p.root === x));
+        const single = r.missing.filter(p => !p.root || !roots.includes(p.root));
         setNoAccess({ roots, single });
         setMsg(`Kein Zugriff auf ${r.missing.length} von ${projects.length} Projekten — der Katalog bleibt, wie er ist. `
           + 'Der Browser merkt sich den Zugriff je Adresse der App und fragt nur nach einem Klick — unten erteilen (oder den Ordner wählen); danach wird gleich neu aufgebaut. '
-          + (single.length ? 'Einzeln gemerkte Projekte: besser einmal den Ordner darüber wählen («Projekte wählen»), dann reicht eine Erlaubnis für alle. ' : '')
+          + (single.some(p => p.root) ? `${single.filter(p => p.root).map(p => `«${p.name}»`).join(', ')} liegt nicht im gemerkten Ordner «${single.find(p => p.root)!.root}» — wohl ein anderer Ordner gleichen Namens: den Ordner des Projekts wählen. ` : '')
+          + (single.some(p => !p.root) ? 'Einzeln gemerkte Projekte: besser einmal den Ordner darüber wählen («Projekte wählen»), dann reicht eine Erlaubnis für alle. ' : '')
           + 'Mit × verschwindet ein Projekt aus der Liste.');
         return;
       }
@@ -432,7 +436,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
               {noAccess.single.map(p => (
                 <button key={p.id} onClick={() => void grantAndRebuild({ project: p })}
                   className={`text-[11px] px-2 py-1 rounded border ${c.btn}`}>
-                  Zugriff auf «{p.name}» erteilen
+                  {p.root ? `Ordner von «${p.name}» wählen` : `Zugriff auf «${p.name}» erteilen`}
                 </button>
               ))}
             </div>
