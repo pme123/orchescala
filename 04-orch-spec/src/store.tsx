@@ -13,7 +13,7 @@
 // über Version/ETag, gemerkter Ordner, Autosave im Aufrufer).
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { DirectoryUser, Model, ProcessSpec, ServiceDef, ServiceParam, Step, UsersFile } from './types';
-import { feelIfPossible } from './juelFeel';
+import { feelIfPossible, healExecution } from './juelFeel';
 import { withOrchescalaTypes } from './orchescalaTypes';
 import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
@@ -192,9 +192,13 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
  * weg und verschwinden mit dem nächsten Speichern aus der Datei.
  */
 function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
+  // `= execution.x` aus einem älteren Import: FEEL, wo es geht, sonst wieder JUEL
+  const heal = (ms: Step['inputs']) => ms?.map(m => { const e = healExecution(m.expression); return e === m.expression ? m : { ...m, expression: e }; });
   const clean = (steps: Step[] | undefined): Step[] | undefined => steps?.map(s => {
     const { open: _o, notes: _n, ...rest } = s as Step & { open?: unknown; notes?: unknown };
     const next: Step = { ...rest };
+    if (s.inputs) next.inputs = heal(s.inputs);
+    if (s.outputs) next.outputs = heal(s.outputs);
     if (s.children) next.children = clean(s.children);
     if (s.branches) next.branches = s.branches.map(b => ({ ...b, steps: clean(b.steps) ?? [] }));
     if (s.errors) next.errors = s.errors.map(e => (e.steps ? { ...e, steps: clean(e.steps) } : e));

@@ -140,6 +140,35 @@ function wrapped(feel: string): boolean {
   return depth === 0;
 }
 
+/**
+ * Ein älterer Import liess `execution.x` als FEEL stehen (`= execution.processInstanceId`).
+ * Was ein Gegenstück hat, wird FEEL; sonst wird der Wert wieder JUEL (mit dessen
+ * Warnung) — `execution` gibt es in FEEL nicht. Anderes bleibt, wie es ist.
+ */
+export function healExecution(expression: string): string {
+  const t = expression.trim();
+  if (!t.startsWith('=') || !/(?<![\w.])execution\s*\./.test(t.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) return expression;
+  const body = t.slice(1).trim();
+  const back = juelToFeel(body);  // `execution.x` liest sich in JUEL wie in FEEL
+  return back.ok ? `= ${back.feel}` : `\${${body}}`;
+}
+
+/**
+ * `execution.x` — die Laufzeit von Camunda 7. Was Camunda 8 als Variable führt,
+ * wird FEEL (der Export für Camunda 7 macht daraus wieder `execution.…`, siehe
+ * feelJuel.ts); alles andere hat kein Gegenstück und bleibt JUEL.
+ */
+const EXECUTION: Record<string, string> = {
+  processInstanceId: 'processInstanceKey',
+  processBusinessKey: 'businessKey',
+  businessKey: 'businessKey',
+};
+function executionProperty(name: string): string {
+  const feel = EXECUTION[name];
+  if (!feel) throw new Unsupported(`«execution.${name}» gibt es nur in Camunda 7 — kein FEEL-Gegenstück`);
+  return feel;
+}
+
 /** Methodenaufrufe mit FEEL-Gegenstück: `a.concat(b)` → `a + b` usw. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
@@ -169,7 +198,7 @@ function method(target: string, name: string, args: string[]): string {
     case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => { throw new Unsupported('getVariable nur mit festem Namen'); })()));
     // Camunda-7-Laufzeit → die Variablen, die Camunda 8 dafür führt
     case 'getProcessInstanceId': return one(() => 'processInstanceKey');
-    case 'getBusinessKey': return one(() => 'businessKey');
+    case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
     case 'getProcessDefinition': return one(() => '__processDefinition');
     case 'getKey': case 'getId': return one(a => (a === '__processDefinition' ? 'processDefinitionKey' : (() => { throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`); })()));
     // Zeit: `dateTime().now()`, `.toLocalDate()`, `.plusDays(3)`, `.toString("yyyy-MM-dd")`
@@ -249,7 +278,7 @@ export function juelToFeel(body: string): FeelResult {
             expect(')');
             v = method(v, n.v, args);
           } else {
-            v = `${v}.${n.v}`;
+            v = v === 'execution' ? executionProperty(n.v) : `${v}.${n.v}`;
           }
           continue;
         }

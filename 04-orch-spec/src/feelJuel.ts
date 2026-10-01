@@ -40,6 +40,13 @@ export function feelBody(expression: string): string | null {
 
 class Unsupported extends Error {}
 
+/** Variablen von Camunda 8, die Camunda 7 an der Ausführung hat — Gegenstück zum Import (juelFeel.ts) */
+const EXECUTION_JUEL: Record<string, string> = {
+  processInstanceKey: 'execution.processInstanceId',
+  businessKey: 'execution.processBusinessKey',
+  processDefinitionKey: 'execution.getProcessDefinition().getKey()',
+};
+
 const children = (n: SyntaxNode): SyntaxNode[] => {
   const out: SyntaxNode[] = [];
   for (let c = n.firstChild; c; c = c.nextSibling) out.push(c);
@@ -121,7 +128,8 @@ export function feelToJuel(body: string): JuelResult {
       case 'VariableName': {
         const name = text(n);
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
-        return name;
+        // was Camunda 8 als Variable führt, hat Camunda 7 an der Ausführung
+        return EXECUTION_JUEL[name] ?? name;
       }
       case 'PathExpression': {
         const [base, , prop] = kids;
