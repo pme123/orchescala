@@ -423,6 +423,31 @@ function openOnPath(vars: VarNode[], chain: string[]): boolean {
   return false;
 }
 
+/**
+ * Die Felder der Elemente der Liste, die an dieser Stelle gefiltert wird
+ * (`liste[ … hier … ]`) — null, wenn man sie nicht kennt: die Liste ist
+ * unbekannt, ohne Typ, offen oder ohne bekannte Felder.
+ */
+function filteredElements(body: string, at: number, vars: VarNode[]): VarNode[] | null {
+  const code = body.slice(0, at).replace(/"(?:[^"\\]|\\.)*"/g, m => ' '.repeat(m.length));
+  let depth = 0, open = -1;
+  for (let i = code.length - 1; i >= 0; i--) {
+    if (code[i] === ']') depth++;
+    else if (code[i] === '[') { if (depth === 0) { open = i; break; } depth--; }
+  }
+  if (open < 0) return null;
+  const m = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*$/.exec(code.slice(0, open));
+  if (!m) return null;
+  let pool = vars, node: VarNode | undefined;
+  for (const seg of m[1].replace(/\s/g, '').split('.')) {
+    node = pool.find(v => v.name === seg);
+    if (!node) return null;
+    if (node.type === 'any' || node.open) return null;
+    pool = node.children ?? [];
+  }
+  return node?.type === 'list' && node.children?.length ? node.children : null;
+}
+
 /** Namen im Ausdruck, die eine Variable ohne bekannten Typ treffen. */
 function touchesUnknown(body: string, vars: VarNode[]): boolean {
   const unknown = new Set(vars.filter(v => v.type === 'any').map(v => v.name));
@@ -624,10 +649,18 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         const chain = chainBefore(body, w.position.from);
         // Typ unbekannt oder Map — kein Urteil, auch nicht über das Ergebnis
         if (chain && openOnPath(vars, chain)) { pathFailed = true; break; }
+        // `liste[item.feld = …]`: `item` ist ein Element der gefilterten Liste — kennt
+        // man deren Elemente nicht (JSON, Liste ohne bekannte Felder), gibt es kein Urteil
+        if (chain?.[0] === 'item') {
+          const elements = filteredElements(body, w.position.from, vars);
+          if (elements === null || openOnPath(elements, chain.slice(1))) { pathFailed = true; break; }
+        }
         if (pathFailed && w.type === 'NO_PROPERTY_FOUND') break; // Folgefehler auf null
         const key = shown(quoted(w.message));
         const prefix = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*\.\s*$/.exec(body.slice(0, w.position.from))?.[1]?.replace(/\s/g, '');
-        issues.push({ level: 'error', text: prefix ? `Pfad «${shown(prefix)}.${key}» gibt es nicht — «${shown(prefix)}» hat kein Feld «${key}».` : `Feld «${key}» gibt es nicht.` });
+        const text = prefix ? `Pfad «${shown(prefix)}.${key}» gibt es nicht — «${shown(prefix)}» hat kein Feld «${key}».` : `Feld «${key}» gibt es nicht.`;
+        // derselbe Pfad mehrmals im Ausdruck — einmal gemeldet genügt
+        if (!issues.some(i => i.text === text)) issues.push({ level: 'error', text });
         pathFailed = true;
         break;
       }
