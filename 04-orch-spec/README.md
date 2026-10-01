@@ -509,8 +509,9 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
 - **Parameter** stehen als `{{name}}` im BPMN — in Attributen, Texten,
   Skripten. Im Admin bekommen sie Beschriftung, Vorgabe und Bedeutung.
   Eingebaut sind `{{targetId}}`, `{{targetName}}`, `{{processId}}` und
-  `{{startMessage}}` (Nachricht des Nachrichten-Startereignisses); eine
-  Vorgabe darf sie nennen (`{{processId}}-inform`).
+  `{{startMessage}}` (Nachricht des Nachrichten-Startereignisses — fehlt es,
+  wird das leere Startereignis beim Einfügen dazu, mit der Prozess-ID als
+  Nachricht); eine Vorgabe darf sie nennen (`{{processId}}-inform`).
 - **Je Engine ein BPMN** (Camunda 7 / 8): angeboten wird ein Pattern nur, wo
   es für die Engine der Spezifikation eines gibt.
 

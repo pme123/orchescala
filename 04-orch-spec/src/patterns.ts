@@ -890,6 +890,42 @@ class Writer {
   }
 }
 
+/**
+ * Den Start des Prozesses zum Nachrichten-Startereignis machen: das leere
+ * Startereignis bekommt eine Nachricht mit der Prozess-ID als Namen (die
+ * vorhandene gleichen Namens, sonst eine neue). Liefert einen Hinweis, wenn
+ * es kein leeres Startereignis gibt.
+ */
+function ensureMessageStart(w: Writer, proc: Element): string | null {
+  const starts = kids(proc).filter(c => local(c) === 'startEvent');
+  const plain = starts.filter(s => !kids(s).some(k => local(k).endsWith('EventDefinition')));
+  if (!plain.length) {
+    return starts.length
+      ? 'braucht ein Nachrichten-Startereignis — der Start hat schon eine andere Art; im Diagramm von Hand umstellen.'
+      : 'braucht ein Nachrichten-Startereignis — der Prozess hat kein Startereignis.';
+  }
+  const start = plain.find(s => s.getAttribute('id') === 'StartStartEvent') ?? plain[0];
+  const name = proc.getAttribute('id') ?? '';
+  // Präfix aus dem Tag (`bpmn:startEvent`) — `prefix` setzt nicht jedes DOM
+  const pre = start.tagName.includes(':') ? start.tagName.slice(0, start.tagName.indexOf(':') + 1) : '';
+  let msg = kids(w.defs).find(e => local(e) === 'message' && e.getAttribute('name') === name) ?? null;
+  if (!msg) {
+    msg = w.doc.createElementNS(BPMN_NS, `${pre}message`);
+    msg.setAttribute('id', w.newId('StartMessage'));
+    msg.setAttribute('name', name);
+    const before = kids(w.defs).find(e => local(e) === 'process' || local(e) === 'collaboration' || local(e) === 'BPMNDiagram');
+    if (before) {
+      w.defs.insertBefore(msg, before);
+      w.defs.insertBefore(w.doc.createTextNode('\n  '), before);
+    } else appendEl(w.defs, msg);
+  }
+  const md = w.doc.createElementNS(BPMN_NS, `${pre}messageEventDefinition`);
+  md.setAttribute('id', w.newId(`${start.getAttribute('id') ?? 'Start'}Message`));
+  md.setAttribute('messageRef', msg.getAttribute('id')!);
+  appendEl(start, md);
+  return null;
+}
+
 /** Die Ebene (BPMNPlane), in der ein Element gezeichnet ist */
 function planeOf(w: Writer, id: string | null): Element | null {
   const di = id ? w.di.get(id) : null;
@@ -974,11 +1010,19 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   const t = targetId ? byIdIn(doc.documentElement, targetId) : proc;
   if (!t || !proc) return same([targetId ? `«${targetId}» steht nicht im Diagramm.` : 'Kein Prozess im Diagramm.']);
   const scope = targetId ? t.parentElement! : proc;
+  const w = new Writer(doc);
+  // `{{startMessage}}` braucht ein Nachrichten-Startereignis — fehlt es, wird
+  // der Start des Prozesses eines (Nachricht = Prozess-ID, die Konvention)
+  let changed = false;
+  if (/\{\{\s*startMessage\s*\}\}/.test(src) && !builtins(null, proc).has('startMessage')) {
+    const issue = ensureMessageStart(w, proc);
+    if (issue) return same([`«${def.name}»: ${issue}`]);
+    changed = true;
+  }
   const fr = parseFragment(fillPlaceholders(src, valuesFor(def, params, targetId ? t : null, proc)));
   if ('error' in fr) return same([`Pattern-BPMN «${def.name}»: ${fr.error}`]);
   if (!!fr.anchor !== !!targetId) return same([fr.anchor ? `«${def.name}» gehört an ein Element, nicht an den Prozess.` : `«${def.name}» gehört an den Prozess.`]);
 
-  const w = new Writer(doc);
   w.declareFrom(fr.doc);
   const fragDi = diIndex(fr.doc);
   const plane = planeOf(w, targetId ?? kids(scope).find(c => FLOW_NODES.has(local(c)))?.getAttribute('id') ?? null);
@@ -986,7 +1030,14 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   const idMap = new Map<string, string>();
   const newDi: Element[] = [];
   const newIds: string[] = [];
-  let changed = false;
+  /** DI eines übernommenen Elements — samt allem darin (Inhalt eines Subprozesses) */
+  const adoptDiAll = (e: Element, dx: number, dy: number) => {
+    if (!plane) return;
+    for (const x of [e, ...descendants(e)]) {
+      const d = w.adoptDi(fragDi, x.getAttribute('id') ?? '', idMap, plane, dx, dy);
+      if (d) newDi.push(d);
+    }
+  };
 
   // 1. am Element: Attribute und Erweiterungen, soweit sie fehlen
   for (const [k, v] of fr.attrs) {
@@ -1055,7 +1106,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
           appendEl(scope, el);
           const nid = el.getAttribute('id')!;
           if (FLOW_NODES.has(local(el))) { newIds.push(nid); attachedIds.push(nid); }
-          if (plane) { const d = w.adoptDi(fragDi, e.getAttribute('id') ?? '', idMap, plane, dx, dy); if (d) newDi.push(d); }
+          adoptDiAll(e, dx, dy);
         }
       }
       changed = true;
@@ -1084,7 +1135,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
         const el = w.adopt(e, prefix, idMap, fr.doc);
         appendEl(scope, el);
         if (FLOW_NODES.has(local(el))) newIds.push(el.getAttribute('id')!);
-        if (plane) { const d = w.adoptDi(fragDi, e.getAttribute('id') ?? '', idMap, plane, dx, dy); if (d) newDi.push(d); }
+        adoptDiAll(e, dx, dy);
       }
     }
     changed = true;
@@ -1101,6 +1152,12 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
 // ── Entfernen ────────────────────────────────────────────────────────────────
 /** Element samt DI und Verweisen darauf aus dem Diagramm nehmen */
 function drop(w: Writer, el: Element) {
+  // der Inhalt (eines Subprozesses) hat eigene Formen
+  for (const x of descendants(el)) {
+    const xid = x.getAttribute('id');
+    const di = xid ? w.di.get(xid) : null;
+    if (di) { removeEl(di); w.di.delete(xid!); }
+  }
   const id = el.getAttribute('id');
   if (id) {
     const di = w.di.get(id);
