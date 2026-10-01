@@ -7,6 +7,7 @@
 //                            Rechte: nur Admins schreiben
 //   users.json               wer hier arbeitet — für @-Erwähnungen
 //   processes/<slug>.json    eine Datei je Prozess-Spezifikation
+//   processes/<slug>.audit.jsonl  ihr Änderungsprotokoll (siehe audit.ts)
 //
 // Übernommen aus arch-review — bewusst dieselbe Mechanik (Konflikterkennung
 // über Version/ETag, gemerkter Ordner, Autosave im Aufrufer).
@@ -21,6 +22,7 @@ import { DemoBackend, LocalBackend, StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, SharePointFolder } from './graph';
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
+import { appendAudit, auditPath, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
 
 const DIR = 'processes';
 /** Stammdaten — in `config/`, damit dort nur Admins schreiben können */
@@ -35,7 +37,8 @@ export interface SpecListItem {
 }
 
 export type SaveResult =
-  | { status: 'saved'; version: string }
+  /** `auditError`: gespeichert, aber das Protokoll nicht — die Einträge gehen mit dem nächsten Speichern nochmals */
+  | { status: 'saved'; version: string; auditError?: string }
   | { status: 'conflict'; currentVersion: string }
   | { status: 'error'; message: string };
 
@@ -91,11 +94,15 @@ interface StoreCtx {
   /** die Liste wird gerade (neu) gelesen */
   specsLoading: boolean;
   refreshSpecs: () => Promise<void>;
-  loadSpec: (slug: string) => Promise<{ data: ProcessSpec; version: string } | null>;
+  /** `audit`: was beim Laden schon geändert wurde (ausgemusterte Felder) — geht mit dem nächsten Speichern ins Protokoll */
+  loadSpec: (slug: string) => Promise<{ data: ProcessSpec; version: string; audit: AuditEntry[] } | null>;
   /** das BPMN zur Spezifikation — `processes/<slug>.bpmn` */
   loadBpmn: (slug: string) => Promise<string | null>;
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
-  saveSpec: (data: ProcessSpec, expectedVersion: string | null) => Promise<SaveResult>;
+  /** `audit`: Protokoll-Einträge zu diesem Stand — angehängt, sobald die Spezifikation geschrieben ist */
+  saveSpec: (data: ProcessSpec, expectedVersion: string | null, audit?: AuditEntry[]) => Promise<SaveResult>;
+  /** das Änderungsprotokoll, älteste zuerst — null, wenn es nicht lesbar ist */
+  loadAudit: (slug: string) => Promise<AuditEntry[] | null>;
   createSpec: (spec: ProcessSpec) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** Spezifikation samt BPMN aus dem Ordner löschen — nur für Admins (siehe usePermissions) */
   deleteSpec: (slug: string) => Promise<{ ok: true } | { ok: false; message: string }>;
@@ -243,6 +250,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   idsRef.current = auth.ids;
   const authRef = useRef(auth);
   authRef.current = auth;
+  /** wer gerade schreibt — wie useAuthor */
+  const authorOf = (): AuditAuthor => {
+    const u = authRef.current.user;
+    const name = u?.name?.trim() || 'Ich';
+    return u?.email ? { name, email: u.email } : { name };
+  };
   const [knownUsers, setKnownUsers] = useState<DirectoryUser[]>([]);
   const [modelPath, setModelPath] = useState(MODEL_PATH);
   const modelPathRef = useRef(MODEL_PATH);
@@ -604,7 +617,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const read = await be.read(`${DIR}/${slug}.json`);
       if (!read) return null;
-      return { data: withoutRetiredFields(JSON.parse(read.text) as ProcessSpec), version: read.version };
+      const raw = JSON.parse(read.text) as ProcessSpec;
+      const data = withoutRetiredFields(raw);
+      const dropped = makeEntry(raw, data, { source: 'load', note: 'Ausgemusterte Felder entfernt (Offene Frage, Technische Notiz — dafür gibt es Kommentare)' }, authorOf());
+      return { data, version: read.version, audit: dropped ? [dropped] : [] };
     } catch {
       return null;
     }
@@ -630,7 +646,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return w.ok ? { ok: true as const } : { ok: false as const, message: w.message };
   }, []);
 
-  const saveSpec = useCallback(async (data: ProcessSpec, expectedVersion: string | null): Promise<SaveResult> => {
+  const saveSpec = useCallback(async (data: ProcessSpec, expectedVersion: string | null, audit: AuditEntry[] = []): Promise<SaveResult> => {
     const be = backendRef.current;
     if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
     let json: string;
@@ -643,7 +659,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     setSpecs(prev => [...prev.filter(p => p.slug !== data.slug), { slug: data.slug, data, version: w.version }]
       .sort((a, b) => (a.data.title || a.slug).localeCompare(b.data.title || b.slug, 'de')));
-    return { status: 'saved', version: w.version };
+    // erst nach der Spezifikation: ins Protokoll kommt nur, was auch gespeichert ist
+    const a = await appendAudit(be, DIR, data.slug, audit);
+    return { status: 'saved', version: w.version, ...(a.ok ? {} : { auditError: a.message }) };
+  }, []);
+
+  const loadAudit = useCallback(async (slug: string) => {
+    const be = backendRef.current;
+    if (!be) return null;
+    try {
+      const read = await be.read(auditPath(DIR, slug));
+      return read ? parseAudit(read.text) : [];
+    } catch {
+      return null;
+    }
   }, []);
 
   const createSpec = useCallback(async (spec: ProcessSpec) => {
@@ -661,10 +690,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     setSpecs(prev => [...prev, { slug: data.slug, data, version: w.version }]
       .sort((a, b) => (a.data.title || a.slug).localeCompare(b.data.title || b.slug, 'de')));
+    // der erste Eintrag: angelegt — mit allem, was dabei entstand
+    const empty: ProcessSpec = { version: data.version, slug: data.slug, name: '', title: '', status: data.status, createdAt: data.createdAt, updatedAt: data.updatedAt, steps: [] };
+    const first = makeEntry(empty, data, { source: 'manual', note: 'Spezifikation angelegt' }, authorOf());
+    if (first) await appendAudit(be, DIR, data.slug, [first]);
     return { ok: true as const };
   }, []);
 
-  // Löscht beide Dateien der Spezifikation: `<slug>.json` und `<slug>.bpmn`.
+  // Löscht die Dateien der Spezifikation: `<slug>.json`, `<slug>.bpmn` und das Protokoll.
   // Erst die Spezifikation, dann das Diagramm — bleibt das BPMN nach einem
   // Fehler liegen, stört es nicht (die Liste kennt nur .json-Dateien).
   // Die Prüfung, wer löschen darf, liegt in der Oberfläche (canDelete).
@@ -676,6 +709,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setSpecs(prev => prev.filter(p => p.slug !== slug));
     const bpmn = await be.delete(`${DIR}/${slug}.bpmn`);
     if (!bpmn.ok) return { ok: false as const, message: `Spezifikation gelöscht, aber das BPMN nicht: ${bpmn.message}` };
+    // das Protokoll gehört zur Spezifikation — eine neue mit demselben Namen fängt leer an
+    // (Archive bleiben liegen: die nennt die Liste nicht, und sie stören nicht)
+    await be.delete(auditPath(DIR, slug));
     return { ok: true as const };
   }, []);
 
@@ -711,7 +747,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       folderLinkError, clearFolderLinkError: () => setFolderLinkError(null), reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
-      specs, specsLoading, refreshSpecs, loadSpec, saveSpec, createSpec, deleteSpec, loadBpmn, saveBpmn,
+      specs, specsLoading, refreshSpecs, loadSpec, saveSpec, loadAudit, createSpec, deleteSpec, loadBpmn, saveBpmn,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
       {children}

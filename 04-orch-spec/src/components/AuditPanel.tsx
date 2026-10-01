@@ -1,0 +1,188 @@
+// Verlauf — das Änderungsprotokoll der Spezifikation (siehe audit.ts) als
+// Panel rechts, wie die Kommentare: neueste Einträge oben, je Eintrag wer,
+// wann, woher (von Hand, Abgleich, Umwandlung, beim Laden) und was — Stelle,
+// Feld, vorher → nachher. Filtern lässt es sich nach Element (ein Schritt,
+// ein Typ …) und nach Herkunft; ein Klick auf die Stelle springt hin.
+import { useEffect, useMemo, useState } from 'react';
+import { History, Loader2, X } from 'lucide-react';
+import { auditBase, coalesce, SOURCE_LABEL, type AuditChange, type AuditEntry, type AuditSource } from '../audit';
+import { allSteps } from '../bpmn';
+import { commentTargets, whenFull, whenLabel } from '../comments';
+import type { ProcessSpec } from '../types';
+import { PanelWidthHandle, cls } from '../ui';
+
+interface Props {
+  slug: string;
+  /** Version der Spezifikation — nach jedem Speichern wird neu gelesen */
+  version: string | null;
+  spec: ProcessSpec;
+  isDark: boolean;
+  load: (slug: string) => Promise<AuditEntry[] | null>;
+  /** Element-Stelle (`step:<id>`, `type:<id>` …) oder null = alle */
+  focus: string | null;
+  onFocus: (base: string | null) => void;
+  onGoto: (target: string) => void;
+  onClose: () => void;
+  width: number;
+  onWidth: (w: number) => void;
+  overlay: boolean;
+}
+
+const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'conversion', 'load'];
+
+const sourceTone = (s: AuditSource, isDark: boolean) => ({
+  manual: isDark ? 'border-white/20 text-white/60' : 'border-black/20 text-black/60',
+  'bpmn-sync': isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700',
+  'domain-sync': isDark ? 'border-violet-500/40 text-violet-300' : 'border-violet-300 text-violet-700',
+  conversion: isDark ? 'border-amber-500/40 text-amber-300' : 'border-amber-300 text-amber-700',
+  load: isDark ? 'border-white/15 text-white/40' : 'border-black/15 text-black/40',
+}[s]);
+
+export default function AuditPanel(p: Props) {
+  const { spec, isDark, focus } = p;
+  const c = cls(isDark);
+  const iconBtn = `p-1 rounded transition-colors ${isDark ? 'text-white/40 hover:text-white' : 'text-black/40 hover:text-black'}`;
+
+  const [entries, setEntries] = useState<AuditEntry[] | null | undefined>(undefined);
+  const [hidden, setHidden] = useState<Set<AuditSource>>(new Set());
+
+  // nach jedem Speichern neu lesen — das Protokoll wächst mit
+  const { load, slug, version } = p;
+  useEffect(() => {
+    let alive = true;
+    load(slug).then(e => { if (alive) setEntries(e); });
+    return () => { alive = false; };
+  }, [load, slug, version]);
+
+  // Esc schliesst (ausser beim Tippen in einem Feld)
+  const onClose = p.onClose;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.key === 'Escape' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) onClose();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  // Die Stellen, die es heute gibt — mit ihrem heutigen Namen
+  const current = useMemo(() => new Map(commentTargets(spec, allSteps(spec.steps)).map(t => [t.key, t.label])), [spec]);
+
+  const merged = useMemo(() => (entries ? coalesce(entries) : []), [entries]);
+
+  // Elemente im Protokoll — für die Auswahl; heutiger Name, sonst der letzte bekannte
+  const elements = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of merged) for (const ch of e.changes) {
+      const base = auditBase(ch.target);
+      if (!m.has(base)) m.set(base, current.get(base) ?? (ch.target === base ? ch.label : ch.label.split(' · ')[0]));
+    }
+    if (focus && !m.has(focus)) m.set(focus, current.get(focus) ?? focus);
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], 'de'));
+  }, [merged, current, focus]);
+
+  const shown = useMemo(() => merged
+    .filter(e => !hidden.has(e.source))
+    .map(e => (focus ? { ...e, changes: e.changes.filter(ch => auditBase(ch.target) === focus) } : e))
+    .filter(e => e.changes.length), [merged, hidden, focus]);
+
+  const toggleSource = (s: AuditSource) => setHidden(prev => {
+    const n = new Set(prev);
+    if (n.has(s)) n.delete(s); else n.add(s);
+    return n;
+  });
+
+  return (
+    <aside style={{ width: p.width }}
+      className={`flex-shrink-0 flex flex-col min-h-0 border-l ${c.border} ${c.panelStrong} ${
+        p.overlay ? 'absolute right-0 top-0 bottom-0 z-30 shadow-2xl max-w-[85vw]' : 'relative max-w-[45vw]'}`}>
+      <PanelWidthHandle isDark={isDark} width={p.width} onWidth={p.onWidth} min={300} max={640} />
+      <div className={`px-3 py-2 border-b ${c.border} flex items-center gap-1.5`}>
+        <History size={13} className={c.muted} />
+        <span className={`text-xs font-semibold flex-1 min-w-0 truncate ${c.text}`}>
+          Verlauf
+          {entries && <span className={`ml-2 text-[10px] font-normal ${c.muted}`}>{shown.length} Einträge</span>}
+        </span>
+        <button type="button" onClick={onClose} title="Schliessen (Esc)" className={iconBtn}><X size={13} /></button>
+      </div>
+
+      {/* Filter: Element und Herkunft */}
+      <div className={`px-3 py-1.5 border-b ${c.border} space-y-1.5`}>
+        <select value={focus ?? ''} onChange={e => p.onFocus(e.target.value || null)}
+          title="Nur die Änderungen an diesem Element"
+          className={`w-full text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
+          <option value="">Alle Stellen</option>
+          {elements.map(([key, label]) => <option key={key} value={key}>{label}{current.has(key) ? '' : ' (entfallen)'}</option>)}
+        </select>
+        <div className="flex flex-wrap gap-1">
+          {SOURCES.map(s => (
+            <button key={s} type="button" onClick={() => toggleSource(s)}
+              title={hidden.has(s) ? 'Einblenden' : 'Ausblenden'}
+              className={`text-[10px] px-1.5 py-0.5 rounded border transition-opacity ${sourceTone(s, isDark)} ${hidden.has(s) ? 'opacity-30 line-through' : ''}`}>
+              {SOURCE_LABEL[s]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-3">
+        {entries === undefined && <p className={`flex items-center gap-1.5 text-[11px] ${c.muted}`}><Loader2 size={11} className="animate-spin" /> Lade Verlauf …</p>}
+        {entries === null && <p className={`text-[11px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>Das Protokoll ist nicht lesbar.</p>}
+        {entries && !shown.length && (
+          <p className={`text-[11px] ${c.muted}`}>
+            {entries.length ? 'Keine Änderungen für diese Auswahl.' : 'Noch keine Änderungen protokolliert — das Protokoll beginnt mit der nächsten Änderung.'}
+          </p>
+        )}
+        {shown.map(e => (
+          <div key={e.id} className={`rounded border ${c.border} px-2.5 py-2 space-y-1`}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className={`text-[10px] tabular-nums flex-shrink-0 ${c.muted2}`} title={whenFull(e.at)}>{whenLabel(e.at)}</span>
+              <span className={`text-[11px] font-semibold truncate ${c.text}`} title={e.email ?? e.author}>{e.author}</span>
+              <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded border flex-shrink-0 ${sourceTone(e.source, isDark)}`}>{SOURCE_LABEL[e.source]}</span>
+            </div>
+            {e.note && <p className={`text-[10px] italic ${c.muted2}`}>{e.note}</p>}
+            {e.report && !focus && (
+              <div className={`text-[10px] ${c.muted}`}>
+                {Object.entries(e.report).map(([k, v]) => (
+                  <div key={k} className="truncate" title={v.join('\n')}><span className={c.muted2}>{k}:</span> {v.join(', ')}</div>
+                ))}
+              </div>
+            )}
+            <ul className="space-y-0.5">
+              {e.changes.map((ch, i) => <ChangeLine key={i} ch={ch} isDark={isDark} exists={current.has(ch.target) || current.has(auditBase(ch.target))} onGoto={p.onGoto} />)}
+            </ul>
+            {!!e.more && !focus && <p className={`text-[10px] ${c.muted}`}>… und {e.more} weitere Änderungen</p>}
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function ChangeLine({ ch, isDark, exists, onGoto }: { ch: AuditChange; isDark: boolean; exists: boolean; onGoto: (t: string) => void }) {
+  const c = cls(isDark);
+  const sign = ch.op === 'add' ? '+' : ch.op === 'remove' ? '−' : '~';
+  const tone = ch.op === 'add' ? (isDark ? 'text-emerald-400' : 'text-emerald-700')
+    : ch.op === 'remove' ? (isDark ? 'text-rose-400' : 'text-rose-600')
+      : (isDark ? 'text-amber-300' : 'text-amber-700');
+  const del = isDark ? 'text-rose-300/80 line-through' : 'text-rose-700/80 line-through';
+  const ins = isDark ? 'text-emerald-300' : 'text-emerald-800';
+  return (
+    <li className="text-[10px] leading-snug">
+      <span className={`font-mono mr-1 ${tone}`}>{sign}</span>
+      <button type="button" disabled={!exists} onClick={() => onGoto(ch.target)}
+        title={exists ? 'Zur Stelle' : 'Diese Stelle gibt es nicht mehr'}
+        className={`${c.text} ${exists ? 'hover:underline' : 'opacity-60 cursor-default'}`}>{ch.label}</button>
+      {ch.field && <span className={c.muted2}> · {ch.field}</span>}
+      {(ch.before !== undefined || ch.after !== undefined) && (
+        <div className="pl-3 break-words">
+          {ch.op === 'change' ? <>
+            <span className={ch.before === undefined ? c.muted : del}>{ch.before ?? 'leer'}</span>
+            <span className={c.muted}> → </span>
+            <span className={ch.after === undefined ? c.muted : ins}>{ch.after ?? 'leer'}</span>
+          </> : <span className={c.muted2}>{ch.after ?? ch.before}</span>}
+        </div>
+      )}
+    </li>
+  );
+}
