@@ -159,6 +159,25 @@ export async function rebuild(
   return { types, defaults, projects: gezaehlt, discarded, missing, files, skipped };
 }
 
+/**
+ * Zugriff **jetzt** erteilen — aus einem Klick heraus, sonst fragt der Browser
+ * nicht. Ist ein Zugriff gemerkt, bestätigt man ihn; ist keiner da (anderer
+ * Browser, andere Adresse der App — gemerkt wird je Adresse), wählt man den
+ * Ordner gleich hier. `target` ist der Ordner über den Projekten (`root`)
+ * oder ein einzeln gemerktes Projekt.
+ */
+export async function grantAccess(target: { root: string } | { project: ProjectFolder }): Promise<boolean> {
+  const key = 'root' in target ? rootKey(target.root) : handleKey(target.project);
+  const known = await getHandle(key);
+  if (known && (await ensureRead(known))) return true;
+  const pick = (window as unknown as { showDirectoryPicker?: (o: object) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker;
+  if (!pick) return false;
+  const dir = await pick({ mode: 'read' }).catch(() => null);
+  if (!dir) return false;
+  await putHandle(key, dir);
+  return true;
+}
+
 /** Einen Projekt-Ordner merken, damit der Aufbau ihn ohne Wählen wiederfindet. */
 export const rememberProject = (p: ProjectFolder, h: FileSystemDirectoryHandle) => putHandle(handleKey(p), h);
 export const forgetProject = (p: ProjectFolder) => delHandle(handleKey(p));

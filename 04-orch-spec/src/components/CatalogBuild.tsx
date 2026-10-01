@@ -26,7 +26,7 @@ import {
 import { load } from 'js-yaml';
 import { mergeDomainTypes, type DiscardedPackage } from '../domainScan';
 import { catalogFromOpenApi, mergeServices } from '../openApi';
-import { forgetProject, move, projectsInFolder, rebuild, rememberProject } from '../projects';
+import { forgetProject, grantAccess, move, projectsInFolder, rebuild, rememberProject } from '../projects';
 import { countByKind, fillGapsOnly, readSite } from '../siteCatalog';
 import type { DomainType, Model, ProjectFolder } from '../types';
 import { cls } from '../ui';
@@ -246,19 +246,27 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
    * Der Katalog wird **neu** gebaut, nicht ergänzt — sonst bliebe das früher
    * Gelesene stehen und ein Umsortieren hätte keine Wirkung.
    */
+  /** Ohne Zugriff: die Wurzeln bzw. Projekte, für die er fehlt — je ein Knopf an der Meldung */
+  const [noAccess, setNoAccess] = useState<{ roots: string[]; single: ProjectFolder[] }>({ roots: [], single: [] });
+  /** Zugriff erteilen (oder den Ordner wählen) — und gleich neu aufbauen */
+  const grantAndRebuild = async (target: { root: string } | { project: ProjectFolder }) => {
+    if (await grantAccess(target)) await rebuildCatalog();
+  };
+
   const rebuildCatalog = async () => {
     if (!projects.length) return;
-    setBusy('…'); setMsg(''); setDropped([]);
+    setBusy('…'); setMsg(''); setDropped([]); setNoAccess({ roots: [], single: [] });
     try {
       const r = await rebuild(projects, setBusy);
       // Nichts speichern, solange ein Projekt fehlt: sonst wäre der Katalog
       // um dessen Typen ärmer, nur weil der Browser den Zugriff vergessen hat.
       if (r.missing.length) {
         const roots = [...new Set(r.missing.map(p => p.root).filter(Boolean))] as string[];
-        const alt = r.missing.filter(p => !p.root).map(p => p.name);
+        const single = r.missing.filter(p => !p.root);
+        setNoAccess({ roots, single });
         setMsg(`Kein Zugriff auf ${r.missing.length} von ${projects.length} Projekten — der Katalog bleibt, wie er ist. `
-          + (roots.length ? `Der Browser hat die Erlaubnis für ${roots.map(x => `«${x}»`).join(', ')} nicht erteilt — «Neu aufbauen» nochmals klicken und im Dialog zulassen. ` : '')
-          + (alt.length ? `${alt.join(', ')}: einzeln gemerkt — «Projekte wählen» und den Ordner darüber wählen, dann reicht künftig eine Erlaubnis für alle. ` : '')
+          + 'Der Browser merkt sich den Zugriff je Adresse der App und fragt nur nach einem Klick — unten erteilen (oder den Ordner wählen); danach wird gleich neu aufgebaut. '
+          + (single.length ? 'Einzeln gemerkte Projekte: besser einmal den Ordner darüber wählen («Projekte wählen»), dann reicht eine Erlaubnis für alle. ' : '')
           + 'Mit × verschwindet ein Projekt aus der Liste.');
         return;
       }
@@ -412,6 +420,23 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
           )}
 
           {msg && <p className={`text-[11px] mt-2 ${c.muted2}`}>{msg}</p>}
+          {canEdit && !busy && (noAccess.roots.length > 0 || noAccess.single.length > 0) && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {noAccess.roots.map(root => (
+                <button key={root} onClick={() => void grantAndRebuild({ root })}
+                  title="Zugriff bestätigen — oder, wenn keiner gemerkt ist, den Ordner wählen; danach wird neu aufgebaut"
+                  className={`text-[11px] px-2 py-1 rounded border ${c.btn}`}>
+                  Zugriff auf «{root}» erteilen
+                </button>
+              ))}
+              {noAccess.single.map(p => (
+                <button key={p.id} onClick={() => void grantAndRebuild({ project: p })}
+                  className={`text-[11px] px-2 py-1 rounded border ${c.btn}`}>
+                  Zugriff auf «{p.name}» erteilen
+                </button>
+              ))}
+            </div>
+          )}
           {!!dropped.length && (
             <div className={`mt-2 text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
               <div className="flex items-center gap-2">
