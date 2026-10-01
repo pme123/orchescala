@@ -32,6 +32,7 @@ import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
 import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
+import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import type { BpmnHandle } from './BpmnEditor';
 
 // Der Modeler ist gross — er kommt erst, wenn das Diagramm gezeigt wird.
@@ -727,8 +728,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 <input ref={fileRef} type="file" accept=".bpmn,.xml" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ''; }} />
                 <button onClick={() => fileRef.current?.click()}
-                  title="BPMN wählen — Struktur aus der Implementation übernehmen, fachliche Texte bleiben"
-                  className={`p-1.5 rounded border flex-shrink-0 ${c.btn}`}><RefreshCw size={12} /></button>
+                  title="Mit BPMN abgleichen — BPMN wählen: der Ablauf aus der Implementation, fachliche Texte bleiben"
+                  className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
               </>
             )}
           </>
