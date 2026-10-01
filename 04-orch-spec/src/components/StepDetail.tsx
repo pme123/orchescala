@@ -934,13 +934,14 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }:
   return (
     <div data-cframe={sub(stepTarget(step.id), 'service')}>
       <div className="flex items-center gap-2 mb-1">
-        <h3 className={`text-[10px] uppercase tracking-widest ${c.text}`}>Service</h3>
+        <h3 className={`text-[10px] uppercase tracking-widest ${c.text}`}>{step.kind === 'rule' ? 'Decision' : 'Service'}</h3>
         <CommentBubble target={sub(stepTarget(step.id), 'service')} />
       </div>
       <button disabled={!canEdit} onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 30); }}
         className={`w-full flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border text-left ${c.border2} ${canEdit ? c.hover : ''}`}>
         <span className={`flex-1 truncate font-mono ${current ? c.text : c.muted}`}>
-          {step.serviceId ?? (step.topic ? `Topic: ${step.topic}` : 'kein Service gewählt')}
+          {/* eine Entscheidung heisst über ihre decisionId, ein Worker über sein Topic */}
+          {step.serviceId ?? (step.topic ? `${step.kind === 'rule' ? 'decisionId' : 'Topic'}: ${step.topic}` : step.kind === 'rule' ? 'keine Entscheidung gewählt' : 'kein Service gewählt')}
         </span>
         {canEdit && <ChevronDown size={12} className={c.muted} />}
       </button>
