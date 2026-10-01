@@ -133,12 +133,22 @@ export function patternParams(def: PatternDef): PatternParam[] {
 
 const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * Ein Parameter mit FEEL-Ausdruck (`=x`, Camunda 8) passt nicht in einen
+ * FEEL-Text des Patterns (`source="=&#34;{{p}}&#34;"`) — dort ersetzt er den
+ * ganzen Wert: `source="=x"`. Ein fester Text bleibt im Text.
+ */
+const QUOTED_PH = /="=\s*(?:&#34;|&quot;)\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}(?:&#34;|&quot;)"/g;
+const isFeelValue = (v: string | undefined): v is string => !!v && /^=/.test(v.trim()) && !/^=\s*"[^"]*"$/.test(v.trim());
+
 /** Platzhalter füllen; was keinen Wert hat, wird leer */
 export function fillPlaceholders(xml: string, values: Record<string, string | undefined>): string {
   // eine Vorgabe darf die eingebauten nennen (`{{processId}}-inform`)
   const resolved: Record<string, string> = {};
   for (const [k, v] of Object.entries(values)) resolved[k] = (v ?? '').replace(PH, (_, n: string) => values[n] ?? '');
-  return xml.replace(PH, (_, name: string) => xmlEscape(resolved[name] ?? ''));
+  return xml
+    .replace(QUOTED_PH, (all, name: string) => (isFeelValue(resolved[name]) ? `="${xmlEscape(resolved[name].trim())}"` : all))
+    .replace(PH, (_, name: string) => xmlEscape(resolved[name] ?? ''));
 }
 
 type Binding = ReadonlyMap<string, string>;
@@ -152,6 +162,14 @@ function matchText(tpl: string, actual: string, b: Binding): Binding | null {
   // `#{…}` und `${…}` sind in Camunda 7 dasselbe; Leerraum zählt nicht
   const norm = (s: string) => s.replace(/#\{/g, '${').replace(/\s+/g, ' ').trim();
   const t = norm(tpl), a = norm(actual);
+  // `="{{p}}"` im Pattern, aber ein FEEL-Ausdruck im Diagramm (siehe fillPlaceholders):
+  // der Parameter ist der ganze Ausdruck
+  const quoted = /^=\s*"\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}"$/.exec(t);
+  if (quoted && isFeelValue(a)) {
+    const bound = b.get(quoted[1]);
+    if (bound != null) return norm(bound) === a ? b : null;
+    return new Map(b).set(quoted[1], a);
+  }
   if (!t.includes('{{')) return t.replace(/ /g, '').toLowerCase() === a.replace(/ /g, '').toLowerCase() ? b : null;
   const lit = (s: string) => reEscape(s).replace(/ /g, '\\s*');
   const groups: string[] = [];

@@ -605,6 +605,8 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   if (!applied.length && !available.length) return null;
   const editable = canEdit && !!onPattern && !!hasDiagram;
   const id = target?.id ?? null;
+  // Parameter mit «=» sind FEEL wie die Mapping-Werte — Vorschläge aus den Prozessvariablen
+  const variables = useMemo(() => processVariables(spec, model), [spec, model]);
   return (
     <Section id="patterns" label="Pattern" count={applied.length} isDark={isDark}
       hint={!hasDiagram ? <span className={`text-[9px] ${c.muted}`}>braucht das Diagramm</span> : undefined}
@@ -619,7 +621,7 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
       <div className="space-y-1.5">
         {applied.map((a, i) => (
           <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={model?.patterns?.find(d => d.id === a.id) ?? null}
-            isDark={isDark} editable={editable} engine={engine} atProcess={!target}
+            isDark={isDark} editable={editable} engine={engine} atProcess={!target} variables={variables}
             onRemove={() => onPattern?.(id, a.id, 'remove', a.params)}
             onParams={params => onPattern?.(id, a.id, 'update', params, a.params)} />
         ))}
@@ -633,21 +635,50 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   );
 }
 
-function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess, onRemove, onParams }: {
+/**
+ * Ein Pattern-Parameter steht wörtlich im BPMN (`{{name}}`) — also in der Form
+ * der Engine: `${x}` in Camunda 7, `=x` in Camunda 8. Gezeigt und bearbeitet
+ * wird er wie ein Mapping-Wert: mit «=» FEEL, sonst fester Text.
+ */
+const paramView = (stored: string): string => (isJuel(stored) || feelBody(stored) != null ? importExpression(stored) : stored);
+
+/** Zurück in die Form der Engine — FEEL, das nicht nach JUEL geht, bleibt stehen (und wird gemeldet). */
+function paramStored(view: string, engine: EngineId): string {
+  const body = feelBody(view);
+  if (body == null) return view;
+  if (engine === 'c8') return `=${body.trim()}`;
+  const r = feelToJuel(body);
+  return r.ok ? `\${${r.juel}}` : view;
+}
+
+function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess, variables, onRemove, onParams }: {
   applied: AppliedPattern; def: PatternDef | null; isDark: boolean; editable: boolean; engine: EngineId; atProcess: boolean;
+  variables: VarNode[];
   onRemove: () => void; onParams: (params: Record<string, string>) => void;
 }) {
   const c = cls(isDark);
-  const { warn } = tones(isDark);
+  const { warn, err } = tones(isDark);
   const params: Array<{ name: string; label?: string; description?: string; default?: string; inBlock?: boolean }> = def
     ? patternParamsFor(def, engine, atProcess)
     : Object.keys(applied.params ?? {}).map(name => ({ name }));
   const stored = applied.params ?? {};
-  const [draft, setDraft] = useState<Record<string, string>>(stored);
   const storedKey = JSON.stringify(stored);
-  useEffect(() => { setDraft(JSON.parse(storedKey)); }, [storedKey]);
+  // bearbeitet wird die FEEL-Ansicht; gespeichert die Form der Engine
+  const viewOf = (ps: Record<string, string>) => Object.fromEntries(Object.entries(ps).map(([k, v]) => [k, paramView(v)]));
+  const [draft, setDraft] = useState<Record<string, string>>(() => viewOf(stored));
+  useEffect(() => { setDraft(viewOf(JSON.parse(storedKey))); }, [storedKey]);
   const [confirm, setConfirm] = useState(false);
-  const commit = () => { if (JSON.stringify(draft) !== storedKey) onParams(draft); };
+  const commit = () => {
+    // was nicht angefasst wurde, bleibt wörtlich, wie es im BPMN steht
+    const next = Object.fromEntries(Object.entries(draft).map(([k, v]) =>
+      [k, stored[k] != null && paramView(stored[k]) === v ? stored[k] : paramStored(v, engine)]));
+    if (JSON.stringify(next) !== storedKey) onParams(next);
+  };
+  const issuesOf = (v: string | undefined): FeelIssue[] => {
+    if (!v?.trim()) return [];
+    if (isFeel(v)) return [...checkFeel(v, variables).issues, ...juelIssues(v, engine)];
+    return isJuel(v) ? [{ level: 'warn', text: 'JUEL — als «= …» schreiben, dann gilt es für beide Engines.' }] : [];
+  };
   return (
     <div className={`rounded border px-2 py-1.5 space-y-1 ${patternTone(isDark)}`}>
       <div className="flex items-center gap-1.5 text-[10px]">
@@ -670,17 +701,31 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
       {!def && <p className={`text-[10px] flex items-start gap-1 ${warn}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />Im Admin nicht (mehr) definiert — erkannt wurde es mit einem früheren Stand.</p>}
       {!!params.length && (
         <div className="space-y-0.5">
-          {params.map(p => (
-            <label key={p.name} className="flex items-center gap-1.5 text-[10px]"
-              title={p.inBlock ? `${p.description ? `${p.description}\n` : ''}Steht im gemeinsamen Block des Prozesses — dort, im Diagramm, ändern.` : p.description}>
-              <span className={`w-28 flex-shrink-0 truncate ${c.muted2}`}>{p.label || p.name}</span>
-              <input value={p.inBlock ? '' : draft[p.name] ?? ''} disabled={!editable || p.inBlock}
-                placeholder={p.inBlock ? 'im gemeinsamen Block' : p.default ? `Vorgabe: ${p.default}` : undefined}
-                onChange={e => setDraft(d => ({ ...d, [p.name]: e.target.value }))}
-                onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
-            </label>
-          ))}
+          {params.map(p => {
+            const issues = p.inBlock ? [] : issuesOf(draft[p.name]);
+            return (
+              <div key={p.name}>
+                <div className="flex items-center gap-1.5 text-[10px]"
+                  title={p.inBlock ? `${p.description ? `${p.description}\n` : ''}Steht im gemeinsamen Block des Prozesses — dort, im Diagramm, ändern.` : p.description}>
+                  <span className={`w-28 flex-shrink-0 truncate ${c.muted2}`}>{p.label || p.name}</span>
+                  {/* Blur übernimmt — wie beim Feld vorher; Enter verlässt das Feld */}
+                  <div className="flex-1 min-w-0" onBlur={commit}
+                    onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.target.blur(); }}>
+                    <FeelInput value={p.inBlock ? '' : draft[p.name] ?? ''} disabled={!editable || p.inBlock} isDark={isDark}
+                      variables={variables}
+                      onChange={v => setDraft(d => ({ ...d, [p.name]: v }))}
+                      placeholder={p.inBlock ? 'im gemeinsamen Block' : p.default ? `Vorgabe: ${p.default}` : 'Text — oder = FEEL'}
+                      title={`${p.description ? `${p.description}\n` : ''}Mit «=» ein FEEL-Ausdruck (wie bei den Mappings) — im BPMN für ${engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 als ${…}'}; sonst fester Text.`} />
+                  </div>
+                </div>
+                {issues.map((it, k) => (
+                  <p key={k} className={`ml-[7.5rem] text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+                    <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+                  </p>
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
