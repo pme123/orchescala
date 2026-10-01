@@ -59,7 +59,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       else if (empty(inT)) warnings.push(`${ia.name}: In ist leer.`);
       if (!outT) warnings.push(`${ia.name}: Out fehlt.`);
       else if (empty(outT)) warnings.push(`${ia.name}: Out ist leer.`);
-    } else if (inT && empty(inT)) warnings.push(`${ia.name}: In ist leer.`);
+    }
+    // Signale und Nachrichten dürfen ohne In auskommen — auch ein leeres ist kein Mangel
   } else if (interactionKind(step, processId) && step.id !== spec.steps.find(s => s.kind === 'start')?.id) {
     // der Start des Prozesses ist keine eigene Nachricht — das ist sein In
     warnings.push('Noch keine Interaktion — Objekt mit In/Out anlegen (Datenmodell → aus dem Ablauf).');

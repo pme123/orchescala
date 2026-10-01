@@ -804,7 +804,8 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
             const known = ((m === 'In' ? entry?.inputs : entry?.outputs) ?? []).length;
             // Eine Klasse ohne Felder ist ein Hinweis (gelb): der Schritt bekommt
             // bzw. liefert dann nichts — meist ist das noch nicht fertig
-            const leer = !!t && !fields.length;
+            // — ausser beim In eines Signals oder einer Nachricht: das darf leer sein
+            const leer = !!t && !fields.length && meta.hasOut;
             const what = m === 'In'
               ? 'was der Schritt bekommt'
               : kind === 'userTask' ? 'was die Person erfasst' : 'was der Schritt zurückgibt';

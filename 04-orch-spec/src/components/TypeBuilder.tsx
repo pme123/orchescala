@@ -312,12 +312,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             const iaRow = (ia: Interaction) => {
                 // Was der DSL verlangt (In, bei Aufgaben und Workern auch Out) und noch
                 // fehlt oder leer ist, wird orange — Signale und Nachrichten ohne In
-                // sind `NoInput`, das ist erlaubt
+                // (oder mit leerem) sind `NoInput`, das ist erlaubt
                 const members = (['In', 'Out'] as const).filter(m => m === 'In' || INTERACTION_META[ia.kind].hasOut);
                 const typeOf = (m: 'In' | 'Out') => { const id = m === 'In' ? ia.inTypeId : ia.outTypeId; return id ? types.find(x => x.id === id) ?? null : null; };
                 const lacking = (m: 'In' | 'Out') => {
                   const t = typeOf(m);
-                  if (!t) return m === 'In' && !INTERACTION_META[ia.kind].hasOut ? null : 'fehlt';
+                  if (m === 'In' && !INTERACTION_META[ia.kind].hasOut) return null;
+                  if (!t) return 'fehlt';
                   return isEmptyType(t) ? 'leer' : null;
                 };
                 const mangel = members.some(m => lacking(m));
