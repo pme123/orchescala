@@ -92,19 +92,29 @@ const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || 
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
   const catalog = model?.domainTypes ?? [];
   const inCatalog = hasProcess(catalog, processId);
-  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog' };
-
-  const folders: ProjectFolder[] = [...(model?.projects ?? [])]
-    .sort((a, b) => Number(processId.startsWith(b.name)) - Number(processId.startsWith(a.name)));
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
-  for (const p of folders) {
+  const fromFolder = async (p: ProjectFolder): Promise<DomainHit | null> => {
     const handle = await handleFor(p, roots);
-    if (!handle) continue;
+    if (!handle) return null;
     onProgress?.(`${p.name} wird gelesen …`);
     const files: ProjectFile[] = [];
     await readSources(handle, p.name, files, () => {});
     const domain = scanDomain(files);
-    if (hasProcess(domain, processId)) return { domain, source: `Ordner ${p.name}` };
+    return hasProcess(domain, processId) ? { domain, source: `Ordner ${p.name}` } : null;
+  };
+  // Zuerst der eigene Projekt-Ordner: dort steht der aktuelle Stand — der
+  // Katalog ist so alt wie sein letzter Aufbau (Admin → Katalog, prepareDocs),
+  // eine Änderung an der Domain sähe der Abgleich sonst erst danach.
+  const folders = model?.projects ?? [];
+  const own = folders.filter(p => processId.startsWith(`${p.name}-`));
+  for (const p of own) {
+    const hit = await fromFolder(p);
+    if (hit) return hit;
+  }
+  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog' };
+  for (const p of folders.filter(p => !own.includes(p))) {
+    const hit = await fromFolder(p);
+    if (hit) return hit;
   }
   if (inCatalog) {
     return {
