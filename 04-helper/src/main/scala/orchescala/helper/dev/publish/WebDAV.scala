@@ -83,7 +83,9 @@ case class ProjectWebDAV(projectName: String, apiConfig: ApiConfig, publishConfi
     sardine.createDirectory(stagingUrl)
     uploadProject(sardine, stagingUrl)
     try
-      sardine.move(stagingUrl, projectUrl, true)
+      // Destination as a path: TLS ends at the router, nginx sees http and answers a
+      // `Destination: https://…` with 400 Bad Request - a path is the same server for it.
+      sardine.move(stagingUrl, java.net.URI(projectUrl).getRawPath, true)
       println(s"Finished $projectName: upload Documentation")
     catch
       case ex: java.io.IOException =>

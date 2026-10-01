@@ -18,7 +18,9 @@ class ProjectWebDAVTest extends FunSuite:
     val handler = new InvocationHandler:
       def invoke(proxy: Any, method: Method, args: Array[AnyRef]): AnyRef =
         val url = Option(args).flatMap(_.headOption).map(_.toString).getOrElse("")
-        calls.add(s"${method.getName} $url")
+        // the string arguments - for move the source and the destination
+        val urls = Option(args).toSeq.flatten.collect { case s: String => s }
+        calls.add((method.getName +: urls).mkString(" "))
         if failOn(method.getName, url) then throw java.io.IOException(s"${method.getName} failed")
         method.getName match
           case "list" => java.util.List.of() // nothing published yet
@@ -42,7 +44,8 @@ class ProjectWebDAVTest extends FunSuite:
     assert(sent.exists(_.startsWith("put https://docs.example.ch/site/mycompany/_upload-my-project/")), sent)
     assert(!sent.exists(c => c.startsWith("put") && c.contains("/my-project/")), sent)
     assert(!sent.exists(c => c.startsWith("delete") && c.contains("/my-project/")), sent)
-    assertEquals(sent.last, "move https://docs.example.ch/site/mycompany/_upload-my-project/")
+    // the destination as a path - behind a TLS-terminating router nginx rejects https:// there
+    assertEquals(sent.last, "move https://docs.example.ch/site/mycompany/_upload-my-project/ /site/mycompany/my-project/")
 
   test("a failed upload leaves the published docs - they were deleted first"):
     val (sardine, calls) = server((method, url) => method == "put" && url.endsWith("OpenApi.yml"))
