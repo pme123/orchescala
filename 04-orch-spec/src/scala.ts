@@ -266,7 +266,8 @@ const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fiel
 /** `Option[Seq[String :| ValidEmail]]` — in dieser Reihenfolge geschachtelt. */
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
-  if (f.enumCase) t = `${t}.${f.enumCase}`;
+  // ein einfacher Enum-Fall ist ein Singleton-Typ (`ProcessStatus.canceled.type`), ein ADT-Fall eine Klasse
+  if (f.enumCase) t = isSimpleEnum(f.type, idx) ? `${t}.${caseIdent(f.enumCase)}.type` : `${t}.${f.enumCase}`;
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
   if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
@@ -302,10 +303,17 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
 
 function baseExample(f: Field, idx: TypeIndex): string {
   // eine Ausprägung: ihr Companion hat ein eigenes example
-  if (f.enumCase) return `${idx.nameOf(f.type)}.${f.enumCase}.example`;
+  if (f.enumCase) {
+    return isSimpleEnum(f.type, idx)
+      ? `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`
+      : `${idx.nameOf(f.type)}.${f.enumCase}.example`;
+  }
   // `clientKey = defaultClientKey` — wie es die Projekte von Hand tun
   const fromDomain = idx.defaultOf(f);
   if (fromDomain) return fromDomain.name;
+  // ein einfacher enum aus dem Katalog hat nicht immer ein example — sein erster Fall
+  const domEnum = idx.domainOf(f.type);
+  if (domEnum && isSimpleEnum(f.type, idx) && domEnum.values?.length) return `${domEnum.name}.${caseIdent(domEnum.values[0])}`;
   if (parseDomainRef(f.type)) return `${idx.nameOf(f.type)}.example`;
   const svc = idx.serviceOf(f.type);
   if (svc) return `${svc.name}.example`;
@@ -344,8 +352,9 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    // InitIn initialisiert Prozessvariablen — Vorgaben wie im InConfig
-    const def = t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
+    // ein fester Enum-Fall hat genau einen Wert; InitIn initialisiert Prozessvariablen — Vorgaben wie im InConfig
+    const fixed = fixedCaseValue(f, idx);
+    const def = fixed ? ` = ${fixed}` : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
     return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
@@ -434,16 +443,20 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   ].join('\n');
 }
 
-function enumDef(t: TypeDef): string {
+function enumDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).map(v => v.name).filter(Boolean);
   const first = cases[0] ?? 'unknown';
+  // Fälle, die irgendwo als fester Typ stehen (`X.fall.type`), brauchen eigene Givens
+  const fixed = fixedCasesOf(t.id, idx).filter(c => cases.includes(c));
   return [
     `enum ${t.name}:`,
     `  case ${cases.length ? cases.join(', ') : 'unknown'}`,
     '',
     `object ${t.name}:`,
     `  given ApiSchema[${t.name}]  = deriveEnumApiSchema`,
+    ...fixed.map(c => `  given ApiSchema[${t.name}.${caseIdent(c)}.type] = deriveEnumApiSchema`),
     `  given InOutCodec[${t.name}] = deriveEnumInOutCodec`,
+    ...fixed.map(c => `  given InOutCodec[${t.name}.${caseIdent(c)}.type] = deriveEnumValueInOutCodec`),
     '',
     `  lazy val example = ${t.name}.${first}`,
     `end ${t.name}`,
@@ -454,7 +467,7 @@ function enumDef(t: TypeDef): string {
 export function renderType(t: TypeDef, idx: TypeIndex): string {
   const head = t.description ? `${scaladoc(t.description)}\n` : '';
   return t.kind === 'enum'
-    ? `${head}${isAdt(t) ? adtDef(t, idx) : enumDef(t)}`
+    ? `${head}${isAdt(t) ? adtDef(t, idx) : enumDef(t, idx)}`
     : `${head}${caseClass(t, idx)}\n\n${companion(t, idx)}`;
 }
 
@@ -524,7 +537,8 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
   if (own && idx) for (const l of importsOf(own, idx)) imports.add(l);
   const params: string[] = ownFields.map(f => {
     const d = f.description ? `${descriptionLine(f.description)}\n` : '';
-    const def = defaultClause(f, idx!) || (f.optional ? ' = None' : '');
+    const fixed = fixedCaseValue(f, idx!);
+    const def = fixed ? ` = ${fixed}` : defaultClause(f, idx!) || (f.optional ? ' = None' : '');
     return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;
   });
   for (const { name, kind } of loopSettings(spec)) {
@@ -834,16 +848,64 @@ const RESERVED = new Set(['type', 'val', 'var', 'def', 'class', 'object', 'case'
 /** Was den generierten Scala-Code brechen würde — direkt in der Oberfläche. */
 /** Die Fälle einer Auswahl mit Feldern (eigen oder aus dem Katalog) — null, wenn der Typ keine ist. */
 export function casesOf(typeRef: string, idx: TypeIndex): string[] | null {
+  // ADT-Fall = eigene Klasse, einfacher Fall = Singleton-Typ — beides wählbar
   const own = idx.byId.get(typeRef);
-  if (own) return own.kind === 'enum' && isAdt(own) ? (own.values ?? []).map(v => v.name) : null;
+  if (own) return own.kind === 'enum' ? (own.values ?? []).map(v => v.name).filter(Boolean) : null;
   const dom = idx.domainOf(typeRef);
-  if (dom) return dom.kind === 'enum' && (dom.cases?.length || dom.fields?.length) ? (dom.values ?? []).slice() : null;
+  if (dom) return dom.kind === 'enum' && dom.values?.length ? dom.values.slice() : null;
   return null;
+}
+
+/** Ein Enum ohne Felder — seine Fälle sind Werte, kein ADT. */
+export function isSimpleEnum(typeRef: string, idx: TypeIndex): boolean {
+  const own = idx.byId.get(typeRef);
+  if (own) return own.kind === 'enum' && !isAdt(own);
+  const dom = idx.domainOf(typeRef);
+  return !!dom && dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length;
+}
+
+/** Name eines Falls ohne Backticks — so steht er in `values`. */
+export const caseName = (c: string): string => c.replace(/^`|`$/g, '');
+/** Ein Fall als Scala-Bezeichner: `canceled`, aber `` `output-mocked` `` */
+const caseIdent = (c: string): string => scalaIdent(caseName(c));
+
+/**
+ * Der Wert eines festen Enum-Falls (`ProcessStatus.canceled`) — er ist die
+ * Vorgabe des Feldes, denn der Typ lässt keinen anderen zu. Nur ein einzelner
+ * Wert (nicht mehrfach, keine Map); optional bleibt ohne Vorgabe (`None`).
+ */
+export function fixedCaseValue(f: Field, idx: TypeIndex): string | null {
+  if (!f.enumCase || f.collection || f.map || f.optional || !isSimpleEnum(f.type, idx)) return null;
+  return `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`;
+}
+
+/** Die Fälle eines eigenen Enums, die ein Feld irgendwo als festen Typ nutzt. */
+function fixedCasesOf(typeId: string, idx: TypeIndex): string[] {
+  const out = new Set<string>();
+  const visit = (fs: Field[] | undefined) => { for (const f of fs ?? []) if (f.type === typeId && f.enumCase) out.add(caseName(f.enumCase)); };
+  for (const t of idx.byId.values()) {
+    visit(t.fields);
+    for (const v of t.values ?? []) visit(v.fields);
+  }
+  return [...out];
 }
 
 export function checkTypes(types: TypeDef[] = [], model: Model | null = null): TypeIssue[] {
   const issues: TypeIssue[] = [];
   const idxAll = indexTypes(types, model);
+  // ein fester Fall bzw. eine Ausprägung: gibt es ihn, taugt er als Typ?
+  const enumCaseIssues = (t: TypeDef, f: Field) => {
+    if (!f.enumCase) return;
+    const cases = casesOf(f.type, idxAll);
+    const simple = isSimpleEnum(f.type, idxAll);
+    const fixedOk = idxAll.domainOf(f.type)?.fixedCases;
+    if (!cases) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: der Typ ist keine Auswahl mit Fällen — «${f.enumCase}» kann keine Ausprägung sein.` });
+    else if (!cases.includes(caseName(f.enumCase))) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: die Ausprägung «${f.enumCase}» gibt es in ${idxAll.nameOf(f.type)} nicht.` });
+    else if (simple && (f.collection || f.map)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: ein fester Fall ist ein einzelner Wert — nicht mehrfach und keine Map.` });
+    else if (simple && fixedOk && !fixedOk.includes(caseName(f.enumCase))) {
+      issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: für ${idxAll.nameOf(f.type)}.${caseName(f.enumCase)}.type gibt es keine Givens (ApiSchema / InOutCodec) — einen anderen Fall wählen: ${fixedOk.join(', ')}.` });
+    }
+  };
   const names = new Map<string, number>();
   const ids = new Set(types.map(t => t.id));
   // ohne Katalog wird der Service-Verweis nicht geprüft (statt falsch gemeldet)
@@ -904,6 +966,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         if (model?.domainTypes && !model.domainTypes.some(d => d.id === domId)) {
           issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: der Typ «${domainNameOf(f.type)}» steht nicht (mehr) im Domain-Katalog.` });
         }
+        enumCaseIssues(t, f);
         continue;
       }
       const svcRef = parseServiceRef(f.type);
@@ -914,11 +977,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       } else if (!isScalar(f.type) && !ids.has(f.type) && !idxAll.domainOf(f.type)) {
         issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden${model?.domainTypes?.length ? '' : ' — kein Katalog geladen (Admin → Katalog)'}.` });
       }
-      if (f.enumCase) {
-        const cases = casesOf(f.type, idxAll);
-        if (!cases) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: der Typ ist keine Auswahl mit Fällen — «${f.enumCase}» kann keine Ausprägung sein.` });
-        else if (!cases.includes(f.enumCase)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}»: die Ausprägung «${f.enumCase}» gibt es in ${idxAll.nameOf(f.type)} nicht.` });
-      }
+      enumCaseIssues(t, f);
       if (f.constraint?.trim() && !constraintKind(f.type)) {
         const label = isScalar(f.type) ? f.type : 'zusammengesetzten Typen';
         issues.push({ typeId: t.id, field: f.id, message: `Auf ${label} gibt es keine Einschränkung — sie gilt nur für Text und Zahlen.` });

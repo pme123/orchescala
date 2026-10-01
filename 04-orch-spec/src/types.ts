@@ -577,6 +577,11 @@ export interface DomainType {
   values?: string[];
   /** bei einem enum mit Parametern (ADT): die Felder je Fall */
   cases?: Array<{ name: string; fields?: DomainField[] }>;
+  /**
+   * Bei einem einfachen enum: die Fälle, für die es Givens für den Singleton-Typ
+   * (`X.fall.type`) gibt — nur sie taugen als fester Fall. Fehlt die Angabe, wird nicht geprüft.
+   */
+  fixedCases?: string[];
   descr?: string;
   /**
    * `val processName` eines Prozess-Objekts, z. B. `globex-ordercard`.

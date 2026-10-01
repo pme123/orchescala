@@ -18,6 +18,8 @@
 // Bewusst ein Zeichen-Scanner statt eines Regex: Klammern, Zeichenketten und
 // mehrzeilige Annotationen lassen sich anders nicht sicher trennen.
 
+import type { DomainType } from './types';
+
 export interface ScalaParam {
   name: string;
   /** voller Ausdruck, z. B. `Option[Seq[InPerson]]` */
@@ -301,4 +303,22 @@ function topLevelRefine(text: string): number {
     else if (c === ':' && text[i + 1] === '|' && depth === 0) return i;
   }
   return -1;
+}
+
+/**
+ * `CustomDocContents.\`QI-Deklaration\`` (ADT-Fall) bzw. `ProcessStatus.canceled.type`
+ * (Fall eines einfachen enums, Singleton-Typ) → enum und Fall; null, wenn kein Punkt darin ist.
+ */
+export function splitEnumCase(base: string): { base: string; enumCase: string } | null {
+  const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)(\.type)?$/.exec(base.trim());
+  if (!m) return null;
+  // beim Singleton-Typ ohne Backticks — so steht der Fall in `values`
+  return { base: m[1], enumCase: m[3] ? m[2].replace(/^`|`$/g, '') : m[2] };
+}
+
+/** Hat das enum diesen Fall — als ADT-Fall (`cases`) oder als Wert (`values`)? */
+export function enumHasCase(en: DomainType | null | undefined, c: string): boolean {
+  if (en?.kind !== 'enum') return false;
+  const bare = c.replace(/^`|`$/g, '');
+  return (en.cases ?? []).some(x => x.name === c || x.name === bare) || (en.values ?? []).includes(bare);
 }

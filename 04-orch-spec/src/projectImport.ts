@@ -28,7 +28,7 @@ import { typeShape } from './scalaTypes';
 import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction } from './interactions';
 import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
-import { splitEnumCase } from './feel';
+import { enumHasCase, splitEnumCase } from './feel';
 import { handleFor, readSources } from './projects';
 import { uid } from './util';
 
@@ -153,7 +153,7 @@ class Converter {
       const en = this.domain.find(t => t.id === `${pkg}.${split.base}`)
         ?? this.domain.find(t => this.own(t) && t.name === split.base)
         ?? resolveType(split.base, this.model, pkg);
-      if (en?.kind === 'enum' && (en.cases ?? []).some(c => c.name === split.enumCase)) {
+      if (en && enumHasCase(en, split.enumCase)) {
         const type = this.domain.includes(en) && this.own(en) ? this.convert(en, {}) : domainRef(en.id);
         return { type, enumCase: split.enumCase };
       }

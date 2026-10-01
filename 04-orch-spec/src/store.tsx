@@ -13,6 +13,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { DirectoryUser, Model, ProcessSpec, ServiceDef, ServiceParam, Step, UsersFile } from './types';
 import { feelIfPossible } from './juelFeel';
+import { withOrchescalaTypes } from './orchescalaTypes';
 import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
 import { nowIsoWithTimezone, todayIso } from './util';
@@ -150,7 +151,8 @@ const feelParams = (s: ServiceDef): ServiceDef => {
 };
 
 function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
-  const user = { ...user0, services: user0.services.map(feelParams) };
+  // ProcessStatus & Co. aus orchescala.domain gibt es immer — als «generiert», also nie in der model.json
+  const user = { ...user0, services: user0.services.map(feelParams), domainTypes: withOrchescalaTypes(user0.domainTypes) };
   if (!gen) return user;
   const genServices = (gen.services ?? []).map(s => ({ ...feelParams(s), generated: true }));
   const genTypes = (gen.domainTypes ?? []).map(t => ({ ...t, generated: true }));

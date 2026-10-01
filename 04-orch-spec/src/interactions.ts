@@ -19,7 +19,7 @@ import type {
 } from './types.ts';
 import { INTERACTION_META } from './types.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
-import { typeShape } from './scalaTypes.ts';
+import { enumHasCase, splitEnumCase, typeShape } from './scalaTypes.ts';
 import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
 import { uid } from './util.ts';
@@ -283,9 +283,9 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
   // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums
   let enumCase: string | undefined;
   if (!scalar && !ref) {
-    const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)$/.exec(shape.base);
-    const en = m ? resolveType(m[1], model, pkg) : null;
-    if (en?.kind === 'enum' && (en.cases ?? []).some(c => c.name === m![2])) { ref = en; enumCase = m![2]; }
+    const split = splitEnumCase(shape.base);
+    const en = split ? resolveType(split.base, model, pkg) : null;
+    if (split && enumHasCase(en, split.enumCase)) { ref = en; enumCase = split.enumCase; }
   }
   return {
     id: uid('f'),
@@ -333,10 +333,10 @@ export function healLooseTypes(types: TypeDef[], model: Model | null): TypeDef[]
     const direkt = unique(t);
     if (direkt) return { ...f, type: domainRef(direkt.id) };
     // `Enum.\`Fall\`` bzw. `Enum.Fall` — der Fall gehört zum Feld, der Verweis zum Enum
-    const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)$/.exec(t);
-    if (!m) return null;
-    const en = unique(m[1]);
-    if (en?.kind === 'enum' && (en.cases ?? []).some(c => c.name === m[2])) return { ...f, type: domainRef(en.id), enumCase: m[2] };
+    const split = splitEnumCase(t);
+    if (!split) return null;
+    const en = unique(split.base);
+    if (enumHasCase(en, split.enumCase)) return { ...f, type: domainRef(en!.id), enumCase: split.enumCase };
     return null;
   };
   let changed = false;

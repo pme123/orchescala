@@ -60,6 +60,8 @@ export interface ExpectedType {
   label: string;
   /** Art des Typs — bestimmt Farbe und Zeichen des Chips in der Mapping-Zeile */
   kind: ExpectedKind;
+  /** bei einem einfachen enum die erlaubten Werte — bei einem festen Fall genau einer */
+  values?: string[];
 }
 
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
@@ -90,11 +92,8 @@ const SCALAR_ACCEPTS: Record<string, FeelType[]> = {
 
 const MAX_DEPTH = 6;
 
-/** `CustomDocContents.\`QI-Deklaration\`` → enum und Fall; null, wenn kein Punkt darin ist. */
-export function splitEnumCase(base: string): { base: string; enumCase: string } | null {
-  const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)$/.exec(base.trim());
-  return m ? { base: m[1], enumCase: m[2] } : null;
-}
+export { enumHasCase, splitEnumCase } from './scalaTypes';
+import { enumHasCase, splitEnumCase } from './scalaTypes';
 
 interface Builder { idx: TypeIndex; model: Model | null }
 
@@ -182,7 +181,7 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums
     const split = !scalar && !ref ? splitEnumCase(shape.base) : null;
     const enumRef = split ? resolveType(split.base, b.model, dom.pkg) : null;
-    const isCase = !!enumRef && enumRef.kind === 'enum' && (enumRef.cases ?? []).some(c => c.name === split!.enumCase);
+    const isCase = !!split && enumHasCase(enumRef, split.enumCase);
     const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : isCase ? domainRef(enumRef!.id) : shape.base;
     return nodeOf(p.name, typeRef, {
       optional: shape.optional && !p.default?.trim(), collection: shape.collection, map: shape.map, ...(isCase ? { enumCase: split!.enumCase } : {}), description: p.description,
@@ -277,19 +276,26 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   const shape = typeShape(p.type);
   let accepts: FeelType[];
   let kind: ExpectedKind;
+  let values: string[] | undefined;
   if (shape.collection) { accepts = ['list']; kind = 'list'; }
   else if (shape.map) { accepts = ['context']; kind = 'map'; }
   else if (isScalar(shape.base)) { accepts = SCALAR_ACCEPTS[shape.base] ?? [SCALAR_FEEL[shape.base] ?? 'string']; kind = 'scalar'; }
   else {
+    // `ProcessStatus.canceled.type` — ein fester Fall: genau dieser Wert
+    const split = resolveType(shape.base, model, dom!.pkg) ? null : splitEnumCase(shape.base);
+    const caseOf = split ? resolveType(split.base, model, dom!.pkg) : null;
+    if (split && caseOf && enumHasCase(caseOf, split.enumCase) && !caseOf.cases?.length && !caseOf.fields?.length) {
+      return { accepts: shape.optional ? ['string', 'nil'] : ['string'], label: p.type, kind: 'enum', values: [split.enumCase] };
+    }
     const ref = resolveType(shape.base, model, dom!.pkg);
     if (!ref) return null;                    // Typ nicht im Katalog — kein Urteil
-    if (ref.kind === 'enum' && !ref.cases?.length && !ref.fields?.length) { accepts = ['string']; kind = 'enum'; }
+    if (ref.kind === 'enum' && !ref.cases?.length && !ref.fields?.length) { accepts = ['string']; kind = 'enum'; values = ref.values; }
     else if (ref.kind === 'alias') return null;
     else { accepts = ['context']; kind = ref.kind === 'enum' ? 'enum' : 'class'; }
   }
   // fehlt der Wert, greift die Vorgabe — null ist dann erlaubt
   if (shape.optional || p.default?.trim()) accepts = [...accepts, 'nil'];
-  return { accepts, label: p.type, kind };
+  return { accepts, label: p.type, kind, ...(values?.length ? { values } : {}) };
 }
 
 /** Ist das Feld laut Domain-Katalog Pflicht (nicht `Option[…]`)? null = Feld unbekannt. */
@@ -332,6 +338,7 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   const idx = indexTypes(types, model);
   let accepts: FeelType[];
   let kind: ExpectedKind;
+  let values: string[] | undefined;
   if (f.collection) { accepts = ['list']; kind = 'list'; }
   else if (f.map) { accepts = ['context']; kind = 'map'; }
   else if (isScalar(f.type)) { accepts = SCALAR_ACCEPTS[f.type] ?? [SCALAR_FEEL[f.type] ?? 'string']; kind = 'scalar'; }
@@ -339,13 +346,17 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
     const own = idx.byId.get(f.type);
     const dom = idx.domainOf(f.type);
     const enumish = own?.kind === 'enum' || dom?.kind === 'enum';
-    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length && !dom.fields?.length)) { accepts = ['string']; kind = 'enum'; }
+    if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length && !dom.fields?.length)) {
+      accepts = ['string']; kind = 'enum';
+      // ein fester Fall lässt nur seinen Wert zu, sonst jeder Fall der Auswahl
+      values = f.enumCase ? [f.enumCase.replace(/^`|`$/g, '')] : own ? (own.values ?? []).map(v => v.name).filter(Boolean) : dom?.values;
+    }
     else if (dom?.kind === 'alias') return null;
     else { accepts = ['context']; kind = enumish ? 'enum' : 'class'; }
   }
   // fehlt der Wert, greift die Vorgabe — null ist dann erlaubt
   if (f.optional || f.default?.trim()) accepts = [...accepts, 'nil'];
-  return { accepts, label: fieldLabel(f, idx), kind };
+  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}) };
 }
 
 // ── Beispielwerte ────────────────────────────────────────────────────────────
@@ -523,6 +534,18 @@ export interface FeelCheck {
  * die Syntax geprüft (Ausgaben zeigen auf das Ergebnis des Services, nicht
  * auf den Prozess). `expected` = was das Zielfeld verlangt.
  */
+/** Ein Text, der fest dasteht, muss ein Wert der Auswahl sein — bei einem festen Fall genau dieser. */
+function enumValueIssues(body: string, expected: ExpectedType | null): FeelIssue[] {
+  const literal = /^"((?:[^"\\]|\\.)*)"$/.exec(body)?.[1];
+  if (!expected?.values?.length || literal == null || expected.values.includes(literal)) return [];
+  return [{
+    level: 'error',
+    text: expected.values.length === 1
+      ? `«${expected.label}» hat nur den Wert «${expected.values[0]}».`
+      : `«${literal}» ist kein Wert von ${expected.label} — erlaubt: ${expected.values.join(', ')}.`,
+  }];
+}
+
 export function checkFeel(expression: string, vars: VarNode[] | null, expected: ExpectedType | null = null): FeelCheck {
   const source = expression.trimStart().slice(1).trim();
   // `feelin` kennt die Schreibweise `` `mein-name` `` nicht: der Name wird durch
@@ -559,7 +582,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   }
 
   const issues: FeelIssue[] = [];
-  if (!vars) return { issues, result: feelType(value) };
+  if (!vars) return { issues: issues.length ? issues : enumValueIssues(body, expected), result: feelType(value) };
 
   const unknown = touchesUnknown(body, vars) || /\bfrom\s+json\s*\(/.test(body);
   const guarded = guardedSpans(body);
@@ -634,6 +657,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       });
     }
   }
+  if (!issues.length) issues.push(...enumValueIssues(body, expected));
   return { issues, result: unknown || pathFailed ? null : result };
 }
 

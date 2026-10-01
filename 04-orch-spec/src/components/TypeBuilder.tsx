@@ -19,7 +19,7 @@ import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
 } from '../interactions';
 import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
-import { casesOf, renderInConfig } from '../scala';
+import { caseName, casesOf, isSimpleEnum, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
@@ -789,8 +789,13 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   const chip = typeChip(f, types, idx, model, isDark);
   // Einschränkungen nur, wo sie etwas bedeuten (Text und Zahlen)
   const canConstrain = !!constraintKind(f.type);
-  // Fälle einer Auswahl mit Feldern — eigen oder aus dem Katalog
+  // Fälle einer Auswahl — eigen oder aus dem Katalog. Bei einer Auswahl mit
+  // Feldern (ADT) ist ein Fall eine Klasse, bei einer einfachen ein fester Wert
   const cases = casesOf(f.type, idx);
+  const simple = isSimpleEnum(f.type, idx);
+  // ein fester Fall einer einfachen Auswahl ist ein einzelner Wert
+  const fixedValue = simple && !!f.enumCase;
+  const fixedOk = idx.domainOf(f.type)?.fixedCases;
 
   const changeType = (v: string) => {
     if (v === NEW_CASE || v === NEW_ENUM) {
@@ -820,12 +825,22 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         {/* Eine Auswahl mit Fällen: das Feld kann eine einzelne Ausprägung meinen
             (`CustomDocContents.\`QI-Deklaration\``) — oder alle */}
         {cases && (
-          <select value={f.enumCase ?? ''} disabled={!canEdit}
-            onChange={e => onChange({ enumCase: e.target.value || undefined })}
-            title="Ausprägung: nur dieser Fall der Auswahl — oder alle"
+          <select value={f.enumCase ? caseName(f.enumCase) : ''} disabled={!canEdit}
+            onChange={e => {
+              const v = e.target.value || undefined;
+              // ein fester Wert ist ein einzelner — nicht mehrfach, keine Map
+              onChange({ enumCase: v, ...(v && simple ? { collection: undefined, map: undefined } : {}) });
+            }}
+            title={simple
+              ? 'Fester Fall: das Feld hat genau diesen Wert — in Scala `X.fall.type = X.fall` (z. B. processStatus im Out)'
+              : 'Ausprägung: nur dieser Fall der Auswahl — oder alle'}
             className={`text-[10px] px-1.5 py-1 rounded border outline-none font-mono max-w-[10rem] ${c.input}`}>
-            <option value="">alle Fälle</option>
-            {cases.map(v => <option key={v} value={v}>{v}</option>)}
+            <option value="">{simple ? 'beliebiger Fall' : 'alle Fälle'}</option>
+            {cases.map(v => (
+              <option key={v} value={v} disabled={simple && !!fixedOk && !fixedOk.includes(v)}>
+                {simple ? `nur ${v}` : v}{simple && fixedOk && !fixedOk.includes(v) ? ' (keine Givens)' : ''}
+              </option>
+            ))}
           </select>
         )}
 
@@ -835,12 +850,12 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           optional
         </label>
         <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Seq[…] — mehrfach">
-          <input type="checkbox" checked={!!f.collection} disabled={!canEdit}
+          <input type="checkbox" checked={!!f.collection} disabled={!canEdit || fixedValue}
             onChange={e => onChange({ collection: e.target.checked || undefined })} />
           mehrfach
         </label>
         <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Map[String, …] — Schlüssel ist ein Text, der Typ hier ist der Wert">
-          <input type="checkbox" checked={!!f.map} disabled={!canEdit}
+          <input type="checkbox" checked={!!f.map} disabled={!canEdit || fixedValue}
             onChange={e => onChange({ map: e.target.checked || undefined })} />
           Map
         </label>
