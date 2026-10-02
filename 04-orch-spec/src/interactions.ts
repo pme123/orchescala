@@ -85,10 +85,12 @@ export function interactionKind(step: Step, processId: string): InteractionKind 
   // werfende Seite genauso, beide nutzen denselben DSL. Das gilt auch für ein
   // Nachrichten-Startereignis: der Prozessstart selbst ist davon ausgenommen,
   // seine Felder stehen im `In` des Prozesses (siehe `missingInteractions`).
-  if (step.kind === 'receive') return 'message';
-  if (step.eventKind === 'message') return 'message';
-  if (step.eventKind === 'signal' && step.eventDirection === 'throw') return 'signal';
-  return null;
+  if (step.kind !== 'receive' && step.eventKind !== 'message' && !(step.eventKind === 'signal' && step.eventDirection === 'throw')) return null;
+  // Nur die Nachrichten und Signale dieses Prozesses — wie bei den Workern: ein
+  // Name eines anderen Prozesses (`valiant-bpmn-stopEscalation-…`, `valiant-cancel-…`
+  // aus einem Pattern) ist Verdrahtung, sein Objekt liegt dort
+  if (step.messageName && processId && !step.messageName.startsWith(processId.replace(/V\d+$/, ''))) return null;
+  return step.eventKind === 'signal' ? 'signal' : 'message';
 }
 
 export interface Suggestion {
