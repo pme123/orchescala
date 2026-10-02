@@ -111,17 +111,18 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(processObject.content.contains(
       """      shabNumber: Option[String],
         |      @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
-        |      inConfig: Option[InConfig]
+        |      inConfig: Option[InConfig] = None
         |  ) extends WithConfig[InConfig]:
         |    lazy val defaultConfig = InConfig()
         |
         |  object In:""".stripMargin
     ))
 
-  test("process object - the examples of In set the inConfig"):
-    assert(processObject.content.contains("      shabNumber = Some(\"Beispiel\"),\n      inConfig = None\n    )"), processObject.content)
+  test("process object - the examples of In leave the inConfig at its default None"):
+    assert(processObject.content.contains("      shabNumber = Some(\"Beispiel\")\n    )"), processObject.content)
+    assert(!processObject.content.contains("inConfig = None\n"), processObject.content)
     val empty = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", "")
-    assert(empty.content.contains("    lazy val example = In(inConfig = None)"))
+    assert(empty.content.contains("    lazy val example = In()"))
 
   test("process object - Out is added if missing"):
     assert(processObject.content.contains("  case class Out()\n"))
@@ -165,15 +166,15 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |        clientKey: Long,
         |        amount: Int,
         |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
-        |        inConfig: Option[InConfig]
+        |        inConfig: Option[InConfig] = None
         |    )
         |    case Empty(
         |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
-        |        inConfig: Option[InConfig]
+        |        inConfig: Option[InConfig] = None
         |    )
         |  end In""".stripMargin
     ), obj.content)
-    assert(obj.content.contains("    lazy val example = In.Empty(inConfig = None)\n"))
+    assert(obj.content.contains("    lazy val example = In.Empty()\n"))
     assert(obj.content.contains("    In.example,\n    Out.exampleMinimal,"))
     assertEquals(obj.warnings, Seq.empty)
 
