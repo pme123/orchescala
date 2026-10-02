@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, packageOf, renderType } from '../scala';
+import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -675,6 +675,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId)?.message;
   const typeIssues = issues.filter(i => !i.field);
+  // über den Namen im Katalog: eine Klasse einer anderen Domain wird importiert, nicht exportiert
+  const origin = referencedClass(t, model, packageOf(spec, model));
   // das InConfig zeigt, was insgesamt entsteht — eigene und erzeugte Felder
   const code = t.inConfig ? renderInConfig(spec, new Set<string>(), idx) : renderType(t, idx);
 
@@ -720,6 +722,18 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
         className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
 
       {t.inConfig && <GeneratedNote isDark={isDark} />}
+
+      {origin.type && (
+        <p className={`text-[10px] ${c.muted}`}
+          title="Die Klasse gibt es schon in einer anderen Domain — der Export legt sie nicht nochmals an, sondern importiert sie.">
+          aus <span className="font-mono">{origin.type.pkg}</span> — referenziert, wird importiert und nicht exportiert
+        </p>
+      )}
+      {origin.ambiguous && (
+        <p className={`text-[10px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+          «{t.name}» gibt es in mehreren Projekten ({origin.ambiguous.join(', ')}) — wird als neue Klasse exportiert; prüfen.
+        </p>
+      )}
 
       {!!typeIssues.length && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>

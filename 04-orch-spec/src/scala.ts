@@ -53,6 +53,32 @@ export interface TypeIndex {
   domainOf: (typeRef: string) => DomainType | null;
   /** Beispielwert aus der Domain für das Feld (`clientKey` → `defaultClientKey`) — nur mit passendem Typ */
   defaultOf: (f: Field) => DomainDefault | null;
+  /** Klassen des Datenmodells, die es in einer anderen Domain schon gibt — je TypeDef-id (siehe `referencedClass`) */
+  referenced: Map<string, DomainType>;
+}
+
+/** Eine eigene Klasse des Datenmodells (`schema/`) — nicht In / Out des Prozesses oder einer Interaktion. */
+const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId;
+
+/**
+ * Eine Klasse des Datenmodells, die es in einer **anderen** Domain schon gibt —
+ * über ihren Namen im Katalog (Klassen, enums, Aliase; nicht In / Out eines
+ * Objekts): exportiert wird nur, was noch nicht im Katalog steht oder im Package
+ * des Prozesses (bzw. darunter). Genau ein fremdes Package: referenziert — wird
+ * importiert, nicht angelegt. Mehrere: als neue Klasse exportiert, zu prüfen.
+ */
+export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string): { type?: DomainType; ambiguous?: string[] } {
+  if (!isSchemaClass(t) || !t.name?.trim()) return {};
+  const hits = new Map<string, DomainType>(); // je Package eine
+  for (const d of model?.domainTypes ?? []) {
+    if (!d.owner && d.name === t.name && (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') && !hits.has(d.pkg)) {
+      hits.set(d.pkg, d);
+    }
+  }
+  if ([...hits.keys()].some(p => p === ownPkg || p.startsWith(`${ownPkg}.`))) return {};
+  const foreign = [...hits.values()];
+  if (foreign.length === 1) return { type: foreign[0] };
+  return foreign.length ? { ambiguous: foreign.map(d => d.pkg).sort() } : {};
 }
 
 /**
@@ -71,8 +97,14 @@ const typeKey = (t: string): string => {
  * @param home Paket des eigenen Projekts (`valiant.product`) — bei gleich
  *             heissenden Beispielwerten geht nach der Firmen-Bibliothek das eigene Projekt vor.
  */
-export function indexTypes(types: TypeDef[] = [], model: Model | null = null, home = ''): TypeIndex {
+export function indexTypes(types: TypeDef[] = [], model: Model | null = null, home = '', ownPkg?: string): TypeIndex {
   const byId = new Map(types.map(t => [t.id, t]));
+  // mit dem eigenen Package: die Klassen anderer Domains — importiert, nicht angelegt
+  const referenced = new Map<string, DomainType>();
+  if (ownPkg) for (const t of types) {
+    const ref = referencedClass(t, model, ownPkg).type;
+    if (ref) referenced.set(t.id, ref);
+  }
   const serviceOf = (ref: string) => serviceTypeOf(ref, model);
   const domainOf = (ref: string) => domainTypeOf(ref, model);
   const nameOf = (ref: string): string => {
@@ -99,6 +131,7 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     domainOf,
     defaultOf,
     nameOf,
+    referenced,
   };
 }
 
@@ -665,6 +698,9 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     if (d && !isAutoImported(d.pkg)) external.set(`${d.pkg}.${d.name}`, '');
     const dom = idx.domainOf(f.type);
     if (dom) { external.set(dom.importPath, ''); continue; }
+    // eine Klasse einer anderen Domain: dort importiert statt hier angelegt
+    const ref = idx.referenced.get(f.type);
+    if (ref) { external.set(ref.importPath, ''); continue; }
     const svc = idx.serviceOf(f.type);
     if (svc) external.set(svc.importPath, svc.uncertain ? '  // Pfad prüfen — aus dem Service-Namen abgeleitet' : '');
   }
@@ -747,9 +783,9 @@ function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex):
 export function scalaFiles(spec: ProcessSpec, model: Model | null = null): ScalaFile[] {
   const types = spec.types ?? [];
   if (!types.length && !(spec.interactions ?? []).length) return [];
-  const idx = indexTypes(types, model, homeOf(spec));
-  const dir = srcDir(spec, model);
   const pkg = packageOf(spec, model);
+  const idx = indexTypes(types, model, homeOf(spec), pkg);
+  const dir = srcDir(spec, model);
   const out: ScalaFile[] = [];
 
   // Prozess-Objekt: In, Out und die erzeugten InConfig / InitIn
@@ -818,7 +854,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     });
   }
 
-  for (const t of types.filter(t => t.name?.trim() && !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId)) {
+  // eine Klasse einer anderen Domain wird importiert (siehe importsOf), nicht angelegt
+  for (const t of types.filter(t => t.name?.trim() && isSchemaClass(t) && !idx.referenced.has(t.id))) {
     out.push({
       path: `${dir}/schema/${t.name}.scala`,
       content: `package ${pkg}.schema\n${imports(t, idx)}\n${renderType(t, idx)}\n`,
