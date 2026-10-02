@@ -5,7 +5,6 @@
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
-import { marked } from 'marked';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
@@ -18,6 +17,7 @@ import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, 
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
+import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { processTarget, stepTarget, sub } from '../comments';
@@ -90,8 +90,8 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           prefixes={projectPrefixes ?? []} onRename={onRenameProject} />
       )}
       <Field label="Ausgangslage / Ziel (Markdown)" isDark={isDark} comment={sub(processTarget, 'description')}>
-        <textarea value={spec.description ?? ''} disabled={!canEdit}
-          onChange={e => onSpecChange({ ...spec, description: e.target.value })}
+        <MarkdownField value={spec.description ?? ''} disabled={!canEdit} isDark={isDark}
+          onChange={v => onSpecChange({ ...spec, description: v })}
           rows={6} placeholder="Worum geht es fachlich?"
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Field>
@@ -193,7 +193,6 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const confirm = useConfirm();
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
-  const [preview, setPreview] = useState(false);
   // Ein aus dem BPMN gelesener Schritt trägt oft kein Template, aber ein
   // Topic — und im OpenAPI-Katalog **ist** das Topic die Kennung. Deshalb
   // beide Wege probieren, sonst bleibt der Eintrag ungenutzt.
@@ -351,15 +350,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       )}
 
       {/* Fachliche Beschreibung */}
-      <Field label="Fachliche Beschreibung (Markdown)" isDark={isDark} comment={sub(stepTarget(step.id), 'description')}
-        action={step.description ? <button onClick={() => setPreview(!preview)} className={`text-[9px] ${c.muted} hover:underline`}>
-          {preview ? 'bearbeiten' : 'Vorschau'}</button> : undefined}>
-        {preview && step.description
-          ? <div className="md px-2 py-1.5" dangerouslySetInnerHTML={{ __html: marked.parse(step.description) as string }} />
-          : <textarea value={step.description ?? ''} disabled={!canEdit} rows={4}
-              onChange={e => onPatch(step.id, { description: e.target.value })}
-              placeholder="Was passiert hier fachlich? Was ist die Regel?"
-              className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />}
+      <Field label="Fachliche Beschreibung (Markdown)" isDark={isDark} comment={sub(stepTarget(step.id), 'description')}>
+        <MarkdownField value={step.description ?? ''} disabled={!canEdit} isDark={isDark} rows={4}
+          onChange={v => onPatch(step.id, { description: v })}
+          placeholder="Was passiert hier fachlich? Was ist die Regel?"
+          className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Field>
 
       {step.kind === 'user' && (

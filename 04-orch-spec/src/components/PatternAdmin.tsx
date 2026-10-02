@@ -17,6 +17,7 @@ import { cls, patternTone } from '../ui';
 import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
 import { useConfirm } from './Confirm';
+import { MarkdownField } from './MarkdownField';
 
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
@@ -213,7 +214,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
       </div>
       <div>
         <FieldLabel isDark={isDark} hint="Markdown — was es tut und wann man es nimmt">Beschreibung</FieldLabel>
-        <textarea value={draft.description ?? ''} rows={3} onChange={e => set({ description: e.target.value || undefined })}
+        <MarkdownField value={draft.description ?? ''} rows={3} isDark={isDark} onChange={v => set({ description: v || undefined })}
           className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </div>
       <div>

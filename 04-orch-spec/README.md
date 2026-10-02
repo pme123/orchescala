@@ -894,6 +894,20 @@ meldet es getrennt («✎ alt → neu») und lässt den Status stehen. Auf
 «Angepasst» springt ein Schritt nur, wenn sich sein Vertrag ändert — Art,
 Service, Topic, gerufener Prozess oder die Mappings.
 
+### Markdown-Felder formatieren
+
+Die Markdown-Felder — **Ausgangslage / Ziel**, die **fachliche Beschreibung**
+eines Schritts und die Beschreibung eines **Pattern** — stehen ausserhalb der
+Bearbeitung formatiert da; ein Klick bearbeitet sie (die frühere Schaltfläche
+«Vorschau» entfällt). Wer Text markiert, bekommt darüber eine kleine Leiste:
+**fett**, *kursiv*, `Code` (Variablen, Topics …), Link, Aufzählung und
+«Formatierung entfernen»; dazu Cmd/Ctrl+B, +I und +K (Link — danach ist die
+Adresse markiert und wird überschrieben). Gespeichert wird Standard-Markdown,
+so wie es in die Exporte geht; Textfarben gibt es bewusst nicht (der
+Markdown-Export und die Scala-Kommentare könnten sie nicht darstellen).
+Eingegebenes HTML wird in der Anzeige nie ausgeführt, Links nur mit
+http(s)/mailto.
+
 ### Kommentare
 
 Wie im arch-review: eine **Sprechblase** an jeder Stelle, an der etwas zu

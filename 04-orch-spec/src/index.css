@@ -27,6 +27,8 @@ body {
 .md pre { padding: 8px; border-radius: 4px; overflow-x: auto; background: rgba(0,0,0,0.06); }
 .dark .md pre { background: rgba(255,255,255,0.06); }
 .md a { color: inherit; text-decoration: underline; }
+/* Markdown-Feld in der Anzeige (MarkdownField): kein Abstand nach dem letzten Block */
+.md-view > :last-child { margin-bottom: 0; }
 .md table { border-collapse: collapse; margin: 0.4em 0; }
 .md td, .md th { border: 1px solid rgba(0,0,0,0.15); padding: 2px 6px; }
 .dark .md td, .dark .md th { border-color: rgba(255,255,255,0.15); }
