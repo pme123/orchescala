@@ -24,7 +24,7 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
-import { typeShape } from './scalaTypes';
+import { exampleOf, typeShape } from './scalaTypes';
 import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
 import { packageOf, referencedClass } from './scala';
 import { INTERACTION_META } from './types';
@@ -262,12 +262,28 @@ class Converter {
         if (constraint) f.constraint = constraint;
         if (p.default && p.default !== 'None') f.default = p.default;
         if (p.description) f.description = p.description;
+        if (p.descriptionExpr) f.descriptionExpr = p.descriptionExpr;
+        const example = exampleOf(p);
+        if (example) f.example = example;
         return f;
       });
     if (dom.kind === 'enum') {
       // Gemeinsame Felder (`def x: T` im Rumpf) — sie stehen in jedem Fall
       // nochmals; dort bleiben nur die speziellen
       const common = toFields(dom.fields, dom.pkg);
+      // ein `def` hat weder Beschreibung noch Beispiel — sie stehen in den
+      // Fällen (`@description(clientKeyDescr)`, `example`); die des ersten gelten
+      const inCases = (dom.cases ?? []).flatMap(c => c.fields ?? []);
+      for (const f of common) {
+        const described = inCases.find(p => p.name === f.name && p.description);
+        if (!f.description && described) {
+          f.description = described.description;
+          if (described.descriptionExpr) f.descriptionExpr = described.descriptionExpr;
+        }
+        const withExample = inCases.find(p => p.name === f.name && p.example);
+        const example = withExample && exampleOf(withExample);
+        if (!f.example && example) f.example = example;
+      }
       const commonNames = new Set(common.map(f => f.name));
       const cases = new Map((dom.cases ?? []).map(c => [c.name, c.fields]));
       const perCase = (dom.values ?? []).map(v => ({
@@ -344,9 +360,13 @@ export function sharedFields(cases: Field[][]): Field[] {
     const k = key(f);
     const twins = cases.map(c => c.find(x => x.name === f.name && key(x) === k));
     if (twins.some(x => !x)) return [];
-    const description = twins.map(x => x!.description).find(Boolean);
+    const described = twins.find(x => x!.description);
     const dflt = twins.map(x => x!.default).find(Boolean);
-    return [{ ...f, ...(description ? { description } : {}), ...(dflt ? { default: dflt } : {}) }];
+    return [{
+      ...f,
+      ...(described ? { description: described.description, descriptionExpr: described.descriptionExpr } : {}),
+      ...(dflt ? { default: dflt } : {}),
+    }];
   });
 }
 

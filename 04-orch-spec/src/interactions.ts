@@ -19,7 +19,7 @@ import type {
 } from './types.ts';
 import { INTERACTION_META } from './types.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
-import { enumHasCase, splitEnumCase, typeShape } from './scalaTypes.ts';
+import { enumHasCase, exampleOf, splitEnumCase, typeShape } from './scalaTypes.ts';
 import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
 import { uid } from './util.ts';
@@ -319,6 +319,7 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     const en = split ? resolveType(split.base, model, pkg) : null;
     if (split && enumHasCase(en, split.enumCase)) { ref = en; enumCase = split.enumCase; }
   }
+  const example = exampleOf(p);
   return {
     id: uid('f'),
     name: p.name,
@@ -330,6 +331,8 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     ...(shape.constraint ? { constraint: shape.constraint } : {}),
     ...(p.default ? { default: p.default } : {}),
     ...(p.description ? { description: p.description } : {}),
+    ...(p.descriptionExpr ? { descriptionExpr: p.descriptionExpr } : {}),
+    ...(example ? { example } : {}),
   };
 }
 

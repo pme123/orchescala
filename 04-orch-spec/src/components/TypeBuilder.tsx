@@ -952,12 +952,17 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         <input value={f.example ?? ''} disabled={!canEdit} onChange={e => onChange({ example: e.target.value || undefined })}
           placeholder={fromDomain?.name ?? 'Beispiel'}
           title={fromDomain
-            ? `Beispielwert für example — ohne Angabe ${fromDomain.name} aus ${fromDomain.pkg}`
-            : 'Beispielwert für example — ohne Angabe leitet die App einen ab'}
+            ? `Beispielwert für example — ohne Angabe ${fromDomain.name} aus ${fromDomain.pkg}.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.`
+            : 'Beispielwert für example — ohne Angabe leitet die App einen ab.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.'}
           className={`w-32 text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-        <input value={f.description ?? ''} disabled={!canEdit} onChange={e => onChange({ description: e.target.value || undefined })}
+        {/* ein Ausdruck aus der Domain (`clientKeyDescr`) bleibt einer, bis die Beschreibung geändert wird */}
+        <input value={f.description ?? ''} disabled={!canEdit}
+          onChange={e => onChange({ description: e.target.value || undefined, descriptionExpr: undefined })}
           placeholder="fachliche Bedeutung (@description)"
-          className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
+          title={f.descriptionExpr
+            ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.\nÄndern ersetzt den Ausdruck durch Text.`
+            : undefined}
+          className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${f.descriptionExpr ? 'font-mono' : ''} ${c.input}`} />
       </div>
 
       {issue && <div className={`text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue}</div>}

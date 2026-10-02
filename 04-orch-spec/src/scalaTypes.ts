@@ -28,6 +28,8 @@ export interface ScalaParam {
   default?: string;
   /** Text aus `@description(…)` */
   description?: string;
+  /** der Ausdruck in `@description(…)`, wenn er kein reiner Text ist (`clientKeyDescr`) */
+  descriptionExpr?: string;
   [key: string]: unknown;
 }
 
@@ -137,10 +139,28 @@ export function stripComments(text: string): string {
 
 const DESCRIPTION = /^@description\s*\(/;
 
+const STRING_LITERAL = String.raw`(?:"""[\s\S]*?"""(?:\.stripMargin)?|"(?:[^"\\\n]|\\.)*")`;
+const PLAIN_TEXT = new RegExp(String.raw`^${STRING_LITERAL}(?:\s*\+\s*${STRING_LITERAL})*$`);
+
+/**
+ * Der Inhalt von `@description(…)`, wenn er **kein reiner Text** ist: eine
+ * Referenz (`clientKeyDescr`), ein Aufruf (`serviceOrProcessMockDescr(…)`)
+ * oder ein `s"…"` mit Platzhaltern. Der Export muss ihn so zurückschreiben —
+ * als Text verlöre er die Referenz.
+ */
+export function descriptionExpression(raw: string): string | undefined {
+  const t = raw.trim();
+  if (!t || PLAIN_TEXT.test(t)) return undefined;
+  // `s"…"` ohne `$` ist auch nur Text
+  if (/^s"/.test(t) && !t.includes('$') && PLAIN_TEXT.test(t.slice(1))) return undefined;
+  return t.includes('"""') ? t : t.replace(/\s*\n\s*/g, ' ');
+}
+
 /** Führende Annotationen abtrennen; `@description` wird dabei mitgenommen. */
-function stripAnnotations(param: string): { rest: string; description?: string } {
+function stripAnnotations(param: string): { rest: string; description?: string; descriptionExpr?: string } {
   let text = param.trim();
   let description: string | undefined;
+  let descriptionExpr: string | undefined;
   while (text.startsWith('@')) {
     const isDescr = DESCRIPTION.test(text);
     const paren = text.indexOf('(');
@@ -151,10 +171,13 @@ function stripAnnotations(param: string): { rest: string; description?: string }
       continue;
     }
     const end = skipBalanced(text, paren);
-    if (isDescr) description = cleanText(text.slice(paren + 1, end - 1));
+    if (isDescr) {
+      description = cleanText(text.slice(paren + 1, end - 1));
+      descriptionExpr = descriptionExpression(text.slice(paren + 1, end - 1));
+    }
     text = text.slice(end).trim();
   }
-  return { rest: text, description };
+  return { rest: text, description, descriptionExpr };
 }
 
 /** Aus dem Inhalt von `@description(…)` einen lesbaren Text machen. */
@@ -175,7 +198,7 @@ function cleanText(raw: string): string {
 
 /** Ein Parameter: `name: Type = default`. */
 export function parseParam(param: string): ScalaParam | null {
-  const { rest, description } = stripAnnotations(stripComments(param));
+  const { rest, description, descriptionExpr } = stripAnnotations(stripComments(param));
   const colon = topLevelIndex(rest, ':');
   if (colon < 0) return null;
   const name = rest.slice(0, colon).trim().replace(/^(?:val|var)\s+/, '');
@@ -190,6 +213,7 @@ export function parseParam(param: string): ScalaParam | null {
     type: type.replace(/\s+/g, ' '),
     ...(def ? { default: def.replace(/\s+/g, ' ') } : {}),
     ...(description ? { description } : {}),
+    ...(descriptionExpr ? { descriptionExpr } : {}),
   };
 }
 
@@ -321,4 +345,77 @@ export function enumHasCase(en: DomainType | null | undefined, c: string): boole
   if (en?.kind !== 'enum') return false;
   const bare = c.replace(/^`|`$/g, '');
   return (en.cases ?? []).some(x => x.name === c || x.name === bare) || (en.values ?? []).includes(bare);
+}
+
+// ── Beispielwerte ────────────────────────────────────────────────────────────
+//
+// Das Companion trägt die Beispieldaten:
+//
+//   lazy val example = In(
+//     clientId = 1000,
+//     mainCardHolder = Some(CardHolder.example)
+//   )
+//
+// Der Klassenbauer führt je Feld den **inneren** Wert (`CardHolder.example`);
+// `Some(…)`, `Seq(…)` und `Map("key" -> …)` setzt der Export nach Option,
+// Seq und Map des Feldes wieder darum (siehe `exampleValue` in scala.ts).
+
+/**
+ * Die Argumente eines Konstruktor-Aufrufs `X(a = 1, b = "x")` (ohne die
+ * Klammern) nach Feldnamen; ein Argument ohne Namen gilt nach seiner
+ * Position. Ein Wert über mehrere Zeilen wird zu einer Zeile.
+ */
+export function exampleArgs(raw: string, fieldNames: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  splitParams(raw).forEach((part, i) => {
+    const text = part.trim();
+    if (!text) return;
+    const eq = topLevelAssign(text);
+    const named = eq > 0 && /^[A-Za-z_]\w*$/.test(text.slice(0, eq).trim());
+    const name = named ? text.slice(0, eq).trim() : fieldNames[i];
+    const value = (named ? text.slice(eq + 1) : text).trim();
+    if (!name || !value) return;
+    out.set(name, value.includes('"""') ? value : value.replace(/\s*\n\s*/g, ' '));
+  });
+  return out;
+}
+
+/** `Some(x)` → `x` — nur, wenn der Aufruf den ganzen Ausdruck umfasst und genau ein Argument hat. */
+function unwrapCall(expr: string, names: string[]): string | null {
+  const m = /^([A-Za-z_]\w*)\s*\(/.exec(expr);
+  if (!m || !names.includes(m[1])) return null;
+  const open = m[0].length - 1;
+  if (skipBalanced(expr, open) !== expr.length) return null;
+  const args = splitParams(expr.slice(open + 1, -1));
+  return args.length === 1 ? args[0].trim() : null;
+}
+
+const LITERAL = /^(".*"|-?\d+(\.\d+)?L?)$/s;
+
+/**
+ * Das Beispiel eines Domain-Feldes, wie es der Klassenbauer führt: ohne
+ * `Some(…)` / `Seq(…)` / `Map("key" -> …)` und ohne `.refineUnsafe` an
+ * einem Literal — das setzt der Export wieder. Lässt sich eine Hülle nicht
+ * abtragen (`None`, `Seq(a, b)`, `Seq.empty`), bleibt der ganze Ausdruck;
+ * der Export übernimmt ihn dann wörtlich. Nichts, wenn das Beispiel
+ * dasselbe ist, was die App ohnehin ableitet (`CardAccount.example`).
+ */
+export function exampleOf(p: { type: string; example?: string }): string | undefined {
+  const full = p.example?.trim();
+  if (!full) return undefined;
+  const shape = typeShape(p.type);
+  let e: string | null = full;
+  if (shape.optional) e = unwrapCall(e, ['Some']);
+  if (e != null && shape.collection) e = unwrapCall(e, ['Seq', 'List', 'Vector', 'Set']);
+  if (e != null && shape.map) {
+    const kv = unwrapCall(e, ['Map']);
+    const m = kv ? /^"key"\s*->\s*([\s\S]+)$/.exec(kv) : null;
+    e = m ? m[1].trim() : null;
+  }
+  if (e == null) return full;
+  if (shape.constraint) {
+    const lit = e.replace(/\.refineUnsafe$/, '');
+    if (LITERAL.test(lit)) e = lit;
+  }
+  return e === `${shape.base}.example` ? undefined : e;
 }

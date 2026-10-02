@@ -213,10 +213,13 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
     const p = before.get(f.name);
     if (!p) { changed = true; return f; }
     before.delete(f.name);
+    // die Beschreibung der Spezifikation geht vor — samt ihrem Ausdruck (`clientKeyDescr`)
+    const described = p.description ? p : f;
     const merged: Field = {
       ...f,
       id: p.id,
-      ...(p.description || f.description ? { description: p.description || f.description } : {}),
+      ...(described.description ? { description: described.description } : {}),
+      ...(described.descriptionExpr ? { descriptionExpr: described.descriptionExpr } : {}),
       ...(p.example || f.example ? { example: p.example || f.example } : {}),
       ...(f.default ? { default: f.default } : {}),
     };

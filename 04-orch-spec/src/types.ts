@@ -301,6 +301,13 @@ export interface Field {
   example?: string;
   /** fachliche Bedeutung → `@description(...)` */
   description?: string;
+  /**
+   * `@description` aus der Domain, das kein reiner Text ist — eine Referenz
+   * (`clientKeyDescr`), ein Aufruf oder `s"…${x}"`. Der Export schreibt ihn
+   * wörtlich; `description` ist dann nur die lesbare Fassung. Wer die
+   * Beschreibung ändert, ersetzt ihn.
+   */
+  descriptionExpr?: string;
   [key: string]: unknown;
 }
 
@@ -588,6 +595,10 @@ export interface DomainField {
   type: string;
   default?: string;
   description?: string;
+  /** `@description(clientKeyDescr)` — der Ausdruck, wenn er kein reiner Text ist (siehe Field.descriptionExpr) */
+  descriptionExpr?: string;
+  /** der Wert im `lazy val example = X(…)` des Companions — wie er dort steht, z. B. `Some(CardHolder.example)` */
+  example?: string;
   [key: string]: unknown;
 }
 

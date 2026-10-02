@@ -349,7 +349,21 @@ const SCALAR_EXAMPLE: Record<string, string> = {
 /** Beispielwert eines Feldes — eigene Angabe schlägt die Ableitung. */
 const LITERAL = /^(".*"|-?\d+(\.\d+)?L?)$/s;
 
+/**
+ * Ein eigenes Beispiel mit der Hülle des Feldes (`None`, `Some(…)`,
+ * `Seq(a, b)`, `Seq.empty`, `Map(…)`) ist schon der ganze Wert — so kommt es
+ * aus der Domain, wenn es sich nicht auf einen inneren Wert bringen lässt.
+ */
+function isWholeExample(f: Field, example: string): boolean {
+  if (f.optional) return /^(None\b|Some\s*\()/.test(example);
+  if (f.collection) return /^(Seq|List|Vector|Set)\b/.test(example);
+  if (f.map) return /^Map\b/.test(example);
+  return false;
+}
+
 export function exampleValue(f: Field, idx: TypeIndex): string {
+  const own = f.example?.trim();
+  if (own && isWholeExample(f, own)) return own;
   let inner = f.example?.trim() || baseExample(f, idx);
   // Ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe`
   if (f.example?.trim() && f.constraint?.trim() && LITERAL.test(inner)) inner = `${inner}.refineUnsafe`;
@@ -393,11 +407,21 @@ function descriptionLine(text: string): string {
   const clean = text.trim();
   if (!clean) return '';
   if (!clean.includes('\n')) return `@description("${escape(clean)}")`;
-  const lines = clean.split('\n').map(l => `  |${l}`).join('\n');
-  return `@description(\n  """${escape(clean.split('\n')[0])}\n${lines}\n  |""".stripMargin\n)`;
+  // die erste Zeile steht hinter `"""`, die übrigen mit `|` darunter — in
+  // `"""…"""` wird nichts escaped
+  const [first, ...rest] = clean.split('\n');
+  const lines = rest.map(l => `  |${l}`).join('\n');
+  return `@description(\n  """${first}\n${lines ? `${lines}\n` : ''}  |""".stripMargin\n)`;
 }
 
 const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+/** `@description` eines Feldes — ein Ausdruck aus der Domain (`clientKeyDescr`) bleibt einer. */
+function fieldDescription(f: Field): string {
+  const expr = f.descriptionExpr?.trim();
+  if (expr) return `@description(${expr})`;
+  return f.description ? descriptionLine(f.description) : '';
+}
 
 /** Beschreibung eines Typs als Scaladoc — `@description` gilt nur für Felder. */
 function scaladoc(text: string): string {
@@ -408,7 +432,7 @@ function scaladoc(text: string): string {
 function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
-    const d = f.description ? `${descriptionLine(f.description)}\n` : '';
+    const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
     // ein fester Enum-Fall hat genau einen Wert; InitIn initialisiert Prozessvariablen — Vorgaben wie im InConfig
     const fixed = fixedCaseValue(f, idx);
     const def = fixed ? ` = ${fixed}` : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
@@ -443,7 +467,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
 /** Parameterliste einer Klasse bzw. eines ADT-Falls. */
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
-    const d = f.description ? `${descriptionLine(f.description)}\n` : '';
+    const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
     return `${d}${f.name}: ${fieldType(f, idx)}`;
   });
   return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
@@ -461,10 +485,10 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   // Die Bedeutung eines gemeinsamen Feldes steht **einmal** — am `def`, nicht
   // in jedem Fall nochmals
   const commonDefs = common.map(f => {
-    const d = f.description ? `${indent(descriptionLine(f.description), '  ')}\n` : '';
+    const d = fieldDescription(f) ? `${indent(fieldDescription(f), '  ')}\n` : '';
     return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
   });
-  const commonBare = common.map(f => ({ ...f, description: undefined }));
+  const commonBare = common.map(f => ({ ...f, description: undefined, descriptionExpr: undefined }));
   const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))];
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
@@ -593,7 +617,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
   const seen = new Set<string>(ownFields.map(f => f.name));
   if (own && idx) for (const l of importsOf(own, idx)) imports.add(l);
   const params: string[] = ownFields.map(f => {
-    const d = f.description ? `${descriptionLine(f.description)}\n` : '';
+    const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
     const fixed = fixedCaseValue(f, idx!);
     const def = fixed ? ` = ${fixed}` : defaultClause(f, idx!) || (f.optional ? ' = None' : '');
     return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;

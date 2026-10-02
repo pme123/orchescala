@@ -21,7 +21,7 @@
 // weg, statt zu raten.
 
 import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
-import { parseParams } from './scalaTypes.ts';
+import { exampleArgs, parseParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
 const IMPORT = /^import\s/;
@@ -43,6 +43,8 @@ const END = /^(\s*)end\s+(\w+)/;
 // Woran ein Service- oder Prozess-Objekt zu erkennen ist
 const SERVICE_MARK = /^\s+(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
+/** `lazy val example = In(` bzw. `lazy val example: In.Standard = In.Standard(` im Companion */
+const EXAMPLE = /^\s+lazy\s+val\s+example\s*(?::\s*[\w.]+\s*)?=\s*([A-Z][\w.]*)\s*\(/;
 
 /**
  * Klammern zählen, um das Ende einer Parameterliste zu finden. Zeichenketten
@@ -237,6 +239,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const descrs = new Map<string, string>();
   /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
   const decisionResults = new Map<string, DecisionResult>();
+  /** `lazy val example = X(…)` — der Aufruf, das umschliessende Objekt und die Argumente (roh) */
+  const examples: Array<{ owner: string | null; ctor: string; args: string }> = [];
   let owner: string | null = null;
   let doc = '';
 
@@ -288,6 +292,26 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (owner && de) { descrs.set(owner, de[1]); continue; }
     const dr = owner ? /^\s+lazy val example\s*=\s*(singleEntry|singleResult|collectEntries|resultList)\s*\(/.exec(line) : null;
     if (owner && dr) { decisionResults.set(owner, dr[1] as DecisionResult); continue; }
+
+    // Beispieldaten im Companion: die Argumente bis zur schliessenden Klammer
+    // einsammeln — zugeordnet wird am Ende, wenn alle Klassen bekannt sind
+    const ex = EXAMPLE.exec(line);
+    if (ex) {
+      const open = ex[0].length - 1;
+      const state = { triple: false };
+      let depth = balance(line.slice(open), 0, state);
+      let text = line.slice(open + 1);
+      let j = i;
+      while (depth > 0 && j + 1 < lines.length) {
+        j++;
+        text += '\n' + lines[j];
+        depth = balance(lines[j], depth, state);
+      }
+      const close = text.lastIndexOf(')');
+      examples.push({ owner, ctor: ex[1], args: close >= 0 ? text.slice(0, close) : text });
+      i = j;
+      continue;
+    }
 
     const mark = owner ? SERVICE_MARK.exec(line) : null;
     if (owner && mark) {
@@ -400,6 +424,15 @@ export function scanScala(source: string, path = ''): DomainType[] {
     owner = obj;
     for (const member of SERVICE_MEMBERS) add(member, 'member');
   }
+  for (const ex of examples) applyExample(out, ex.owner, ex.ctor, ex.args);
+  // ohne eigenes `example` (`processExample(In(), …)`) sind die Vorgaben die Beispieldaten
+  for (const t of out) {
+    for (const fs of [t.fields, ...(t.cases ?? []).map(c => c.fields)]) {
+      if (t.kind === 'enum' && fs === t.fields) continue; // `def x: T` hat keine Vorgabe
+      if (!fs?.length || fs.some(f => f.example != null)) continue;
+      for (const f of fs) if (f.default && f.default !== 'None') f.example = f.default;
+    }
+  }
   // `In`/`Out` sind oft schon als `case class` erfasst — den Prozessnamen
   // deshalb am Ende an alle Typen des Objekts hängen, nicht nur an neue.
   for (const t of out) {
@@ -418,6 +451,34 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (dr) t.decisionResult = dr;
   }
   return out;
+}
+
+/**
+ * Ein `lazy val example = X(…)` an die Felder seiner Klasse hängen. `X` ist
+ * die Klasse im umschliessenden Objekt (`OrderCreditcard.In`) oder auf
+ * oberster Ebene (`CardHolder`), `In.Standard` ein Fall des ADT `In`. Ein
+ * Feld, das der Aufruf nicht nennt, hat als Beispiel seine Vorgabe — sonst
+ * kompilierte der Aufruf nicht. Das erste `example` je Klasse gilt.
+ */
+function applyExample(types: DomainType[], owner: string | null, ctor: string, args: string) {
+  const byName = (name: string): DomainType | null =>
+    (owner ? types.find(t => t.name === `${owner}.${name}`) : undefined) ?? types.find(t => t.name === name) ?? null;
+  let fields: DomainField[] | undefined;
+  const cls = byName(ctor);
+  if (cls?.kind === 'case') fields = cls.fields;
+  else {
+    const dot = ctor.lastIndexOf('.');
+    const en = dot > 0 ? byName(ctor.slice(0, dot)) : null;
+    const c = en?.kind === 'enum' ? en.cases?.find(x => x.name === ctor.slice(dot + 1)) : undefined;
+    // die gemeinsamen Felder (`def x: T`) stehen im Fall nochmals
+    fields = c?.fields;
+  }
+  if (!fields?.length || fields.some(f => f.example != null)) return;
+  const values = exampleArgs(args, fields.map(f => f.name));
+  for (const f of fields) {
+    const v = values.get(f.name) ?? (f.default && f.default !== 'None' ? f.default : undefined);
+    if (v) f.example = v;
+  }
 }
 
 /**

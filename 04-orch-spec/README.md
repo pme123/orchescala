@@ -212,6 +212,32 @@ Reihenfolge des Katalogs; ein Wert aus einem anderen Projekt bringt seinen
 Import mit. Im Klassenbauer steht der gefundene Wert als Platzhalter im
 Beispiel-Feld.
 
+**Beispieldaten beim Import.** Die Beispiele der Domain gehen beim Anlegen
+aus BPMN, beim Abgleich und beim Übernehmen aus dem Katalog nicht verloren:
+der Scanner liest das `lazy val example = In(…)` im Companion (auch
+`lazy val example: In.Standard = In.Standard(…)` eines ADT-Falls, benannte
+oder positionelle Argumente) und hängt jeden Wert an sein Feld; der Export
+schreibt ihn wieder ins `example`. Im Klassenbauer steht der **innere** Wert —
+aus `mainCardHolder = Some(CardHolder.example)` wird `CardHolder.example`, aus
+`Seq(x)` ein `x`, aus `"abc".refineUnsafe` ein `"abc"`; der Export setzt die
+Hülle nach Option/Seq/Map des Feldes wieder darum. Lässt sie sich nicht
+abtragen (`None`, `Seq(a, b)`, `Seq.empty`), bleibt der ganze Ausdruck und
+wird wörtlich übernommen. Was die App ohnehin ableitet (`CardAccount.example`),
+bleibt leer. Nennt das `example` ein Feld nicht, gilt seine Vorgabe; hat eine
+Klasse gar kein `example` (`processExample(In(), …)`), sind ihre Vorgaben die
+Beispieldaten. Beim Abgleich geht ein Beispiel der Spezifikation vor.
+
+**Referenzen in der Beschreibung.** Steht in `@description(…)` kein reiner
+Text, sondern eine Referenz (`@description(clientKeyDescr)`), ein Aufruf
+(`serviceOrProcessMockDescr(GetContract.Out.example)`) oder ein `s"…${x}"`,
+merkt sich das Feld den Ausdruck und der Export schreibt ihn unverändert
+zurück — statt `@description("clientKeyDescr")`. Im Klassenbauer steht er in
+Monospace, der Tooltip zeigt ihn; wer die Beschreibung ändert, ersetzt ihn
+durch Text. Bei einer Auswahl mit Fällen kommen Beschreibung und Beispiel
+eines gemeinsamen Feldes (`def clientKey: Long`) aus dem ersten Fall, der
+sie hat. Eine mehrzeilige Beschreibung schreibt der Export als
+`"""…""".stripMargin` — die erste Zeile nur einmal.
+
 ### Auswahl mit Fällen — ein enum als ADT
 
 Eine **Auswahl** (enum) hat normalerweise nur Werte (`case de, fr`). Ihre
