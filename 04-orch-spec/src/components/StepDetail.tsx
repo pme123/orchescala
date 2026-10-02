@@ -11,7 +11,7 @@ import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
 import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
-import { blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
+import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
@@ -1073,7 +1073,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // ohne weiteres Zutun in Ordnung.
   // Bei den Ausgaben ist der Name die **neue** Prozessvariable — die darf
   // heissen, wie sie will; nur Eingaben messen sich am In des Services
-  const verwaist = bekannt && list === 'inputs' ? rows.filter(m => m.name && !bekannt.has(m.name)).length : 0;
+  // eine allgemeine Variable (`_idempotentId` …) nimmt jeder Worker — keine Erweiterung
+  const unbekannt = (name: string) => !!bekannt && !!name && !bekannt.has(name) && !GENERAL_VARIABLES.has(name);
+  const verwaist = list === 'inputs' ? rows.filter(m => unbekannt(m.name)).length : 0;
   const { warn, warnBox, err, errBox } = tones(isDark);
   // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
   // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
@@ -1193,7 +1195,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
         {all.map((m, i) => {
           if (fromPattern.has(m.name) || !allowed(m.name)) return null;
           const off = !!m.disabled;
-          const fehlt = list === 'inputs' && !!bekannt && !!m.name && !bekannt.has(m.name);
+          const fehlt = list === 'inputs' && unbekannt(m.name);
           const dupl = !off && doppelt.has(m.name);
           const pflicht = pflichtGrund(m.name);
           // Doppelt ist ein Fehler (rot), eine Erweiterung nur eine Warnung (gelb)

@@ -12,7 +12,7 @@ import { checkFeel, conditionExpected, domainRequired, referencedVariables, expe
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
-import { isInitWorker } from './bpmn';
+import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantAllows, variantsOf } from './variants';
 
@@ -234,7 +234,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (list === 'inputs') {
       const known = refFields ? refFields.map(f => f.name) : (service?.inputs ?? []).map(p => p.name);
       if (refFields || known.length) {
-        const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name));
+        // eine allgemeine Variable (`_idempotentId` …) nimmt jeder Worker — keine Erweiterung
+        const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name) && !GENERAL_VARIABLES.has(m.name));
         if (ext.length) {
           warnings.push(`${ext.map(m => `«${m.name}»`).join(', ')} noch nicht im ${refFields ? 'Modell' : 'Katalog'} — Erweiterung, dort nachziehen.`);
         }

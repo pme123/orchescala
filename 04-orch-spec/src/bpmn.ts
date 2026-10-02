@@ -183,6 +183,22 @@ export const TECHNICAL = new Set([
   '_identityCorrelation', 'impersonateUserId',
 ]);
 
+/**
+ * Die allgemeinen Variablen von Orchescala (`GeneralVariables`): jeder Worker
+ * nimmt sie entgegen, sie dürfen in jedem Schritt überschrieben werden — z. B.
+ * `_idempotentId = processInstanceKey`. Darum keine Erweiterung des Katalogs,
+ * auch wenn sie nicht im In des Services stehen.
+ * `_identityCorrelationPending` fehlt bewusst: das setzt nur die Engine.
+ */
+export const GENERAL_VARIABLES = new Set([
+  '_servicesMocked', '_mockedWorkers', '_outputMock', '_outputServiceMock',
+  '_manualOutMapping', '_outputVariables', '_handledErrors', '_regexHandledErrors',
+  '_identityCorrelation', '_idempotentId',
+  // veraltet, werden noch gelesen
+  'impersonateUserId', 'servicesMocked', 'mockedWorkers', 'outputMock', 'outputServiceMock',
+  'manualOutMapping', 'outputVariables', 'handledErrors', 'regexHandledErrors',
+]);
+
 interface IoResult {
   inputs: Mapping[];
   outputs: Mapping[];
