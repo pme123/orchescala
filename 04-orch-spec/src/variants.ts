@@ -9,10 +9,11 @@
 // Service liefert zwar nur einen Fall, aber welchen, entscheidet er — die
 // Ausgaben dürfen deshalb die Felder aller Fälle lesen.
 //
-// Quelle der Fälle: der Domain-Katalog (`cases` des enum), sonst die
+// Quelle der Fälle: die eigene In-/Out-Klasse (Interaktion) als enum mit
+// Feldern je Fall, sonst der Domain-Katalog (`cases` des enum), sonst die
 // OpenAPI (`oneOf` → `variants` am Parameter).
 
-import type { DomainField, Mapping, Model, ProcessSpec, ServiceDef, Step } from './types';
+import type { DomainField, Field, Mapping, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { stepDomainMember } from './feel';
 
 export type MappingList = 'inputs' | 'outputs';
@@ -55,10 +56,28 @@ function build(cases: VariantCase[], common: string[]): Variants | null {
   return specific.size ? { cases, common: all, specific } : null;
 }
 
+/** Die eigene In- bzw. Out-Klasse des Schritts (Interaktion) — null ohne */
+export function classOf(step: Step, spec: ProcessSpec, list: MappingList): TypeDef | null {
+  const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
+  const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
+  return id ? (spec.types ?? []).find(t => t.id === id) ?? null : null;
+}
+
+/** Die Felder einer Klasse: die gemeinsamen, bei einem enum dazu die aller Fälle */
+export function classFieldsOf(t: TypeDef): Field[] {
+  const out = new Map<string, Field>();
+  for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) if (f.name && !out.has(f.name)) out.set(f.name, f);
+  return [...out.values()];
+}
+
 /** Die Ausprägungen des `In` bzw. `Out` am Schritt — null, wenn es keine gibt. */
 export function variantsOf(step: Step, spec: ProcessSpec, model: Model | null, list: MappingList, service: ServiceDef | null): Variants | null {
-  // eine eigene In-/Out-Klasse (Interaktion) hat keine Fälle
-  if ((spec.interactions ?? []).some(i => i.stepId === step.id)) return null;
+  // eine eigene In-/Out-Klasse (Interaktion): ihre Fälle, wenn sie ein enum mit Feldern ist
+  if ((spec.interactions ?? []).some(i => i.stepId === step.id)) {
+    const t = classOf(step, spec, list);
+    if (t?.kind !== 'enum' || !t.values?.length) return null;
+    return build(t.values.map(v => ({ name: v.name, fields: (v.fields ?? []).filter(f => f.name) })), (t.fields ?? []).map(f => f.name).filter(Boolean));
+  }
   const dom = stepDomainMember(step, spec, model, list === 'inputs' ? 'In' : 'Out');
   if (dom?.kind === 'enum' && dom.cases?.length) {
     return build(dom.cases.map(c => ({ name: c.name, fields: c.fields ?? [] })), (dom.fields ?? []).map(f => f.name));

@@ -20,7 +20,7 @@ import FeelInput from './FeelInput';
 import { CommentBubble, useActiveComment } from './Comments';
 import { processTarget, stepTarget, sub } from '../comments';
 import { splitPrefix } from '../stepIds';
-import { ALL_VARIANTS, chosenVariant, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
 interface Props {
@@ -206,7 +206,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const classFieldDefs = (list: 'inputs' | 'outputs'): Field[] | null => {
     const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
     const t = id ? (spec.types ?? []).find(x => x.id === id) : null;
-    return t ? (t.fields ?? []).filter(f => f.name) : null;
+    // bei einem enum auch die Felder seiner Fälle — welche gelten, sagt die Ausprägung
+    return t ? classFieldsOf(t) : null;
   };
   const classFields = (list: 'inputs' | 'outputs'): string[] | null =>
     classFieldDefs(list)?.map(f => f.name) ?? null;
@@ -235,11 +236,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     onPatch(step.id, { [variantKey(list)]: name ?? undefined, [list]: rowsForVariant(step[list] ?? [], v, name) });
   };
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
-    const fromClass = classFields(list);
-    if (fromClass) return { names: fromClass, quelle: 'Modell' };
-    const params = (list === 'inputs' ? service?.inputs : service?.outputs) ?? [];
-    // ohne gewählte Ausprägung nur die gemeinsamen Felder
+    // ohne gewählte Ausprägung nur die gemeinsamen Felder — bei der eigenen Klasse wie beim Katalog
     const v = variantsFor(list), chosen = chosenFor(list);
+    const fromClass = classFields(list);
+    if (fromClass) return { names: fromClass.filter(n => variantAllows(v, chosen, n)), quelle: 'Modell' };
+    const params = (list === 'inputs' ? service?.inputs : service?.outputs) ?? [];
     const names = params.map(p => p.name).filter(n => variantAllows(v, chosen, n));
     return params.length ? { names, quelle: 'Katalog' } : null;
   };

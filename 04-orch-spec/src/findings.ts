@@ -14,7 +14,7 @@ import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind } from './interactions';
 import { isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
-import { ALL_VARIANTS, chosenVariant, variantAllows, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantAllows, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -68,10 +68,11 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   if (initWorker || kind === 'userTask' || kind === 'customTask') return [];
   if (patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7').inputs.size) return [];
   const types = spec.types ?? [];
-  const refFields = ia?.inTypeId ? (types.find(t => t.id === ia.inTypeId)?.fields ?? []).filter(f => f.name) : null;
+  const inT = ia?.inTypeId ? types.find(t => t.id === ia.inTypeId) : undefined;
+  const refFields = ia?.inTypeId ? (inT ? classFieldsOf(inT) : []) : null;
   const service = catalogEntry(step, model);
   const dom = stepDomainMember(step, spec, model, 'In');
-  const variants = refFields ? null : variantsOf(step, spec, model, 'inputs', service);
+  const variants = variantsOf(step, spec, model, 'inputs', service);
   const chosen = chosenVariant(step, 'inputs', variants);
   const have = new Set((step.inputs ?? []).map(m => m.name.trim()));
   return [...new Set(requiredNames(refFields, dom, service))]
@@ -193,8 +194,14 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   }
 
   // ── Mappings: Pflicht, doppelt, FEEL ─────────────────────────────────────
-  const inFields: Field[] | null = ia?.inTypeId ? (types.find(t => t.id === ia.inTypeId)?.fields ?? []).filter(f => f.name) : null;
-  const outFields: Field[] | null = ia?.outTypeId ? (types.find(t => t.id === ia.outTypeId)?.fields ?? []).filter(f => f.name) : null;
+  // die eigene Klasse — bei einem enum auch die Felder seiner Fälle (welche gelten, sagt die Ausprägung)
+  const classFields = (id: string | undefined): Field[] | null => {
+    if (!id) return null;
+    const t = types.find(x => x.id === id);
+    return t ? classFieldsOf(t) : [];
+  };
+  const inFields = classFields(ia?.inTypeId);
+  const outFields = classFields(ia?.outTypeId);
   const domainIn = initWorker ? null : stepDomainMember(step, spec, model, 'In');
   const domainOut = initWorker ? null : stepDomainMember(step, spec, model, 'Out');
   const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
@@ -206,7 +213,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
   const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
     // enum mit Fällen: nur die gemeinsamen Felder und die der gewählten Ausprägung zählen
-    const variants = refFields ? null : variantsOf(step, spec, model, list, service);
+    const variants = variantsOf(step, spec, model, list, service);
     const chosen = chosenVariant(step, list, variants);
     const allowed = (n: string) => variantAllows(variants, chosen, n);
     if (chosen.mixed.length) {
