@@ -12,7 +12,9 @@ case class PublishHelper()(using
 
   def publish(version: String): Unit =
     println(s"Publishing ${apiConfig.companyName} Package: $version")
-    if !version.contains("-") then verifyCleanWorkingTree()
+    if !version.contains("-") then
+      verifyCleanWorkingTree()
+      verifyNextVersion(version)
     verify(version)
     pushDevelop()
     setApiVersion(version)
@@ -91,6 +93,52 @@ object PublishHelper extends Helpers:
         s"Uncommitted changes - commit or stash them before a release:\n - ${changed.mkString("\n - ")}"
       )
   end verifyCleanWorkingTree
+
+  private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
+
+  /** Why `newVersion` does not follow the releases (`tags`, e.g. `v1.9.19`) - None if it does: the
+    * next patch of its `Major.Minor` line, else the next minor (`.0`) or major (`.0.0`) after the
+    * highest release. A typo (1.19.20 for 1.9.20) was released, its docker image deployed as missing.
+    */
+  def nextVersionProblem(newVersion: String, tags: Seq[String]): Option[String] =
+    val releases = tags.collect { case Release(ma, mi, pa) => (ma.toInt, mi.toInt, pa.toInt) }
+    val show     = (v: (Int, Int, Int)) => s"${v._1}.${v._2}.${v._3}"
+    newVersion match
+      case Release(ma, mi, pa) if releases.nonEmpty =>
+        val version   = (ma.toInt, mi.toInt, pa.toInt)
+        val highest   = releases.max
+        val nextMinor = (highest._1, highest._2 + 1, 0)
+        val nextMajor = (highest._1 + 1, 0, 0)
+        // a patch of an existing line (also an older one, e.g. 1.9.20 after 1.10.0)
+        val nextPatch = releases
+          .filter(r => r._1 == version._1 && r._2 == version._2)
+          .maxOption
+          .map(r => r.copy(_3 = r._3 + 1))
+        val accepted  = nextPatch.map(Seq(_)).getOrElse(Seq(nextMinor, nextMajor))
+        Option.unless(accepted.contains(version)):
+          val suggestions =
+            (nextPatch.toSeq ++ Seq(highest.copy(_3 = highest._3 + 1), nextMinor, nextMajor)).distinct
+          s"Version $newVersion does not follow the releases (last: ${show(highest)}) - " +
+            s"expected ${suggestions.map(show).mkString(", ")}"
+      case _                                       => None
+  end nextVersionProblem
+
+  /** Checks [[nextVersionProblem]] against the release tags (fetched first) - asks before going on. */
+  def verifyNextVersion(
+      newVersion: String,
+      repo: os.Path = workDir,
+      confirm: String => Boolean = askToContinue
+  ): Unit =
+    scala.util.Try(os.proc("git", "fetch", "--tags", "--quiet").call(cwd = repo))
+    val tags = os.proc("git", "tag", "--list").call(cwd = repo).out.lines()
+    nextVersionProblem(newVersion, tags).foreach: problem =>
+      if !confirm(problem) then
+        throw IllegalArgumentException(s"$problem - release stopped.")
+  end verifyNextVersion
+
+  private def askToContinue(problem: String): Boolean =
+    println(s"$problem\nContinue anyway? [y/N]")
+    Option(scala.io.StdIn.readLine()).exists(_.trim.equalsIgnoreCase("y"))
 
   /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
     * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).

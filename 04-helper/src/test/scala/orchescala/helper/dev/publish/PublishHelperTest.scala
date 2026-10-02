@@ -29,4 +29,37 @@ class PublishHelperTest extends FunSuite:
     os.write(dir / "notes.txt", "not tracked")
     PublishHelper.verifyCleanWorkingTree(dir)
 
+  private val tags = Seq("v1.9.18", "v1.9.19", "v1.8.3", "not-a-release")
+
+  test("the next patch, minor or major follows the releases"):
+    assertEquals(PublishHelper.nextVersionProblem("1.9.20", tags), None)
+    assertEquals(PublishHelper.nextVersionProblem("1.10.0", tags), None)
+    assertEquals(PublishHelper.nextVersionProblem("2.0.0", tags), None)
+
+  test("a patch of an older line - e.g. 1.9.20 when 1.10.0 is released already"):
+    assertEquals(PublishHelper.nextVersionProblem("1.9.20", tags :+ "v1.10.0"), None)
+    assertEquals(PublishHelper.nextVersionProblem("1.8.4", tags), None)
+
+  test("a typo is found - 1.19.20 was released for 1.9.20"):
+    val problem = PublishHelper.nextVersionProblem("1.19.20", tags)
+    assert(problem.exists(_.contains("expected 1.9.20, 1.10.0, 2.0.0")), problem)
+
+  test("a skipped or repeated version is found"):
+    assert(PublishHelper.nextVersionProblem("1.9.21", tags).isDefined)
+    assert(PublishHelper.nextVersionProblem("1.9.19", tags).isDefined)
+    assert(PublishHelper.nextVersionProblem("1.11.0", tags).isDefined)
+
+  test("no releases yet, or a SNAPSHOT: nothing to check"):
+    assertEquals(PublishHelper.nextVersionProblem("0.1.0", Seq.empty), None)
+    assertEquals(PublishHelper.nextVersionProblem("1.19.20-SNAPSHOT", tags), None)
+
+  test("against the tags of the repository - stops without a yes"):
+    val dir = repo()
+    os.proc("git", "tag", "--no-sign", "v1.9.19").call(cwd = dir)
+    PublishHelper.verifyNextVersion("1.9.20", dir, _ => fail("no question for the next patch"))
+    PublishHelper.verifyNextVersion("1.19.20", dir, _ => true) // continued on a yes
+    val error = intercept[IllegalArgumentException]:
+      PublishHelper.verifyNextVersion("1.19.20", dir, _ => false)
+    assert(error.getMessage.contains("release stopped"), error.getMessage)
+
 end PublishHelperTest
