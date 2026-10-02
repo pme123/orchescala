@@ -106,7 +106,8 @@ export function missingInteractions(spec: ProcessSpec, model: Model | null = nul
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
   const out: Suggestion[] = [];
   for (const step of allSteps(spec.steps)) {
-    if (step.kind === 'goto' || known.has(step.id) || step.id === startId) continue;
+    // ein Schritt, der zu einem Pattern gehört, ist Verdrahtung — kein eigenes Objekt
+    if (step.kind === 'goto' || known.has(step.id) || step.id === startId || step.pattern) continue;
     const kind = interactionKind(step, processId);
     if (!kind) continue;
     out.push({ step, kind, name: suggestName(step, kind, processId, model), key: keyOf(step, kind) });
