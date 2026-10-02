@@ -349,29 +349,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [refreshSpecsIn]);
 
   // ── users.json: wer arbeitet in diesem Ordner (für @-Erwähnungen) ──────────
-  const parseUsers = (text: string): DirectoryUser[] => {
+  // null = Datei beschädigt (kein JSON, keine Liste «users») — das ist etwas
+  // anderes als «noch niemand» und darf nie wie leer überschrieben werden
+  // (siehe registerUser)
+  const parseUsers = (text: string): DirectoryUser[] | null => {
     try {
       const f = JSON.parse(text) as Partial<UsersFile>;
-      return Array.isArray(f?.users) ? f.users.filter(u => u && typeof u.email === 'string' && typeof u.name === 'string') : [];
+      return Array.isArray(f?.users) ? f.users.filter(u => u && typeof u.email === 'string' && typeof u.name === 'string') : null;
     } catch {
-      return [];
+      return null;
     }
   };
   const loadUsersIn = useCallback(async (be: StorageBackend) => {
     try {
       const read = await be.read('users.json');
-      setKnownUsers(read ? parseUsers(read.text) : []);
+      setKnownUsers((read ? parseUsers(read.text) : null) ?? []);
     } catch {
       setKnownUsers([]);
     }
   }, []);
   // Angemeldete Person eintragen bzw. «zuletzt gesehen» nachziehen (ETag,
-  // bei Konflikt wiederholen; ohne Schreibrecht still überspringen)
+  // bei Konflikt wiederholen; ohne Schreibrecht still überspringen). Ist die
+  // Datei beschädigt (z. B. abgebrochener Sync), wird sie zuerst unverändert
+  // als users.broken-<Zeitstempel>.json gesichert und dann neu begonnen;
+  // klappt die Sicherung nicht, wird nichts geschrieben.
   const registerUser = useCallback(async (be: StorageBackend, u: { name: string; email: string }) => {
     for (let attempt = 0; attempt < 3; attempt++) {
       let cur: { text: string; version: string } | null = null;
       try { cur = await be.read('users.json'); } catch { return; }
-      const prev = cur ? parseUsers(cur.text) : [];
+      let prev = cur ? parseUsers(cur.text) : [];
+      if (!prev && cur) {
+        const backup = `users.broken-${nowIsoWithTimezone().replace(/[^0-9]/g, '').slice(0, 14)}.json`;
+        const b = await be.write(backup, cur.text, { createOnly: true });
+        if (!b.ok && b.reason !== 'exists') { console.warn('[orch-spec] users.json ist beschädigt und konnte nicht gesichert werden:', b.message); return; }
+        console.warn(`[orch-spec] users.json war beschädigt — unverändert als ${backup} gesichert, neu begonnen.`);
+      }
+      prev ??= [];
       const key = u.email.toLowerCase();
       const users = [
         ...prev.filter(x => x.email.toLowerCase() !== key),

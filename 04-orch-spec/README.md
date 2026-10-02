@@ -1272,7 +1272,10 @@ Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 ```
 
 Fehlen `config/model.json` oder `processes/`, legt die App sie an. Eine
-vorhandene, aber defekte `model.json` wird nie überschrieben. Die Stammdaten
+vorhandene, aber defekte `model.json` wird nie überschrieben. Auch eine
+defekte `users.json` nicht: sie wird vor dem nächsten Eintrag unverändert
+als `users.broken-<Zeitstempel>.json` gesichert, dann beginnt die Liste neu
+(klappt die Sicherung nicht, bleibt alles, wie es ist). Die Stammdaten
 liegen in `config/`, damit dort in SharePoint nur Admins schreiben
 ([docs/SHAREPOINT-SETUP.md, Teil 3b](docs/SHAREPOINT-SETUP.md#teil-3b--stammdaten-schützen-config)). Ältere
 Ordner mit der `model.json` im Hauptordner laufen weiter; der Admin-Bereich
