@@ -506,6 +506,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
       `  object ${v.name}:`,
       `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}(\n${indent(args.join(',\n'), '      ')}\n    )`,
       `    ${minimal}`,
+      `  end ${v.name}`,
     ].join('\n');
   });
   return [
@@ -517,7 +518,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     `object ${t.name}:`,
     `  given ApiSchema[${t.name}]  = deriveApiSchema`,
     `  given InOutCodec[${t.name}] = deriveInOutCodec`,
-    ...(companions.length ? ['', ...companions] : []),
+    ...(companions.length ? ['', companions.join('\n\n')] : []),
     '',
     `  lazy val example = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
     `end ${t.name}`,
@@ -745,7 +746,8 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     const d = f.example?.trim() ? null : idx.defaultOf(f);
     if (d && !isAutoImported(d.pkg)) external.set(`${d.pkg}.${d.name}`, '');
     const dom = idx.domainOf(f.type);
-    if (dom) { external.set(dom.importPath, ''); continue; }
+    // was Orchescala ohne Import mitbringt (`ProcessStatus`), braucht keinen
+    if (dom) { if (!isAutoImported(dom.pkg)) external.set(dom.importPath, ''); continue; }
     // eine Klasse einer anderen Domain: dort importiert statt hier angelegt
     const ref = idx.referenced.get(f.type);
     if (ref) { external.set(ref.importPath, ''); continue; }
@@ -836,27 +838,27 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   const dir = srcDir(spec, model);
   const out: ScalaFile[] = [];
 
-  // Prozess-Objekt: In, Out und die erzeugten InConfig / InitIn
+  // Prozess-Objekt in der Reihenfolge der Domain: In, InitIn, InConfig, Out —
+  // danach, was sonst im Objekt steht (`enum CustomProcessStatus`)
   const objectName = processObject(spec, model);
   const processParts: string[] = [];
   const processImports = new Set<string>();
-  for (const t of types.filter(t => t.root || t.processOut)) {
+  const member = (t: TypeDef, name = t.name) => {
     for (const l of importsOf(t, idx)) processImports.add(l);
-    processParts.push(indent(renderType({ ...t, name: t.root ? 'In' : 'Out' }, idx)));
-  }
-  // was im Prozess-Objekt selbst steht (`enum CustomProcessStatus`) — dort, nicht in schema/
-  const inObject = (t: TypeDef) => inProcessObject(t, model, pkg);
-  for (const t of types.filter(t => inObject(t) && t.name?.trim())) {
-    for (const l of importsOf(t, idx)) processImports.add(l);
-    processParts.push(indent(renderType(t, idx)));
-  }
-  const inConfig = renderInConfig(spec, processImports, idx);
-  if (inConfig) processParts.push(indent(inConfig));
+    processParts.push(indent(renderType({ ...t, name }, idx)));
+  };
+  for (const t of types.filter(t => t.root)) member(t, 'In');
   const initIn = renderInitIn(spec, idx);
   if (initIn) processParts.push(indent(initIn));
   // die eigenen Felder des InitIn bringen ihre Imports mit — die aus dem In hat das In schon
   const initInType = types.find(t => t.initIn);
   if (initIn && initInType) for (const l of importsOf(initInType, idx)) processImports.add(l);
+  const inConfig = renderInConfig(spec, processImports, idx);
+  if (inConfig) processParts.push(indent(inConfig));
+  for (const t of types.filter(t => t.processOut && !t.root)) member(t, 'Out');
+  // was im Prozess-Objekt selbst steht — dort, nicht in schema/
+  const inObject = (t: TypeDef) => inProcessObject(t, model, pkg);
+  for (const t of types.filter(t => inObject(t) && t.name?.trim())) member(t);
   const customInit = initInExpression(spec, idx);
 
   if (processParts.length) {
@@ -871,6 +873,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
         ...(customInit
           ? ['// im InitWorker (customInit):', ...customInit.split('\n').map(l => `// ${l}`), '']
           : []),
+        // für ein neues Prozess-Objekt — ein bestehendes behält sein `descr`
+        ...(spec.description?.trim() ? [`// descr: ${escape(firstLine(spec.description))}`, ''] : []),
         `// in object ${objectName} einfügen`,
         '// (InConfig und InitIn werden aus dem Ablauf erzeugt — nicht von Hand pflegen)',
         '',

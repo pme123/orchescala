@@ -23,6 +23,7 @@ import { enumHasCase, exampleOf, splitEnumCase, typeShape } from './scalaTypes.t
 import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
 import { uid } from './util.ts';
+import { withOrchescalaTypes } from './orchescalaTypes.ts';
 
 const upper = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 
@@ -288,10 +289,14 @@ export function createMemberType(
  * Paket, aus dem das Feld stammt.
  */
 export function resolveType(base: string, model: Model | null, pkg?: string): DomainType | null {
-  const all = model?.domainTypes ?? [];
+  // die Typen aus `orchescala.domain` (`ProcessStatus`) gibt es immer — auch ohne Katalog
+  const all = withOrchescalaTypes(model?.domainTypes);
   const kandidaten = [
     (t: DomainType) => t.name === base && t.pkg === pkg,
     (t: DomainType) => t.name === base && !!pkg && t.pkg.startsWith(pkg.replace(/\.schema$/, '')),
+    // was Orchescala ohne Import mitbringt, geht einem gleichnamigen Typ eines
+    // anderen Projekts vor (`ProcessStatus`, nicht `…directActivation.ProcessStatus`)
+    (t: DomainType) => t.name === base && (t.pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(t.pkg)),
     (t: DomainType) => t.name === base,
     (t: DomainType) => t.name.endsWith(`.${base}`) && t.pkg === pkg,
     (t: DomainType) => t.name.endsWith(`.${base}`),

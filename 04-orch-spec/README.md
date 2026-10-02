@@ -238,6 +238,18 @@ eines gemeinsamen Feldes (`def clientKey: Long`) aus dem ersten Fall, der
 sie hat. Eine mehrzeilige Beschreibung schreibt der Export als
 `"""…""".stripMargin` — die erste Zeile nur einmal.
 
+**Prozess-Objekt.** Der Einfüge-Block für das Prozess-Objekt hält die
+Reihenfolge der Domain ein: `In`, `InitIn`, `InConfig`, `Out`, danach, was
+sonst im Objekt steht (`enum CustomProcessStatus`). Typen aus
+`orchescala.domain` (`ProcessStatus`) brauchen keinen Import und gehen einem
+gleichnamigen Typ eines anderen Projekts vor — `processStatus:
+ProcessStatus.canceled.type` bleibt ein fester Fall. Für ein neues
+Prozess-Objekt gibt der Export die Beschreibung als `// descr: …` mit.
+`./helper.scala processFromSpec` führt den Block in ein **bestehendes**
+Prozess-Objekt zusammen, statt es neu zu schreiben: `descr`,
+`processLabels`, die Paket-Klausel, die eigenen Imports und eigene Mocks im
+`InConfig` bleiben (siehe die Orchescala-Doku zu `processFromSpec`).
+
 ### Auswahl mit Fällen — ein enum als ADT
 
 Eine **Auswahl** (enum) hat normalerweise nur Werte (`case de, fr`). Ihre

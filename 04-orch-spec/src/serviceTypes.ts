@@ -17,6 +17,7 @@
 // aufgebauten Namen markiert `uncertain`, dass der Import zu prüfen ist.
 
 import type { DomainType, Model, ServiceDef } from './types';
+import { ORCHESCALA_TYPES } from './orchescalaTypes';
 
 export type ServiceMember = 'In' | 'Out';
 
@@ -138,7 +139,8 @@ export function parseDomainRef(ref: string): string | null {
 export function domainTypeOf(ref: string, model: Model | null): DomainType | null {
   const all = model?.domainTypes ?? [];
   const id = parseDomainRef(ref);
-  if (id) return all.find(t => t.id === id) ?? null;
+  // die Typen aus `orchescala.domain` gibt es auch ohne geladenen Katalog
+  if (id) return all.find(t => t.id === id) ?? ORCHESCALA_TYPES.find(t => t.id === id) ?? null;
   if (!/^[A-Z][\w.]*$/.test(ref)) return null;
   const byName = all.filter(t => t.name === ref);
   return byName.length === 1 ? byName[0] : null;
