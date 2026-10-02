@@ -303,7 +303,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     )
     assertEquals(
       OrchSpecNames("globex-savings-openSavingsV2", "globex-savings"),
-      OrchSpecNames("openSavings", 2, "OpenSavingsV2")
+      OrchSpecNames("openSavings", 2, "OpenSavings")
     )
     assertEquals(
       OrchSpecNames("globex-ordercard", "globex-ordercard"),

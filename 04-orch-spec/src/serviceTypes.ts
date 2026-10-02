@@ -9,11 +9,13 @@
 //     → Typen   GetAccount.In · GetAccount.Out
 //
 //   globex-product-openAccountV2            (Teilprozess)
-//     → object  OpenAccountV2
+//     → object  OpenAccount   (die Version steht im Package, nicht im Namen)
 //     → package globex.product.domain.openAccount.v2
 //
 // Im Datenmodell steht ein solcher Feldtyp als `svc:<serviceId>:<In|Out>`.
-// Die Ableitung ist eine gute Vermutung, kein Beweis — bei ungewöhnlich
+// Kennt der Domain-Katalog das Objekt — einen Prozess über `processName`,
+// ein Service-Objekt über seinen Namen —, gilt der Katalog (`catalogObject`).
+// Sonst ist die Ableitung eine gute Vermutung, kein Beweis — bei ungewöhnlich
 // aufgebauten Namen markiert `uncertain`, dass der Import zu prüfen ist.
 
 import type { DomainType, Model, ServiceDef } from './types';
@@ -79,13 +81,40 @@ export function deriveObject(serviceId: string): Derived {
   const pkg = [...head, 'domain', name, version].join('.');
 
   // Steht hinter dem letzten Punkt ein Objektname (Grossbuchstabe), gilt der;
-  // sonst ist der Eintrag ein Prozess und heisst wie sein letztes Segment.
-  const object = dotted.length > 1 && /^[A-Z]/.test(last) ? last : capitalize(tail);
+  // sonst ist der Eintrag ein Prozess und heisst wie sein letztes Segment —
+  // ohne die Version, die steht im Package (`loadPoasV1` → `LoadPoas`)
+  const object = dotted.length > 1 && /^[A-Z]/.test(last) ? last : capitalize(name);
   return { object, pkg, uncertain };
 }
 
-function typeOf(svc: ServiceDef, member: ServiceMember): ServiceType {
-  const { object, pkg, uncertain } = deriveObject(svc.id);
+/**
+ * Objekt und Package aus dem Domain-Katalog: ein Prozess über seine
+ * `processName` (`valiant-vollmacht-loadPoasV1` → `LoadPoas` in
+ * `valiant.vollmacht.domain.loadPoas.v1`), ein Service-Objekt über seinen
+ * Namen (`valiant-services-tadv2.GetProfileCompletionCustomerId` → in
+ * `valiant.services.domain.tad.v2`) — gibt es den Namen mehrfach, das im
+ * abgeleiteten Package, sonst keines. Null, wenn der Katalog es nicht kennt.
+ */
+export function catalogObject(ref: string, model: Model | null): Derived | null {
+  const all = model?.domainTypes ?? [];
+  const asObject = (t: DomainType): Derived => ({ object: t.owner!, pkg: t.pkg, uncertain: false });
+  const process = all.find(t => t.owner && t.processName === ref);
+  if (process) return asObject(process);
+  const derived = deriveObject(ref);
+  if (!ref.includes('.') || !/^[A-Z]/.test(derived.object)) return null;
+  const owners = all.filter(t => t.owner === derived.object);
+  const pkgs = [...new Set(owners.map(t => t.pkg))];
+  if (pkgs.length === 1) return asObject(owners[0]);
+  const same = owners.find(t => t.pkg === derived.pkg);
+  return same ? asObject(same) : null;
+}
+
+/** Objekt und Package — aus dem Katalog, sonst abgeleitet. */
+export const objectOf = (ref: string, model: Model | null): Derived =>
+  catalogObject(ref, model) ?? deriveObject(ref);
+
+function typeOf(svc: ServiceDef, member: ServiceMember, model: Model | null): ServiceType {
+  const { object, pkg, uncertain } = objectOf(svc.id, model);
   return {
     value: serviceRef(svc.id, member),
     serviceId: svc.id,
@@ -103,7 +132,7 @@ function typeOf(svc: ServiceDef, member: ServiceMember): ServiceType {
 export function serviceTypes(model: Model | null): ServiceType[] {
   const out: ServiceType[] = [];
   for (const svc of model?.services ?? []) {
-    out.push(typeOf(svc, 'In'), typeOf(svc, 'Out'));
+    out.push(typeOf(svc, 'In', model), typeOf(svc, 'Out', model));
   }
   return out;
 }
@@ -114,7 +143,7 @@ export function serviceTypeOf(ref: string, model: Model | null): ServiceType | n
   if (!parsed) return null;
   const svc = model?.services.find(s => s.id === parsed.serviceId)
     ?? { id: parsed.serviceId, name: parsed.serviceId } as ServiceDef;
-  return typeOf(svc, parsed.member);
+  return typeOf(svc, parsed.member, model);
 }
 
 // ── Typen aus dem Domain-Katalog ─────────────────────────────────────────────

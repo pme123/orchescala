@@ -18,7 +18,7 @@ import { evaluate, FeelDate, FeelDateTime, FeelDuration } from 'feelin';
 import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
-import { deriveObject } from './serviceTypes.ts';
+import { deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockField } from './bpmn.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
@@ -55,6 +55,8 @@ export interface TypeIndex {
   defaultOf: (f: Field) => DomainDefault | null;
   /** Klassen des Datenmodells, die es in einer anderen Domain schon gibt — je TypeDef-id (siehe `referencedClass`) */
   referenced: Map<string, DomainType>;
+  /** Objekt und Package eines Services oder Prozesses — aus dem Katalog, sonst abgeleitet (`objectOf`) */
+  objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
 }
 
 /** Eine eigene Klasse des Datenmodells (`schema/`) — nicht In / Out des Prozesses oder einer Interaktion. */
@@ -156,6 +158,7 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     defaultOf,
     nameOf,
     referenced,
+    objectOf: (ref: string) => objectOf(ref, model),
   };
 }
 
@@ -635,7 +638,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     if (!step.mockKind) continue;
     const ref = step.serviceId ?? step.calledProcess ?? step.topic;
     if (!ref) continue;
-    const { object, pkg, uncertain } = deriveObject(ref);
+    const { object, pkg, uncertain } = idx ? idx.objectOf(ref) : deriveObject(ref);
     const field = mockField(step.name);
     if (seen.has(field)) continue;
     seen.add(field);
@@ -809,10 +812,8 @@ export function processObject(spec: ProcessSpec, model: Model | null = null): st
   if (echt) return echt.object;
   const teil = packageOf(spec).split('.');
   const proc = teil[teil.length - 2] ?? spec.name;
-  const version = teil[teil.length - 1];
-  const name = proc.replace(/^(.)/, c => c.toUpperCase());
-  // `openSavingsV1` trug die Version schon im Namen — dann nicht doppeln
-  return /^([A-Za-z][A-Za-z0-9]*?)V(\d+)$/.test(spec.name) ? `${name}V${version.slice(1)}` : name;
+  // ohne Version — die steht im Package (`openSavings.v1` → `OpenSavings`)
+  return proc.replace(/^(.)/, c => c.toUpperCase());
 }
 
 function srcDir(spec: ProcessSpec, model: Model | null): string {

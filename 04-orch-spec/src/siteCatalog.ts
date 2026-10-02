@@ -80,8 +80,10 @@ const upper = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 /**
  * Paket und Objekt eines Prozesses aus Projekt und Prozessnamen:
  *
- *   globex-savings     + openSavingsV1     → globex.savings.domain.openSavings.v1 · OpenSavingsV1
- *   globex-product + openAccountV2 → globex.product.domain.openAccount.v2
+ *   globex-savings     + openSavingsV1     → globex.savings.domain.openSavings.v1 · OpenSavings
+ *   globex-product + openAccountV2 → globex.product.domain.openAccount.v2 · OpenAccount
+ *
+ * Die Version steht im Package, nicht im Objektnamen.
  *
  * Sicher ist das nur, wenn der Name die Version trägt und keine Bindestriche
  * enthält. Sonst ist der Katalogname die BPMN-Prozess-ID und nicht der
@@ -95,7 +97,7 @@ export function processTarget(project: string, name: string): { object: string; 
   const proc = camel(m ? m[1] : name);
   const version = m ? `v${m[2]}` : 'v1';
   return {
-    object: upper(camel(name)),
+    object: upper(proc),
     pkg: [...segments, 'domain', proc, version].join('.'),
     uncertain,
   };

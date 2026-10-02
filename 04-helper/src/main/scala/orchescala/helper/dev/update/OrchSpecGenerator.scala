@@ -228,13 +228,13 @@ object OrchSpecNames:
 
   /** The names from the process id - the same way Orch Spec derives them:
     *   - `valiant-addresschange-kundenkontakt-dokumentieren` -> `kundenkontaktDokumentieren`, 1, `KundenkontaktDokumentieren`
-    *   - `globex-savings-openSavingsV2` -> `openSavings`, 2, `OpenSavingsV2`
+    *   - `globex-savings-openSavingsV2` -> `openSavings`, 2, `OpenSavings` (the version is in the package)
     */
   def apply(processId: String, projectName: String): OrchSpecNames =
     val bare = processId.stripPrefix(s"$projectName-")
     bare match
       case Versioned(name, version) =>
-        OrchSpecNames(name, version.toInt, s"${name.head.toUpper}${name.tail}V$version")
+        OrchSpecNames(name, version.toInt, s"${name.head.toUpper}${name.tail}")
       case _                        =>
         val parts = bare.split("[^A-Za-z0-9]+").toSeq.filter(_.nonEmpty)
         val name  =

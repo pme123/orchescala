@@ -660,7 +660,8 @@ bleibt mit und ohne Pattern derselbe.
 ### Wo ein Prozess in der Domain liegt
 
 Aus `globex-savings-openSavingsV1` lässt sich `globex.savings.domain.openSavings.v1` ·
-`OpenSavingsV1` ableiten — der Name trägt die Version. Bei
+`OpenSavings` ableiten — die Version steht im Package, nicht im Objektnamen
+(so heissen 68 von 71 Prozess-Objekten der Kundenprojekte). Bei
 `globex-ordercard` steht in der ID nichts, woraus sich `orderCard`
 gewinnen liesse; die Ableitung ergäbe `ordercard`, und der Bindestrich in
 `globex-ordercard` wäre in einem Package-Namen nicht einmal erlaubt.
@@ -672,6 +673,13 @@ Topic. Über 72 BPMN-Dateien lösen sich so 32 Prozesse und 24 Interaktionen
 **exakt** statt abgeleitet — darunter Fälle, die die Ableitung falsch rät:
 das Topic `…createPensionProductV1.CreatePensionProduct` gehört zum Objekt
 `ComposePensionProduct`, `CreatePensionProduct` ist der Prozess selbst.
+
+Dasselbe gilt für die Objekte, die ein Prozess **ruft** — ein Teilprozess
+im Mock des `InConfig` (`valiant-vollmacht-loadPoasV1` → `LoadPoas` aus
+`valiant.vollmacht.domain.loadPoas.v1`), ein Service-Objekt über seinen
+Namen (`valiant-services-tadv2.GetProfileCompletionCustomerId` liegt in
+`valiant.services.domain.tad.v2`, abgeleitet wäre `…tadv2.domain.tadv2.v1`).
+Der Import kommt dann ohne «Pfad prüfen».
 
 Ohne Katalog-Eintrag bleibt die Ableitung — sie schreibt Umlaute um
 (`Rückbestätigung` → `Rueckbestaetigung`) und lässt keine Bindestriche in

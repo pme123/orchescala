@@ -179,7 +179,7 @@ Or with the exported files:
 ```
 
 The names (process, version, object) come from the process id of the BPMN - the same way _Orch Spec_ derives them
-(`myproject-myProcessV2` -> `myProcess`, `v2`, `MyProcessV2`).
+(`myproject-myProcessV2` -> `myProcess`, `v2`, `MyProcess` - the version is in the package, not in the name).
 
 This creates the same files as `process`, but with the content of the specification:
 ```
