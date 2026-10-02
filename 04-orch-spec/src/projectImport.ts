@@ -26,7 +26,7 @@ import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
 import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
-import { packageOf } from './scala';
+import { packageOf, referencedClass } from './scala';
 import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
 import { enumHasCase, splitEnumCase } from './feel';
@@ -153,6 +153,16 @@ class Converter {
     return t.pkg === this.pkg || t.pkg.startsWith(`${stem}.`) || t.pkg === stem;
   }
 
+  /**
+   * Eine freistehende Klasse **dieses Prozesses** — nur sie kommt ins Datenmodell.
+   * Klassen anderer Prozesse des Projekts und solche, die in einem Objekt stehen
+   * (`ResolveTimerDueDateWithOverwrite.DueDateSpec`, `OrderCard.CustomProcessStatus`),
+   * gibt es schon: sie werden referenziert (der Export schrieb sie sonst nochmals).
+   */
+  private ownProcess(t: DomainType): boolean {
+    return !t.owner && (t.pkg === this.pkg || t.pkg.startsWith(`${this.pkg}.`));
+  }
+
   /** Typ eines Feldes: Grundtyp ohne Option/Seq → Feldtyp der Spezifikation. */
   fieldType(base: string, pkg: string, depth = 0): { type: string; constraint?: string; enumCase?: string } {
     if (isScalar(base)) return { type: base };
@@ -165,7 +175,7 @@ class Converter {
         ?? this.domain.find(t => this.own(t) && t.name === split.base)
         ?? resolveType(split.base, this.model, pkg);
       if (en && enumHasCase(en, split.enumCase)) {
-        const type = this.domain.includes(en) && this.own(en) ? this.convert(en, {}) : domainRef(en.id);
+        const type = this.domain.includes(en) && this.ownProcess(en) ? this.convert(en, {}) : domainRef(en.id);
         return { type, enumCase: split.enumCase };
       }
     }
@@ -191,6 +201,8 @@ class Converter {
         this.unresolved.add(base);
         return { type: base };
       }
+      // eine Klasse eines anderen Prozesses oder in einem Objekt: gibt es schon
+      if (!this.ownProcess(own)) return { type: domainRef(own.id) };
       return { type: this.convert(own, {}) };
     }
     // fremdes Projekt: der Katalog kennt es vielleicht
@@ -262,6 +274,30 @@ class Converter {
     }
     return id;
   }
+}
+
+/**
+ * Klassen, die es in der Domain schon gibt (siehe `referencedClass`), aus dem
+ * Datenmodell nehmen: ältere Importe kopierten Klassen anderer Prozesse und
+ * solche aus einem Objekt hinein. Die Felder zeigen danach auf den Katalog-
+ * Eintrag (`dom:`), die Kopie fällt weg — der Export legte sie sonst nochmals an.
+ */
+export function referenceExistingClasses(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; moved: string[] } {
+  const ownPkg = packageOf(spec, model);
+  const refs = new Map<string, DomainType>();
+  for (const t of spec.types ?? []) {
+    const ref = referencedClass(t, model, ownPkg).type;
+    if (ref) refs.set(t.id, ref);
+  }
+  if (!refs.size) return { spec, moved: [] };
+  const relink = (fs: Field[]) => fs.map(f => (refs.has(f.type) ? { ...f, type: domainRef(refs.get(f.type)!.id) } : f));
+  const types = (spec.types ?? []).filter(t => !refs.has(t.id)).map(t => ({
+    ...t,
+    ...(t.fields ? { fields: relink(t.fields) } : {}),
+    ...(t.values ? { values: t.values.map(v => (v.fields ? { ...v, fields: relink(v.fields) } : v)) } : {}),
+  }));
+  const moved = (spec.types ?? []).filter(t => refs.has(t.id)).map(t => `${t.name} → ${refs.get(t.id)!.pkg}`);
+  return { spec: { ...spec, types }, moved };
 }
 
 /**

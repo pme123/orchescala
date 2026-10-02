@@ -61,23 +61,29 @@ export interface TypeIndex {
 const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId;
 
 /**
- * Eine Klasse des Datenmodells, die es in einer **anderen** Domain schon gibt —
- * über ihren Namen im Katalog (Klassen, enums, Aliase; nicht In / Out eines
- * Objekts): exportiert wird nur, was noch nicht im Katalog steht oder im Package
- * des Prozesses (bzw. darunter). Genau ein fremdes Package: referenziert — wird
- * importiert, nicht angelegt. Mehrere: als neue Klasse exportiert, zu prüfen.
+ * Eine Klasse des Datenmodells, die es in der Domain **schon gibt** — über ihren
+ * Namen im Katalog (Klassen, enums, Aliase; nicht In / Out eines Objekts).
+ * Ins Datenmodell gehören nur neue Klassen und die freistehenden des eigenen
+ * Prozesses; alles andere wird referenziert — importiert, nicht exportiert:
+ * - in einem Objekt des eigenen Prozesses definiert (`ResolveTimerDueDateWithOverwrite.DueDateSpec`,
+ *   `OrderCard.CustomProcessStatus`) — der Export schriebe sie ein zweites Mal als `schema/`
+ * - in genau einem anderen Package; bei mehreren gewinnt eines im selben Projekt
+ *   (`PoaResult` → `valiant.product.domain.loadPoas.v1.schema`). Bleiben mehrere: neu, zu prüfen.
  */
 export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string): { type?: DomainType; ambiguous?: string[] } {
   if (!isSchemaClass(t) || !t.name?.trim()) return {};
-  const hits = new Map<string, DomainType>(); // je Package eine
-  for (const d of model?.domainTypes ?? []) {
-    if (!d.owner && d.name === t.name && (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') && !hits.has(d.pkg)) {
-      hits.set(d.pkg, d);
-    }
-  }
-  if ([...hits.keys()].some(p => p === ownPkg || p.startsWith(`${ownPkg}.`))) return {};
-  const foreign = [...hits.values()];
-  if (foreign.length === 1) return { type: foreign[0] };
+  const inOwn = (d: DomainType) => d.pkg === ownPkg || d.pkg.startsWith(`${ownPkg}.`);
+  const hits = (model?.domainTypes ?? []).filter(d =>
+    (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') &&
+    (d.owner ? d.name === `${d.owner}.${t.name}` : d.name === t.name));
+  if (hits.some(d => inOwn(d) && !d.owner)) return {};
+  const nestedOwn = hits.find(d => inOwn(d) && d.owner);
+  if (nestedOwn) return { type: nestedOwn };
+  const foreign = [...new Map(hits.filter(d => !inOwn(d)).map(d => [d.pkg, d] as [string, DomainType])).values()];
+  const stem = ownPkg.replace(/\.domain\..*$/, '.domain');
+  const sameProject = foreign.filter(d => d.pkg.startsWith(`${stem}.`));
+  const pick = sameProject.length === 1 ? sameProject[0] : foreign.length === 1 ? foreign[0] : undefined;
+  if (pick) return { type: pick };
   return foreign.length ? { ambiguous: foreign.map(d => d.pkg).sort() } : {};
 }
 
@@ -113,7 +119,8 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     if (parseDomainRef(ref)) return domainOf(ref)?.name ?? domainNameOf(ref);
     const svc = serviceOf(ref);
     if (svc) return svc.name;
-    return byId.get(ref)?.name ?? ref;
+    // eine referenzierte Klasse heisst wie im Katalog — `ResolveTimerDueDateWithOverwrite.DueDateSpec`
+    return referenced.get(ref)?.name ?? byId.get(ref)?.name ?? ref;
   };
   // Vorrang: Firmen-Bibliothek (ohne Import), eigenes Projekt, dann die Reihenfolge des Katalogs
   const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);

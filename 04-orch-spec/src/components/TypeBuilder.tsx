@@ -26,7 +26,7 @@ import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
 import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
-import { sharedFields } from '../projectImport';
+import { referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
@@ -159,6 +159,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 
   const idx = useMemo(() => indexTypes(types, model, homeOf(spec)), [types, model, spec]);
   const issues = useMemo(() => checkTypes(types, model), [types, model]);
+  // Klassen, die es in der Domain schon gibt — gehören nicht ins Datenmodell (siehe referencedClass)
+  const existing = useMemo(() => referenceExistingClasses(spec, model), [spec, model]);
   const current = types.find(t => t.id === selected) ?? (selectedIa || showConfig ? null : types[0] ?? null);
 
   const setTypes = (next: TypeDef[]) => onChange({ ...spec, types: next });
@@ -373,6 +375,21 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             );
           })}
 
+          {existing.moved.length > 0 && (
+            <div className={`mx-2 my-1 text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+              <div>
+                {existing.moved.length === 1 ? 'Eine Klasse gibt' : `${existing.moved.length} Klassen gibt`} es schon in der Domain —
+                ins Datenmodell gehören nur neue: {existing.moved.join(', ')}
+              </div>
+              {canEdit && (
+                <button onClick={() => onChange(existing.spec)}
+                  title="Die Felder zeigen danach auf die Klasse im Katalog; die Kopie fällt weg und wird nicht mehr exportiert."
+                  className="mt-1 underline hover:no-underline">
+                  Als Verweis übernehmen
+                </button>
+              )}
+            </div>
+          )}
           <TypeGroup label="Klassen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && t.kind === 'case')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} />
