@@ -11,9 +11,10 @@
 // und — bei Antworten — wer den Faden angefangen hat, eine Chat-Nachricht
 // (siehe useTeamsNotify).
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AtSign, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, ListOrdered, MessageSquare, RotateCcw, Send, Trash2, Workflow, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AtSign, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, ListOrdered, MessageSquare, RotateCcw, Send, SmilePlus, Trash2, Workflow, X } from 'lucide-react';
 import {
-  addReply, addThread, baseOf, removeEntry, removeThread, setResolved, whenFull, whenLabel,
+  addReply, addThread, baseOf, personKey, REACTIONS, removeEntry, removeThread, setResolved, toggleReaction, whenFull, whenLabel,
   type CommentAuthor, type CommentTargetInfo, type Counts,
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
@@ -309,6 +310,88 @@ function TargetPath({ t, isDark, small }: { t: CommentTargetInfo; isDark: boolea
 }
 
 /** Zähler wie die Sprechblase an der Stelle: blau für offene, grauer Haken für erledigte. */
+/**
+ * Reaktionen unter einem Beitrag: je Emoji ein Chip mit Anzahl (eigene
+ * hervorgehoben, Namen im Tooltip); Klick setzt bzw. nimmt die eigene zurück.
+ */
+function ReactionChips({ reactions, me, isDark, onToggle }: {
+  reactions: Record<string, { name: string; email?: string }[]> | undefined;
+  me: { name: string; email?: string }; isDark: boolean; onToggle: ((emoji: string) => void) | null;
+}) {
+  const entries = Object.entries(reactions ?? {}).filter(([, l]) => l.length);
+  if (!entries.length) return null;
+  const myKey = personKey(me);
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {entries.map(([emoji, list]) => {
+        const mine = list.some(x => personKey(x) === myKey);
+        return (
+          <button key={emoji} type="button" disabled={!onToggle} onClick={() => onToggle?.(emoji)}
+            title={`${list.map(x => x.name).join(', ')}${onToggle ? (mine ? ' — klicken nimmt deine Reaktion zurück' : ' — klicken reagiert ebenso') : ''}`}
+            className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-full border text-[11px] leading-none transition-colors disabled:cursor-default ${
+              mine
+                ? (isDark ? 'border-blue-500/50 bg-blue-500/15 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800')
+                : (isDark ? 'border-white/15 text-white/70 hover:border-white/30' : 'border-black/15 text-black/70 hover:border-black/30')}`}>
+            {/* Farb-Emojis übernehmen die Transparenz der Textfarbe — deshalb voll deckend */}
+            <span className={isDark ? 'text-white' : 'text-black'}>{emoji}</span><span className="text-[10px] tabular-nums">{list.length}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Smiley-Knopf mit der Auswahl; schliesst bei Auswahl, Klick daneben, Esc
+ * oder Scrollen. Die Auswahl hängt am body (Portal): die Aktionen der Karte
+ * sind nur beim Überfahren sichtbar, und der Faden scrollt — beides würde sie
+ * sonst ausblenden bzw. abschneiden.
+ */
+function ReactionPicker({ isDark, className, onPick }: { isDark: boolean; className: string; onPick: (emoji: string) => void }) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const toggle = () => {
+    if (pos) { setPos(null); return; }
+    const r = btn.current?.getBoundingClientRect();
+    if (!r) return;
+    const below = r.bottom + 4;
+    setPos({ top: below + 40 > window.innerHeight ? r.top - 40 : below, right: window.innerWidth - r.right });
+  };
+  useEffect(() => {
+    if (!pos) return;
+    const close = () => setPos(null);
+    const down = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!pop.current?.contains(t) && !btn.current?.contains(t)) close();
+    };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    document.addEventListener('mousedown', down);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('scroll', close, true);
+    return () => { document.removeEventListener('mousedown', down); window.removeEventListener('keydown', key, true); window.removeEventListener('scroll', close, true); };
+  }, [pos]);
+  return (
+    <>
+      <button ref={btn} type="button" title="Reagieren" className={className} onClick={toggle}>
+        <SmilePlus size={11} />
+      </button>
+      {pos && createPortal(
+        <div ref={pop} style={{ top: pos.top, right: pos.right }}
+          className={`fixed z-[100] flex gap-0.5 p-1 rounded-lg border shadow-lg ${isDark ? 'bg-[#1f2024] border-white/15 text-white' : 'bg-white border-black/15 text-black'}`}>
+          {REACTIONS.map(e => (
+            <button key={e} type="button" onClick={() => { onPick(e); setPos(null); }}
+              className={`w-7 h-7 rounded text-[15px] leading-none transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+              {e}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 function CountChip({ open, resolved, showResolved, isDark }: { open: number; resolved: number; showResolved: boolean; isDark: boolean }) {
   if (open > 0) {
     return (
@@ -500,8 +583,14 @@ export function CommentsPanel(p: PanelProps) {
               </span>
             )}
             {/* Aktionen erst beim Überfahren der Karte — so bleibt der Text im Vordergrund */}
+            {/* Reagieren immer sichtbar — die übrigen Aktionen erst beim Überfahren der Karte */}
             {p.canEdit && (
-              <span className="ml-auto flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity">
+              <span className="ml-auto flex items-center flex-shrink-0">
+                <ReactionPicker isDark={isDark} className={iconBtn} onPick={emoji => p.onChange(toggleReaction(spec, faden.id, e.id, emoji, p.author))} />
+              </span>
+            )}
+            {p.canEdit && (
+              <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity">
                 {!isReply && (
                   <button type="button" title="Antworten" className={iconBtn}
                     onClick={() => { setReplyTo(replyTo === faden.id ? null : faden.id); setReplyDraft(''); setReplyMentions([]); }}>
@@ -526,6 +615,8 @@ export function CommentsPanel(p: PanelProps) {
             )}
           </div>
           <p className={`text-[11px] leading-relaxed whitespace-pre-wrap break-words mt-0.5 ${isDark ? 'text-white/85' : 'text-black/85'}`}>{renderWithMentions(e.text, e.mentions, isDark)}</p>
+          <ReactionChips reactions={e.reactions} me={p.author} isDark={isDark}
+            onToggle={p.canEdit ? emoji => p.onChange(toggleReaction(spec, faden.id, e.id, emoji, p.author)) : null} />
         </div>
       </div>
     );

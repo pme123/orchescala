@@ -121,6 +121,37 @@ export function setResolved(spec: ProcessSpec, threadId: string, resolved: boole
   };
 }
 
+/**
+ * Reaktionen: eine kleine feste Auswahl statt eines ganzen Emoji-Pickers —
+ * reicht für Zustimmung/Dank/Rückfrage und bleibt in jeder Schrift lesbar.
+ */
+export const REACTIONS = ['👍', '❤️', '😄', '🎉', '🤔', '👀'] as const;
+
+/** Wer reagiert hat — mit Anmeldung über die E-Mail, sonst über den Namen. */
+export const personKey = (p: { name: string; email?: string }) => (p.email?.trim() || p.name.trim()).toLowerCase();
+
+/** Eigene Reaktion an einem Beitrag setzen bzw. zurücknehmen. */
+export function toggleReaction(spec: ProcessSpec, threadId: string, entryId: string, emoji: string, author: CommentAuthor): ProcessSpec {
+  const key = personKey(author);
+  return {
+    ...spec,
+    comments: (spec.comments ?? []).map(t => (t.id !== threadId ? t : {
+      ...t,
+      entries: t.entries.map(e => {
+        if (e.id !== entryId) return e;
+        const list = e.reactions?.[emoji] ?? [];
+        const mine = list.some(x => personKey(x) === key);
+        const next = mine ? list.filter(x => personKey(x) !== key) : [...list, { name: author.name, ...(author.email ? { email: author.email } : {}) }];
+        const reactions = { ...(e.reactions ?? {}), [emoji]: next };
+        if (!next.length) delete reactions[emoji];
+        const { reactions: _old, ...rest } = e;
+        void _old;
+        return Object.keys(reactions).length ? { ...rest, reactions } : rest;
+      }),
+    })),
+  };
+}
+
 /** Einen Faden ganz entfernen. */
 export function removeThread(spec: ProcessSpec, threadId: string): ProcessSpec {
   return { ...spec, comments: (spec.comments ?? []).filter(t => t.id !== threadId) };

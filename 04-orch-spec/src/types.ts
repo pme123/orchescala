@@ -454,6 +454,11 @@ export interface CommentEntry {
    */
   notifyPending?: string[];
   notified?: string[];
+  /**
+   * Reaktionen (👍 ❤️ …): je Emoji die Personen, die so reagiert haben —
+   * nochmals klicken nimmt die eigene zurück (siehe toggleReaction)
+   */
+  reactions?: Record<string, { name: string; email?: string }[]>;
 }
 
 /**

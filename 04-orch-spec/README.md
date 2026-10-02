@@ -899,6 +899,14 @@ holt die Stelle ins Bild. Das Element des offenen Kommentars bekommt einen
 **blauen Rahmen** — die Stelle selbst und ihre Zeile im Baum bzw. in der
 Typliste.
 
+**Reaktionen:** Das Smiley-Icon an jedem Beitrag (immer sichtbar, die
+übrigen Aktionen erst beim Überfahren der Karte) öffnet eine kleine Auswahl (👍 ❤️ 😄 🎉 🤔 👀).
+Reaktionen stehen als Chips mit Anzahl unter dem Text; die eigene ist
+hervorgehoben, der Tooltip nennt, wer so reagiert hat. Ein Klick auf einen
+Chip reagiert ebenso bzw. nimmt die eigene Reaktion zurück. Gespeichert wird
+am Beitrag (`reactions`: Emoji → Personen); wie Kommentare stehen Reaktionen
+nicht im Verlauf und lösen keine Teams-Nachricht aus.
+
 **@-Erwähnungen:** «@» im Kommentar schlägt Personen vor — zuerst die, die im
 Ordner schon gearbeitet oder kommentiert haben (`users.json`), dann Treffer
 aus dem Entra-Verzeichnis. **Teams-Benachrichtigung** (Admin →
