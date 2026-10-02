@@ -876,6 +876,14 @@ Beitrag, Antworten darunter, irgendwann als **erledigt** abgehakt. Erledigte
 bleiben stehen (ausgeblendet, «Erledigte einblenden» zeigt sie): wer später
 dazukommt, soll sehen, was besprochen wurde.
 
+Das Panel ist eine **schwebende Karte** (abgerundet, mit Schatten), nur so
+hoch wie ihr Inhalt — das Eingabefeld steht direkt unter dem Faden. Neben der
+Eigenschaften-Spalte, bei schmalem Fenster darüber; die Breite lässt sich am
+linken Rand ziehen. Beiträge stehen ohne Rahmen untereinander, Antworten
+eingerückt mit Pfeil; die Aktionen (reagieren, antworten, erledigt, löschen)
+sind immer sichtbar. Der Kopf nennt die Stelle als Text: Bereich klein
+darüber, Element · Teil fett. Der Verlauf steht in einer gleichen Karte.
+
 Sprechblasen gibt es an:
 
 | wo | Stellen |
@@ -899,9 +907,7 @@ holt die Stelle ins Bild. Das Element des offenen Kommentars bekommt einen
 **blauen Rahmen** — die Stelle selbst und ihre Zeile im Baum bzw. in der
 Typliste.
 
-**Reaktionen:** Das Smiley-Icon an jedem Beitrag (immer sichtbar, die
-übrigen Aktionen erst beim Überfahren der Karte) öffnet
-dasselbe Raster mit 40 Emojis wie im Eingabefeld (siehe unten).
+**Reaktionen:** Das Smiley-Icon an jedem Beitrag öffnet dasselbe Raster mit 40 Emojis wie im Eingabefeld (siehe unten).
 Reaktionen stehen als Chips mit Anzahl unter dem Text; die eigene ist
 hervorgehoben, der Tooltip nennt, wer so reagiert hat. Ein Klick auf einen
 Chip reagiert ebenso bzw. nimmt die eigene Reaktion zurück. Gespeichert wird

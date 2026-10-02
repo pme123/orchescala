@@ -12,6 +12,7 @@ import { allSteps } from '../bpmn';
 import { commentTargets, whenFull, whenLabel } from '../comments';
 import type { ProcessSpec } from '../types';
 import { PanelWidthHandle, cls } from '../ui';
+import { floatingCard } from './Comments';
 
 interface Props {
   slug: string;
@@ -147,9 +148,7 @@ export default function AuditPanel(p: Props) {
   });
 
   return (
-    <aside style={{ width: p.width }}
-      className={`flex-shrink-0 flex flex-col min-h-0 border-l ${c.border} ${c.panelStrong} ${
-        p.overlay ? 'absolute right-0 top-0 bottom-0 z-30 shadow-2xl max-w-[85vw]' : 'relative max-w-[45vw]'}`}>
+    <aside style={{ width: p.width }} className={floatingCard(isDark, p.overlay)}>
       <PanelWidthHandle isDark={isDark} width={p.width} onWidth={p.onWidth} min={300} max={640} />
       <div className={`px-3 py-2 border-b ${c.border} flex items-center gap-1.5`}>
         <History size={13} className={c.muted} />

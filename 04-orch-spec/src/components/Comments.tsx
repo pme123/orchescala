@@ -12,14 +12,14 @@
 // (siehe useTeamsNotify).
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AtSign, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, ListOrdered, MessageSquare, RotateCcw, Send, Smile, SmilePlus, Trash2, Workflow, X } from 'lucide-react';
+import { AtSign, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, MessageSquare, RotateCcw, Send, Smile, SmilePlus, Trash2, X } from 'lucide-react';
 import {
   addReply, addThread, baseOf, EMOJIS, personKey, removeEntry, removeThread, setResolved, toggleReaction, whenFull, whenLabel,
   type CommentAuthor, type CommentTargetInfo, type Counts,
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
 import type { CommentThread, DirectoryUser, ProcessSpec } from '../types';
-import { PanelWidthHandle, STEP_ICON, cls } from '../ui';
+import { PanelWidthHandle, cls } from '../ui';
 import { useConfirm } from './Confirm';
 
 // ── Kontext ──────────────────────────────────────────────────────────────────
@@ -337,45 +337,19 @@ function MentionTextarea(p: {
 }
 
 // ── Stelle ───────────────────────────────────────────────────────────────────
-/** Das Zeichen des Elements: Schrittart, Klasse/Enum, Interaktion, Prozess. */
-function targetIcon(t: CommentTargetInfo, size = 11): React.ReactNode {
-  if (t.stepKind) { const I = STEP_ICON[t.stepKind]; return <I size={size} className="flex-shrink-0" />; }
-  if (t.typeKind === 'enum') return <ListOrdered size={size} className="flex-shrink-0" />;
-  if (t.typeKind) return <Braces size={size} className="flex-shrink-0" />;
-  if (t.ia) return <Workflow size={size} className="flex-shrink-0" />;
-  return <Workflow size={size} className="flex-shrink-0" />;
-}
-
-/** Farbe des Element-Chips — wie die Chips im Datenmodell und im Schritt-Panel. */
-function targetTone(t: CommentTargetInfo, isDark: boolean): string {
-  if (t.typeKind === 'enum') return isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800';
-  if (t.typeKind || t.ia) return isDark ? 'border-sky-500/40 bg-sky-500/10 text-sky-300' : 'border-sky-300 bg-sky-50 text-sky-800';
-  return isDark ? 'border-white/15 text-white/80' : 'border-black/15 text-black/80';
-}
+/** Die Stelle als Text — Element, bei einem Teil «Element · Teil». */
+const placeText = (t: CommentTargetInfo) => (t.part ? `${t.element ?? t.label} · ${t.part}` : t.element ?? t.label);
 
 /**
- * Die Stelle als Pfad: Chip mit Zeichen und Element, dann der Teil.
- * `mono` für Feldnamen im Datenmodell.
+ * Kommentare und Verlauf als schwebende Karte rechts, wie im arch-review:
+ * abgerundet, mit Schatten, nur so hoch wie der Inhalt (höchstens die
+ * Spalte); bei schmalem Fenster über der rechten Spalte statt daneben.
  */
-function TargetPath({ t, isDark, small }: { t: CommentTargetInfo; isDark: boolean; small?: boolean }) {
-  const c = cls(isDark);
-  const element = t.element ?? t.label;
-  return (
-    <span className="flex items-center gap-1.5 min-w-0">
-      <span className={`inline-flex items-center gap-1 px-1.5 py-px rounded border flex-shrink-0 max-w-[60%] ${small ? 'text-[10px]' : 'text-[11px]'} ${t.typeKind ? 'font-mono' : ''} ${targetTone(t, isDark)}`}>
-        {targetIcon(t, small ? 10 : 11)}<span className="truncate">{element}</span>
-      </span>
-      {t.part && (
-        <>
-          <ChevronRight size={10} className={`flex-shrink-0 ${c.muted}`} />
-          <span className={`truncate ${small ? 'text-[10px]' : 'text-[11px]'} ${t.typeKind ? 'font-mono' : ''} ${isDark ? 'text-white/85' : 'text-black/85'}`}>{t.part}</span>
-        </>
-      )}
-    </span>
-  );
-}
+export const floatingCard = (isDark: boolean, overlay: boolean) =>
+  `flex-shrink-0 flex flex-col min-h-0 self-start max-h-[calc(100%-1.5rem)] rounded-xl border shadow-lg ${
+    isDark ? 'border-white/15 bg-[#16171a]' : 'border-black/15 bg-white'} ${
+    overlay ? 'absolute right-3 top-3 z-30 shadow-2xl max-w-[85vw]' : 'relative m-3 max-w-[45vw]'}`;
 
-/** Zähler wie die Sprechblase an der Stelle: blau für offene, grauer Haken für erledigte. */
 /**
  * Reaktionen unter einem Beitrag: je Emoji ein Chip mit Anzahl (eigene
  * hervorgehoben, Namen im Tooltip); Klick setzt bzw. nimmt die eigene zurück.
@@ -407,6 +381,7 @@ function ReactionChips({ reactions, me, isDark, onToggle }: {
   );
 }
 
+/** Zähler wie die Sprechblase an der Stelle: blau für offene, grauer Haken für erledigte. */
 function CountChip({ open, resolved, showResolved, isDark }: { open: number; resolved: number; showResolved: boolean; isDark: boolean }) {
   if (open > 0) {
     return (
@@ -580,7 +555,8 @@ export function CommentsPanel(p: PanelProps) {
     const e = faden.entries[i];
     const isReply = i > 0;
     return (
-      <div key={e.id} className={`group/entry flex gap-2 ${isReply ? `ml-3 pl-3 border-l ${c.border2}` : ''}`}>
+      <div key={e.id} className={`flex gap-2 ${isReply ? 'ml-5' : ''}`}>
+        {isReply && <CornerDownRight size={12} className={`mt-1 flex-shrink-0 ${c.muted}`} />}
         <AuthorChip name={e.author} email={e.email} initials={initialsFor(e.author)} isDark={isDark} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-[10px]">
@@ -597,16 +573,10 @@ export function CommentsPanel(p: PanelProps) {
                 <Clock size={9} />
               </span>
             )}
-            {/* Aktionen erst beim Überfahren der Karte — so bleibt der Text im Vordergrund */}
-            {/* Reagieren immer sichtbar — die übrigen Aktionen erst beim Überfahren der Karte */}
             {p.canEdit && (
-              <span className="ml-auto flex items-center flex-shrink-0">
+              <span className="ml-auto flex items-center gap-0.5 flex-shrink-0">
                 <EmojiPicker isDark={isDark} title="Reagieren" icon={<SmilePlus size={11} />} buttonClass={() => iconBtn}
                   onPick={emoji => p.onChange(toggleReaction(spec, faden.id, e.id, emoji, p.author))} />
-              </span>
-            )}
-            {p.canEdit && (
-              <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity">
                 {!isReply && (
                   <button type="button" title="Antworten" className={iconBtn}
                     onClick={() => { setReplyTo(replyTo === faden.id ? null : faden.id); setReplyDraft(''); setReplyMentions([]); }}>
@@ -644,7 +614,7 @@ export function CommentsPanel(p: PanelProps) {
     const n = faden.entries.length - 1;
     return (
       <button type="button" onClick={() => toggleExpanded(faden.id)} title="Aufklappen"
-        className={`w-full flex items-center gap-2 text-left text-[10px] px-2 py-1.5 rounded border ${c.border} ${c.hover} ${c.muted}`}>
+        className={`w-full flex items-center gap-2 text-left text-[10px] px-2 py-1.5 rounded ${c.hover} ${c.muted}`}>
         <Check size={11} className={`flex-shrink-0 ${isDark ? 'text-emerald-400/80' : 'text-emerald-600'}`} />
         <span className={`truncate flex-1 min-w-0 ${isDark ? 'text-white/60' : 'text-black/60'}`}>{first?.text}</span>
         <span className="flex-shrink-0">
@@ -655,12 +625,11 @@ export function CommentsPanel(p: PanelProps) {
     );
   };
 
-  /** Ein Faden als Karte: erster Beitrag, Antworten eingerückt, Antwortfeld unten. */
+  /** Ein Faden: erster Beitrag, Antworten eingerückt, Antwortfeld darunter — ohne Rahmen, wie im arch-review. */
   const threadCard = (faden: CommentThread) => {
     if (faden.resolved && !expanded.has(faden.id)) return <div key={faden.id}>{resolvedRow(faden)}</div>;
     return (
-      <div key={faden.id}
-        className={`group/card rounded border px-2 py-2 space-y-2 ${faden.resolved ? `${c.border} opacity-80` : c.border2}`}>
+      <div key={faden.id} className={`space-y-2 ${faden.resolved ? 'opacity-70' : ''}`}>
         {faden.resolved && (
           <button type="button" onClick={() => toggleExpanded(faden.id)} title="Zuklappen"
             className={`w-full flex items-center gap-1.5 text-[10px] ${isDark ? 'text-emerald-400/80' : 'text-emerald-600'}`}>
@@ -671,7 +640,7 @@ export function CommentsPanel(p: PanelProps) {
         )}
         {faden.entries.map((_, i) => entryRow(faden, i))}
         {replyTo === faden.id && (
-          <div className={`ml-3 pl-3 border-l ${c.border2} space-y-1.5`}>
+          <div className="ml-5 space-y-1.5">
             <MentionTextarea {...mentionProps} value={replyDraft} onChange={setReplyDraft} onMention={addMention(setReplyMentions)}
               onSubmit={() => reply(faden)} rows={2} autoFocus className={inputCls}
               placeholder="Antwort … (@ erwähnt jemanden, Ctrl/Cmd+Enter sendet)" />
@@ -691,7 +660,7 @@ export function CommentsPanel(p: PanelProps) {
     const roots = all.filter(t => showResolved || !t.resolved);
     const hidden = all.length - roots.length;
     return (
-      <div className="space-y-2">
+      <div className="space-y-4">
         {roots.length === 0 && (
           <p className={`text-[11px] ${c.muted}`}>
             {hidden > 0 ? `${hidden} erledigte${hidden === 1 ? 'r Kommentar' : ' Kommentare'} ausgeblendet.` : 'Noch keine Kommentare an dieser Stelle.'}
@@ -738,7 +707,7 @@ export function CommentsPanel(p: PanelProps) {
                     <span className="flex-1 min-w-0 space-y-0.5">
                       {t.group === ORPHAN_GROUP
                         ? <span className={`block text-[11px] truncate ${t.label === t.key ? 'font-mono' : ''} ${c.muted2}`} title={t.key}>{t.label}</span>
-                        : <TargetPath t={t} isDark={isDark} small />}
+                        : <span className={`block text-[11px] leading-snug ${t.typeKind ? 'font-mono' : ''} ${isDark ? 'text-white/85' : 'text-black/85'}`}>{placeText(t)}</span>}
                       {letzter && (
                         <span className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
                           <span className={`inline-flex items-center justify-center min-w-[22px] h-4 px-1 rounded-full text-[9px] font-bold border flex-shrink-0 ${isDark ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' : 'bg-blue-50 text-blue-700 border-blue-300'}`}>{initialsFor(letzter.author)}</span>
@@ -761,9 +730,7 @@ export function CommentsPanel(p: PanelProps) {
   const activeInfo = active ? targets.find(t => t.key === active) : null;
 
   return (
-    <aside style={{ width: p.width }}
-      className={`flex-shrink-0 flex flex-col min-h-0 border-l ${c.border} ${c.panelStrong} ${
-        p.overlay ? 'absolute right-0 top-0 bottom-0 z-30 shadow-2xl max-w-[85vw]' : 'relative max-w-[45vw]'}`}>
+    <aside style={{ width: p.width }} className={`${floatingCard(isDark, p.overlay)}`}>
       <PanelWidthHandle isDark={isDark} width={p.width} onWidth={p.onWidth} min={300} max={640} />
       {/* Kopf */}
       <div className={`px-3 py-2 border-b ${c.border} flex items-center gap-1.5`}>
@@ -816,16 +783,11 @@ export function CommentsPanel(p: PanelProps) {
               </button>
             )}
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            {activeInfo.group === ORPHAN_GROUP
-              ? <p className={`text-[11px] leading-snug break-words ${c.muted2}`}>
-                  {activeInfo.label !== activeInfo.key && <>«{activeInfo.label}» — </>}Stelle gibt es nicht mehr <span className="font-mono">({activeInfo.key})</span>
-                </p>
-              : <TargetPath t={activeInfo} isDark={isDark} />}
-            <span className="ml-auto flex-shrink-0">
-              <CountChip open={countOf(activeInfo.key).open} resolved={countOf(activeInfo.key).resolved} showResolved={showResolved} isDark={isDark} />
-            </span>
-          </div>
+          {activeInfo.group === ORPHAN_GROUP
+            ? <p className={`text-[11px] leading-snug break-words ${c.muted2}`}>
+                {activeInfo.label !== activeInfo.key && <>«{activeInfo.label}» — </>}Stelle gibt es nicht mehr <span className="font-mono">({activeInfo.key})</span>
+              </p>
+            : <p className={`text-[11px] font-semibold leading-snug break-words ${(activeInfo as CommentTargetInfo).typeKind ? 'font-mono' : ''} ${isDark ? 'text-white/85' : 'text-black/85'}`}>{placeText(activeInfo)}</p>}
         </div>
       )}
 
