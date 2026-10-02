@@ -26,7 +26,7 @@ import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
 import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
-import { referenceExistingClasses, sharedFields } from '../projectImport';
+import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
@@ -161,6 +161,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const issues = useMemo(() => checkTypes(types, model), [types, model]);
   // Klassen, die es in der Domain schon gibt — gehören nicht ins Datenmodell (siehe referencedClass)
   const existing = useMemo(() => referenceExistingClasses(spec, model), [spec, model]);
+  // … und Klassen, die es dort (noch) nicht gibt — neu, oder der Import fehlt
+  const notInDomain = useMemo(() => classesNotInDomain(spec, model), [spec, model]);
   const current = types.find(t => t.id === selected) ?? (selectedIa || showConfig ? null : types[0] ?? null);
 
   const setTypes = (next: TypeDef[]) => onChange({ ...spec, types: next });
@@ -388,6 +390,12 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                   Als Verweis übernehmen
                 </button>
               )}
+            </div>
+          )}
+          {notInDomain.length > 0 && (
+            <div className={`mx-2 my-1 text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-800'}`}
+              title="Die Klassen im schema-Ordner des Prozesses kommen beim Import immer mit — diese stehen nirgends in der Domain.">
+              {notInDomain.length === 1 ? 'Eine Klasse steht' : `${notInDomain.length} Klassen stehen`} nicht in der Domain — neu, oder fehlt der Import? {notInDomain.join(', ')}
             </div>
           )}
           <TypeGroup label="Klassen" isDark={isDark} all={types}

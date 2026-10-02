@@ -289,6 +289,23 @@ class Converter {
 }
 
 /**
+ * Klassen des Datenmodells, die es in der Domain (noch) nicht gibt — weder im
+ * `schema` noch im Prozess-Objekt noch anderswo. Neu, oder der Import fehlt.
+ * Nur, wenn die Domain den Prozess kennt (sonst wäre alles «neu»).
+ */
+export function classesNotInDomain(spec: ProcessSpec, model: Model | null): string[] {
+  const domain = model?.domainTypes ?? [];
+  if (!domain.some(d => d.processName === spec.processId)) return [];
+  const ownPkg = packageOf(spec, model);
+  return (spec.types ?? [])
+    .filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && t.name?.trim())
+    .filter(t => !referencedClass(t, model, ownPkg).type)
+    .filter(t => !domain.some(d => (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias')
+      && (d.name === t.name || d.name.endsWith(`.${t.name}`))))
+    .map(t => t.name);
+}
+
+/**
  * Klassen, die es in der Domain schon gibt (siehe `referencedClass`), aus dem
  * Datenmodell nehmen: ältere Importe kopierten Klassen anderer Prozesse und
  * solche aus einem Objekt hinein. Die Felder zeigen danach auf den Katalog-
@@ -455,6 +472,12 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   }
   const outT = member(owner, 'Out');
   if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
+
+  // Die Klassen im `schema`-Paket des Prozesses gehören immer dazu — auch die,
+  // die In und Out (noch) nicht brauchen
+  for (const d of domain) {
+    if (!d.owner && d.pkg === `${pkg}.schema` && (d.kind === 'case' || d.kind === 'enum')) conv.convert(d, {});
+  }
 
   // Interaktionen: die Objekte mit Interaktions-Art — die des eigenen Pakets
   // zuerst, damit bei gleichem Namen diese gewinnen

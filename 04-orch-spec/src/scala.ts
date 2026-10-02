@@ -77,6 +77,8 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
     (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') &&
     (d.owner ? d.name === `${d.owner}.${t.name}` : d.name === t.name));
   if (hits.some(d => inOwn(d) && !d.owner)) return {};
+  // im eigenen Prozess-Objekt (`OrderCard.CustomProcessStatus`): gehört zur Spezifikation
+  if (hits.some(d => inOwn(d) && d.owner && d.processName)) return {};
   const nestedOwn = hits.find(d => inOwn(d) && d.owner);
   if (nestedOwn) return { type: nestedOwn };
   const foreign = [...new Map(hits.filter(d => !inOwn(d)).map(d => [d.pkg, d] as [string, DomainType])).values()];
@@ -85,6 +87,18 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
   const pick = sameProject.length === 1 ? sameProject[0] : foreign.length === 1 ? foreign[0] : undefined;
   if (pick) return { type: pick };
   return foreign.length ? { ambiguous: foreign.map(d => d.pkg).sort() } : {};
+}
+
+/**
+ * Steht die Klasse im eigenen Prozess-Objekt (`OrderCard.CustomProcessStatus`)?
+ * Laut Import (`inProcessObject`) oder laut Domain — dann schreibt der Export
+ * sie dorthin und nicht nach `schema/`.
+ */
+export function inProcessObject(t: TypeDef, model: Model | null, ownPkg: string): boolean {
+  if (t.inProcessObject) return true;
+  if (!isSchemaClass({ ...t, inProcessObject: false }) || !t.name?.trim()) return false;
+  return (model?.domainTypes ?? []).some(d => !!d.owner && !!d.processName && d.pkg === ownPkg
+    && (d.kind === 'case' || d.kind === 'enum') && d.name === `${d.owner}.${t.name}`);
 }
 
 /**
@@ -804,7 +818,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     processParts.push(indent(renderType({ ...t, name: t.root ? 'In' : 'Out' }, idx)));
   }
   // was im Prozess-Objekt selbst steht (`enum CustomProcessStatus`) — dort, nicht in schema/
-  for (const t of types.filter(t => t.inProcessObject && t.name?.trim())) {
+  const inObject = (t: TypeDef) => inProcessObject(t, model, pkg);
+  for (const t of types.filter(t => inObject(t) && t.name?.trim())) {
     for (const l of importsOf(t, idx)) processImports.add(l);
     processParts.push(indent(renderType(t, idx)));
   }
@@ -867,7 +882,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   }
 
   // eine Klasse einer anderen Domain wird importiert (siehe importsOf), nicht angelegt
-  for (const t of types.filter(t => t.name?.trim() && isSchemaClass(t) && !idx.referenced.has(t.id))) {
+  for (const t of types.filter(t => t.name?.trim() && isSchemaClass(t) && !inObject(t) && !idx.referenced.has(t.id))) {
     out.push({
       path: `${dir}/schema/${t.name}.scala`,
       content: `package ${pkg}.schema\n${imports(t, idx)}\n${renderType(t, idx)}\n`,
