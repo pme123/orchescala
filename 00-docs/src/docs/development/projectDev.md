@@ -198,6 +198,18 @@ src           - main -> myproject-myProcessV1.bpmn
 ```
 
 `In` gets the `inConfig` (`extends WithConfig[InConfig]`) - an enum `In` in each of its cases.
+It is the one field of the domain classes with a default: `inConfig: Option[InConfig] = None`.
+
+The types of the process object are in the order `In`, `InitIn`, `InConfig`, `Out` - then the other
+types of the object (e.g. `enum CustomProcessStatus`).
+
+**Re-run.** Existing files are not overwritten - they are compared with _Orch Spec_ (`UNCHANGED` / `DIFFERS`).
+The process object is the exception - _Orch Spec_ is merged into it (`UPDATED`):
+- `In`, `Out` and the other types of the export replace the ones with the same name
+  (unless they only differ in blanks and line breaks); a missing one goes to its place in the order above.
+- `InConfig` and `InitIn` only get the fields they miss - what is there (own mocks, examples) stays.
+- Imports are only added if the name is not imported yet (from wherever) and not visible through the package clause.
+- Everything else stays as it is: the package clause, `descr`, `processLabels`, the examples of the process, comments.
 
 Defaults are only in the `InConfig`. An optional field of `In` with a default in _Orch Spec_ stays an `Option` -
 the `InitIn` gets the same field as required, and the InitWorker sets it in `customInit`:

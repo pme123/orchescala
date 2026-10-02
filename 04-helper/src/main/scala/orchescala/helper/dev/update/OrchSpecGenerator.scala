@@ -12,7 +12,8 @@ import orchescala.domain.BpmnProcessType
   * does - and registers them in the `WorkerApp` and the `ApiProjectCreator`.
   *
   * Existing files are never overwritten - so the command can be re-run after adding new classes
-  * in Orch Spec.
+  * in Orch Spec. The one exception is the process object: the types from Orch Spec are merged into
+  * it, everything else in it stays (see `OrchSpecProcessObject.merge`).
   */
 case class OrchSpecGenerator()(using config: DevConfig):
 
@@ -69,8 +70,8 @@ case class OrchSpecGenerator()(using config: DevConfig):
       processFile.headOption.map(_.content).getOrElse(""),
       Option.when(hasSchema)(schemaImport)
     )
-    // only what comes from Orch Spec is compared - the rest of the process object is implementation
-    createOrCompare(domainDir / s"$objectName.scala", processObject.content)(processObject.differences)
+    // only what comes from Orch Spec is merged - the rest of the process object is implementation
+    mergeProcessObject(domainDir / s"$objectName.scala", processObject)
     processObject.warnings.foreach(w => println(s"${Console.YELLOW}WARNING: $w${Console.RESET}"))
 
     // bpmn
@@ -165,6 +166,20 @@ case class OrchSpecGenerator()(using config: DevConfig):
             s"${Console.YELLOW}DIFFERS from Orch Spec: $file (${parts.mkString(", ")}) - merge it manually, or delete it and run again.${Console.RESET}"
           )
   end createOrCompare
+
+  /** The process object: created if it is new, otherwise the types and imports from Orch Spec are
+    * merged into it (see `OrchSpecProcessObject.merge`) - the rest stays.
+    */
+  private def mergeProcessObject(file: os.Path, processObject: OrchSpecProcessObject): Unit =
+    if !os.exists(file) then createIfNotExists(file, processObject.content)
+    else
+      val existing = os.read(file)
+      processObject.differences(existing) match
+        case Seq() => println(s"UNCHANGED: $file")
+        case parts =>
+          os.write.over(file, processObject.merge(existing))
+          println(s"${Console.GREEN}UPDATED from Orch Spec: $file (${parts.mkString(", ")})${Console.RESET}")
+  end mergeProcessObject
 
   private def register(file: os.Path, registration: OrchSpecRegistration): Unit =
     val result =
@@ -558,24 +573,89 @@ case class OrchSpecProcessObject(
       blockLines.drop(start + 1).takeWhile(_.startsWith("// ")).map(_.stripPrefix("// ")).mkString("\n")
     .filter(_.nonEmpty)
 
+  /** `val descr` of the process - the export gives it as `// descr: …` (already escaped). */
+  lazy val descr: String =
+    blockLines.collectFirst { case l if l.startsWith("// descr: ") => l.stripPrefix("// descr: ").trim }
+      .getOrElse("")
+
   /** What differs in an existing process object - only what comes from Orch Spec: the types of
-    * the export (`In`, `Out`, `InConfig`, `InitIn`) and the imports. The rest is implementation.
+    * the export (`In`, `InitIn`, `InConfig`, `Out` and the other types of the block) and the
+    * imports. The rest is implementation.
     */
   def differences(existing: String): Seq[String] =
-    val existingLines  = OrchSpecExport.normalized(existing)
-    val generatedLines = OrchSpecExport.normalized(content)
-    val types          = Seq("In", "Out", "InConfig", "InitIn")
-      .filter(defines)
-      .filter(t => section(generatedLines, t) != section(existingLines, t))
-    val missingImports = (imports ++ schemaImport).filterNot(i => existingLines.exists(_.trim == i.trim))
-    types ++ Option.when(missingImports.nonEmpty)("imports")
+    val existingLines = existing.linesIterator.toSeq
+    val generated     = content.linesIterator.toSeq
+    val types         = ObjectSections(generated).filter(g => blockTypes.contains(g.name))
+      .filter(g => mergeType(existingLines, g, generated) != existingLines)
+      .map(_.name)
+    types ++ Option.when(missingImports(existingLines).nonEmpty)("imports")
   end differences
 
-  // from `case class In(` / `enum In` to the last `end In` (of the companion)
-  private def section(lines: Seq[String], name: String): Seq[String] =
-    val start = lines.indexWhere(l => l.startsWith(s"  case class $name(") || l.matches(s"  enum $name\\b.*"))
-    val end   = lines.lastIndexWhere(_ == s"  end $name")
-    if start < 0 || end < start then Seq.empty else lines.slice(start, end + 1)
+  /** The existing process object with what comes from Orch Spec: each type of the export replaces
+    * the one of the same name, a missing one goes in its place (`In`, `InitIn`, `InConfig`, `Out`,
+    * then the others), missing imports are added. Everything else stays as it is - the package
+    * clause, the other imports, `descr`, `processLabels`, the examples of the process, comments.
+    */
+  def merge(existing: String): String =
+    val generated = content.linesIterator.toSeq
+    val merged    = ObjectSections(generated).filter(g => blockTypes.contains(g.name))
+      .foldLeft(existing.linesIterator.toSeq)(mergeType(_, _, generated))
+    withImports(merged, missingImports(merged)).mkString("\n") + "\n"
+  end merge
+
+  /** One type of the export into the lines of the process object:
+    *   - missing: inserted after the type that comes before it (`typeOrder`),
+    *   - `InConfig` / `InitIn`: only the missing fields are added - they come from the flow, and
+    *     what is there already (own mocks, examples) is implementation,
+    *   - otherwise replaced - unless it differs only in blanks and line breaks.
+    */
+  private def mergeType(lines: Seq[String], g: ObjectSection, generated: Seq[String]): Seq[String] =
+    val replacement = g.lines(generated)
+    val sections    = ObjectSections(lines)
+    sections.find(_.name == g.name) match
+      case Some(e) if Seq("InConfig", "InitIn").contains(g.name) =>
+        lines.patch(e.from, CaseClassParams.addMissing(e.lines(lines), replacement), e.until - e.from)
+      case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
+      case Some(e) => lines.patch(e.from, replacement, e.until - e.from)
+      case None    =>
+        // after the type that comes before it - otherwise before the first type, or before the
+        // examples of the process
+        val before = typeOrder.takeWhile(_ != g.name).reverse
+          .flatMap(n => sections.find(_.name == n)).headOption
+        val at     = before.map(_.until)
+          .orElse(sections.headOption.map(_.from - 1))
+          .getOrElse(lines.indexWhere(l => l.startsWith("  lazy val example") || l.startsWith("end ")))
+        if at < 0 then lines
+        else if before.isDefined then lines.patch(at, "" +: replacement, 0)
+        else lines.patch(at + 1, replacement :+ "", 0)
+    end match
+  end mergeType
+
+  private def compact(lines: Seq[String]) = lines.mkString.replaceAll("\\s+", "")
+
+  // the types of the generated content in the order of the domain - In, InitIn, InConfig, Out
+  private lazy val typeOrder: Seq[String] =
+    val names = ObjectSections(content.linesIterator.toSeq).map(_.name)
+    OrchSpecProcessObject.order.filter(names.contains) ++ names.filterNot(OrchSpecProcessObject.order.contains)
+
+  // what the export brings - the empty classes for the rest are only for a new file
+  private lazy val blockTypes: Seq[String] =
+    val inBlock = ObjectSections(body).map(_.name)
+    // without its own `In` the export still gives the `inConfig` - so the generated `In` counts
+    inBlock ++ Option.when(inBlock.nonEmpty && !inBlock.contains("In"))("In")
+
+  private def missingImports(lines: Seq[String]): Seq[String] =
+    (imports ++ schemaImport).distinct.filterNot(OrchSpecImports.covered(lines, _))
+
+  // after the last import - or after the package clause
+  private def withImports(lines: Seq[String], missing: Seq[String]): Seq[String] =
+    if missing.isEmpty then lines
+    else
+      val lastImport = lines.lastIndexWhere(_.startsWith("import "))
+      if lastImport >= 0 then lines.patch(lastImport + 1, missing, 0)
+      else
+        val lastPackage = lines.lastIndexWhere(_.startsWith("package "))
+        lines.patch(lastPackage + 1, "" +: missing, 0)
 
   // an enum without fields (`case a, b`) cannot carry the inConfig
   lazy val warnings: Seq[String] =
@@ -587,11 +667,19 @@ case class OrchSpecProcessObject(
 
   // no stripMargin - it would also strip the lines of the exported classes
   lazy val content: String =
+    val withIn     = if defines("In") then withConfig(body) else body
+    val sections   = ObjectSections(withIn)
+    val fromBlock  = sections.map(s => s.name -> s.lines(withIn).mkString("\n")).toMap
+    val empties    = Seq(
+      "In"       -> emptyIn,
+      "InitIn"   -> emptyInitIn,
+      "InConfig" -> emptyInConfig,
+      "Out"      -> emptyClass("Out")
+    )
+    // In, InitIn, InConfig, Out - then what else is in the object, as in the export
     val types      =
-      Option.when(!defines("In"))(emptyIn) ++
-        Option.when(body.nonEmpty)(if defines("In") then withConfig(body).mkString("\n") else body.mkString("\n")) ++
-        Seq("InConfig" -> emptyInConfig, "InitIn" -> emptyInitIn, "Out" -> emptyClass("Out"))
-          .collect { case (name, empty) if !defines(name) => empty }
+      empties.map((name, empty) => fromBlock.getOrElse(name, empty)) ++
+        sections.map(_.name).filterNot(OrchSpecProcessObject.order.contains).map(fromBlock)
     val allImports = (imports ++ schemaImport).distinct
     Seq(
       Seq(s"package $pkg", ""),
@@ -600,7 +688,7 @@ case class OrchSpecProcessObject(
         s"object $objectName extends CompanyBpmnProcessDsl:",
         "",
         s"""  val processName = "$processId"""",
-        """  val descr: String = """"",
+        s"""  val descr: String = "$descr"""",
         ""
       ),
       Seq(types.mkString("\n\n"), ""),
@@ -633,7 +721,8 @@ case class OrchSpecProcessObject(
 
   private val withConfigEnd =
     """  ) extends WithConfig[InConfig]:
-      |    lazy val defaultConfig = InConfig()""".stripMargin
+      |    lazy val defaultConfig = InConfig()
+      |  end In""".stripMargin
 
   /** `In` gets the `inConfig` field (default `None` - the examples need not set it) and extends
     * `WithConfig[InConfig]`.
@@ -718,3 +807,141 @@ case class OrchSpecProcessObject(
   private lazy val emptyInitIn = emptyClass("InitIn")
 
 end OrchSpecProcessObject
+
+object OrchSpecProcessObject:
+  /** The order of the types in a process object. */
+  val order: Seq[String] = Seq("In", "InitIn", "InConfig", "Out")
+
+/** A type in an object - `case class X(` / `enum X` with its companion up to `end X`, the
+  * scaladoc or comment right before it included. `from` / `until` are line indexes.
+  */
+case class ObjectSection(name: String, from: Int, until: Int):
+  def lines(all: Seq[String]): Seq[String] = all.slice(from, until)
+
+object ObjectSections:
+  private val start = """  (?:final\s+)?(?:case class|enum)\s+(\w+)\b.*""".r
+
+  /** The types on the first level of an object (indented by two). */
+  def apply(lines: Seq[String]): Seq[ObjectSection] =
+    lines.indices.collect { case i if start.matches(lines(i)) => i }.map: i =>
+      val name = lines(i) match
+        case start(n) => n
+      // the scaladoc or comment right before - without a blank line in between
+      val from = Iterator.iterate(i)(_ - 1).takeWhile(j => j == i || j >= 0 && isDoc(lines(j))).toSeq.last
+      // the class, its body and its companion - until the next member of the object
+      val end  = Iterator.from(i + 1).takeWhile(j => j < lines.size && belongs(lines(j), name)).toSeq
+      val last = (i +: end).filterNot(j => lines(j).isBlank).last
+      ObjectSection(name, from, last + 1)
+    .toSeq
+  end apply
+
+  private def indent(l: String) = l.indexWhere(_ != ' ')
+
+  private def isDoc(l: String) =
+    val t = l.trim
+    indent(l) >= 2 && (t.startsWith("/**") || t.startsWith("*") || t.startsWith("//"))
+
+  private def belongs(l: String, name: String) =
+    l.isBlank || indent(l) > 2 || l.startsWith("  )") ||
+      l == s"  end $name" || l.startsWith(s"  object $name:") || l == s"  object $name"
+end ObjectSections
+
+/** The parameters of a `case class X(` - each with the annotations and comments before it. */
+object CaseClassParams:
+
+  /** The section with the parameters of `generated` it does not have yet - appended to its own. */
+  def addMissing(section: Seq[String], generated: Seq[String]): Seq[String] =
+    val own     = params(section)
+    val missing = params(generated).filterNot(p => own.exists(_.name == p.name))
+    if missing.isEmpty then section
+    else
+      val start = section.indexWhere(_.matches("""\s*(?:final\s+)?case class \w+\(.*"""))
+      val close = closing(section, start)
+      if start < 0 then section
+      else if close < 0 then
+        // `case class InConfig()` - on one line
+        val head = section(start).replaceFirst("""\(\)(.*)$""", "(")
+        val tail = section(start).replaceFirst("""^.*\(\)""", "  )")
+        section.patch(start, (head +: withCommas(missing.map(_.lines))) :+ tail, 1)
+      else
+        val last    = (start + 1 until close).filter(j => isCode(section(j))).lastOption
+        val withEnd = last match
+          case Some(j) if !section(j).trim.endsWith(",") => section.updated(j, section(j) + ",")
+          case _                                         => section
+        withEnd.patch(close, withCommas(missing.map(_.lines)), 0)
+      end if
+  end addMissing
+
+  case class Param(name: String, lines: Seq[String])
+
+  /** The parameters between `case class X(` and its closing `)`. */
+  def params(section: Seq[String]): Seq[Param] =
+    val start = section.indexWhere(_.matches("""\s*(?:final\s+)?case class \w+\(.*"""))
+    val close = closing(section, start)
+    if start < 0 || close < 0 then Seq.empty
+    else
+      // a parameter ends with the comma at depth 0 - its annotations and comments come before it
+      section.slice(start + 1, close).foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
+        case ((done, current, depth), line) =>
+          val d = depth + balance(line)
+          if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
+          else (done, current :+ line, d)
+      match
+        case (done, rest, _) =>
+          (done ++ Option.when(rest.exists(isCode))(rest)).flatMap: ls =>
+            ls.collectFirst { case l if l.matches("""\s*\w+\s*:.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
+              .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
+  end params
+
+  // the comma after the parameter - on its last line of code
+  private def withoutComma(ls: Seq[String]): Seq[String] =
+    val last = ls.lastIndexWhere(isCode)
+    if last < 0 then ls else ls.updated(last, ls(last).stripSuffix(","))
+
+  // the line with the `)` that closes the parameter list - on the same indentation as the start
+  private def closing(section: Seq[String], start: Int): Int =
+    if start < 0 || section(start).matches("""\s*(?:final\s+)?case class \w+\(\).*""") then -1
+    else
+      val indent = section(start).indexWhere(_ != ' ')
+      section.indexWhere(l => l.indexWhere(_ != ' ') == indent && l.trim.startsWith(")"), start + 1)
+
+  private def withCommas(params: Seq[Seq[String]]): Seq[String] =
+    params.zipWithIndex.flatMap: (ls, i) =>
+      if i == params.size - 1 then ls else ls.init :+ (ls.last + ",")
+
+  private def isCode(l: String) = !l.isBlank && !l.trim.startsWith("//")
+
+  // parentheses and brackets outside of strings
+  private def balance(l: String): Int =
+    l.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "").takeWhile(_ => true).split("//").head
+      .foldLeft(0)((d, c) => if "([".contains(c) then d + 1 else if ")]".contains(c) then d - 1 else d)
+end CaseClassParams
+
+/** The imports a file already has - an import is not added again, nor one for a name that is
+  * already imported (from somewhere else - that one wins) or visible through the package clause.
+  */
+object OrchSpecImports:
+  private val Import = """import\s+([\w.]+)\.(\{[^}]*\}|\*|_|\w+)(?:\s+as\s+\w+)?\s*(?://.*)?""".r
+
+  def covered(lines: Seq[String], importLine: String): Boolean =
+    importLine.trim match
+      case Import(prefix, selector) =>
+        val packages = visiblePackages(lines)
+        val existing = lines.map(_.trim).collect { case Import(p, sel) => (p, names(sel)) }
+          .flatMap((p, ns) => (p +: packages.map(pkg => s"$pkg.$p")).map(_ -> ns))
+        val wanted   = names(selector)
+        packages.contains(prefix) && !wanted.contains("*") ||
+        wanted.forall: n =>
+          existing.exists((p, ns) => (p == prefix && (ns.contains(n) || ns.contains("*"))) || (n != "*" && ns.contains(n)))
+      case _                        => lines.exists(_.trim == importLine.trim)
+
+  private def names(selector: String): Seq[String] =
+    selector.stripPrefix("{").stripSuffix("}").split(",").toSeq.map(_.trim.split("\\s+").head)
+      .map(n => if n == "_" then "*" else n).filter(_.nonEmpty)
+
+  // `package valiant.product` + `package domain.orderCard.v1` - both are visible without import
+  private def visiblePackages(lines: Seq[String]): Seq[String] =
+    lines.takeWhile(l => !l.startsWith("object ") && !l.startsWith("import "))
+      .collect { case l if l.startsWith("package ") => l.stripPrefix("package ").trim }
+      .scanLeft("")((acc, p) => if acc.isEmpty then p else s"$acc.$p").drop(1)
+end OrchSpecImports

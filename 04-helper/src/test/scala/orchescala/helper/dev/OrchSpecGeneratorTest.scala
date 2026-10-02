@@ -114,6 +114,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |      inConfig: Option[InConfig] = None
         |  ) extends WithConfig[InConfig]:
         |    lazy val defaultConfig = InConfig()
+        |  end In
         |
         |  object In:""".stripMargin
     ))
@@ -412,5 +413,187 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     val result = registered(blockOf("dWorkers").register(sortedApp))
     assert(result.contains("    cWorkers,\n    dWorkers,\n  )"), result)
     assert(result.contains("  end cWorkers\n\n  private lazy val dWorkers =\n    Seq()\n  end dWorkers\n\nend WorkerApp"), result)
+
+  // ── merge into an existing process object ───────────────────────────────────
+  private lazy val mergeBlock =
+    """// oben in der Datei ergänzen:
+      |// import a.b.domain.other.v1.GetClient
+      |// import a.b.domain.other.v1.GetAccount
+      |// import x.y.Status
+      |
+      |// descr: Neue Karte
+      |
+      |// in object Proc einfügen
+      |
+      |  case class In(
+      |      clientKey: Long,
+      |      amount: Int
+      |  )
+      |
+      |  object In:
+      |    given ApiSchema[In]  = deriveApiSchema
+      |    given InOutCodec[In] = deriveInOutCodec
+      |
+      |    lazy val example = In(
+      |      clientKey = 1L,
+      |      amount = 2
+      |    )
+      |    lazy val exampleMinimal = example
+      |  end In
+      |
+      |  case class InitIn(
+      |      counter: Int = 0
+      |  )
+      |
+      |  object InitIn:
+      |    given ApiSchema[InitIn]  = deriveApiSchema
+      |    given InOutCodec[InitIn] = deriveInOutCodec
+      |
+      |    lazy val example = InitIn()
+      |    lazy val exampleMinimal = example
+      |  end InitIn
+      |
+      |  case class InConfig(
+      |      timer: String = "PT1M",
+      |      getClientMock: Option[GetClient.Out] = None
+      |  )
+      |
+      |  object InConfig:
+      |    given ApiSchema[InConfig]  = deriveApiSchema
+      |    given InOutCodec[InConfig] = deriveInOutCodec
+      |  end InConfig
+      |
+      |  case class Out(
+      |      done: Boolean
+      |  )
+      |
+      |  object Out:
+      |    given ApiSchema[Out]  = deriveApiSchema
+      |    given InOutCodec[Out] = deriveInOutCodec
+      |
+      |    lazy val example = Out(done = true)
+      |    lazy val exampleMinimal = example
+      |  end Out
+      |
+      |  enum CustomStatus:
+      |    case ordered
+      |
+      |  object CustomStatus:
+      |    given ApiSchema[CustomStatus]  = deriveEnumApiSchema
+      |    given InOutCodec[CustomStatus] = deriveEnumInOutCodec
+      |
+      |    lazy val example = CustomStatus.ordered
+      |  end CustomStatus""".stripMargin
+
+  private lazy val mergeObject = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", mergeBlock)
+
+  private val existingProc =
+    """package a.b
+      |package domain.proc.v1
+      |
+      |import a.b.domain.other.v1.{GetAccount, GetClient}
+      |
+      |object Proc extends CompanyBpmnProcessDsl:
+      |
+      |  val processName   = "a-b-procV1"
+      |  val descr: String = "Neubestellung"
+      |
+      |  override def processLabels: ProcessLabels =
+      |    ProcessLabels("Neubestellung", "Nouvelle commande")
+      |
+      |  case class In(
+      |      clientKey: Long,
+      |      inConfig: Option[InConfig] = None
+      |  ) extends WithConfig[InConfig]:
+      |    lazy val defaultConfig = InConfig()
+      |  end In
+      |  object In:
+      |    given ApiSchema[In]  = deriveApiSchema
+      |    given InOutCodec[In] = deriveInOutCodec
+      |    lazy val example = In(clientKey = 1L)
+      |  end In
+      |
+      |  case class InConfig(
+      |      // Mocks
+      |      @description("own mock")
+      |      getClientNextDayMock: Option[
+      |        GetClient.Out
+      |      ] = None
+      |  )
+      |  object InConfig:
+      |    given ApiSchema[InConfig]  = deriveApiSchema
+      |    given InOutCodec[InConfig] = deriveInOutCodec
+      |
+      |  case class Out(done: Boolean)
+      |  object Out:
+      |    given ApiSchema[Out]  = deriveApiSchema
+      |    given InOutCodec[Out] = deriveInOutCodec
+      |    lazy val example = Out(done = true)
+      |    lazy val exampleMinimal = example
+      |  end Out
+      |
+      |  lazy val example = process(
+      |    In.example,
+      |    Out.example,
+      |    InitIn.example
+      |  ).withEnumOutExamples(Out.example)
+      |end Proc
+      |""".stripMargin
+
+  private lazy val merged = mergeObject.merge(existingProc)
+
+  test("merge - keeps package, descr, processLabels and the examples of the process"):
+    assert(merged.startsWith("package a.b\npackage domain.proc.v1\n"), merged)
+    assert(merged.contains("""  val descr: String = "Neubestellung""""), merged)
+    assert(merged.contains("""    ProcessLabels("Neubestellung", "Nouvelle commande")"""), merged)
+    assert(merged.contains("  ).withEnumOutExamples(Out.example)\nend Proc\n"), merged)
+
+  test("merge - In is replaced, the missing InitIn goes after it, the other types after Out"):
+    assert(merged.contains("      amount: Int,\n"), merged)
+    val order = Seq("  case class In(", "  case class InitIn(", "  case class InConfig(", "  case class Out(", "  enum CustomStatus:")
+      .map(merged.indexOf)
+    assert(order.forall(_ >= 0) && order == order.sorted, merged)
+
+  test("merge - InConfig only gets the missing fields, its own mocks stay"):
+    assert(merged.contains(
+      """  case class InConfig(
+        |      // Mocks
+        |      @description("own mock")
+        |      getClientNextDayMock: Option[
+        |        GetClient.Out
+        |      ] = None,
+        |      timer: String = "PT1M",
+        |      getClientMock: Option[GetClient.Out] = None
+        |  )""".stripMargin
+    ), merged)
+
+  test("merge - only imports that are missing"):
+    val imports = merged.linesIterator.filter(_.startsWith("import ")).toSeq
+    assertEquals(imports, Seq("import a.b.domain.other.v1.{GetAccount, GetClient}", "import x.y.Status"))
+
+  test("merge - a type that differs only in blanks stays as it is"):
+    assert(merged.contains("  case class Out(done: Boolean)\n"), merged)
+    assert(!mergeObject.differences(existingProc).contains("Out"), mergeObject.differences(existingProc))
+
+  test("merge - nothing to do the second time"):
+    assertEquals(mergeObject.differences(merged), Seq.empty)
+    assertEquals(mergeObject.merge(merged), merged)
+
+  test("new process object - In, InitIn, InConfig, Out and the descr of the export"):
+    val content = mergeObject.content
+    assert(content.contains("""  val descr: String = "Neue Karte""""), content)
+    val order   = Seq("  case class In(", "  case class InitIn(", "  case class InConfig(", "  case class Out(", "  enum CustomStatus:")
+      .map(content.indexOf)
+    assert(order.forall(_ >= 0) && order == order.sorted, content)
+
+  test("imports - covered by braces, wildcard, the same name or the package clause"):
+    val lines = Seq("package a.b", "package domain.proc.v1", "", "import c.d.{X, Y}", "import e.f.*", "import g.h.Status")
+    assert(OrchSpecImports.covered(lines, "import c.d.X"))
+    assert(OrchSpecImports.covered(lines, "import e.f.Z"))
+    assert(OrchSpecImports.covered(lines, "import i.j.Status"))
+    assert(OrchSpecImports.covered(lines, "import a.b.Thing"))
+    assert(OrchSpecImports.covered(lines, "import a.b.domain.proc.v1.Thing"))
+    assert(!OrchSpecImports.covered(lines, "import a.b.domain.Thing"))
+    assert(!OrchSpecImports.covered(lines, "import a.b.domain.proc.v1.schema.*"))
 
 end OrchSpecGeneratorTest
