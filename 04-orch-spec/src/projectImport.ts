@@ -145,6 +145,8 @@ class Converter {
     private readonly domain: DomainType[], private readonly pkg: string, private readonly model: Model | null,
     /** Objekte, die im Prozess eine Interaktion sind — deren In/Out bleiben **ein** Typ, `Objekt.In` */
     private readonly interactionOwners: Set<string> = new Set(),
+    /** das Prozess-Objekt selbst (`OrderCard`) — was darin steht, gehört zur Spezifikation */
+    private readonly processOwner?: string,
   ) {}
 
   /** Gehört der Typ zum Projekt des Prozesses (gleicher Paketstamm)? */
@@ -154,24 +156,27 @@ class Converter {
   }
 
   /**
-   * Eine freistehende Klasse **dieses Prozesses** — nur sie kommt ins Datenmodell.
-   * Klassen anderer Prozesse des Projekts und solche, die in einem Objekt stehen
-   * (`ResolveTimerDueDateWithOverwrite.DueDateSpec`, `OrderCard.CustomProcessStatus`),
-   * gibt es schon: sie werden referenziert (der Export schrieb sie sonst nochmals).
+   * Eine Klasse **dieses Prozesses** — nur sie kommt ins Datenmodell: freistehend
+   * im Paket oder direkt im Prozess-Objekt (`OrderCard.CustomProcessStatus`).
+   * Klassen anderer Prozesse des Projekts und solche, die in einem anderen
+   * Objekt stehen (`ResolveTimerDueDateWithOverwrite.DueDateSpec`), gibt es
+   * schon: sie werden referenziert (der Export schrieb sie sonst nochmals).
    */
   private ownProcess(t: DomainType): boolean {
-    return !t.owner && (t.pkg === this.pkg || t.pkg.startsWith(`${this.pkg}.`));
+    const inProcessObject = !!t.owner && t.owner === this.processOwner;
+    return (!t.owner || inProcessObject) && (t.pkg === this.pkg || t.pkg.startsWith(`${this.pkg}.`));
   }
 
   /** Typ eines Feldes: Grundtyp ohne Option/Seq → Feldtyp der Spezifikation. */
-  fieldType(base: string, pkg: string, depth = 0): { type: string; constraint?: string; enumCase?: string } {
+  fieldType(base: string, pkg: string, depth = 0, scope?: string): { type: string; constraint?: string; enumCase?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
     // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums:
     // das Feld zeigt auf das enum und nennt den Fall
     const split = splitEnumCase(base);
     if (split && !/\.(In|Out)$/.test(base)) {
-      const en = this.domain.find(t => t.id === `${pkg}.${split.base}`)
+      const en = (scope ? this.domain.find(t => t.id === `${pkg}.${scope}.${split.base}`) : undefined)
+        ?? this.domain.find(t => t.id === `${pkg}.${split.base}`)
         ?? this.domain.find(t => this.own(t) && t.name === split.base)
         ?? resolveType(split.base, this.model, pkg);
       if (en && enumHasCase(en, split.enumCase)) {
@@ -179,9 +184,14 @@ class Converter {
         return { type, enumCase: split.enumCase };
       }
     }
-    // im Projekt: gleiches Paket zuerst, dann der Projektstamm
-    const own = this.domain.find(t => t.id === `${pkg}.${base}`)
-      ?? this.domain.find(t => this.own(t) && (t.name === base || t.name.endsWith(`.${base}`)));
+    // im Projekt: dasselbe Objekt zuerst (`OrderCard.CustomProcessStatus` für ein
+    // Feld von `OrderCard.Out` — nicht das gleichnamige eines anderen Objekts),
+    // dann das gleiche Paket, dann der Projektstamm — dort ein freistehender Typ
+    // vor einem verschachtelten
+    const own = (scope ? this.domain.find(t => t.id === `${pkg}.${scope}.${base}`) : undefined)
+      ?? this.domain.find(t => t.id === `${pkg}.${base}`)
+      ?? this.domain.find(t => this.own(t) && t.name === base)
+      ?? this.domain.find(t => this.own(t) && t.name.endsWith(`.${base}`));
     if (own) {
       if (own.kind === 'alias') {
         if (!own.target) { this.unresolved.add(base); return { type: base }; }
@@ -238,7 +248,7 @@ class Converter {
       // `InConfig` ist Implementations-Detail — weder als Typ noch als Feld
       (ps ?? []).filter(p => !/^InConfig$|\.InConfig$/.test(typeShape(p.type).base)).map(p => {
         const shape = typeShape(p.type);
-        const ft = this.fieldType(shape.base, pkg);
+        const ft = this.fieldType(shape.base, pkg, 0, dom.owner);
         const f: Field = { id: uid('f'), name: p.name, type: ft.type };
         if (shape.optional) f.optional = true;
         if (shape.collection) f.collection = true;
@@ -425,7 +435,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const pkg = procType.pkg;
   // Objekte mit Interaktions-Art — deren In/Out bleiben ein Typ mit vollem Namen
   const interactionOwners = new Set(domain.filter(t => t.owner && objectKind(t)).map(t => t.owner!));
-  const conv = new Converter(domain, pkg, model, interactionOwners);
+  const conv = new Converter(domain, pkg, model, interactionOwners, owner);
   const member = (obj: string, name: string) => domain.find(t => t.id === `${pkg}.${obj}.${name}`) ?? null;
 
   // Prozess: In · InitIn · Out · InConfig
