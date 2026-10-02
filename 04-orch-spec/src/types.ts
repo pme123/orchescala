@@ -383,6 +383,8 @@ export interface TypeDef {
   processOut?: boolean;
   /** gehört zu einer Interaktion — liegt in deren Objekt, nicht in `schema/` */
   interactionId?: string;
+  /** steht im Prozess-Objekt selbst (wie `OrderCard.CustomProcessStatus`) — der Export schreibt es dorthin, nicht nach `schema/` */
+  inProcessObject?: boolean;
   /** das `InitIn` — Felder kommen aus dem Init-Worker, Typen werden gepflegt */
   initIn?: boolean;
   /**

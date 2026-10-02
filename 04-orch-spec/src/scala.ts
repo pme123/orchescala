@@ -58,7 +58,7 @@ export interface TypeIndex {
 }
 
 /** Eine eigene Klasse des Datenmodells (`schema/`) — nicht In / Out des Prozesses oder einer Interaktion. */
-const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId;
+const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && !t.inProcessObject;
 
 /**
  * Eine Klasse des Datenmodells, die es in der Domain **schon gibt** — über ihren
@@ -802,6 +802,11 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   for (const t of types.filter(t => t.root || t.processOut)) {
     for (const l of importsOf(t, idx)) processImports.add(l);
     processParts.push(indent(renderType({ ...t, name: t.root ? 'In' : 'Out' }, idx)));
+  }
+  // was im Prozess-Objekt selbst steht (`enum CustomProcessStatus`) — dort, nicht in schema/
+  for (const t of types.filter(t => t.inProcessObject && t.name?.trim())) {
+    for (const l of importsOf(t, idx)) processImports.add(l);
+    processParts.push(indent(renderType(t, idx)));
   }
   const inConfig = renderInConfig(spec, processImports, idx);
   if (inConfig) processParts.push(indent(inConfig));

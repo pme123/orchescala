@@ -241,6 +241,8 @@ class Converter {
       kind: dom.kind === 'enum' ? 'enum' : 'case',
       status: 'implemented',
       ...(dom.descr ? { description: dom.descr } : {}),
+      // ein Typ im Prozess-Objekt (nicht dessen In/Out/InitIn/InConfig) bleibt beim Export dort
+      ...(dom.owner && dom.owner === this.processOwner && !/^(In|Out|InitIn|InConfig)$/.test(name) ? { inProcessObject: true } : {}),
       ...flags,
     };
     this.types.push(t); // vor den Feldern — gegen Zyklen
