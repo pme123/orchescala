@@ -16,7 +16,7 @@ import { isAdt,
   type Status, type TypeDef,
 } from '../types';
 import {
-  catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction,
+  catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction, withOrigin,
 } from '../interactions';
 import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
 import { caseName, casesOf, isSimpleEnum, renderInConfig } from '../scala';
@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, renderType } from '../scala';
+import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, packageOf, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -197,7 +197,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
    */
   const ausAblauf = () => {
     const next = { ...spec };
-    if (offen.length) next.interactions = [...interactions, ...offen.map(toInteraction)];
+    if (offen.length) next.interactions = [...interactions, ...offen.map(s => withOrigin(toInteraction(s), model, packageOf(spec, model)))];
     const withInit = syncInitIn(next);
     if (withInit) next.types = withInit;
     onChange(next);
@@ -212,7 +212,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     const existing = ia[key] as string | undefined;
     if (existing && types.some(t => t.id === existing)) { pickType(existing); return; }
     const entry = interactionStep(spec, ia) ? catalogEntry(interactionStep(spec, ia)!, model) : null;
-    const t: TypeDef = createMemberType(ia, member, entry, model);
+    const t: TypeDef = createMemberType(ia, member, entry, model, packageOf(spec, model));
     const id = t.id;
     onChange({
       ...spec,

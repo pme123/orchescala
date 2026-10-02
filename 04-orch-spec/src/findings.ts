@@ -11,7 +11,8 @@ import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainRequired, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
-import { catalogEntry, interactionKind } from './interactions';
+import { catalogEntry, interactionKind, interactionOrigin } from './interactions';
+import { packageOf } from './scala';
 import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantAllows, variantsOf } from './variants';
@@ -172,10 +173,15 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 
   // ── Interaktion: was der DSL verlangt ────────────────────────────────────
   if (ia) {
+    // über den Schlüssel im Katalog: ein fremdes Objekt wird referenziert, nicht exportiert
+    const origin = interactionOrigin(ia, model, packageOf(spec, model));
+    if (origin.ambiguous) {
+      warnings.push(`${ia.name}: «${ia.key}» gibt es in mehreren Projekten (${origin.ambiguous.join(', ')}) — wird als neues Objekt exportiert; prüfen.`);
+    }
     const inT = ia.inTypeId ? types.find(t => t.id === ia.inTypeId) : null;
     const outT = ia.outTypeId ? types.find(t => t.id === ia.outTypeId) : null;
     const empty = (t: typeof inT) => !!t && !(t.fields ?? []).some(f => f.name) && !(t.values ?? []).some(v => v.name);
-    if (INTERACTION_META[ia.kind].hasOut) {
+    if (INTERACTION_META[ia.kind].hasOut && !origin.foreign) {
       if (!inT) warnings.push(`${ia.name}: In fehlt.`);
       else if (empty(inT)) warnings.push(`${ia.name}: In ist leer.`);
       if (!outT) warnings.push(`${ia.name}: Out fehlt.`);

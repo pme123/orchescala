@@ -24,7 +24,8 @@ import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
-import { domainMember, initOutputs, interactionKind, loopSettings, resolveType } from './interactions';
+import { domainMember, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
+import { packageOf } from './scala';
 import { domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
 import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
@@ -297,6 +298,9 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
 export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | null, member: 'In' | 'Out'): DomainType | null {
   const all = model?.domainTypes ?? [];
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
+  // eine Interaktion: ihr Objekt über den Schlüssel, aus genau seinem Package —
+  // der Name bzw. das Topic allein trafen das erste Objekt irgendeines Prozesses
+  if (ia) return originMember(interactionOrigin(ia, model, packageOf(spec, model)), member, model);
   // eine Entscheidung (DMN) heisst über ihre decisionId — die Schreibweise kann abweichen
   const decision = step.kind === 'rule' && step.topic
     ? all.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase())?.owner
@@ -304,7 +308,7 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
   const owner = decision ? decision
     : step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
     : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
-    : ia?.name;
+    : undefined;
   return owner ? domainMember(owner, member, model) : null;
 }
 

@@ -245,10 +245,15 @@ export function createMemberType(
   member: 'In' | 'Out',
   entry: ServiceDef | null,
   model: Model | null = null,
+  ownPkg?: string,
 ): TypeDef {
   // Steht der Typ schon in der Domain, gilt der — dort stehen die **echten**
   // Scala-Typen. Der Katalog aus der OpenAPI kennt nur Namen und Bedeutung.
-  const fromDomain = domainMember(ia.name, member, model);
+  // Das Objekt über den Schlüssel der Interaktion, aus seinem Package — der Name
+  // allein trifft in mehreren Prozessen
+  const fromDomain = ownPkg != null
+    ? originMember(interactionOrigin(ia, model, ownPkg), member, model)
+    : domainMember(ia.name, member, model);
   const params = (member === 'In' ? entry?.inputs : entry?.outputs) ?? [];
   const fields: Field[] = fromDomain?.fields?.length
     ? fromDomain.fields.map(f => fieldFromScala(f, model, fromDomain.pkg))
@@ -323,6 +328,72 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     ...(p.default ? { default: p.default } : {}),
     ...(p.description ? { description: p.description } : {}),
   };
+}
+
+/** Die Art des Domain-Objekts laut DSL — wie sie der Katalog führt (`DomainType.dsl`). */
+const DSL_OF: Record<InteractionKind, string> = {
+  userTask: 'UserTask', customTask: 'CustomTask', signal: 'SignalEvent', message: 'MessageEvent',
+};
+
+/** `${execution.getProcessInstanceId()}` (BPMN) und `${SignalEvent.Dynamic_ProcessInstance}` (Domain) sind derselbe Platzhalter. */
+const normKey = (k: string) => k.replace(/\$\{[^}]*\}/g, '{}');
+
+/** Woher das Objekt einer Interaktion stammt. */
+export interface InteractionOrigin {
+  /** Objekt im Katalog — fehlt bei einer neuen Interaktion */
+  owner?: string;
+  pkg?: string;
+  /** aus einer anderen Domain (anderer Prozess, anderes Projekt): referenziert, nicht exportiert */
+  foreign: boolean;
+  /** der Schlüssel steht in mehreren fremden Packages — gilt als neu, ist zu prüfen */
+  ambiguous?: string[];
+}
+
+/**
+ * Die Herkunft einer Interaktion — gesucht über ihren **Schlüssel** (Topic des
+ * Workers, ID der Benutzeraufgabe, `messageName`), nicht über den Namen: Namen
+ * wie `PostProcessOrderUT` gibt es in mehreren Prozessen. Exportiert wird nur,
+ * was noch nicht im Katalog steht oder im Package des Prozesses (`ownPkg`).
+ *
+ * - steht `ia.pkg` (beim Anlegen gemerkt), gilt das
+ * - ein Treffer im eigenen Package: das eigene Objekt
+ * - ein Schlüssel mit Platzhalter (`valiant-cancel-${…}`) gilt je Prozessinstanz —
+ *   den definiert jeder Prozess selbst: ohne eigenen Treffer neu
+ * - genau ein fremder Treffer: referenziert; mehrere: neu, aber zu prüfen
+ */
+export function interactionOrigin(
+  ia: Pick<Interaction, 'kind' | 'key' | 'pkg'>,
+  model: Model | null,
+  ownPkg: string,
+): InteractionOrigin {
+  const key = ia.key?.trim() ?? '';
+  const dsl = DSL_OF[ia.kind];
+  const hits = new Map<string, DomainType>(); // je Package ein Objekt
+  for (const t of model?.domainTypes ?? []) {
+    if (!t.owner || t.dsl !== dsl) continue;
+    const matches = ia.kind === 'customTask' ? t.topicName === key : !!t.key && normKey(t.key) === normKey(key);
+    if (key && matches && !hits.has(t.pkg)) hits.set(t.pkg, t);
+  }
+  if (ia.pkg) return { owner: hits.get(ia.pkg)?.owner, pkg: ia.pkg, foreign: ia.pkg !== ownPkg };
+  const own = hits.get(ownPkg);
+  if (own) return { owner: own.owner, pkg: ownPkg, foreign: false };
+  if (key.includes('${')) return { foreign: false };
+  const foreign = [...hits.values()];
+  if (foreign.length === 1) return { owner: foreign[0].owner, pkg: foreign[0].pkg, foreign: true };
+  return foreign.length ? { foreign: false, ambiguous: foreign.map(t => t.pkg).sort() } : { foreign: false };
+}
+
+/** Eine neue Interaktion merkt sich das Package ihres Objekts im Katalog (siehe `Interaction.pkg`). */
+export function withOrigin(ia: Interaction, model: Model | null, ownPkg: string): Interaction {
+  if (ia.pkg) return ia;
+  const { pkg } = interactionOrigin(ia, model, ownPkg);
+  return pkg ? { ...ia, pkg } : ia;
+}
+
+/** `In` / `Out` des Objekts einer Interaktion — aus genau seinem Package. */
+export function originMember(origin: InteractionOrigin, member: 'In' | 'Out', model: Model | null): DomainType | null {
+  if (!origin.owner || !origin.pkg) return null;
+  return (model?.domainTypes ?? []).find(t => t.pkg === origin.pkg && t.name === `${origin.owner}.${member}`) ?? null;
 }
 
 /** Der Domain-Typ zu einem Objekt-Member, z. B. `CheckDuplicatesUT.In`. */

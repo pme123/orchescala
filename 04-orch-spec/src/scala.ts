@@ -17,7 +17,7 @@
 import { evaluate, FeelDate, FeelDateTime, FeelDuration } from 'feelin';
 import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
-import { loopSettings, mockableSteps } from './interactions.ts';
+import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockField } from './bpmn.ts';
 import {
@@ -807,6 +807,9 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   for (const { ia, section } of sorted) {
     // ohne Namen gäbe es `object  extends …` — erst, wenn sie einen hat
     if (!ia.name?.trim() || geschrieben.has(ia.name) || !stepIds.has(ia.stepId)) continue;
+    // schon in einer anderen Domain (anderer Prozess, anderes Projekt): referenziert —
+    // nicht neu angelegt, der Helper legte sonst Objekt und Worker ein zweites Mal an
+    if (interactionOrigin(ia, model, pkg).foreign) continue;
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,

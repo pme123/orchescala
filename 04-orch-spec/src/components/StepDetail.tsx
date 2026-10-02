@@ -8,7 +8,8 @@ import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight
 import { marked } from 'marked';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
-import { catalogEntry, createMemberType, interactionKind, suggestName } from '../interactions';
+import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
+import { packageOf } from '../scala';
 import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
@@ -784,7 +785,7 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
       ...(step.description ? { descr: step.description } : {}),
       status: 'draft',
     };
-    onSpecChange({ ...spec, interactions: [...interactions, neu] });
+    onSpecChange({ ...spec, interactions: [...interactions, withOrigin(neu, model, packageOf(spec, model))] });
   };
 
   const openMember = (member: 'In' | 'Out') => {
@@ -792,7 +793,7 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
     const key = member === 'In' ? 'inTypeId' : 'outTypeId';
     const existing = ia[key] as string | undefined;
     if (existing && types.some(t => t.id === existing)) { onEditType(existing); return; }
-    const t: TypeDef = createMemberType(ia, member, entry, model);
+    const t: TypeDef = createMemberType(ia, member, entry, model, packageOf(spec, model));
     onSpecChange({
       ...spec,
       types: [...types, t],
@@ -802,6 +803,9 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
   };
 
   const { warn, warnBox } = tones(isDark);
+  // über den Schlüssel im Katalog: ein Objekt eines anderen Prozesses / Projekts wird
+  // referenziert und nicht exportiert
+  const origin = ia ? interactionOrigin(ia, model, packageOf(spec, model)) : null;
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
@@ -809,6 +813,18 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
         <span className={`text-[9px] ${c.muted}`}>{meta.label}</span>
         {ia && <span className={`ml-auto text-[10px] font-mono ${c.muted2}`} title="Objekt der Interaktion im Datenmodell">{ia.name}</span>}
       </div>
+      {origin?.foreign && (
+        <p className={`text-[10px] mb-1 ${c.muted}`}
+          title="Das Objekt gibt es schon in einer anderen Domain — der Export und der Helper legen es nicht nochmals an.">
+          aus <span className="font-mono">{origin.pkg}</span> — referenziert, wird nicht exportiert
+        </p>
+      )}
+      {origin?.ambiguous && (
+        <p className={`text-[10px] mb-1 flex items-start gap-1 ${warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>«{ia?.key}» gibt es in mehreren Projekten ({origin.ambiguous.join(', ')}) — wird als neues Objekt exportiert; prüfen.</span>
+        </p>
+      )}
 
       {!ia ? (
         <button onClick={create} disabled={!canEdit}

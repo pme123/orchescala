@@ -25,7 +25,8 @@ import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
 import { typeShape } from './scalaTypes';
-import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction } from './interactions';
+import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
+import { packageOf } from './scala';
 import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
 import { enumHasCase, splitEnumCase } from './feel';
@@ -318,7 +319,7 @@ export function prepareInteractions(spec: ProcessSpec, model: Model | null): { s
   // geworfen wird) ist **ein** Objekt: die zweite Stelle teilt die Klassen
   const byName = new Map<string, Interaction>(interactions.map(i => [i.name, i]));
   for (const s of offen) {
-    const ia: Interaction = { ...toInteraction(s), status: 'draft' };
+    const ia: Interaction = { ...withOrigin(toInteraction(s), model, packageOf(spec, model)), status: 'draft' };
     const twin = byName.get(ia.name);
     if (twin) {
       if (twin.inTypeId) ia.inTypeId = twin.inTypeId;
@@ -327,11 +328,11 @@ export function prepareInteractions(spec: ProcessSpec, model: Model | null): { s
       continue;
     }
     const entry = catalogEntry(s.step, model);
-    const inT = memberFromStep(ia, 'In', s.step, entry, model);
+    const inT = memberFromStep(ia, 'In', s.step, entry, model, packageOf(spec, model));
     types.push(inT);
     ia.inTypeId = inT.id;
     if (INTERACTION_META[s.kind].hasOut) {
-      const outT = memberFromStep(ia, 'Out', s.step, entry, model);
+      const outT = memberFromStep(ia, 'Out', s.step, entry, model, packageOf(spec, model));
       types.push(outT);
       ia.outTypeId = outT.id;
     }
@@ -343,8 +344,8 @@ export function prepareInteractions(spec: ProcessSpec, model: Model | null): { s
 }
 
 /** `In`/`Out` einer vorbereiteten Interaktion: Katalog, sonst die Mappings des Schritts, sonst leer. */
-function memberFromStep(ia: Interaction, member: 'In' | 'Out', step: Step, entry: ReturnType<typeof catalogEntry>, model: Model | null): TypeDef {
-  const t = createMemberType(ia, member, entry, model);
+function memberFromStep(ia: Interaction, member: 'In' | 'Out', step: Step, entry: ReturnType<typeof catalogEntry>, model: Model | null, ownPkg: string): TypeDef {
+  const t = createMemberType(ia, member, entry, model, ownPkg);
   if (!(t.fields ?? []).some(f => f.name)) {
     const maps = (member === 'In' ? step.inputs : step.outputs) ?? [];
     const fields: Field[] = maps.filter(m => !m.disabled && m.name.trim()).map(m => ({

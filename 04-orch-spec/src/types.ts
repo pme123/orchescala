@@ -361,6 +361,12 @@ export interface Interaction {
   /** ids der TypeDefs für In und Out */
   inTypeId?: string;
   outTypeId?: string;
+  /**
+   * Package des Domain-Objekts, wenn die Interaktion eines aus dem Katalog ist
+   * (über ihren Schlüssel gefunden, siehe `interactionOrigin`) — ein fremdes
+   * Package heisst: referenziert, wird nicht exportiert. Fehlt bei einer neuen.
+   */
+  pkg?: string;
   [key: string]: unknown;
 }
 
