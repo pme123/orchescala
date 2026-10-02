@@ -4,6 +4,7 @@ import './index.css';
 import App from './App';
 import { StoreProvider } from './store';
 import { AuthProvider } from './auth';
+import { ConfirmProvider } from './components/Confirm';
 
 // In einem versteckten iframe (stille Token-Erneuerung durch MSAL) die App
 // NICHT starten — sonst verbraucht sie die Antwort, die das Hauptfenster liest.
@@ -13,7 +14,9 @@ if (window.self !== window.top) {
   <React.StrictMode>
     <AuthProvider>
       <StoreProvider>
-        <App />
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
       </StoreProvider>
     </AuthProvider>
   </React.StrictMode>

@@ -16,6 +16,7 @@ import { BUILTIN_PARAMS, PATTERN_TARGETS, appliesTo, describeFragment, parseFrag
 import { cls, patternTone } from '../ui';
 import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
+import { useConfirm } from './Confirm';
 
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
@@ -153,6 +154,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
   def: PatternDef; isDark: boolean; others: string[];
   onSave: (d: PatternDef) => Promise<boolean>; onDelete: () => void;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const [draft, setDraft] = useState<PatternDef>(def);
   const [engine, setEngine] = useState<EngineId>(def.bpmn.c7 || !def.bpmn.c8 ? 'c7' : 'c8');
@@ -268,7 +270,10 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
               }} title="Als Datei herunterladen" className={`p-1 rounded border ${c.btn}`}><Download size={11} /></button>
             )}
             {xml && (
-              <button onClick={() => { setBpmn(engine, undefined); setEditing(false); }} title={`BPMN für ${engine.toUpperCase()} entfernen`}
+              <button onClick={async () => {
+                if (!await confirm({ title: `BPMN für ${engine === 'c8' ? 'Camunda 8' : 'Camunda 7'} entfernen?`, text: 'Erst «Speichern» übernimmt es — in Spezifikationen dieser Engine wird das Pattern danach nicht mehr angeboten.' })) return;
+                setBpmn(engine, undefined); setEditing(false);
+              }} title={`BPMN für ${engine.toUpperCase()} entfernen`}
                 className={`p-1 rounded border ${c.btn}`}><Trash2 size={11} /></button>
             )}
             <input ref={fileRef} type="file" accept=".bpmn,.xml" className="hidden"

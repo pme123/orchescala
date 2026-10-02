@@ -19,6 +19,7 @@ import {
 import type { DirectorySearchResult } from '../store';
 import type { CommentThread, DirectoryUser, ProcessSpec } from '../types';
 import { PanelWidthHandle, STEP_ICON, cls } from '../ui';
+import { useConfirm } from './Confirm';
 
 // ── Kontext ──────────────────────────────────────────────────────────────────
 interface CommentsCtx {
@@ -357,6 +358,7 @@ interface PanelProps {
 const ORPHAN_GROUP = 'Ohne Stelle';
 
 export function CommentsPanel(p: PanelProps) {
+  const confirm = useConfirm();
   const { spec, isDark, active, showResolved } = p;
   const c = cls(isDark);
   const iconBtn = `p-1 rounded transition-colors disabled:opacity-30 ${isDark ? 'text-white/40 hover:text-white' : 'text-black/40 hover:text-black'}`;
@@ -514,8 +516,8 @@ export function CommentsPanel(p: PanelProps) {
                 )}
                 <button type="button" title={isReply ? 'Antwort löschen' : 'Kommentar samt Antworten löschen'}
                   className={`p-1 rounded transition-colors ${isDark ? 'text-white/30 hover:text-rose-400' : 'text-black/30 hover:text-rose-500'}`}
-                  onClick={() => {
-                    if (!window.confirm(isReply ? 'Antwort endgültig löschen?' : 'Kommentar samt Antworten endgültig löschen?')) return;
+                  onClick={async () => {
+                    if (!await confirm({ title: isReply ? 'Antwort löschen?' : 'Kommentar samt Antworten löschen?', text: 'Das lässt sich nicht rückgängig machen.' })) return;
                     p.onChange(isReply ? removeEntry(spec, faden.id, e.id) : removeThread(spec, faden.id));
                   }}>
                   <Trash2 size={11} />

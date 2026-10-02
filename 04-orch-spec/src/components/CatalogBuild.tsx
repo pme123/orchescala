@@ -30,6 +30,7 @@ import { forgetProject, grantAccess, move, projectsInFolder, rebuild, rememberPr
 import { countByKind, fillGapsOnly, readSite } from '../siteCatalog';
 import type { DomainType, Model, ProjectFolder } from '../types';
 import { cls } from '../ui';
+import { useConfirm } from './Confirm';
 
 /**
  * `Failed to fetch` hat zwei ganz verschiedene Ursachen. Ein Versuch mit
@@ -84,6 +85,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
   canEdit: boolean;
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
@@ -399,7 +401,9 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
                       <button onClick={() => void saveProjects(move(projects, i, 1))} disabled={i === projects.length - 1 || !!busy}
                         title="nach unten — geringerer Vorrang"
                         className={`p-0.5 disabled:opacity-20 ${c.muted}`}><ChevronDown size={12} /></button>
-                      <button onClick={() => void removeProject(p)} disabled={!!busy}
+                      <button onClick={async () => {
+                        if (await confirm({ title: `«${p.name}» aus der Liste nehmen?`, text: 'Der Ordner selbst bleibt, wie er ist.', confirmLabel: 'Entfernen' })) void removeProject(p);
+                      }} disabled={!!busy}
                         title="aus der Liste nehmen" className={`p-0.5 ${c.muted}`}><X size={12} /></button>
                     </>
                   )}

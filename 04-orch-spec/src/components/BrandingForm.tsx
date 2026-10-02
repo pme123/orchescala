@@ -9,6 +9,7 @@ import { Image, Trash2, Upload } from 'lucide-react';
 import type { Model } from '../types';
 import { cls } from '../ui';
 import { FieldLabel, StateChip, flashOf, useFlash } from './adminUi';
+import { useConfirm } from './Confirm';
 
 /** Grenze für das Logo. Ein PNG dieser Grösse ist für eine Kopfzeile üppig. */
 const MAX = 200 * 1024;
@@ -19,6 +20,7 @@ export default function BrandingForm({ model, isDark, onSave }: {
   isDark: boolean;
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const [company, setCompany] = useState(model.company ?? '');
   const [flash, setFlash] = useFlash();
@@ -70,7 +72,7 @@ export default function BrandingForm({ model, isDark, onSave }: {
               <Upload size={11} /> {model.logo ? 'Ersetzen' : 'Wählen'}
             </button>
             {model.logo && (
-              <button onClick={() => void speichern({ logo: undefined })} title="Logo entfernen"
+              <button onClick={async () => { if (await confirm({ title: 'Logo entfernen?' })) void speichern({ logo: undefined }); }} title="Logo entfernen"
                 className={`p-1 ${c.muted}`}><Trash2 size={11} /></button>
             )}
           </div>

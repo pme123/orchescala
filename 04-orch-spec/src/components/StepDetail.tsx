@@ -19,6 +19,7 @@ import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
 import { CommentBubble, useActiveComment } from './Comments';
+import { useConfirm } from './Confirm';
 import { processTarget, stepTarget, sub } from '../comments';
 import { splitPrefix } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
@@ -157,6 +158,7 @@ function ProjectPicker({ spec, isDark, canEdit, prefixes, onRename }: {
 }
 
 function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const vars = spec.variables ?? [];
   const set = (i: number, patch: Partial<(typeof vars)[number]>) =>
@@ -172,8 +174,9 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
             className={`flex-1 text-[10px] px-1.5 py-1 rounded border outline-none ${c.input}`} />
           {v.name && <CommentBubble target={sub(processTarget, `var:${v.name}`)} quiet />}
           {canEdit && (
-            <button onClick={() => onChange({ ...spec, variables: vars.filter((_, k) => k !== i) })}
-              className={`p-1 ${c.muted}`}><X size={10} /></button>
+            <button onClick={async () => {
+              if (await confirm({ title: v.name ? `Variable «${v.name}» entfernen?` : 'Leere Variable entfernen?' })) onChange({ ...spec, variables: vars.filter((_, k) => k !== i) });
+            }} title="Variable entfernen" className={`p-1 ${c.muted}`}><X size={10} /></button>
           )}
         </div>
       ))}
@@ -187,6 +190,7 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
 
 // ── Schritt-Ebene ────────────────────────────────────────────────────────────
 function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram }: Props & { step: Step }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
   const [preview, setPreview] = useState(false);
@@ -330,7 +334,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
-        <button onClick={onClose} className={`p-1 ${c.muted}`}><X size={12} /></button>
+        {/* schliesst nur die Ansicht — gelöscht wird nichts */}
+        <button onClick={onClose} title="Ansicht schliessen (Auswahl aufheben — löscht nichts)" aria-label="Ansicht schliessen"
+          className={`p-1 ${c.muted}`}><X size={12} /></button>
       </div>
 
       {/* Befunde — was rot oder orange im Baum steht, hier ausgeschrieben */}
@@ -490,7 +496,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                   )}
                   {e.code && <CommentBubble target={sub(stepTarget(step.id), `error:${e.code}`)} quiet />}
                   {canEdit && !e.boundary && (
-                    <button onClick={() => onPatch(step.id, { errors: (step.errors ?? []).filter((_, k) => k !== i) })}
+                    <button onClick={async () => {
+                      if (await confirm({ title: e.code ? `Fehler «${e.code}» entfernen?` : 'Leeren Fehler entfernen?' })) onPatch(step.id, { errors: (step.errors ?? []).filter((_, k) => k !== i) });
+                    }}
                       title="Fehler entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>
                   )}
                 </div>
@@ -520,7 +528,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                         placeholder="z. B. .*timeout.* (passt auf die Meldung) — oder = …"
                         className="flex-1 min-w-0" />
                       {canEdit && (
-                        <button onClick={() => setList((step.regexHandledErrors ?? []).filter((_, k) => k !== i))}
+                        <button onClick={async () => {
+                          if (await confirm({ title: r ? `Ausdruck «${r}» entfernen?` : 'Leeren Ausdruck entfernen?' })) setList((step.regexHandledErrors ?? []).filter((_, k) => k !== i));
+                        }}
                           title="Ausdruck entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>
                       )}
                     </div>

@@ -28,6 +28,7 @@ import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexType
 import { BRANCH_COLORS, cls } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
+import { useConfirm } from './Confirm';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 
@@ -552,6 +553,7 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen
   onOpen: (member: 'In' | 'Out') => void;
   onRemove: () => void;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const meta = INTERACTION_META[ia.kind];
   const typeOf = (id?: string) => types.find(t => t.id === id) ?? null;
@@ -566,7 +568,8 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen
             wird nicht exportiert. Bleibt der Schritt weg, kann sie samt In und Out entfernt werden.
           </span>
           {canEdit && (
-            <button onClick={onRemove} className={`flex items-center gap-1 px-2 py-1 rounded border ${c.btn}`}>
+            <button onClick={async () => { if (await confirm({ title: `Interaktion «${ia.name}» entfernen?`, text: 'Samt In und Out.' })) onRemove(); }}
+              className={`flex items-center gap-1 px-2 py-1 rounded border ${c.btn}`}>
               <Trash2 size={11} /> Entfernen
             </button>
           )}
@@ -591,7 +594,8 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
         {canEdit && (
-          <button onClick={onRemove} title="Interaktion entfernen" className={`p-1.5 rounded border ${c.btn}`}>
+          <button onClick={async () => { if (await confirm({ title: `Interaktion «${ia.name}» entfernen?`, text: 'Samt In und Out.' })) onRemove(); }}
+            title="Interaktion entfernen" className={`p-1.5 rounded border ${c.btn}`}>
             <Trash2 size={12} />
           </button>
         )}
@@ -682,6 +686,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
   onOpenType: (id: string) => void;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const fields = t.fields ?? [];
   // Die Scala-Vorschau ist zu, bis man sie will — und merkt sich das
@@ -735,7 +740,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
         {canEdit && !t.root && (
-          <button onClick={onRemove} title="Typ löschen" className={`p-1.5 rounded border ${c.btn}`}>
+          <button onClick={async () => { if (await confirm({ title: `Typ «${t.name || 'ohne Namen'}» löschen?` })) onRemove(); }}
+            title="Typ löschen" className={`p-1.5 rounded border ${c.btn}`}>
             <Trash2 size={12} />
           </button>
         )}
@@ -818,6 +824,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   onAddType: (kind: 'case' | 'enum') => string;
   onOpenType: (id: string) => void;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   // der Typ, zu dem das Feld gehört — er bestimmt, ob es eine Vorgabe gibt
   const owner = types.find(t => t.id === selfId);
@@ -917,7 +924,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           <div className="flex items-center">
             <button onClick={() => onMove(-1)} disabled={index === 0} className={`p-1 disabled:opacity-20 ${c.muted}`}><ArrowUp size={11} /></button>
             <button onClick={() => onMove(1)} disabled={last} className={`p-1 disabled:opacity-20 ${c.muted}`}><ArrowDown size={11} /></button>
-            <button onClick={onRemove} className={`p-1 ${c.muted}`}><Trash2 size={11} /></button>
+            <button onClick={async () => { if (await confirm({ title: f.name ? `Feld «${f.name}» entfernen?` : 'Leeres Feld entfernen?' })) onRemove(); }}
+              title="Feld entfernen" className={`p-1 ${c.muted}`}><Trash2 size={11} /></button>
           </div>
         )}
       </div>
@@ -1033,6 +1041,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
   onAddType: (kind: 'case' | 'enum') => string;
   onOpenType: (id: string) => void;
 }) {
+  const confirm = useConfirm();
   const c = cls(isDark);
   const values = t.values ?? [];
   const set = (i: number, patch: Partial<(typeof values)[number]>) =>
@@ -1128,7 +1137,11 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
                   className={`text-[10px] px-1.5 py-1 rounded border flex-shrink-0 ${c.btn}`}>+ Feld</button>
               )}
               {canEdit && (
-                <button onClick={() => onPatch({ values: values.filter((_, k) => k !== i) })} className={`p-1 ${c.muted}`}>
+                <button onClick={async () => {
+                  if (await confirm({ title: v.name ? `Wert «${v.name}» entfernen?` : 'Leeren Wert entfernen?', ...(fields.length ? { text: 'Samt seinen Feldern.' } : {}) })) {
+                    onPatch({ values: values.filter((_, k) => k !== i) });
+                  }
+                }} title="Wert entfernen" className={`p-1 ${c.muted}`}>
                   <Trash2 size={11} />
                 </button>
               )}
