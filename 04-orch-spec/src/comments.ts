@@ -122,10 +122,17 @@ export function setResolved(spec: ProcessSpec, threadId: string, resolved: boole
 }
 
 /**
- * Reaktionen: eine kleine feste Auswahl statt eines ganzen Emoji-Pickers —
- * reicht für Zustimmung/Dank/Rückfrage und bleibt in jeder Schrift lesbar.
+ * Emojis: eine feste Auswahl statt eines ganzen Emoji-Pickers — Stimmung,
+ * Zustimmung, Hinweis; dieselbe für Reaktionen und für den Kommentartext
+ * (dort einfach ein Zeichen im Klartext).
  */
-export const REACTIONS = ['👍', '❤️', '😄', '🎉', '🤔', '👀'] as const;
+export const EMOJIS = [
+  '😀', '😄', '😊', '😉', '😅', '😂', '🙂', '🙃',
+  '😍', '🤩', '😎', '🤓', '🤔', '🤨', '😐', '😬',
+  '🙄', '😮', '😢', '😭', '😡', '🤯', '😴', '🥳',
+  '👍', '👎', '👏', '🙏', '💪', '👀', '🤝', '❤️',
+  '✅', '❌', '⚠️', '❓', '❗', '💡', '🔥', '🚀',
+] as const;
 
 /** Wer reagiert hat — mit Anmeldung über die E-Mail, sonst über den Namen. */
 export const personKey = (p: { name: string; email?: string }) => (p.email?.trim() || p.name.trim()).toLowerCase();

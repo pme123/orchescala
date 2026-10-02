@@ -12,9 +12,9 @@
 // (siehe useTeamsNotify).
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AtSign, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, ListOrdered, MessageSquare, RotateCcw, Send, SmilePlus, Trash2, Workflow, X } from 'lucide-react';
+import { AtSign, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, ListOrdered, MessageSquare, RotateCcw, Send, Smile, SmilePlus, Trash2, Workflow, X } from 'lucide-react';
 import {
-  addReply, addThread, baseOf, personKey, REACTIONS, removeEntry, removeThread, setResolved, toggleReaction, whenFull, whenLabel,
+  addReply, addThread, baseOf, EMOJIS, personKey, removeEntry, removeThread, setResolved, toggleReaction, whenFull, whenLabel,
   type CommentAuthor, type CommentTargetInfo, type Counts,
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
@@ -154,6 +154,58 @@ function renderWithMentions(text: string, mentions: DirectoryUser[] | undefined,
   return out;
 }
 
+/**
+ * Knopf mit dem Emoji-Raster; schliesst bei Auswahl, Klick daneben, Esc oder
+ * Scrollen. Das Raster hängt am body (Portal), fest am Fenster — unter dem
+ * Knopf bzw. darüber, wenn darunter kein Platz ist: die Aktionen der Karte
+ * sind nur beim Überfahren sichtbar, und der Faden scrollt — beides würde es
+ * sonst ausblenden bzw. abschneiden. mousedown ohne Fokuswechsel: ein
+ * Eingabefeld behält Fokus und Cursor.
+ */
+function EmojiPicker({ isDark, title, icon, buttonClass, onPick }: {
+  isDark: boolean; title: string; icon: React.ReactNode; buttonClass: (open: boolean) => string; onPick: (emoji: string) => void;
+}) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const toggle = () => {
+    if (pos) { setPos(null); return; }
+    const r = btn.current?.getBoundingClientRect();
+    if (!r) return;
+    const h = 5 * 28 + 10;
+    setPos({ top: r.bottom + 4 + h > window.innerHeight ? r.top - 4 - h : r.bottom + 4, right: window.innerWidth - r.right });
+  };
+  useEffect(() => {
+    if (!pos) return;
+    const close = () => setPos(null);
+    const down = (e: MouseEvent) => { const t = e.target as Node; if (!pop.current?.contains(t) && !btn.current?.contains(t)) close(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    document.addEventListener('mousedown', down);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('scroll', close, true);
+    return () => { document.removeEventListener('mousedown', down); window.removeEventListener('keydown', key, true); window.removeEventListener('scroll', close, true); };
+  }, [pos]);
+  return (
+    <>
+      <button ref={btn} type="button" title={title} onMouseDown={e => e.preventDefault()} onClick={toggle} className={buttonClass(!!pos)}>
+        {icon}
+      </button>
+      {pos && createPortal(
+        <div ref={pop} style={{ top: pos.top, right: pos.right }}
+          className={`fixed z-[100] grid grid-cols-8 gap-0.5 p-1 rounded-lg border shadow-lg ${isDark ? 'bg-[#1f2024] border-white/15 text-white' : 'bg-white border-black/15 text-black'}`}>
+          {EMOJIS.map(e => (
+            <button key={e} type="button" onMouseDown={ev => ev.preventDefault()} onClick={() => { onPick(e); setPos(null); }}
+              className={`w-7 h-7 rounded text-[15px] leading-none transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+              {e}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 function MentionTextarea(p: {
   value: string;
   onChange: (v: string) => void;
@@ -242,6 +294,16 @@ function MentionTextarea(p: {
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMenu(null); }
   };
 
+  // Emoji an der Cursor-Position einfügen (bzw. statt der Markierung)
+  const insertEmoji = (emoji: string) => {
+    const el = ref.current;
+    const start = el?.selectionStart ?? p.value.length;
+    const end = el?.selectionEnd ?? start;
+    p.onChange(p.value.slice(0, start) + emoji + p.value.slice(end));
+    const caret = start + emoji.length;
+    window.setTimeout(() => { const t = ref.current; if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(caret, caret); } }, 0);
+  };
+
   const muted = isDark ? 'text-white/40' : 'text-black/40';
   return (
     <div className="relative">
@@ -249,7 +311,11 @@ function MentionTextarea(p: {
         onChange={e => { p.onChange(e.target.value); requestAnimationFrame(detect); }}
         onKeyDown={onKeyDown} onKeyUp={e => { if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) detect(); }}
         onClick={detect} onBlur={() => window.setTimeout(() => setMenu(null), 150)}
-        className={p.className} />
+        className={`${p.className} pr-7`} />
+      <EmojiPicker isDark={isDark} title="Emoji einfügen" icon={<Smile size={12} />} onPick={insertEmoji}
+        buttonClass={open => `absolute right-1.5 top-1.5 p-0.5 rounded transition-colors ${open
+          ? (isDark ? 'text-white' : 'text-black')
+          : (isDark ? 'text-white/30 hover:text-white/80' : 'text-black/30 hover:text-black/80')}`} />
       {menu && (items.length > 0 || remoteBusy || menu.query.length > 0) && (
         <div className={`absolute left-0 right-0 bottom-full mb-1 z-20 rounded border shadow-lg overflow-hidden ${isDark ? 'bg-neutral-900 border-white/15' : 'bg-white border-black/15'}`}>
           {items.map((u, i) => (
@@ -338,57 +404,6 @@ function ReactionChips({ reactions, me, isDark, onToggle }: {
         );
       })}
     </div>
-  );
-}
-
-/**
- * Smiley-Knopf mit der Auswahl; schliesst bei Auswahl, Klick daneben, Esc
- * oder Scrollen. Die Auswahl hängt am body (Portal): die Aktionen der Karte
- * sind nur beim Überfahren sichtbar, und der Faden scrollt — beides würde sie
- * sonst ausblenden bzw. abschneiden.
- */
-function ReactionPicker({ isDark, className, onPick }: { isDark: boolean; className: string; onPick: (emoji: string) => void }) {
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-  const btn = useRef<HTMLButtonElement>(null);
-  const pop = useRef<HTMLDivElement>(null);
-  const toggle = () => {
-    if (pos) { setPos(null); return; }
-    const r = btn.current?.getBoundingClientRect();
-    if (!r) return;
-    const below = r.bottom + 4;
-    setPos({ top: below + 40 > window.innerHeight ? r.top - 40 : below, right: window.innerWidth - r.right });
-  };
-  useEffect(() => {
-    if (!pos) return;
-    const close = () => setPos(null);
-    const down = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!pop.current?.contains(t) && !btn.current?.contains(t)) close();
-    };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
-    document.addEventListener('mousedown', down);
-    window.addEventListener('keydown', key, true);
-    window.addEventListener('scroll', close, true);
-    return () => { document.removeEventListener('mousedown', down); window.removeEventListener('keydown', key, true); window.removeEventListener('scroll', close, true); };
-  }, [pos]);
-  return (
-    <>
-      <button ref={btn} type="button" title="Reagieren" className={className} onClick={toggle}>
-        <SmilePlus size={11} />
-      </button>
-      {pos && createPortal(
-        <div ref={pop} style={{ top: pos.top, right: pos.right }}
-          className={`fixed z-[100] flex gap-0.5 p-1 rounded-lg border shadow-lg ${isDark ? 'bg-[#1f2024] border-white/15 text-white' : 'bg-white border-black/15 text-black'}`}>
-          {REACTIONS.map(e => (
-            <button key={e} type="button" onClick={() => { onPick(e); setPos(null); }}
-              className={`w-7 h-7 rounded text-[15px] leading-none transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
-              {e}
-            </button>
-          ))}
-        </div>,
-        document.body,
-      )}
-    </>
   );
 }
 
@@ -586,7 +601,8 @@ export function CommentsPanel(p: PanelProps) {
             {/* Reagieren immer sichtbar — die übrigen Aktionen erst beim Überfahren der Karte */}
             {p.canEdit && (
               <span className="ml-auto flex items-center flex-shrink-0">
-                <ReactionPicker isDark={isDark} className={iconBtn} onPick={emoji => p.onChange(toggleReaction(spec, faden.id, e.id, emoji, p.author))} />
+                <EmojiPicker isDark={isDark} title="Reagieren" icon={<SmilePlus size={11} />} buttonClass={() => iconBtn}
+                  onPick={emoji => p.onChange(toggleReaction(spec, faden.id, e.id, emoji, p.author))} />
               </span>
             )}
             {p.canEdit && (

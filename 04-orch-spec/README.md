@@ -900,12 +900,19 @@ holt die Stelle ins Bild. Das Element des offenen Kommentars bekommt einen
 Typliste.
 
 **Reaktionen:** Das Smiley-Icon an jedem Beitrag (immer sichtbar, die
-übrigen Aktionen erst beim Überfahren der Karte) öffnet eine kleine Auswahl (👍 ❤️ 😄 🎉 🤔 👀).
+übrigen Aktionen erst beim Überfahren der Karte) öffnet
+dasselbe Raster mit 40 Emojis wie im Eingabefeld (siehe unten).
 Reaktionen stehen als Chips mit Anzahl unter dem Text; die eigene ist
 hervorgehoben, der Tooltip nennt, wer so reagiert hat. Ein Klick auf einen
 Chip reagiert ebenso bzw. nimmt die eigene Reaktion zurück. Gespeichert wird
 am Beitrag (`reactions`: Emoji → Personen); wie Kommentare stehen Reaktionen
 nicht im Verlauf und lösen keine Teams-Nachricht aus.
+
+**Emojis im Text:** Das Smiley oben rechts im Eingabefeld (neuer Kommentar
+und Antwort) öffnet ein Raster mit 40 gängigen Emojis — Stimmung (😀 🤔 😬 …),
+Zustimmung (👍 👏 🙏 …) und Hinweise (✅ ❌ ⚠️ 💡 …). Das gewählte Emoji
+landet an der Cursor-Position bzw. ersetzt die Markierung; das Feld behält
+den Fokus. Emojis sind gewöhnliche Zeichen im Kommentartext.
 
 **@-Erwähnungen:** «@» im Kommentar schlägt Personen vor — zuerst die, die im
 Ordner schon gearbeitet oder kommentiert haben (`users.json`), dann Treffer
