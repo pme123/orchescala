@@ -243,6 +243,8 @@ class Converter {
       ...(dom.descr ? { description: dom.descr } : {}),
       // ein Typ im Prozess-Objekt (nicht dessen In/Out/InitIn/InConfig) bleibt beim Export dort
       ...(dom.owner && dom.owner === this.processOwner && !/^(In|Out|InitIn|InConfig)$/.test(name) ? { inProcessObject: true } : {}),
+      // woher — dann gilt sie als Klasse des Prozesses, auch gegen einen älteren Katalog
+      domainId: dom.id,
       ...flags,
     };
     this.types.push(t); // vor den Feldern — gegen Zyklen

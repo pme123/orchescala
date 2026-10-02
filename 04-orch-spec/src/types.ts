@@ -385,6 +385,11 @@ export interface TypeDef {
   interactionId?: string;
   /** steht im Prozess-Objekt selbst (wie `OrderCard.CustomProcessStatus`) — der Export schreibt es dorthin, nicht nach `schema/` */
   inProcessObject?: boolean;
+  /**
+   * aus welchem Domain-Typ der Import die Klasse übernommen hat (`…orderCard.v1.schema.DueDateSpec`) —
+   * sie gehört zum Prozess, auch wenn ein älterer Katalog sie noch anderswo führt
+   */
+  domainId?: string;
   /** das `InitIn` — Felder kommen aus dem Init-Worker, Typen werden gepflegt */
   initIn?: boolean;
   /**

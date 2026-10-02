@@ -72,6 +72,9 @@ const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !
  */
 export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string): { type?: DomainType; ambiguous?: string[] } {
   if (!isSchemaClass(t) || !t.name?.trim()) return {};
+  // aus der Domain dieses Prozesses importiert (frei im Paket bzw. in schema/) —
+  // ein älterer Katalog, der sie noch in einem Objekt führt, ändert daran nichts
+  if (t.domainId && (t.domainId === `${ownPkg}.${t.name}` || t.domainId === `${ownPkg}.schema.${t.name}`)) return {};
   const inOwn = (d: DomainType) => d.pkg === ownPkg || d.pkg.startsWith(`${ownPkg}.`);
   const hits = (model?.domainTypes ?? []).filter(d =>
     (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') &&
