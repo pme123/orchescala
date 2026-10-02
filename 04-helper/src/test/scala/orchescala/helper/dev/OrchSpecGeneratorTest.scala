@@ -63,6 +63,16 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       Seq("PrepareOrderCard", "CreateAllPoa")
     )
 
+  test("a custom task of another project is foreign - neither domain object nor worker"):
+    def task(topic: String) = s"object T extends CompanyBpmnCustomTaskDsl:\n  val topicName = \"$topic\"\n"
+    val processId = "valiant-product-orderCard"
+    assert(!OrchSpecExport.isForeign(task("valiant-product-orderCard-PrepareOrderCard"), processId))
+    assert(!OrchSpecExport.isForeign(task("valiant-product-orderCardV1-CreateAllPoaStatus90"), processId))
+    assert(OrchSpecExport.isForeign(task("valiant-addresschange-addressChangeV1-AdjustProcessVariables"), processId))
+    // the others decides the export of Orch Spec (with the catalog) - and plain classes are always own
+    assert(!OrchSpecExport.isForeign("object X extends CompanyBpmnUserTaskDsl:\n  val name = \"T\"\n", processId))
+    assert(!OrchSpecExport.isForeign("case class Address(street: String)\n", processId))
+
   test("topicName of a worker object"):
     val content = "object Check extends CompanyBpmnCustomTaskDsl:\n  val topicName     = \"valiant-product-orderCard-Check\"\n"
     assertEquals(OrchSpecExport.topicName(content), Some("valiant-product-orderCard-Check"))

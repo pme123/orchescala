@@ -45,8 +45,17 @@ case class OrchSpecGenerator()(using config: DevConfig):
     val schemaImport              = s"import $pkg.schema.*"
     val processId                 = bpmnProcessId.getOrElse(setupElement.identifier)
 
+    // objects of another project (a custom task whose topic is not of this process) exist there
+    // already - neither their domain object nor their worker is created here
+    val (ownFiles, foreignFiles) = classFiles.partition(f => !OrchSpecExport.isForeign(f.content, processId))
+    foreignFiles.flatMap(f => OrchSpecExport.interaction(f.content).map(_._1 -> OrchSpecExport.topicName(f.content)))
+      .foreach: (name, topic) =>
+        println(
+          s"${Console.YELLOW}$name (${topic.getOrElse("-")}) is not of $processId - exists in its project, not created.${Console.RESET}"
+        )
+
     // domain
-    classFiles.foreach: file =>
+    ownFiles.foreach: file =>
       val inSchema = file.path.segments.contains("schema")
       createOrCompare(
         domainDir / file.path.relativeTo(OrchSpecExport.processDir(files)),
@@ -88,15 +97,10 @@ case class OrchSpecGenerator()(using config: DevConfig):
       processObject.customInit
         .getOrElse(if processObject.hasInitIn then "InitIn.example" else "InitIn()")
     )
-    val interactions = classFiles.flatMap(f =>
+    val interactions = ownFiles.flatMap(f =>
       OrchSpecExport.interaction(f.content).map((name, dsl) => (name, dsl, OrchSpecExport.topicName(f.content)))
     )
     val customTasks  = OrchSpecExport.workerNames(interactions, processId)
-    interactions.collect { case (name, "CustomTask", topic) if !customTasks.contains(name) => name -> topic }
-      .foreach: (name, topic) =>
-        println(
-          s"${Console.YELLOW}$name (${topic.getOrElse("-")}) is not a worker of $processId - not created.${Console.RESET}"
-        )
     customTasks.foreach: name =>
       WorkerGenerator().createWorker(SetupElement("CustomTask", processName, name, version))
     val workers      = objectName +: customTasks
@@ -491,6 +495,14 @@ object OrchSpecExport:
     */
   def workerNames(interactions: Seq[(String, String, Option[String])], processId: String): Seq[String] =
     interactions.collect { case (name, "CustomTask", Some(topic)) if topic.startsWith(processId) => name }
+
+  /** An interaction object of another project: a custom task whose topic does not start with the
+    * process id - its domain object and worker exist there (the export of Orch Spec leaves out the
+    * others of another package; it knows the catalog).
+    */
+  def isForeign(content: String, processId: String): Boolean =
+    interaction(content).exists((_, dsl) => dsl == "CustomTask") &&
+      !topicName(content).exists(_.startsWith(processId))
 
   /** `val topicName = "…"` of a worker object. */
   def topicName(content: String): Option[String] =
