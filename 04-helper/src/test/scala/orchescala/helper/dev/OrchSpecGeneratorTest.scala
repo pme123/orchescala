@@ -48,6 +48,26 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("interaction"):
     assertEquals(OrchSpecExport.interaction(files(1).content), Some("CreateContactNote" -> "CustomTask"))
 
+  test("workers only for the custom tasks of the process - not for user tasks, signals, messages"):
+    val interactions = Seq(
+      ("PrepareOrderCard", "CustomTask", Some("valiant-product-orderCard-PrepareOrderCard")),
+      ("CreateAllPoa", "CustomTask", Some("valiant-product-orderCardV1-CreateAllPoaStatus90")),
+      ("ApproveOrder", "UserTask", None),
+      ("WaitForPreview", "SignalEvent", None),
+      ("CardDelivered", "MessageEvent", None),
+      // a worker of another project - exists there already
+      ("AdjustProcessVariables", "CustomTask", Some("valiant-addresschange-addressChangeV1-AdjustProcessVariables"))
+    )
+    assertEquals(
+      OrchSpecExport.workerNames(interactions, "valiant-product-orderCard"),
+      Seq("PrepareOrderCard", "CreateAllPoa")
+    )
+
+  test("topicName of a worker object"):
+    val content = "object Check extends CompanyBpmnCustomTaskDsl:\n  val topicName     = \"valiant-product-orderCard-Check\"\n"
+    assertEquals(OrchSpecExport.topicName(content), Some("valiant-product-orderCard-Check"))
+    assertEquals(OrchSpecExport.topicName("object X extends CompanyBpmnUserTaskDsl:\n  val name = \"T\"\n"), None)
+
   test("processId takes the executable process"):
     val bpmn =
       """<bpmn:process id="other" isExecutable="false"></bpmn:process>

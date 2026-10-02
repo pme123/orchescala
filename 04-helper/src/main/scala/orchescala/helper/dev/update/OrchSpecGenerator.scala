@@ -88,18 +88,18 @@ case class OrchSpecGenerator()(using config: DevConfig):
       processObject.customInit
         .getOrElse(if processObject.hasInitIn then "InitIn.example" else "InitIn()")
     )
-    val interactions = classFiles.flatMap(f => OrchSpecExport.interaction(f.content))
-    val workers      = objectName +: interactions.collect:
-      case (name, "CustomTask")   =>
-        WorkerGenerator().createWorker(SetupElement("CustomTask", processName, name, version))
-        name
-      case (name, "SignalEvent")  =>
-        WorkerGenerator().createEventWorker(SetupElement("Signal", processName, name, version))
-        name
-      case (name, "MessageEvent") =>
-        WorkerGenerator().createEventWorker(SetupElement("Message", processName, name, version))
-        name
-      // user tasks have no worker
+    val interactions = classFiles.flatMap(f =>
+      OrchSpecExport.interaction(f.content).map((name, dsl) => (name, dsl, OrchSpecExport.topicName(f.content)))
+    )
+    val customTasks  = OrchSpecExport.workerNames(interactions, processId)
+    interactions.collect { case (name, "CustomTask", topic) if !customTasks.contains(name) => name -> topic }
+      .foreach: (name, topic) =>
+        println(
+          s"${Console.YELLOW}$name (${topic.getOrElse("-")}) is not a worker of $processId - not created.${Console.RESET}"
+        )
+    customTasks.foreach: name =>
+      WorkerGenerator().createWorker(SetupElement("CustomTask", processName, name, version))
+    val workers      = objectName +: customTasks
 
     // simulation
     SimulationGenerator().createSimulation(setupElement)
@@ -128,7 +128,7 @@ case class OrchSpecGenerator()(using config: DevConfig):
         "ApiProjectCreator",
         "document(",
         s"${processName}Api",
-        interactions.map((name, _) => s"$name.example"),
+        interactions.map((name, _, _) => s"$name.example"),
         entries =>
           s"""  private lazy val ${processName}Api =
              |    import ${config.projectPackage}.domain.$processName$versionPackage.*
@@ -483,6 +483,18 @@ object OrchSpecExport:
     """(?m)^object (\w+) extends CompanyBpmn(\w+)Dsl""".r
       .findFirstMatchIn(content)
       .map(m => m.group(1) -> m.group(2))
+
+  /** The interactions that get a worker: the custom tasks of this process - their topic starts with
+    * the process id (`valiant-product-orderCard-…`, also `…orderCardV1-…`); one of another project
+    * exists there already. A user task, a signal and a message have none - a validation worker was
+    * created and registered for each signal and message.
+    */
+  def workerNames(interactions: Seq[(String, String, Option[String])], processId: String): Seq[String] =
+    interactions.collect { case (name, "CustomTask", Some(topic)) if topic.startsWith(processId) => name }
+
+  /** `val topicName = "…"` of a worker object. */
+  def topicName(content: String): Option[String] =
+    """(?m)^\s*val topicName\s*=\s*"([^"]*)"""".r.findFirstMatchIn(content).map(_.group(1))
 
   /** Adds an import after the package clause. */
   def withImport(content: String, importLine: String): String =
