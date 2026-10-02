@@ -21,7 +21,7 @@ import FeelInput from './FeelInput';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { processTarget, stepTarget, sub } from '../comments';
-import { splitPrefix } from '../stepIds';
+import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
@@ -418,7 +418,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </div>
       )}
       {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && !ofPattern && (
-        <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} current={service} />
+        <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} onSyncId={onSyncId} current={service} />
       )}
 
       {step.calledProcess && (
@@ -900,9 +900,11 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
 }
 
 // ── Service-Katalog ──────────────────────────────────────────────────────────
-function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }: {
+function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, current }: {
   step: Step; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; current: ServiceDef | null;
   onPatch: (id: string, patch: Partial<Step>) => void;
+  /** die ID dem (neuen) Namen nachziehen — wie nach dem Umbenennen im Feld */
+  onSyncId?: (id: string) => void;
 }) {
   const c = cls(isDark);
   const [open, setOpen] = useState(false);
@@ -940,9 +942,16 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }:
       return { v, name, chosen: { name, inferred: false, mixed: [] } as Chosen };
     };
     const vin = variantState('inputs'), vout = variantState('outputs');
+    // ein Schritt ohne eigenen Namen heisst wie der Service — ebenso einer, der
+    // noch den Namen des bisher gewählten trägt; einen gewählten Namen lässt es stehen
+    const refOf = (s: ServiceDef) => s.calledProcess ?? s.topic ?? s.id;
+    const prefixes = knownPrefixes(model, [spec.project]);
+    const autoName = unnamed(step) || (!!current && step.name === nameFromService(refOf(current), prefixes));
+    const name = autoName ? nameFromService(refOf(svc), prefixes) : null;
     const inParams = (svc.inputs ?? []).filter(pm => variantAllows(vin.v, vin.chosen, pm.name));
     const outParams = (svc.outputs ?? []).filter(pm => variantAllows(vout.v, vout.chosen, pm.name));
     onPatch(step.id, {
+      ...(name && name !== step.name ? { name } : {}),
       serviceId: svc.id,
       inVariant: vin.name ?? undefined,
       outVariant: vout.name ?? undefined,
@@ -966,6 +975,8 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, current }:
         : {}),
       status: 'changed' as Status,
     });
+    // erst nach dem Rendern steht der neue Name in der Spezifikation
+    if (name && name !== step.name) window.setTimeout(() => onSyncId?.(step.id), 0);
     setOpen(false); setQ('');
   };
 

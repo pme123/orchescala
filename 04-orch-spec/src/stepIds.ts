@@ -65,6 +65,59 @@ export function conventionalId(
 }
 
 /**
+ * Ein Name, den niemand gewählt hat: leer, die eigene ID (Import-Fallback)
+ * oder genau eine vom Modeler vergebene ID (`Activity_14pc7cv` — Elementart,
+ * Unterstrich, sieben Zeichen). Ein angepasster Name zählt nie dazu, auch
+ * nicht einer mit Unterstrich (`Check_balance`).
+ */
+const MODELER_ID = /^(Activity|Task|Event|Gateway|StartEvent|EndEvent|SubProcess|CallActivity|Process)_[0-9a-z]{7}$/;
+export function unnamed(step: Pick<Step, 'name' | 'id'>): boolean {
+  const n = (step.name ?? '').trim();
+  return !n || n === step.id || MODELER_ID.test(n);
+}
+
+/**
+ * Der Name eines Schritts aus dem gewählten Service bzw. Prozess — die
+ * Kennung in Wörtern, ohne Projekt, Version und Platzhalter:
+ *
+ *   valiant-fil-is-accountAndPortfolioV3.GetAccountsAccountKey → Get Accounts Account Key
+ *   valiant-vollmacht-getAccountsV2                            → Get Accounts
+ *   valiant-documents-print-document                           → Print Document
+ *   valiant-depot-updateContractsV1-UpdateContract             → Update Contract
+ *
+ * `prefixes`: die bekannten `firma-projekt` (siehe knownPrefixes) — ohne sie
+ * gelten die ersten beiden Teile als Projekt.
+ */
+export function nameFromService(ref: string, prefixes: string[] = []): string {
+  let tail: string;
+  const p0 = [...prefixes].sort((a, b) => b.length - a.length).find(x => ref.startsWith(`${x}-`));
+  // Signal, Nachricht, Benutzeraufgabe: was hinter dem letzten Punkt steht
+  if (/\.(signal|message|userTask)\./.test(ref)) tail = ref.slice(ref.lastIndexOf('.') + 1);
+  else if (ref.includes('.')) {
+    // Service und Operation (`…accountAndPortfolioV3.GetAccounts`, `…eventStatus.get`)
+    const own = p0 ? ref.slice(p0.length + 1) : ref.split('-').slice(2).join('-') || ref;
+    const dot = own.indexOf('.');
+    const service = own.slice(0, dot), op = own.slice(dot + 1);
+    // nur ein Verb (`get`, `post`) sagt allein nichts — dann mit dem Service davor
+    tail = /^[a-z]+$/.test(op) ? `${service.replace(/V\d+$/, '')} ${op}` : op;
+  }
+  // der Prozess ist das Projekt selbst (`valiant-addresschange`)
+  else if (prefixes.includes(ref)) tail = ref.slice(ref.lastIndexOf('-') + 1);
+  else {
+    const rest = p0 ? ref.slice(p0.length + 1) : ref.split('-').slice(2).join('-') || ref;
+    // eigener Worker eines Prozesses: `<prozess>[V1]-<Operation>` → die Operation
+    tail = /^[a-z][A-Za-z0-9]*-([A-Z].*)$/.exec(rest)?.[1] ?? /^[A-Za-z0-9]*V\d+-(.+)$/.exec(rest)?.[1] ?? rest;
+  }
+  const words = tail
+    .replace(/-?\{+[^}]*\}+/g, '')               // Platzhalter ({{…}}, {…})
+    .replace(/V\d+$/, '')                          // Version
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s._-]+/).filter(Boolean);
+  return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/**
  * Lohnt es sich, für diesen Schritt eine ID abzuleiten? Nicht bei Namen, die
  * nur der Import-Fallback sind (namenlose Elemente tragen ihre ID als Namen,
  * siehe `defaultName` in bpmn.ts).
