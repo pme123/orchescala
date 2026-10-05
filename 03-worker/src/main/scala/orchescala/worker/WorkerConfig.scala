@@ -39,7 +39,13 @@ trait WorkerConfig:
     */
   def rolesOf(token: String): Set[String] = RoleClaims.fromToken(token, roleClients)
 
-  /** How long [[rolesOf]] may take - after it the call is answered with 503. */
+  /** How long [[rolesOf]] may take - after it the call is answered with 503.
+    *
+    * The answer comes in time, but an override that ignores the interrupt (e.g. a socket read
+    * without its own timeout) keeps its blocking thread until it ends - during an IdP outage one
+    * thread per call. Give such an override its own timeouts, a cache and if needed a circuit
+    * breaker.
+    */
   def rolesTimeout: zio.Duration = zio.Duration.fromSeconds(5)
 
   /** The largest file of the UI bundle (`/ui/`) the worker app serves, in bytes. Keep it at most
