@@ -5,10 +5,11 @@
 // dem Katalog. Tippen filtert über alles, Namenstreffer zuerst; Enter nimmt
 // den ersten Treffer.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Braces, ChevronDown, ListOrdered, Plug, Search, Type as TypeIcon, X } from 'lucide-react';
+import { AlertTriangle, Braces, ChevronDown, Code, ListOrdered, Plug, Search, Type as TypeIcon, X } from 'lucide-react';
 import { SCALA_TYPES, type Model, type TypeDef } from '../types';
 import { domainRef, serviceTypes, type ServiceType } from '../serviceTypes';
 import { cls } from '../ui';
+import { isScalaTypeExpression } from '../scala';
 
 export const NEW_CASE = '__newCase';
 export const NEW_ENUM = '__newEnum';
@@ -96,6 +97,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   ], [types, selfId, svc, domain]);
 
   const current = entries.find(e => e.value === value);
+  const scalaType = !current && isScalaTypeExpression(value);
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -150,9 +152,13 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
     <div className={`relative ${className ?? ''}`} ref={boxRef}>
       <button disabled={disabled}
         onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 20); }}
-        title={current?.hint ? `${current.name} — ${current.hint}` : current?.name ?? value}
+        title={current?.hint ? `${current.name} — ${current.hint}`
+          : current?.name ?? (scalaType ? `${value} — Scala-Typ aus der Domain, wird wörtlich übernommen` : value)}
         className={`flex items-center gap-1.5 w-full text-[11px] leading-[18px] px-2 py-1 rounded border text-left ${c.border2} ${disabled ? '' : c.hover}`}>
-        {current ? <current.icon size={10} className={c.muted} /> : <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+        {current ? <current.icon size={10} className={c.muted} />
+          // ein Scala-Typ aus der Domain (`MockedServiceResponse[GetX.Out]`) ist kein Fehler
+          : scalaType ? <Code size={10} className={c.muted} />
+            : <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
         <span className={`flex-1 truncate font-mono ${c.text}`}>{current?.name ?? value}</span>
         {!disabled && <ChevronDown size={11} className={c.muted} />}
       </button>
