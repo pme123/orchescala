@@ -107,6 +107,29 @@ trait GatewayConfig:
     */
   def docsAppUrl: (projectName: String) => Option[String]
 
+  /** Resolves the base URL of the worker app that serves the UI bundle of a project
+    * (`/app/{projectName}/` → `{baseUrl}/ui/`). Defaults to [[docsAppUrl]] - the same worker app.
+    * Returns None if the project has no UI.
+    */
+  def uiAppUrl: (projectName: String) => Option[String] = docsAppUrl
+
+  /** `Content-Security-Policy` header for the UI bundle (`/app/...`). None by default - the policy
+    * depends on the app, e.g. the identity provider it talks to.
+    */
+  def uiContentSecurityPolicy: Option[String] = None
+
+  /** The largest file of a UI bundle the gateway forwards (bytes) - a bigger answer is a 502.
+    * Each forwarded file is held in memory while it is sent, so this bounds the heap per request.
+    * Keep `WorkerConfig.uiMaxFileSize` of the worker apps at most this value.
+    */
+  def uiMaxFileSize: Long = orchescala.worker.UiRoutes.defaultMaxFileSize
+
+  /** How many UI files the gateway forwards at the same time - each is held in memory while it is
+    * sent, so the heap for UI files is at most `uiMaxConcurrentForwards × uiMaxFileSize` (default
+    * 32 × 10 MB). Further requests wait. Bundle files are mostly far smaller than the limit.
+    */
+  def uiMaxConcurrentForwards: Int = 32
+
   /** Authentication scheme for the `/docs` routes. Defaults to [[DocsAuth.Disabled]]. */
   def docsAuth: DocsAuth = DocsAuth.Disabled
 
