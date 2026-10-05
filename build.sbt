@@ -183,8 +183,10 @@ lazy val worker = project
   )
   .dependsOn(engine)
 
+// layer 04
+// PersistenceWorker: builds on 03-worker, with the Postgres implementation of the EntityStore
 lazy val persistence = project
-  .in(file("./03-persistence"))
+  .in(file("./04-persistence"))
   .settings(publicationSettings)
   .settings(
     projectSettings("persistence"),
@@ -193,7 +195,6 @@ lazy val persistence = project
   )
   .dependsOn(worker)
 
-// layer 04
 lazy val helper = project
   .in(file("./04-helper"))
   .settings(publicationSettings)

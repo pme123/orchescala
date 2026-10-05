@@ -160,7 +160,7 @@ object Dependencies {
 
   val zioDependency =
     "dev.zio" %% "zio" % zioVersion
-  // PersistenceWorker (03-persistence): JDBC pool and driver; Testcontainers for the store tests
+  // PersistenceWorker (04-persistence): JDBC pool and driver; Testcontainers for the store tests
   val persistenceDependencies = Seq(
     "com.zaxxer"          % "HikariCP"                 % "6.2.1",
     "org.postgresql"      % "postgresql"               % "42.7.4",
