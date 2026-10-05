@@ -360,9 +360,18 @@ feste Gruppe:
 Stellschrauben** (ein Schwellwert, ein Schalter) legt man wie beim `InitIn`
 als Felder an («Eigene Stellschraube»); sie stehen im erzeugten `InConfig`
 vorne und gewinnen bei gleichem Namen. Jedes braucht einen Vorgabewert oder
-ist optional — der Prozess startet auch ohne `InConfig`. Der Import aus der
-Domain übernimmt nur diese eigenen Felder; Schleifen und Mocks erzeugt der
-Generator ohnehin.
+ist optional — der Prozess startet auch ohne `InConfig`.
+
+Der Import aus der Domain übernimmt das **ganze** `InConfig` — auch die
+Mocks und die Einstellungen der Schleifen, mit ihren Namen, Typen,
+Vorgaben und Beschreibungen (`getVisecaDebitCardsCardKeysDetailsNextDayMock:
+Option[GetVisecaDebitCardsCardKeysDetails.Out]`). Erzeugt wird nur, was
+dort fehlt. Ein Mock heisst, wie das BPMN ihn nennt
+(`_outputMock = #{execution.getVariable('getPoasMock')}` → `getPoasMock`) —
+im `InConfig` wie im exportierten BPMN; nur ohne solchen Verweis gilt der
+Name aus dem Schritt. Ein Scala-Typ, den die App nicht auflöst
+(`MockedServiceResponse[PostOmniaCardsOrdersApprovals.Out]`), steht im
+Klassenbauer grau und kommt wörtlich in den Export.
 
 **Der Init-Worker ist Verdrahtung**, keine Fachlichkeit — in Camunda 8 kann
 daraus ein Listener werden. Der Import erkennt ihn daran, dass sein Topic der

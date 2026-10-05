@@ -222,6 +222,18 @@ export function mockField(name: string): string {
   return `${name.replace(/[^A-Za-z0-9]/g, '').replace(/^(.)/, c => c.toLowerCase())}Mock`;
 }
 
+/**
+ * Das Feld im InConfig, auf das der Mock des Schritts zeigt — wie im BPMN:
+ * `#{execution.getVariable('getPoasMock')}`, `${getPoasMock}`, `=getPoasMock`
+ * oder `getPoasMock`. Ohne solchen Verweis der Name aus dem Schritt (`mockField`).
+ */
+export function mockFieldOf(step: { name: string; mock?: string }): string {
+  const m = step.mock?.trim() ?? '';
+  const v = /^#\{\s*execution\.getVariable\(\s*['"](\w+)['"]\s*\)\s*\}$/.exec(m)
+    ?? /^[$#]\{\s*(\w+)\s*\}$/.exec(m) ?? /^=\s*(\w+)$/.exec(m) ?? /^([a-z]\w*)$/.exec(m);
+  return v ? v[1] : mockField(step.name);
+}
+
 /** Service-Worker: ein Service aus dem Katalog — nur er kennt `_outputServiceMock` */
 export const isServiceWorker = (s: Step): boolean => s.kind === 'service' && (!!s.serviceId || s.mockKind === 'service');
 
@@ -241,6 +253,7 @@ function readIo(el: Element): IoResult {
       if (!target) continue;
       if (n === 'in' && (target === '_outputMock' || target === '_outputServiceMock')) {
         res.mockKind = target === '_outputMock' ? 'output' : 'service';
+        if (source) res.mock = source;
         continue;
       }
       // `source` ist ein Variablenname, `sourceExpression` ein JUEL-Ausdruck —

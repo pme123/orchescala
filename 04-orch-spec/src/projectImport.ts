@@ -25,7 +25,7 @@ import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
 import { exampleOf, typeShape } from './scalaTypes';
-import { catalogEntry, createMemberType, interactionKind, loopSettings, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
+import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
 import { packageOf, referencedClass } from './scala';
 import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
@@ -484,14 +484,11 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   if (inT && (inT.kind === 'case' || inT.kind === 'enum')) conv.convert(inT, { root: true }, 'In');
   const initT = member(owner, 'InitIn');
   if (initT?.kind === 'case') conv.convert(initT, { initIn: true }, 'InitIn');
-  // vom InConfig nur die eigenen Stellschrauben — Schleifen und Mocks
-  // erzeugt der Generator aus dem Ablauf
+  // das InConfig, wie es in der Domain steht — mit den Mocks und den
+  // Einstellungen der Schleifen; der Generator ergänzt nur, was ihm fehlt
+  // (gleichnamige eigene Felder gehen vor)
   const cfgT = member(owner, 'InConfig');
-  if (cfgT?.kind === 'case') {
-    const erzeugt = new Set(loopSettings(spec).map(l => l.name));
-    const eigene = (cfgT.fields ?? []).filter(f => !erzeugt.has(f.name) && !/Mock$/.test(f.name));
-    if (eigene.length) conv.convert({ ...cfgT, fields: eigene }, { inConfig: true }, 'InConfig');
-  }
+  if (cfgT?.kind === 'case' && cfgT.fields?.length) conv.convert(cfgT, { inConfig: true }, 'InConfig');
   const outT = member(owner, 'Out');
   if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
 

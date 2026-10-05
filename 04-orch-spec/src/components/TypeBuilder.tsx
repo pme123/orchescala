@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, packageOf, referencedClass, renderType } from '../scala';
+import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, cls } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -111,6 +111,11 @@ function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>
   }
   if (constraintKind(f.type) !== null || ['Boolean', 'LocalDate', 'LocalDateTime'].includes(f.type)) {
     return { icon: null, cls: isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50' };
+  }
+  // ein Scala-Typ aus der Domain (`MockedServiceResponse[GetClient.Out]`) — wörtlich übernommen
+  if (isScalaTypeExpression(f.type)) {
+    return { icon: null, title: `${f.type} — Scala-Typ aus der Domain, wird wörtlich übernommen`,
+      cls: isDark ? 'border-white/10 text-white/60' : 'border-black/10 text-black/60' };
   }
   return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: `«${f.type}» ist kein bekannter Typ`,
     cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };

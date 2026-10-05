@@ -19,7 +19,7 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, ProcessSpec, Step } from './types';
-import { TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockField, paramExpression } from './bpmn';
+import { TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
 import { referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
 import { importExpression, nullSafeCondition, stripNullSafe } from './juelFeel';
@@ -144,8 +144,9 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       const call = step.kind === 'call';
       const kind = step.mockKind === 'service' && !isServiceWorker(step) ? undefined : step.mockKind;
       const pass = (name: string) => (engine === 'c8' ? `=${name}` : `#{execution.getVariable('${name}')}`);
-      setControl(doc, ext, engine, '_outputMock', kind === 'output' ? pass(mockField(step.name)) : undefined, call);
-      setControl(doc, ext, engine, '_outputServiceMock', kind === 'service' ? pass(mockField(step.name)) : undefined, call);
+      // die Variable, die das BPMN schon nennt (`getPoasMock`) — sonst die aus dem Schrittnamen
+      setControl(doc, ext, engine, '_outputMock', kind === 'output' ? pass(mockFieldOf(step)) : undefined, call);
+      setControl(doc, ext, engine, '_outputServiceMock', kind === 'service' ? pass(mockFieldOf(step)) : undefined, call);
       setControl(doc, ext, engine, '_servicesMocked', pass('_servicesMocked'), call);
       setControl(doc, ext, engine, '_mockedWorkers', call ? pass('_mockedWorkers') : undefined, call);
       // wer den Prozess gestartet hat — der Teilprozess prüft dieselbe Identität

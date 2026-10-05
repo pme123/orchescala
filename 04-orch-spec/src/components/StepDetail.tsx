@@ -11,7 +11,7 @@ import { catalogEntry, createMemberType, interactionKind, interactionOrigin, sug
 import { packageOf } from '../scala';
 import { KIND_LABEL, cls, patternTone } from '../ui';
 import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
-import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockField } from '../bpmn';
+import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
 import { feelBody, feelToJuel } from '../feelJuel';
@@ -603,9 +603,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           </select>
           <p className={`text-[10px] mt-1 leading-snug ${c.muted}`}>
             Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span>, <span className="font-mono">_identityCorrelation = _identityCorrelation</span></>}
-            {step.mockKind && <>, dazu <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockField(step.name)}</span> und im InConfig das Feld <span className="font-mono">{mockField(step.name)}</span></>}.
+            {step.mockKind && <>, dazu <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockFieldOf(step)}</span> und im InConfig das Feld <span className="font-mono">{mockFieldOf(step)}</span></>}.
           </p>
-          {step.mock && !/^=\s*\w+Mock$|getVariable/.test(step.mock) && (
+          {step.mock && mockFieldOf(step) === mockFieldOf({ name: step.name }) && !/^=\s*\w+Mock$|getVariable/.test(step.mock) && (
             <pre className={`mt-1 text-[10px] px-2 py-1.5 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} title="bisheriger Wert im BPMN — beim Export ersetzt">{step.mock}</pre>
           )}
         </Section>

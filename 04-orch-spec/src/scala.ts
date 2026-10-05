@@ -19,7 +19,7 @@ import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, 
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { deriveObject, objectOf } from './serviceTypes.ts';
-import { allSteps, blockIndex, blockStart, mockField } from './bpmn.ts';
+import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -317,8 +317,18 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
 export function isFinished(f: Field, idx: TypeIndex): boolean {
   const type = f.type?.trim();
   if (!f.name?.trim() || !type) return false;
-  return isScalar(type) || !!parseDomainRef(type) || !!parseServiceRef(type) || !!idx.byId.get(type)?.name?.trim();
+  return isScalar(type) || !!parseDomainRef(type) || !!parseServiceRef(type) || !!idx.byId.get(type)?.name?.trim()
+    || isScalaTypeExpression(type);
 }
+
+/**
+ * Ein Scala-Typ aus der Domain, den die App nicht auflöst — qualifiziert
+ * (`GetClient.Out`) oder generisch (`MockedServiceResponse[GetClient.Out]`):
+ * er wird wörtlich übernommen, statt im Export zu fehlen. Ein einfacher Name
+ * (`Adresse`) ohne Typ dahinter bleibt unfertig.
+ */
+export const isScalaTypeExpression = (type: string): boolean =>
+  /^[A-Z]\w*(?:\.\w+)+$/.test(type) || /^[A-Z][\w.]*\[.+\]$/.test(type);
 
 const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fields ?? []).filter(f => isFinished(f, idx));
 
@@ -639,10 +649,14 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     const ref = step.serviceId ?? step.calledProcess ?? step.topic;
     if (!ref) continue;
     const { object, pkg, uncertain } = idx ? idx.objectOf(ref) : deriveObject(ref);
-    const field = mockField(step.name);
+    const field = mockFieldOf(step);
+    const importLine = `import ${pkg}.${object}${uncertain ? '  // Pfad prüfen' : ''}`;
+    // ein eigenes Feld (aus der Domain) geht vor — es braucht den Import, wenn es das Objekt nennt
+    const ownField = ownFields.find(f => f.name === field);
+    if (ownField && idx && fieldType(ownField, idx).includes(`${object}.`)) imports.add(importLine);
     if (seen.has(field)) continue;
     seen.add(field);
-    imports.add(`import ${pkg}.${object}${uncertain ? '  // Pfad prüfen' : ''}`);
+    imports.add(importLine);
     const type = step.mockKind === 'service' ? `MockedServiceResponse[${object}.ServiceOut]` : `${object}.Out`;
     params.push(`${descriptionLine(`For testing you can mock the Process ${step.name} _${ref}_.`)}\n`
       + `${field}: Option[${type}] = None`);
@@ -1073,7 +1087,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         if (services && !services.has(svcRef.serviceId)) {
           issues.push({ typeId: t.id, field: f.id, message: `Der Service «${svcRef.serviceId}» steht nicht (mehr) im Katalog — Import von «${f.name}» prüfen.` });
         }
-      } else if (!isScalar(f.type) && !ids.has(f.type) && !idxAll.domainOf(f.type)) {
+      } else if (!isScalar(f.type) && !ids.has(f.type) && !idxAll.domainOf(f.type) && !isScalaTypeExpression(f.type)) {
         issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden${model?.domainTypes?.length ? '' : ' — kein Katalog geladen (Admin → Katalog)'}.` });
       }
       enumCaseIssues(t, f);
