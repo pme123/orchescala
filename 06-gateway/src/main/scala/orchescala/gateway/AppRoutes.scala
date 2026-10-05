@@ -59,7 +59,7 @@ class AppRoutes(
       Response
         .status(Status.Found) // not cached for ever, like the /site redirect
         .addHeader(Header.Custom("Location", s"/app/$projectName/$query"))
-    else Response.status(Status.NotFound)
+    else withSecurityHeaders(Status.NotFound)
 
   /** Forwards a request for the UI bundle to the worker app of the project.
     *
@@ -78,7 +78,7 @@ class AppRoutes(
       baseUrl <- config.uiAppUrl(projectName)
     yield decoded -> baseUrl) match
       case None                     =>
-        ZIO.succeed(Response.status(Status.NotFound))
+        ZIO.succeed(withSecurityHeaders(Status.NotFound))
       case Some((decoded, baseUrl)) =>
         (for
           uri      <- ZIO.fromEither(uiUri(baseUrl, decoded))
@@ -103,7 +103,7 @@ class AppRoutes(
           .provideLayer(backend)
           .catchAll: err =>
             ZIO.logError(s"Error forwarding UI request for '$projectName': $err")
-              .as(Response.status(Status.BadGateway))
+              .as(withSecurityHeaders(Status.BadGateway))
 
   /** Reads the answer of the worker app - but no more than `max` bytes (a misconfigured `uiAppUrl`
     * must not fill the memory of the gateway).
@@ -144,11 +144,17 @@ class AppRoutes(
       case 304                                     =>
         Response(status = Status.NotModified, headers = Headers(passedHeaders ++ securityHeaders))
       case client if client >= 400 && client < 500 =>
-        Response(status = Status.fromInt(client), headers = Headers(passedHeaders))
+        Response(
+          status = Status.fromInt(client),
+          headers = Headers(passedHeaders ++ securityHeaders)
+        )
       case _                                       => // the worker app failed (or answered unexpectedly) - logged in forward
-        Response.status(Status.BadGateway)
+        withSecurityHeaders(Status.BadGateway)
     end match
   end toResponse
+
+  private def withSecurityHeaders(status: Status): Response =
+    Response(status = status, headers = Headers(securityHeaders))
 
   private def securityHeaders: Seq[Header] =
     Seq(

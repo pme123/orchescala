@@ -229,6 +229,21 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
       ZIO.serviceWith[PersistenceConfig]: config =>
         assertTrue(EntityStore.postgres(config) eq EntityStore.postgres(config))
     },
+    test("query leaves out a row that no longer decodes - the others are found") {
+      case class NotizV2(id: String, kundenNr: String, text: String, prioritaet: Int) derives Codec
+      val notizV2 = EntityDef[NotizV2]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
+      for
+        s     <- store
+        _     <- s.save(notiz, Notiz("qv1", "1600", "altes Format"), None, None)
+        _     <- s.save(notizV2, NotizV2("qv2", "1600", "neues Format", 1), None, None)
+        found <- s.query(notizV2, Map("kundenNr" -> "1600"))
+        old   <- s.get(notizV2, "qv1").flip
+      yield assertTrue(
+        found.map(_.id) == Seq("qv2"),
+        old.isInstanceOf[PersistenceError.StoreError]
+      )
+      end for
+    },
     test("an old audit entry that no longer decodes stays readable as JSON") {
       // a changed entity: the old entries lack the new required field
       case class NotizV2(id: String, kundenNr: String, text: String, prioritaet: Int) derives Codec

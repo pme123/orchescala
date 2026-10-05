@@ -42,8 +42,17 @@ object UiRoutes:
   // the files of a deployed bundle do not change - only found files are kept
   private val files = ConcurrentHashMap[String, UiFile]()
 
-  /** Like the cap of the gateway (`GatewayConfig.uiMaxFileSize`). */
-  val maxFileSize: Long = 20L * 1024 * 1024
+  /** Like the cap of the gateway (`GatewayConfig.uiMaxFileSize`) - plenty for a web bundle. */
+  val maxFileSize: Long = 10L * 1024 * 1024
+
+  /** On every answer - also on 404 and 500. */
+  private[worker] val securityHeaders: Seq[Header] = Seq(
+    Header.Custom("X-Content-Type-Options", "nosniff"),
+    Header.Custom("Referrer-Policy", "strict-origin-when-cross-origin")
+  )
+
+  private def status(status: Status): Response =
+    Response(status = status, headers = Headers(securityHeaders))
 
   def routes: Routes[Any, Response] = routesWith(maxFileSize)
 
@@ -86,7 +95,7 @@ object UiRoutes:
 
   private def serve(segments: Seq[String], request: Request, maxFileSize: Long): UIO[Response] =
     decodeSegments(segments) match
-      case None       => ZIO.succeed(Response.status(Status.NotFound))
+      case None       => ZIO.succeed(status(Status.NotFound))
       case Some(path) =>
         val acceptsHtml = request.rawHeader("Accept").exists(_.contains("text/html"))
         ZIO
@@ -95,11 +104,11 @@ object UiRoutes:
           ).headOption)
           .map:
             case None                   =>
-              Response.status(Status.NotFound).addHeader(Header.Custom("Vary", "Accept"))
+              status(Status.NotFound).addHeader(Header.Custom("Vary", "Accept"))
             case Some((resource, file)) => response(resource, file, request)
           .catchAll: err =>
             ZIO.logError(s"UI file /ui/${path.mkString("/")} cannot be read: ${err.getMessage}")
-              .as(Response.status(Status.InternalServerError))
+              .as(status(Status.InternalServerError))
 
   private def load(resource: String, maxFileSize: Long): Option[UiFile] =
     Option(files.get(resource))
@@ -108,7 +117,8 @@ object UiRoutes:
           val connection = url.openConnection()
           checkSize(resource, connection.getContentLengthLong, maxFileSize)
           val bytes      = Using.resource(connection.getInputStream)(_.readAllBytes())
-          val file       = UiFile(bytes, etag(bytes))
+          checkSize(resource, bytes.length, maxFileSize) // the length may have been unknown
+          val file = UiFile(bytes, etag(bytes))
           files.put(resource, file)
           file
       .map: file => // also for a cached file - the limit is per route
@@ -141,9 +151,8 @@ object UiRoutes:
       Header.Custom("Cache-Control", cacheControl(resource)),
       Header.Custom("ETag", file.etag),
       // a page request may get index.html where a file request gets 404 - caches must keep both
-      Header.Custom("Vary", "Accept"),
-      Header.Custom("X-Content-Type-Options", "nosniff")
-    )
+      Header.Custom("Vary", "Accept")
+    ) ++ Headers(securityHeaders)
     if request.rawHeader("If-None-Match").exists(_.split(',').map(_.trim).contains(file.etag)) then
       Response(status = Status.NotModified, headers = headers)
     else Response(body = Body.fromArray(file.bytes), headers = headers)

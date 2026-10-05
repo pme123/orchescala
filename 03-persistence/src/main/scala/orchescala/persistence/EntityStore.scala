@@ -29,7 +29,9 @@ trait EntityStore:
   def get[E](entity: EntityDef[E], id: String): IO[PersistenceError, Option[Stored[E]]]
 
   /** All entities whose key fields contain `keys` - newest change first, at most `limit` (1 to
-    * [[EntityStore.maxLimit]]).
+    * [[EntityStore.maxLimit]]). A row that no longer decodes with the current codec (e.g. after a
+    * change of the entity) is left out and logged - one old row does not break the whole query;
+    * `get` of that id fails with a [[PersistenceError.StoreError]].
     */
   def query[E](
       entity: EntityDef[E],
@@ -166,7 +168,11 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
           val rows = ListBuffer.empty[Either[PersistenceError, Stored[E]]]
           while rs.next() do rows += read(entity, rs)
           rows.toSeq
-    .flatMap(rows => ZIO.foreach(rows)(ZIO.fromEither(_)))
+    .flatMap: rows =>
+      val unreadable = rows.collect { case Left(error) => error.message }
+      ZIO
+        .foreachDiscard(unreadable)(msg => ZIO.logWarning(s"Left out of the query: $msg"))
+        .as(rows.collect { case Right(stored) => stored })
 
   def save[E](
       entity: EntityDef[E],
@@ -401,7 +407,11 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
         Using.resource(dataSource.getConnection()): con =>
           ensureTables(con, entity.table)
           work(con)
-      .tapError(err => ZIO.logError(s"Database error on ${entity.table}: ${err.getMessage}"))
+      .tapError:
+        case failure: PersistenceFailure => // a deliberate abort, not a database error
+          ZIO.logWarning(s"Aborted on ${entity.table}: ${failure.error.message}")
+        case err                         =>
+          ZIO.logError(s"Database error on ${entity.table}: ${err.getMessage}")
       .mapError:
         case failure: PersistenceFailure => failure.error
         case _                           =>

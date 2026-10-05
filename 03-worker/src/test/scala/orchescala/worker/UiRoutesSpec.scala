@@ -100,6 +100,14 @@ object UiRoutesSpec extends ZIOSpecDefault:
         page    <- get("/ui/assets/missing.js", "Accept" -> "text/html")
       yield assertTrue(missing.status == Status.NotFound, page.status == Status.NotFound)
     },
+    test("error answers carry the security headers too") {
+      get("/ui/assets/missing.js").map: response =>
+        assertTrue(
+          response.status == Status.NotFound,
+          response.rawHeader("X-Content-Type-Options").contains("nosniff"),
+          response.rawHeader("Referrer-Policy").isDefined
+        )
+    },
     test("a folder on the classpath is not served as a file") {
       get("/ui/folder.d").map(response => assertTrue(response.status == Status.NotFound))
     },

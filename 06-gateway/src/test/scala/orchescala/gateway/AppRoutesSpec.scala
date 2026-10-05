@@ -173,6 +173,18 @@ object AppRoutesSpec extends ZIOSpecDefault:
       getVia(stubbed(stub), "/app/esprit-konto/index.html").map: response =>
         assertTrue(response.status == Status.BadGateway)
     },
+    test("forward: error answers carry the security headers too") {
+      val stub = AsyncHttpClientZioBackend.stub.whenAnyRequest
+        .thenRespondF(ZIO.fail(RuntimeException("worker app down")))
+      for
+        badGateway <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
+        notFound   <- get("/app/attacker.example/index.html")
+      yield assertTrue(
+        badGateway.rawHeader("X-Content-Type-Options").contains("nosniff"),
+        notFound.rawHeader("X-Content-Type-Options").contains("nosniff")
+      )
+      end for
+    },
     test("forward: an answer larger than uiMaxFileSize is 502") {
       val small = new DefaultGatewayConfig(
         engineConfig = DefaultEngineConfig(),
