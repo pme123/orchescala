@@ -45,7 +45,9 @@ jobs:
       - name: Compile
         run: sbt compile
       - name: Test
-        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test"
+        # persistence/test runs against Postgres in Docker (Testcontainers) - on CI it fails
+        # instead of being skipped when there is no Docker
+        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test; persistence/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
       - name: Check the company project templates

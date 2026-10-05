@@ -30,10 +30,11 @@ object PersistenceConfigSpec extends ZIOSpecDefault:
       assertTrue(error.getMessage.contains("MYAPP_DB_URL"))
     },
     test("an invalid optional variable is an error, not silently the default") {
-      val base  = Map("X_URL" -> "jdbc:x", "X_USER" -> "u", "X_PASSWORD" -> "p")
-      val pool  = scala.util.Try(PersistenceConfig.fromEnv("X", base + ("X_POOL_SIZE" -> "viele"))).failed.get
-      val zero  = scala.util.Try(PersistenceConfig.fromEnv("X", base + ("X_POOL_SIZE" -> "0")))
-      val ddl   = PersistenceConfig.fromEnv("X", base + ("X_CREATE_TABLES" -> "false"))
+      val base = Map("X_URL" -> "jdbc:x", "X_USER" -> "u", "X_PASSWORD" -> "p")
+      val pool =
+        scala.util.Try(PersistenceConfig.fromEnv("X", base + ("X_POOL_SIZE" -> "viele"))).failed.get
+      val zero = scala.util.Try(PersistenceConfig.fromEnv("X", base + ("X_POOL_SIZE" -> "0")))
+      val ddl  = PersistenceConfig.fromEnv("X", base + ("X_CREATE_TABLES" -> "false"))
       assertTrue(pool.getMessage.contains("X_POOL_SIZE"), zero.isFailure, !ddl.createTables)
     },
     test("table and schema names must be plain identifiers - they go into the SQL") {
@@ -42,7 +43,7 @@ object PersistenceConfigSpec extends ZIOSpecDefault:
         scala.util.Try(EntityDef[X]("notiz; drop table x", _.id)).isFailure,
         scala.util.Try(EntityDef[X]("Notiz", _.id)).isFailure,
         scala.util.Try(EntityDef[X]("a" * 54, _.id)).isSuccess,
-        scala.util.Try(EntityDef[X]("a" * 55, _.id)).isFailure, // + "_history" > 63
+        scala.util.Try(EntityDef[X]("a" * 55, _.id)).isFailure,        // + "_history" > 63
         scala.util.Try(EntityDef[X]("notiz_history", _.id)).isFailure, // reserved for the audit log
         scala.util.Try(PersistenceConfig("jdbc:x", "u", "p", schema = "a.b")).isFailure
       )

@@ -83,7 +83,13 @@ trait PersistenceWorkerDsl[
     * Without a token - e.g. a step of a process - the change is recorded without user.
     */
   private def currentUser: UIO[Option[String]] =
-    AuthContext.getBearerToken.map(_.flatMap(PersistenceWorkerDsl.userOf))
+    AuthContext.getBearerToken.flatMap:
+      case None        => ZIO.none
+      case Some(token) =>
+        val user = PersistenceWorkerDsl.userOf(token)
+        ZIO.when(user.isEmpty)(
+          ZIO.logDebug("Bearer token without preferred_username - change recorded without user")
+        ).as(user)
 
 end PersistenceWorkerDsl
 

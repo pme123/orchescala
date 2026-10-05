@@ -6,17 +6,19 @@ import org.testcontainers.containers.PostgreSQLContainer
 import zio.*
 import zio.test.*
 
-import scala.util.Try
+import scala.util.{Try, Using}
 
-/** Runs against a real Postgres (Testcontainers) - ignored where there is no Docker. */
+/** Runs against a real Postgres (Testcontainers). Ignored locally where there is no Docker - on CI
+  * (`CI` is set) it fails instead, so the real-database tests cannot be skipped silently.
+  */
 object PostgresEntityStoreSpec extends ZIOSpecDefault:
 
   case class Notiz(id: String, kundenNr: String, text: String) derives Codec
 
   private val notiz = EntityDef[Notiz]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
 
-  private lazy val dockerAvailable =
-    Try(DockerClientFactory.instance().isDockerAvailable).getOrElse(false)
+  private lazy val runTests =
+    sys.env.contains("CI") || Try(DockerClientFactory.instance().isDockerAvailable).getOrElse(false)
 
   private val postgres: ZLayer[Any, Throwable, PersistenceConfig & EntityStore] =
     val config = ZLayer.scoped:
@@ -24,8 +26,7 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         .acquireRelease(ZIO.attemptBlocking:
           val container = PostgreSQLContainer("postgres:17-alpine")
           container.start()
-          container
-        )(container => ZIO.attemptBlocking(container.stop()).orDie)
+          container)(container => ZIO.attemptBlocking(container.stop()).orDie)
         .map: container =>
           PersistenceConfig(
             jdbcUrl = container.getJdbcUrl,
@@ -34,6 +35,7 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
             schema = "test_app"
           )
     config >+> ZLayer.scoped(ZIO.serviceWithZIO[PersistenceConfig](EntityStore.postgresScoped))
+  end postgres
 
   private def store = ZIO.service[EntityStore]
 
@@ -52,12 +54,12 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
     },
     test("query finds the entities by key field") {
       for
-        s      <- store
-        _      <- s.save(notiz, Notiz("q1", "300", "a"), None, None)
-        _      <- s.save(notiz, Notiz("q2", "300", "b"), None, None)
-        _      <- s.save(notiz, Notiz("q3", "400", "c"), None, None)
-        of300  <- s.query(notiz, Map("kundenNr" -> "300"))
-        of400  <- s.query(notiz, Map("kundenNr" -> "400"))
+        s     <- store
+        _     <- s.save(notiz, Notiz("q1", "300", "a"), None, None)
+        _     <- s.save(notiz, Notiz("q2", "300", "b"), None, None)
+        _     <- s.save(notiz, Notiz("q3", "400", "c"), None, None)
+        of300 <- s.query(notiz, Map("kundenNr" -> "300"))
+        of400 <- s.query(notiz, Map("kundenNr" -> "400"))
       yield assertTrue(
         of300.map(_.id).toSet == Set("q1", "q2"),
         of400.map(_.id) == Seq("q3")
@@ -106,10 +108,10 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         _       <- s.delete(notiz, "h1", Some(v2.version), Some("carla"))
         changes <- s.history(notiz, "h1")
       yield assertTrue(
-        changes.map(c => (c.version, c.operation, c.entity.text, c.changedBy)) == Seq(
-          (1L, Operation.Created, "erste", Some("anna")),
-          (2L, Operation.Updated, "zweite", Some("beat")),
-          (3L, Operation.Deleted, "zweite", Some("carla"))
+        changes.map(c => (c.version, c.operation, c.entity.map(_.text), c.changedBy)) == Seq(
+          (1L, Operation.Created, Some("erste"), Some("anna")),
+          (2L, Operation.Updated, Some("zweite"), Some("beat")),
+          (3L, Operation.Deleted, Some("zweite"), Some("carla"))
         ),
         changes.head.changedAt == v1.createdAt,
         changes(1).changedAt == v2.updatedAt
@@ -117,12 +119,12 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
     },
     test("a rejected change leaves no trace in the audit log") {
       for
-        s         <- store
-        v1        <- s.save(notiz, Notiz("h2", "900", "a"), None, Some("anna"))
-        _         <- s.save(notiz, Notiz("h2", "900", "b"), Some(v1.version + 5), Some("x")).flip
-        _         <- s.save(notiz, Notiz("h2", "900", "c"), None, Some("x")).flip
-        _         <- s.delete(notiz, "h2", Some(v1.version + 5), Some("x")).flip
-        changes   <- s.history(notiz, "h2")
+        s       <- store
+        v1      <- s.save(notiz, Notiz("h2", "900", "a"), None, Some("anna"))
+        _       <- s.save(notiz, Notiz("h2", "900", "b"), Some(v1.version + 5), Some("x")).flip
+        _       <- s.save(notiz, Notiz("h2", "900", "c"), None, Some("x")).flip
+        _       <- s.delete(notiz, "h2", Some(v1.version + 5), Some("x")).flip
+        changes <- s.history(notiz, "h2")
       yield assertTrue(changes.map(_.version) == Seq(1L))
     },
     test("an entity created again after deletion continues its versions and audit log") {
@@ -137,16 +139,19 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
       yield assertTrue(
         again.version == 3L,
         stale == PersistenceError.VersionConflict("notiz", "h3", Some(1L), Some(3L)),
-        changes.map(c => (c.version, c.operation, c.entity.text)) == Seq(
-          (1L, Operation.Created, "alt"),
-          (2L, Operation.Deleted, "alt"),
-          (3L, Operation.Created, "neu")
+        changes.map(c => (c.version, c.operation, c.entity.map(_.text))) == Seq(
+          (1L, Operation.Created, Some("alt")),
+          (2L, Operation.Deleted, Some("alt")),
+          (3L, Operation.Created, Some("neu"))
         )
       )
     },
-    test("a change that cannot be read back is rolled back - no entity without audit entry") {
+    test(
+      "an entity whose JSON cannot be read back is not written - neither entity nor audit entry"
+    ) {
       // the encoder writes JSON the decoder rejects
-      given Codec[Notiz] = Codec.from(Decoder.failedWithMessage("broken"), Encoder[Notiz](using notiz.codec))
+      given Codec[Notiz] =
+        Codec.from(Decoder.failedWithMessage("broken"), Encoder[Notiz](using notiz.codec))
       val broken         = EntityDef[Notiz]("broken_notiz", _.id)
       for
         s       <- store
@@ -158,13 +163,19 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         stored.isEmpty,
         changes.isEmpty
       )
+      end for
     },
     test("of parallel saves with the same version exactly one wins") {
       for
         s       <- store
         v1      <- s.save(notiz, Notiz("p1", "1000", "start"), None, None)
         results <- ZIO.foreachPar(1 to 8)(i =>
-                     s.save(notiz, Notiz("p1", "1000", s"Änderung $i"), Some(v1.version), Some(s"u$i")).either
+                     s.save(
+                       notiz,
+                       Notiz("p1", "1000", s"Änderung $i"),
+                       Some(v1.version),
+                       Some(s"u$i")
+                     ).either
                    )
         changes <- s.history(notiz, "p1")
       yield assertTrue(
@@ -173,15 +184,75 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         changes.map(_.version) == Seq(1L, 2L)
       )
     },
+    test("of parallel creates after a deletion exactly one wins, with the next version") {
+      for
+        s       <- store
+        v1      <- s.save(notiz, Notiz("pc1", "1200", "alt"), None, None)
+        _       <- s.delete(notiz, "pc1", Some(v1.version), None)
+        results <- ZIO.foreachPar(1 to 8)(i =>
+                     s.save(notiz, Notiz("pc1", "1200", s"neu $i"), None, None).either
+                   )
+        changes <- s.history(notiz, "pc1")
+      yield assertTrue(
+        results.collect { case Right(stored) => stored.version } == Seq(3L),
+        results.collect { case Left(e: PersistenceError.VersionConflict) => e.actual }.toSet == Set(
+          Some(3L)
+        ),
+        changes.map(_.version) == Seq(1L, 2L, 3L)
+      )
+    },
+    test("an old audit entry that no longer decodes stays readable as JSON") {
+      // a changed entity: the old entries lack the new required field
+      case class NotizV2(id: String, kundenNr: String, text: String, prioritaet: Int) derives Codec
+      val notizV2 = EntityDef[NotizV2]("notiz", _.id)
+      for
+        s       <- store
+        _       <- s.save(notiz, Notiz("old1", "1300", "vor der Änderung"), None, None)
+        changes <- s.history(notizV2, "old1")
+      yield assertTrue(
+        changes.size == 1,
+        changes.head.entity.isEmpty,
+        changes.head.payload.hcursor.get[String]("text").contains("vor der Änderung")
+      )
+      end for
+    },
+    test(
+      "with createTables = false the store runs no DDL - the tables come from PostgresEntityStore.ddl"
+    ) {
+      for
+        config <- ZIO.service[PersistenceConfig]
+        noDdl   = config.copy(schema = "no_ddl_app", createTables = false)
+        result <- ZIO.scoped:
+                    EntityStore.postgresScoped(noDdl).flatMap: s =>
+                      for
+                        missing <- s.save(notiz, Notiz("n1", "1", "x"), None, None).flip
+                        _       <-
+                          ZIO.attemptBlocking: // what the DBA runs
+                            Using.resource(java.sql.DriverManager.getConnection(
+                              config.jdbcUrl,
+                              config.username,
+                              config.password
+                            )): con =>
+                              Using.resource(con.createStatement()): stmt =>
+                                PostgresEntityStore.ddl("no_ddl_app", "notiz").foreach(stmt.execute)
+                          .orDie
+                        saved   <- s.save(notiz, Notiz("n1", "1", "x"), None, None)
+                      yield (missing, saved)
+      yield assertTrue(
+        result._1.isInstanceOf[PersistenceError.StoreError],
+        result._2.version == 1L
+      )
+    },
     test("parallel first use of a new table creates it once, without errors") {
       for
         config  <- ZIO.service[PersistenceConfig]
         results <- ZIO.scoped:
-                     EntityStore.postgresScoped(config.copy(schema = "parallel_app")).flatMap: fresh =>
-                       val parallel = EntityDef[Notiz]("parallel_notiz", _.id)(using notiz.codec)
-                       ZIO.foreachPar(1 to 8)(i =>
-                         fresh.save(parallel, Notiz(s"f$i", "1", "x"), None, None).either
-                       )
+                     EntityStore.postgresScoped(config.copy(schema = "parallel_app")).flatMap:
+                       fresh =>
+                         val parallel = EntityDef[Notiz]("parallel_notiz", _.id)(using notiz.codec)
+                         ZIO.foreachPar(1 to 8)(i =>
+                           fresh.save(parallel, Notiz(s"f$i", "1", "x"), None, None).either
+                         )
       yield assertTrue(results.forall(_.isRight))
     },
     test("schema and table names that are keywords work - they are quoted") {
@@ -190,7 +261,10 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         loaded <- ZIO.scoped:
                     EntityStore.postgresScoped(config.copy(schema = "user")).flatMap: keyword =>
                       val order = EntityDef[Notiz]("order", _.id)(using notiz.codec)
-                      keyword.save(order, Notiz("o1", "1", "x"), None, None) *> keyword.get(order, "o1")
+                      keyword.save(order, Notiz("o1", "1", "x"), None, None) *> keyword.get(
+                        order,
+                        "o1"
+                      )
       yield assertTrue(loaded.map(_.entity.text).contains("x"))
     },
     test("query limits the result to the given limit, at most 1000") {
@@ -205,6 +279,6 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
       store.flatMap(_.history(notiz, "nie-da")).map(changes => assertTrue(changes.isEmpty))
     }
   ).provideShared(postgres.orDie) @@ TestAspect.sequential @@
-    (if dockerAvailable then TestAspect.identity else TestAspect.ignore)
+    (if runTests then TestAspect.identity else TestAspect.ignore)
 
 end PostgresEntityStoreSpec

@@ -25,6 +25,10 @@ import zio.http.*
   * The bundle holds no data and needs no token - the app signs in itself (OIDC) and sends the
   * Bearer token with every API call. Content type and cache headers of the worker app are passed
   * through; the gateway adds the security headers.
+  *
+  * Like [[orchescala.worker.UiRoutes]] it assumes a normal web bundle: files are forwarded whole
+  * (buffered), only `GET`, no `Range` requests - so the worker app answers 200, 304 or 4xx;
+  * anything else is a failure of the worker app (502).
   */
 class AppRoutes()(using config: GatewayConfig):
 
@@ -41,7 +45,9 @@ class AppRoutes()(using config: GatewayConfig):
       }
     )
 
-  /** Keeps the query - e.g. `code` and `state` of an OIDC login that returns to `/app/{projectName}`. */
+  /** Keeps the query - e.g. `code` and `state` of an OIDC login that returns to
+    * `/app/{projectName}`.
+    */
   private[gateway] def canonicalRedirect(projectName: String, request: Request): Response =
     if isValidProjectName(projectName) then
       val query = request.url.encode.dropWhile(_ != '?')
@@ -62,9 +68,9 @@ class AppRoutes()(using config: GatewayConfig):
       request: Request
   ): UIO[Response] =
     (for
-      _        <- Option.when(isValidProjectName(projectName))(())
-      decoded  <- UiRoutes.decodeSegments(segments)
-      baseUrl  <- config.uiAppUrl(projectName)
+      _       <- Option.when(isValidProjectName(projectName))(())
+      decoded <- UiRoutes.decodeSegments(segments)
+      baseUrl <- config.uiAppUrl(projectName)
     yield decoded -> baseUrl) match
       case None                     =>
         ZIO.succeed(Response.status(Status.NotFound))
@@ -83,7 +89,7 @@ class AppRoutes()(using config: GatewayConfig):
                         ZIO.logWarning(s"UI request $uri of '$projectName' answered ${response.code.code}")
                       )
         yield toResponse(response.code.code, response.body, response.header))
-          // the shared backend of the gateway - not a new client per request
+          // live is ZLayer.succeed(cachedBackend): the one shared backend, no client per request
           .provideLayer(HttpClientProvider.live)
           .catchAll: err =>
             ZIO.logError(s"Error forwarding UI request for '$projectName': $err")
@@ -92,7 +98,8 @@ class AppRoutes()(using config: GatewayConfig):
   private[gateway] def uiUri(baseUrl: String, segments: Seq[String]): Either[String, Uri] =
     Uri.parse(baseUrl).map(_.addPath("ui" +: segments))
 
-  /** Lets the browser revalidate its cache (304) and the worker app tell page from file requests. */
+  /** Lets the browser revalidate its cache (304) and the worker app tell page from file requests.
+    */
   private def conditionalHeaders(request: Request): Seq[(String, String)] =
     Seq("If-None-Match", "If-Modified-Since", "Accept")
       .flatMap(name => request.rawHeader(name).map(name -> _))
@@ -106,17 +113,17 @@ class AppRoutes()(using config: GatewayConfig):
       Seq("Content-Type", "Cache-Control", "ETag", "Last-Modified")
         .flatMap(name => header(name).map(Header.Custom(name, _)))
     status match
-      case 200        =>
+      case 200                                     =>
         Response(
           status = Status.Ok,
           body = Body.fromArray(body),
           headers = Headers(passedHeaders ++ securityHeaders)
         )
-      case 304        =>
+      case 304                                     =>
         Response(status = Status.NotModified, headers = Headers(passedHeaders ++ securityHeaders))
       case client if client >= 400 && client < 500 =>
         Response.status(Status.fromInt(client))
-      case _          => // the worker app failed (or answered unexpectedly) - logged in forward
+      case _                                       => // the worker app failed (or answered unexpectedly) - logged in forward
         Response.status(Status.BadGateway)
     end match
   end toResponse

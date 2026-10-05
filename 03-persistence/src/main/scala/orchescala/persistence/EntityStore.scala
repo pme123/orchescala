@@ -7,6 +7,7 @@ import zio.*
 
 import java.sql.{Connection, ResultSet}
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable.ListBuffer
 import scala.util.Using
 
@@ -20,8 +21,8 @@ import scala.util.Using
   * Every change is recorded in the audit log of the entity (`{table}_history`), in the same
   * transaction as the change itself - see [[history]].
   *
-  * The tables are created on first use. Changes use optimistic locking: `save` with the version
-  * the caller read, a concurrent change is a [[PersistenceError.VersionConflict]].
+  * The tables are created on first use. Changes use optimistic locking: `save` with the version the
+  * caller read, a concurrent change is a [[PersistenceError.VersionConflict]].
   */
 trait EntityStore:
 
@@ -65,13 +66,18 @@ object EntityStore:
 
   val maxLimit = 1000
 
-  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. */
+  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. Create
+    * it once per app (e.g. a `lazy val` next to the base worker): every call registers a shutdown
+    * hook. Use [[postgresScoped]] for anything shorter-lived.
+    */
   def postgres(config: PersistenceConfig): EntityStore =
     val store = PostgresEntityStore(config)
     java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
     store
 
-  /** A store whose connection pool is closed with the scope - e.g. in tests or as a `ZLayer.scoped`. */
+  /** A store whose connection pool is closed with the scope - e.g. in tests or as a
+    * `ZLayer.scoped`.
+    */
   def postgresScoped(config: PersistenceConfig): ZIO[Scope, Nothing, EntityStore] =
     ZIO.acquireRelease(ZIO.succeed(PostgresEntityStore(config)))(store =>
       ZIO.attemptBlocking(store.close()).orDie
@@ -91,21 +97,33 @@ end EntityStore
   */
 class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCloseable:
 
-  @volatile private var opened = false
+  // the pool is created on first use; after close() the store is no longer usable
+  private val pool             = AtomicReference[Option[HikariDataSource]](None)
+  @volatile private var closed = false
 
-  private lazy val dataSource: HikariDataSource =
-    opened = true
-    val hikari = HikariConfig()
-    hikari.setJdbcUrl(config.jdbcUrl)
-    hikari.setUsername(config.username)
-    hikari.setPassword(config.password)
-    hikari.setMaximumPoolSize(config.maximumPoolSize)
-    hikari.setPoolName(s"orchescala-${config.schema}")
-    HikariDataSource(hikari)
+  private def dataSource: HikariDataSource =
+    pool.get.getOrElse:
+      synchronized:
+        if closed then
+          throw IllegalStateException(s"The store of schema ${config.schema} is closed")
+        pool.get.getOrElse:
+          val hikari  = HikariConfig()
+          hikari.setJdbcUrl(config.jdbcUrl)
+          hikari.setUsername(config.username)
+          hikari.setPassword(config.password)
+          hikari.setMaximumPoolSize(config.maximumPoolSize)
+          hikari.setPoolName(s"orchescala-${config.schema}")
+          val created = HikariDataSource(hikari) // a failed init leaves no state behind
+          pool.set(Some(created))
+          created
 
   private val createdTables = ConcurrentHashMap.newKeySet[String]()
 
-  def close(): Unit = if opened then dataSource.close()
+  /** Closes the connection pool - idempotent. */
+  def close(): Unit =
+    synchronized:
+      closed = true
+      pool.getAndSet(None).foreach(_.close())
 
   private val columns =
     "id, version, payload::text, created_at, created_by, updated_at, updated_by"
@@ -115,7 +133,9 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       Using.resource(con.prepareStatement(s"SELECT $columns FROM ${table(entity)} WHERE id = ?")):
         stmt =>
           stmt.setString(1, id)
-          Using.resource(stmt.executeQuery())(rs => if rs.next() then Some(read(entity, rs)) else None)
+          Using.resource(stmt.executeQuery())(rs =>
+            if rs.next() then Some(read(entity, rs)) else None
+          )
     .flatMap(decodeOpt)
 
   def query[E](
@@ -141,11 +161,32 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       expectedVersion: Option[Long],
       user: Option[String]
   ): IO[PersistenceError, Stored[E]] =
-    val id      = entity.id(value)
-    val keys    = entity.keys(value).asJson.noSpaces
-    val payload = value.asJson(using entity.codec).noSpaces
+    val id   = entity.id(value)
+    val keys = entity.keys(value).asJson.noSpaces
+    val json = value.asJson(using entity.codec)
+    // what cannot be read back must not be written - checked before the transaction
+    json.as[E](using entity.codec) match
+      case Left(err) =>
+        ZIO.logError(
+          s"${entity.table} '$id' cannot be read back with its codec: ${err.getMessage}"
+        ) *>
+          ZIO.fail(PersistenceError.StoreError(
+            s"${entity.table} '$id' cannot be stored - its JSON cannot be read back"
+          ))
+      case Right(_)  => write(entity, id, keys, json.noSpaces, expectedVersion, user)
+    end match
+  end save
+
+  private def write[E](
+      entity: EntityDef[E],
+      id: String,
+      keys: String,
+      payload: String,
+      expectedVersion: Option[Long],
+      user: Option[String]
+  ): IO[PersistenceError, Stored[E]] =
     withTransaction(entity): con =>
-      val sql = expectedVersion match
+      val sql     = expectedVersion match
         case None    => // a new entity - or one created again: it continues its versions
           s"""INSERT INTO ${table(entity)}
              |  (id, version, keys, payload, created_at, created_by, updated_at, updated_by)
@@ -176,7 +217,10 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
             stmt.setString(3, user.orNull)
             stmt.setString(4, id)
             stmt.setLong(5, version)
-        Using.resource(stmt.executeQuery())(rs => if rs.next() then Some(read(entity, rs)) else None)
+        end match
+        Using.resource(stmt.executeQuery())(rs =>
+          if rs.next() then Some(read(entity, rs)) else None
+        )
       written.foreach:
         case Right(stored) =>
           val operation = if expectedVersion.isEmpty then Operation.Created else Operation.Updated
@@ -189,7 +233,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       case None         => // nothing written: someone else was faster
         currentVersion(entity, id).flatMap: actual =>
           ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
-  end save
+  end write
 
   def delete[E](
       entity: EntityDef[E],
@@ -198,7 +242,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       user: Option[String]
   ): IO[PersistenceError, Unit] =
     withTransaction(entity): con =>
-      val sql = s"DELETE FROM ${table(entity)} WHERE id = ?" +
+      val sql     = s"DELETE FROM ${table(entity)} WHERE id = ?" +
         expectedVersion.fold("")(_ => " AND version = ?") +
         " RETURNING version, payload::text"
       val deleted = Using.resource(con.prepareStatement(sql)): stmt =>
@@ -214,7 +258,8 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       case false =>
         currentVersion(entity, id).flatMap:
           case None   => ZIO.fail(PersistenceError.NotFound(entity.table, id))
-          case actual => ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
+          case actual =>
+            ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
       case true  => ZIO.unit
 
   def history[E](entity: EntityDef[E], id: String): IO[PersistenceError, Seq[Change[E]]] =
@@ -225,26 +270,27 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       )): stmt =>
         stmt.setString(1, id)
         Using.resource(stmt.executeQuery()): rs =>
-          val rows = ListBuffer.empty[Either[PersistenceError, Change[E]]]
+          val rows = ListBuffer.empty[Change[E]]
           while rs.next() do
-            rows += parser.decode[E](rs.getString(3))(using entity.codec)
-              .left.map(err =>
-                PersistenceError.StoreError(
-                  s"History of ${entity.table} '$id' cannot be read: ${err.getMessage}"
-                )
-              )
-              .map: value =>
-                Change(
-                  id = id,
-                  version = rs.getLong(1),
-                  operation = Operation.fromDb(rs.getString(2)),
-                  entity = value,
-                  changedAt = rs.getTimestamp(4).toInstant,
-                  changedBy = Option(rs.getString(5))
-                )
+            val payload = parser.parse(rs.getString(3)).getOrElse(io.circe.Json.Null)
+            rows += Change(
+              id = id,
+              version = rs.getLong(1),
+              operation = Operation.fromDb(rs.getString(2)),
+              entity = payload.as[E](using entity.codec).toOption,
+              payload = payload,
+              changedAt = rs.getTimestamp(4).toInstant,
+              changedBy = Option(rs.getString(5))
+            )
           end while
           rows.toSeq
-    .flatMap(rows => ZIO.foreach(rows)(ZIO.fromEither(_)))
+    .tap: changes =>
+      val old = changes.filter(_.entity.isEmpty).map(_.version)
+      ZIO.when(old.nonEmpty)(
+        ZIO.logWarning(
+          s"History of ${entity.table} '$id': versions ${old.mkString(", ")} no longer decode - returned as JSON only"
+        )
+      )
 
   /** `now()` is the start of the transaction - the same time as in the entity table. */
   private def appendHistory(
@@ -257,7 +303,9 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       user: Option[String]
   ): Unit =
     Using.resource(con.prepareStatement(
-      s"""INSERT INTO ${historyTable(entity)} (id, version, operation, payload, changed_at, changed_by)
+      s"""INSERT INTO ${historyTable(
+          entity
+        )} (id, version, operation, payload, changed_at, changed_by)
          |VALUES (?, ?, ?, ?::jsonb, now(), ?)""".stripMargin
     )): stmt =>
       stmt.setString(1, id)
@@ -268,7 +316,10 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       stmt.executeUpdate()
   end appendHistory
 
-  private def currentVersion[E](entity: EntityDef[E], id: String): IO[PersistenceError, Option[Long]] =
+  private def currentVersion[E](
+      entity: EntityDef[E],
+      id: String
+  ): IO[PersistenceError, Option[Long]] =
     withConnection(entity): con =>
       Using.resource(con.prepareStatement(s"SELECT version FROM ${table(entity)} WHERE id = ?")):
         stmt =>
@@ -283,7 +334,9 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
   private def read[E](entity: EntityDef[E], rs: ResultSet): Either[PersistenceError, Stored[E]] =
     val id = rs.getString(1)
     parser.decode[E](rs.getString(3))(using entity.codec)
-      .left.map(err => PersistenceError.StoreError(s"${entity.table} '$id' cannot be read: ${err.getMessage}"))
+      .left.map(err =>
+        PersistenceError.StoreError(s"${entity.table} '$id' cannot be read: ${err.getMessage}")
+      )
       .map: value =>
         Stored(
           entity = value,
@@ -304,7 +357,8 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       case Some(value) => value.map(Some(_)))
 
   /** Runs blocking JDBC work - the tables of the entity exist afterwards. */
-  private def withConnection[E, A](entity: EntityDef[E])(work: Connection => A): IO[PersistenceError, A] =
+  private def withConnection[E, A](entity: EntityDef[E])(work: Connection => A)
+      : IO[PersistenceError, A] =
     ZIO
       .attemptBlocking:
         Using.resource(dataSource.getConnection()): con =>
@@ -314,12 +368,15 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       .mapError:
         case failure: PersistenceFailure => failure.error
         case _                           =>
-          PersistenceError.StoreError(s"Database error on ${entity.table} - see the log of the worker app")
+          PersistenceError.StoreError(
+            s"Database error on ${entity.table} - see the log of the worker app"
+          )
 
   /** Like [[withConnection]], but all statements in one transaction - change and audit log are
     * written together or not at all.
     */
-  private def withTransaction[E, A](entity: EntityDef[E])(work: Connection => A): IO[PersistenceError, A] =
+  private def withTransaction[E, A](entity: EntityDef[E])(work: Connection => A)
+      : IO[PersistenceError, A] =
     withConnection(entity)(con => inTransaction(con)(work(con)))
 
   private def inTransaction[A](con: Connection)(work: => A): A =
@@ -338,8 +395,8 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
     end try
   end inTransaction
 
-  /** Creates schema and tables once per store. Under an advisory lock on the schema: several
-    * worker apps (or fibers) starting at once do not run the DDL concurrently.
+  /** Creates schema and tables once per store. Under an advisory lock on the schema: several worker
+    * apps (or fibers) starting at once do not run the DDL concurrently.
     */
   private def ensureTables(con: Connection, name: String): Unit =
     if config.createTables && !createdTables.contains(name) then

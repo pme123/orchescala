@@ -98,7 +98,7 @@ object AppRoutesSpec extends ZIOSpecDefault:
       )
     },
     test("a configured Content-Security-Policy is added") {
-      val withCsp = new DefaultGatewayConfig(
+      val withCsp  = new DefaultGatewayConfig(
         engineConfig = DefaultEngineConfig(),
         workerConfig = DefaultWorkerConfig(DefaultEngineConfig())
       ):

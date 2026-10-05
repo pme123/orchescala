@@ -6,8 +6,8 @@ import java.time.Instant
 
 /** How an entity is stored: the table, its id and the key fields that can be queried.
   *
-  * The entity itself is stored as JSON (`payload`), the key fields additionally in `keys` (indexed),
-  * so a query needs no SQL per entity:
+  * The entity itself is stored as JSON (`payload`), the key fields additionally in `keys`
+  * (indexed), so a query needs no SQL per entity:
   * {{{
   * val notiz = EntityDef[Notiz]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
   * }}}
@@ -56,15 +56,20 @@ object Operation:
     Operation.values.find(_.dbValue == value).getOrElse(
       throw IllegalArgumentException(s"Unknown operation '$value' in the history")
     )
+end Operation
 
 /** An entry of the audit log: what the entity looked like after the change, who changed it when.
   * For [[Operation.Deleted]] it is the last state before the deletion.
+  *
+  * The stored JSON is always there (`payload`); `entity` is None if it no longer decodes with the
+  * current codec (e.g. after a change of the entity) - an old entry stays readable.
   */
 case class Change[E](
     id: String,
     version: Long,
     operation: Operation,
-    entity: E,
+    entity: Option[E],
+    payload: io.circe.Json,
     changedAt: Instant,
     changedBy: Option[String]
 )
@@ -72,17 +77,18 @@ case class Change[E](
 enum PersistenceError:
   case NotFound(table: String, id: String)
 
-  /** The entity was changed (or created) by someone else - `expected` is the version the caller had,
-    * `actual` the one in the store (None if it is gone).
+  /** The entity was changed (or created) by someone else - `expected` is the version the caller
+    * had, `actual` the one in the store (None if it is gone).
     */
   case VersionConflict(table: String, id: String, expected: Option[Long], actual: Option[Long])
   case StoreError(msg: String)
 
   def message: String = this match
-    case NotFound(table, id)                          => s"$table '$id' not found"
-    case VersionConflict(table, id, None, _)          => s"$table '$id' already exists"
-    case VersionConflict(table, id, Some(exp), None)  => s"$table '$id' (version $exp) no longer exists"
+    case NotFound(table, id)                              => s"$table '$id' not found"
+    case VersionConflict(table, id, None, _)              => s"$table '$id' already exists"
+    case VersionConflict(table, id, Some(exp), None)      =>
+      s"$table '$id' (version $exp) no longer exists"
     case VersionConflict(table, id, Some(exp), Some(act)) =>
       s"$table '$id' was changed in the meantime (version $exp, now $act)"
-    case StoreError(msg)                              => msg
+    case StoreError(msg)                                  => msg
 end PersistenceError

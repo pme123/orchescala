@@ -27,6 +27,9 @@ import scala.util.{Try, Using}
   *
   * The bundle is built with the base path the browser sees, e.g. Vite `base:
   * '/app/myCompany-myProject/'`.
+  *
+  * Assumes a normal web bundle (a few MB): found files are kept in memory for the lifetime of the
+  * app, served whole - no `Range` requests, only `GET`.
   */
 object UiRoutes:
 
@@ -53,6 +56,7 @@ object UiRoutes:
       // URLDecoder is for forms - a literal '+' in a path is a '+', not a space
       Try(URLDecoder.decode(segment.replace("+", "%2B"), UTF_8)).toOption
     Option.when(decoded.forall(_.exists(isSafeSegment)))(decoded.flatten)
+  end decodeSegments
 
   private[worker] def isSafeSegment(segment: String): Boolean =
     segment.nonEmpty && segment != "." && segment != ".." &&
@@ -61,10 +65,10 @@ object UiRoutes:
   /** The classpath resources to try for a path below `/ui/`, in this order. */
   private[worker] def candidates(path: Seq[String], acceptsHtml: Boolean): Seq[String] =
     path.lastOption match
-      case None                               => Seq(indexFile)
-      case Some(last) if !last.contains('.')  => Seq(indexFile)
-      case _ if path.head == "assets"         => Seq(s"ui/${path.mkString("/")}")
-      case _                                  =>
+      case None                              => Seq(indexFile)
+      case Some(last) if !last.contains('.') => Seq(indexFile)
+      case _ if path.head == "assets"        => Seq(s"ui/${path.mkString("/")}")
+      case _                                 =>
         s"ui/${path.mkString("/")}" +: Option.when(acceptsHtml)(indexFile).toSeq
 
   private[worker] def cacheControl(resource: String): String =
@@ -77,9 +81,11 @@ object UiRoutes:
       case Some(path) =>
         val acceptsHtml = request.rawHeader("Accept").exists(_.contains("text/html"))
         ZIO
-          .attemptBlocking(candidates(path, acceptsHtml).view.flatMap(r => load(r).map(r -> _)).headOption)
+          .attemptBlocking(candidates(path, acceptsHtml).view.flatMap(r =>
+            load(r).map(r -> _)
+          ).headOption)
           .map:
-            case None                 => Response.status(Status.NotFound)
+            case None                   => Response.status(Status.NotFound)
             case Some((resource, file)) => response(resource, file, request)
           .catchAll: err =>
             ZIO.logError(s"UI file /ui/${path.mkString("/")} cannot be read: ${err.getMessage}")

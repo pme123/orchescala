@@ -30,8 +30,8 @@ object PersistenceConfig:
     * A set but invalid value is an error, like a missing required one.
     */
   def fromEnv(prefix: String, env: Map[String, String] = sys.env): PersistenceConfig =
-    def name(key: String) = s"${prefix}_$key"
-    def required(key: String) =
+    def name(key: String)                                                = s"${prefix}_$key"
+    def required(key: String)                                            =
       env.getOrElse(name(key), throw IllegalArgumentException(s"${name(key)} is not set"))
     def optional[A](key: String, default: A)(parse: String => Option[A]) =
       env.get(name(key)).fold(default): value =>

@@ -29,7 +29,10 @@ object UiRoutesSpec extends ZIOSpecDefault:
     },
     test("segments are decoded - and checked after decoding") {
       assertTrue(
-        UiRoutes.decodeSegments(Seq("assets", "my%20logo.svg")).contains(Seq("assets", "my logo.svg")),
+        UiRoutes.decodeSegments(Seq("assets", "my%20logo.svg")).contains(Seq(
+          "assets",
+          "my logo.svg"
+        )),
         UiRoutes.decodeSegments(Seq("a+b.js")).contains(Seq("a+b.js")),
         UiRoutes.decodeSegments(Seq("..")).isEmpty,
         UiRoutes.decodeSegments(Seq("%2e%2e", "OpenApi.yml")).isEmpty,
@@ -71,7 +74,11 @@ object UiRoutesSpec extends ZIOSpecDefault:
         plain  <- get("/ui/customers/42")
         dotted <- get("/ui/users/john.doe", "Accept" -> "text/html,application/xhtml+xml")
         body   <- dotted.body.asString
-      yield assertTrue(plain.status == Status.Ok, dotted.status == Status.Ok, body.contains("test-ui"))
+      yield assertTrue(
+        plain.status == Status.Ok,
+        dotted.status == Status.Ok,
+        body.contains("test-ui")
+      )
     },
     test("GET /ui/assets/... serves the file with its content type") {
       for
