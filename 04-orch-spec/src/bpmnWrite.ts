@@ -216,6 +216,10 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
         if (needsPass) setControl(doc, ext, engine, name, pass(name), call);
         else if (isPassThrough(before?.inputs.get(name), name)) setControl(doc, ext, engine, name, undefined, call);
       }
+      // Der alte Weg zur Identität (veraltet, aber BPF/MAP starten noch ohne
+      // `_identityCorrelation`): ohne ihn liefe ein C7-Teilprozess mit dem
+      // technischen Benutzer. Fehlt die Variable, bleibt sie dort leer. Sonst unangetastet.
+      if (call && engine === 'c7') setControl(doc, ext, engine, 'impersonateUserId', pass('impersonateUserId'), call);
     }
 
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist
