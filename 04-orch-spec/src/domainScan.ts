@@ -43,8 +43,13 @@ const END = /^(\s*)end\s+(\w+)/;
 // Woran ein Service- oder Prozess-Objekt zu erkennen ist
 const SERVICE_MARK = /^\s+(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
-/** `lazy val example = In(` bzw. `lazy val example: In.Standard = In.Standard(` im Companion */
-const EXAMPLE = /^\s+lazy\s+val\s+example\s*(?::\s*[\w.]+\s*)?=\s*([A-Z][\w.]*)\s*\(/;
+/**
+ * `lazy val example = In(` bzw. `lazy val example: In.Standard = In.Standard(` im
+ * Companion — ebenso `exampleMinimal`; und `example = In.exampleMinimal.copy(`
+ */
+const EXAMPLE = /^\s+lazy\s+val\s+(example|exampleMinimal)\s*(?::\s*[\w.]+\s*)?=\s*([A-Za-z][\w.]*)\s*\(/;
+/** `In.exampleMinimal.copy` bzw. `exampleMinimal.copy` — das Beispiel ist eine Kopie des minimalen */
+const COPY_OF_MINIMAL = /^(?:([A-Z][\w.]*)\.)?exampleMinimal\.copy$/;
 
 /**
  * Klammern zählen, um das Ende einer Parameterliste zu finden. Zeichenketten
@@ -189,6 +194,7 @@ function literalType(value: string): string | undefined {
   if (/^BigDecimal\(/.test(value)) return 'BigDecimal';
   if (/^LocalDate\.(parse|of)\(/.test(value)) return 'LocalDate';
   if (/^LocalDateTime\.(parse|of)\(/.test(value)) return 'LocalDateTime';
+  if (/^Instant\.(parse|ofEpoch\w*)\(/.test(value)) return 'Instant';
   return undefined;
 }
 
@@ -239,9 +245,15 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const descrs = new Map<string, string>();
   /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
   const decisionResults = new Map<string, DecisionResult>();
-  /** `lazy val example = X(…)` — der Aufruf, das umschliessende Objekt und die Argumente (roh) */
-  const examples: Array<{ owner: string | null; ctor: string; args: string }> = [];
+  /**
+   * `lazy val example = X(…)` bzw. `exampleMinimal = X(…)` — der Aufruf, das
+   * umschliessende Objekt und die Argumente (roh); `example = X.exampleMinimal.copy(…)`
+   * nennt statt des Aufrufs die Klasse, deren minimales Beispiel es kopiert
+   */
+  const examples: Array<{ owner: string | null; which: string; ctor?: string; minimalOf?: string; args: string }> = [];
   let owner: string | null = null;
+  /** das zuletzt geöffnete Objekt — der Companion, in dem ein `exampleMinimal.copy(` steht */
+  let companion: string | null = null;
   let doc = '';
 
   const add = (name: string, kind: DomainType['kind'], extra: Partial<DomainType> = {}) => {
@@ -275,6 +287,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
 
     const o = OBJECT.exec(line);
     if (o) {
+      companion = o[2];
       // Nur ein Objekt auf oberster Ebene trägt Member wie `In` / `Out`.
       if (o[1].length === 0) {
         owner = o[2];
@@ -308,7 +321,10 @@ export function scanScala(source: string, path = ''): DomainType[] {
         depth = balance(lines[j], depth, state);
       }
       const close = text.lastIndexOf(')');
-      examples.push({ owner, ctor: ex[1], args: close >= 0 ? text.slice(0, close) : text });
+      const args = close >= 0 ? text.slice(0, close) : text;
+      const copy = COPY_OF_MINIMAL.exec(ex[2]);
+      if (copy) examples.push({ owner, which: ex[1], minimalOf: copy[1] ?? companion ?? undefined, args });
+      else if (/^[A-Z]/.test(ex[2]) && !ex[2].endsWith('.copy')) examples.push({ owner, which: ex[1], ctor: ex[2], args });
       i = j;
       continue;
     }
@@ -424,7 +440,14 @@ export function scanScala(source: string, path = ''): DomainType[] {
     owner = obj;
     for (const member of SERVICE_MEMBERS) add(member, 'member');
   }
-  for (const ex of examples) applyExample(out, ex.owner, ex.ctor, ex.args);
+  for (const ex of examples.filter(x => x.which === 'example')) {
+    if (ex.ctor) applyExample(out, ex.owner, ex.ctor, [ex.args]);
+    else if (ex.minimalOf) {
+      // eine Kopie des minimalen Beispiels: dessen Werte, überschrieben mit denen der Kopie
+      const min = examples.find(x => x.which === 'exampleMinimal' && x.owner === ex.owner && x.ctor === ex.minimalOf);
+      if (min) applyExample(out, ex.owner, ex.minimalOf, [min.args, ex.args]);
+    }
+  }
   // ohne eigenes `example` (`processExample(In(), …)`) sind die Vorgaben die Beispieldaten
   for (const t of out) {
     for (const fs of [t.fields, ...(t.cases ?? []).map(c => c.fields)]) {
@@ -460,7 +483,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
  * Feld, das der Aufruf nicht nennt, hat als Beispiel seine Vorgabe — sonst
  * kompilierte der Aufruf nicht. Das erste `example` je Klasse gilt.
  */
-function applyExample(types: DomainType[], owner: string | null, ctor: string, args: string) {
+function applyExample(types: DomainType[], owner: string | null, ctor: string, args: string[]) {
   const byName = (name: string): DomainType | null =>
     (owner ? types.find(t => t.name === `${owner}.${name}`) : undefined) ?? types.find(t => t.name === name) ?? null;
   let fields: DomainField[] | undefined;
@@ -474,7 +497,9 @@ function applyExample(types: DomainType[], owner: string | null, ctor: string, a
     fields = c?.fields;
   }
   if (!fields?.length || fields.some(f => f.example != null)) return;
-  const values = exampleArgs(args, fields.map(f => f.name));
+  // mehrere Argumentlisten: die spätere überschreibt (`exampleMinimal.copy(…)`)
+  const names = fields.map(f => f.name);
+  const values = new Map(args.flatMap(a => [...exampleArgs(a, names)]));
   for (const f of fields) {
     const v = values.get(f.name) ?? (f.default && f.default !== 'None' ? f.default : undefined);
     if (v) f.example = v;

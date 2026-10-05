@@ -282,6 +282,12 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
         if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)) return `LocalDateTime.parse(${scalaString(text)})`;
         throw new DefaultError('erwartet Datum und Zeit ohne Zeitzone, z. B. date and time("2026-01-01T08:00:00").');
       }
+      // ein Zeitpunkt — mit Zeitzone bzw. `Z` (UTC)
+      case 'Instant': {
+        const text = v instanceof FeelDateTime || typeof v === 'string' ? String(v) : '';
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(text)) return `Instant.parse(${scalaString(text)})`;
+        throw new DefaultError('erwartet einen Zeitpunkt mit Zeitzone, z. B. date and time("2026-01-01T08:00:00Z").');
+      }
     }
     throw new DefaultError(`für ${type} gibt es keine Übersetzung — ohne «=» als Scala-Ausdruck angeben.`);
   }
@@ -355,6 +361,7 @@ const SCALAR_EXAMPLE: Record<string, string> = {
   BigDecimal: 'BigDecimal("100.00")',
   LocalDate: 'LocalDate.now()',
   LocalDateTime: 'LocalDateTime.now()',
+  Instant: 'Instant.now()',
   Iso8601Duration: '"PT1M"',
   Iban: 'defaultIban',
 };

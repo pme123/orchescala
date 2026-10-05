@@ -263,7 +263,7 @@ export interface AppliedPattern {
 /** Skalare Typen, die Orchescala direkt kennt. */
 export const SCALA_TYPES = [
   'String', 'Boolean', 'Int', 'Long', 'Double', 'BigDecimal',
-  'LocalDate', 'LocalDateTime', 'Iso8601Duration', 'Iban',
+  'LocalDate', 'LocalDateTime', 'Instant', 'Iso8601Duration', 'Iban',
 ] as const;
 export type ScalaType = (typeof SCALA_TYPES)[number];
 

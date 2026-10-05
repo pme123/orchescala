@@ -171,6 +171,13 @@ class Converter {
   fieldType(base: string, pkg: string, depth = 0, scope?: string): { type: string; constraint?: string; enumCase?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
+    // `MockedServiceResponse[GetX.Out]` — eine Hülle aus Orchescala (der Mock eines
+    // Services): sie bleibt als Scala-Typ stehen; aufgelöst und gemeldet wird das Innere
+    const wrapped = /^(MockedServiceResponse)\[(.+)\]$/.exec(base);
+    if (wrapped) {
+      this.fieldType(typeShape(wrapped[2]).base, pkg, depth + 1, scope);
+      return { type: base };
+    }
     // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums:
     // das Feld zeigt auf das enum und nennt den Fall
     const split = splitEnumCase(base);

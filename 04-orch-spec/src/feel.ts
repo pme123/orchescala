@@ -90,11 +90,12 @@ const SCALAR_FEEL: Record<string, FeelType> = {
   String: 'string', Iban: 'string', Iso8601Duration: 'string',
   Boolean: 'boolean',
   Int: 'number', Long: 'number', Double: 'number', BigDecimal: 'number',
-  LocalDate: 'string', LocalDateTime: 'string',
+  LocalDate: 'string', LocalDateTime: 'string', Instant: 'string',
 };
 const SCALAR_ACCEPTS: Record<string, FeelType[]> = {
   LocalDate: ['string', 'date'],
   LocalDateTime: ['string', 'date time'],
+  Instant: ['string', 'date time'],
   Iso8601Duration: ['string', 'duration'],
 };
 

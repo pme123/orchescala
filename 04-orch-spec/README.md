@@ -225,7 +225,16 @@ abtragen (`None`, `Seq(a, b)`, `Seq.empty`), bleibt der ganze Ausdruck und
 wird wörtlich übernommen. Was die App ohnehin ableitet (`CardAccount.example`),
 bleibt leer. Nennt das `example` ein Feld nicht, gilt seine Vorgabe; hat eine
 Klasse gar kein `example` (`processExample(In(), …)`), sind ihre Vorgaben die
-Beispieldaten. Beim Abgleich geht ein Beispiel der Spezifikation vor.
+Beispieldaten. Ist das `example` eine Kopie des minimalen
+(`In.exampleMinimal.copy(now = …)`), gelten die Werte von `exampleMinimal`,
+überschrieben mit denen der Kopie. Beim Abgleich geht ein Beispiel der
+Spezifikation vor.
+
+**Typen aus Orchescala.** `Instant` (ein Zeitpunkt mit Zeitzone) ist ein
+einfacher Typ wie `LocalDateTime` — Vorgabe `= date and time("2026-01-01T08:00:00Z")`
+→ `Instant.parse(…)`. `MockedServiceResponse[GetX.Out]` (der Mock eines
+Services im `InConfig`) bleibt als Scala-Typ stehen; gemeldet wird nur, wenn
+das Innere unbekannt ist.
 
 **Referenzen in der Beschreibung.** Steht in `@description(…)` kein reiner
 Text, sondern eine Referenz (`@description(clientKeyDescr)`), ein Aufruf

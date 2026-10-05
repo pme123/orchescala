@@ -109,7 +109,7 @@ function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>
     return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: 'steht nicht (mehr) im Katalog',
       cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };
   }
-  if (constraintKind(f.type) !== null || ['Boolean', 'LocalDate', 'LocalDateTime'].includes(f.type)) {
+  if (constraintKind(f.type) !== null || ['Boolean', 'LocalDate', 'LocalDateTime', 'Instant'].includes(f.type)) {
     return { icon: null, cls: isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50' };
   }
   // ein Scala-Typ aus der Domain (`MockedServiceResponse[GetClient.Out]`) — wörtlich übernommen
