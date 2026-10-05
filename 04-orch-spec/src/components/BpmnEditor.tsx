@@ -23,6 +23,10 @@ import camundaModdle from 'camunda-bpmn-moddle/resources/camunda.json';
 import type { EngineId } from '../types';
 import type { ASSIGNMENT_KEYS } from '../bpmn';
 import { errorListSource } from '../errorCodes';
+import { getClipboard, type DiagramSpec, type PastedElements } from '../clipboard';
+import { PersistentClipboard, stripEngine } from '../bpmnClipboard';
+import { engineExpression } from '../feelJuel';
+import { feelIfPossible } from '../juelFeel';
 
 /** Was wir von einem moddle-Element anfassen — bewusst schmal gehalten. */
 interface Moddle {
@@ -65,22 +69,31 @@ interface Props {
   xml: string;
   isDark: boolean;
   canEdit: boolean;
-  /** vom Modeler ausgelöste Änderung — der Baum liest neu ein */
-  onChange: (xml: string) => void;
+  /** Engine dieses Prozesses — Eingefügtes aus der anderen verliert seine Engine-Angaben */
+  engine?: EngineId;
+  /**
+   * vom Modeler ausgelöste Änderung — der Baum liest neu ein. `pasted`: was
+   * seit dem letzten Mal eingefügt wurde (alte → neue ID samt Spezifikationsanteil)
+   */
+  onChange: (xml: string, pasted?: PastedElements) => void;
+  /** im Diagramm kopiert (Ctrl+C) — die IDs der Elemente, ohne Beschriftungen */
+  onCopy?: (ids: string[]) => void;
   /** im Diagramm angeklickt */
   onSelect: (id: string | null) => void;
   onReady: (handle: BpmnHandle) => void;
   onError: (message: string) => void;
 }
 
-export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, onReady, onError }: Props) {
+export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onCopy, onSelect, onReady, onError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const modelerRef = useRef<InstanceType<typeof BpmnModeler> | null>(null);
   const timer = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const cbs = useRef({ onChange, onSelect, onReady, onError });
-  cbs.current = { onChange, onSelect, onReady, onError };
+  const cbs = useRef({ onChange, onCopy, onSelect, onReady, onError });
+  cbs.current = { onChange, onCopy, onSelect, onReady, onError };
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
   /** zuletzt geladenes XML — verhindert, dass eigene Änderungen neu importiert
    *  werden (das würde Auswahl und Bildausschnitt zurücksetzen) */
   const loadedRef = useRef<string>('');
@@ -147,10 +160,28 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
       container: hostRef.current,
       // ohne die Camunda-Erweiterung verwirft das Speichern alle Mappings
       moddleExtensions: { camunda: camundaModdle },
+      // Kopieren und Einfügen über Prozesse und Tabs hinweg (siehe bpmnClipboard.ts)
+      additionalModules: [{ clipboard: ['type', PersistentClipboard] }],
     });
     modelerRef.current = modeler;
     // Entwicklung: Zugriff auf den Modeler, um den Abgleich prüfen zu können
     if (import.meta.env.DEV) (window as unknown as { __bpmn?: unknown }).__bpmn = modeler;
+
+    // Eingefügt, aber noch nicht gemeldet: alte ID → neue ID. bpmn-js legt die
+    // Elemente beim Einfügen an, ins Diagramm kommen sie erst beim Ablegen.
+    let pendingPaste: Record<string, string> = {};
+    let pendingSpec: DiagramSpec | undefined;
+    /** was davon jetzt im Diagramm liegt — der Rest wartet aufs Ablegen */
+    const takePasted = (): PastedElements | undefined => {
+      const registry = modeler.get('elementRegistry') as { get: (id: string) => unknown };
+      const ids: Record<string, string> = {};
+      for (const [alt, neu] of Object.entries(pendingPaste)) {
+        if (!registry.get(neu)) continue;
+        ids[alt] = neu;
+        delete pendingPaste[alt];
+      }
+      return Object.keys(ids).length ? { ids, spec: pendingSpec } : undefined;
+    };
 
     // Jede Änderung geht denselben Weg zurück — auch die, die aus dem Baum
     // kam. Sonst stünde die Umbenennung zwar im Diagramm, aber nie in der
@@ -163,7 +194,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
           const { xml: next } = await modeler.saveXML({ format: true });
           // als «geladen» merken, sonst importiert der Rückweg das eigene
           // Ergebnis neu und wirft Auswahl und Ausschnitt weg
-          if (next) { loadedRef.current = next; cbs.current.onChange(next); }
+          if (next) { loadedRef.current = next; cbs.current.onChange(next, takePasted()); }
         } catch (e) {
           cbs.current.onError(e instanceof Error ? e.message : String(e));
         }
@@ -171,6 +202,35 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
     };
 
     modeler.on('commandStack.changed', push);
+
+    // ── Kopieren und Einfügen ──────────────────────────────────────────────
+    // Kopiert: die Prozessansicht legt den Anteil der Spezifikation dazu.
+    // Ein «Duplizieren» (clip: false) geht nicht in die Zwischenablage.
+    modeler.on('copyPaste.elementsCopied', (e: { tree?: Record<string, Array<{ id: string; labelTarget?: string }>>; hints?: { clip?: boolean } }) => {
+      if (e.hints?.clip === false || !e.tree) return;
+      const ids = Object.values(e.tree).flat().filter(d => !d.labelTarget).map(d => d.id);
+      if (ids.length) cbs.current.onCopy?.(ids);
+    });
+    // Ein neues Einfügen beginnt: was vom vorigen nie abgelegt wurde, verfällt.
+    // Der Spezifikationsanteil gilt so, wie er jetzt in der Zwischenablage steht.
+    modeler.on('copyPaste.pasteElements', () => {
+      pendingPaste = {};
+      pendingSpec = getClipboard().diagram?.spec;
+    });
+    // Nach bpmn-js (Priorität 1000) und dessen Verweisen auf Fehler/Nachrichten
+    // (500): das Element ist angelegt und hat seine neue ID.
+    modeler.on('copyPaste.pasteElement', 250, (e: { descriptor: { id: string; labelTarget?: unknown; businessObject?: { id?: string } & Record<string, unknown> } }) => {
+      const d = e.descriptor;
+      if (d.labelTarget || !d.businessObject?.id) return;
+      pendingPaste[d.id] = d.businessObject.id;
+      const from = pendingSpec?.source.engine ?? 'c7';
+      if (pendingSpec && from !== (engineRef.current ?? 'c7')) {
+        stripEngine(d.businessObject as Parameters<typeof stripEngine>[0]);
+        // Bedingung am Fluss: in der Schreibweise dieser Engine (`${…}` ⇄ `=…`)
+        const cond = d.businessObject.conditionExpression as { body?: string } | undefined;
+        if (cond?.body) cond.body = engineExpression(feelIfPossible(cond.body), engineRef.current).text;
+      }
+    });
     // Ein Klick in die Zeichenfläche — auch auf leere Stelle: dann trifft er
     // das Wurzelelement. Nur danach ist eine leere Auswahl eine echte Abwahl.
     // Der Merker gilt nur während des Klicks: gesetzt vor der Auswahl von

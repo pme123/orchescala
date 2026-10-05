@@ -945,6 +945,45 @@ meldet es getrennt («✎ alt → neu») und lässt den Status stehen. Auf
 «Angepasst» springt ein Schritt nur, wenn sich sein Vertrag ändert — Art,
 Service, Topic, gerufener Prozess oder die Mappings.
 
+### Kopieren und Einfügen — über Prozesse und Tabs hinweg
+
+**Im Diagramm** wie in jedem Modeler: Elemente wählen, **Ctrl+C** (Mac ⌘C),
+im selben oder einem anderen Prozess ins Diagramm klicken, **Ctrl+V** und
+ablegen. Mit kommt nicht nur die Form, sondern alles, was die Spezifikation
+zum Schritt führt:
+
+- Beschreibung, Service bzw. Topic, gerufener Prozess, Ein- und Ausgaben samt
+  Bedeutung und Abwahl, Mock, Zuständigkeit, Zweig-Bezeichnungen und
+  -Bedingungen, behandelte Fehler,
+- die **Interaktion** des Schritts (Benutzeraufgabe, eigener Worker, Signal …)
+  mit ihren In/Out-Klassen und den eigenen Klassen, auf die diese verweisen.
+
+**Im Datenmodell** über die Knöpfe: ⧉ im Kopf einer Klasse/Auswahl bzw. an
+einer Feldzeile kopiert. Eingefügt wird eine Klasse links unten
+(«‹Name› einfügen»), ein Feld unter den Feldern der gewählten Klasse — bei
+einer Auswahl in die gemeinsamen Felder oder in einen Fall.
+
+Was gilt:
+
+- Alles Eingefügte ist **Entwurf** — im Ziel ist es noch nicht umgesetzt.
+- **Klassen kommen immer als Kopie**, auch die, auf die ein Feld verweist;
+  ist der Name vergeben, mit Zähler (`Address2`). Verweise in den Katalog
+  bleiben Verweise. Ein Feldname wird in seiner Klasse eindeutig (`street2`),
+  ebenso der Name einer Interaktion (`ReviewUT2`).
+- **IDs**: ein eingefügter Schritt behält die ID aus der Quelle, wenn sie im
+  Ziel frei ist — sonst die nach Konvention mit Zähler (`ReviewTask1`).
+  Klassen, Felder und Interaktionen bekommen neue IDs; Kommentare der Quelle
+  kommen nicht mit.
+- **Zwischen Camunda 7 und 8**: das Diagramm verliert beim Einfügen die
+  Angaben der anderen Engine; Zuständigkeit, behandelte Fehler und
+  Bedingungen schreibt die App in der Form des Ziels hinein, Mappings und
+  Topic wie immer der Export.
+- Die Zwischenablage liegt im Browser (`localStorage`) und gilt für **alle
+  Tabs und Fenster** derselben App in diesem Browser, auch nach einem Reload —
+  nicht zwischen verschiedenen Browsern. Was darin liegt, zeigt der Chip in
+  der Werkzeugleiste des Ablaufs («3 Schritte aus «Kartenbestellung»», ✕ leert).
+- Im Verlauf steht das Einfügen als «Eingefügt aus «‹Prozess›»: n Elemente».
+
 ### Markdown-Felder formatieren
 
 Die Markdown-Felder — **Ausgangslage / Ziel**, die **fachliche Beschreibung**
@@ -1527,6 +1566,7 @@ verworfen: globex.core.banking.domain.client.v1 (13 Typen) — Vorrang hat inite
 | `src/backend.ts`, `src/graph.ts` | lokaler Ordner bzw. SharePoint über Graph |
 | `src/auth.tsx` | Entra-Anmeldung (MSAL) |
 | `src/components/BpmnEditor.tsx` | bpmn-js im Editor, Abgleich in beide Richtungen |
+| `src/clipboard.ts`, `src/copyPaste.ts`, `src/bpmnClipboard.ts` | Kopieren und Einfügen: Zwischenablage über Tabs, was mitwandert, der Baum von bpmn-js als JSON |
 | `src/components/` | Liste, Prozessansicht, Detailspalte, Klassenbauer, Export, Admin |
 
 ## Offene Punkte

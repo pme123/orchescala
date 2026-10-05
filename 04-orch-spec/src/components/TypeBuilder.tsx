@@ -4,9 +4,9 @@
 // entsteht (live). `InConfig` entsteht zum grössten Teil aus dem Ablauf
 // (Schleifen, Mocks); eigene Stellschrauben lassen sich wie beim `InitIn`
 // als Felder pflegen.
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, Copy, Check, ListOrdered,
+  AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, ClipboardPaste, Copy, Check, ListOrdered,
   Plus, Trash2, Workflow, X,
   Plug, ExternalLink, Unlink,
 } from 'lucide-react';
@@ -31,6 +31,8 @@ import { CommentBubble } from './Comments';
 import { useConfirm } from './Confirm';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
+import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../clipboard';
+import { pasteField, pasteType, typeClosure } from '../copyPaste';
 
 interface Props {
   spec: ProcessSpec;
@@ -48,6 +50,45 @@ interface Props {
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
+
+// ── Kopieren und Einfügen ────────────────────────────────────────────────────
+// Klassen und Felder wandern über die Zwischenablage (clipboard.ts) in dieses
+// oder ein anderes Datenmodell — auch in einem anderen Tab. Der Kontext spart
+// es, die Aktionen durch Editor, Auswahl und Feldzeile zu reichen.
+interface ClipActions {
+  copyType: (t: TypeDef) => void;
+  copyField: (f: Field) => void;
+  /** an die Klasse — bei einer Auswahl an den Fall Nummer `valueIndex` */
+  pasteField: (typeId: string, valueIndex?: number) => void;
+}
+const ClipContext = createContext<ClipActions | null>(null);
+
+/** Kopieren, kurz mit Häkchen bestätigt */
+function ClipCopyButton({ onCopy, title, className }: { onCopy: () => void; title: string; className: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button onClick={() => { onCopy(); setDone(true); window.setTimeout(() => setDone(false), 1200); }}
+      title={title} className={className}>
+      {done ? <Check size={11} /> : <Copy size={11} />}
+    </button>
+  );
+}
+
+/** «Feld einfügen» — nur, wenn ein Feld in der Zwischenablage liegt */
+function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valueIndex?: number; isDark: boolean }) {
+  const actions = useContext(ClipContext);
+  const m = useClipboard().model;
+  const c = cls(isDark);
+  if (!actions || m?.kind !== 'field') return null;
+  const mit = m.types.length ? ` — mit ${m.types.length === 1 ? 'einer Klasse' : `${m.types.length} Klassen`} als Kopie` : '';
+  return (
+    <button onClick={() => actions.pasteField(typeId, valueIndex)}
+      title={`Feld «${m.field.name}» aus «${m.source.title || m.source.slug}» einfügen${mit}`}
+      className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border min-w-0 ${c.btn}`}>
+      <ClipboardPaste size={11} className="flex-shrink-0" /> <span className="truncate">«{m.field.name || 'Feld'}» einfügen</span>
+    </button>
+  );
+}
 const SCALA_KEY = 'orch-spec.showScala';
 
 /** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
@@ -264,7 +305,29 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const issuesOf = (id: string) => issues.filter(i => i.typeId === id);
   const globalIssues = issues.filter(i => !i.typeId);
 
+  const clip = useClipboard();
+  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine };
+  const clipActions: ClipActions = {
+    copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(types, [t.id]) }),
+    copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(types, [f.type]) }),
+    pasteField: (typeId, valueIndex) => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'field') return;
+      const r = pasteField(spec, typeId, m, valueIndex);
+      if (r) setTypes(r.types);
+    },
+  };
+  const pasteTypeClip = () => {
+    const m = getClipboard().model;
+    if (m?.kind !== 'type') return;
+    const r = pasteType(spec, m);
+    setTypes(r.types);
+    pickType(r.id);
+  };
+  const typeClip = clip.model?.kind === 'type' ? clip.model : null;
+
   return (
+    <ClipContext.Provider value={clipActions}>
     <div className="flex h-full min-h-0">
       {/* ── Typen ──────────────────────────────────────────────────────────── */}
       <div className={`w-72 flex-shrink-0 border-r ${c.border} flex flex-col`}>
@@ -440,6 +503,18 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
               className={`w-full flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded border ${c.btn}`}>
               <ListOrdered size={11} /> Auswahl
             </button>
+            {typeClip && (() => {
+              const t = typeClip.types.find(x => x.id === typeClip.typeId);
+              const mit = typeClip.types.length - 1;
+              return (
+                <button onClick={pasteTypeClip}
+                  title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${typeClip.source.title || typeClip.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist` : ''}`}
+                  className={`w-full flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded border ${c.btn}`}>
+                  <ClipboardPaste size={11} className="flex-shrink-0" />
+                  <span className="truncate">«{t?.name}» einfügen{mit ? ` (+${mit})` : ''}</span>
+                </button>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -500,6 +575,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
        </div>
       </div>
     </div>
+    </ClipContext.Provider>
   );
 }
 
@@ -692,6 +768,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   onOpenType: (id: string) => void;
 }) {
   const confirm = useConfirm();
+  const clip = useContext(ClipContext);
   const c = cls(isDark);
   const fields = t.fields ?? [];
   // Die Scala-Vorschau ist zu, bis man sie will — und merkt sich das
@@ -744,6 +821,11 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
+        {clip && !t.inConfig && (
+          <ClipCopyButton onCopy={() => clip.copyType(t)}
+            title={`${t.kind === 'enum' ? 'Auswahl' : 'Klasse'} kopieren — mit den eigenen Klassen, auf die sie verweist. Einfügen links unten im Datenmodell, auch eines anderen Prozesses oder Tabs.`}
+            className={`p-1.5 rounded border ${c.btn}`} />
+        )}
         {canEdit && !t.root && (
           <button onClick={async () => { if (await confirm({ title: `Typ «${t.name || 'ohne Namen'}» löschen?` })) onRemove(); }}
             title="Typ löschen" className={`p-1.5 rounded border ${c.btn}`}>
@@ -791,10 +873,13 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
                 onAddType={onAddType} onOpenType={onOpenType} />
             ))}
             {canEdit && (
-              <button onClick={() => onPatch({ fields: [...fields, emptyField()] })}
-                className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
-                <Plus size={11} /> Feld
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={() => onPatch({ fields: [...fields, emptyField()] })}
+                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+                  <Plus size={11} /> Feld
+                </button>
+                <PasteFieldButton typeId={t.id} isDark={isDark} />
+              </div>
             )}
           </div>
         )}
@@ -830,6 +915,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   onOpenType: (id: string) => void;
 }) {
   const confirm = useConfirm();
+  const clip = useContext(ClipContext);
   const c = cls(isDark);
   // der Typ, zu dem das Feld gehört — er bestimmt, ob es eine Vorgabe gibt
   const owner = types.find(t => t.id === selfId);
@@ -885,6 +971,11 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           </span>
         )}
         {f.name && <CommentBubble target={sub(typeTarget(selfId), `field:${f.id}`)} quiet />}
+        {clip && f.name && (
+          <ClipCopyButton onCopy={() => clip.copyField(f)}
+            title="Feld kopieren — einfügen unter den Feldern einer Klasse, auch eines anderen Prozesses oder Tabs"
+            className={`p-1 flex-shrink-0 ${c.muted}`} />
+        )}
         {canEdit && (
           <div className="flex items-center flex-shrink-0">
             <button onClick={() => onMove(-1)} disabled={index === 0} className={`p-1 disabled:opacity-20 ${c.muted}`}><ArrowUp size={11} /></button>
@@ -1121,10 +1212,13 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
             </div>
           )}
           {canEdit && (
-            <button onClick={() => setCommon([...common, emptyField()])}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
-              <Plus size={11} /> Gemeinsames Feld
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => setCommon([...common, emptyField()])}
+                className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+                <Plus size={11} /> Gemeinsames Feld
+              </button>
+              <PasteFieldButton typeId={t.id} isDark={isDark} />
+            </div>
           )}
         </div>
       )}
@@ -1168,10 +1262,13 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
               <div className="pl-3 space-y-2">
                 {fieldRows(fields, next => setFields(i, next))}
                 {canEdit && (
-                  <button onClick={() => setFields(i, [...fields, emptyField()])}
-                    className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
-                    <Plus size={11} /> Feld
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => setFields(i, [...fields, emptyField()])}
+                      className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+                      <Plus size={11} /> Feld
+                    </button>
+                    <PasteFieldButton typeId={t.id} valueIndex={i} isDark={isDark} />
+                  </div>
                 )}
               </div>
             )}

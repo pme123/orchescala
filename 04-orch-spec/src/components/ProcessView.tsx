@@ -9,7 +9,7 @@ import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare, Puzzle, History, Database,
+  MessageSquare, Puzzle, History, Database, ClipboardPaste,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
@@ -38,6 +38,8 @@ import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
 import SyncPanel from './SyncPanel';
 import type { BpmnHandle } from './BpmnEditor';
+import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
+import { collectDiagram, overlayPasted } from '../copyPaste';
 
 // Der Modeler ist gross — er kommt erst, wenn das Diagramm gezeigt wird.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
@@ -614,7 +616,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
    * die Schritte gleich mit um; sonst ist das hier ohne Nebenwirkung und
    * lässt sich für die Vorschau beliebig oft rechnen.
    */
-  const planXml = useCallback((raw: string, from: string, st: MergeStatus = DEFAULT_MERGE_STATUS) => {
+  const planXml = useCallback((raw: string, from: string, st: MergeStatus = DEFAULT_MERGE_STATUS, pasted?: PastedElements) => {
     const current = specRef.current;
     if (!current) return null;
     // Prozess-ID und -Name folgen dem Pool (Konvention, siehe poolIds.ts);
@@ -653,7 +655,28 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       merged = renameStepId(merged, s.id, neu);
       renames.push([s.id, neu]);
     }
-    return { spec: merged, text, report, renames };
+    // Im Modeler eingefügt: die Angaben der Quelle an die neuen Schritte. Die
+    // ID der Quelle bleibt, wenn sie hier frei ist — sonst nach Konvention.
+    const placed: string[] = [];
+    if (pasted && from === 'Diagramm') {
+      const o = overlayPasted(merged, pasted);
+      merged = o.spec;
+      for (const [alt, neu0] of o.placed) {
+        const ids = new Set(allSteps(merged.steps).map(x => x.id));
+        const step = allSteps(merged.steps).find(x => x.id === neu0);
+        let neu = neu0;
+        for (const wunsch of [ids.has(alt) ? null : alt, step ? conventionalId(step, x => x !== neu0 && ids.has(x)) : null]) {
+          if (!wunsch || wunsch === neu0) continue;
+          if (bpmnRef.current?.setId(neu0, wunsch) !== 'renamed') continue;
+          merged = renameStepId(merged, neu0, wunsch);
+          renames.push([neu0, wunsch]);
+          neu = wunsch;
+          break;
+        }
+        placed.push(neu);
+      }
+    }
+    return { spec: merged, text, report, renames, placed };
   }, []);
 
   /**
@@ -675,18 +698,53 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
    * `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst).
    * `origin`: woher das Diagramm kommt — ohne ist es «Mit BPMN abgleichen» mit einer Datei.
    */
-  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin) => {
+  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin, pasted?: PastedElements) => {
     try {
-      const plan = planXml(raw, from);
+      const plan = planXml(raw, from, DEFAULT_MERGE_STATUS, pasted);
       if (!plan) return;
       const r = plan.report;
       const show = !quiet || (quiet !== 'silent' && (r.added.length || r.removed.length || r.changed.length));
+      const src = pasted?.spec?.source;
+      const note = plan.placed.length && src
+        ? `Eingefügt aus «${src.title || src.slug}»: ${plan.placed.length} ${plan.placed.length === 1 ? 'Element' : 'Elemente'}`
+        : undefined;
       await commitPlan(plan.spec, plan.text, show ? r : null, plan.renames,
-        { ...(origin ?? { source: 'bpmn-sync', note: `Mit BPMN abgleichen: ${from}` }), report: bpmnReport(r) });
+        { ...(origin ?? { source: 'bpmn-sync', note: `Mit BPMN abgleichen: ${from}` }), ...(note ? { note } : {}), report: bpmnReport(r) });
+      if (plan.placed.length) {
+        // Aus der anderen Engine kam nichts Technisches mit: Zuständigkeit,
+        // Bedingungen und behandelte Fehler in der Form dieser Engine ins Diagramm
+        const engine = plan.spec.engine;
+        if (src && (src.engine ?? 'c7') !== (engine ?? 'c7')) {
+          const byId = new Map(allSteps(plan.spec.steps).map(s => [s.id, s]));
+          for (const id of plan.placed) {
+            const s = byId.get(id);
+            if (!s) continue;
+            // behandelte Fehler nur, wo es welche ohne Boundary-Event gibt — sonst bliebe ein leeres ioMapping
+            const held = (s.errors ?? []).some(e => e.code && (e.declared || !e.boundary)) || !!s.regexHandledErrors?.length;
+            const patch: Partial<Step> = {
+              ...Object.fromEntries(ASSIGNMENT_KEYS.filter(k => s[k]).map(k => [k, s[k]])),
+              ...(s.branches ? { branches: s.branches } : {}),
+              ...(held ? { errors: s.errors ?? [], regexHandledErrors: s.regexHandledErrors } : {}),
+            };
+            applyToBpmn(id, patch, undefined, bpmnRef.current, engine);
+          }
+        }
+        setSelected(plan.placed[0]);
+      }
     } catch (e) {
       setSaveState({ error: e instanceof Error ? e.message : String(e) });
     }
   }, [planXml, commitPlan]);
+
+  // ── Kopieren ──────────────────────────────────────────────────────────────
+  // Im Modeler kopiert (Ctrl+C): zum Baum von bpmn-js kommt, was nur in der
+  // Spezifikation steht — eingefügt wird in diesem oder einem anderen Prozess.
+  const copyDiagram = useCallback((ids: string[]) => {
+    const cur = specRef.current;
+    if (!cur) return;
+    attachDiagramSpec(collectDiagram(cur, ids, { slug: cur.slug, title: cur.title || cur.name, engine: cur.engine }));
+  }, []);
+  const clip = useClipboard();
 
   // ── Pattern ───────────────────────────────────────────────────────────────
   // Ein Pattern wird direkt ins BPMN geschrieben — nicht erst beim Export.
@@ -832,6 +890,20 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                     title="Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt"
                     className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncDataIcon size={14} /></button>
                 )}
+                {clip.diagram && (() => {
+                  const n = Object.keys(clip.diagram.spec?.steps ?? {}).length;
+                  const src = clip.diagram.spec?.source;
+                  const woher = !src ? '' : src.slug === slug ? ' aus diesem Prozess' : ` aus «${src.title || src.slug}»`;
+                  const was = n ? `${n} ${n === 1 ? 'Schritt' : 'Schritte'}` : 'Diagramm-Elemente';
+                  return (
+                    <span title={`Zwischenablage: ${was}${woher}. Einfügen: ins Diagramm klicken, dann Ctrl+V (Mac ⌘V) und ablegen — mit Mappings, Beschreibung und Interaktion.`}
+                      className={`flex items-center gap-1 text-[10px] pl-2 pr-1 py-1 rounded border flex-shrink-0 max-w-[16rem] ${c.border} ${c.muted2}`}>
+                      <ClipboardPaste size={11} className="flex-shrink-0" />
+                      <span className="truncate">{was}{woher}</span>
+                      <button onClick={clearDiagramClip} title="Zwischenablage leeren" className={`p-0.5 rounded ${c.muted}`}><X size={10} /></button>
+                    </span>
+                  );
+                })()}
               </>
             )}
           </>
@@ -949,8 +1021,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               {showDiagram && xml && (
                 <div className={`flex-shrink-0 border-b ${c.border} relative`} style={{ height }}>
                   <Suspense fallback={<div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Modeler wird geladen …</div>}>
-                    <BpmnEditor xml={xml} isDark={isDark} canEdit={canEdit}
-                      onChange={text => { void applyXml(text, 'Diagramm', true, { source: 'manual', note: 'Im Diagramm geändert' }); }}
+                    <BpmnEditor xml={xml} isDark={isDark} canEdit={canEdit} engine={spec.engine}
+                      onChange={(text, pasted) => { void applyXml(text, 'Diagramm', true, { source: 'manual', note: 'Im Diagramm geändert' }, pasted); }}
+                      onCopy={copyDiagram}
                       onSelect={id => setSelected(id)}
                       onReady={h => { bpmnRef.current = h; h.select(selected); }}
                       onError={m => setSaveState({ error: m })} />
