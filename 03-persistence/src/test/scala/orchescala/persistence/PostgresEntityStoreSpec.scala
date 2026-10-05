@@ -81,15 +81,60 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
       for
         s        <- store
         v1       <- s.save(notiz, Notiz("d1", "700", "x"), None, None)
-        conflict <- s.delete(notiz, "d1", Some(v1.version + 1)).flip
-        _        <- s.delete(notiz, "d1", Some(v1.version))
+        conflict <- s.delete(notiz, "d1", Some(v1.version + 1), None).flip
+        _        <- s.delete(notiz, "d1", Some(v1.version), None)
         gone     <- s.get(notiz, "d1")
-        missing  <- s.delete(notiz, "d1", None).flip
+        missing  <- s.delete(notiz, "d1", None, None).flip
       yield assertTrue(
         conflict == PersistenceError.VersionConflict("notiz", "d1", Some(2L), Some(1L)),
         gone.isEmpty,
         missing == PersistenceError.NotFound("notiz", "d1")
       )
+    },
+    test("the audit log records every change with user, also the deletion") {
+      for
+        s       <- store
+        v1      <- s.save(notiz, Notiz("h1", "800", "erste"), None, Some("anna"))
+        v2      <- s.save(notiz, Notiz("h1", "800", "zweite"), Some(v1.version), Some("beat"))
+        _       <- s.delete(notiz, "h1", Some(v2.version), Some("carla"))
+        changes <- s.history(notiz, "h1")
+      yield assertTrue(
+        changes.map(c => (c.version, c.operation, c.entity.text, c.changedBy)) == Seq(
+          (1L, Operation.Created, "erste", Some("anna")),
+          (2L, Operation.Updated, "zweite", Some("beat")),
+          (3L, Operation.Deleted, "zweite", Some("carla"))
+        ),
+        changes.head.changedAt == v1.createdAt,
+        changes(1).changedAt == v2.updatedAt
+      )
+    },
+    test("a rejected change leaves no trace in the audit log") {
+      for
+        s         <- store
+        v1        <- s.save(notiz, Notiz("h2", "900", "a"), None, Some("anna"))
+        _         <- s.save(notiz, Notiz("h2", "900", "b"), Some(v1.version + 5), Some("x")).flip
+        _         <- s.save(notiz, Notiz("h2", "900", "c"), None, Some("x")).flip
+        _         <- s.delete(notiz, "h2", Some(v1.version + 5), Some("x")).flip
+        changes   <- s.history(notiz, "h2")
+      yield assertTrue(changes.map(_.version) == Seq(1L))
+    },
+    test("an entity created again after deletion continues its audit log") {
+      for
+        s       <- store
+        v1      <- s.save(notiz, Notiz("h3", "950", "alt"), None, Some("anna"))
+        _       <- s.delete(notiz, "h3", Some(v1.version), Some("anna"))
+        _       <- s.save(notiz, Notiz("h3", "950", "neu"), None, Some("beat"))
+        changes <- s.history(notiz, "h3")
+      yield assertTrue(
+        changes.map(c => (c.operation, c.entity.text)) == Seq(
+          (Operation.Created, "alt"),
+          (Operation.Deleted, "alt"),
+          (Operation.Created, "neu")
+        )
+      )
+    },
+    test("an unknown id has an empty audit log") {
+      store.flatMap(_.history(notiz, "nie-da")).map(changes => assertTrue(changes.isEmpty))
     }
   ).provideShared(postgres.orDie) @@ TestAspect.sequential
 

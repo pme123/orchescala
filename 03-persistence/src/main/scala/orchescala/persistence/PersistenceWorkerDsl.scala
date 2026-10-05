@@ -26,7 +26,8 @@ import scala.util.Try
   *
   * Like every worker it runs synchronously through the gateway (`/worker/{topic}`) and as a step in
   * a process. A call is one transaction; consistency across calls is the job of the process.
-  * Changes are recorded with the user of the Bearer token (`preferred_username`), if there is one.
+  * Changes are recorded with the user of the Bearer token (`preferred_username`), if there is one,
+  * and every change lands in the audit log of the entity ([[history]]).
   */
 trait PersistenceWorkerDsl[
     In <: Product: InOutCodec,
@@ -39,7 +40,7 @@ trait PersistenceWorkerDsl[
   protected def get[E](entity: EntityDef[E], id: String): IO[CustomError, Option[Stored[E]]] =
     entityStore.get(entity, id).mapError(toCustomError)
 
-  /** Like [[get]], but a missing entity is an error. */
+  /** Like `get`, but a missing entity is an error. */
   protected def getExisting[E](entity: EntityDef[E], id: String): IO[CustomError, Stored[E]] =
     get(entity, id).someOrFail(toCustomError(PersistenceError.NotFound(entity.table, id)))
 
@@ -64,7 +65,12 @@ trait PersistenceWorkerDsl[
       id: String,
       expectedVersion: Option[Long] = None
   ): IO[CustomError, Unit] =
-    entityStore.delete(entity, id, expectedVersion).mapError(toCustomError)
+    currentUser.flatMap: user =>
+      entityStore.delete(entity, id, expectedVersion, user).mapError(toCustomError)
+
+  /** The audit log of an entity - every change with user and time, oldest first. */
+  protected def history[E](entity: EntityDef[E], id: String): IO[CustomError, Seq[Change[E]]] =
+    entityStore.history(entity, id).mapError(toCustomError)
 
   protected def toCustomError(error: PersistenceError): CustomError =
     CustomError(error.message)

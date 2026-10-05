@@ -13,7 +13,8 @@ import java.time.Instant
   * }}}
   *
   * @param table
-  *   table name - lower case letters, digits and `_`, starting with a letter
+  *   table name - lower case letters, digits and `_`, starting with a letter, at most 54
+  *   characters (the history table gets the suffix `_history`)
   */
 case class EntityDef[E](
     table: String,
@@ -22,13 +23,13 @@ case class EntityDef[E](
 )(using val codec: InOutCodec[E]):
   require(
     EntityDef.isValidTable(table),
-    s"Invalid table name '$table' - use lower case letters, digits and '_', starting with a letter"
+    s"Invalid table name '$table' - use lower case letters, digits and '_', starting with a letter, at most 54 characters"
   )
 end EntityDef
 
 object EntityDef:
   private[persistence] def isValidTable(table: String): Boolean =
-    table.matches("[a-z][a-z0-9_]{0,62}")
+    table.matches("[a-z][a-z0-9_]{0,53}")
 
 /** An entity as it is stored - with version (optimistic locking) and audit fields. */
 case class Stored[E](
@@ -39,6 +40,29 @@ case class Stored[E](
     createdBy: Option[String],
     updatedAt: Instant,
     updatedBy: Option[String]
+)
+
+enum Operation:
+  case Created, Updated, Deleted
+
+  def dbValue: String = toString.toLowerCase
+
+object Operation:
+  def fromDb(value: String): Operation =
+    Operation.values.find(_.dbValue == value).getOrElse(
+      throw IllegalArgumentException(s"Unknown operation '$value' in the history")
+    )
+
+/** An entry of the audit log: what the entity looked like after the change, who changed it when.
+  * For [[Operation.Deleted]] it is the last state before the deletion.
+  */
+case class Change[E](
+    id: String,
+    version: Long,
+    operation: Operation,
+    entity: E,
+    changedAt: Instant,
+    changedBy: Option[String]
 )
 
 enum PersistenceError:

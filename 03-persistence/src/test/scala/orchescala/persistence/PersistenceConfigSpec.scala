@@ -34,6 +34,8 @@ object PersistenceConfigSpec extends ZIOSpecDefault:
         scala.util.Try(EntityDef[X]("notiz_v2", _.id)).isSuccess,
         scala.util.Try(EntityDef[X]("notiz; drop table x", _.id)).isFailure,
         scala.util.Try(EntityDef[X]("Notiz", _.id)).isFailure,
+        scala.util.Try(EntityDef[X]("a" * 54, _.id)).isSuccess,
+        scala.util.Try(EntityDef[X]("a" * 55, _.id)).isFailure, // + "_history" > 63
         scala.util.Try(PersistenceConfig("jdbc:x", "u", "p", schema = "a.b")).isFailure
       )
     }
