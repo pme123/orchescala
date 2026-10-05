@@ -44,6 +44,12 @@ export interface Mapping {
   description?: string;
   /** kommt in diesem Prozess nicht vor — bleibt stehen, zählt aber nicht */
   disabled?: boolean;
+  /**
+   * Ausgabe des Services unter ihrem eigenen Namen (`x = x`), aus
+   * `_outputVariables` bzw. dem Katalog — angehakt heisst «der Prozess braucht
+   * sie»: ein Eintrag in `_outputVariables`, kein Output-Parameter
+   */
+  fromService?: boolean;
   [key: string]: unknown;
 }
 
@@ -141,6 +147,14 @@ export interface Step {
    * angehakten Zeilen (siehe withServiceRows).
    */
   outputVariables?: string[];
+  /**
+   * Service aus dem BPMN: hatte er `_manualOutMapping`? `false` — der Worker
+   * setzt seine Ausgaben selbst als Prozessvariablen (`_outputVariables`
+   * filtert); `true` — sie kommen lokal zurück, die Output-Parameter mappen.
+   * Der Export behält die Art. Fehlt die Angabe (in der Spezifikation
+   * angelegt), wird bei Ausgaben von Hand gemappt.
+   */
+  manualOutMapping?: boolean;
   decisionResult?: DecisionResult;
 
   // Struktur

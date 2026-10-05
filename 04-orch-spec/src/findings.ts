@@ -135,7 +135,13 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
           seen.add(f.name);
           const on = list === 'inputs' ? required.has(f.name) : wanted.has(f.name);
           if (on) added.push(`${s.name}: ${f.name}`);
-          neu.push({ name: f.name, expression: `= ${f.name}`, ...(f.description ? { description: f.description } : {}), ...(on ? {} : { disabled: true }) });
+          neu.push({
+            name: f.name, expression: `= ${f.name}`,
+            ...(f.description ? { description: f.description } : {}),
+            ...(on ? {} : { disabled: true }),
+            // eine Ausgabe des Services — ein Eintrag in `_outputVariables`, kein Mapping
+            ...(list === 'outputs' ? { fromService: true } : {}),
+          });
         }
         return neu.length || enabled ? [...have, ...neu] : null;
       };

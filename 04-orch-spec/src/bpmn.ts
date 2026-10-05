@@ -599,9 +599,13 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   // eigene Ausgaben (kein manuelles Mapping) sind das die Ausgaben selbst
   const ov = io.technical.find(m => m.name === '_outputVariables');
   const outVars = ov ? parseErrorList(ov.expression).filter(n => n && n.toUpperCase() !== 'NONE' && !n.startsWith('=')) : [];
-  if (outVars.length) {
-    step.outputVariables = outVars;
-    if (!io.outputs.length) step.outputs = outVars.map(name => ({ name, expression: `= ${name}` }));
+  // `NONE` (nichts) merken — fehlt `_outputVariables` oder ist es leer, liefert der Worker alles
+  if (ov && (outVars.length || /^\s*NONE\s*$/i.test(ov.expression))) step.outputVariables = outVars;
+  if (outVars.length && !io.outputs.length) step.outputs = outVars.map(name => ({ name, expression: `= ${name}`, fromService: true }));
+  // wie der Service seine Ausgaben zurückgibt — der Export behält es
+  if (kind === 'service') {
+    const mo = io.technical.find(m => m.name === '_manualOutMapping');
+    step.manualOutMapping = !!mo && /true/i.test(mo.expression);
   }
   if (io.mock) step.mock = io.mock;
   if (io.mockKind) step.mockKind = io.mockKind;

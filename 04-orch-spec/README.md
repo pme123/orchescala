@@ -1252,7 +1252,9 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | --- | --- | --- |
 | Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.name}` |
 | Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
-| Service | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
+| Service (in der Spezifikation angelegt) | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
+| Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
+| Init-Worker | nie `_outputVariables` oder `_manualOutMapping` — er gibt das `InitIn` zurück | ebenso |
 | Mock-Steuerung (immer) | `_servicesMocked` = `=_servicesMocked`, am Teilprozess dazu `_mockedWorkers` und `_identityCorrelation` | dasselbe mit `#{execution.getVariable('…')}` (am Teilprozess als `camunda:in`) |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` |
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
@@ -1268,6 +1270,14 @@ Teilmenge mit JUEL-Gegenstück: Pfade, Literale, Rechnen (`Text + Text` wird
 wird im Export-Dialog als **«Stelle zum Prüfen»** gemeldet — lieber sichtbar
 falsch als still verloren. Der Orchescala-Export (Markdown) zeigt die
 Ausdrücke ebenfalls in Engine-Form, Nichtübersetzbares markiert.
+
+Eine Ausgabe des Services unter ihrem eigenen Namen (`address = address`,
+aus `_outputVariables` oder dem Katalog) ist beim Service aus dem BPMN **kein
+Output-Parameter**: ohne manuelles Mapping setzt der Worker sie selbst —
+ein zweiter Schreibvorgang wäre überflüssig und kann in parallelen Zweigen
+zu Konflikten führen (`ENGINE-03005 … updated by another transaction
+concurrently`); mit manuellem Mapping bleibt sie lokal wie bisher, ausser sie
+wird neu angehakt. Angehakt oder abgewählt ändert sie `_outputVariables`.
 
 Angefasst werden nur Schritte, die in der Spezifikation Mapping-Zeilen haben;
 abgewählte Zeilen kommen nicht ins BPMN, Steuerparameter (`_handledErrors`,

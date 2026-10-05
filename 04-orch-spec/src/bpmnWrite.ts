@@ -105,6 +105,24 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
   };
 
   const active = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => !m.disabled && m.name.trim());
+  /** Service aus dem BPMN — er behält, wie er seine Ausgaben zurückgibt (`_manualOutMapping`) */
+  const fromBpmn = (s: Step) => s.kind === 'service' && s.manualOutMapping !== undefined;
+  /**
+   * Eine Ausgabe des Services (`fromService`) wird beim Service aus dem BPMN
+   * kein Output-Parameter — der Worker setzt sie selbst bzw. sie bleibt lokal
+   * wie bisher. Nur eine neu angehakte bei manuellem Mapping wird gemappt.
+   */
+  const writtenOutputs = (s: Step) => active(s.outputs).filter(m => !fromBpmn(s) || !serviceRow(s, m)
+    || (!!s.manualOutMapping && !(s.outputVariables ?? []).includes(m.name.trim())));
+  /**
+   * `fromService` — oder in einer älteren Spezifikation (kein Schritt-Mapping
+   * markiert) beim Service ohne manuelles Mapping `x = x` mit x in
+   * `_outputVariables`: das setzt der Worker selbst. Bei manuellem Mapping ist
+   * `x = #{x}` ein echter Output-Parameter und bleibt.
+   */
+  const serviceRow = (s: Step, m: Mapping) => !!m.fromService
+    || (s.manualOutMapping === false && !(s.outputs ?? []).some(x => x.fromService)
+      && m.expression.trim().replace(/^=\s*/, '') === m.name.trim() && (s.outputVariables ?? []).includes(m.name.trim()));
 
   for (const step of allSteps(spec.steps)) {
     const hasRows = (step.inputs?.length ?? 0) + (step.outputs?.length ?? 0) > 0;
@@ -117,7 +135,8 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     }
     if (el && hasRows) {
       const ext = ensureExt(el);
-      const ins = active(step.inputs), outs = active(step.outputs);
+      const ins = active(step.inputs);
+      const outs = writtenOutputs(step);
       if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues);
       else if (local(el) === 'callActivity') writeCamundaInOut(doc, ext, ins, outs, step.id, issues);
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
@@ -125,8 +144,27 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
 
-    // Service: die Ausgaben werden von Hand gemappt, und der Worker weiss, welche Variablen es braucht
-    if (el && step.kind === 'service') {
+    // Der Init-Worker gibt das InitIn zurück — ohne Filter und ohne Mapping
+    if (el && step.kind === 'service' && isInitWorker(step, spec.processId)) {
+      setControl(doc, ensureExt(el), engine, '_manualOutMapping', undefined);
+      setControl(doc, ensureExt(el), engine, '_outputVariables', undefined);
+    } else if (el && fromBpmn(step)) {
+      // Service aus dem BPMN: `_manualOutMapping` bleibt, wie es ist. `_outputVariables`
+      // nur, wenn sich die angehakten Ausgaben geändert haben — die importierte
+      // Liste ohne die abgewählten, mit den neu angehakten; fehlte sie (= alles), bleibt sie weg
+      if (step.outputVariables !== undefined) {
+        const rows = (step.outputs ?? []).filter(m => serviceRow(step, m));
+        const off = new Set(rows.filter(m => m.disabled).map(m => m.name.trim()));
+        const vars = step.outputVariables.filter(v => !off.has(v));
+        for (const m of rows) if (!m.disabled && !vars.includes(m.name.trim())) vars.push(m.name.trim());
+        const same = vars.length === step.outputVariables.length && vars.every(v => step.outputVariables!.includes(v));
+        if (!same) {
+          const list = vars.length ? vars.join(', ') : 'NONE';
+          setControl(doc, ensureExt(el), engine, '_outputVariables', engine === 'c8' ? `=${feelString(list)}` : list);
+        }
+      }
+    } else if (el && step.kind === 'service') {
+      // Service: die Ausgaben werden von Hand gemappt, und der Worker weiss, welche Variablen es braucht
       const vars: string[] = [];
       for (const m of active(step.outputs)) {
         for (const v of referencedVariables(importExpression(m.expression))) if (!vars.includes(v)) vars.push(v);
