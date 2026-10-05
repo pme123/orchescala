@@ -496,7 +496,11 @@ function setControl(doc: Document, ext: Element, engine: EngineId, name: string,
     for (const p of kids(ext)) if (local(p) === 'in' && attr(p, 'target') === name) removeEl(p);
     if (value === undefined) return;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:in');
-    p.setAttribute('sourceExpression', value);
+    // eine Variable einfach weitergeben: `source="_servicesMocked"` — fehlt sie,
+    // bleibt sie im Teilprozess leer (optional), und es liest sich einfacher
+    const plain = /^#\{execution\.getVariable\('(\w+)'\)\}$/.exec(value);
+    if (plain) p.setAttribute('source', plain[1]);
+    else p.setAttribute('sourceExpression', value);
     p.setAttribute('target', name);
     appendEl(ext, p);
     return;
