@@ -1,10 +1,10 @@
-package orchescala.persistence
+package orchescala.worker
 
 import com.auth0.jwt.JWT
 import orchescala.domain.InOutCodec
 import orchescala.engine.AuthContext
 import orchescala.engine.auth.TokenValidation
-import orchescala.worker.{CustomWorkerDsl, EngineRunContext}
+import orchescala.worker.persistence.*
 import orchescala.worker.WorkerError.CustomError
 import zio.*
 
@@ -103,7 +103,7 @@ end PersistenceWorkerDsl
 object PersistenceWorkerDsl:
 
   /** The user for the audit log from the Bearer token of the request (`AuthContext`). */
-  private[persistence] def currentUser(
+  private[worker] def currentUser(
       validation: TokenValidation,
       warned: java.util.concurrent.atomic.AtomicBoolean
   ): UIO[Option[String]] =
@@ -126,10 +126,10 @@ object PersistenceWorkerDsl:
           ).as(auditUser(user, unverified))
 
   /** An unverified name must not look like a verified one in the audit log. */
-  private[persistence] def auditUser(user: Option[String], unverified: Boolean): Option[String] =
+  private[worker] def auditUser(user: Option[String], unverified: Boolean): Option[String] =
     if unverified then user.map(name => s"unverified:$name") else user
 
-  private[persistence] def userOf(token: String): Option[String] =
+  private[worker] def userOf(token: String): Option[String] =
     Try(Option(JWT.decode(token).getClaim("preferred_username").asString())).toOption.flatten
       .filter(_.nonEmpty)
 

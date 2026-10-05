@@ -1,6 +1,6 @@
 package orchescala.persistence.postgres
 
-import orchescala.persistence.EntityDef
+import orchescala.worker.persistence.EntityDef
 
 /** Connection of a worker app to its database.
   *

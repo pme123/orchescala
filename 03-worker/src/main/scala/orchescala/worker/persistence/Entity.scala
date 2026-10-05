@@ -1,4 +1,4 @@
-package orchescala.persistence
+package orchescala.worker.persistence
 
 import orchescala.domain.InOutCodec
 
@@ -32,7 +32,7 @@ case class EntityDef[E](
 end EntityDef
 
 object EntityDef:
-  private[persistence] def isValidTable(table: String): Boolean =
+  private[orchescala] def isValidTable(table: String): Boolean =
     table.matches("[a-z][a-z0-9_]{0,53}")
 
 /** An entity as it is stored - with version (optimistic locking) and audit fields. */
@@ -82,8 +82,8 @@ enum PersistenceError:
     */
   case VersionConflict(table: String, id: String, expected: Option[Long], actual: Option[Long])
 
-  /** Someone else changes the same entity right now - waiting for it took longer than
-    * the store allows (`PostgresConfig.lockTimeoutMillis`). Trying again later is fine.
+  /** Someone else changes the same entity right now - waiting for it took longer than the store
+    * allows (`PostgresConfig.lockTimeoutMillis`). Trying again later is fine.
     */
   case Busy(table: String, id: String)
   case StoreError(msg: String)

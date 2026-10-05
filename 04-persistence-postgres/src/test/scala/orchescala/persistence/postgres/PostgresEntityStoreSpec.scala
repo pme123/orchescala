@@ -1,7 +1,7 @@
 package orchescala.persistence.postgres
 
-import orchescala.persistence.*
-import orchescala.persistence.EntityStoreContract.{Notiz, notiz}
+import orchescala.worker.persistence.*
+import orchescala.worker.persistence.EntityStoreContract.{Notiz, notiz}
 
 import io.circe.Codec
 import org.testcontainers.DockerClientFactory
@@ -12,8 +12,8 @@ import zio.test.*
 import scala.util.{Try, Using}
 
 /** Runs the [[EntityStoreContract]] and the Postgres specifics against a real Postgres
-  * (Testcontainers). Ignored locally where there is no Docker - on CI
-  * (`CI` is set) it fails instead, so the real-database tests cannot be skipped silently.
+  * (Testcontainers). Ignored locally where there is no Docker - on CI (`CI` is set) it fails
+  * instead, so the real-database tests cannot be skipped silently.
   */
 object PostgresEntityStoreSpec extends ZIOSpecDefault:
 

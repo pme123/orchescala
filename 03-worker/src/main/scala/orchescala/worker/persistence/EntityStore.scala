@@ -1,4 +1,4 @@
-package orchescala.persistence
+package orchescala.worker.persistence
 
 import zio.*
 

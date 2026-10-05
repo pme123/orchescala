@@ -1,6 +1,6 @@
 package orchescala.persistence.postgres
 
-import orchescala.persistence.EntityDef
+import orchescala.worker.persistence.EntityDef
 
 import io.circe.Codec
 import zio.test.*

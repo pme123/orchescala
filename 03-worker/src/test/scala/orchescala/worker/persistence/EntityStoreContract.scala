@@ -1,4 +1,4 @@
-package orchescala.persistence
+package orchescala.worker.persistence
 
 import io.circe.{Codec, Decoder, Encoder}
 import zio.ZIO

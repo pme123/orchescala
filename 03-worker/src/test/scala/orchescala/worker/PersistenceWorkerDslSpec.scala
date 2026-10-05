@@ -1,9 +1,10 @@
-package orchescala.persistence
+package orchescala.worker
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import orchescala.engine.AuthContext
 import orchescala.engine.auth.TokenValidation
+import orchescala.worker.persistence.PersistenceError
 import zio.*
 import zio.test.*
 

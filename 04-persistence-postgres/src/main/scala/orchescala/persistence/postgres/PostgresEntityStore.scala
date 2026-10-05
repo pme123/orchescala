@@ -3,7 +3,7 @@ package orchescala.persistence.postgres
 import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
 import io.circe.parser
 import io.circe.syntax.*
-import orchescala.persistence.*
+import orchescala.worker.persistence.*
 import zio.*
 
 import java.sql.{Connection, ResultSet}
@@ -459,7 +459,6 @@ object PostgresEntityStore:
     ZIO.acquireRelease(ZIO.succeed(PostgresEntityStore(config)))(store =>
       ZIO.attemptBlocking(store.close()).orDie
     )
-
 
   private[persistence] def quote(identifier: String): String = s"\"$identifier\""
 
