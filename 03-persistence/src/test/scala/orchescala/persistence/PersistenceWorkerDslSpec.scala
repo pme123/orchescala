@@ -21,6 +21,13 @@ object PersistenceWorkerDslSpec extends ZIOSpecDefault:
         PersistenceWorkerDsl.userOf("no-jwt").isEmpty
       )
     },
+    test("an unverified user is marked as such in the audit log") {
+      assertTrue(
+        PersistenceWorkerDsl.auditUser(Some("anna"), unverified = false).contains("anna"),
+        PersistenceWorkerDsl.auditUser(Some("anna"), unverified = true).contains("unverified:anna"),
+        PersistenceWorkerDsl.auditUser(None, unverified = true).isEmpty
+      )
+    },
     test("store errors reach the caller without database details") {
       assertTrue(
         PersistenceError.StoreError(

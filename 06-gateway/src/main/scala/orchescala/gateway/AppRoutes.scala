@@ -3,7 +3,7 @@ package orchescala.gateway
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.worker.UiRoutes
 import sttp.capabilities.zio.ZioStreams
-import sttp.client3.{asStreamAlwaysUnsafe, basicRequest}
+import sttp.client3.{asStreamAlways, basicRequest}
 import sttp.model.Uri
 import zio.*
 import zio.http.*
@@ -32,7 +32,10 @@ import zio.stream.ZStream
   * (buffered, at most [[GatewayConfig.uiMaxFileSize]]), only `GET`, no `Range` requests - so the
   * worker app answers 200, 304 or 4xx; anything else is a failure of the worker app (502).
   */
-class AppRoutes()(using config: GatewayConfig):
+class AppRoutes(
+    // live is ZLayer.succeed(cachedBackend): the one shared backend, no client per request
+    backend: ZLayer[Any, Throwable, SttpClientBackend] = HttpClientProvider.live
+)(using config: GatewayConfig):
 
   def routes: Routes[Any, Response] =
     Routes(
@@ -54,7 +57,7 @@ class AppRoutes()(using config: GatewayConfig):
     if isValidProjectName(projectName) then
       val query = request.url.encode.dropWhile(_ != '?')
       Response
-        .status(Status.MovedPermanently)
+        .status(Status.Found) // not cached for ever, like the /site redirect
         .addHeader(Header.Custom("Location", s"/app/$projectName/$query"))
     else Response.status(Status.NotFound)
 
@@ -84,17 +87,20 @@ class AppRoutes()(using config: GatewayConfig):
                         basicRequest
                           .get(uri)
                           .headers(conditionalHeaders(request).toMap)
-                          .response(asStreamAlwaysUnsafe(ZioStreams))
+                          .followRedirects(false) // only the worker app - never another host
+                          // read inside the response handling: sttp releases the connection,
+                          // also when the cap stops reading early
+                          .response(asStreamAlways(ZioStreams)(stream =>
+                            readCapped(stream, config.uiMaxFileSize)
+                              .mapError(RuntimeException(_)): Task[Array[Byte]]
+                          ))
                           .send(backend)
                           .mapError(_.getMessage)
           _        <- ZIO.when(response.code.code >= 500)(
                         ZIO.logWarning(s"UI request $uri of '$projectName' answered ${response.code.code}")
                       )
-          body     <- readCapped(response.body, config.uiMaxFileSize)
-                        .mapError(err => s"$uri: $err")
-        yield toResponse(response.code.code, body, response.header))
-          // live is ZLayer.succeed(cachedBackend): the one shared backend, no client per request
-          .provideLayer(HttpClientProvider.live)
+        yield toResponse(response.code.code, response.body, response.header))
+          .provideLayer(backend)
           .catchAll: err =>
             ZIO.logError(s"Error forwarding UI request for '$projectName': $err")
               .as(Response.status(Status.BadGateway))

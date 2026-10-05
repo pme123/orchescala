@@ -113,6 +113,12 @@ object UiRoutesSpec extends ZIOSpecDefault:
         missing.rawHeader("Vary").contains("Accept")
       )
     },
+    test("a file larger than the limit is not served - 500, logged") {
+      ZIO.scoped(UiRoutes.routesWith(maxFileSize =
+        10
+      ).runZIO(Request.get(URL.decode("/ui/").toOption.get)))
+        .map(response => assertTrue(response.status == Status.InternalServerError))
+    },
     test("an escaped path that leaves the ui folder is 404") {
       get("/ui/%2e%2e/OpenApi.yml").map(response => assertTrue(response.status == Status.NotFound))
     }

@@ -491,6 +491,11 @@ object PostgresEntityStore:
 
 end PostgresEntityStore
 
-/** Ends a transaction with a [[PersistenceError]] - so it is rolled back. */
+/** Ends a transaction with a [[PersistenceError]] - so it is rolled back.
+  *
+  * Thrown inside the synchronous JDBC block of `withTransaction`: that block is plain JDBC (one
+  * connection, one thread), and an exception is how it aborts and rolls back. `withConnection`
+  * turns it back into the typed error.
+  */
 private final class PersistenceFailure(val error: PersistenceError)
     extends RuntimeException(error.message, null, false, false)

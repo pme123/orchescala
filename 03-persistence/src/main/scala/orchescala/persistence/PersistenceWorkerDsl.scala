@@ -38,6 +38,8 @@ trait PersistenceWorkerDsl[
   /** The store of the environment - set in the base worker. */
   protected def entityStore: EntityStore
 
+  // reading needs no EngineRunContext - only writes record the user (see currentUser)
+
   protected def get[E](entity: EntityDef[E], id: String): IO[CustomError, Option[Stored[E]]] =
     entityStore.get(entity, id).mapError(toCustomError)
 
@@ -83,10 +85,10 @@ trait PersistenceWorkerDsl[
   /** The user of the Bearer token (`preferred_username`).
     *
     * The token is only decoded here - it is trusted because the worker app verified it before the
-    * worker was called. That holds with `TokenValidation.Jwt` / `AnyOf` in the `WorkerConfig`; with
-    * `TokenValidation.PresenceOnly` the user in the audit log is unverified - warned on every
-    * write, not only at startup. Without a token - e.g. a step of a process - the change is
-    * recorded without user.
+    * worker was called. That holds with `TokenValidation.Jwt` / `AnyOf` in the `WorkerConfig`. With
+    * `TokenValidation.PresenceOnly` anyone could put any name into the token: the audit log then
+    * records `unverified:{name}` and every write warns. Without a token - e.g. a step of a process -
+    * the change is recorded without user.
     */
   private def currentUser(using context: EngineRunContext): UIO[Option[String]] =
     AuthContext.getBearerToken.flatMap:
@@ -103,11 +105,15 @@ trait PersistenceWorkerDsl[
         ) *>
           ZIO.when(user.isEmpty)(
             ZIO.logDebug("Bearer token without preferred_username - change recorded without user")
-          ).as(user)
+          ).as(PersistenceWorkerDsl.auditUser(user, unverified))
 
 end PersistenceWorkerDsl
 
 object PersistenceWorkerDsl:
+
+  /** An unverified name must not look like a verified one in the audit log. */
+  private[persistence] def auditUser(user: Option[String], unverified: Boolean): Option[String] =
+    if unverified then user.map(name => s"unverified:$name") else user
 
   private[persistence] def userOf(token: String): Option[String] =
     Try(Option(JWT.decode(token).getClaim("preferred_username").asString())).toOption.flatten

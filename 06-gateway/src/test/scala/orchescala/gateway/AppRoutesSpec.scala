@@ -1,9 +1,17 @@
 package orchescala.gateway
 
 import orchescala.engine.DefaultEngineConfig
+import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.DefaultWorkerConfig
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
+import sttp.client3.Response as SttpResponse
+import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.testing.SttpBackendStub
+import sttp.model.{Header as SttpHeader, StatusCode}
 import zio.*
 import zio.http.*
+import zio.stream.ZStream
 import zio.test.*
 
 object AppRoutesSpec extends ZIOSpecDefault:
@@ -14,6 +22,25 @@ object AppRoutesSpec extends ZIOSpecDefault:
   )
 
   private val appRoutes = AppRoutes()(using testConfig)
+
+  /** AppRoutes against a stubbed worker app - the whole forward path without a server. */
+  private def stubbed(
+      stub: SttpBackendStub[Task, ZioStreams & WebSockets],
+      config: GatewayConfig = testConfig
+  ) = AppRoutes(ZLayer.succeed(stub: SttpClientBackend))(using config)
+
+  private def workerAnswer(status: StatusCode, body: String, headers: (String, String)*) =
+    SttpResponse(
+      SttpBackendStub.RawStream(ZStream.fromIterable(body.getBytes)),
+      status,
+      "",
+      headers.map((name, value) => SttpHeader(name, value))
+    )
+
+  private def getVia(routes: AppRoutes, path: String, headers: (String, String)*) =
+    val request = headers.foldLeft(Request.get(URL.decode(path).toOption.get)):
+      case (req, (name, value)) => req.addHeader(Header.Custom(name, value))
+    ZIO.scoped(routes.routes.runZIO(request))
 
   private def get(path: String): ZIO[Any, Nothing, Response] =
     ZIO.scoped(appRoutes.routes.runZIO(Request.get(URL.decode(path).toOption.get)))
@@ -54,14 +81,14 @@ object AppRoutesSpec extends ZIOSpecDefault:
     test("GET /app/{projectName} redirects to the canonical path with slash") {
       get("/app/esprit-konto").map: response =>
         assertTrue(
-          response.status == Status.MovedPermanently,
+          response.status == Status.Found,
           response.rawHeader("Location").contains("/app/esprit-konto/")
         )
     },
     test("the redirect keeps the query - e.g. code and state of an OIDC login") {
       get("/app/esprit-konto?code=abc&state=xyz").map: response =>
         assertTrue(
-          response.status == Status.MovedPermanently,
+          response.status == Status.Found,
           response.rawHeader("Location").contains("/app/esprit-konto/?code=abc&state=xyz")
         )
     },
@@ -110,6 +137,54 @@ object AppRoutesSpec extends ZIOSpecDefault:
         appRoutes.toResponse(200, Array.empty, headers.get).rawHeader("Vary").contains("Accept"),
         appRoutes.toResponse(404, Array.empty, headers.get).rawHeader("Vary").contains("Accept")
       )
+    },
+    test("forward: a file of the worker app comes through with body and content type") {
+      val stub = AsyncHttpClientZioBackend.stub
+        .whenRequestMatches(_.uri.path == List("ui", "index.html"))
+        .thenRespond(workerAnswer(StatusCode.Ok, "<html>ok</html>", "Content-Type" -> "text/html"))
+      for
+        response <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
+        body     <- response.body.asString
+      yield assertTrue(
+        response.status == Status.Ok,
+        body == "<html>ok</html>",
+        response.rawHeader("Content-Type").contains("text/html")
+      )
+      end for
+    },
+    test("forward: If-None-Match reaches the worker app - its 304 comes back") {
+      val stub = AsyncHttpClientZioBackend.stub
+        .whenRequestMatches(_.header("If-None-Match").contains("\"e1\""))
+        .thenRespond(workerAnswer(StatusCode.NotModified, "", "ETag" -> "\"e1\""))
+        .whenAnyRequest
+        .thenRespond(workerAnswer(StatusCode.Ok, "full"))
+      getVia(stubbed(stub), "/app/esprit-konto/index.html", "If-None-Match" -> "\"e1\"").map:
+        response => assertTrue(response.status == Status.NotModified)
+    },
+    test("forward: a redirect of the worker app is not followed - 502") {
+      val stub = AsyncHttpClientZioBackend.stub.whenAnyRequest
+        .thenRespond(workerAnswer(StatusCode.Found, "", "Location" -> "http://elsewhere.example/"))
+      getVia(stubbed(stub), "/app/esprit-konto/index.html").map: response =>
+        assertTrue(response.status == Status.BadGateway)
+    },
+    test("forward: an unreachable worker app is 502") {
+      val stub = AsyncHttpClientZioBackend.stub.whenAnyRequest
+        .thenRespondF(ZIO.fail(RuntimeException("worker app down")))
+      getVia(stubbed(stub), "/app/esprit-konto/index.html").map: response =>
+        assertTrue(response.status == Status.BadGateway)
+    },
+    test("forward: an answer larger than uiMaxFileSize is 502") {
+      val small = new DefaultGatewayConfig(
+        engineConfig = DefaultEngineConfig(),
+        workerConfig = DefaultWorkerConfig(DefaultEngineConfig())
+      ):
+        override def uiMaxFileSize: Int = 4
+      val stub  = AsyncHttpClientZioBackend.stub.whenAnyRequest
+        .thenRespond(workerAnswer(StatusCode.Ok, "12345"))
+      for
+        tooBig <- getVia(stubbed(stub, small), "/app/esprit-konto/index.html")
+        fits   <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
+      yield assertTrue(tooBig.status == Status.BadGateway, fits.status == Status.Ok)
     },
     test("a configured Content-Security-Policy is added") {
       val withCsp  = new DefaultGatewayConfig(

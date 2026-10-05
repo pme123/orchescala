@@ -30,7 +30,8 @@ import scala.util.{Try, Using}
   * '/app/myCompany-myProject/'`.
   *
   * Assumes a normal web bundle (a few MB): found files are kept in memory for the lifetime of the
-  * app, served whole - no `Range` requests, only `GET`.
+  * app, served whole - no `Range` requests, only `GET`. A file larger than [[maxFileSize]] is not
+  * served (500, logged).
   */
 object UiRoutes:
 
@@ -41,11 +42,18 @@ object UiRoutes:
   // the files of a deployed bundle do not change - only found files are kept
   private val files = ConcurrentHashMap[String, UiFile]()
 
-  def routes: Routes[Any, Response] =
+  /** Like the cap of the gateway (`GatewayConfig.uiMaxFileSize`). */
+  val maxFileSize: Long = 20L * 1024 * 1024
+
+  def routes: Routes[Any, Response] = routesWith(maxFileSize)
+
+  private[worker] def routesWith(maxFileSize: Long): Routes[Any, Response] =
     Routes(
-      Method.GET / "ui"            -> handler((request: Request) => serve(Seq.empty, request)),
+      Method.GET / "ui"            -> handler((request: Request) =>
+        serve(Seq.empty, request, maxFileSize)
+      ),
       Method.GET / "ui" / trailing -> handler { (path: Path, request: Request) =>
-        serve(path.segments, request)
+        serve(path.segments, request, maxFileSize)
       }
     )
 
@@ -76,14 +84,14 @@ object UiRoutes:
     if resource.startsWith("ui/assets/") then "public, max-age=31536000, immutable"
     else "no-cache"
 
-  private def serve(segments: Seq[String], request: Request): UIO[Response] =
+  private def serve(segments: Seq[String], request: Request, maxFileSize: Long): UIO[Response] =
     decodeSegments(segments) match
       case None       => ZIO.succeed(Response.status(Status.NotFound))
       case Some(path) =>
         val acceptsHtml = request.rawHeader("Accept").exists(_.contains("text/html"))
         ZIO
           .attemptBlocking(candidates(path, acceptsHtml).view.flatMap(r =>
-            load(r).map(r -> _)
+            load(r, maxFileSize).map(r -> _)
           ).headOption)
           .map:
             case None                   =>
@@ -93,13 +101,23 @@ object UiRoutes:
             ZIO.logError(s"UI file /ui/${path.mkString("/")} cannot be read: ${err.getMessage}")
               .as(Response.status(Status.InternalServerError))
 
-  private def load(resource: String): Option[UiFile] =
-    Option(files.get(resource)).orElse:
-      Option(getClass.getClassLoader.getResource(resource)).filter(isFile).map: url =>
-        val bytes = Using.resource(url.openStream())(_.readAllBytes())
-        val file  = UiFile(bytes, etag(bytes))
-        files.put(resource, file)
+  private def load(resource: String, maxFileSize: Long): Option[UiFile] =
+    Option(files.get(resource))
+      .orElse:
+        Option(getClass.getClassLoader.getResource(resource)).filter(isFile).map: url =>
+          val connection = url.openConnection()
+          checkSize(resource, connection.getContentLengthLong, maxFileSize)
+          val bytes      = Using.resource(connection.getInputStream)(_.readAllBytes())
+          val file       = UiFile(bytes, etag(bytes))
+          files.put(resource, file)
+          file
+      .map: file => // also for a cached file - the limit is per route
+        checkSize(resource, file.bytes.length, maxFileSize)
         file
+
+  private def checkSize(resource: String, size: Long, maxFileSize: Long): Unit =
+    if size > maxFileSize then
+      throw IllegalStateException(s"$resource has $size bytes - more than $maxFileSize")
 
   /** A folder on the classpath (`ui/folder.d`) is not a file - its stream would be a listing. */
   private def isFile(url: URL): Boolean =
