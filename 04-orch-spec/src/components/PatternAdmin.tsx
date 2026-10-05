@@ -239,6 +239,14 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
         {anchorTag && !tags.includes(anchorTag) && (
           <p className={`text-[10px] mt-1 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Der Anker im BPMN ist ein(e) {targetLabel(anchorTag)} — der Typ fehlt in der Auswahl.</p>
         )}
+        {tags.includes('userTask') && (
+          <label className={`mt-1.5 flex items-center gap-1.5 text-[10px] ${c.muted2}`}
+            title="Das Pattern steht am Schritt unter «Zuständigkeit»; Gruppen und Person sind dort dann nicht editierbar.">
+            <input type="checkbox" checked={draft.area === 'assignment'}
+              onChange={e => set({ area: e.target.checked ? 'assignment' : undefined })} />
+            legt die Zuständigkeit fest (steht unter «Zuständigkeit», Gruppen/Person gesperrt)
+          </label>
+        )}
       </div>
 
       {/* BPMN je Engine */}

@@ -243,6 +243,12 @@ export interface PatternDef {
    * dasselbe anders ausdrücken (Groovy-Skript statt Ausdruck).
    */
   variants?: Partial<Record<EngineId, string[]>>;
+  /**
+   * Wo das Pattern am Schritt steht. `assignment`: es legt die Zuständigkeit
+   * fest (z. B. ein Task-Listener, der den Berater zuweist) — es steht unter
+   * «Zuständigkeit», und Gruppen/Person sind dann nicht editierbar.
+   */
+  area?: 'assignment';
   [key: string]: unknown;
 }
 

@@ -366,12 +366,21 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
       {step.kind === 'user' && (() => {
         const filled = ASSIGNMENT_FIELDS.filter(f => step[f.key]?.trim()).length;
+        // ein Pattern, das die Zuständigkeit festlegt: es steht hier, Gruppen/Person sind gesperrt
+        const byPattern = (step.patterns ?? []).map(a => model?.patterns?.find(d => d.id === a.id)).filter(d => d?.area === 'assignment');
         return (
           <Section id="assign" label="Zuständigkeit" isDark={isDark}
             comment={sub(stepTarget(step.id), 'assignment')}
-            count={filled}
-            hint={!filled ? <span className={`text-[9px] ${c.muted}`}>Gruppen oder Person</span> : undefined}>
+            count={filled + byPattern.length}
+            hint={!filled && !byPattern.length ? <span className={`text-[9px] ${c.muted}`}>Gruppen oder Person</span> : undefined}>
             <div className="space-y-1.5">
+              <PatternSection target={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
+                onPattern={onPattern} hasDiagram={hasDiagram} area="assignment" />
+              {!!byPattern.length && (
+                <p className={`text-[10px] ${c.muted}`}>
+                  Die Zuständigkeit legt das Pattern {byPattern.map(d => `«${d!.name}»`).join(', ')} fest — Gruppen und Person sind hier nicht editierbar.
+                </p>
+              )}
               {ASSIGNMENT_FIELDS.map(f => {
                 const value = step[f.key] ?? '';
                 // wie bei den Mappings: `= …` ist FEEL und wird geprüft, sonst fester Text
@@ -386,7 +395,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 return (
                   <div key={f.key} className={issues.length ? `px-2 py-1 rounded border space-y-1 ${hasErr ? errBox : warnBox}` : 'space-y-0.5'}>
                     <div className={`text-[9px] ${c.muted}`}>{f.label} <span className="font-mono">({f.key})</span></div>
-                    <FeelInput value={value} disabled={!canEdit} isDark={isDark}
+                    <FeelInput value={value} disabled={!canEdit || !!byPattern.length} isDark={isDark}
                       variables={variables}
                       onChange={v => onPatch(step.id, { [f.key]: v || undefined })}
                       placeholder={f.placeholder}
@@ -648,20 +657,47 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 // Was der Admin als Pattern hinterlegt hat und zu diesem Element passt, lässt
 // sich hier wählen — es steht danach sofort im Diagramm (nicht erst beim
 // Export). Die Werte der Parameter gehen beim Verlassen des Felds hinein.
-function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDiagram }: {
+function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDiagram, area }: {
   target: Step | null; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean;
   onPattern?: Props['onPattern']; hasDiagram?: boolean;
+  /** nur die Pattern dieses Bereichs (`assignment`: in der Zuständigkeit, ohne eigene Überschrift) — sonst die übrigen */
+  area?: PatternDef['area'];
 }) {
   const c = cls(isDark);
   const engine: EngineId = spec.engine ?? 'c7';
-  const applied = (target ? target.patterns : spec.patterns) ?? [];
+  const defOf = (id: string) => model?.patterns?.find(d => d.id === id);
+  const here = (d: PatternDef | undefined) => (d?.area ?? undefined) === area;
+  const applied = ((target ? target.patterns : spec.patterns) ?? []).filter(a => here(defOf(a.id)));
   const tags = target ? stepTags(target.kind, target.eventDirection, target.gatewayType) : [PROCESS_TARGET];
-  const available = patternsFor(model?.patterns, tags, engine);
+  const available = patternsFor(model?.patterns, tags, engine).filter(here);
+  // Parameter mit «=» sind FEEL wie die Mapping-Werte — Vorschläge aus den Prozessvariablen
+  // (vor dem frühen Ausstieg: Hooks immer in derselben Reihenfolge)
+  const variables = useMemo(() => processVariables(spec, model), [spec, model]);
   if (!applied.length && !available.length) return null;
   const editable = canEdit && !!onPattern && !!hasDiagram;
   const id = target?.id ?? null;
-  // Parameter mit «=» sind FEEL wie die Mapping-Werte — Vorschläge aus den Prozessvariablen
-  const variables = useMemo(() => processVariables(spec, model), [spec, model]);
+  const cards = applied.map((a, i) => (
+    <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={defOf(a.id) ?? null}
+      isDark={isDark} editable={editable} engine={engine} atProcess={!target} variables={variables}
+      onRemove={() => onPattern?.(id, a.id, 'remove', a.params)}
+      onParams={params => onPattern?.(id, a.id, 'update', params, a.params)} />
+  ));
+  // in der Zuständigkeit: die Pattern und — solange keines gewählt ist — die Auswahl, ohne eigene Überschrift
+  if (area) {
+    return (
+      <div className="space-y-1.5">
+        {cards}
+        {!applied.length && editable && (
+          <select value="" onChange={e => { if (e.target.value) onPattern!(id, e.target.value, 'add'); }}
+            title="Zuständigkeit per Pattern festlegen — es wird sofort ins Diagramm eingefügt"
+            className={`text-[10px] px-1.5 py-0.5 rounded border outline-none max-w-[16rem] ${c.input}`}>
+            <option value="">+ Zuweisung per Pattern …</option>
+            {available.map(d => <option key={d.id} value={d.id} title={d.description}>{d.name}</option>)}
+          </select>
+        )}
+      </div>
+    );
+  }
   return (
     <Section id="patterns" label="Pattern" count={applied.length} isDark={isDark}
       hint={!hasDiagram ? <span className={`text-[9px] ${c.muted}`}>braucht das Diagramm</span> : undefined}
@@ -674,12 +710,7 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
         </select>
       ) : undefined}>
       <div className="space-y-1.5">
-        {applied.map((a, i) => (
-          <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={model?.patterns?.find(d => d.id === a.id) ?? null}
-            isDark={isDark} editable={editable} engine={engine} atProcess={!target} variables={variables}
-            onRemove={() => onPattern?.(id, a.id, 'remove', a.params)}
-            onParams={params => onPattern?.(id, a.id, 'update', params, a.params)} />
-        ))}
+        {cards}
         {!applied.length && !!available.length && (
           <p className={`text-[10px] ${c.muted}`}>
             {available.length} passende{available.length === 1 ? 's' : ''} Pattern: {available.map(d => d.name).join(', ')}
