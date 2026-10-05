@@ -864,10 +864,14 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   return (
     <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
       className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-start gap-1.5">
+      {/* Name, Typ und Häkchen brechen um, wenn der Platz nicht reicht — Kommentar und Knöpfe bleiben rechts oben */}
+      <div className="flex flex-1 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+        {/* so breit wie der Name — lange Namen (`getVisecaDebitCardsCardKeysDetailsNextDayMock`) ganz */}
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
-          placeholder="feldName"
-          className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+          placeholder="feldName" title={f.name || undefined}
+          style={{ width: `calc(${Math.max(14, (f.name?.length ?? 0) + 1)}ch + 1rem)` }}
+          className={`max-w-full text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
         {/* Pflicht: nicht optional — wie in den Mappings */}
         {!f.optional && f.name && <span className={`-ml-1 text-[11px] ${c.muted}`} title="Pflichtfeld — nicht optional">*</span>}
 
@@ -914,19 +918,20 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
 
         {chip.ownId ? (
           <button onClick={() => onOpenType(chip.ownId!)} title={`${fieldType(f, idx)} — zum Typ springen`}
-            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${chip.cls}`}>
+            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[28rem] ${chip.cls}`}>
             {chip.icon}<span className="truncate">{fieldType(f, idx)}</span><ExternalLink size={9} className="flex-shrink-0 opacity-60" />
           </button>
         ) : (
           <span title={chip.title ?? fieldType(f, idx)}
-            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${chip.cls}`}>
+            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[28rem] ${chip.cls}`}>
             {chip.icon}<span className="truncate">{fieldType(f, idx)}</span>
           </span>
         )}
-        {f.name && <CommentBubble target={sub(typeTarget(selfId), `field:${f.id}`)} quiet />}
+      </div>
+        {f.name && <span className="pt-0.5"><CommentBubble target={sub(typeTarget(selfId), `field:${f.id}`)} quiet /></span>}
 
         {canEdit && (
-          <div className="flex items-center">
+          <div className="flex items-center flex-shrink-0">
             <button onClick={() => onMove(-1)} disabled={index === 0} className={`p-1 disabled:opacity-20 ${c.muted}`}><ArrowUp size={11} /></button>
             <button onClick={() => onMove(1)} disabled={last} className={`p-1 disabled:opacity-20 ${c.muted}`}><ArrowDown size={11} /></button>
             <button onClick={async () => { if (await confirm({ title: f.name ? `Feld «${f.name}» entfernen?` : 'Leeres Feld entfernen?' })) onRemove(); }}
@@ -935,7 +940,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         )}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-start gap-x-1.5 gap-y-1">
         {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} />}
         {/* Vorgaben gibt es nur im InConfig, im InitIn (initialisiert Prozessvariablen) und bei
             optionalen Feldern der Prozess-Eingabe (dort setzt sie der Init-Worker im InitIn).
@@ -961,13 +966,14 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             : 'Beispielwert für example — ohne Angabe leitet die App einen ab.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.'}
           className={`w-32 text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
         {/* ein Ausdruck aus der Domain (`clientKeyDescr`) bleibt einer, bis die Beschreibung geändert wird */}
-        <input value={f.description ?? ''} disabled={!canEdit}
+        {/* wächst mit dem Text (field-sizing) — eine lange Beschreibung steht ganz da */}
+        <textarea rows={1} value={f.description ?? ''} disabled={!canEdit}
           onChange={e => onChange({ description: e.target.value || undefined, descriptionExpr: undefined })}
           placeholder="fachliche Bedeutung (@description)"
           title={f.descriptionExpr
             ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.\nÄndern ersetzt den Ausdruck durch Text.`
             : undefined}
-          className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${f.descriptionExpr ? 'font-mono' : ''} ${c.input}`} />
+          className={`flex-1 min-w-[12rem] text-[10px] px-2 py-1 rounded border outline-none resize-none [field-sizing:content] ${f.descriptionExpr ? 'font-mono' : ''} ${c.input}`} />
       </div>
 
       {issue && <div className={`text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue}</div>}
