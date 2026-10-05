@@ -27,7 +27,7 @@ object AppRoutesSpec extends ZIOSpecDefault:
   private def stubbed(
       stub: SttpBackendStub[Task, ZioStreams & WebSockets],
       config: GatewayConfig = testConfig
-  ) = AppRoutes(ZLayer.succeed(stub: SttpClientBackend))(using config)
+  ) = AppRoutes(stub: SttpClientBackend)(using config)
 
   private def workerAnswer(status: StatusCode, body: String, headers: (String, String)*) =
     SttpResponse(
@@ -197,6 +197,14 @@ object AppRoutesSpec extends ZIOSpecDefault:
         tooBig <- getVia(stubbed(stub, small), "/app/esprit-konto/index.html")
         fits   <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
       yield assertTrue(tooBig.status == Status.BadGateway, fits.status == Status.Ok)
+    },
+    test("uiMaxConcurrentForwards must be positive - else every UI request would wait for ever") {
+      val none = new DefaultGatewayConfig(
+        engineConfig = DefaultEngineConfig(),
+        workerConfig = DefaultWorkerConfig(DefaultEngineConfig())
+      ):
+        override def uiMaxConcurrentForwards: Int = 0
+      assertTrue(scala.util.Try(AppRoutes()(using none)).isFailure)
     },
     test("a configured Content-Security-Policy is added") {
       val withCsp  = new DefaultGatewayConfig(

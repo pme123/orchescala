@@ -220,8 +220,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       expectedVersion: Option[Long],
       user: Option[String]
   ): IO[PersistenceError, Stored[E]] =
-    withTransaction(entity): con =>
-      lockId(con, entity, id)
+    withEntityTransaction(entity, id): con =>
       val sql     = expectedVersion match
         case None    => // a new entity - or one created again: it continues its versions
           s"""INSERT INTO ${table(entity)}
@@ -279,8 +278,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       expectedVersion: Option[Long],
       user: Option[String]
   ): IO[PersistenceError, Unit] =
-    withTransaction(entity): con =>
-      lockId(con, entity, id)
+    withEntityTransaction(entity, id): con =>
       val sql     = s"DELETE FROM ${table(entity)} WHERE id = ?" +
         expectedVersion.fold("")(_ => " AND version = ?") +
         " RETURNING version, payload::text"
@@ -355,14 +353,25 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
     * with its own text.
     */
   private def lockId(con: Connection, entity: EntityDef[?], id: String): Unit =
-    // bounded: a busy entity must not hold pooled connections for long (55P03 → Busy)
+    // bounded for the rest of the transaction: a busy entity must not hold pooled connections
     Using.resource(con.createStatement()):
       _.execute(s"SET LOCAL lock_timeout = '${config.lockTimeoutMillis}ms'")
-    try lockAdvisory(con, entity, id)
-    catch
-      case err: java.sql.SQLException if err.getSQLState == "55P03" =>
-        throw PersistenceFailure(PersistenceError.Busy(entity.table, id))
+    lockAdvisory(con, entity, id)
   end lockId
+
+  /** A transaction on one entity: its lock first - and every lock wait in it that times out (55P03:
+    * the advisory lock, a row lock, the audit log) is [[PersistenceError.Busy]].
+    */
+  private def withEntityTransaction[E, A](entity: EntityDef[E], id: String)(
+      work: Connection => A
+  ): IO[PersistenceError, A] =
+    withTransaction(entity): con =>
+      try
+        lockId(con, entity, id)
+        work(con)
+      catch
+        case err: java.sql.SQLException if err.getSQLState == "55P03" =>
+          throw PersistenceFailure(PersistenceError.Busy(entity.table, id))
 
   private def lockAdvisory(con: Connection, entity: EntityDef[?], id: String): Unit =
     Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")):
@@ -499,9 +508,14 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
   /** Creates schema and tables once per store. Under an advisory lock on the schema: several worker
     * apps (or fibers) starting at once do not run the DDL concurrently.
     */
+  private val ddlLockTimeoutMillis = 30000
+
   private def ensureTables(con: Connection, name: String): Unit =
     if config.createTables && !createdTables.contains(name) then
       inTransaction(con):
+        // another app creating the same schema (or a slow migration) must not block for ever
+        Using.resource(con.createStatement()):
+          _.execute(s"SET LOCAL lock_timeout = '${ddlLockTimeoutMillis}ms'")
         Using.resource(
           con.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")
         ): stmt =>

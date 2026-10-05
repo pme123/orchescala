@@ -122,31 +122,34 @@ object UiRoutes:
               .as(plain(Status.InternalServerError))
 
   private def load(resource: String, maxFileSize: Long): Option[UiFile] =
-    Option(files.get(resource))
-      .orElse:
-        Option.when(!missing.contains(resource))(resource)
-          .flatMap(r => Option(getClass.getClassLoader.getResource(r)))
-          .filter(isFile)
-          .orElse:
-            if missing.size >= maxMissing then missing.clear()
-            missing.add(resource)
-            None
-          .map: url =>
-            val connection = url.openConnection()
-            connection.setUseCaches(false) // no jar handle kept open by the URL cache
-            checkSize(resource, connection.getContentLengthLong, maxFileSize)
-            // bounded: never more than the limit (+1 to notice it) in memory, also with unknown length
-            val bytes =
-              Using.resource(connection.getInputStream)(
-                _.readNBytes((maxFileSize + 1).min(Int.MaxValue).toInt)
-              )
-            checkSize(resource, bytes.length, maxFileSize)
-            val file  = UiFile(bytes, etag(bytes))
-            files.put(resource, file)
-            file
-      .map: file => // also for a cached file - the limit is per route
-        checkSize(resource, file.bytes.length, maxFileSize)
-        file
+    val file = Option(files.get(resource)).orElse(loadFromClasspath(resource, maxFileSize))
+    file.foreach(f => checkSize(resource, f.bytes.length, maxFileSize)) // the limit is per route
+    file
+
+  /** Reads a file of the bundle once and caches it - a missing one is remembered as missing. */
+  private def loadFromClasspath(resource: String, maxFileSize: Long): Option[UiFile] =
+    val url =
+      if missing.contains(resource) then None
+      else Option(getClass.getClassLoader.getResource(resource)).filter(isFile)
+    url match
+      case None      =>
+        if missing.size >= maxMissing then missing.clear()
+        missing.add(resource)
+        None
+      case Some(url) =>
+        val connection = url.openConnection()
+        connection.setUseCaches(false) // no jar handle kept open by the URL cache
+        checkSize(resource, connection.getContentLengthLong, maxFileSize)
+        // bounded: never more than the limit (+1 to notice it) in memory, also with unknown length
+        val bytes = Using.resource(connection.getInputStream)(
+          _.readNBytes((maxFileSize + 1).min(Int.MaxValue).toInt)
+        )
+        checkSize(resource, bytes.length, maxFileSize)
+        val file  = UiFile(bytes, etag(bytes))
+        files.put(resource, file)
+        Some(file)
+    end match
+  end loadFromClasspath
 
   private def checkSize(resource: String, size: Long, maxFileSize: Long): Unit =
     if size > maxFileSize then

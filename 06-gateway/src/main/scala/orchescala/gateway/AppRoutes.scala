@@ -33,9 +33,11 @@ import zio.stream.ZStream
   * worker app answers 200, 304 or 4xx; anything else is a failure of the worker app (502).
   */
 class AppRoutes(
-    // live is ZLayer.succeed(cachedBackend): the one shared backend, no client per request
-    backend: ZLayer[Any, Throwable, SttpClientBackend] = HttpClientProvider.live
+    // the one shared backend of the gateway, created on first use - not a client per request
+    backend: => SttpClientBackend = HttpClientProvider.cachedBackend
 )(using config: GatewayConfig):
+
+  require(config.uiMaxConcurrentForwards > 0, "GatewayConfig.uiMaxConcurrentForwards must be > 0")
 
   def routes: Routes[Any, Response] =
     Routes(
@@ -100,7 +102,7 @@ class AppRoutes(
                         ZIO.logWarning(s"UI request $uri of '$projectName' answered ${response.code.code}")
                       )
         yield toResponse(response.code.code, response.body, response.header))
-          .provideLayer(backend)
+          .provideLayer(ZLayer.succeed(backend))
           .catchAll: err =>
             ZIO.logError(s"Error forwarding UI request for '$projectName': $err")
               .as(withSecurityHeaders(Status.BadGateway))
@@ -118,7 +120,8 @@ class AppRoutes(
       .map(_.toArray)
 
   // at most uiMaxConcurrentForwards files buffered at once - the heap for UI files is bounded by
-  // uiMaxConcurrentForwards × uiMaxFileSize; more requests wait for a permit
+  // uiMaxConcurrentForwards × uiMaxFileSize; more requests wait for a permit. Per AppRoutes - the
+  // GatewayServer creates one.
   private val forwards = Unsafe.unsafe(implicit u =>
     Semaphore.unsafe.make(config.uiMaxConcurrentForwards.toLong)
   )
