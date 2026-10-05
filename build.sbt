@@ -31,6 +31,7 @@ lazy val root = project
     dmnTesterClient,
     simulation,
     worker,
+    persistence,
     helper,
     orchDocClient,
     engineC7,
@@ -181,6 +182,16 @@ lazy val worker = project
     ) ++ zioTestDependencies ++ zioHttpDependencies
   )
   .dependsOn(engine)
+
+lazy val persistence = project
+  .in(file("./03-persistence"))
+  .settings(publicationSettings)
+  .settings(
+    projectSettings("persistence"),
+    unitTestSettings,
+    libraryDependencies ++= persistenceDependencies ++ zioTestDependencies
+  )
+  .dependsOn(worker)
 
 // layer 04
 lazy val helper = project
