@@ -256,12 +256,15 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
         gewuenschtRef.current = id;
         try {
           const registry = modeler.get('elementRegistry') as { get: (id: string) => unknown };
-          const selection = modeler.get('selection') as { select: (el: unknown) => void };
+          const selection = modeler.get('selection') as { select: (el: unknown) => void; get: () => unknown[] };
           const canvas = modeler.get('canvas') as { scrollToElement: (el: unknown) => void };
           const el = id ? registry.get(id) : null;
           // Ein Schritt, der im Diagramm (noch) nicht liegt, ist kein Grund,
           // die Auswahl im Baum wegzuwerfen.
           if (!el) { if (!id) selection.select(null); return; }
+          // Im Diagramm angeklickt: die Auswahl kommt nur zurück — der
+          // Ausschnitt bleibt (sonst rückt ein Element am Rand ins Bild)
+          if (selection.get().includes(el)) return;
           selection.select(el);
           canvas.scrollToElement(el);
         } catch { /* Element (noch) nicht im Diagramm */ }

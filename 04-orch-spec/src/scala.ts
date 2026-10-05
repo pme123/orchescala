@@ -424,6 +424,22 @@ export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; 
   }
 }
 
+/**
+ * Ein Beispiel ohne «=» bei einem Text-Feld: ein Text braucht keine
+ * Anführungszeichen (`rot` → `"rot"`). Scala bleibt, was danach aussieht —
+ * so kommt es aus der Domain: ein Literal (`"CH"`, `s"…"`), ein Wert im
+ * camelCase (`defaultClientKey`, `testEmail`), ein Verweis auf ein Objekt
+ * (`Defaults.street`, `UUID.randomUUID().toString`) oder ein Aufruf.
+ */
+function textExample(f: Field, own: string): string {
+  if (!['String', 'Iban'].includes(f.type) || f.enumCase) return own;
+  if (/^(s|f|raw)?"/.test(own)) return own;
+  if (/^[a-z]+[A-Z]\w*$/.test(own)) return own;
+  if (/^[A-Z]\w*(\.\w+(\(\))?)+$/.test(own)) return own;
+  if (/^[A-Za-z_][\w.]*\(.*\)$/.test(own)) return own;
+  return scalaString(own);
+}
+
 export function exampleValue(f: Field, idx: TypeIndex): string {
   const own = f.example?.trim();
   // FEEL: übersetzt — sonst das abgeleitete Beispiel mit einem TODO, damit es kompiliert
@@ -433,7 +449,7 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
     return `${exampleValue({ ...f, example: undefined }, idx)} /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
   }
   if (own && isWholeExample(f, own)) return own;
-  let inner = f.example?.trim() || baseExample(f, idx);
+  let inner = own ? textExample(f, own) : baseExample(f, idx);
   // Ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe`
   if (f.example?.trim() && f.constraint?.trim() && LITERAL.test(inner)) inner = `${inner}.refineUnsafe`;
   const mapped = f.map ? `Map("key" -> ${inner})` : inner;

@@ -196,8 +196,12 @@ Tippen.
 - Das **Beispiel** ebenso: mit `=` FEEL, nach denselben Regeln übersetzt —
   ein einzelner Wert bekommt die Hülle des Feldes (`= "CH"` → `Seq("CH")` bei
   `mehrfach`, `Some("CH")` bei `optional`), eine Liste, ein Kontext oder
-  `= null` ist schon der ganze Wert. Ohne `=` ein Scala-Ausdruck wie bisher
-  (so kommt es aus der Domain). Lässt es sich nicht übersetzen, nimmt das
+  `= null` ist schon der ganze Wert. Ohne `=` ist es bei einem **Text-Feld**
+  einfach der Text — ohne Anführungszeichen (`rot` → `"rot"`); Scala bleibt,
+  was danach aussieht, so wie es aus der Domain kommt: ein Literal (`"CH"`,
+  `s"…"`), ein Wert im camelCase (`defaultClientKey`), ein Verweis
+  (`Defaults.street`) oder ein Aufruf. Bei anderen Typen ist es ein
+  Scala-Ausdruck wie bisher. Lässt es sich nicht übersetzen, nimmt das
   `example` das abgeleitete Beispiel mit einem `/* TODO … */` dahinter, und
   das Feld wird gemeldet.
 - Feld-IDs sind stabil: Umbenennen bricht keine Verweise.

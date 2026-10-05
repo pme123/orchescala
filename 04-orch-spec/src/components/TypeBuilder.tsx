@@ -1060,7 +1060,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.\nÄndern ersetzt den Ausdruck durch Text.`
             : undefined}
           className={`flex-[2] min-w-[14rem] resize-none [field-sizing:content] ${f.descriptionExpr ? 'font-mono' : ''} ${box}`} />
-        {/* wie die Vorgabe: FEEL mit «=», ohne «=» ein Scala-Ausdruck (so kommt es aus der Domain) */}
+        {/* wie die Vorgabe: FEEL mit «=»; ohne «=» bei Text der Text selbst, sonst Scala (so kommt es aus der Domain) */}
         <FeelInput value={f.example ?? ''} isDark={isDark} size="md" disabled={!canEdit}
           variables={[]}
           onChange={v => onChange({ example: v || undefined })}
@@ -1070,7 +1070,8 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             : 'Beispielwert für example — ohne Angabe leitet die App einen ab.\n')
             + 'Als FEEL mit «=», z. B. = "CH", = 42, = date("2026-01-01"), = ["a", "b"] oder = {ort: "Bern"} — der Export schreibt es als Scala; '
             + 'ein einzelner Wert bekommt die Hülle des Feldes (Some / Seq / Map), eine Liste oder null ist schon der ganze Wert.\n'
-            + 'Ohne «=» ein Scala-Ausdruck, wörtlich übernommen: Some(…) / Seq(…) setzt der Export, None, Some(…) oder Seq(…) hier gilt so.'}
+            + 'Ohne «=» bei einem Text einfach der Text, ohne Anführungszeichen (rot → "rot"); Scala bleibt, was danach aussieht ("CH", defaultClientKey, Defaults.street). '
+            + 'Sonst ein Scala-Ausdruck, wörtlich übernommen: Some(…) / Seq(…) setzt der Export, None, Some(…) oder Seq(…) hier gilt so.'}
           className="flex-1 min-w-[10rem]" />
       </div>
 
