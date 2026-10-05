@@ -47,6 +47,7 @@ case class WorkerRoutes(engineContext: EngineContext):
                   .fold(ZIO.fail(WorkerError.ServiceBadPathError(s"Worker not found: $topicName"))):
                     worker =>
                       for
+                        _                     <- checkRoles(worker, validatedToken)
                         generalVariables      <- extractGeneralVariables(variables)
                         given EngineRunContext = createRunContext(generalVariables, worker)
                         result                <- worker match
@@ -80,6 +81,26 @@ case class WorkerRoutes(engineContext: EngineContext):
       generalVariables = generalVariables,
       workerTimeout = Some(worker.timeout).collect { case timeout: scala.concurrent.duration.FiniteDuration => timeout }
     )
+
+  /** The user needs one of the `requiredRoles` of the worker - else 403. */
+  private[worker] def checkRoles(worker: WorkerDsl[?, ?], token: String): IO[WorkerError, Unit] =
+    val required = worker.requiredRoles
+    if required.isEmpty then ZIO.unit
+    else
+      val roles = engineContext.workerConfig.rolesOf(token)
+      if roles.exists(required.contains) then ZIO.unit
+      else
+        ZIO.logWarning(
+          s"Worker '${worker.topic}' refused for ${TokenFingerprint(token)}: none of the roles " +
+            required.toSeq.sorted.mkString(", ")
+        ) *>
+          ZIO.fail(WorkerError.ServiceRequestError(
+            403,
+            s"Worker '${worker.topic}' needs one of the roles: ${required.toSeq.sorted.mkString(", ")}"
+          ))
+      end if
+    end if
+  end checkRoles
 
   /** Validates the Bearer token according to `WorkerConfig.tokenValidation` and returns it. */
   private def validateToken(token: String): IO[WorkerError, String] =

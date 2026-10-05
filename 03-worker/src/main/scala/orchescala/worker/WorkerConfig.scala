@@ -23,6 +23,11 @@ trait WorkerConfig:
       |""".stripMargin)
   def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 
+  /** The roles of the user of a Bearer token - for `WorkerDsl.requiredRoles`. Default: the role
+    * claims of Keycloak and Entra ID ([[RoleClaims]]); override it for another IdP.
+    */
+  def rolesOf(token: String): Set[String] = RoleClaims.fromToken(token)
+
   /** The largest file of the UI bundle (`/ui/`) the worker app serves, in bytes. Keep it at most
     * `GatewayConfig.uiMaxFileSize` - a bigger file passes here but is a 502 at the gateway.
     */

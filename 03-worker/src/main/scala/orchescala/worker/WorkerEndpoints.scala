@@ -23,6 +23,11 @@ object WorkerEndpoints:
             .example(ServiceRequestError(ServiceBadBodyError(
               "There is no body in the response and the ServiceOut is neither NoOutput nor Option (Class is class java.lang.String)."
             ))))) { case e: ServiceRequestError if e.errorCode == 400 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.Forbidden)
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(403, "Worker 'myCompany-myProject-myWorker' needs one of the roles: kundenberater")))) {
+          case e: ServiceRequestError if e.errorCode == 403 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
           .and(jsonBody[ServiceRequestError]
             .example(ServiceRequestError(404, "Not Found")))) {

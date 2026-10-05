@@ -24,6 +24,15 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
     */
   def timeout: Duration = 2.minutes
 
+  /** The roles that may call the worker through `/worker/{topic}` (the gateway, a UI) - the user
+    * of the Bearer token needs at least one of them (`WorkerConfig.rolesOf`), else 403. Empty: every
+    * caller with a valid token. For example `override def requiredRoles = Set("kundenberater")`.
+    *
+    * Only for the synchronous call: a job of a process engine runs with the identity of the
+    * engine - who may start or advance the process is decided there.
+    */
+  def requiredRoles: Set[String] = Set.empty
+
   protected def regexMatchesAll(
       errorHandled: Boolean,
       error: WorkerError,
