@@ -180,8 +180,8 @@ function stripAnnotations(param: string): { rest: string; description?: string; 
   return { rest: text, description, descriptionExpr };
 }
 
-/** Aus dem Inhalt von `@description(…)` einen lesbaren Text machen. */
-function cleanText(raw: string): string {
+/** Aus dem Inhalt von `@description(…)` bzw. `val descr = …` einen lesbaren Text machen. */
+export function cleanText(raw: string): string {
   let t = raw.trim();
   // `s"…"`, `"""…""".stripMargin`, verkettete Teile — das Nötigste abtragen
   t = t.replace(/\.stripMargin\b.*$/s, '').trim();

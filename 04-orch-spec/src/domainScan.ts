@@ -21,7 +21,7 @@
 // weg, statt zu raten.
 
 import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
-import { exampleArgs, parseParams } from './scalaTypes.ts';
+import { cleanText, descriptionExpression, exampleArgs, parseParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
 const IMPORT = /^import\s/;
@@ -30,8 +30,11 @@ const OBJECT = /^(\s*)(?:case\s+)?object\s+(\w+)\b/;
 const DSL = /extends\s+\w*Bpmn(Process|UserTask|CustomTask|SignalEvent|MessageEvent|Decision|ServiceTask|Service)\w*Dsl/;
 /** `type AddressType = Int :| …` auf oberster Ebene — ein Alias mit Ziel */
 const TYPE_TOP = /^type\s+(\w+)\s*=\s*(.+)$/;
-/** `val descr = "…"` bzw. `val descr: String = "…"` eines Objekts */
-const DESCR = /^\s+(?:val|lazy val|def)\s+descr(?:\s*:\s*String)?\s*=\s*"(.*)"\s*$/;
+/**
+ * `val descr = "…"` bzw. `val descr: String = "…"` eines Objekts — auch
+ * `"""…""".stripMargin`, `s"…"` und mit dem Wert erst auf der nächsten Zeile
+ */
+const DESCR = /^\s+(?:val|lazy val|def)\s+descr(?:\s*:\s*String)?\s*=\s*(.*)$/;
 const CASE_CLASS = /^(\s*)(?:final\s+)?case\s+class\s+(\w+)\s*(?:\[[^\]]*\])?\s*\(/;
 const ENUM = /^(\s*)enum\s+(\w+)\b/;
 // Fälle heissen auch mal `QI-Deklaration` — mit Backticks, wie in Scala nötig
@@ -261,8 +264,9 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const keys = new Map<string, { keyName: string; key: string }>();
   /** `extends CompanyBpmn…Dsl` je Objekt */
   const dsls = new Map<string, string>();
-  /** `val descr = "…"` je Objekt */
+  /** `val descr = "…"` je Objekt — und, wenn es ein Ausdruck ist, dieser */
   const descrs = new Map<string, string>();
+  const descrExprs = new Map<string, string>();
   /** `override def processLabels` je Objekt */
   const labels = new Map<string, { de: string; fr: string }>();
   /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
@@ -325,7 +329,22 @@ export function scanScala(source: string, path = ''): DomainType[] {
     }
 
     const de = owner ? DESCR.exec(line) : null;
-    if (owner && de) { descrs.set(owner, de[1]); continue; }
+    if (owner && de) {
+      // bis der Text zu ist: `"""` braucht sein Gegenstück, sonst genügt die Zeile
+      let raw = de[1];
+      let j = i;
+      const open = (t: string) => {
+        const s = t.trim().replace(/^s(?=")/, '');
+        return !s || (s.startsWith('"""') && s.indexOf('"""', 3) < 0);
+      };
+      while (open(raw) && j + 1 < lines.length && j - i < 60) { j++; raw += '\n' + lines[j]; }
+      i = j;
+      const text = cleanText(raw);
+      if (text) descrs.set(owner, text);
+      const expr = descriptionExpression(raw);
+      if (expr) descrExprs.set(owner, expr);
+      continue;
+    }
     // `override def processLabels: ProcessLabels =` — die Werte auf derselben oder einer der nächsten Zeilen
     if (owner && /^\s+override\s+(?:def|val|lazy\s+val)\s+processLabels\b/.test(line)) {
       const text = lines.slice(i, i + 3).join(' ');
@@ -500,6 +519,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (key) { t.keyName = key.keyName; t.key = key.key; }
     const descr = descrs.get(t.owner);
     if (descr) t.ownerDescr = descr;
+    const descrExpr = descrExprs.get(t.owner);
+    if (descrExpr) t.ownerDescrExpr = descrExpr;
     const pl = labels.get(t.owner);
     if (pl) t.processLabels = pl;
     const dr = decisionResults.get(t.owner);

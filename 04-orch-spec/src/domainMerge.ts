@@ -127,6 +127,9 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
       ...rest,
       kind: f.kind, name: f.name, key: f.key,
       ...(prev.descr || f.descr ? { descr: prev.descr || f.descr } : {}),
+      // der Ausdruck gehört zum Text, der gilt
+      descrExpr: prev.descr ? prev.descrExpr : f.descrExpr,
+      descrImports: prev.descr ? prev.descrImports : f.descrImports,
       ...(inTypeId ? { inTypeId } : {}),
       ...(outTypeId ? { outTypeId } : {}),
       status: changed ? opts.status.changed : settle(prev.status, opts.status),

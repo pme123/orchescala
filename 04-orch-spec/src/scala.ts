@@ -597,7 +597,8 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   lines.push(`object ${ia.name} extends ${meta.dsl}:`);
   lines.push('');
   lines.push(`  val ${meta.keyName} = "${escape(ia.key ?? ia.name ?? '')}"`);
-  if (ia.descr) lines.push(`  val descr = "${escape(firstLine(ia.descr))}"`);
+  // die DSL verlangt `descr` (BpmnDsl) — leer, wenn es keine gibt
+  lines.push(descrLine(ia));
   lines.push('');
 
   const member = (t: TypeDef | null, name: 'In' | 'Out') => {
@@ -742,6 +743,18 @@ export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | nu
   return `${rest ? 'InitIn.example.copy' : 'InitIn'}(\n${args.join(',\n')}\n)`;
 }
 
+/**
+ * `val descr` einer Interaktion: ein Ausdruck aus der Domain wörtlich, sonst der
+ * Text — mehrzeilig als `"""…""".stripMargin`, wie in der Domain üblich.
+ */
+function descrLine(ia: Interaction): string {
+  if (ia.descrExpr?.trim()) return `  val descr: String = ${ia.descrExpr.trim()}`;
+  const text = (ia.descr ?? '').trim();
+  if (!text.includes('\n')) return `  val descr: String = "${escape(text)}"`;
+  const [first, ...rest] = text.split('\n');
+  return [`  val descr: String =`, `    """${first}`, ...rest.map(l => `      |${l}`), '      |""".stripMargin'].join('\n');
+}
+
 function firstLine(text: string): string {
   return text.trim().split('\n')[0];
 }
@@ -873,7 +886,11 @@ export const homeOf = (spec: ProcessSpec): string => (spec.project ?? '').split(
 /** Die Imports einer Interaktion — die ihres `In` und `Out` (Katalog-Typen, Beispielwerte). */
 function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex): string {
   const typeOf = (id: string | undefined) => (spec.types ?? []).find(t => t.id === id);
-  const lines = [...new Set([typeOf(ia.inTypeId), typeOf(ia.outTypeId)].flatMap(t => (t ? importsOf(t, idx) : [])))];
+  const lines = [...new Set([
+    ...[typeOf(ia.inTypeId), typeOf(ia.outTypeId)].flatMap(t => (t ? importsOf(t, idx) : [])),
+    // die Objekte in einem `descr`-Ausdruck
+    ...(ia.descrExpr ? (ia.descrImports ?? []).map(i => `import ${i}`) : []),
+  ])];
   return lines.length ? `\n${lines.join('\n')}\n` : '';
 }
 

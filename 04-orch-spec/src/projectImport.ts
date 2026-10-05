@@ -593,6 +593,10 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       id: uid('ia'), stepId: step.id, kind, name: obj.owner!,
       key: obj.key ?? obj.topicName ?? (kind === 'userTask' ? step.id : step.messageName ?? ''),
       ...(obj.ownerDescr ? { descr: obj.ownerDescr } : {}),
+      // ein Ausdruck (`s"…${X.processName}…"`) bleibt einer — mit den Imports seiner Datei
+      ...(obj.ownerDescrExpr ? { descrExpr: obj.ownerDescrExpr } : {}),
+      ...(obj.ownerDescrExpr && importsForExpression(obj.ownerDescrExpr, obj.imports).length
+        ? { descrImports: importsForExpression(obj.ownerDescrExpr, obj.imports) } : {}),
       status: 'implemented',
     };
     const inId = memberType(obj, 'In', ia.id);

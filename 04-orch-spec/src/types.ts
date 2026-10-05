@@ -390,6 +390,10 @@ export interface Interaction {
   /** Wert für `name` / `topicName` / `messageName` */
   key: string;
   descr?: string;
+  /** `val descr` aus der Domain, das kein reiner Text ist (`s"…${X.processName}…"`) — wörtlich im Export */
+  descrExpr?: string;
+  /** die Imports, die `descrExpr` braucht */
+  descrImports?: string[];
   status?: Status;
   /** ids der TypeDefs für In und Out */
   inTypeId?: string;
@@ -693,6 +697,8 @@ export interface DomainType {
   decisionResult?: DecisionResult;
   /** `val descr` des umschliessenden Objekts */
   ownerDescr?: string;
+  /** `val descr` als Scala-Ausdruck, wenn er kein reiner Text ist (`s"…${X}…"`) */
+  ownerDescrExpr?: string;
   /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustOrderUT.In` */
   target?: string;
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
