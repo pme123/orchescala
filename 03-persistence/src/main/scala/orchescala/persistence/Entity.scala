@@ -14,7 +14,7 @@ import java.time.Instant
   *
   * @param table
   *   table name - lower case letters, digits and `_`, starting with a letter, at most 54
-  *   characters (the history table gets the suffix `_history`)
+  *   characters, not ending with `_history` (the audit log of the table gets this suffix)
   */
 case class EntityDef[E](
     table: String,
@@ -24,6 +24,10 @@ case class EntityDef[E](
   require(
     EntityDef.isValidTable(table),
     s"Invalid table name '$table' - use lower case letters, digits and '_', starting with a letter, at most 54 characters"
+  )
+  require(
+    !table.endsWith("_history"),
+    s"Invalid table name '$table' - '_history' is reserved for the audit log of a table"
   )
 end EntityDef
 

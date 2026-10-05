@@ -37,19 +37,32 @@ object AppRoutesSpec extends ZIOSpecDefault:
         !appRoutes.isValidProjectName("")
       )
     },
-    test("path segments that leave the ui folder are rejected") {
+    test("escaped segments are decoded once - the worker app gets them encoded once") {
+      val decoded = orchescala.worker.UiRoutes.decodeSegments(Seq("assets", "my%20logo.svg")).get
       assertTrue(
-        appRoutes.isValidSegment("index-3f9a.js"),
-        !appRoutes.isValidSegment(".."),
-        !appRoutes.isValidSegment("."),
-        !appRoutes.isValidSegment("a\\b")
+        appRoutes.uiUri("http://my-project:5555", decoded)
+          .map(_.toString)
+          .contains("http://my-project:5555/ui/assets/my%20logo.svg")
       )
+    },
+    test("an escaped path that leaves the ui folder is 404") {
+      for
+        dots  <- get("/app/esprit-konto/%2e%2e/OpenApi.yml")
+        slash <- get("/app/esprit-konto/a%2Fb.js")
+      yield assertTrue(dots.status == Status.NotFound, slash.status == Status.NotFound)
     },
     test("GET /app/{projectName} redirects to the canonical path with slash") {
       get("/app/esprit-konto").map: response =>
         assertTrue(
           response.status == Status.MovedPermanently,
           response.rawHeader("Location").contains("/app/esprit-konto/")
+        )
+    },
+    test("the redirect keeps the query - e.g. code and state of an OIDC login") {
+      get("/app/esprit-konto?code=abc&state=xyz").map: response =>
+        assertTrue(
+          response.status == Status.MovedPermanently,
+          response.rawHeader("Location").contains("/app/esprit-konto/?code=abc&state=xyz")
         )
     },
     test("an invalid project name is 404") {
@@ -76,10 +89,11 @@ object AppRoutesSpec extends ZIOSpecDefault:
         response.rawHeader("Content-Security-Policy").isEmpty
       )
     },
-    test("304 and 404 pass through, other errors become 502") {
+    test("304 and client errors pass through, server errors become 502") {
       assertTrue(
         appRoutes.toResponse(304, Array.empty, _ => None).status == Status.NotModified,
         appRoutes.toResponse(404, Array.empty, _ => None).status == Status.NotFound,
+        appRoutes.toResponse(403, Array.empty, _ => None).status == Status.Forbidden,
         appRoutes.toResponse(500, Array.empty, _ => None).status == Status.BadGateway
       )
     },

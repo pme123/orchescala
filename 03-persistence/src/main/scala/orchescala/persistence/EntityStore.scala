@@ -27,14 +27,20 @@ trait EntityStore:
 
   def get[E](entity: EntityDef[E], id: String): IO[PersistenceError, Option[Stored[E]]]
 
-  /** All entities whose key fields contain `keys` - newest change first. */
+  /** All entities whose key fields contain `keys` - newest change first, at most `limit` (1 to
+    * [[EntityStore.maxLimit]]).
+    */
   def query[E](
       entity: EntityDef[E],
       keys: Map[String, String] = Map.empty,
       limit: Int = 100
   ): IO[PersistenceError, Seq[Stored[E]]]
 
-  /** Creates the entity (`expectedVersion = None`) or updates the given version of it. */
+  /** Creates the entity (`expectedVersion = None`) or updates the given version of it.
+    *
+    * An entity created again after a deletion continues its versions (and its audit log): a client
+    * still holding a version from before the deletion gets a [[PersistenceError.VersionConflict]].
+    */
   def save[E](
       entity: EntityDef[E],
       value: E,
@@ -57,18 +63,38 @@ end EntityStore
 
 object EntityStore:
 
-  def postgres(config: PersistenceConfig): EntityStore = PostgresEntityStore(config)
+  val maxLimit = 1000
+
+  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. */
+  def postgres(config: PersistenceConfig): EntityStore =
+    val store = PostgresEntityStore(config)
+    java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
+    store
+
+  /** A store whose connection pool is closed with the scope - e.g. in tests or as a `ZLayer.scoped`. */
+  def postgresScoped(config: PersistenceConfig): ZIO[Scope, Nothing, EntityStore] =
+    ZIO.acquireRelease(ZIO.succeed(PostgresEntityStore(config)))(store =>
+      ZIO.attemptBlocking(store.close()).orDie
+    )
 
 end EntityStore
 
 /** [[EntityStore]] on Postgres.
   *
   * The audit log `{table}_history` is append-only for the store. To make it tamper-proof against
-  * the app itself, give its database user only `INSERT, SELECT` on the history tables.
+  * the app itself, give its database user only `INSERT, SELECT` on the history tables - and create
+  * the tables beforehand ([[PersistenceConfig.createTables]] = false, statements in
+  * [[PostgresEntityStore.ddl]]).
+  *
+  * Errors of the database are logged with their details; the caller only gets a generic
+  * [[PersistenceError.StoreError]] - no SQL, table or host details through `/worker`.
   */
-class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
+class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCloseable:
+
+  @volatile private var opened = false
 
   private lazy val dataSource: HikariDataSource =
+    opened = true
     val hikari = HikariConfig()
     hikari.setJdbcUrl(config.jdbcUrl)
     hikari.setUsername(config.username)
@@ -78,6 +104,8 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
     HikariDataSource(hikari)
 
   private val createdTables = ConcurrentHashMap.newKeySet[String]()
+
+  def close(): Unit = if opened then dataSource.close()
 
   private val columns =
     "id, version, payload::text, created_at, created_by, updated_at, updated_by"
@@ -100,7 +128,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
         s"SELECT $columns FROM ${table(entity)} WHERE keys @> ?::jsonb ORDER BY updated_at DESC LIMIT ?"
       )): stmt =>
         stmt.setString(1, keys.asJson.noSpaces)
-        stmt.setInt(2, limit)
+        stmt.setInt(2, limit.max(1).min(EntityStore.maxLimit))
         Using.resource(stmt.executeQuery()): rs =>
           val rows = ListBuffer.empty[Either[PersistenceError, Stored[E]]]
           while rs.next() do rows += read(entity, rs)
@@ -118,10 +146,13 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
     val payload = value.asJson(using entity.codec).noSpaces
     withTransaction(entity): con =>
       val sql = expectedVersion match
-        case None    =>
+        case None    => // a new entity - or one created again: it continues its versions
           s"""INSERT INTO ${table(entity)}
              |  (id, version, keys, payload, created_at, created_by, updated_at, updated_by)
-             |VALUES (?, 1, ?::jsonb, ?::jsonb, now(), ?, now(), ?)
+             |VALUES (
+             |  ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM ${historyTable(entity)} WHERE id = ?),
+             |  ?::jsonb, ?::jsonb, now(), ?, now(), ?
+             |)
              |ON CONFLICT (id) DO NOTHING
              |RETURNING $columns""".stripMargin
         case Some(_) =>
@@ -134,10 +165,11 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
         expectedVersion match
           case None          =>
             stmt.setString(1, id)
-            stmt.setString(2, keys)
-            stmt.setString(3, payload)
-            stmt.setString(4, user.orNull)
+            stmt.setString(2, id)
+            stmt.setString(3, keys)
+            stmt.setString(4, payload)
             stmt.setString(5, user.orNull)
+            stmt.setString(6, user.orNull)
           case Some(version) =>
             stmt.setString(1, keys)
             stmt.setString(2, payload)
@@ -149,7 +181,8 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
         case Right(stored) =>
           val operation = if expectedVersion.isEmpty then Operation.Created else Operation.Updated
           appendHistory(con, entity, id, stored.version, operation, payload, user)
-        case Left(_)       => ()
+        case Left(error)   => // never commit a change without its audit entry
+          throw PersistenceFailure(error)
       written
     .flatMap:
       case Some(stored) => ZIO.fromEither(stored)
@@ -242,8 +275,10 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
           stmt.setString(1, id)
           Using.resource(stmt.executeQuery())(rs => if rs.next() then Some(rs.getLong(1)) else None)
 
-  private def table(entity: EntityDef[?])        = s"${config.schema}.${entity.table}"
-  private def historyTable(entity: EntityDef[?]) = s"${config.schema}.${entity.table}_history"
+  // quoted - a valid name may still be a keyword (`user`, `order`)
+  private def table(entity: EntityDef[?])        = PostgresEntityStore.table(config.schema, entity.table)
+  private def historyTable(entity: EntityDef[?]) =
+    PostgresEntityStore.table(config.schema, s"${entity.table}_history")
 
   private def read[E](entity: EntityDef[E], rs: ResultSet): Either[PersistenceError, Stored[E]] =
     val id = rs.getString(1)
@@ -276,54 +311,90 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore:
           ensureTables(con, entity.table)
           work(con)
       .tapError(err => ZIO.logError(s"Database error on ${entity.table}: ${err.getMessage}"))
-      .mapError(err => PersistenceError.StoreError(s"Database error on ${entity.table}: ${err.getMessage}"))
+      .mapError:
+        case failure: PersistenceFailure => failure.error
+        case _                           =>
+          PersistenceError.StoreError(s"Database error on ${entity.table} - see the log of the worker app")
 
   /** Like [[withConnection]], but all statements in one transaction - change and audit log are
     * written together or not at all.
     */
   private def withTransaction[E, A](entity: EntityDef[E])(work: Connection => A): IO[PersistenceError, A] =
-    withConnection(entity): con =>
-      con.setAutoCommit(false)
-      try
-        val result = work(con)
-        con.commit()
-        result
-      catch
-        case err: Throwable =>
-          con.rollback()
-          throw err
-      finally con.setAutoCommit(true)
+    withConnection(entity)(con => inTransaction(con)(work(con)))
 
+  private def inTransaction[A](con: Connection)(work: => A): A =
+    val autoCommit = con.getAutoCommit
+    con.setAutoCommit(false)
+    try
+      val result = work
+      con.commit()
+      result
+    catch
+      case err: Throwable =>
+        try con.rollback()
+        catch case rollbackErr: Throwable => err.addSuppressed(rollbackErr)
+        throw err
+    finally con.setAutoCommit(autoCommit)
+    end try
+  end inTransaction
+
+  /** Creates schema and tables once per store. Under an advisory lock on the schema: several
+    * worker apps (or fibers) starting at once do not run the DDL concurrently.
+    */
   private def ensureTables(con: Connection, name: String): Unit =
-    if !createdTables.contains(name) then
-      val t = s"${config.schema}.$name"
-      Using.resource(con.createStatement()): stmt =>
-        stmt.execute(s"CREATE SCHEMA IF NOT EXISTS ${config.schema}")
-        stmt.execute(
-          s"""CREATE TABLE IF NOT EXISTS $t (
-             |  id         text        PRIMARY KEY,
-             |  version    bigint      NOT NULL,
-             |  keys       jsonb       NOT NULL DEFAULT '{}',
-             |  payload    jsonb       NOT NULL,
-             |  created_at timestamptz NOT NULL,
-             |  created_by text,
-             |  updated_at timestamptz NOT NULL,
-             |  updated_by text
-             |)""".stripMargin
-        )
-        stmt.execute(s"CREATE INDEX IF NOT EXISTS ${name}_keys_idx ON $t USING gin (keys)")
-        stmt.execute(
-          s"""CREATE TABLE IF NOT EXISTS ${t}_history (
-             |  history_id bigserial   PRIMARY KEY,
-             |  id         text        NOT NULL,
-             |  version    bigint      NOT NULL,
-             |  operation  text        NOT NULL,
-             |  payload    jsonb       NOT NULL,
-             |  changed_at timestamptz NOT NULL,
-             |  changed_by text
-             |)""".stripMargin
-        )
-        stmt.execute(s"CREATE INDEX IF NOT EXISTS ${name}_history_id_idx ON ${t}_history (id)")
+    if config.createTables && !createdTables.contains(name) then
+      inTransaction(con):
+        Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")): stmt =>
+          stmt.setString(1, s"orchescala-persistence:${config.schema}")
+          stmt.execute()
+        Using.resource(con.createStatement()): stmt =>
+          PostgresEntityStore.ddl(config.schema, name).foreach(stmt.execute)
       createdTables.add(name)
 
 end PostgresEntityStore
+
+object PostgresEntityStore:
+
+  private[persistence] def quote(identifier: String): String = s"\"$identifier\""
+
+  private[persistence] def table(schema: String, name: String): String =
+    s"${quote(schema)}.${quote(name)}"
+
+  /** The statements that create schema, entity table and audit log of an entity - for a DBA when
+    * the app may not run DDL ([[PersistenceConfig.createTables]] = false).
+    */
+  def ddl(schema: String, name: String): Seq[String] =
+    val t = table(schema, name)
+    val h = table(schema, s"${name}_history")
+    Seq(
+      s"CREATE SCHEMA IF NOT EXISTS ${quote(schema)}",
+      s"""CREATE TABLE IF NOT EXISTS $t (
+         |  id         text        PRIMARY KEY,
+         |  version    bigint      NOT NULL,
+         |  keys       jsonb       NOT NULL DEFAULT '{}',
+         |  payload    jsonb       NOT NULL,
+         |  created_at timestamptz NOT NULL,
+         |  created_by text,
+         |  updated_at timestamptz NOT NULL,
+         |  updated_by text
+         |)""".stripMargin,
+      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_keys_idx")} ON $t USING gin (keys)",
+      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_updated_idx")} ON $t (updated_at DESC)",
+      s"""CREATE TABLE IF NOT EXISTS $h (
+         |  history_id bigserial   PRIMARY KEY,
+         |  id         text        NOT NULL,
+         |  version    bigint      NOT NULL,
+         |  operation  text        NOT NULL,
+         |  payload    jsonb       NOT NULL,
+         |  changed_at timestamptz NOT NULL,
+         |  changed_by text
+         |)""".stripMargin,
+      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_history_id_idx")} ON $h (id)"
+    )
+  end ddl
+
+end PostgresEntityStore
+
+/** Ends a transaction with a [[PersistenceError]] - so it is rolled back. */
+private final class PersistenceFailure(val error: PersistenceError)
+    extends RuntimeException(error.message, null, false, false)

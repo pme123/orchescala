@@ -6,29 +6,36 @@ import zio.test.*
 
 object UiRoutesSpec extends ZIOSpecDefault:
 
-  private def get(path: String): ZIO[Any, Nothing, Response] =
-    ZIO.scoped(UiRoutes.routes.runZIO(Request.get(URL.decode(path).toOption.get)))
+  private def get(path: String, headers: (String, String)*): ZIO[Any, Nothing, Response] =
+    val request = headers.foldLeft(Request.get(URL.decode(path).toOption.get)):
+      case (req, (name, value)) => req.addHeader(Header.Custom(name, value))
+    ZIO.scoped(UiRoutes.routes.runZIO(request))
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("UiRoutes")(
-    test("resolve maps the root and app routes to index.html") {
+    test("the root and app routes resolve to index.html") {
       assertTrue(
-        UiRoutes.resolve("").contains(UiRoutes.indexFile),
-        UiRoutes.resolve("/").contains(UiRoutes.indexFile),
-        UiRoutes.resolve("customers/42").contains(UiRoutes.indexFile)
+        UiRoutes.candidates(Seq.empty, acceptsHtml = false) == Seq(UiRoutes.indexFile),
+        UiRoutes.candidates(Seq("customers", "42"), acceptsHtml = false) == Seq(UiRoutes.indexFile)
       )
     },
-    test("resolve maps files to the ui folder") {
+    test("files resolve to the ui folder - a page request falls back to index.html, assets never") {
       assertTrue(
-        UiRoutes.resolve("assets/app-abc123.js").contains("ui/assets/app-abc123.js"),
-        UiRoutes.resolve("favicon.svg").contains("ui/favicon.svg")
+        UiRoutes.candidates(Seq("assets", "app-abc123.js"), acceptsHtml = true) ==
+          Seq("ui/assets/app-abc123.js"),
+        UiRoutes.candidates(Seq("favicon.svg"), acceptsHtml = false) == Seq("ui/favicon.svg"),
+        UiRoutes.candidates(Seq("users", "john.doe"), acceptsHtml = true) ==
+          Seq("ui/users/john.doe", UiRoutes.indexFile)
       )
     },
-    test("resolve rejects paths that leave the ui folder") {
+    test("segments are decoded - and checked after decoding") {
       assertTrue(
-        UiRoutes.resolve("../OpenApi.yml").isEmpty,
-        UiRoutes.resolve("assets/../../x.js").isEmpty,
-        UiRoutes.resolve("./index.html").isEmpty,
-        UiRoutes.resolve("assets\\x.js").isEmpty
+        UiRoutes.decodeSegments(Seq("assets", "my%20logo.svg")).contains(Seq("assets", "my logo.svg")),
+        UiRoutes.decodeSegments(Seq("a+b.js")).contains(Seq("a+b.js")),
+        UiRoutes.decodeSegments(Seq("..")).isEmpty,
+        UiRoutes.decodeSegments(Seq("%2e%2e", "OpenApi.yml")).isEmpty,
+        UiRoutes.decodeSegments(Seq("a%2Fb.js")).isEmpty,
+        UiRoutes.decodeSegments(Seq("a%5Cb.js")).isEmpty,
+        UiRoutes.decodeSegments(Seq("%zz")).isEmpty
       )
     },
     test("hashed assets are cached, everything else revalidated") {
@@ -37,24 +44,34 @@ object UiRoutesSpec extends ZIOSpecDefault:
         UiRoutes.cacheControl(UiRoutes.indexFile) == "no-cache"
       )
     },
-    test("GET /ui/ serves index.html") {
+    test("GET /ui/ serves index.html with an ETag") {
       for
         response <- get("/ui/")
         body     <- response.body.asString
       yield assertTrue(
         response.status == Status.Ok,
         body.contains("test-ui"),
-        response.rawHeader("Cache-Control").contains("no-cache")
+        response.rawHeader("Cache-Control").contains("no-cache"),
+        response.rawHeader("ETag").exists(_.startsWith("\""))
       )
     },
     test("GET /ui serves index.html") {
       get("/ui").map(response => assertTrue(response.status == Status.Ok))
     },
-    test("a deep link of the app serves index.html") {
+    test("an unchanged file is answered with 304") {
       for
-        response <- get("/ui/customers/42")
-        body     <- response.body.asString
-      yield assertTrue(response.status == Status.Ok, body.contains("test-ui"))
+        first  <- get("/ui/")
+        etag    = first.rawHeader("ETag").get
+        second <- get("/ui/", "If-None-Match" -> etag)
+        other  <- get("/ui/", "If-None-Match" -> "\"something-else\"")
+      yield assertTrue(second.status == Status.NotModified, other.status == Status.Ok)
+    },
+    test("a deep link of the app serves index.html - also with a dot in the last segment") {
+      for
+        plain  <- get("/ui/customers/42")
+        dotted <- get("/ui/users/john.doe", "Accept" -> "text/html,application/xhtml+xml")
+        body   <- dotted.body.asString
+      yield assertTrue(plain.status == Status.Ok, dotted.status == Status.Ok, body.contains("test-ui"))
     },
     test("GET /ui/assets/... serves the file with its content type") {
       for
@@ -67,8 +84,17 @@ object UiRoutesSpec extends ZIOSpecDefault:
         response.rawHeader("Cache-Control").exists(_.contains("immutable"))
       )
     },
-    test("a missing file is 404") {
-      get("/ui/assets/missing.js").map(response => assertTrue(response.status == Status.NotFound))
+    test("a file name with an escaped space is found") {
+      get("/ui/assets/my%20logo.svg").map(response => assertTrue(response.status == Status.Ok))
+    },
+    test("a missing file is 404 - also for a page request below assets/") {
+      for
+        missing <- get("/ui/assets/missing.js")
+        page    <- get("/ui/assets/missing.js", "Accept" -> "text/html")
+      yield assertTrue(missing.status == Status.NotFound, page.status == Status.NotFound)
+    },
+    test("an escaped path that leaves the ui folder is 404") {
+      get("/ui/%2e%2e/OpenApi.yml").map(response => assertTrue(response.status == Status.NotFound))
     }
   )
 end UiRoutesSpec

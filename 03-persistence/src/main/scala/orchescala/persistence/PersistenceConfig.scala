@@ -10,28 +10,39 @@ case class PersistenceConfig(
     username: String,
     password: String,
     schema: String = "public",
-    maximumPoolSize: Int = 5
+    maximumPoolSize: Int = 5,
+    /** Create schema and tables on first use. Set it to false if the database user of the app has
+      * no DDL rights (e.g. only `INSERT, SELECT` on the history tables) - the tables are then
+      * created by the DBA with the statements of `PostgresEntityStore`.
+      */
+    createTables: Boolean = true
 ):
   require(EntityDef.isValidTable(schema), s"Invalid schema name '$schema'")
 
   override def toString: String =
-    s"PersistenceConfig($jdbcUrl, user $username, schema $schema, pool $maximumPoolSize)"
+    s"PersistenceConfig($jdbcUrl, user $username, schema $schema, pool $maximumPoolSize, createTables $createTables)"
 end PersistenceConfig
 
 object PersistenceConfig:
 
   /** Reads `{prefix}_URL`, `{prefix}_USER`, `{prefix}_PASSWORD` and optionally `{prefix}_SCHEMA`,
-    * `{prefix}_POOL_SIZE` - e.g. `PersistenceConfig.fromEnv("MYAPP_DB")`.
+    * `{prefix}_POOL_SIZE`, `{prefix}_CREATE_TABLES` - e.g. `PersistenceConfig.fromEnv("MYAPP_DB")`.
+    * A set but invalid value is an error, like a missing required one.
     */
   def fromEnv(prefix: String, env: Map[String, String] = sys.env): PersistenceConfig =
-    def required(name: String) =
-      env.getOrElse(s"${prefix}_$name", throw IllegalArgumentException(s"${prefix}_$name is not set"))
+    def name(key: String) = s"${prefix}_$key"
+    def required(key: String) =
+      env.getOrElse(name(key), throw IllegalArgumentException(s"${name(key)} is not set"))
+    def optional[A](key: String, default: A)(parse: String => Option[A]) =
+      env.get(name(key)).fold(default): value =>
+        parse(value).getOrElse(throw IllegalArgumentException(s"${name(key)} is invalid: '$value'"))
     PersistenceConfig(
       jdbcUrl = required("URL"),
       username = required("USER"),
       password = required("PASSWORD"),
-      schema = env.getOrElse(s"${prefix}_SCHEMA", "public"),
-      maximumPoolSize = env.get(s"${prefix}_POOL_SIZE").flatMap(_.toIntOption).getOrElse(5)
+      schema = env.getOrElse(name("SCHEMA"), "public"),
+      maximumPoolSize = optional("POOL_SIZE", 5)(_.toIntOption.filter(_ > 0)),
+      createTables = optional("CREATE_TABLES", true)(_.toBooleanOption)
     )
   end fromEnv
 end PersistenceConfig

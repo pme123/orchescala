@@ -1,6 +1,7 @@
 package orchescala.gateway
 
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
+import orchescala.worker.UiRoutes
 import sttp.client3.{asByteArrayAlways, basicRequest}
 import sttp.model.Uri
 import zio.*
@@ -32,7 +33,7 @@ class AppRoutes()(using config: GatewayConfig):
       Method.GET / "app" / string("projectName")            -> handler {
         (projectName: String, request: Request) =>
           if request.url.path.hasTrailingSlash then forward(projectName, Seq.empty, request)
-          else ZIO.succeed(canonicalRedirect(projectName))
+          else ZIO.succeed(canonicalRedirect(projectName, request))
       },
       Method.GET / "app" / string("projectName") / trailing -> handler {
         (projectName: String, path: Path, request: Request) =>
@@ -40,31 +41,36 @@ class AppRoutes()(using config: GatewayConfig):
       }
     )
 
-  private def canonicalRedirect(projectName: String): Response =
+  /** Keeps the query - e.g. `code` and `state` of an OIDC login that returns to `/app/{projectName}`. */
+  private[gateway] def canonicalRedirect(projectName: String, request: Request): Response =
     if isValidProjectName(projectName) then
+      val query = request.url.encode.dropWhile(_ != '?')
       Response
         .status(Status.MovedPermanently)
-        .addHeader(Header.Custom("Location", s"/app/$projectName/"))
+        .addHeader(Header.Custom("Location", s"/app/$projectName/$query"))
     else Response.status(Status.NotFound)
 
   /** Forwards a request for the UI bundle to the worker app of the project.
     *
     * Like the docs forwarding: the project name becomes the host of the default URL, so only a
-    * plain host name is accepted, and the path goes into the URL as encoded segments.
+    * plain host name is accepted. The path segments are decoded and checked first (`%2e%2e` is
+    * `..`), then they go into the URL encoded again - once.
     */
   private def forward(
       projectName: String,
       segments: Seq[String],
       request: Request
   ): UIO[Response] =
-    (if isValidProjectName(projectName) && segments.forall(isValidSegment) then
-       config.uiAppUrl(projectName)
-     else None) match
-      case None          =>
+    (for
+      _        <- Option.when(isValidProjectName(projectName))(())
+      decoded  <- UiRoutes.decodeSegments(segments)
+      baseUrl  <- config.uiAppUrl(projectName)
+    yield decoded -> baseUrl) match
+      case None                     =>
         ZIO.succeed(Response.status(Status.NotFound))
-      case Some(baseUrl) =>
+      case Some((decoded, baseUrl)) =>
         (for
-          uri      <- ZIO.fromEither(uiUri(baseUrl, segments))
+          uri      <- ZIO.fromEither(uiUri(baseUrl, decoded))
                         .mapError(err => s"Invalid UI URL: $err")
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                         basicRequest
@@ -73,7 +79,11 @@ class AppRoutes()(using config: GatewayConfig):
                           .response(asByteArrayAlways)
                           .send(backend)
                           .mapError(_.getMessage)
+          _        <- ZIO.when(response.code.code >= 500)(
+                        ZIO.logWarning(s"UI request $uri of '$projectName' answered ${response.code.code}")
+                      )
         yield toResponse(response.code.code, response.body, response.header))
+          // the shared backend of the gateway - not a new client per request
           .provideLayer(HttpClientProvider.live)
           .catchAll: err =>
             ZIO.logError(s"Error forwarding UI request for '$projectName': $err")
@@ -82,9 +92,9 @@ class AppRoutes()(using config: GatewayConfig):
   private[gateway] def uiUri(baseUrl: String, segments: Seq[String]): Either[String, Uri] =
     Uri.parse(baseUrl).map(_.addPath("ui" +: segments))
 
-  /** Lets the browser revalidate its cache (304) through the gateway. */
+  /** Lets the browser revalidate its cache (304) and the worker app tell page from file requests. */
   private def conditionalHeaders(request: Request): Seq[(String, String)] =
-    Seq("If-None-Match", "If-Modified-Since")
+    Seq("If-None-Match", "If-Modified-Since", "Accept")
       .flatMap(name => request.rawHeader(name).map(name -> _))
 
   private[gateway] def toResponse(
@@ -104,9 +114,9 @@ class AppRoutes()(using config: GatewayConfig):
         )
       case 304        =>
         Response(status = Status.NotModified, headers = Headers(passedHeaders ++ securityHeaders))
-      case 404        =>
-        Response.status(Status.NotFound)
-      case _          =>
+      case client if client >= 400 && client < 500 =>
+        Response.status(Status.fromInt(client))
+      case _          => // the worker app failed (or answered unexpectedly) - logged in forward
         Response.status(Status.BadGateway)
     end match
   end toResponse
@@ -120,9 +130,5 @@ class AppRoutes()(using config: GatewayConfig):
   /** A plain host name - the default `uiAppUrl` takes the project name as host. */
   private[gateway] def isValidProjectName(projectName: String): Boolean =
     projectName.matches("[A-Za-z0-9]+(-[A-Za-z0-9]+)*")
-
-  private[gateway] def isValidSegment(segment: String): Boolean =
-    segment.nonEmpty && segment != "." && segment != ".." &&
-      !segment.exists(c => c == '\\' || c.isControl)
 
 end AppRoutes

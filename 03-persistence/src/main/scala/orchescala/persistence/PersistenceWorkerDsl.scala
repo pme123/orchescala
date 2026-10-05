@@ -75,10 +75,22 @@ trait PersistenceWorkerDsl[
   protected def toCustomError(error: PersistenceError): CustomError =
     CustomError(error.message)
 
-  /** The user of the Bearer token - it was verified before the worker was called. */
+  /** The user of the Bearer token (`preferred_username`).
+    *
+    * The token is only decoded here - it is trusted because the worker app verified it before the
+    * worker was called. That holds with `TokenValidation.Jwt` / `AnyOf` in the `WorkerConfig`; with
+    * `TokenValidation.PresenceOnly` (warned at startup) the user in the audit log is unverified.
+    * Without a token - e.g. a step of a process - the change is recorded without user.
+    */
   private def currentUser: UIO[Option[String]] =
-    AuthContext.getBearerToken.map:
-      _.flatMap: token =>
-        Try(Option(JWT.decode(token).getClaim("preferred_username").asString())).toOption.flatten
+    AuthContext.getBearerToken.map(_.flatMap(PersistenceWorkerDsl.userOf))
+
+end PersistenceWorkerDsl
+
+object PersistenceWorkerDsl:
+
+  private[persistence] def userOf(token: String): Option[String] =
+    Try(Option(JWT.decode(token).getClaim("preferred_username").asString())).toOption.flatten
+      .filter(_.nonEmpty)
 
 end PersistenceWorkerDsl
