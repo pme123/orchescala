@@ -87,8 +87,8 @@ object UiRoutes:
   private[worker] def candidates(path: Seq[String], acceptsHtml: Boolean): Seq[String] =
     path.lastOption match
       case None                              => Seq(indexFile)
+      case _ if path.head == "assets"        => Seq(s"ui/${path.mkString("/")}") // never index.html
       case Some(last) if !last.contains('.') => Seq(indexFile)
-      case _ if path.head == "assets"        => Seq(s"ui/${path.mkString("/")}")
       case _                                 =>
         s"ui/${path.mkString("/")}" +: Option.when(acceptsHtml)(indexFile).toSeq
 
@@ -146,6 +146,10 @@ object UiRoutes:
     val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
     "\"" + Base64.getUrlEncoder.withoutPadding.encodeToString(hash).take(22) + "\""
 
+  /** `If-None-Match`: a list of ETags, weak ones (`W/"…"`, from proxies) included, or `*`. */
+  private[worker] def matches(ifNoneMatch: String, etag: String): Boolean =
+    ifNoneMatch.split(',').map(_.trim.stripPrefix("W/")).exists(tag => tag == "*" || tag == etag)
+
   private def response(resource: String, file: UiFile, request: Request): Response =
     val ext       = resource.split('.').lastOption.getOrElse("")
     val mediaType = MediaType.forFileExtension(ext).getOrElse(MediaType.application.`octet-stream`)
@@ -156,7 +160,7 @@ object UiRoutes:
       // a page request may get index.html where a file request gets 404 - caches must keep both
       Header.Custom("Vary", "Accept")
     ) ++ Headers(securityHeaders)
-    if request.rawHeader("If-None-Match").exists(_.split(',').map(_.trim).contains(file.etag)) then
+    if request.rawHeader("If-None-Match").exists(matches(_, file.etag)) then
       Response(status = Status.NotModified, headers = headers)
     else Response(body = Body.fromArray(file.bytes), headers = headers)
   end response

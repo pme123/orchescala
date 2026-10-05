@@ -27,6 +27,23 @@ object UiRoutesSpec extends ZIOSpecDefault:
           Seq("ui/users/john.doe", UiRoutes.indexFile)
       )
     },
+    test("below assets/ nothing falls back to index.html - also without a dot") {
+      assertTrue(
+        UiRoutes.candidates(
+          Seq("assets", "LICENSE"),
+          acceptsHtml = true
+        ) == Seq("ui/assets/LICENSE"),
+        UiRoutes.candidates(Seq("assets", "foo"), acceptsHtml = false) == Seq("ui/assets/foo")
+      )
+    },
+    test("If-None-Match matches lists, weak ETags and *") {
+      assertTrue(
+        UiRoutes.matches("\"a\"", "\"a\""),
+        UiRoutes.matches("\"x\", W/\"a\"", "\"a\""),
+        UiRoutes.matches("*", "\"a\""),
+        !UiRoutes.matches("\"b\"", "\"a\"")
+      )
+    },
     test("segments are decoded - and checked after decoding") {
       assertTrue(
         UiRoutes.decodeSegments(Seq("assets", "my%20logo.svg")).contains(Seq(
@@ -93,6 +110,11 @@ object UiRoutesSpec extends ZIOSpecDefault:
     },
     test("a file name with an escaped space is found") {
       get("/ui/assets/my%20logo.svg").map(response => assertTrue(response.status == Status.Ok))
+    },
+    test("GET /ui/assets/ without file extension is 404, not index.html") {
+      get("/ui/assets/LICENSE", "Accept" -> "text/html").map(r =>
+        assertTrue(r.status == Status.NotFound)
+      )
     },
     test("a missing file is 404 - also for a page request below assets/") {
       for

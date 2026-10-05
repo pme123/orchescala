@@ -79,9 +79,10 @@ object EntityStore:
 
   val maxLimit = 1000
 
-  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. Create
-    * it once per app (e.g. a `lazy val` next to the base worker): every call registers a shutdown
-    * hook. Use [[postgresScoped]] for anything shorter-lived.
+  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. One
+    * store per configuration: call it with the same configuration (e.g. a `lazy val` next to the
+    * base worker). A configuration that changes per call - another schema each time - would keep a
+    * pool per configuration; use [[postgresScoped]] for anything shorter-lived.
     */
   def postgres(config: PersistenceConfig): EntityStore =
     appStores.computeIfAbsent(
@@ -246,18 +247,20 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
         Using.resource(stmt.executeQuery())(rs =>
           if rs.next() then Some(read(entity, rs)) else None
         )
-      written.foreach:
-        case Right(stored) =>
+      written match
+        case Some(Right(stored)) =>
           val operation = if expectedVersion.isEmpty then Operation.Created else Operation.Updated
           appendHistory(con, entity, id, stored.version, operation, payload, user)
-        case Left(error)   => // never commit a change without its audit entry
+          Right(stored)
+        case Some(Left(error))   => // never commit a change without its audit entry
           throw PersistenceFailure(error)
-      written
+        case None                => // nothing written - the version now, under the lock of the id
+          Left(versionIn(con, entity, id))
+      end match
     .flatMap:
-      case Some(stored) => ZIO.fromEither(stored)
-      case None         => // nothing written: someone else was faster
-        currentVersion(entity, id).flatMap: actual =>
-          ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
+      case Right(stored) => ZIO.succeed(stored)
+      case Left(actual)  =>
+        ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
   end write
 
   def delete[E](
@@ -277,16 +280,18 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
         Using.resource(stmt.executeQuery()): rs =>
           if rs.next() then Some(rs.getLong(1) -> rs.getString(2)) else None
       // the deletion is the next version - the log keeps the last state
-      deleted.foreach: (version, payload) =>
-        appendHistory(con, entity, id, version + 1, Operation.Deleted, payload, user)
-      deleted.isDefined
+      deleted match
+        case Some((version, payload)) =>
+          appendHistory(con, entity, id, version + 1, Operation.Deleted, payload, user)
+          None
+        case None                     => // nothing deleted - why, under the lock of the id
+          Some(versionIn(con, entity, id))
+      end match
     .flatMap:
-      case false =>
-        currentVersion(entity, id).flatMap:
-          case None   => ZIO.fail(PersistenceError.NotFound(entity.table, id))
-          case actual =>
-            ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
-      case true  => ZIO.unit
+      case None         => ZIO.unit
+      case Some(None)   => ZIO.fail(PersistenceError.NotFound(entity.table, id))
+      case Some(actual) =>
+        ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
 
   def history[E](
       entity: EntityDef[E],
@@ -334,6 +339,10 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
 
   /** Serializes the changes of one entity (create, update, delete) until the end of the transaction -
     * a re-create waits for a concurrent deletion and continues after its version.
+    *
+    * The key is `hashtext` - 32 bits: two ids with the same hash are serialized as well, which only
+    * costs a little waiting, never correctness. The DDL lock of the schema uses the same key space
+    * with its own text.
     */
   private def lockId(con: Connection, entity: EntityDef[?], id: String): Unit =
     // bounded: a busy entity must not hold pooled connections for long (55P03 → Busy)
@@ -389,15 +398,14 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       .unit
       .zipLeft(ZIO.logInfo(s"Database reachable: ${config}"))
 
-  private def currentVersion[E](
-      entity: EntityDef[E],
-      id: String
-  ): IO[PersistenceError, Option[Long]] =
-    withConnection(entity): con =>
-      Using.resource(con.prepareStatement(s"SELECT version FROM ${table(entity)} WHERE id = ?")):
-        stmt =>
-          stmt.setString(1, id)
-          Using.resource(stmt.executeQuery())(rs => if rs.next() then Some(rs.getLong(1)) else None)
+  /** The version in the store - read in the transaction that holds the lock of the id, so it is
+    * exactly the one that made the change fail.
+    */
+  private def versionIn(con: Connection, entity: EntityDef[?], id: String): Option[Long] =
+    Using.resource(con.prepareStatement(s"SELECT version FROM ${table(entity)} WHERE id = ?")):
+      stmt =>
+        stmt.setString(1, id)
+        Using.resource(stmt.executeQuery())(rs => if rs.next() then Some(rs.getLong(1)) else None)
 
   // quoted - a valid name may still be a keyword (`user`, `order`)
   private def table(entity: EntityDef[?])        = PostgresEntityStore.table(config.schema, entity.table)
