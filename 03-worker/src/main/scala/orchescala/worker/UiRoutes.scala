@@ -45,6 +45,11 @@ object UiRoutes:
   // the files of a deployed bundle do not change - only found files are kept
   private val files = ConcurrentHashMap[String, UiFile]()
 
+  // known-missing resources - scanners ask for /ui/foo.php again and again; bounded, so a flood of
+  // random names cannot fill the memory (it is cleared when full)
+  private val missing    = ConcurrentHashMap.newKeySet[String]()
+  private val maxMissing = 10000
+
   /** The default of `WorkerConfig.uiMaxFileSize` and `GatewayConfig.uiMaxFileSize` - plenty for a
     * web bundle.
     */
@@ -119,19 +124,26 @@ object UiRoutes:
   private def load(resource: String, maxFileSize: Long): Option[UiFile] =
     Option(files.get(resource))
       .orElse:
-        Option(getClass.getClassLoader.getResource(resource)).filter(isFile).map: url =>
-          val connection = url.openConnection()
-          connection.setUseCaches(false) // no jar handle kept open by the URL cache
-          checkSize(resource, connection.getContentLengthLong, maxFileSize)
-          // bounded: never more than the limit (+1 to notice it) in memory, also with unknown length
-          val bytes =
-            Using.resource(connection.getInputStream)(
-              _.readNBytes((maxFileSize + 1).min(Int.MaxValue).toInt)
-            )
-          checkSize(resource, bytes.length, maxFileSize)
-          val file  = UiFile(bytes, etag(bytes))
-          files.put(resource, file)
-          file
+        Option.when(!missing.contains(resource))(resource)
+          .flatMap(r => Option(getClass.getClassLoader.getResource(r)))
+          .filter(isFile)
+          .orElse:
+            if missing.size >= maxMissing then missing.clear()
+            missing.add(resource)
+            None
+          .map: url =>
+            val connection = url.openConnection()
+            connection.setUseCaches(false) // no jar handle kept open by the URL cache
+            checkSize(resource, connection.getContentLengthLong, maxFileSize)
+            // bounded: never more than the limit (+1 to notice it) in memory, also with unknown length
+            val bytes =
+              Using.resource(connection.getInputStream)(
+                _.readNBytes((maxFileSize + 1).min(Int.MaxValue).toInt)
+              )
+            checkSize(resource, bytes.length, maxFileSize)
+            val file  = UiFile(bytes, etag(bytes))
+            files.put(resource, file)
+            file
       .map: file => // also for a cached file - the limit is per route
         checkSize(resource, file.bytes.length, maxFileSize)
         file

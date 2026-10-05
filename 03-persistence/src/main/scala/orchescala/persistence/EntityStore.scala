@@ -365,9 +365,10 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
   end lockId
 
   private def lockAdvisory(con: Connection, entity: EntityDef[?], id: String): Unit =
-    Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")): stmt =>
-      stmt.setString(1, s"orchescala-persistence:${config.schema}.${entity.table}:$id")
-      stmt.execute()
+    Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")):
+      stmt =>
+        stmt.setString(1, s"orchescala-persistence:${config.schema}.${entity.table}:$id")
+        stmt.execute()
 
   /** `now()` is the start of the transaction - the same time as in the entity table. */
   private def appendHistory(
@@ -473,18 +474,25 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
     withConnection(entity)(con => inTransaction(con)(work(con)))
 
   private def inTransaction[A](con: Connection)(work: => A): A =
-    val autoCommit = con.getAutoCommit
+    val autoCommit                = con.getAutoCommit
     con.setAutoCommit(false)
+    var failure: Throwable | Null = null
     try
       val result = work
       con.commit()
       result
     catch
       case err: Throwable =>
+        failure = err
         try con.rollback()
         catch case rollbackErr: Throwable => err.addSuppressed(rollbackErr)
         throw err
-    finally con.setAutoCommit(autoCommit)
+    finally
+      // a broken connection must not replace the error of the work, commit or rollback
+      try con.setAutoCommit(autoCommit)
+      catch
+        case resetErr: Throwable =>
+          if failure != null then failure.nn.addSuppressed(resetErr) else throw resetErr
     end try
   end inTransaction
 
@@ -494,7 +502,9 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
   private def ensureTables(con: Connection, name: String): Unit =
     if config.createTables && !createdTables.contains(name) then
       inTransaction(con):
-        Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")): stmt =>
+        Using.resource(
+          con.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")
+        ): stmt =>
           stmt.setString(1, s"orchescala-persistence:${config.schema}")
           stmt.execute()
         Using.resource(con.createStatement()): stmt =>

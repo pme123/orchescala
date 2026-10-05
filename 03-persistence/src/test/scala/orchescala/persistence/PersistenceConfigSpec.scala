@@ -25,6 +25,15 @@ object PersistenceConfigSpec extends ZIOSpecDefault:
         !config.toString.contains("secret")
       )
     },
+    test("toString shows neither the password nor the query of the URL") {
+      val config =
+        PersistenceConfig("jdbc:postgresql://db:5432/app?user=x&password=geheim", "app", "secret")
+      assertTrue(
+        config.toString.contains("jdbc:postgresql://db:5432/app"),
+        !config.toString.contains("geheim"),
+        !config.toString.contains("secret")
+      )
+    },
     test("a missing variable names itself") {
       val error = scala.util.Try(PersistenceConfig.fromEnv("MYAPP_DB", Map.empty)).failed.get
       assertTrue(error.getMessage.contains("MYAPP_DB_URL"))

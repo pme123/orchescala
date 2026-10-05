@@ -271,7 +271,7 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
                                  )
                                  con.setAutoCommit(false)
                                  Using.resource(con.prepareStatement(
-                                   "SELECT pg_advisory_xact_lock(hashtext(?))"
+                                   "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))"
                                  )): stmt =>
                                    stmt.setString(1, "orchescala-persistence:test_app.notiz:busy1")
                                    stmt.execute()

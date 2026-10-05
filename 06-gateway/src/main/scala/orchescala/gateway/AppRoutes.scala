@@ -80,7 +80,7 @@ class AppRoutes(
       case None                     =>
         ZIO.succeed(withSecurityHeaders(Status.NotFound))
       case Some((decoded, baseUrl)) =>
-        (for
+        forwards.withPermit(for
           uri      <- ZIO.fromEither(uiUri(baseUrl, decoded))
                         .mapError(err => s"Invalid UI URL: $err")
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
@@ -116,6 +116,12 @@ class AppRoutes(
       .mapError(_.getMessage)
       .filterOrFail(_.size <= max)(s"larger than $max bytes")
       .map(_.toArray)
+
+  // at most uiMaxConcurrentForwards files buffered at once - the heap for UI files is bounded by
+  // uiMaxConcurrentForwards × uiMaxFileSize; more requests wait for a permit
+  private val forwards = Unsafe.unsafe(implicit u =>
+    Semaphore.unsafe.make(config.uiMaxConcurrentForwards.toLong)
+  )
 
   private[gateway] def uiUri(baseUrl: String, segments: Seq[String]): Either[String, Uri] =
     Uri.parse(baseUrl).map(_.addPath("ui" +: segments))

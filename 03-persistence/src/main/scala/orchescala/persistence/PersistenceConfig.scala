@@ -27,8 +27,10 @@ case class PersistenceConfig(
 ):
   require(EntityDef.isValidTable(schema), s"Invalid schema name '$schema'")
 
+  // without the query of the URL - it may carry a password (`?password=…`)
   override def toString: String =
-    s"PersistenceConfig($jdbcUrl, user $username, schema $schema, pool $maximumPoolSize, createTables $createTables)"
+    s"PersistenceConfig(${jdbcUrl.takeWhile(_ != '?')}, user $username, schema $schema, " +
+      s"pool $maximumPoolSize, createTables $createTables)"
 end PersistenceConfig
 
 object PersistenceConfig:
