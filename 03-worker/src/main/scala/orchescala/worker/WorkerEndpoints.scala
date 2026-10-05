@@ -23,10 +23,20 @@ object WorkerEndpoints:
             .example(ServiceRequestError(ServiceBadBodyError(
               "There is no body in the response and the ServiceOut is neither NoOutput nor Option (Class is class java.lang.String)."
             ))))) { case e: ServiceRequestError if e.errorCode == 400 => true },
+        oneOfVariantValueMatcher(statusCode(StatusCode.Forbidden)
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(403, "Not allowed to call worker 'myCompany-myProject-myWorker'")))) {
+          case e: ServiceRequestError if e.errorCode == 403 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)
           .and(jsonBody[ServiceRequestError]
             .example(ServiceRequestError(404, "Not Found")))) {
           case e: ServiceRequestError if e.errorCode == 404 => true
+        },
+        oneOfVariantValueMatcher(statusCode(StatusCode.ServiceUnavailable)
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(503, "The roles of the caller cannot be checked right now")))) {
+          case e: ServiceRequestError if e.errorCode == 503 => true
         },
         oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
           .and(jsonBody[ServiceRequestError]
