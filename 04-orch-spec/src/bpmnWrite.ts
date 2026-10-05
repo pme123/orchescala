@@ -205,10 +205,17 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       };
       mockControl('_outputMock', kind === 'output');
       mockControl('_outputServiceMock', kind === 'service');
-      setControl(doc, ext, engine, '_servicesMocked', pass('_servicesMocked'), call);
-      setControl(doc, ext, engine, '_mockedWorkers', call ? pass('_mockedWorkers') : undefined, call);
-      // wer den Prozess gestartet hat — der Teilprozess prüft dieselbe Identität
-      setControl(doc, ext, engine, '_identityCorrelation', call ? pass('_identityCorrelation') : undefined, call);
+      // Die Steuerung des Prozesses (Mocks; wer ihn gestartet hat — der Teilprozess
+      // prüft dieselbe Identität) braucht nur ein Teilprozess, der die Variablen
+      // nicht ohnehin sieht: in C7 immer (`camunda:in`), in C8 nur mit
+      // `propagateAllParentVariables="false"`. Ein Worker liest sie selbst.
+      // Eine blosse Weitergabe fällt sonst weg — ein fester Wert (`= true`) bleibt.
+      const calledEl = firstNamed(ext, 'calledElement');
+      const needsPass = call && (engine === 'c7' || calledEl?.getAttribute('propagateAllParentVariables') === 'false');
+      for (const name of ['_servicesMocked', '_mockedWorkers', '_identityCorrelation']) {
+        if (needsPass) setControl(doc, ext, engine, name, pass(name), call);
+        else if (isPassThrough(before?.inputs.get(name), name)) setControl(doc, ext, engine, name, undefined, call);
+      }
     }
 
     // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist
@@ -437,6 +444,14 @@ function writeImplementation(
  * `_manualOutMapping` & Co. setzen (oder mit `undefined` entfernen) — Camunda 7
  * als lokale Variable bzw. am Teilprozess als `camunda:in`, Camunda 8 als Eingabe.
  */
+/** `#{execution.getVariable('x')}`, `${x}`, `=x` oder `x` — die Variable x bloss weitergegeben */
+function isPassThrough(value: string | undefined, name: string): boolean {
+  const v = value?.trim();
+  if (!v) return false;
+  return v === name || v === `\${${name}}` || v === `#{${name}}` || new RegExp(`^=\\s*${name}$`).test(v)
+    || new RegExp(`^#\\{\\s*execution\\.getVariable\\(\\s*['"]${name}['"]\\s*\\)\\s*\\}$`).test(v);
+}
+
 /** Was ein Element des Diagramms schon über seinen Service sagt — vor dem Schreiben gelesen. */
 interface ElementState {
   /** `_manualOutMapping` — fehlt es, undefined */

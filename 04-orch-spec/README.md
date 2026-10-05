@@ -1271,8 +1271,9 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Service (in der Spezifikation angelegt) | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
 | Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
 | Init-Worker | nie `_outputVariables` oder `_manualOutMapping` — er gibt das `InitIn` zurück | ebenso |
-| Mock-Steuerung (immer) | `_servicesMocked` = `=_servicesMocked`, am Teilprozess dazu `_mockedWorkers` und `_identityCorrelation` | dasselbe mit `#{execution.getVariable('…')}`; am Teilprozess als `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` |
+| Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — nur mit `propagateAllParentVariables="false"`, sonst sieht der Teilprozess sie ohnehin | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` (am Teilprozess `source="createContractMock"`) |
+| Service-Task | keine Mock-Steuerung — der Worker liest `_servicesMocked` selbst aus den Prozessvariablen; eine blosse Weitergabe im Diagramm fällt weg, ein fester Wert (`= true`) bleibt | ebenso |
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
