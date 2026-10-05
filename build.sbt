@@ -31,7 +31,7 @@ lazy val root = project
     dmnTesterClient,
     simulation,
     worker,
-    persistence,
+    persistencePostgres,
     helper,
     orchDocClient,
     engineC7,
@@ -184,16 +184,17 @@ lazy val worker = project
   .dependsOn(engine)
 
 // layer 04
-// PersistenceWorker: builds on 03-worker, with the Postgres implementation of the EntityStore
-lazy val persistence = project
-  .in(file("./04-persistence"))
+// PersistenceWorker on Postgres: the EntityStore of 03-worker (interface + contract tests) on JDBC
+lazy val persistencePostgres = project
+  .in(file("./04-persistence-postgres"))
   .settings(publicationSettings)
   .settings(
-    projectSettings("persistence"),
+    projectSettings("persistence-postgres"),
     unitTestSettings,
-    libraryDependencies ++= persistenceDependencies ++ zioTestDependencies
+    libraryDependencies ++= persistencePostgresDependencies ++ zioTestDependencies
   )
-  .dependsOn(worker)
+  // test->test: runs the EntityStoreContract of 03-worker against Postgres
+  .dependsOn(worker % "compile->compile;test->test")
 
 lazy val helper = project
   .in(file("./04-helper"))

@@ -1,56 +1,26 @@
 package orchescala.persistence
 
 import io.circe.{Codec, Decoder, Encoder}
-import org.testcontainers.DockerClientFactory
-import org.testcontainers.containers.PostgreSQLContainer
-import zio.*
+import zio.ZIO
 import zio.test.*
 
-import scala.util.{Try, Using}
-
-/** Runs against a real Postgres (Testcontainers). Ignored locally where there is no Docker - on CI
-  * (`CI` is set) it fails instead, so the real-database tests cannot be skipped silently.
+/** The rules every [[EntityStore]] follows - versions, conflicts, the audit log in the same
+  * transaction, re-create after deletion, races, limits, old formats.
+  *
+  * An implementation runs them against its store:
+  * {{{
+  * suite("PostgresEntityStore")(EntityStoreContract.tests, ...).provideShared(storeLayer)
+  * }}}
   */
-object PostgresEntityStoreSpec extends ZIOSpecDefault:
+object EntityStoreContract:
 
   case class Notiz(id: String, kundenNr: String, text: String) derives Codec
 
-  private val notiz = EntityDef[Notiz]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
-
-  private lazy val runTests =
-    val run =
-      sys.env.contains("CI") || Try(
-        DockerClientFactory.instance().isDockerAvailable
-      ).getOrElse(false)
-    if !run then
-      println(
-        "\n*** PostgresEntityStoreSpec IGNORED - no Docker. The store tests against Postgres did " +
-          "not run; on CI (CI set) they fail instead. ***\n"
-      )
-    end if
-    run
-  end runTests
-
-  private val postgres: ZLayer[Any, Throwable, PersistenceConfig & EntityStore] =
-    val config = ZLayer.scoped:
-      ZIO
-        .acquireRelease(ZIO.attemptBlocking:
-          val container = PostgreSQLContainer("postgres:17-alpine")
-          container.start()
-          container)(container => ZIO.attemptBlocking(container.stop()).orDie)
-        .map: container =>
-          PersistenceConfig(
-            jdbcUrl = container.getJdbcUrl,
-            username = container.getUsername,
-            password = container.getPassword,
-            schema = "test_app"
-          )
-    config >+> ZLayer.scoped(ZIO.serviceWithZIO[PersistenceConfig](EntityStore.postgresScoped))
-  end postgres
+  val notiz = EntityDef[Notiz]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
 
   private def store = ZIO.service[EntityStore]
 
-  def spec = suite("PostgresEntityStore")(
+  def tests: Spec[EntityStore, Any] = suite("EntityStore contract")(
     test("save creates version 1 with audit fields, get reads it") {
       for
         s      <- store
@@ -236,10 +206,6 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         newest <- s.history(notiz, "hl1", limit = 2)
       yield assertTrue(newest.map(_.version) == Seq(2L, 3L))
     },
-    test("postgres gives one store per configuration") {
-      ZIO.serviceWith[PersistenceConfig]: config =>
-        assertTrue(EntityStore.postgres(config) eq EntityStore.postgres(config))
-    },
     test("query leaves out a row that no longer decodes - the others are found") {
       case class NotizV2(id: String, kundenNr: String, text: String, prioritaet: Int) derives Codec
       val notizV2 = EntityDef[NotizV2]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
@@ -254,47 +220,6 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         old.isInstanceOf[PersistenceError.StoreError]
       )
       end for
-    },
-    test("a change waiting longer than lockTimeoutMillis for the same entity is Busy") {
-      for
-        config <- ZIO.service[PersistenceConfig]
-        busy   <- ZIO.scoped:
-                    for
-                      fast  <- EntityStore.postgresScoped(config.copy(lockTimeoutMillis = 200))
-                      _     <- fast.save(notiz, Notiz("busy1", "1700", "x"), None, None)
-                      // someone else holds the lock of this entity in an open transaction
-                      other <- ZIO.acquireRelease(ZIO.attemptBlocking:
-                                 val con = java.sql.DriverManager.getConnection(
-                                   config.jdbcUrl,
-                                   config.username,
-                                   config.password
-                                 )
-                                 con.setAutoCommit(false)
-                                 Using.resource(con.prepareStatement(
-                                   "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))"
-                                 )): stmt =>
-                                   stmt.setString(1, "orchescala-persistence:test_app.notiz:busy1")
-                                   stmt.execute()
-                                 con)(con =>
-                                 ZIO.attemptBlocking { con.rollback(); con.close() }.orDie
-                               )
-                      error <- fast.save(notiz, Notiz("busy1", "1700", "y"), Some(1L), None).flip
-                    yield error
-        after  <- store.flatMap(_.get(notiz, "busy1"))
-      yield assertTrue(
-        busy == PersistenceError.Busy("notiz", "busy1"),
-        after.map(_.version).contains(1L)
-      )
-    },
-    test("checkConnection reports a wrong password at once") {
-      for
-        config <- ZIO.service[PersistenceConfig]
-        ok     <- store.flatMap(_.checkConnection).either
-        wrong  <-
-          ZIO.scoped(
-            EntityStore.postgresScoped(config.copy(password = "wrong")).flatMap(_.checkConnection)
-          ).either
-      yield assertTrue(ok.isRight, wrong.left.exists(_.isInstanceOf[PersistenceError.StoreError]))
     },
     test("an old audit entry that no longer decodes stays readable as JSON") {
       // a changed entity: the old entries lack the new required field
@@ -311,57 +236,6 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
       )
       end for
     },
-    test(
-      "with createTables = false the store runs no DDL - the tables come from PostgresEntityStore.ddl"
-    ) {
-      for
-        config <- ZIO.service[PersistenceConfig]
-        noDdl   = config.copy(schema = "no_ddl_app", createTables = false)
-        result <- ZIO.scoped:
-                    EntityStore.postgresScoped(noDdl).flatMap: s =>
-                      for
-                        missing <- s.save(notiz, Notiz("n1", "1", "x"), None, None).flip
-                        _       <-
-                          ZIO.attemptBlocking: // what the DBA runs
-                            Using.resource(java.sql.DriverManager.getConnection(
-                              config.jdbcUrl,
-                              config.username,
-                              config.password
-                            )): con =>
-                              Using.resource(con.createStatement()): stmt =>
-                                PostgresEntityStore.ddl("no_ddl_app", "notiz").foreach(stmt.execute)
-                          .orDie
-                        saved   <- s.save(notiz, Notiz("n1", "1", "x"), None, None)
-                      yield (missing, saved)
-      yield assertTrue(
-        result._1.isInstanceOf[PersistenceError.StoreError],
-        result._2.version == 1L
-      )
-    },
-    test("parallel first use of a new table creates it once, without errors") {
-      for
-        config  <- ZIO.service[PersistenceConfig]
-        results <- ZIO.scoped:
-                     EntityStore.postgresScoped(config.copy(schema = "parallel_app")).flatMap:
-                       fresh =>
-                         val parallel = EntityDef[Notiz]("parallel_notiz", _.id)(using notiz.codec)
-                         ZIO.foreachPar(1 to 8)(i =>
-                           fresh.save(parallel, Notiz(s"f$i", "1", "x"), None, None).either
-                         )
-      yield assertTrue(results.forall(_.isRight))
-    },
-    test("schema and table names that are keywords work - they are quoted") {
-      for
-        config <- ZIO.service[PersistenceConfig]
-        loaded <- ZIO.scoped:
-                    EntityStore.postgresScoped(config.copy(schema = "user")).flatMap: keyword =>
-                      val order = EntityDef[Notiz]("order", _.id)(using notiz.codec)
-                      keyword.save(order, Notiz("o1", "1", "x"), None, None) *> keyword.get(
-                        order,
-                        "o1"
-                      )
-      yield assertTrue(loaded.map(_.entity.text).contains("x"))
-    },
     test("query limits the result to the given limit, at most 1000") {
       for
         s    <- store
@@ -373,7 +247,6 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
     test("an unknown id has an empty audit log") {
       store.flatMap(_.history(notiz, "nie-da")).map(changes => assertTrue(changes.isEmpty))
     }
-  ).provideShared(postgres.orDie) @@ TestAspect.sequential @@
-    (if runTests then TestAspect.identity else TestAspect.ignore)
+  ) @@ TestAspect.sequential
 
-end PostgresEntityStoreSpec
+end EntityStoreContract

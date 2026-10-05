@@ -1,8 +1,9 @@
-package orchescala.persistence
+package orchescala.persistence.postgres
 
 import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
 import io.circe.parser
 import io.circe.syntax.*
+import orchescala.persistence.*
 import zio.*
 
 import java.sql.{Connection, ResultSet}
@@ -11,120 +12,17 @@ import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable.ListBuffer
 import scala.util.Using
 
-/** Stores entities as JSON - one table per entity, all tables with the same columns:
-  *
-  * {{{
-  * id text PK · version bigint · keys jsonb (GIN index) · payload jsonb
-  * created_at · created_by · updated_at · updated_by
-  * }}}
-  *
-  * Every change is recorded in the audit log of the entity (`{table}_history`), in the same
-  * transaction as the change itself - see [[history]].
-  *
-  * The tables are created on first use. Changes use optimistic locking: `save` with the version the
-  * caller read, a concurrent change is a [[PersistenceError.VersionConflict]].
-  */
-trait EntityStore:
-
-  def get[E](entity: EntityDef[E], id: String): IO[PersistenceError, Option[Stored[E]]]
-
-  /** All entities whose key fields contain `keys` - newest change first, at most `limit` (1 to
-    * [[EntityStore.maxLimit]]). A row that no longer decodes with the current codec (e.g. after a
-    * change of the entity) is left out and logged - one old row does not break the whole query;
-    * `get` of that id fails with a [[PersistenceError.StoreError]].
-    */
-  def query[E](
-      entity: EntityDef[E],
-      keys: Map[String, String] = Map.empty,
-      limit: Int = 100
-  ): IO[PersistenceError, Seq[Stored[E]]]
-
-  /** Creates the entity (`expectedVersion = None`) or updates the given version of it.
-    *
-    * An entity created again after a deletion continues its versions (and its audit log): a client
-    * still holding a version from before the deletion gets a [[PersistenceError.VersionConflict]].
-    */
-  def save[E](
-      entity: EntityDef[E],
-      value: E,
-      expectedVersion: Option[Long],
-      user: Option[String]
-  ): IO[PersistenceError, Stored[E]]
-
-  /** Deletes the entity - only the given version, if there is one. */
-  def delete[E](
-      entity: EntityDef[E],
-      id: String,
-      expectedVersion: Option[Long],
-      user: Option[String]
-  ): IO[PersistenceError, Unit]
-
-  /** Opens a connection to the database - call it when the app starts, so a wrong URL or password
-    * shows up then and not with the first request.
-    */
-  def checkConnection: IO[PersistenceError, Unit]
-
-  /** The audit log of an entity - the newest `limit` changes (1 to [[EntityStore.maxLimit]]),
-    * oldest first. Also for deleted entities.
-    */
-  def history[E](
-      entity: EntityDef[E],
-      id: String,
-      limit: Int = EntityStore.maxLimit
-  ): IO[PersistenceError, Seq[Change[E]]]
-
-end EntityStore
-
-object EntityStore:
-
-  val maxLimit = 1000
-
-  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. One
-    * store per configuration: call it with the same configuration (e.g. a `lazy val` next to the
-    * base worker). A configuration that changes per call - another schema each time - would keep a
-    * pool per configuration; use [[postgresScoped]] for anything shorter-lived.
-    */
-  def postgres(config: PersistenceConfig): EntityStore =
-    if appStores.size >= warnStores && !appStores.containsKey(config) then
-      org.slf4j.LoggerFactory.getLogger("orchescala.persistence.EntityStore").warn(
-        s"EntityStore.postgres: ${appStores.size + 1} stores (pools) - is it called with a new " +
-          "configuration per request? Use postgresScoped for short-lived stores."
-      )
-    end if
-    appStores.computeIfAbsent(
-      config,
-      _ =>
-        val store = PostgresEntityStore(config)
-        java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
-        store
-    )
-  end postgres
-
-  // one store (pool, shutdown hook) per configuration - also when postgres is called in a `def`
-  private val appStores  = ConcurrentHashMap[PersistenceConfig, PostgresEntityStore]()
-  private val warnStores = 10
-
-  /** A store whose connection pool is closed with the scope - e.g. in tests or as a
-    * `ZLayer.scoped`.
-    */
-  def postgresScoped(config: PersistenceConfig): ZIO[Scope, Nothing, EntityStore] =
-    ZIO.acquireRelease(ZIO.succeed(PostgresEntityStore(config)))(store =>
-      ZIO.attemptBlocking(store.close()).orDie
-    )
-
-end EntityStore
-
 /** [[EntityStore]] on Postgres.
   *
   * The audit log `{table}_history` is append-only for the store. To make it tamper-proof against
   * the app itself, give its database user only `INSERT, SELECT` on the history tables - and create
-  * the tables beforehand ([[PersistenceConfig.createTables]] = false, statements in
+  * the tables beforehand ([[PostgresConfig.createTables]] = false, statements in
   * [[PostgresEntityStore.ddl]]).
   *
   * Errors of the database are logged with their details; the caller only gets a generic
   * [[PersistenceError.StoreError]] - no SQL, table or host details through `/worker`.
   */
-class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCloseable:
+class PostgresEntityStore(config: PostgresConfig) extends EntityStore, AutoCloseable:
 
   // the pool is created on first use; after close() the store is no longer usable
   private val pool             = AtomicReference[Option[HikariDataSource]](None)
@@ -529,13 +427,47 @@ end PostgresEntityStore
 
 object PostgresEntityStore:
 
+  /** A store for the lifetime of the app - its connection pool is closed when the JVM ends. One
+    * store per configuration: call it with the same configuration (e.g. a `lazy val` next to the
+    * base worker). A configuration that changes per call - another schema each time - would keep a
+    * pool per configuration; use [[scoped]] for anything shorter-lived.
+    */
+  def app(config: PostgresConfig): EntityStore =
+    if appStores.size >= warnStores && !appStores.containsKey(config) then
+      org.slf4j.LoggerFactory.getLogger("orchescala.persistence.postgres.PostgresEntityStore").warn(
+        s"PostgresEntityStore.app: ${appStores.size + 1} stores (pools) - is it called with a new " +
+          "configuration per request? Use PostgresEntityStore.scoped for short-lived stores."
+      )
+    end if
+    appStores.computeIfAbsent(
+      config,
+      _ =>
+        val store = PostgresEntityStore(config)
+        java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
+        store
+    )
+  end app
+
+  // one store (pool, shutdown hook) per configuration - also when app is called in a `def`
+  private val appStores  = ConcurrentHashMap[PostgresConfig, PostgresEntityStore]()
+  private val warnStores = 10
+
+  /** A store whose connection pool is closed with the scope - e.g. in tests or as a
+    * `ZLayer.scoped`.
+    */
+  def scoped(config: PostgresConfig): ZIO[Scope, Nothing, EntityStore] =
+    ZIO.acquireRelease(ZIO.succeed(PostgresEntityStore(config)))(store =>
+      ZIO.attemptBlocking(store.close()).orDie
+    )
+
+
   private[persistence] def quote(identifier: String): String = s"\"$identifier\""
 
   private[persistence] def table(schema: String, name: String): String =
     s"${quote(schema)}.${quote(name)}"
 
   /** The statements that create schema, entity table and audit log of an entity - for a DBA when
-    * the app may not run DDL ([[PersistenceConfig.createTables]] = false). Index names have short
+    * the app may not run DDL ([[PostgresConfig.createTables]] = false). Index names have short
     * suffixes, so they stay within the 63 characters of Postgres for a table name of 54.
     */
   def ddl(schema: String, name: String): Seq[String] =

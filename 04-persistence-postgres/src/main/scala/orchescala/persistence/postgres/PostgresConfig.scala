@@ -1,11 +1,13 @@
-package orchescala.persistence
+package orchescala.persistence.postgres
+
+import orchescala.persistence.EntityDef
 
 /** Connection of a worker app to its database.
   *
   * Each worker app has its own schema - no database is shared between apps, and the data of the
   * process engine is separate.
   */
-case class PersistenceConfig(
+case class PostgresConfig(
     jdbcUrl: String,
     username: String,
     password: String,
@@ -29,25 +31,25 @@ case class PersistenceConfig(
 
   // without the query of the URL - it may carry a password (`?password=…`)
   override def toString: String =
-    s"PersistenceConfig(${jdbcUrl.takeWhile(_ != '?')}, user $username, schema $schema, " +
+    s"PostgresConfig(${jdbcUrl.takeWhile(_ != '?')}, user $username, schema $schema, " +
       s"pool $maximumPoolSize, createTables $createTables)"
-end PersistenceConfig
+end PostgresConfig
 
-object PersistenceConfig:
+object PostgresConfig:
 
   /** Reads `{prefix}_URL`, `{prefix}_USER`, `{prefix}_PASSWORD` and optionally `{prefix}_SCHEMA`,
     * `{prefix}_POOL_SIZE`, `{prefix}_CREATE_TABLES`, `{prefix}_LOCK_TIMEOUT_MILLIS` - e.g.
-    * `PersistenceConfig.fromEnv("MYAPP_DB")`. A set but invalid value is an error, like a missing
+    * `PostgresConfig.fromEnv("MYAPP_DB")`. A set but invalid value is an error, like a missing
     * required one.
     */
-  def fromEnv(prefix: String, env: Map[String, String] = sys.env): PersistenceConfig =
+  def fromEnv(prefix: String, env: Map[String, String] = sys.env): PostgresConfig =
     def name(key: String)                                                = s"${prefix}_$key"
     def required(key: String)                                            =
       env.getOrElse(name(key), throw IllegalArgumentException(s"${name(key)} is not set"))
     def optional[A](key: String, default: A)(parse: String => Option[A]) =
       env.get(name(key)).fold(default): value =>
         parse(value).getOrElse(throw IllegalArgumentException(s"${name(key)} is invalid: '$value'"))
-    PersistenceConfig(
+    PostgresConfig(
       jdbcUrl = required("URL"),
       username = required("USER"),
       password = required("PASSWORD"),
@@ -60,4 +62,4 @@ object PersistenceConfig:
         optional("CONNECTION_TIMEOUT_MILLIS", 3000)(_.toIntOption.filter(_ >= 250))
     )
   end fromEnv
-end PersistenceConfig
+end PostgresConfig

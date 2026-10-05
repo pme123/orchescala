@@ -17,7 +17,7 @@ import scala.util.Try
   * {{{
   * trait CompanyPersistenceWorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]
   *     extends PersistenceWorkerDsl[In, Out]:
-  *   protected def entityStore: EntityStore = CompanyStore.store // PersistenceConfig.fromEnv(...)
+  *   protected def entityStore: EntityStore = CompanyStore.store // PostgresEntityStore.app(PostgresConfig.fromEnv(...))
   *
   * class NotizSpeichernWorker extends CompanyPersistenceWorkerDsl[In, Out]:
   *   lazy val customTask = example

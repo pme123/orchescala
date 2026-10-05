@@ -83,7 +83,7 @@ enum PersistenceError:
   case VersionConflict(table: String, id: String, expected: Option[Long], actual: Option[Long])
 
   /** Someone else changes the same entity right now - waiting for it took longer than
-    * [[PersistenceConfig.lockTimeoutMillis]]. Trying again later is fine.
+    * the store allows (`PostgresConfig.lockTimeoutMillis`). Trying again later is fine.
     */
   case Busy(table: String, id: String)
   case StoreError(msg: String)
