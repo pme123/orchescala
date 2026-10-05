@@ -52,8 +52,12 @@ const attr = (el: Element, name: string): string | undefined =>
 
 /** Skript, Liste oder Map — Werte, die die Spezifikation nur beschreibt, nicht schreibt */
 const isComplex = (p: Element): boolean => !!(firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map'));
-/** Ein Mapping-Wert, der ein Skript beschreibt (`«groovy» …`) — bleibt, wie er im BPMN steht */
-const isScript = (m: Mapping): boolean => m.expression.trimStart().startsWith('«');
+/**
+ * Ein Mapping-Wert, der ein Skript beschreibt (`«groovy» …`) — bleibt, wie er im
+ * BPMN steht. Auch eingepackt als FEEL-Text (`= "«Groovy» …"`, aus älteren Ständen):
+ * sonst ersetzte der Export das Skript durch diesen Text.
+ */
+const isScript = (m: Mapping): boolean => /^(=\s*")?«/.test(m.expression.trimStart());
 /**
  * Steht die Zeile unverändert im BPMN? Dann bleibt das Element wörtlich —
  * mit `#{…}`, Spin-Aufrufen (`.prop("x").value()`) oder Skript, die der Weg
@@ -108,25 +112,35 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
   /** Service aus dem BPMN — er behält, wie er seine Ausgaben zurückgibt (`_manualOutMapping`) */
   const fromBpmn = (s: Step) => s.kind === 'service' && s.manualOutMapping !== undefined;
   /**
-   * Eine Ausgabe des Services (`fromService`) wird beim Service aus dem BPMN
-   * kein Output-Parameter — der Worker setzt sie selbst bzw. sie bleibt lokal
-   * wie bisher. Nur eine neu angehakte bei manuellem Mapping wird gemappt.
+   * Eine Ausgabe des Services wird beim Service aus dem BPMN kein
+   * Output-Parameter — der Worker setzt sie selbst bzw. sie bleibt lokal wie
+   * bisher. Nur eine neu angehakte bei manuellem Mapping wird gemappt.
    */
-  const writtenOutputs = (s: Step) => active(s.outputs).filter(m => !fromBpmn(s) || !serviceRow(s, m)
+  const writtenOutputs = (s: Step, before: ElementState | null) => active(s.outputs).filter(m => !fromBpmn(s) || !serviceRow(s, m, before)
     || (!!s.manualOutMapping && !(s.outputVariables ?? []).includes(m.name.trim())));
   /**
-   * `fromService` — oder in einer älteren Spezifikation (kein Schritt-Mapping
-   * markiert) beim Service ohne manuelles Mapping `x = x` mit x in
-   * `_outputVariables`: das setzt der Worker selbst. Bei manuellem Mapping ist
-   * `x = #{x}` ein echter Output-Parameter und bleibt.
+   * Eine Ausgabe des Services unter ihrem Namen: `fromService` — oder, in einer
+   * Spezifikation ohne diese Markierung, `x = x` mit x in `_outputVariables`, für
+   * das das Diagramm keinen Output-Parameter hat (das stand nie als Mapping da).
    */
-  const serviceRow = (s: Step, m: Mapping) => !!m.fromService
-    || (s.manualOutMapping === false && !(s.outputs ?? []).some(x => x.fromService)
-      && m.expression.trim().replace(/^=\s*/, '') === m.name.trim() && (s.outputVariables ?? []).includes(m.name.trim()));
+  const serviceRow = (s: Step, m: Mapping, before: ElementState | null) => !!m.fromService
+    || (m.expression.trim().replace(/^=\s*/, '') === m.name.trim() && (s.outputVariables ?? []).includes(m.name.trim())
+      && !before?.outputParams.has(m.name.trim()));
 
-  for (const step of allSteps(spec.steps)) {
+  for (const step0 of allSteps(spec.steps)) {
+    const el = byId.get(step0.id);
+    // Was das Diagramm schon sagt, gilt, wo die Spezifikation es (noch) nicht weiss —
+    // eine ältere kennt weder die Art des Services noch seine Mock-Variable
+    const before = el ? elementState(el) : null;
+    // jeder Service im Diagramm hat seit dem Import eine Art — fehlt sie, ist die
+    // Spezifikation älter, und es gilt das Diagramm (ohne `_manualOutMapping`: nicht manuell)
+    const step: Step = {
+      ...step0,
+      ...(step0.manualOutMapping === undefined && step0.kind === 'service' && before ? { manualOutMapping: !!before.manual } : {}),
+      ...(step0.outputVariables === undefined && before?.outputVariables ? { outputVariables: before.outputVariables } : {}),
+      ...(step0.mock === undefined && before?.mock ? { mock: before.mock } : {}),
+    };
     const hasRows = (step.inputs?.length ?? 0) + (step.outputs?.length ?? 0) > 0;
-    const el = byId.get(step.id);
     if (hasRows && !el) {
       if (active(step.inputs).length || active(step.outputs).length) {
         issues.push({ stepId: step.id, where: 'Schritt', text: 'steht nicht im Diagramm — Mappings nicht geschrieben.' });
@@ -136,7 +150,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     if (el && hasRows) {
       const ext = ensureExt(el);
       const ins = active(step.inputs);
-      const outs = writtenOutputs(step);
+      const outs = writtenOutputs(step, before);
       if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues);
       else if (local(el) === 'callActivity') writeCamundaInOut(doc, ext, ins, outs, step.id, issues);
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
@@ -153,7 +167,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       // nur, wenn sich die angehakten Ausgaben geändert haben — die importierte
       // Liste ohne die abgewählten, mit den neu angehakten; fehlte sie (= alles), bleibt sie weg
       if (step.outputVariables !== undefined) {
-        const rows = (step.outputs ?? []).filter(m => serviceRow(step, m));
+        const rows = (step.outputs ?? []).filter(m => serviceRow(step, m, before));
         const off = new Set(rows.filter(m => m.disabled).map(m => m.name.trim()));
         const vars = step.outputVariables.filter(v => !off.has(v));
         for (const m of rows) if (!m.disabled && !vars.includes(m.name.trim())) vars.push(m.name.trim());
@@ -183,8 +197,14 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       const kind = step.mockKind === 'service' && !isServiceWorker(step) ? undefined : step.mockKind;
       const pass = (name: string) => (engine === 'c8' ? `=${name}` : `#{execution.getVariable('${name}')}`);
       // die Variable, die das BPMN schon nennt (`getPoasMock`) — sonst die aus dem Schrittnamen
-      setControl(doc, ext, engine, '_outputMock', kind === 'output' ? pass(mockFieldOf(step)) : undefined, call);
-      setControl(doc, ext, engine, '_outputServiceMock', kind === 'service' ? pass(mockFieldOf(step)) : undefined, call);
+      // steht schon dieselbe Variable da (`source="getPoasMock"`), bleibt es, wie es ist
+      const mockControl = (name: '_outputMock' | '_outputServiceMock', on: boolean) => {
+        const was = before?.inputs.get(name);
+        if (on && was !== undefined && mockFieldOf({ name: step.name, mock: was }) === mockFieldOf(step)) return;
+        setControl(doc, ext, engine, name, on ? pass(mockFieldOf(step)) : undefined, call);
+      };
+      mockControl('_outputMock', kind === 'output');
+      mockControl('_outputServiceMock', kind === 'service');
       setControl(doc, ext, engine, '_servicesMocked', pass('_servicesMocked'), call);
       setControl(doc, ext, engine, '_mockedWorkers', call ? pass('_mockedWorkers') : undefined, call);
       // wer den Prozess gestartet hat — der Teilprozess prüft dieselbe Identität
@@ -417,6 +437,60 @@ function writeImplementation(
  * `_manualOutMapping` & Co. setzen (oder mit `undefined` entfernen) — Camunda 7
  * als lokale Variable bzw. am Teilprozess als `camunda:in`, Camunda 8 als Eingabe.
  */
+/** Was ein Element des Diagramms schon über seinen Service sagt — vor dem Schreiben gelesen. */
+interface ElementState {
+  /** `_manualOutMapping` — fehlt es, undefined */
+  manual?: boolean;
+  /** steht `_outputVariables` da (auch leer)? */
+  hasOutputVariables: boolean;
+  /** `_outputVariables` — fehlt es oder ist es leer (= alles), undefined; `NONE` ist [] */
+  outputVariables?: string[];
+  /** die Namen der Output-Parameter */
+  outputParams: Set<string>;
+  /** `_outputMock` bzw. `_outputServiceMock`, wie es dasteht */
+  mock?: string;
+  /** alle Eingaben und `camunda:in`, wie sie dastehen — Name → Wert */
+  inputs: Map<string, string>;
+}
+
+function elementState(el: Element): ElementState {
+  const inputs = new Map<string, string>();
+  const outputParams = new Set<string>();
+  const ext = firstNamed(el, 'extensionElements');
+  for (const c of ext ? kids(ext) : []) {
+    const n = local(c);
+    if (n === 'inputOutput' || n === 'ioMapping') {
+      for (const p of kids(c)) {
+        const pn = local(p);
+        const name = attr(p, 'name') ?? attr(p, 'target') ?? '';
+        if (pn === 'inputParameter') inputs.set(name, p.textContent?.trim() ?? '');
+        else if (pn === 'input') inputs.set(name, attr(p, 'source') ?? '');
+        else if (pn === 'outputParameter' || pn === 'output') outputParams.add(name);
+      }
+    } else if (n === 'in') {
+      const target = attr(c, 'target');
+      if (target) inputs.set(target, attr(c, 'sourceExpression') ?? attr(c, 'source') ?? '');
+    } else if (n === 'out') {
+      const target = attr(c, 'target');
+      if (target) outputParams.add(target);
+    }
+  }
+  const manual = inputs.get('_manualOutMapping');
+  const raw = inputs.get('_outputVariables');
+  // C8: `="a, b"` — C7: `a, b`
+  const text = raw?.replace(/^=\s*/, '').replace(/^"(.*)"$/s, '$1').trim();
+  const list = text ? text.split(',').map(v => v.trim()).filter(Boolean) : [];
+  return {
+    ...(manual !== undefined ? { manual: /true/i.test(manual) } : {}),
+    hasOutputVariables: raw !== undefined,
+    ...(list.length ? { outputVariables: list.filter(v => v.toUpperCase() !== 'NONE') } : {}),
+    outputParams,
+    inputs,
+    ...(inputs.get('_outputMock') || inputs.get('_outputServiceMock')
+      ? { mock: inputs.get('_outputMock') || inputs.get('_outputServiceMock') } : {}),
+  };
+}
+
 function setControl(doc: Document, ext: Element, engine: EngineId, name: string, value: string | undefined, call = false) {
   if (engine === 'c7' && call) {
     for (const p of kids(ext)) if (local(p) === 'in' && attr(p, 'target') === name) removeEl(p);

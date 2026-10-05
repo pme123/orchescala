@@ -1279,6 +1279,16 @@ zu Konflikten führen (`ENGINE-03005 … updated by another transaction
 concurrently`); mit manuellem Mapping bleibt sie lokal wie bisher, ausser sie
 wird neu angehakt. Angehakt oder abgewählt ändert sie `_outputVariables`.
 
+Eine **ältere Spezifikation** (vor diesen Angaben importiert) weiss weder die
+Art des Services noch seine Mock-Variable. Dann gilt, was das Diagramm sagt:
+ohne `_manualOutMapping` nicht manuell, `_outputVariables` und
+`_outputMock = getPoasMock` wie dort, und `x = x` mit x in `_outputVariables`
+ohne Output-Parameter im Diagramm wird keiner — in `valiant-product` legten
+sonst `Get Details ClientKey` und `Get Details clientKeyCardholder` in den
+zwei Zweigen eines Parallel-Gateways beide `master` und `person` an.
+Ein Skript, das eine ältere Version als FEEL-Text eingepackt hat
+(`= "«Groovy» …"`), bleibt im Diagramm stehen.
+
 Angefasst werden nur Schritte, die in der Spezifikation Mapping-Zeilen haben;
 abgewählte Zeilen kommen nicht ins BPMN, Steuerparameter (`_handledErrors`,
 `_outputMock` …) bleiben, wie sie im Diagramm stehen. Alte JUEL-Werte aus
