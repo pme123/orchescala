@@ -151,6 +151,20 @@ object WorkerRolesSpec extends ZIOSpecDefault:
           RoleClaims.fromToken(clientRoles, Set("my-app")) == Set("kundenberater")
         )
       },
+      test("app, realm and configured client roles together") {
+        val all = token(
+          "roles"           -> List("Reviewer").asJava,
+          realmRoles("kundenberater"),
+          "resource_access" -> Map[String, Any](
+            "my-app"    -> Map[String, Any]("roles" -> List("admin").asJava).asJava,
+            "other-app" -> Map[String, Any]("roles" -> List("root").asJava).asJava
+          ).asJava
+        )
+        assertTrue(RoleClaims.fromToken(
+          all,
+          Set("my-app")
+        ) == Set("Reviewer", "kundenberater", "admin"))
+      },
       test("a claim in an unexpected format gives no roles - never an error") {
         assertTrue(
           RoleClaims.fromToken(token("roles" -> List(Map[String, Any]().asJava).asJava)).isEmpty,
@@ -187,6 +201,11 @@ object WorkerRolesSpec extends ZIOSpecDefault:
       )
       end for
     },
+    test("a token without any role claim is 403") {
+      val worker = PingWorker(Set("kundenberater"))
+      call(worker, token("preferred_username" -> "anna.berater")).map: response =>
+        assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+    },
     test("one of several roles is enough") {
       call(PingWorker(Set("kundenberater", "admin")), token(realmRoles("admin"))).map: response =>
         assertTrue(response.status == Status.Ok)
@@ -211,7 +230,7 @@ object WorkerRolesSpec extends ZIOSpecDefault:
       call(worker, token("roles" -> List(Map[String, Any]().asJava).asJava)).map: response =>
         assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
     },
-    test("a failing rolesOf is 403, not 500") {
+    test("a failing rolesOf is 503 - not \"no role\" - and the worker does not run") {
       val worker = PingWorker(Set("kundenberater"))
       for
         jwks     <- ZIO.service[Jwks]
@@ -222,8 +241,16 @@ object WorkerRolesSpec extends ZIOSpecDefault:
                       override def rolesOf(token: String): Set[String] =
                         throw IllegalStateException("IdP down")
         response <- callWith(worker, token(realmRoles("kundenberater")), failing)
-      yield assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+      yield assertTrue(response.status == Status.ServiceUnavailable, worker.runs.get == 0)
       end for
+    },
+    test("only Jwt and AnyOf verify - the gate for roles and the audit user") {
+      val jwt = TokenValidation.Jwt(issuer)
+      assertTrue(
+        !TokenValidation.PresenceOnly.verifies,
+        jwt.verifies,
+        TokenValidation.AnyOf(jwt).verifies
+      )
     },
     test("without verified tokens a worker with roles refuses every call - fails closed") {
       val worker = PingWorker(Set("kundenberater"))

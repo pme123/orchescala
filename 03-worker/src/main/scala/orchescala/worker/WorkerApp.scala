@@ -65,7 +65,7 @@ trait WorkerApp extends ZIOAppDefault:
                          case verified                     =>
                            ZIO.logInfo(s"/worker verifies Bearer tokens: ${verified.description}")
         _           <- ZIO.when(
-                         workerConfig.tokenValidation == TokenValidation.PresenceOnly &&
+                         !workerConfig.tokenValidation.verifies &&
                            workerApps(this).flatMap(_.theWorkers).exists(_.requiredRoles.nonEmpty)
                        )(ZIO.logWarning(
                          "Workers require roles, but /worker does NOT verify Bearer tokens " +

@@ -33,6 +33,11 @@ object WorkerEndpoints:
             .example(ServiceRequestError(404, "Not Found")))) {
           case e: ServiceRequestError if e.errorCode == 404 => true
         },
+        oneOfVariantValueMatcher(statusCode(StatusCode.ServiceUnavailable)
+          .and(jsonBody[ServiceRequestError]
+            .example(ServiceRequestError(503, "The roles of the caller cannot be checked right now")))) {
+          case e: ServiceRequestError if e.errorCode == 503 => true
+        },
         oneOfVariantValueMatcher(statusCode(StatusCode.InternalServerError)
           .and(jsonBody[ServiceRequestError]
             .example(ServiceRequestError(500, "Internal Server Error")))) {

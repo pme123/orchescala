@@ -92,20 +92,21 @@ case class WorkerRoutes(engineContext: EngineContext):
       ZIO.logWarning(s"Worker '${worker.topic}' refused for ${TokenFingerprint(token)}: $reason") *>
         ZIO.fail(WorkerError.ServiceRequestError(403, s"Not allowed to call worker '${worker.topic}'"))
     if required.isEmpty then ZIO.unit
-    else if config.tokenValidation == TokenValidation.PresenceOnly then
+    else if !config.tokenValidation.verifies then
       refuse("the worker requires roles, but tokens are not verified (TokenValidation.PresenceOnly)")
     else
       ZIO
         .attemptBlocking(config.rolesOf(token)) // an override may do blocking IO
-        .catchAll(err =>
-          ZIO.logWarningCause(
-            s"Roles of ${TokenFingerprint(token)} cannot be read: ${Option(err.getMessage).getOrElse(err.toString)}",
-            zio.Cause.fail(err)
-          ).as(Set.empty[String])
+        .foldCauseZIO(
+          // the roles cannot be checked (e.g. the IdP is down) - not the same as "no role": 503,
+          // and the worker does not run either
+          cause =>
+            ZIO.logErrorCause(s"Roles of ${TokenFingerprint(token)} cannot be read", cause) *>
+              ZIO.fail(WorkerError.ServiceRequestError(503, "The roles of the caller cannot be checked right now")),
+          roles =>
+            if roles.exists(required.contains) then ZIO.unit
+            else refuse(s"none of the roles ${required.toSeq.sorted.mkString(", ")}")
         )
-        .flatMap: roles =>
-          if roles.exists(required.contains) then ZIO.unit
-          else refuse(s"none of the roles ${required.toSeq.sorted.mkString(", ")}")
     end if
   end checkRoles
 

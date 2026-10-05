@@ -31,6 +31,13 @@ sealed trait TokenValidation:
   /** For the startup log. */
   def description: String
 
+  /** Whether the claims of a token are verified - the gate for everything that trusts them (roles,
+    * the audit user). Exhaustive: a new kind of validation has to be decided here.
+    */
+  def verifies: Boolean = this match
+    case TokenValidation.PresenceOnly                      => false
+    case _: TokenValidation.Jwt | _: TokenValidation.AnyOf => true
+
 object TokenValidation:
 
   case object PresenceOnly extends TokenValidation:
