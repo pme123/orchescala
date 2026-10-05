@@ -235,6 +235,9 @@ export function mockFieldOf(step: { name: string; mock?: string }): string {
 }
 
 /** Service-Worker: ein Service aus dem Katalog — nur er kennt `_outputServiceMock` */
+/** Die Zuständigkeit einer Benutzeraufgabe — Camunda 7 am Element, Camunda 8 in `zeebe:assignmentDefinition` */
+export const ASSIGNMENT_KEYS = ['assignee', 'candidateGroups', 'candidateUsers'] as const;
+
 export const isServiceWorker = (s: Step): boolean => s.kind === 'service' && (!!s.serviceId || s.mockKind === 'service');
 
 function readIo(el: Element): IoResult {
@@ -550,10 +553,11 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   // (Camunda 7 am Element, Camunda 8 in zeebe:assignmentDefinition)
   if (kind === 'user') {
     const assign = ext ? firstNamed(ext, 'assignmentDefinition') : null;
-    const groups = attr(el, 'candidateGroups') ?? (assign ? attr(assign, 'candidateGroups') : undefined);
-    if (groups) step.candidateGroups = groups;
-    const assignee = attr(el, 'assignee') ?? (assign ? attr(assign, 'assignee') : undefined);
-    if (assignee) step.assignee = assignee;
+    // als FEEL, wie die Mappings: `${kokRole}` → `= kokRole`, fester Text bleibt Text
+    for (const key of ASSIGNMENT_KEYS) {
+      const value = attr(el, key) ?? (assign ? attr(assign, key) : undefined);
+      if (value?.trim()) step[key] = importExpression(value);
+    }
   }
 
   const template = attr(el, 'modelerTemplate');
@@ -1007,7 +1011,7 @@ export const settle = (prev: Status | undefined, st: MergeStatus): Status | unde
   prev === 'changed' && st.changed !== 'changed' ? st.changed : prev;
 
 // Was die Spezifikation festlegt, überlebt den Abgleich mit dem BPMN.
-const KEEP_KEYS = ['description', 'candidateGroups', 'assignee', 'inVariant', 'outVariant'] as const;
+const KEEP_KEYS = ['description', 'candidateGroups', 'candidateUsers', 'assignee', 'inVariant', 'outVariant'] as const;
 
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
   for (const s of steps ?? []) {
@@ -1349,8 +1353,8 @@ export function syncPatterns(current: ProcessSpec, fresh: ProcessSpec): ProcessS
 }
 
 /**
- * JUEL aus einem älteren Stand (oder dem Katalog) nach FEEL: Mappings und
- * Zweigbedingungen, soweit übersetzbar — der Rest bleibt JUEL und wird am
+ * JUEL aus einem älteren Stand (oder dem Katalog) nach FEEL: Mappings,
+ * Zweigbedingungen und Zuständigkeit, soweit übersetzbar — der Rest bleibt JUEL und wird am
  * Feld gemeldet. Nichts zu tun → null.
  */
 export function healJuel(spec: ProcessSpec): ProcessSpec | null {
@@ -1365,6 +1369,10 @@ export function healJuel(spec: ProcessSpec): ProcessSpec | null {
     const next: Step = { ...s };
     if (s.inputs) next.inputs = rows(s.inputs);
     if (s.outputs) next.outputs = rows(s.outputs);
+    for (const key of ASSIGNMENT_KEYS) {
+      const v = s[key] ? feelIfPossible(s[key]) : s[key];
+      if (v !== s[key]) { next[key] = v; changed = true; }
+    }
     if (s.children) next.children = walk(s.children);
     if (s.branches) next.branches = s.branches.map(b => {
       const cond = b.condition ? feelIfPossible(b.condition) : b.condition;

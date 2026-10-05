@@ -180,9 +180,13 @@ export interface Step {
 
 
   // ── Weitere Angaben, die die Spezifikation festlegt ──────────────────────
-  /** Benutzeraufgabe: wer sie sieht (`camunda:candidateGroups`) */
+  // Benutzeraufgabe — wie die Mappings: mit `=` FEEL, sonst fester Text;
+  // im BPMN für Camunda 7 `camunda:…` (`${…}`), für Camunda 8 `zeebe:assignmentDefinition`
+  /** Benutzeraufgabe: wer sie sieht (`candidateGroups`) */
   candidateGroups?: string;
-  /** Benutzeraufgabe: wem sie direkt zugeteilt ist (`camunda:assignee`) */
+  /** Benutzeraufgabe: welche Personen sie sehen (`candidateUsers`) */
+  candidateUsers?: string;
+  /** Benutzeraufgabe: wem sie direkt zugeteilt ist (`assignee`) */
   assignee?: string;
 
   // ── Pattern ──────────────────────────────────────────────────────────────

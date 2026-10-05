@@ -102,8 +102,8 @@ function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out:
     if (s.description) {
       for (const line of s.description.split('\n')) out.push(`${'  '.repeat(depth + 1)}${line}`);
     }
-    if (s.candidateGroups || s.assignee) {
-      out.push(`${'  '.repeat(depth + 1)}Zuständig: ${[s.candidateGroups, s.assignee].filter(Boolean).join(' · ')}`);
+    if (s.candidateGroups || s.candidateUsers || s.assignee) {
+      out.push(`${'  '.repeat(depth + 1)}Zuständig: ${[s.candidateGroups, s.candidateUsers, s.assignee].filter(Boolean).join(' · ')}`);
     }
     if (s.patterns?.length) out.push(`${'  '.repeat(depth + 1)}Pattern: ${patternText(s.patterns, pn)}`);
     out.push(...kommentarZeilen(spec, stepTarget(s.id), '  '.repeat(depth + 1)));
@@ -290,6 +290,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     if (s.eventKind && s.eventKind !== 'none') meta.push(['Ereignis', `${s.eventKind}${s.eventDirection ? ` (${s.eventDirection})` : ''}`]);
     if (openThreads(spec, stepTarget(s.id))) meta.push(['Offene Kommentare', String(openThreads(spec, stepTarget(s.id)))]);
     if (s.candidateGroups) meta.push(['Candidate Groups', `\`${s.candidateGroups}\``]);
+    if (s.candidateUsers) meta.push(['Candidate Users', `\`${s.candidateUsers}\``]);
     if (s.assignee) meta.push(['Assignee', `\`${s.assignee}\``]);
     if (s.patterns?.length) meta.push(['Pattern', patternText(s.patterns, pn, true)]);
     if (s.pattern) meta.push(['Gehört zu Pattern', pn(s.pattern)]);

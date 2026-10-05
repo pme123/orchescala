@@ -19,7 +19,8 @@ import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
-import { DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
+import { engineExpression } from '../feelJuel';
+import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
@@ -90,11 +91,11 @@ function ancestorsOf(steps: Step[], oben: string[] = [], out = new Map<string, s
 // es der nächste Abgleich mit der Datei wieder.
 const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined, bpmn: BpmnHandle | null, engine?: EngineId) => {
   if (!bpmn) return;
-  if ('candidateGroups' in patch || 'assignee' in patch) {
-    bpmn.setProps(id, {
-      ...('candidateGroups' in patch ? { 'camunda:candidateGroups': patch.candidateGroups || undefined } : {}),
-      ...('assignee' in patch ? { 'camunda:assignee': patch.assignee || undefined } : {}),
-    });
+  // Zuständigkeit: FEEL in der Spezifikation, im Diagramm in der Form der Engine
+  const assignment = ASSIGNMENT_KEYS.filter(k => k in patch);
+  if (assignment.length) {
+    bpmn.setAssignment(id, Object.fromEntries(assignment.map(k =>
+      [k, patch[k]?.trim() ? engineExpression(patch[k], engine).text : undefined])), engine);
   }
   if (patch.branches) {
     const alt = new Map((before?.branches ?? []).map(b => [b.id, b]));

@@ -21,6 +21,7 @@ import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import camundaModdle from 'camunda-bpmn-moddle/resources/camunda.json';
 import type { EngineId } from '../types';
+import type { ASSIGNMENT_KEYS } from '../bpmn';
 import { errorListSource } from '../errorCodes';
 
 /** Was wir von einem moddle-Element anfassen — bewusst schmal gehalten. */
@@ -32,6 +33,7 @@ interface Moddle {
   [key: string]: unknown;
 }
 interface Moddled { businessObject?: { extensionElements?: Moddle } }
+type AssignmentKey = typeof ASSIGNMENT_KEYS[number];
 
 export interface BpmnHandle {
   /** Schritt im Diagramm auswählen und ins Bild holen */
@@ -52,6 +54,11 @@ export interface BpmnHandle {
   setColor: (id: string, fill: string | undefined) => void;
   /** `_handledErrors` eines Schritts */
   setHandledErrors: (id: string, codes: string[], regex?: string[], engine?: EngineId) => void;
+  /**
+   * Zuständigkeit einer Benutzeraufgabe, schon in der Form der Engine —
+   * `undefined` nimmt den Wert weg, fehlende Schlüssel bleiben, wie sie sind
+   */
+  setAssignment: (id: string, values: Partial<Record<AssignmentKey, string | undefined>>, engine?: EngineId) => void;
 }
 
 interface Props {
@@ -270,6 +277,35 @@ export default function BpmnEditor({ xml, isDark, canEdit, onChange, onSelect, o
             ...(codes.length ? param('_handledErrors', errorListSource(codes, 'c7')) : []),
             ...(regex?.length ? param('_regexHandledErrors', errorListSource(regex, 'c7')) : []),
           ];
+          modeling.updateProperties(el, { extensionElements: ext });
+        } catch { /* Schritt nicht im Diagramm */ }
+      },
+      setAssignment: (id, values, engine) => {
+        try {
+          const registry = modeler.get('elementRegistry') as { get: (id: string) => Moddled | undefined };
+          const modeling = modeler.get('modeling') as { updateProperties: (el: unknown, p: object) => void };
+          const moddle = modeler.get('moddle') as { create: (t: string, p: object) => Moddle; createAny: (n: string, ns: string, p: object) => Moddle };
+          const el = registry.get(id);
+          const bo = el?.businessObject;
+          if (!bo) return;
+          if (engine !== 'c8') {
+            modeling.updateProperties(el, Object.fromEntries(Object.entries(values).map(([k, v]) => [`camunda:${k}`, v || undefined])));
+            return;
+          }
+          // Camunda 8: `zeebe:assignmentDefinition` — ein generisches Element, die App kennt die zeebe-Typen nicht
+          const ZEEBE = 'http://camunda.org/schema/zeebe/1.0';
+          const ext = bo.extensionElements ?? moddle.create('bpmn:ExtensionElements', { values: [] });
+          let assign = ext.values?.find(v => v.$type === 'zeebe:assignmentDefinition');
+          if (!assign) {
+            assign = moddle.createAny('zeebe:assignmentDefinition', ZEEBE, {});
+            ext.values = [...(ext.values ?? []), assign];
+          }
+          for (const [k, v] of Object.entries(values)) {
+            if (v) assign[k] = v;
+            else delete assign[k];
+          }
+          // ohne Werte fällt das Element weg
+          if (!Object.keys(assign).some(k => !k.startsWith('$'))) ext.values = (ext.values ?? []).filter(v => v !== assign);
           modeling.updateProperties(el, { extensionElements: ext });
         } catch { /* Schritt nicht im Diagramm */ }
       },

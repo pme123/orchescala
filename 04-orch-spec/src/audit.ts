@@ -99,7 +99,7 @@ const FIELD_LABEL: Record<string, string> = {
   inVariant: 'Variante In', outVariant: 'Variante Out', regexHandledErrors: 'Behandelte Fehler (Regex)',
   mock: 'Mock', mockKind: 'Mock-Art', gatewayType: 'Verzweigungsart', loop: 'Schleife',
   multiInstance: 'Mehrfach-Instanz', gotoId: 'Ziel', back: 'Rücksprung', eventKind: 'Ereignisart',
-  eventDirection: 'Richtung', messageName: 'Nachricht', candidateGroups: 'Gruppen', assignee: 'Zuständig',
+  eventDirection: 'Richtung', messageName: 'Nachricht', candidateGroups: 'Gruppen', candidateUsers: 'Benutzer', assignee: 'Zuständig',
   orphan: 'ohne Verbindung', eventSubprocess: 'Ereignis-Subprozess',
   expression: 'Ausdruck', disabled: 'deaktiviert', label: 'Bezeichnung', condition: 'Bedingung',
   isDefault: 'Standardzweig', interrupting: 'unterbrechend', declared: 'deklariert', boundary: 'am Rand',

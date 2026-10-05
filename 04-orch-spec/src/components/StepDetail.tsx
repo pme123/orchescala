@@ -71,6 +71,13 @@ const tones = (isDark: boolean) => ({
   errBox: isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50',
 });
 
+/** Die Zuständigkeit einer Benutzeraufgabe — die Felder, wie sie der Camunda Modeler zeigt */
+const ASSIGNMENT_FIELDS = [
+  { key: 'assignee', label: 'Assignee', placeholder: 'direkt zugeteilt an, z. B. = initiator', title: 'Wem die Aufgabe direkt zugeteilt ist.' },
+  { key: 'candidateGroups', label: 'Candidate groups', placeholder: 'Gruppen, die die Aufgabe sehen, z. B. = kokRole', title: 'Gruppen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
+  { key: 'candidateUsers', label: 'Candidate users', placeholder: 'Personen, die die Aufgabe sehen', title: 'Personen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
+] as const;
+
 function juelIssues(expression: string, engine: EngineId | undefined): FeelIssue[] {
   if (engine === 'c8') return [];
   const body = feelBody(expression);
@@ -357,23 +364,45 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Field>
 
-      {step.kind === 'user' && (
-        <Section id="assign" label="Zuständigkeit" isDark={isDark}
-          comment={sub(stepTarget(step.id), 'assignment')}
-          count={(step.candidateGroups ? 1 : 0) + (step.assignee ? 1 : 0)}
-          hint={!step.candidateGroups && !step.assignee ? <span className={`text-[9px] ${c.muted}`}>Gruppen oder Person</span> : undefined}>
-          <div className="space-y-1">
-            <input value={step.candidateGroups ?? ''} disabled={!canEdit}
-              onChange={e => onPatch(step.id, { candidateGroups: e.target.value || undefined })}
-              placeholder="Gruppen, die die Aufgabe sehen (candidateGroups)"
-              className={`w-full text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-            <input value={step.assignee ?? ''} disabled={!canEdit}
-              onChange={e => onPatch(step.id, { assignee: e.target.value || undefined })}
-              placeholder="direkt zugeteilt an (assignee)"
-              className={`w-full text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-          </div>
-        </Section>
-      )}
+      {step.kind === 'user' && (() => {
+        const filled = ASSIGNMENT_FIELDS.filter(f => step[f.key]?.trim()).length;
+        return (
+          <Section id="assign" label="Zuständigkeit" isDark={isDark}
+            comment={sub(stepTarget(step.id), 'assignment')}
+            count={filled}
+            hint={!filled ? <span className={`text-[9px] ${c.muted}`}>Gruppen oder Person</span> : undefined}>
+            <div className="space-y-1.5">
+              {ASSIGNMENT_FIELDS.map(f => {
+                const value = step[f.key] ?? '';
+                // wie bei den Mappings: `= …` ist FEEL und wird geprüft, sonst fester Text
+                const issues: FeelIssue[] = isFeel(value)
+                  ? [...checkFeel(value, variables).issues, ...juelIssues(value, spec.engine)]
+                  : isJuel(value)
+                    ? [{ level: 'warn', text: importExpression(value) !== value
+                        ? 'JUEL aus einem älteren Stand — als FEEL schreiben (z. B. «= kokRole»).'
+                        : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }]
+                    : [];
+                const hasErr = issues.some(i => i.level === 'error');
+                return (
+                  <div key={f.key} className={issues.length ? `px-2 py-1 rounded border space-y-1 ${hasErr ? errBox : warnBox}` : 'space-y-0.5'}>
+                    <div className={`text-[9px] ${c.muted}`}>{f.label} <span className="font-mono">({f.key})</span></div>
+                    <FeelInput value={value} disabled={!canEdit} isDark={isDark}
+                      variables={variables}
+                      onChange={v => onPatch(step.id, { [f.key]: v || undefined })}
+                      placeholder={f.placeholder}
+                      title={`${f.title}\nMit «=» ein FEEL-Ausdruck — im BPMN für ${spec.engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 als ${…}'}; sonst fester Text.`} />
+                    {issues.map((it, k) => (
+                      <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+                        <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+                      </p>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
+        );
+      })()}
 
       <PatternSection target={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
         onPattern={onPattern} hasDiagram={hasDiagram} />

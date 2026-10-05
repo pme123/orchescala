@@ -19,7 +19,7 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, ProcessSpec, Step } from './types';
-import { TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
+import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
 import { referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToJuel } from './feelJuel';
 import { importExpression, nullSafeCondition, stripNullSafe } from './juelFeel';
@@ -428,6 +428,22 @@ function writeImplementation(
       el.setAttributeNS(CAMUNDA_NS, 'camunda:type', 'external');
       el.setAttributeNS(CAMUNDA_NS, 'camunda:topic', topic);
     } else if (!attr(el, 'topic')) missing('Service Task ohne Topic — im Schritt einen Service wählen.');
+  }
+
+  if (local(el) === 'userTask') {
+    // Zuständigkeit: nur was die Spezifikation nennt — und unverändert seit dem
+    // Import bleibt der Text wörtlich (wie bei den Bedingungen)
+    for (const key of ASSIGNMENT_KEYS) {
+      const value = step[key]?.trim();
+      if (!value) continue;
+      const holder = engine === 'c8' ? zeebe('assignmentDefinition') : el;
+      const old = holder ? attr(holder, key) : undefined;
+      if (old != null && importExpression(old).trim() === value) continue;
+      const r = engineExpression(value, engine);
+      if (r.issue) issues.push({ stepId: step.id, where: 'Zuständigkeit', text: `${key} nicht nach JUEL übersetzbar: ${r.issue}` });
+      if (engine === 'c8') zeebeOrNew('assignmentDefinition').setAttribute(key, r.text);
+      else el.setAttributeNS(CAMUNDA_NS, `camunda:${key}`, r.text);
+    }
   }
 
   if (local(el) === 'callActivity') {
