@@ -4,7 +4,7 @@
 // Der Baum ist der Kern des PoC — Verzweigungen als farbige, beschriftete
 // Zweige, Schleifen und Fehlerpfade sichtbar, Details standardmässig
 // eingeklappt. Änderungen werden automatisch gespeichert (wie im arch-review).
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
@@ -566,8 +566,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     : '';
 
   // Befunde je Schritt — dieselben Regeln wie im Panel rechts, für das Dreieck
-  // in der Zeile; einmal je Stand der Spezifikation gerechnet
-  const findings = useMemo(() => (spec ? collectFindings(spec, model, allSteps(spec.steps)) : new Map<string, Finding>()), [spec, model]);
+  // in der Zeile; einmal je Stand der Spezifikation gerechnet. Zurückgestellt
+  // (useDeferredValue): sie prüfen jeden FEEL-Ausdruck gegen die Typen — das
+  // soll das Tippen nicht bremsen, sie folgen, sobald man innehält
+  const deferredSpec = useDeferredValue(spec);
+  const findings = useMemo(
+    () => (deferredSpec ? collectFindings(deferredSpec, model, allSteps(deferredSpec.steps)) : new Map<string, Finding>()),
+    [deferredSpec, model],
+  );
 
   // Suche/Filter: passt ein Schritt oder einer seiner Nachfahren?
   const matches = useCallback((s: Step): boolean => {

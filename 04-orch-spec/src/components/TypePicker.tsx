@@ -32,7 +32,7 @@ const GROUP_LABEL: Record<Entry['group'], string> = {
   service: 'Service-Objekte',
 };
 
-export default function TypePicker({ value, types, selfId, model, isDark, disabled, onPick, onCreate }: {
+export default function TypePicker({ value, types, selfId, model, isDark, disabled, onPick, onCreate, className }: {
   value: string;
   types: TypeDef[];
   /** eigener Typ — nicht auf sich selbst verweisen */
@@ -42,6 +42,8 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   disabled?: boolean;
   onPick: (value: string) => void;
   onCreate: (kind: 'case' | 'enum') => void;
+  /** Breite im Umfeld, z. B. `flex-1` */
+  className?: string;
 }) {
   const c = cls(isDark);
   const [open, setOpen] = useState(false);
@@ -145,11 +147,11 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   const moreServices = !q.trim() && entries.filter(e => e.group === 'service').length > 20;
 
   return (
-    <div className="relative" ref={boxRef}>
+    <div className={`relative ${className ?? ''}`} ref={boxRef}>
       <button disabled={disabled}
         onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 20); }}
         title={current?.hint ? `${current.name} — ${current.hint}` : current?.name ?? value}
-        className={`flex items-center gap-1.5 min-w-[13rem] max-w-[28rem] text-[11px] px-2 py-1 rounded border text-left ${c.border2} ${disabled ? '' : c.hover}`}>
+        className={`flex items-center gap-1.5 w-full text-[11px] leading-[18px] px-2 py-1 rounded border text-left ${c.border2} ${disabled ? '' : c.hover}`}>
         {current ? <current.icon size={10} className={c.muted} /> : <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
         <span className={`flex-1 truncate font-mono ${c.text}`}>{current?.name ?? value}</span>
         {!disabled && <ChevronDown size={11} className={c.muted} />}

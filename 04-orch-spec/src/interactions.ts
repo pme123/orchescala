@@ -23,7 +23,7 @@ import { enumHasCase, exampleOf, splitEnumCase, typeShape } from './scalaTypes.t
 import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
 import { uid } from './util.ts';
-import { withOrchescalaTypes } from './orchescalaTypes.ts';
+import { catalogIndex } from './orchescalaTypes.ts';
 
 const upper = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 
@@ -289,8 +289,12 @@ export function createMemberType(
  * Paket, aus dem das Feld stammt.
  */
 export function resolveType(base: string, model: Model | null, pkg?: string): DomainType | null {
-  // die Typen aus `orchescala.domain` (`ProcessStatus`) gibt es immer — auch ohne Katalog
-  const all = withOrchescalaTypes(model?.domainTypes);
+  // die Typen aus `orchescala.domain` (`ProcessStatus`) gibt es immer — auch ohne Katalog;
+  // nachgeschlagen im Index statt über den ganzen Katalog (das läuft bei jedem Tastendruck)
+  const index = catalogIndex(model?.domainTypes);
+  const named = index.byName.get(base) ?? [];
+  // `t.name.endsWith(".X.Out")`: solche Namen enden alle auf denselben letzten Teil (`Out`)
+  const suffixed = (index.byLast.get(base.slice(base.lastIndexOf('.') + 1)) ?? []).filter(t => t.name.endsWith(`.${base}`));
   const kandidaten = [
     (t: DomainType) => t.name === base && t.pkg === pkg,
     (t: DomainType) => t.name === base && !!pkg && t.pkg.startsWith(pkg.replace(/\.schema$/, '')),
@@ -301,8 +305,9 @@ export function resolveType(base: string, model: Model | null, pkg?: string): Do
     (t: DomainType) => t.name.endsWith(`.${base}`) && t.pkg === pkg,
     (t: DomainType) => t.name.endsWith(`.${base}`),
   ];
-  for (const passt of kandidaten) {
-    const treffer = all.find(passt);
+  for (const [i, passt] of kandidaten.entries()) {
+    // die ersten vier verlangen den genauen Namen, die letzten zwei die Endung
+    const treffer = (i < 4 ? named : suffixed).find(passt);
     if (treffer) return treffer;
   }
   return null;

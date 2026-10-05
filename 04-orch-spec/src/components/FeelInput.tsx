@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FEEL_TYPE_LABEL, completions, isFeel, tokenizeFeel, type Completion, type FeelTokenKind, type VarNode } from '../feel';
 import { cls } from '../ui';
 
-export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className }: {
+export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className, size }: {
   value: string;
   onChange: (v: string) => void;
   /** Prozessvariablen für die Vorschläge — ohne sie gibt es keine */
@@ -19,6 +19,8 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   placeholder?: string;
   title?: string;
   className?: string;
+  /** `md`: so gross wie die übrigen Felder im Klassenbauer */
+  size?: 'sm' | 'md';
 }) {
   const c = cls(isDark);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -93,10 +95,10 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
         onClick={e => refresh(value, e.currentTarget.selectionStart)}
         onBlur={() => setTimeout(close, 120)}
         autoComplete="off" spellCheck={false}
-        className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+        className={`w-full ${size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5'} rounded border outline-none font-mono ${c.input}`} />
       {highlight && (
         <div ref={backRef} aria-hidden
-          className="absolute inset-0 overflow-hidden whitespace-pre pointer-events-none text-[10px] font-mono px-1.5 py-0.5 border border-transparent">
+          className={`absolute inset-0 overflow-hidden whitespace-pre pointer-events-none font-mono border border-transparent ${size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5'}`}>
           {tokenizeFeel(value, variables!).map((t, k) => <span key={k} className={tone[t.kind]}>{t.text}</span>)}
         </div>
       )}

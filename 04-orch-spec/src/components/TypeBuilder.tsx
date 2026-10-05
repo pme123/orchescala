@@ -445,10 +445,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       </div>
 
       {/* ── Editor ─────────────────────────────────────────────────────────── */}
-      {/* Der Editor in lesbarer Breite, mittig — sonst laufen die Feldzeilen
-          auf einem breiten Bildschirm ins Leere */}
+      {/* Der Editor über die ganze Breite — die Felder wachsen mit */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-       <div className="max-w-4xl mx-auto w-full">
+       <div className="w-full">
         {showConfig ? (
           <GeneratedConfig spec={spec} idx={idx} isDark={isDark} canEdit={canEdit} onAdd={addInConfig} />
         ) : !current && !selectedIa ? (
@@ -861,25 +860,26 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
     onChange({ type: v, enumCase: undefined, ...(keep ? {} : { constraint: undefined }) });
   };
 
+  // alle Felder gleich: Schrift, Zeilenhöhe, Polsterung — 28px hoch
+  const box = `text-[11px] leading-[18px] px-2 py-1 rounded border outline-none ${c.input}`;
   return (
     <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
       className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
-      {/* 1 · der Name — so breit wie er ist; rechts das Ergebnis als Scala-Typ, Kommentar und Knöpfe */}
+      {/* 1 · der Name über die ganze Breite; rechts das Ergebnis als Scala-Typ, Kommentar und Knöpfe */}
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
           placeholder="feldName" title={f.name || undefined}
-          style={{ width: `calc(${Math.max(14, (f.name?.length ?? 0) + 1)}ch + 1rem)` }}
-          className={`min-w-0 max-w-full text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+          className={`flex-1 min-w-0 font-mono font-semibold ${box}`} />
         {/* Pflicht: nicht optional — wie in den Mappings */}
         {!f.optional && f.name && <span className={`-ml-1 text-[11px] ${c.muted}`} title="Pflichtfeld — nicht optional">*</span>}
         {chip.ownId ? (
           <button onClick={() => onOpenType(chip.ownId!)} title={`${fieldType(f, idx)} — zum Typ springen`}
-            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[28rem] ${chip.cls}`}>
+            className={`flex-shrink-0 flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[40%] ${chip.cls}`}>
             {chip.icon}<span className="truncate">{fieldType(f, idx)}</span><ExternalLink size={9} className="flex-shrink-0 opacity-60" />
           </button>
         ) : (
           <span title={chip.title ?? fieldType(f, idx)}
-            className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[28rem] ${chip.cls}`}>
+            className={`flex-shrink-0 flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[40%] ${chip.cls}`}>
             {chip.icon}<span className="truncate">{fieldType(f, idx)}</span>
           </span>
         )}
@@ -897,7 +897,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
       {/* 2 · der Typ — mit Fall, Hüllen, Einschränkung und Vorgabe */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <TypePicker value={f.type} types={types} selfId={selfId} model={model} isDark={isDark}
-          disabled={!canEdit} onPick={changeType}
+          className="flex-1 min-w-[14rem]" disabled={!canEdit} onPick={changeType}
           onCreate={kind => changeType(kind === 'case' ? NEW_CASE : NEW_ENUM)} />
         {/* Eine Auswahl mit Fällen: das Feld kann eine einzelne Ausprägung meinen
             (`CustomDocContents.\`QI-Deklaration\``) — oder alle */}
@@ -911,7 +911,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             title={simple
               ? 'Fester Fall: das Feld hat genau diesen Wert — in Scala `X.fall.type = X.fall` (z. B. processStatus im Out)'
               : 'Ausprägung: nur dieser Fall der Auswahl — oder alle'}
-            className={`text-[10px] px-1.5 py-1 rounded border outline-none font-mono max-w-[10rem] ${c.input}`}>
+            className={`h-7 font-mono max-w-[14rem] ${box}`}>
             <option value="">{simple ? 'beliebiger Fall' : 'alle Fälle'}</option>
             {cases.map(v => (
               <option key={v} value={v} disabled={simple && !!fixedOk && !fixedOk.includes(v)}>
@@ -921,28 +921,28 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           </select>
         )}
 
-        <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Option[…] — darf fehlen">
+        <label className={`flex items-center gap-1 text-[11px] ${c.muted2}`} title="Option[…] — darf fehlen">
           <input type="checkbox" checked={!!f.optional} disabled={!canEdit}
             onChange={e => onChange({ optional: e.target.checked || undefined })} />
           optional
         </label>
-        <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Seq[…] — mehrfach">
+        <label className={`flex items-center gap-1 text-[11px] ${c.muted2}`} title="Seq[…] — mehrfach">
           <input type="checkbox" checked={!!f.collection} disabled={!canEdit || fixedValue}
             onChange={e => onChange({ collection: e.target.checked || undefined })} />
           mehrfach
         </label>
-        <label className={`flex items-center gap-1 text-[10px] ${c.muted2}`} title="Map[String, …] — Schlüssel ist ein Text, der Typ hier ist der Wert">
+        <label className={`flex items-center gap-1 text-[11px] ${c.muted2}`} title="Map[String, …] — Schlüssel ist ein Text, der Typ hier ist der Wert">
           <input type="checkbox" checked={!!f.map} disabled={!canEdit || fixedValue}
             onChange={e => onChange({ map: e.target.checked || undefined })} />
           Map
         </label>
 
-        {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} />}
+        {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} box={box} />}
         {/* Vorgaben gibt es nur im InConfig, im InitIn (initialisiert Prozessvariablen) und bei
             optionalen Feldern der Prozess-Eingabe (dort setzt sie der Init-Worker im InitIn).
             FEEL mit «=», ohne «=» ein Scala-Ausdruck */}
         {(owner?.inConfig || owner?.initIn || owner?.root || f.default) && (
-          <FeelInput value={f.default ?? ''} isDark={isDark}
+          <FeelInput value={f.default ?? ''} isDark={isDark} size="md"
             disabled={!canEdit || (!!owner && !defaultIsUsed(owner, f) && !f.default)}
             variables={[]}
             onChange={v => onChange({ default: v || undefined })}
@@ -953,7 +953,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
                 : owner?.initIn ? 'Anfangswert der Prozessvariable.\n'
                   : 'Vorgaben gibt es nur im InConfig, im InitIn und bei optionalen Feldern der Prozess-Eingabe — hier wird sie nicht verwendet.\n')
               + 'Als FEEL mit «=», z. B. = [90, 110, 140], = "CH", = date("2026-01-01") oder = {ort: "Bern"} — der Export schreibt ihn als Scala. Ohne «=» ein Scala-Ausdruck, wörtlich übernommen.'}
-            className="w-44" />
+            className="flex-1 min-w-[12rem]" />
         )}
       </div>
 
@@ -967,13 +967,13 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           title={f.descriptionExpr
             ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.\nÄndern ersetzt den Ausdruck durch Text.`
             : undefined}
-          className={`flex-1 min-w-[12rem] text-[10px] px-2 py-1 rounded border outline-none resize-none [field-sizing:content] ${f.descriptionExpr ? 'font-mono' : ''} ${c.input}`} />
+          className={`flex-[2] min-w-[14rem] resize-none [field-sizing:content] ${f.descriptionExpr ? 'font-mono' : ''} ${box}`} />
         <input value={f.example ?? ''} disabled={!canEdit} onChange={e => onChange({ example: e.target.value || undefined })}
           placeholder={fromDomain?.name ?? 'Beispiel'}
           title={fromDomain
             ? `Beispielwert für example — ohne Angabe ${fromDomain.name} aus ${fromDomain.pkg}.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.`
             : 'Beispielwert für example — ohne Angabe leitet die App einen ab.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.'}
-          className={`w-48 min-w-[8rem] text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+          className={`flex-1 min-w-[10rem] font-mono ${box}`} />
       </div>
 
       {issue && <div className={`text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue}</div>}
@@ -982,10 +982,11 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
 }
 
 // Iron-Refinements: Vorlage wählen, Wert eintragen — Ergebnis ist ein Ausdruck.
-function ConstraintPicker({ field: f, isDark, canEdit, onChange }: {
+function ConstraintPicker({ field: f, canEdit, onChange, box }: {
   field: Field; isDark: boolean; canEdit: boolean; onChange: (patch: Partial<Field>) => void;
+  /** die Klassen der übrigen Felder — gleiche Grösse */
+  box: string;
 }) {
-  const c = cls(isDark);
   const options = CONSTRAINTS.filter(x => x.for === constraintKind(f.type));
   const current = f.constraint ?? '';
   const template = options.find(o => matches(o, current));
@@ -1010,7 +1011,7 @@ function ConstraintPicker({ field: f, isDark, canEdit, onChange }: {
           apply(t, start);
         }}
         title="Einschränkung (Iron-Refinement)"
-        className={`text-[10px] px-2 py-1 rounded border outline-none ${c.input}`}>
+        className={`h-7 ${box}`}>
         <option value="">ohne Einschränkung</option>
         {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
         {current && !template && <option value="frei">eigener Ausdruck</option>}
@@ -1019,12 +1020,12 @@ function ConstraintPicker({ field: f, isDark, canEdit, onChange }: {
         <input value={arg} disabled={!canEdit}
           onChange={e => { setArg(e.target.value); apply(template, e.target.value); }}
           placeholder={template.arg}
-          className={`w-20 text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+          className={`w-20 font-mono ${box}`} />
       )}
       {!template && current && (
         <input value={current} disabled={!canEdit}
           onChange={e => onChange({ constraint: e.target.value || undefined })}
-          className={`w-40 text-[10px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+          className={`w-40 font-mono ${box}`} />
       )}
     </>
   );
