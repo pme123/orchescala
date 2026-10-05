@@ -388,8 +388,50 @@ function isWholeExample(f: Field, example: string): boolean {
   return false;
 }
 
+/** Die Hülle des Feldes um einen inneren Wert: `Map("key" -> …)`, `Seq(…)`, `Some(…)` */
+function wrapExample(f: FieldShape, inner: string): string {
+  const mapped = f.map ? `Map("key" -> ${inner})` : inner;
+  const seq = f.collection ? `Seq(${mapped})` : mapped;
+  return f.optional ? `Some(${seq})` : seq;
+}
+
+/**
+ * Ein Beispiel in FEEL (`= …`) als Scala — wie die Vorgabe (siehe
+ * scalaDefault). Ein einzelner Wert für ein Feld mit Hülle (`= "CH"` bei
+ * `Seq[String]`) bekommt die Hülle wie ein Scala-Beispiel; eine Liste, ein
+ * Kontext oder `null` ist schon der ganze Wert. Kein FEEL: `{ scala: null }`.
+ */
+export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; issue?: string } {
+  const e = f.example?.trim();
+  if (!e?.startsWith('=')) return { scala: null };
+  const body = e.slice(1).trim();
+  if (!body) return { scala: null, issue: 'Beispiel: nach «=» fehlt der FEEL-Ausdruck.' };
+  let value: unknown;
+  try {
+    value = evaluate(body, {}).value;
+  } catch {
+    return { scala: null, issue: `Beispiel «${e}» ist kein gültiges FEEL.` };
+  }
+  try {
+    return { scala: feelToScala(value, f, idx) };
+  } catch (whole) {
+    if (f.optional || f.collection || f.map) {
+      try {
+        return { scala: wrapExample(f, feelToScala(value, { ...f, optional: false, collection: false, map: false }, idx)) };
+      } catch { /* auch als einzelner Wert nicht — gemeldet wird der ganze */ }
+    }
+    return { scala: null, issue: `Beispiel «${e}»: ${whole instanceof Error ? whole.message : String(whole)}` };
+  }
+}
+
 export function exampleValue(f: Field, idx: TypeIndex): string {
   const own = f.example?.trim();
+  // FEEL: übersetzt — sonst das abgeleitete Beispiel mit einem TODO, damit es kompiliert
+  if (own?.startsWith('=')) {
+    const r = scalaExample(f, idx);
+    if (r.scala != null) return r.scala;
+    return `${exampleValue({ ...f, example: undefined }, idx)} /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
+  }
   if (own && isWholeExample(f, own)) return own;
   let inner = f.example?.trim() || baseExample(f, idx);
   // Ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe`
@@ -1126,6 +1168,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         const dflt = isFinished(f, idxAll) ? scalaDefault(f, idxAll) : null;
         if (dflt?.issue) issues.push({ typeId: t.id, field: f.id, message: dflt.issue });
       }
+      const ex = isFinished(f, idxAll) ? scalaExample(f, idxAll) : null;
+      if (ex?.issue) issues.push({ typeId: t.id, field: f.id, message: ex.issue });
       const domId = parseDomainRef(f.type);
       if (domId) {
         if (model?.domainTypes && !model.domainTypes.some(d => d.id === domId)) {

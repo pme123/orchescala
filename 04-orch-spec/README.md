@@ -193,6 +193,13 @@ Tippen.
   und wird wörtlich übernommen. Lässt sie sich nicht übersetzen, steht im Code
   `= ??? /* TODO Vorgabe «= …»: … */` — das Projekt kompiliert, die Stelle ist
   zu finden.
+- Das **Beispiel** ebenso: mit `=` FEEL, nach denselben Regeln übersetzt —
+  ein einzelner Wert bekommt die Hülle des Feldes (`= "CH"` → `Seq("CH")` bei
+  `mehrfach`, `Some("CH")` bei `optional`), eine Liste, ein Kontext oder
+  `= null` ist schon der ganze Wert. Ohne `=` ein Scala-Ausdruck wie bisher
+  (so kommt es aus der Domain). Lässt es sich nicht übersetzen, nimmt das
+  `example` das abgeleitete Beispiel mit einem `/* TODO … */` dahinter, und
+  das Feld wird gemeldet.
 - Feld-IDs sind stabil: Umbenennen bricht keine Verweise.
 - **Geprüft wird sofort**: ungültige Scala-Namen, Schlüsselwörter, doppelte
   Felder, verwaiste Typverweise, Einschränkungen auf zusammengesetzten Typen,

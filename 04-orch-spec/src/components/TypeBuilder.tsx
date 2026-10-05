@@ -1060,12 +1060,18 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.\nÄndern ersetzt den Ausdruck durch Text.`
             : undefined}
           className={`flex-[2] min-w-[14rem] resize-none [field-sizing:content] ${f.descriptionExpr ? 'font-mono' : ''} ${box}`} />
-        <input value={f.example ?? ''} disabled={!canEdit} onChange={e => onChange({ example: e.target.value || undefined })}
-          placeholder={fromDomain?.name ?? 'Beispiel'}
-          title={fromDomain
-            ? `Beispielwert für example — ohne Angabe ${fromDomain.name} aus ${fromDomain.pkg}.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.`
-            : 'Beispielwert für example — ohne Angabe leitet die App einen ab.\nSome(…) / Seq(…) setzt der Export; None, Some(…) oder Seq(…) hier wird wörtlich übernommen.'}
-          className={`flex-1 min-w-[10rem] font-mono ${box}`} />
+        {/* wie die Vorgabe: FEEL mit «=», ohne «=» ein Scala-Ausdruck (so kommt es aus der Domain) */}
+        <FeelInput value={f.example ?? ''} isDark={isDark} size="md" disabled={!canEdit}
+          variables={[]}
+          onChange={v => onChange({ example: v || undefined })}
+          placeholder={fromDomain?.name ?? 'Beispiel, z. B. = "CH"'}
+          title={(fromDomain
+            ? `Beispielwert für example — ohne Angabe ${fromDomain.name} aus ${fromDomain.pkg}.\n`
+            : 'Beispielwert für example — ohne Angabe leitet die App einen ab.\n')
+            + 'Als FEEL mit «=», z. B. = "CH", = 42, = date("2026-01-01"), = ["a", "b"] oder = {ort: "Bern"} — der Export schreibt es als Scala; '
+            + 'ein einzelner Wert bekommt die Hülle des Feldes (Some / Seq / Map), eine Liste oder null ist schon der ganze Wert.\n'
+            + 'Ohne «=» ein Scala-Ausdruck, wörtlich übernommen: Some(…) / Seq(…) setzt der Export, None, Some(…) oder Seq(…) hier gilt so.'}
+          className="flex-1 min-w-[10rem]" />
       </div>
 
       {issue && <div className={`text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue}</div>}
