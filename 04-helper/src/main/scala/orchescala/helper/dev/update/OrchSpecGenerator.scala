@@ -596,20 +596,34 @@ case class OrchSpecProcessObject(
     val types         = ObjectSections(generated).filter(g => blockTypes.contains(g.name))
       .filter(g => mergeType(existingLines, g, generated) != existingLines)
       .map(_.name)
-    types ++ Option.when(missingImports(existingLines).nonEmpty)("imports")
+    types ++ Option.when(missingLabels(existingLines))("processLabels") ++
+      Option.when(missingImports(existingLines).nonEmpty)("imports")
   end differences
 
   /** The existing process object with what comes from Orch Spec: each type of the export replaces
     * the one of the same name, a missing one goes in its place (`In`, `InitIn`, `InConfig`, `Out`,
-    * then the others), missing imports are added. Everything else stays as it is - the package
-    * clause, the other imports, `descr`, `processLabels`, the examples of the process, comments.
+    * then the others), missing imports are added, and `processLabels` if the object has none - the
+    * init worker sets `callingProcessKeyDE/FR` from them. Everything else stays as it is - the
+    * package clause, the other imports, `descr`, existing `processLabels`, the examples of the
+    * process, comments.
     */
   def merge(existing: String): String =
     val generated = content.linesIterator.toSeq
     val merged    = ObjectSections(generated).filter(g => blockTypes.contains(g.name))
       .foldLeft(existing.linesIterator.toSeq)(mergeType(_, _, generated))
-    withImports(merged, missingImports(merged)).mkString("\n") + "\n"
+    withImports(withLabels(merged), missingImports(merged)).mkString("\n") + "\n"
   end merge
+
+  private def missingLabels(lines: Seq[String]): Boolean =
+    processLabels.isDefined && !lines.exists(_.trim.startsWith("override def processLabels"))
+
+  // after `val descr` - otherwise after `val processName`
+  private def withLabels(lines: Seq[String]): Seq[String] =
+    processLabels.filter(_ => missingLabels(lines)).fold(lines): (de, fr) =>
+      val descr = lines.indexWhere(_.trim.startsWith("val descr"))
+      val at    = if descr >= 0 then descr else lines.indexWhere(_.trim.startsWith("val processName"))
+      if at < 0 then lines
+      else lines.patch(at + 1, Seq("", "  override def processLabels: ProcessLabels =", s"""    ProcessLabels("$de", "$fr")"""), 0)
 
   /** One type of the export into the lines of the process object:
     *   - missing: inserted after the type that comes before it (`typeOrder`),

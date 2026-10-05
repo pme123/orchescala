@@ -210,6 +210,7 @@ The process object is the exception - _Orch Spec_ is merged into it (`UPDATED`):
 - `InConfig` and `InitIn` only get the fields they miss - what is there (own mocks, examples) stays.
 - Imports are only added if the name is not imported yet (from wherever) and not visible through the package clause.
 - Everything else stays as it is: the package clause, `descr`, `processLabels`, the examples of the process, comments.
+- An existing process object without `processLabels` gets them from the export - the init worker sets `callingProcessKeyDE/FR` from them.
 - A new process object gets `descr` and `processLabels` from the export (`// descr: …`, `// processLabels: de | fr`).
   Do not delete an existing one to run again - only an existing one keeps what is not in _Orch Spec_.
 

@@ -102,6 +102,23 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           rows={6} placeholder="Worum geht es fachlich?"
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Field>
+      {/* `override def processLabels` — der Init-Worker setzt daraus
+          callingProcessKeyDE/FR; Pattern wie «Benutzer per Mail informieren» lesen sie */}
+      <Field label="Bezeichnung (processLabels)" isDark={isDark}>
+        <div className="grid grid-cols-2 gap-2">
+          {(['de', 'fr'] as const).map(lang => (
+            <input key={lang} value={spec.processLabels?.[lang] ?? ''} disabled={!canEdit}
+              onChange={e => {
+                const next = { de: spec.processLabels?.de ?? '', fr: spec.processLabels?.fr ?? '', [lang]: e.target.value };
+                const { processLabels: _, ...rest } = spec;
+                onSpecChange(next.de || next.fr ? { ...spec, processLabels: next } : rest as typeof spec);
+              }}
+              placeholder={lang === 'de' ? 'deutsch, z. B. Neubestellung DMC' : 'französisch, z. B. Nouvelle commande DMC'}
+              title={`ProcessLabels(de, fr) im Prozess-Objekt — der Init-Worker setzt daraus die Prozessvariable callingProcessKey${lang.toUpperCase()}`}
+              className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`} />
+          ))}
+        </div>
+      </Field>
       <Field label="Time to Live (Tage)" isDark={isDark}>
         <input value={spec.timeToLive ?? ''} disabled={!canEdit}
           onChange={e => onSpecChange({ ...spec, timeToLive: e.target.value || undefined })}

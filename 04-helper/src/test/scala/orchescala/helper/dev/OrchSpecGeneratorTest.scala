@@ -580,6 +580,21 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(mergeObject.differences(merged), Seq.empty)
     assertEquals(mergeObject.merge(merged), merged)
 
+  test("merge - processLabels go in when the object has none"):
+    val without = existingProc.replace(
+      "  override def processLabels: ProcessLabels =\n    ProcessLabels(\"Neubestellung\", \"Nouvelle commande\")\n\n",
+      ""
+    )
+    assert(mergeObject.differences(without).contains("processLabels"), mergeObject.differences(without))
+    val m = mergeObject.merge(without)
+    assert(
+      m.contains(
+        "  val descr: String = \"Neubestellung\"\n\n  override def processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n\n  case class In("
+      ),
+      m
+    )
+    assertEquals(mergeObject.merge(m), m)
+
   test("new process object - In, InitIn, InConfig, Out and the descr of the export"):
     val content = mergeObject.content
     assert(content.contains("""  val descr: String = "Neue Karte""""), content)

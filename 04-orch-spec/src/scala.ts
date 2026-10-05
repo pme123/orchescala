@@ -428,14 +428,15 @@ export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; 
  * Ein Beispiel ohne «=» bei einem Text-Feld: ein Text braucht keine
  * Anführungszeichen (`rot` → `"rot"`). Scala bleibt, was danach aussieht —
  * so kommt es aus der Domain: ein Literal (`"CH"`, `s"…"`), ein Wert im
- * camelCase (`defaultClientKey`, `testEmail`), ein Verweis auf ein Objekt
- * (`Defaults.street`, `UUID.randomUUID().toString`) oder ein Aufruf.
+ * camelCase (`defaultClientKey`, `testEmail`), ein Verweis
+ * (`Defaults.street`, `processLabels.de`, `UUID.randomUUID().toString`) oder
+ * ein Aufruf. Ein Punkt allein macht noch keinen Verweis: `www.example.ch` ist Text.
  */
 function textExample(f: Field, own: string): string {
   if (!['String', 'Iban'].includes(f.type) || f.enumCase) return own;
   if (/^(s|f|raw)?"/.test(own)) return own;
   if (/^[a-z]+[A-Z]\w*$/.test(own)) return own;
-  if (/^[A-Z]\w*(\.\w+(\(\))?)+$/.test(own)) return own;
+  if (/^([A-Z]\w*|[a-z]+[A-Z]\w*)(\.\w+(\(\))?)+$/.test(own)) return own;
   if (/^[A-Za-z_][\w.]*\(.*\)$/.test(own)) return own;
   return scalaString(own);
 }

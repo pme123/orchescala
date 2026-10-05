@@ -273,7 +273,12 @@ gleichnamigen Typ eines anderen Projekts vor — `processStatus:
 ProcessStatus.canceled.type` bleibt ein fester Fall. Für ein neues
 Prozess-Objekt gibt der Export die Beschreibung als `// descr: …` und die
 Bezeichnung je Sprache als `// processLabels: de | fr` mit (aus
-`override def processLabels` der Domain). Die Imports kommen aus den Dateien
+`override def processLabels` der Domain, oder im Prozess-Panel unter
+**Bezeichnung (processLabels)** erfasst). Der Init-Worker setzt daraus die
+Prozessvariablen `callingProcessKeyDE` und `callingProcessKeyFR` — die
+Pattern «Benutzer per Mail informieren» und «Eskalation» lesen sie. In der
+App gelten sie deshalb als bekannt, sobald die Bezeichnung steht; Felder im
+Datenmodell braucht es dafür nicht. Die Imports kommen aus den Dateien
 der Domain: ein Feldtyp wird zuerst über sie aufgelöst (`LoadPoas` aus
 vollmacht, nicht die gleichnamige des eigenen Projekts), und Beispiele und
 Beschreibungen bringen mit, was sie brauchen (`defaultValidUntil`,
@@ -281,7 +286,8 @@ Beschreibungen bringen mit, was sie brauchen (`defaultValidUntil`,
 `./helper.scala processFromSpec` führt den Block in ein **bestehendes**
 Prozess-Objekt zusammen, statt es neu zu schreiben: `descr`,
 `processLabels`, die Paket-Klausel, die eigenen Imports und eigene Mocks im
-`InConfig` bleiben (siehe die Orchescala-Doku zu `processFromSpec`).
+`InConfig` bleiben (siehe die Orchescala-Doku zu `processFromSpec`). Hat das
+Objekt noch keine `processLabels`, kommen sie aus der Spezifikation dazu.
 
 ### Auswahl mit Fällen — ein enum als ADT
 
