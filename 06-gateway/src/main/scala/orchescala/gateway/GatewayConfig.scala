@@ -118,6 +118,9 @@ trait GatewayConfig:
     */
   def uiContentSecurityPolicy: Option[String] = None
 
+  /** The largest file of a UI bundle the gateway forwards (bytes) - a bigger answer is a 502. */
+  def uiMaxFileSize: Int = 20 * 1024 * 1024
+
   /** Authentication scheme for the `/docs` routes. Defaults to [[DocsAuth.Disabled]]. */
   def docsAuth: DocsAuth = DocsAuth.Disabled
 

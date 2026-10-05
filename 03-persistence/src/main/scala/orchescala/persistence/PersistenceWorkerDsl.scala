@@ -3,7 +3,8 @@ package orchescala.persistence
 import com.auth0.jwt.JWT
 import orchescala.domain.InOutCodec
 import orchescala.engine.AuthContext
-import orchescala.worker.CustomWorkerDsl
+import orchescala.engine.auth.TokenValidation
+import orchescala.worker.{CustomWorkerDsl, EngineRunContext}
 import orchescala.worker.WorkerError.CustomError
 import zio.*
 
@@ -56,7 +57,7 @@ trait PersistenceWorkerDsl[
       entity: EntityDef[E],
       value: E,
       expectedVersion: Option[Long] = None
-  ): IO[CustomError, Stored[E]] =
+  )(using EngineRunContext): IO[CustomError, Stored[E]] =
     currentUser.flatMap: user =>
       entityStore.save(entity, value, expectedVersion, user).mapError(toCustomError)
 
@@ -64,13 +65,17 @@ trait PersistenceWorkerDsl[
       entity: EntityDef[E],
       id: String,
       expectedVersion: Option[Long] = None
-  ): IO[CustomError, Unit] =
+  )(using EngineRunContext): IO[CustomError, Unit] =
     currentUser.flatMap: user =>
       entityStore.delete(entity, id, expectedVersion, user).mapError(toCustomError)
 
-  /** The audit log of an entity - every change with user and time, oldest first. */
-  protected def history[E](entity: EntityDef[E], id: String): IO[CustomError, Seq[Change[E]]] =
-    entityStore.history(entity, id).mapError(toCustomError)
+  /** The audit log of an entity - the newest changes with user and time, oldest first. */
+  protected def history[E](
+      entity: EntityDef[E],
+      id: String,
+      limit: Int = EntityStore.maxLimit
+  ): IO[CustomError, Seq[Change[E]]] =
+    entityStore.history(entity, id, limit).mapError(toCustomError)
 
   protected def toCustomError(error: PersistenceError): CustomError =
     CustomError(error.message)
@@ -79,17 +84,26 @@ trait PersistenceWorkerDsl[
     *
     * The token is only decoded here - it is trusted because the worker app verified it before the
     * worker was called. That holds with `TokenValidation.Jwt` / `AnyOf` in the `WorkerConfig`; with
-    * `TokenValidation.PresenceOnly` (warned at startup) the user in the audit log is unverified.
-    * Without a token - e.g. a step of a process - the change is recorded without user.
+    * `TokenValidation.PresenceOnly` the user in the audit log is unverified - warned on every
+    * write, not only at startup. Without a token - e.g. a step of a process - the change is
+    * recorded without user.
     */
-  private def currentUser: UIO[Option[String]] =
+  private def currentUser(using context: EngineRunContext): UIO[Option[String]] =
     AuthContext.getBearerToken.flatMap:
       case None        => ZIO.none
       case Some(token) =>
-        val user = PersistenceWorkerDsl.userOf(token)
-        ZIO.when(user.isEmpty)(
-          ZIO.logDebug("Bearer token without preferred_username - change recorded without user")
-        ).as(user)
+        val user       = PersistenceWorkerDsl.userOf(token)
+        val unverified =
+          context.engineContext.workerConfig.tokenValidation == TokenValidation.PresenceOnly
+        ZIO.when(unverified)(
+          ZIO.logWarning(
+            s"Audit user ${user.getOrElse("-")} is unverified (TokenValidation.PresenceOnly) - " +
+              "configure TokenValidation.Jwt / AnyOf in the WorkerConfig"
+          )
+        ) *>
+          ZIO.when(user.isEmpty)(
+            ZIO.logDebug("Bearer token without preferred_username - change recorded without user")
+          ).as(user)
 
 end PersistenceWorkerDsl
 

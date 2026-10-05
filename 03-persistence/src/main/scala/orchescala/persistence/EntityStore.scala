@@ -57,8 +57,14 @@ trait EntityStore:
       user: Option[String]
   ): IO[PersistenceError, Unit]
 
-  /** The audit log of an entity - all changes, oldest first. Also for deleted entities. */
-  def history[E](entity: EntityDef[E], id: String): IO[PersistenceError, Seq[Change[E]]]
+  /** The audit log of an entity - the newest `limit` changes (1 to [[EntityStore.maxLimit]]),
+    * oldest first. Also for deleted entities.
+    */
+  def history[E](
+      entity: EntityDef[E],
+      id: String,
+      limit: Int = EntityStore.maxLimit
+  ): IO[PersistenceError, Seq[Change[E]]]
 
 end EntityStore
 
@@ -71,9 +77,16 @@ object EntityStore:
     * hook. Use [[postgresScoped]] for anything shorter-lived.
     */
   def postgres(config: PersistenceConfig): EntityStore =
-    val store = PostgresEntityStore(config)
-    java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
-    store
+    appStores.computeIfAbsent(
+      config,
+      _ =>
+        val store = PostgresEntityStore(config)
+        java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
+        store
+    )
+
+  // one store (pool, shutdown hook) per configuration - also when postgres is called in a `def`
+  private val appStores = ConcurrentHashMap[PersistenceConfig, PostgresEntityStore]()
 
   /** A store whose connection pool is closed with the scope - e.g. in tests or as a
     * `ZLayer.scoped`.
@@ -145,7 +158,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
   ): IO[PersistenceError, Seq[Stored[E]]] =
     withConnection(entity): con =>
       Using.resource(con.prepareStatement(
-        s"SELECT $columns FROM ${table(entity)} WHERE keys @> ?::jsonb ORDER BY updated_at DESC LIMIT ?"
+        s"SELECT $columns FROM ${table(entity)} WHERE keys @> ?::jsonb ORDER BY updated_at DESC, id LIMIT ?"
       )): stmt =>
         stmt.setString(1, keys.asJson.noSpaces)
         stmt.setInt(2, limit.max(1).min(EntityStore.maxLimit))
@@ -186,6 +199,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       user: Option[String]
   ): IO[PersistenceError, Stored[E]] =
     withTransaction(entity): con =>
+      lockId(con, entity, id)
       val sql     = expectedVersion match
         case None    => // a new entity - or one created again: it continues its versions
           s"""INSERT INTO ${table(entity)}
@@ -242,6 +256,7 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       user: Option[String]
   ): IO[PersistenceError, Unit] =
     withTransaction(entity): con =>
+      lockId(con, entity, id)
       val sql     = s"DELETE FROM ${table(entity)} WHERE id = ?" +
         expectedVersion.fold("")(_ => " AND version = ?") +
         " RETURNING version, payload::text"
@@ -262,20 +277,34 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
             ZIO.fail(PersistenceError.VersionConflict(entity.table, id, expectedVersion, actual))
       case true  => ZIO.unit
 
-  def history[E](entity: EntityDef[E], id: String): IO[PersistenceError, Seq[Change[E]]] =
+  def history[E](
+      entity: EntityDef[E],
+      id: String,
+      limit: Int
+  ): IO[PersistenceError, Seq[Change[E]]] =
     withConnection(entity): con =>
       Using.resource(con.prepareStatement(
-        s"""SELECT version, operation, payload::text, changed_at, changed_by
-           |FROM ${historyTable(entity)} WHERE id = ? ORDER BY history_id""".stripMargin
+        s"""SELECT version, operation, payload::text, changed_at, changed_by FROM (
+           |  SELECT * FROM ${historyTable(entity)} WHERE id = ? ORDER BY history_id DESC LIMIT ?
+           |) newest ORDER BY history_id""".stripMargin
       )): stmt =>
         stmt.setString(1, id)
+        stmt.setInt(2, limit.max(1).min(EntityStore.maxLimit))
         Using.resource(stmt.executeQuery()): rs =>
           val rows = ListBuffer.empty[Change[E]]
           while rs.next() do
-            val payload = parser.parse(rs.getString(3)).getOrElse(io.circe.Json.Null)
+            val version = rs.getLong(1)
+            // jsonb is always valid JSON - a failure here is a corrupt row, not an old format
+            val payload = parser.parse(rs.getString(3)).fold(
+              err =>
+                throw PersistenceFailure(PersistenceError.StoreError(
+                  s"History of ${entity.table} '$id' version $version is corrupt: ${err.getMessage}"
+                )),
+              identity
+            )
             rows += Change(
               id = id,
-              version = rs.getLong(1),
+              version = version,
               operation = Operation.fromDb(rs.getString(2)),
               entity = payload.as[E](using entity.codec).toOption,
               payload = payload,
@@ -291,6 +320,14 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
           s"History of ${entity.table} '$id': versions ${old.mkString(", ")} no longer decode - returned as JSON only"
         )
       )
+
+  /** Serializes the changes of one entity (create, update, delete) until the end of the transaction -
+    * a re-create waits for a concurrent deletion and continues after its version.
+    */
+  private def lockId(con: Connection, entity: EntityDef[?], id: String): Unit =
+    Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")): stmt =>
+      stmt.setString(1, s"orchescala-persistence:${config.schema}.${entity.table}:$id")
+      stmt.execute()
 
   /** `now()` is the start of the transaction - the same time as in the entity table. */
   private def appendHistory(
@@ -418,7 +455,8 @@ object PostgresEntityStore:
     s"${quote(schema)}.${quote(name)}"
 
   /** The statements that create schema, entity table and audit log of an entity - for a DBA when
-    * the app may not run DDL ([[PersistenceConfig.createTables]] = false).
+    * the app may not run DDL ([[PersistenceConfig.createTables]] = false). Index names have short
+    * suffixes, so they stay within the 63 characters of Postgres for a table name of 54.
     */
   def ddl(schema: String, name: String): Seq[String] =
     val t = table(schema, name)
@@ -435,8 +473,8 @@ object PostgresEntityStore:
          |  updated_at timestamptz NOT NULL,
          |  updated_by text
          |)""".stripMargin,
-      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_keys_idx")} ON $t USING gin (keys)",
-      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_updated_idx")} ON $t (updated_at DESC)",
+      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_keys_ix")} ON $t USING gin (keys)",
+      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_upd_ix")} ON $t (updated_at DESC, id)",
       s"""CREATE TABLE IF NOT EXISTS $h (
          |  history_id bigserial   PRIMARY KEY,
          |  id         text        NOT NULL,
@@ -446,7 +484,8 @@ object PostgresEntityStore:
          |  changed_at timestamptz NOT NULL,
          |  changed_by text
          |)""".stripMargin,
-      s"CREATE INDEX IF NOT EXISTS ${quote(s"${name}_history_id_idx")} ON $h (id)"
+      // one entry per version - the last safeguard against a duplicate in the audit log
+      s"CREATE UNIQUE INDEX IF NOT EXISTS ${quote(s"${name}_hist_ux")} ON $h (id, version)"
     )
   end ddl
 

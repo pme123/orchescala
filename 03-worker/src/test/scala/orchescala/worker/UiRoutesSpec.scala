@@ -100,6 +100,19 @@ object UiRoutesSpec extends ZIOSpecDefault:
         page    <- get("/ui/assets/missing.js", "Accept" -> "text/html")
       yield assertTrue(missing.status == Status.NotFound, page.status == Status.NotFound)
     },
+    test("a folder on the classpath is not served as a file") {
+      get("/ui/folder.d").map(response => assertTrue(response.status == Status.NotFound))
+    },
+    test("responses say they vary by Accept - a page request may get index.html") {
+      for
+        found   <- get("/ui/")
+        missing <- get("/ui/users/john.doe")
+      yield assertTrue(
+        found.rawHeader("Vary").contains("Accept"),
+        missing.status == Status.NotFound,
+        missing.rawHeader("Vary").contains("Accept")
+      )
+    },
     test("an escaped path that leaves the ui folder is 404") {
       get("/ui/%2e%2e/OpenApi.yml").map(response => assertTrue(response.status == Status.NotFound))
     }

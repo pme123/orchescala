@@ -2,10 +2,12 @@ package orchescala.gateway
 
 import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.worker.UiRoutes
-import sttp.client3.{asByteArrayAlways, basicRequest}
+import sttp.capabilities.zio.ZioStreams
+import sttp.client3.{asStreamAlwaysUnsafe, basicRequest}
 import sttp.model.Uri
 import zio.*
 import zio.http.*
+import zio.stream.ZStream
 
 /** Routes for the UI bundles of the projects.
   *
@@ -27,8 +29,8 @@ import zio.http.*
   * through; the gateway adds the security headers.
   *
   * Like [[orchescala.worker.UiRoutes]] it assumes a normal web bundle: files are forwarded whole
-  * (buffered), only `GET`, no `Range` requests - so the worker app answers 200, 304 or 4xx;
-  * anything else is a failure of the worker app (502).
+  * (buffered, at most [[GatewayConfig.uiMaxFileSize]]), only `GET`, no `Range` requests - so the
+  * worker app answers 200, 304 or 4xx; anything else is a failure of the worker app (502).
   */
 class AppRoutes()(using config: GatewayConfig):
 
@@ -82,18 +84,32 @@ class AppRoutes()(using config: GatewayConfig):
                         basicRequest
                           .get(uri)
                           .headers(conditionalHeaders(request).toMap)
-                          .response(asByteArrayAlways)
+                          .response(asStreamAlwaysUnsafe(ZioStreams))
                           .send(backend)
                           .mapError(_.getMessage)
           _        <- ZIO.when(response.code.code >= 500)(
                         ZIO.logWarning(s"UI request $uri of '$projectName' answered ${response.code.code}")
                       )
-        yield toResponse(response.code.code, response.body, response.header))
+          body     <- readCapped(response.body, config.uiMaxFileSize)
+                        .mapError(err => s"$uri: $err")
+        yield toResponse(response.code.code, body, response.header))
           // live is ZLayer.succeed(cachedBackend): the one shared backend, no client per request
           .provideLayer(HttpClientProvider.live)
           .catchAll: err =>
             ZIO.logError(s"Error forwarding UI request for '$projectName': $err")
               .as(Response.status(Status.BadGateway))
+
+  /** Reads the answer of the worker app - but no more than `max` bytes (a misconfigured `uiAppUrl`
+    * must not fill the memory of the gateway).
+    */
+  private[gateway] def readCapped(
+      stream: ZStream[Any, Throwable, Byte],
+      max: Int
+  ): IO[String, Array[Byte]] =
+    stream.take(max.toLong + 1).runCollect
+      .mapError(_.getMessage)
+      .filterOrFail(_.size <= max)(s"larger than $max bytes")
+      .map(_.toArray)
 
   private[gateway] def uiUri(baseUrl: String, segments: Seq[String]): Either[String, Uri] =
     Uri.parse(baseUrl).map(_.addPath("ui" +: segments))
@@ -110,7 +126,7 @@ class AppRoutes()(using config: GatewayConfig):
       header: String => Option[String]
   ): Response =
     val passedHeaders =
-      Seq("Content-Type", "Cache-Control", "ETag", "Last-Modified")
+      Seq("Content-Type", "Cache-Control", "ETag", "Last-Modified", "Vary")
         .flatMap(name => header(name).map(Header.Custom(name, _)))
     status match
       case 200                                     =>
@@ -122,7 +138,7 @@ class AppRoutes()(using config: GatewayConfig):
       case 304                                     =>
         Response(status = Status.NotModified, headers = Headers(passedHeaders ++ securityHeaders))
       case client if client >= 400 && client < 500 =>
-        Response.status(Status.fromInt(client))
+        Response(status = Status.fromInt(client), headers = Headers(passedHeaders))
       case _                                       => // the worker app failed (or answered unexpectedly) - logged in forward
         Response.status(Status.BadGateway)
     end match

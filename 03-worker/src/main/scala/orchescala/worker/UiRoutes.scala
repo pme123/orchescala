@@ -3,8 +3,9 @@ package orchescala.worker
 import zio.*
 import zio.http.*
 
-import java.net.URLDecoder
+import java.net.{JarURLConnection, URL, URLDecoder}
 import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.{Files, Paths}
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
@@ -85,7 +86,8 @@ object UiRoutes:
             load(r).map(r -> _)
           ).headOption)
           .map:
-            case None                   => Response.status(Status.NotFound)
+            case None                   =>
+              Response.status(Status.NotFound).addHeader(Header.Custom("Vary", "Accept"))
             case Some((resource, file)) => response(resource, file, request)
           .catchAll: err =>
             ZIO.logError(s"UI file /ui/${path.mkString("/")} cannot be read: ${err.getMessage}")
@@ -93,11 +95,21 @@ object UiRoutes:
 
   private def load(resource: String): Option[UiFile] =
     Option(files.get(resource)).orElse:
-      Option(getClass.getClassLoader.getResourceAsStream(resource)).map: stream =>
-        val bytes = Using.resource(stream)(_.readAllBytes())
+      Option(getClass.getClassLoader.getResource(resource)).filter(isFile).map: url =>
+        val bytes = Using.resource(url.openStream())(_.readAllBytes())
         val file  = UiFile(bytes, etag(bytes))
         files.put(resource, file)
         file
+
+  /** A folder on the classpath (`ui/folder.d`) is not a file - its stream would be a listing. */
+  private def isFile(url: URL): Boolean =
+    url.getProtocol match
+      case "file" => Files.isRegularFile(Paths.get(url.toURI))
+      case "jar"  =>
+        url.openConnection() match
+          case jar: JarURLConnection => Option(jar.getJarEntry).exists(!_.isDirectory)
+          case _                     => false
+      case _      => false
 
   private def etag(bytes: Array[Byte]): String =
     val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
@@ -110,6 +122,8 @@ object UiRoutes:
       Header.ContentType(mediaType),
       Header.Custom("Cache-Control", cacheControl(resource)),
       Header.Custom("ETag", file.etag),
+      // a page request may get index.html where a file request gets 404 - caches must keep both
+      Header.Custom("Vary", "Accept"),
       Header.Custom("X-Content-Type-Options", "nosniff")
     )
     if request.rawHeader("If-None-Match").exists(_.split(',').map(_.trim).contains(file.etag)) then

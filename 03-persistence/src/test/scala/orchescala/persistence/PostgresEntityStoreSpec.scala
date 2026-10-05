@@ -201,6 +201,34 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
         changes.map(_.version) == Seq(1L, 2L, 3L)
       )
     },
+    test("a delete racing a re-create never duplicates a version in the audit log") {
+      for
+        s      <- store
+        rounds <- ZIO.foreach(1 to 15): round =>
+                    val id = s"race$round"
+                    for
+                      v1      <- s.save(notiz, Notiz(id, "1400", "eins"), None, None)
+                      v2      <- s.save(notiz, Notiz(id, "1400", "zwei"), Some(v1.version), None)
+                      _       <- s.delete(notiz, id, Some(v2.version), None) <&>
+                                   s.save(notiz, Notiz(id, "1400", "neu"), None, None).either
+                      changes <- s.history(notiz, id)
+                    yield changes.map(_.version)
+                    end for
+      yield assertTrue(rounds.forall(versions => versions == versions.distinct.sorted))
+    },
+    test("history returns the newest entries, oldest first") {
+      for
+        s      <- store
+        v1     <- s.save(notiz, Notiz("hl1", "1500", "1"), None, None)
+        v2     <- s.save(notiz, Notiz("hl1", "1500", "2"), Some(v1.version), None)
+        _      <- s.save(notiz, Notiz("hl1", "1500", "3"), Some(v2.version), None)
+        newest <- s.history(notiz, "hl1", limit = 2)
+      yield assertTrue(newest.map(_.version) == Seq(2L, 3L))
+    },
+    test("postgres gives one store per configuration") {
+      ZIO.serviceWith[PersistenceConfig]: config =>
+        assertTrue(EntityStore.postgres(config) eq EntityStore.postgres(config))
+    },
     test("an old audit entry that no longer decodes stays readable as JSON") {
       // a changed entity: the old entries lack the new required field
       case class NotizV2(id: String, kundenNr: String, text: String, prioritaet: Int) derives Codec

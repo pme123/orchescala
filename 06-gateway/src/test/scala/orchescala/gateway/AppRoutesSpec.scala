@@ -97,6 +97,20 @@ object AppRoutesSpec extends ZIOSpecDefault:
         appRoutes.toResponse(500, Array.empty, _ => None).status == Status.BadGateway
       )
     },
+    test("the answer of the worker app is read up to the limit - a bigger one fails") {
+      val bytes = zio.stream.ZStream.fromIterable("12345".getBytes)
+      for
+        fits   <- appRoutes.readCapped(bytes, 5)
+        tooBig <- appRoutes.readCapped(bytes, 4).flip
+      yield assertTrue(new String(fits) == "12345", tooBig.contains("larger than 4 bytes"))
+    },
+    test("Vary of the worker app is passed through, also with a 404") {
+      val headers = Map("Vary" -> "Accept")
+      assertTrue(
+        appRoutes.toResponse(200, Array.empty, headers.get).rawHeader("Vary").contains("Accept"),
+        appRoutes.toResponse(404, Array.empty, headers.get).rawHeader("Vary").contains("Accept")
+      )
+    },
     test("a configured Content-Security-Policy is added") {
       val withCsp  = new DefaultGatewayConfig(
         engineConfig = DefaultEngineConfig(),
