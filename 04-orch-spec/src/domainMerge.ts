@@ -221,6 +221,8 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
       ...(described.description ? { description: described.description } : {}),
       ...(described.descriptionExpr ? { descriptionExpr: described.descriptionExpr } : {}),
       ...(p.example || f.example ? { example: p.example || f.example } : {}),
+      // die Imports gehören zum Beispiel, das gilt
+      exampleImports: p.example ? p.exampleImports : f.exampleImports,
       ...(f.default ? { default: f.default } : {}),
     };
     if (fieldSig(merged) !== fieldSig(p)) changed = true;

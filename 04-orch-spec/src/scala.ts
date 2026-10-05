@@ -55,6 +55,10 @@ export interface TypeIndex {
   defaultOf: (f: Field) => DomainDefault | null;
   /** Klassen des Datenmodells, die es in einer anderen Domain schon gibt — je TypeDef-id (siehe `referencedClass`) */
   referenced: Map<string, DomainType>;
+  /** Paket des eigenen Projekts (`valiant.product`) */
+  home: string;
+  /** Ein Beispielwert der Domain nach Namen (`defaultValidUntil`) — mit demselben Vorrang wie `defaultOf` */
+  defaultNamed: (name: string) => DomainDefault | null;
   /** Objekt und Package eines Services oder Prozesses — aus dem Katalog, sonst abgeleitet (`objectOf`) */
   objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
 }
@@ -143,8 +147,9 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
   };
   // Vorrang: Firmen-Bibliothek (ohne Import), eigenes Projekt, dann die Reihenfolge des Katalogs
   const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);
-  const defaults = (model?.domainDefaults ?? []).filter(d => d.type)
+  const ranked = (model?.domainDefaults ?? [])
     .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
+  const defaults = ranked.filter(d => d.type);
   const defaultOf = (f: Field): DomainDefault | null => {
     if (!f.name?.trim() || f.enumCase) return null;
     const name = `default${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
@@ -159,6 +164,8 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     nameOf,
     referenced,
     objectOf: (ref: string) => objectOf(ref, model),
+    defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
+    home,
   };
 }
 
@@ -766,9 +773,26 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   }
   const external = new Map<string, string>(); // importPath → Anmerkung
   for (const f of fields) {
-    // der Beispielwert aus einem anderen Projekt braucht seinen Import
+    // der Beispielwert aus einem anderen Projekt braucht seinen Import — abgeleitet
+    // (`clientKey` → `defaultClientKey`) oder im Beispiel genannt (`defaultValidUntil`)
     const d = f.example?.trim() ? null : idx.defaultOf(f);
     if (d && !isAutoImported(d.pkg)) external.set(`${d.pkg}.${d.name}`, '');
+    for (const name of f.example?.match(/\bdefault[A-Z]\w*/g) ?? []) {
+      // aus der Domain: der Import ihrer Datei — oder keiner, wenn der Wert dort ohne sichtbar war
+      if (f.exampleImports) {
+        const own = f.exampleImports.filter(i => i.endsWith(`.${name}`));
+        for (const i of own) external.set(i, '');
+        // … ausser über verschachtelte Pakete (`package valiant.product` / `package domain`):
+        // der Export schreibt eine einzige Paket-Zeile, dann braucht ein Wert des
+        // eigenen Projekts (`valiant.product.domain.defaultCardVariety`) den Import
+        const named = own.length ? null : idx.defaultNamed(name);
+        if (named && idx.home && (named.pkg === idx.home || named.pkg.startsWith(`${idx.home}.`))) external.set(`${named.pkg}.${named.name}`, '');
+        continue;
+      }
+      // von Hand eingetragen: der Wert aus dem Katalog
+      const named = idx.defaultNamed(name);
+      if (named && !isAutoImported(named.pkg)) external.set(`${named.pkg}.${named.name}`, '');
+    }
     const dom = idx.domainOf(f.type);
     // was Orchescala ohne Import mitbringt (`ProcessStatus`), braucht keinen
     if (dom) { if (!isAutoImported(dom.pkg)) external.set(dom.importPath, ''); continue; }

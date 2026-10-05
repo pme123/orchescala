@@ -313,6 +313,12 @@ export interface Field {
   default?: string;
   /** Beispielwert als Scala-Ausdruck — ohne Angabe leitet die App einen ab */
   example?: string;
+  /**
+   * Aus der Domain: die Imports, die das Beispiel braucht — so, wie sie in
+   * der Datei stehen (`swisscom.fil.is.domain.defaultValidUntil`); leer, wenn
+   * die Werte ohne Import sichtbar waren (Firmen-Bibliothek, eigenes Paket)
+   */
+  exampleImports?: string[];
   /** fachliche Bedeutung → `@description(...)` */
   description?: string;
   /**
@@ -678,6 +684,11 @@ export interface DomainType {
   target?: string;
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
   source?: string;
+  /**
+   * Die Imports der Datei (`valiant.vollmacht.domain.loadPoas.v1.LoadPoas`,
+   * `a.b.*`) — ein Feldtyp wird zuerst über sie aufgelöst, wie in Scala
+   */
+  imports?: string[];
   [key: string]: unknown;
 }
 

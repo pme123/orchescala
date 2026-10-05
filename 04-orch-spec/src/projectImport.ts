@@ -32,6 +32,7 @@ import { domainRef } from './serviceTypes';
 import { enumHasCase, splitEnumCase } from './feel';
 import { handleFor, readSources } from './projects';
 import { uid } from './util';
+import { catalogIndex } from './orchescalaTypes';
 
 export interface ProjectFile { path: string; text: string }
 
@@ -167,16 +168,42 @@ class Converter {
     return (!t.owner || inProcessObject) && (t.pkg === this.pkg || t.pkg.startsWith(`${this.pkg}.`));
   }
 
+  /**
+   * Ein Typ über die Imports seiner Datei: `LoadPoas.Out` mit
+   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` — zuerst die
+   * ausdrücklichen, dann die mit `*`; ein relativer Import (`schema.*`) auch
+   * vom Paket aus.
+   */
+  private viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
+    if (!imports?.length) return null;
+    const head = base.split('.')[0];
+    const rest = base.slice(head.length);
+    const index = catalogIndex(this.model?.domainTypes);
+    const lookup = (id: string) => this.domain.find(t => t.id === id) ?? index.byId.get(id) ?? null;
+    const at = (path: string) => lookup(path) ?? lookup(`${pkg}.${path}`);
+    for (const imp of imports) if (imp.endsWith(`.${head}`) || imp === head) { const t = at(`${imp}${rest}`); if (t) return t; }
+    for (const imp of imports) if (imp.endsWith('.*')) { const t = at(`${imp.slice(0, -2)}.${base}`); if (t) return t; }
+    return null;
+  }
+
   /** Typ eines Feldes: Grundtyp ohne Option/Seq → Feldtyp der Spezifikation. */
-  fieldType(base: string, pkg: string, depth = 0, scope?: string): { type: string; constraint?: string; enumCase?: string } {
+  fieldType(base: string, pkg: string, depth = 0, scope?: string, imports?: string[]): { type: string; constraint?: string; enumCase?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
     // `MockedServiceResponse[GetX.Out]` — eine Hülle aus Orchescala (der Mock eines
     // Services): sie bleibt als Scala-Typ stehen; aufgelöst und gemeldet wird das Innere
     const wrapped = /^(MockedServiceResponse)\[(.+)\]$/.exec(base);
     if (wrapped) {
-      this.fieldType(typeShape(wrapped[2]).base, pkg, depth + 1, scope);
+      this.fieldType(typeShape(wrapped[2]).base, pkg, depth + 1, scope, imports);
       return { type: base };
+    }
+    // Was die Datei ausdrücklich importiert, gilt — auch wenn das eigene Projekt
+    // eine gleichnamige Klasse hat (`LoadPoas` aus vollmacht, nicht aus product).
+    // Nur für Klassen anderer Pakete; im selben Objekt geht das Eigene vor.
+    const inObject = scope ? this.domain.find(t => t.id === `${pkg}.${scope}.${base}`) : undefined;
+    const imported = inObject ? null : this.viaImports(base, pkg, imports);
+    if (imported && imported.pkg !== this.pkg && imported.kind !== 'alias') {
+      return { type: this.domain.includes(imported) && this.ownProcess(imported) ? this.convert(imported, {}) : domainRef(imported.id) };
     }
     // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums:
     // das Feld zeigt auf das enum und nennt den Fall
@@ -259,7 +286,7 @@ class Converter {
       // `InConfig` ist Implementations-Detail — weder als Typ noch als Feld
       (ps ?? []).filter(p => !/^InConfig$|\.InConfig$/.test(typeShape(p.type).base)).map(p => {
         const shape = typeShape(p.type);
-        const ft = this.fieldType(shape.base, pkg, 0, dom.owner);
+        const ft = this.fieldType(shape.base, pkg, 0, dom.owner, dom.imports);
         const f: Field = { id: uid('f'), name: p.name, type: ft.type };
         if (shape.optional) f.optional = true;
         if (shape.collection) f.collection = true;
@@ -272,6 +299,10 @@ class Converter {
         if (p.descriptionExpr) f.descriptionExpr = p.descriptionExpr;
         const example = exampleOf(p);
         if (example) f.example = example;
+        // die Beispielwerte (`defaultValidUntil`) mit den Imports ihrer Datei — welcher
+        // gilt, entscheidet die Datei, nicht der Katalog
+        const named = example?.match(/\bdefault[A-Z]\w*/g) ?? [];
+        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => i.endsWith(`.${n}`)));
         return f;
       });
     if (dom.kind === 'enum') {

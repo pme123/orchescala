@@ -95,6 +95,25 @@ export function packageOfFile(lines: string[]): string {
   return parts.join('.');
 }
 
+/**
+ * Die Imports einer Datei, je importiertem Namen ein Eintrag:
+ * `import a.b.{C, D}` → `a.b.C`, `a.b.D`; `import a.b.*` → `a.b.*`.
+ * Umbenennungen (`C => E`) und Ausschlüsse (`C => _`) bleiben aussen vor.
+ */
+export function importsOfFile(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = /^\s*import\s+([\w.]+?)\.(\{[^}]*\}|\*|_|[\w]+)\s*(?:\/\/.*)?$/.exec(line);
+    if (!m) continue;
+    const names = m[2].startsWith('{') ? m[2].slice(1, -1).split(',').map(n => n.trim()) : [m[2]];
+    for (const n of names) {
+      if (!n || n.includes('=>')) continue;
+      out.push(`${m[1]}.${n === '_' ? '*' : n}`);
+    }
+  }
+  return [...new Set(out)];
+}
+
 export interface ScanResult {
   types: DomainType[];
   /** Beispielwerte `default…` — in Datei-Reihenfolge, je Paket und Name einmal */
@@ -227,6 +246,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const lines = source.split('\n');
   const pkg = packageOfFile(lines);
   if (!pkg) return [];
+  const imports = importsOfFile(lines);
 
   const out: DomainType[] = [];
   const seen = new Set<string>();
@@ -270,6 +290,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
       importPath: `${pkg}.${owner ?? name}`,
       ...(doc ? { descr: doc } : {}),
       ...(path ? { source: path } : {}),
+      ...(imports.length ? { imports } : {}),
       ...extra,
     });
     doc = '';
