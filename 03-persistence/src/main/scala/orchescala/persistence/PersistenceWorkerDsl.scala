@@ -111,10 +111,11 @@ object PersistenceWorkerDsl:
       case None        => ZIO.none
       case Some(token) =>
         val user       = userOf(token)
+        // AnyOf only takes Jwt issuers - PresenceOnly is the one unverified case
         val unverified = validation == TokenValidation.PresenceOnly
         ZIO.when(unverified && warned.compareAndSet(false, true))(
           ZIO.logWarning(
-            "Audit users are unverified (TokenValidation.PresenceOnly) - recorded as " +
+            "Audit users of this worker are unverified (TokenValidation.PresenceOnly) - recorded as " +
               "unverified:{name}; configure TokenValidation.Jwt / AnyOf in the WorkerConfig"
           )
         ) *>

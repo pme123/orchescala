@@ -19,7 +19,11 @@ case class PersistenceConfig(
     /** How long a change waits for another change of the same entity - then it fails with
       * [[PersistenceError.Busy]] instead of holding a pooled connection for longer.
       */
-    lockTimeoutMillis: Int = 5000
+    lockTimeoutMillis: Int = 5000,
+    /** How long a request waits for a connection of the pool - a full pool or an unreachable
+      * database fails after this, not after Hikari's 30 s.
+      */
+    connectionTimeoutMillis: Int = 3000
 ):
   require(EntityDef.isValidTable(schema), s"Invalid schema name '$schema'")
 
@@ -48,7 +52,10 @@ object PersistenceConfig:
       schema = env.getOrElse(name("SCHEMA"), "public"),
       maximumPoolSize = optional("POOL_SIZE", 5)(_.toIntOption.filter(_ > 0)),
       createTables = optional("CREATE_TABLES", true)(_.toBooleanOption),
-      lockTimeoutMillis = optional("LOCK_TIMEOUT_MILLIS", 5000)(_.toIntOption.filter(_ > 0))
+      lockTimeoutMillis = optional("LOCK_TIMEOUT_MILLIS", 5000)(_.toIntOption.filter(_ > 0)),
+      // Hikari needs at least 250 ms
+      connectionTimeoutMillis =
+        optional("CONNECTION_TIMEOUT_MILLIS", 3000)(_.toIntOption.filter(_ >= 250))
     )
   end fromEnv
 end PersistenceConfig

@@ -18,7 +18,18 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
   private val notiz = EntityDef[Notiz]("notiz", _.id, n => Map("kundenNr" -> n.kundenNr))
 
   private lazy val runTests =
-    sys.env.contains("CI") || Try(DockerClientFactory.instance().isDockerAvailable).getOrElse(false)
+    val run =
+      sys.env.contains("CI") || Try(
+        DockerClientFactory.instance().isDockerAvailable
+      ).getOrElse(false)
+    if !run then
+      println(
+        "\n*** PostgresEntityStoreSpec IGNORED - no Docker. The store tests against Postgres did " +
+          "not run; on CI (CI set) they fail instead. ***\n"
+      )
+    end if
+    run
+  end runTests
 
   private val postgres: ZLayer[Any, Throwable, PersistenceConfig & EntityStore] =
     val config = ZLayer.scoped:

@@ -85,6 +85,12 @@ object EntityStore:
     * pool per configuration; use [[postgresScoped]] for anything shorter-lived.
     */
   def postgres(config: PersistenceConfig): EntityStore =
+    if appStores.size >= warnStores && !appStores.containsKey(config) then
+      org.slf4j.LoggerFactory.getLogger("orchescala.persistence.EntityStore").warn(
+        s"EntityStore.postgres: ${appStores.size + 1} stores (pools) - is it called with a new " +
+          "configuration per request? Use postgresScoped for short-lived stores."
+      )
+    end if
     appStores.computeIfAbsent(
       config,
       _ =>
@@ -92,9 +98,11 @@ object EntityStore:
         java.lang.Runtime.getRuntime.addShutdownHook(Thread(() => store.close()))
         store
     )
+  end postgres
 
   // one store (pool, shutdown hook) per configuration - also when postgres is called in a `def`
-  private val appStores = ConcurrentHashMap[PersistenceConfig, PostgresEntityStore]()
+  private val appStores  = ConcurrentHashMap[PersistenceConfig, PostgresEntityStore]()
+  private val warnStores = 10
 
   /** A store whose connection pool is closed with the scope - e.g. in tests or as a
     * `ZLayer.scoped`.
@@ -134,6 +142,8 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
           hikari.setPassword(config.password)
           hikari.setMaximumPoolSize(config.maximumPoolSize)
           hikari.setPoolName(s"orchescala-${config.schema}")
+          // a full pool or an unreachable database fails fast - not 30 s per request
+          hikari.setConnectionTimeout(config.connectionTimeoutMillis.toLong)
           val created = HikariDataSource(hikari) // a failed init leaves no state behind
           pool.set(Some(created))
           created
@@ -386,17 +396,15 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
   def checkConnection: IO[PersistenceError, Unit] =
     ZIO
       .attemptBlocking(Using.resource(dataSource.getConnection())(_.isValid(5)))
+      .filterOrFail(identity)(IllegalStateException("the connection is not valid"))
       .tapError(err =>
         ZIO.logError(s"Database of schema ${config.schema} not reachable: ${err.getMessage}")
       )
       .mapError(_ =>
         PersistenceError.StoreError(s"Database of schema ${config.schema} not reachable")
       )
-      .filterOrFail(identity)(PersistenceError.StoreError(
-        s"Database of schema ${config.schema} not reachable"
-      ))
       .unit
-      .zipLeft(ZIO.logInfo(s"Database reachable: ${config}"))
+      .zipLeft(ZIO.logInfo(s"Database reachable: $config"))
 
   /** The version in the store - read in the transaction that holds the lock of the id, so it is
     * exactly the one that made the change fail.

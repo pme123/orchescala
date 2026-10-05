@@ -35,12 +35,20 @@ object PersistenceConfigSpec extends ZIOSpecDefault:
         scala.util.Try(PersistenceConfig.fromEnv("X", base + ("X_POOL_SIZE" -> "viele"))).failed.get
       val zero = scala.util.Try(PersistenceConfig.fromEnv("X", base + ("X_POOL_SIZE" -> "0")))
       val ddl  = PersistenceConfig.fromEnv("X", base + ("X_CREATE_TABLES" -> "false"))
-      val lock = PersistenceConfig.fromEnv("X", base + ("X_LOCK_TIMEOUT_MILLIS" -> "250"))
+      val lock = PersistenceConfig.fromEnv(
+        "X",
+        base + ("X_LOCK_TIMEOUT_MILLIS" -> "250") + ("X_CONNECTION_TIMEOUT_MILLIS" -> "1000")
+      )
+      val tiny = scala.util.Try(
+        PersistenceConfig.fromEnv("X", base + ("X_CONNECTION_TIMEOUT_MILLIS" -> "100"))
+      )
       assertTrue(
         pool.getMessage.contains("X_POOL_SIZE"),
         zero.isFailure,
         !ddl.createTables,
-        lock.lockTimeoutMillis == 250
+        lock.lockTimeoutMillis == 250,
+        lock.connectionTimeoutMillis == 1000,
+        tiny.isFailure // Hikari needs at least 250 ms
       )
     },
     test("table and schema names must be plain identifiers - they go into the SQL") {

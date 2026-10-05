@@ -32,6 +32,9 @@ import scala.util.{Try, Using}
   * Assumes a normal web bundle (a few MB): found files are kept in memory for the lifetime of the
   * app, served whole - no `Range` requests, only `GET`. A file larger than the limit is not served
   * (500, logged) - see `WorkerConfig.uiMaxFileSize`.
+  *
+  * Only `GET` is routed: `HEAD` gets 404. A `Range` header is ignored - the answer is the whole
+  * file (200).
   */
 object UiRoutes:
 
@@ -53,7 +56,7 @@ object UiRoutes:
     Header.Custom("Referrer-Policy", "strict-origin-when-cross-origin")
   )
 
-  private def status(status: Status): Response =
+  private def plain(status: Status): Response =
     Response(status = status, headers = Headers(securityHeaders))
 
   def routes: Routes[Any, Response] = routesWith(defaultMaxFileSize)
@@ -98,7 +101,7 @@ object UiRoutes:
 
   private def serve(segments: Seq[String], request: Request, maxFileSize: Long): UIO[Response] =
     decodeSegments(segments) match
-      case None       => ZIO.succeed(status(Status.NotFound))
+      case None       => ZIO.succeed(plain(Status.NotFound))
       case Some(path) =>
         val acceptsHtml = request.rawHeader("Accept").exists(_.contains("text/html"))
         ZIO
@@ -107,21 +110,26 @@ object UiRoutes:
           ).headOption)
           .map:
             case None                   =>
-              status(Status.NotFound).addHeader(Header.Custom("Vary", "Accept"))
+              plain(Status.NotFound).addHeader(Header.Custom("Vary", "Accept"))
             case Some((resource, file)) => response(resource, file, request)
           .catchAll: err =>
             ZIO.logError(s"UI file /ui/${path.mkString("/")} cannot be read: ${err.getMessage}")
-              .as(status(Status.InternalServerError))
+              .as(plain(Status.InternalServerError))
 
   private def load(resource: String, maxFileSize: Long): Option[UiFile] =
     Option(files.get(resource))
       .orElse:
         Option(getClass.getClassLoader.getResource(resource)).filter(isFile).map: url =>
           val connection = url.openConnection()
+          connection.setUseCaches(false) // no jar handle kept open by the URL cache
           checkSize(resource, connection.getContentLengthLong, maxFileSize)
-          val bytes      = Using.resource(connection.getInputStream)(_.readAllBytes())
-          checkSize(resource, bytes.length, maxFileSize) // the length may have been unknown
-          val file = UiFile(bytes, etag(bytes))
+          // bounded: never more than the limit (+1 to notice it) in memory, also with unknown length
+          val bytes =
+            Using.resource(connection.getInputStream)(
+              _.readNBytes((maxFileSize + 1).min(Int.MaxValue).toInt)
+            )
+          checkSize(resource, bytes.length, maxFileSize)
+          val file  = UiFile(bytes, etag(bytes))
           files.put(resource, file)
           file
       .map: file => // also for a cached file - the limit is per route
@@ -133,14 +141,18 @@ object UiRoutes:
       throw IllegalStateException(s"$resource has $size bytes - more than $maxFileSize")
 
   /** A folder on the classpath (`ui/folder.d`) is not a file - its stream would be a listing. */
-  private def isFile(url: URL): Boolean =
-    url.getProtocol match
-      case "file" => Files.isRegularFile(Paths.get(url.toURI))
-      case "jar"  =>
-        url.openConnection() match
-          case jar: JarURLConnection => Option(jar.getJarEntry).exists(!_.isDirectory)
-          case _                     => false
-      case _      => false
+  private[worker] def isFile(url: URL): Boolean =
+    Try:
+      url.getProtocol match
+        case "file" => Files.isRegularFile(Paths.get(url.toURI))
+        case "jar"  =>
+          url.openConnection() match
+            case jar: JarURLConnection =>
+              jar.setUseCaches(false)
+              Option(jar.getJarEntry).exists(!_.isDirectory)
+            case _                     => false
+        case _      => false
+    .getOrElse(false) // e.g. no such entry in the jar
 
   private def etag(bytes: Array[Byte]): String =
     val hash = MessageDigest.getInstance("SHA-256").digest(bytes)

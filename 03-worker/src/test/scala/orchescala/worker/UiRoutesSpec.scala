@@ -11,6 +11,23 @@ object UiRoutesSpec extends ZIOSpecDefault:
       case (req, (name, value)) => req.addHeader(Header.Custom(name, value))
     ZIO.scoped(UiRoutes.routes.runZIO(request))
 
+  /** A jar like the one of a deployed worker app: a file and a folder below ui/. */
+  private lazy val jar: java.io.File =
+    val file = java.io.File.createTempFile("ui-test", ".jar")
+    file.deleteOnExit()
+    scala.util.Using.resource(java.util.jar.JarOutputStream(java.io.FileOutputStream(file))): out =>
+      out.putNextEntry(java.util.jar.JarEntry("ui/"))
+      out.closeEntry()
+      out.putNextEntry(java.util.jar.JarEntry("ui/app.js"))
+      out.write("console.log('jar')".getBytes)
+      out.closeEntry()
+      out.putNextEntry(java.util.jar.JarEntry("ui/folder.d/"))
+      out.closeEntry()
+    file
+  end jar
+
+  private def inJar(path: String) = java.net.URI.create(s"jar:${jar.toURI}!/$path").toURL
+
   def spec: Spec[TestEnvironment & Scope, Any] = suite("UiRoutes")(
     test("the root and app routes resolve to index.html") {
       assertTrue(
@@ -135,6 +152,27 @@ object UiRoutesSpec extends ZIOSpecDefault:
           response.rawHeader("X-Content-Type-Options").contains("nosniff"),
           response.rawHeader("Referrer-Policy").isDefined
         )
+    },
+    test("in a jar a file is a file, a folder entry is not") {
+      assertTrue(
+        UiRoutes.isFile(inJar("ui/app.js")),
+        !UiRoutes.isFile(inJar("ui/folder.d/")),
+        !UiRoutes.isFile(inJar("ui/missing.js"))
+      )
+    },
+    test("only GET is routed - HEAD is 404; a Range header is ignored, the whole file comes") {
+      val head =
+        Request(method = Method.HEAD, url = URL.decode("/ui/assets/app-abc123.js").toOption.get)
+      for
+        headResponse <- ZIO.scoped(UiRoutes.routes.runZIO(head))
+        ranged       <- get("/ui/assets/app-abc123.js", "Range" -> "bytes=0-3")
+        body         <- ranged.body.asString
+      yield assertTrue(
+        headResponse.status == Status.NotFound,
+        ranged.status == Status.Ok,
+        body.contains("console.log")
+      )
+      end for
     },
     test("a folder on the classpath is not served as a file") {
       get("/ui/folder.d").map(response => assertTrue(response.status == Status.NotFound))
