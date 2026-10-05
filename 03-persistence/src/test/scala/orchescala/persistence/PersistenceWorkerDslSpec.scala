@@ -2,7 +2,12 @@ package orchescala.persistence
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import orchescala.engine.AuthContext
+import orchescala.engine.auth.TokenValidation
+import zio.*
 import zio.test.*
+
+import java.util.concurrent.atomic.AtomicBoolean
 
 object PersistenceWorkerDslSpec extends ZIOSpecDefault:
 
@@ -20,6 +25,22 @@ object PersistenceWorkerDslSpec extends ZIOSpecDefault:
         PersistenceWorkerDsl.userOf(token("preferred_username" -> "")).isEmpty,
         PersistenceWorkerDsl.userOf("no-jwt").isEmpty
       )
+    },
+    test("the audit user comes from the Bearer token of the request") {
+      val anna                              = token("preferred_username" -> "anna.berater")
+      val verified                          = TokenValidation.Jwt("https://sso.example.com/realms/test")
+      def user(validation: TokenValidation) =
+        PersistenceWorkerDsl.currentUser(validation, AtomicBoolean(false))
+      for
+        checked   <- AuthContext.withBearerToken(anna)(user(verified))
+        unchecked <- AuthContext.withBearerToken(anna)(user(TokenValidation.PresenceOnly))
+        noToken   <- user(verified)
+      yield assertTrue(
+        checked.contains("anna.berater"),
+        unchecked.contains("unverified:anna.berater"),
+        noToken.isEmpty
+      )
+      end for
     },
     test("an unverified user is marked as such in the audit log") {
       assertTrue(

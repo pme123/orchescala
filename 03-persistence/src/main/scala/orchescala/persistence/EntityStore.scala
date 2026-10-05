@@ -59,6 +59,11 @@ trait EntityStore:
       user: Option[String]
   ): IO[PersistenceError, Unit]
 
+  /** Opens a connection to the database - call it when the app starts, so a wrong URL or password
+    * shows up then and not with the first request.
+    */
+  def checkConnection: IO[PersistenceError, Unit]
+
   /** The audit log of an entity - the newest `limit` changes (1 to [[EntityStore.maxLimit]]),
     * oldest first. Also for deleted entities.
     */
@@ -331,6 +336,16 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
     * a re-create waits for a concurrent deletion and continues after its version.
     */
   private def lockId(con: Connection, entity: EntityDef[?], id: String): Unit =
+    // bounded: a busy entity must not hold pooled connections for long (55P03 → Busy)
+    Using.resource(con.createStatement()):
+      _.execute(s"SET LOCAL lock_timeout = '${config.lockTimeoutMillis}ms'")
+    try lockAdvisory(con, entity, id)
+    catch
+      case err: java.sql.SQLException if err.getSQLState == "55P03" =>
+        throw PersistenceFailure(PersistenceError.Busy(entity.table, id))
+  end lockId
+
+  private def lockAdvisory(con: Connection, entity: EntityDef[?], id: String): Unit =
     Using.resource(con.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")): stmt =>
       stmt.setString(1, s"orchescala-persistence:${config.schema}.${entity.table}:$id")
       stmt.execute()
@@ -358,6 +373,21 @@ class PostgresEntityStore(config: PersistenceConfig) extends EntityStore, AutoCl
       stmt.setString(5, user.orNull)
       stmt.executeUpdate()
   end appendHistory
+
+  def checkConnection: IO[PersistenceError, Unit] =
+    ZIO
+      .attemptBlocking(Using.resource(dataSource.getConnection())(_.isValid(5)))
+      .tapError(err =>
+        ZIO.logError(s"Database of schema ${config.schema} not reachable: ${err.getMessage}")
+      )
+      .mapError(_ =>
+        PersistenceError.StoreError(s"Database of schema ${config.schema} not reachable")
+      )
+      .filterOrFail(identity)(PersistenceError.StoreError(
+        s"Database of schema ${config.schema} not reachable"
+      ))
+      .unit
+      .zipLeft(ZIO.logInfo(s"Database reachable: ${config}"))
 
   private def currentVersion[E](
       entity: EntityDef[E],

@@ -30,8 +30,8 @@ import scala.util.{Try, Using}
   * '/app/myCompany-myProject/'`.
   *
   * Assumes a normal web bundle (a few MB): found files are kept in memory for the lifetime of the
-  * app, served whole - no `Range` requests, only `GET`. A file larger than [[maxFileSize]] is not
-  * served (500, logged).
+  * app, served whole - no `Range` requests, only `GET`. A file larger than the limit is not served
+  * (500, logged) - see `WorkerConfig.uiMaxFileSize`.
   */
 object UiRoutes:
 
@@ -42,8 +42,10 @@ object UiRoutes:
   // the files of a deployed bundle do not change - only found files are kept
   private val files = ConcurrentHashMap[String, UiFile]()
 
-  /** Like the cap of the gateway (`GatewayConfig.uiMaxFileSize`) - plenty for a web bundle. */
-  val maxFileSize: Long = 10L * 1024 * 1024
+  /** The default of `WorkerConfig.uiMaxFileSize` and `GatewayConfig.uiMaxFileSize` - plenty for a
+    * web bundle.
+    */
+  val defaultMaxFileSize: Long = 10L * 1024 * 1024
 
   /** On every answer - also on 404 and 500. */
   private[worker] val securityHeaders: Seq[Header] = Seq(
@@ -54,9 +56,10 @@ object UiRoutes:
   private def status(status: Status): Response =
     Response(status = status, headers = Headers(securityHeaders))
 
-  def routes: Routes[Any, Response] = routesWith(maxFileSize)
+  def routes: Routes[Any, Response] = routesWith(defaultMaxFileSize)
 
-  private[worker] def routesWith(maxFileSize: Long): Routes[Any, Response] =
+  /** The routes with the limit of the `WorkerConfig` (`uiMaxFileSize`). */
+  def routesWith(maxFileSize: Long): Routes[Any, Response] =
     Routes(
       Method.GET / "ui"            -> handler((request: Request) =>
         serve(Seq.empty, request, maxFileSize)

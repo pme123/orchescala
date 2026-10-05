@@ -87,29 +87,40 @@ trait PersistenceWorkerDsl[
     * The token is only decoded here - it is trusted because the worker app verified it before the
     * worker was called. That holds with `TokenValidation.Jwt` / `AnyOf` in the `WorkerConfig`. With
     * `TokenValidation.PresenceOnly` anyone could put any name into the token: the audit log then
-    * records `unverified:{name}` and every write warns. Without a token - e.g. a step of a process -
-    * the change is recorded without user.
+    * records `unverified:{name}` (warned once per worker). Without a token - e.g. a step of a
+    * process - the change is recorded without user.
     */
   private def currentUser(using context: EngineRunContext): UIO[Option[String]] =
-    AuthContext.getBearerToken.flatMap:
-      case None        => ZIO.none
-      case Some(token) =>
-        val user       = PersistenceWorkerDsl.userOf(token)
-        val unverified =
-          context.engineContext.workerConfig.tokenValidation == TokenValidation.PresenceOnly
-        ZIO.when(unverified)(
-          ZIO.logWarning(
-            s"Audit user ${user.getOrElse("-")} is unverified (TokenValidation.PresenceOnly) - " +
-              "configure TokenValidation.Jwt / AnyOf in the WorkerConfig"
-          )
-        ) *>
-          ZIO.when(user.isEmpty)(
-            ZIO.logDebug("Bearer token without preferred_username - change recorded without user")
-          ).as(PersistenceWorkerDsl.auditUser(user, unverified))
+    PersistenceWorkerDsl.currentUser(
+      context.engineContext.workerConfig.tokenValidation,
+      unverifiedWarned
+    )
+
+  private val unverifiedWarned = java.util.concurrent.atomic.AtomicBoolean(false)
 
 end PersistenceWorkerDsl
 
 object PersistenceWorkerDsl:
+
+  /** The user for the audit log from the Bearer token of the request (`AuthContext`). */
+  private[persistence] def currentUser(
+      validation: TokenValidation,
+      warned: java.util.concurrent.atomic.AtomicBoolean
+  ): UIO[Option[String]] =
+    AuthContext.getBearerToken.flatMap:
+      case None        => ZIO.none
+      case Some(token) =>
+        val user       = userOf(token)
+        val unverified = validation == TokenValidation.PresenceOnly
+        ZIO.when(unverified && warned.compareAndSet(false, true))(
+          ZIO.logWarning(
+            "Audit users are unverified (TokenValidation.PresenceOnly) - recorded as " +
+              "unverified:{name}; configure TokenValidation.Jwt / AnyOf in the WorkerConfig"
+          )
+        ) *>
+          ZIO.when(user.isEmpty)(
+            ZIO.logDebug("Bearer token without preferred_username - change recorded without user")
+          ).as(auditUser(user, unverified))
 
   /** An unverified name must not look like a verified one in the audit log. */
   private[persistence] def auditUser(user: Option[String], unverified: Boolean): Option[String] =

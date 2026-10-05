@@ -110,9 +110,9 @@ class AppRoutes(
     */
   private[gateway] def readCapped(
       stream: ZStream[Any, Throwable, Byte],
-      max: Int
+      max: Long
   ): IO[String, Array[Byte]] =
-    stream.take(max.toLong + 1).runCollect
+    stream.take(max + 1).runCollect
       .mapError(_.getMessage)
       .filterOrFail(_.size <= max)(s"larger than $max bytes")
       .map(_.toArray)

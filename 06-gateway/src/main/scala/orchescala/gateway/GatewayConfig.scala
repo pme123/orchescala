@@ -120,8 +120,9 @@ trait GatewayConfig:
 
   /** The largest file of a UI bundle the gateway forwards (bytes) - a bigger answer is a 502.
     * Each forwarded file is held in memory while it is sent, so this bounds the heap per request.
+    * Keep `WorkerConfig.uiMaxFileSize` of the worker apps at most this value.
     */
-  def uiMaxFileSize: Int = 10 * 1024 * 1024
+  def uiMaxFileSize: Long = orchescala.worker.UiRoutes.defaultMaxFileSize
 
   /** Authentication scheme for the `/docs` routes. Defaults to [[DocsAuth.Disabled]]. */
   def docsAuth: DocsAuth = DocsAuth.Disabled

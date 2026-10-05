@@ -81,6 +81,11 @@ enum PersistenceError:
     * had, `actual` the one in the store (None if it is gone).
     */
   case VersionConflict(table: String, id: String, expected: Option[Long], actual: Option[Long])
+
+  /** Someone else changes the same entity right now - waiting for it took longer than
+    * [[PersistenceConfig.lockTimeoutMillis]]. Trying again later is fine.
+    */
+  case Busy(table: String, id: String)
   case StoreError(msg: String)
 
   def message: String = this match
@@ -90,5 +95,7 @@ enum PersistenceError:
       s"$table '$id' (version $exp) no longer exists"
     case VersionConflict(table, id, Some(exp), Some(act)) =>
       s"$table '$id' was changed in the meantime (version $exp, now $act)"
+    case Busy(table, id)                                  =>
+      s"$table '$id' is being changed by someone else - try again"
     case StoreError(msg)                                  => msg
 end PersistenceError

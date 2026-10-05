@@ -190,7 +190,7 @@ object AppRoutesSpec extends ZIOSpecDefault:
         engineConfig = DefaultEngineConfig(),
         workerConfig = DefaultWorkerConfig(DefaultEngineConfig())
       ):
-        override def uiMaxFileSize: Int = 4
+        override def uiMaxFileSize: Long = 4
       val stub  = AsyncHttpClientZioBackend.stub.whenAnyRequest
         .thenRespond(workerAnswer(StatusCode.Ok, "12345"))
       for

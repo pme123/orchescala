@@ -244,6 +244,47 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
       )
       end for
     },
+    test("a change waiting longer than lockTimeoutMillis for the same entity is Busy") {
+      for
+        config <- ZIO.service[PersistenceConfig]
+        busy   <- ZIO.scoped:
+                    for
+                      fast  <- EntityStore.postgresScoped(config.copy(lockTimeoutMillis = 200))
+                      _     <- fast.save(notiz, Notiz("busy1", "1700", "x"), None, None)
+                      // someone else holds the lock of this entity in an open transaction
+                      other <- ZIO.acquireRelease(ZIO.attemptBlocking:
+                                 val con = java.sql.DriverManager.getConnection(
+                                   config.jdbcUrl,
+                                   config.username,
+                                   config.password
+                                 )
+                                 con.setAutoCommit(false)
+                                 Using.resource(con.prepareStatement(
+                                   "SELECT pg_advisory_xact_lock(hashtext(?))"
+                                 )): stmt =>
+                                   stmt.setString(1, "orchescala-persistence:test_app.notiz:busy1")
+                                   stmt.execute()
+                                 con)(con =>
+                                 ZIO.attemptBlocking { con.rollback(); con.close() }.orDie
+                               )
+                      error <- fast.save(notiz, Notiz("busy1", "1700", "y"), Some(1L), None).flip
+                    yield error
+        after  <- store.flatMap(_.get(notiz, "busy1"))
+      yield assertTrue(
+        busy == PersistenceError.Busy("notiz", "busy1"),
+        after.map(_.version).contains(1L)
+      )
+    },
+    test("checkConnection reports a wrong password at once") {
+      for
+        config <- ZIO.service[PersistenceConfig]
+        ok     <- store.flatMap(_.checkConnection).either
+        wrong  <-
+          ZIO.scoped(
+            EntityStore.postgresScoped(config.copy(password = "wrong")).flatMap(_.checkConnection)
+          ).either
+      yield assertTrue(ok.isRight, wrong.left.exists(_.isInstanceOf[PersistenceError.StoreError]))
+    },
     test("an old audit entry that no longer decodes stays readable as JSON") {
       // a changed entity: the old entries lack the new required field
       case class NotizV2(id: String, kundenNr: String, text: String, prioritaet: Int) derives Codec

@@ -100,6 +100,12 @@ object UiRoutesSpec extends ZIOSpecDefault:
         page    <- get("/ui/assets/missing.js", "Accept" -> "text/html")
       yield assertTrue(missing.status == Status.NotFound, page.status == Status.NotFound)
     },
+    test("the default limit of the WorkerConfig is the one of the gateway") {
+      assertTrue(
+        DefaultWorkerConfig(orchescala.engine.DefaultEngineConfig()).uiMaxFileSize ==
+          UiRoutes.defaultMaxFileSize
+      )
+    },
     test("error answers carry the security headers too") {
       get("/ui/assets/missing.js").map: response =>
         assertTrue(
@@ -121,7 +127,7 @@ object UiRoutesSpec extends ZIOSpecDefault:
         missing.rawHeader("Vary").contains("Accept")
       )
     },
-    test("a file larger than the limit is not served - 500, logged") {
+    test("a file larger than the limit of the WorkerConfig is not served - 500, logged") {
       ZIO.scoped(UiRoutes.routesWith(maxFileSize =
         10
       ).runZIO(Request.get(URL.decode("/ui/").toOption.get)))

@@ -15,7 +15,11 @@ case class PersistenceConfig(
       * no DDL rights (e.g. only `INSERT, SELECT` on the history tables) - the tables are then
       * created by the DBA with the statements of `PostgresEntityStore`.
       */
-    createTables: Boolean = true
+    createTables: Boolean = true,
+    /** How long a change waits for another change of the same entity - then it fails with
+      * [[PersistenceError.Busy]] instead of holding a pooled connection for longer.
+      */
+    lockTimeoutMillis: Int = 5000
 ):
   require(EntityDef.isValidTable(schema), s"Invalid schema name '$schema'")
 
@@ -26,8 +30,9 @@ end PersistenceConfig
 object PersistenceConfig:
 
   /** Reads `{prefix}_URL`, `{prefix}_USER`, `{prefix}_PASSWORD` and optionally `{prefix}_SCHEMA`,
-    * `{prefix}_POOL_SIZE`, `{prefix}_CREATE_TABLES` - e.g. `PersistenceConfig.fromEnv("MYAPP_DB")`.
-    * A set but invalid value is an error, like a missing required one.
+    * `{prefix}_POOL_SIZE`, `{prefix}_CREATE_TABLES`, `{prefix}_LOCK_TIMEOUT_MILLIS` - e.g.
+    * `PersistenceConfig.fromEnv("MYAPP_DB")`. A set but invalid value is an error, like a missing
+    * required one.
     */
   def fromEnv(prefix: String, env: Map[String, String] = sys.env): PersistenceConfig =
     def name(key: String)                                                = s"${prefix}_$key"
@@ -42,7 +47,8 @@ object PersistenceConfig:
       password = required("PASSWORD"),
       schema = env.getOrElse(name("SCHEMA"), "public"),
       maximumPoolSize = optional("POOL_SIZE", 5)(_.toIntOption.filter(_ > 0)),
-      createTables = optional("CREATE_TABLES", true)(_.toBooleanOption)
+      createTables = optional("CREATE_TABLES", true)(_.toBooleanOption),
+      lockTimeoutMillis = optional("LOCK_TIMEOUT_MILLIS", 5000)(_.toIntOption.filter(_ > 0))
     )
   end fromEnv
 end PersistenceConfig
