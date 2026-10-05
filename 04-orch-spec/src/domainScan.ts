@@ -263,6 +263,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const dsls = new Map<string, string>();
   /** `val descr = "…"` je Objekt */
   const descrs = new Map<string, string>();
+  /** `override def processLabels` je Objekt */
+  const labels = new Map<string, { de: string; fr: string }>();
   /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
   const decisionResults = new Map<string, DecisionResult>();
   /**
@@ -324,6 +326,13 @@ export function scanScala(source: string, path = ''): DomainType[] {
 
     const de = owner ? DESCR.exec(line) : null;
     if (owner && de) { descrs.set(owner, de[1]); continue; }
+    // `override def processLabels: ProcessLabels =` — die Werte auf derselben oder einer der nächsten Zeilen
+    if (owner && /^\s+override\s+(?:def|val|lazy\s+val)\s+processLabels\b/.test(line)) {
+      const text = lines.slice(i, i + 3).join(' ');
+      const pl = /ProcessLabels\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)/.exec(text);
+      if (pl) labels.set(owner, { de: pl[1], fr: pl[2] });
+      continue;
+    }
     const dr = owner ? /^\s+lazy val example\s*=\s*(singleEntry|singleResult|collectEntries|resultList)\s*\(/.exec(line) : null;
     if (owner && dr) { decisionResults.set(owner, dr[1] as DecisionResult); continue; }
 
@@ -491,6 +500,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (key) { t.keyName = key.keyName; t.key = key.key; }
     const descr = descrs.get(t.owner);
     if (descr) t.ownerDescr = descr;
+    const pl = labels.get(t.owner);
+    if (pl) t.processLabels = pl;
     const dr = decisionResults.get(t.owner);
     if (dr) t.decisionResult = dr;
   }

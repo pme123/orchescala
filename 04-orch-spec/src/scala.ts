@@ -777,6 +777,8 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     // (`clientKey` → `defaultClientKey`) oder im Beispiel genannt (`defaultValidUntil`)
     const d = f.example?.trim() ? null : idx.defaultOf(f);
     if (d && !isAutoImported(d.pkg)) external.set(`${d.pkg}.${d.name}`, '');
+    // die Objekte einer Beschreibung aus der Domain (`SendProcessEvent.processName`, `Escalation.*`)
+    if (f.descriptionExpr) for (const i of f.descriptionImports ?? []) external.set(i, '');
     for (const name of f.example?.match(/\bdefault[A-Z]\w*/g) ?? []) {
       // aus der Domain: der Import ihrer Datei — oder keiner, wenn der Wert dort ohne sichtbar war
       if (f.exampleImports) {
@@ -920,7 +922,9 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
           ? ['// im InitWorker (customInit):', ...customInit.split('\n').map(l => `// ${l}`), '']
           : []),
         // für ein neues Prozess-Objekt — ein bestehendes behält sein `descr`
-        ...(spec.description?.trim() ? [`// descr: ${escape(firstLine(spec.description))}`, ''] : []),
+        ...(spec.description?.trim() ? [`// descr: ${escape(firstLine(spec.description))}`] : []),
+        ...(spec.processLabels ? [`// processLabels: ${escape(spec.processLabels.de)} | ${escape(spec.processLabels.fr)}`] : []),
+        ...(spec.description?.trim() || spec.processLabels ? [''] : []),
         `// in object ${objectName} einfügen`,
         '// (InConfig und InitIn werden aus dem Ablauf erzeugt — nicht von Hand pflegen)',
         '',

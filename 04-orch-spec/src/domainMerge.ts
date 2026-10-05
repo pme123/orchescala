@@ -183,7 +183,9 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     types.push(t);
   }
 
-  return { spec: { ...previous, types, interactions }, report };
+  // die Bezeichnung je Sprache gehört der Domain
+  const processLabels = fresh.processLabels ?? previous.processLabels;
+  return { spec: { ...previous, types, interactions, ...(processLabels ? { processLabels } : {}) }, report };
 }
 
 /** Typverweise in Feldern (und Fällen) auf die bisherigen IDs umbiegen. */
@@ -220,6 +222,7 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
       id: p.id,
       ...(described.description ? { description: described.description } : {}),
       ...(described.descriptionExpr ? { descriptionExpr: described.descriptionExpr } : {}),
+      ...(described.descriptionExpr && described.descriptionImports ? { descriptionImports: described.descriptionImports } : {}),
       ...(p.example || f.example ? { example: p.example || f.example } : {}),
       // die Imports gehören zum Beispiel, das gilt
       exampleImports: p.example ? p.exampleImports : f.exampleImports,

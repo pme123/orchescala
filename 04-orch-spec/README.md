@@ -260,7 +260,13 @@ sonst im Objekt steht (`enum CustomProcessStatus`). Typen aus
 `orchescala.domain` (`ProcessStatus`) brauchen keinen Import und gehen einem
 gleichnamigen Typ eines anderen Projekts vor — `processStatus:
 ProcessStatus.canceled.type` bleibt ein fester Fall. Für ein neues
-Prozess-Objekt gibt der Export die Beschreibung als `// descr: …` mit.
+Prozess-Objekt gibt der Export die Beschreibung als `// descr: …` und die
+Bezeichnung je Sprache als `// processLabels: de | fr` mit (aus
+`override def processLabels` der Domain). Die Imports kommen aus den Dateien
+der Domain: ein Feldtyp wird zuerst über sie aufgelöst (`LoadPoas` aus
+vollmacht, nicht die gleichnamige des eigenen Projekts), und Beispiele und
+Beschreibungen bringen mit, was sie brauchen (`defaultValidUntil`,
+`SendProcessEvent.processName`, `Escalation.*`).
 `./helper.scala processFromSpec` führt den Block in ein **bestehendes**
 Prozess-Objekt zusammen, statt es neu zu schreiben: `descr`,
 `processLabels`, die Paket-Klausel, die eigenen Imports und eigene Mocks im

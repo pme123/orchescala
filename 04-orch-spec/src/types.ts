@@ -328,6 +328,12 @@ export interface Field {
    * Beschreibung ändert, ersetzt ihn.
    */
   descriptionExpr?: string;
+  /**
+   * Die Imports, die `descriptionExpr` braucht — aus der Datei der Domain:
+   * `valiant.bpmn.domain.sendProcessEvent.v1.SendProcessEvent` für
+   * `s"…${SendProcessEvent.processName}…"`, `…Escalation.*` für `timerStartEscalationDescr`
+   */
+  descriptionImports?: string[];
   [key: string]: unknown;
 }
 
@@ -520,6 +526,9 @@ export interface TeamsNotifySettings {
   template?: string;
 }
 
+/** Die Bezeichnung des Prozesses je Sprache — `ProcessLabels(de, fr)` in Orchescala */
+export interface ProcessLabels { de: string; fr: string }
+
 export interface ProcessSpec {
   /** für welche Engine dieser Prozess gebaut ist */
   engine?: EngineId;
@@ -533,6 +542,8 @@ export interface ProcessSpec {
   title: string;
   /** BPMN-Prozess-ID, z. B. `globex-savings-openSavingsV1` */
   processId?: string;
+  /** `override def processLabels` des Prozess-Objekts — aus der Domain, geht in den Export */
+  processLabels?: ProcessLabels;
   /** Orchescala-Projekt, z. B. `globex-savings` */
   project?: string;
   /**
@@ -669,6 +680,8 @@ export interface DomainType {
    * Objektname aus der ID geraten werden müssen.
    */
   processName?: string;
+  /** `override def processLabels: ProcessLabels = ProcessLabels("…", "…")` des Prozess-Objekts */
+  processLabels?: ProcessLabels;
   /** `val topicName` eines Worker-Objekts — dasselbe für Service-Tasks */
   topicName?: string;
   /** Art des Objekts laut DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */

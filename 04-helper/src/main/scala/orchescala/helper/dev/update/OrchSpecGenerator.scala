@@ -573,6 +573,14 @@ case class OrchSpecProcessObject(
       blockLines.drop(start + 1).takeWhile(_.startsWith("// ")).map(_.stripPrefix("// ")).mkString("\n")
     .filter(_.nonEmpty)
 
+  /** `processLabels` of the process (de, fr) - the export gives them as `// processLabels: de | fr`. */
+  lazy val processLabels: Option[(String, String)] =
+    blockLines.collectFirst { case l if l.startsWith("// processLabels: ") => l.stripPrefix("// processLabels: ") }
+      .flatMap: text =>
+        text.split(" \\| ", 2).toSeq match
+          case Seq(de, fr) => Some(de.trim -> fr.trim)
+          case _           => None
+
   /** `val descr` of the process - the export gives it as `// descr: …` (already escaped). */
   lazy val descr: String =
     blockLines.collectFirst { case l if l.startsWith("// descr: ") => l.stripPrefix("// descr: ").trim }
@@ -691,6 +699,12 @@ case class OrchSpecProcessObject(
         s"""  val descr: String = "$descr"""",
         ""
       ),
+      processLabels.toSeq.flatMap: (de, fr) =>
+        Seq(
+          "  override def processLabels: ProcessLabels =",
+          s"""    ProcessLabels("$de", "$fr")""",
+          ""
+        ),
       Seq(types.mkString("\n\n"), ""),
       Seq(
         "  lazy val example = process(",

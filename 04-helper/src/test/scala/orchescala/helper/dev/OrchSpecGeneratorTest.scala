@@ -422,6 +422,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       |// import x.y.Status
       |
       |// descr: Neue Karte
+      |// processLabels: Neue Karte | Nouvelle carte
       |
       |// in object Proc einfügen
       |
@@ -582,6 +583,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("new process object - In, InitIn, InConfig, Out and the descr of the export"):
     val content = mergeObject.content
     assert(content.contains("""  val descr: String = "Neue Karte""""), content)
+    assert(content.contains("  override def processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n"), content)
     val order   = Seq("  case class In(", "  case class InitIn(", "  case class InConfig(", "  case class Out(", "  enum CustomStatus:")
       .map(content.indexOf)
     assert(order.forall(_ >= 0) && order == order.sorted, content)

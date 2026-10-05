@@ -347,6 +347,22 @@ export function enumHasCase(en: DomainType | null | undefined, c: string): boole
   return (en.cases ?? []).some(x => x.name === c || x.name === bare) || (en.values ?? []).includes(bare);
 }
 
+/**
+ * Die Imports einer Datei, die ein Ausdruck in `@description(…)` braucht: die
+ * ausdrücklichen, deren Name darin vorkommt (`SendProcessEvent.processName`),
+ * und — für frei stehende Namen wie `timerStartEscalationDescr`, die aus einem
+ * Objekt kommen — die Objekt-Wildcards (`…Escalation.*`).
+ */
+export function importsForExpression(expr: string, imports: string[] | undefined): string[] {
+  if (!imports?.length) return [];
+  const names = new Set(expr.match(/[A-Za-z_]\w*/g) ?? []);
+  const explicit = imports.filter(i => !i.endsWith('.*') && names.has(i.slice(i.lastIndexOf('.') + 1)));
+  // ein frei stehender Name (klein, nicht nach einem Punkt) — kein Feld eines Objekts
+  const bare = /(^|[^\w.$])[a-z]\w*(?![\w(.])/.test(expr.replace(/"(?:[^"\\]|\\.)*"/g, m => m.replace(/[^${}.\w]/g, ' ')));
+  const objectWildcards = bare ? imports.filter(i => /\.[A-Z]\w*\.\*$/.test(i)) : [];
+  return [...new Set([...explicit, ...objectWildcards])];
+}
+
 // ── Beispielwerte ────────────────────────────────────────────────────────────
 //
 // Das Companion trägt die Beispieldaten:

@@ -24,7 +24,7 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
-import { exampleOf, typeShape } from './scalaTypes';
+import { exampleOf, importsForExpression, typeShape } from './scalaTypes';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
 import { packageOf, referencedClass } from './scala';
 import { INTERACTION_META } from './types';
@@ -296,7 +296,12 @@ class Converter {
         if (constraint) f.constraint = constraint;
         if (p.default && p.default !== 'None') f.default = p.default;
         if (p.description) f.description = p.description;
-        if (p.descriptionExpr) f.descriptionExpr = p.descriptionExpr;
+        if (p.descriptionExpr) {
+          f.descriptionExpr = p.descriptionExpr;
+          // die Objekte darin brauchen ihre Imports — so, wie sie in der Datei stehen
+          const imports = importsForExpression(p.descriptionExpr, dom.imports);
+          if (imports.length) f.descriptionImports = imports;
+        }
         const example = exampleOf(p);
         if (example) f.example = example;
         // die Beispielwerte (`defaultValidUntil`) mit den Imports ihrer Datei — welcher
@@ -604,6 +609,8 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const enriched: ProcessSpec = {
     ...spec,
     ...(procType.ownerDescr && !spec.description ? { description: procType.ownerDescr } : {}),
+    // die Bezeichnung je Sprache kommt aus der Domain — der Export gibt sie mit
+    ...(procType.processLabels ? { processLabels: procType.processLabels } : {}),
     types: conv.types,
     interactions,
   };
