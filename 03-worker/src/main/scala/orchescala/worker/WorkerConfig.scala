@@ -32,8 +32,10 @@ trait WorkerConfig:
     * claims of Keycloak and Entra ID ([[RoleClaims]]); override it for another IdP.
     *
     * It runs for every call of a worker with roles - on the blocking pool, but keep it fast (better
-    * no call to the IdP). If it throws or takes longer than [[rolesTimeout]], the roles cannot be
-    * checked: the call is answered with 503 and the worker does not run.
+    * no call to the IdP). An override that asks the IdP should cache the roles per token (or per
+    * subject, for the lifetime of the token) - else every call costs an IdP request and a thread.
+    * If it throws or takes longer than [[rolesTimeout]], the roles cannot be checked: the call is
+    * answered with 503 and the worker does not run.
     */
   def rolesOf(token: String): Set[String] = RoleClaims.fromToken(token, roleClients)
 

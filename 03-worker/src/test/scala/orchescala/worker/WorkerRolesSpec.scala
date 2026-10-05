@@ -110,6 +110,20 @@ object WorkerRolesSpec extends ZIOSpecDefault:
     ):
       override def roleClients: Set[String] = clients
 
+  /** A rolesOf like a socket read without timeout: an interrupt does not end it, only `release`. */
+  private def stubborn(jwks: Jwks, release: java.util.concurrent.CountDownLatch): WorkerConfig =
+    new DefaultWorkerConfig(
+      DefaultEngineConfig(),
+      tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwks.url))
+    ):
+      override def rolesTimeout: zio.Duration          = zio.Duration.fromMillis(200)
+      override def rolesOf(token: String): Set[String] =
+        while release.getCount > 0 do
+          try release.await()
+          catch case _: InterruptedException => ()
+        Set("kundenberater")
+      end rolesOf
+
   private def call(worker: PingWorker, token: String, config: Option[WorkerConfig] = None) =
     for
       jwks     <- ZIO.service[Jwks]
@@ -243,7 +257,13 @@ object WorkerRolesSpec extends ZIOSpecDefault:
                       override def rolesOf(token: String): Set[String] =
                         throw IllegalStateException("IdP down")
         response <- callWith(worker, token(realmRoles("kundenberater")), failing)
-      yield assertTrue(response.status == Status.ServiceUnavailable, worker.runs.get == 0)
+        body     <- response.body.asString
+      yield assertTrue(
+        response.status == Status.ServiceUnavailable,
+        body.contains("The roles of the caller cannot be checked right now"),
+        !body.contains("IdP down"), // the cause stays in the log
+        worker.runs.get == 0
+      )
       end for
     },
     test("only Jwt and AnyOf verify - the gate for roles and the audit user") {
@@ -318,6 +338,24 @@ object WorkerRolesSpec extends ZIOSpecDefault:
         took     <- Clock.nanoTime.map(now => (now - started) / 1000000)
       yield assertTrue(
         response.status == Status.ServiceUnavailable,
+        took < 5000L,
+        worker.runs.get == 0
+      )
+      end for
+    },
+    test("a rolesOf that ignores interrupts still ends after rolesTimeout with 503") {
+      val worker  = PingWorker(Set("kundenberater"))
+      val release = java.util.concurrent.CountDownLatch(1)
+      for
+        jwks     <- ZIO.service[Jwks]
+        started  <- Clock.nanoTime
+        response <- callWith(worker, token(realmRoles("kundenberater")), stubborn(jwks, release))
+                      .ensuring(ZIO.succeed(release.countDown())) // frees the blocked thread
+        took <- Clock.nanoTime.map(now => (now - started) / 1000000)
+        body <- response.body.asString
+      yield assertTrue(
+        response.status == Status.ServiceUnavailable,
+        body.contains("cannot be checked right now"),
         took < 5000L,
         worker.runs.get == 0
       )

@@ -96,8 +96,10 @@ case class WorkerRoutes(engineContext: EngineContext):
       refuse("the worker requires roles, but tokens are not verified (TokenValidation.PresenceOnly)")
     else
       ZIO
-        // an override may do blocking IO - interruptible, so the timeout really ends it
+        // an override may do blocking IO - interruptible, and disconnected: the timeout answers
+        // after rolesTimeout even if rolesOf ignores the interrupt (it ends in the background)
         .attemptBlockingInterrupt(config.rolesOf(token))
+        .disconnect
         .timeoutFail(java.util.concurrent.TimeoutException(s"rolesOf took longer than ${config.rolesTimeout}"))(
           config.rolesTimeout
         )
