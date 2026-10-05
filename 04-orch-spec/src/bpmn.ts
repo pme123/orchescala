@@ -990,7 +990,16 @@ export interface MergeReport {
  * früheren Abgleich auf «Angepasst» steht und jetzt mit dem BPMN
  * übereinstimmt — der Abgleich bestätigt es (siehe `settle`).
  */
-export interface MergeStatus { added: Status; changed: Status }
+export interface MergeStatus {
+  added: Status;
+  changed: Status;
+  /**
+   * Mappings und Mock der Schritte aus dem BPMN übernehmen — auch wo das
+   * Diagramm sie nicht geändert hat. Für Spezifikationen, deren gespeicherte
+   * Zeilen veraltet sind; die Bedeutung der Zeilen bleibt.
+   */
+  mappingsFromBpmn?: boolean;
+}
 export const DEFAULT_MERGE_STATUS: MergeStatus = { added: 'draft', changed: 'changed' };
 
 /** Status eines unveränderten Elements: «Angepasst» wird bestätigt, sonst bleibt er. */
@@ -1084,16 +1093,17 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (s.kind !== 'goto') report.added.push(s.name);
       s.status = st.added;
     } else {
-      keepSpecOwned(s, prev, base?.get(s.id));
+      if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
       keepEmptyErrors(s, prev);
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
-      // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation
+      // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation —
+      // mit `mappingsFromBpmn` gilt die Abwahl nicht: was im BPMN steht, ist an
       for (const list of ['inputs', 'outputs'] as const) {
         const before = new Map((prev[list] ?? []).map(m => [m.name, m]));
         for (const m of s[list] ?? []) {
           const p = before.get(m.name);
           if (p?.description) m.description = p.description;
-          if (p?.disabled) m.disabled = true;
+          if (p?.disabled && !st.mappingsFromBpmn) m.disabled = true;
         }
       }
       // Status gehört der Spezifikation: er bleibt, wie er gesetzt wurde.

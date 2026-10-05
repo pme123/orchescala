@@ -281,6 +281,15 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1">
           <StatusSelect label="Status für Neues" value={st.added} onChange={s => setSt({ ...st, added: s })} isDark={isDark} />
           <StatusSelect label="für Geändertes" value={st.changed} onChange={s => setSt({ ...st, changed: s })} isDark={isDark} />
+          {!domainOnly && (
+            <label className={`flex items-center gap-1.5 text-[10px] ${c.muted2}`}
+              title={'Ein- und Ausgaben und Mock aller Schritte so, wie sie im BPMN stehen — auch dort, wo das Diagramm sie nicht geändert hat.\n'
+                + 'Für eine Spezifikation, deren gespeicherte Mappings veraltet sind (z. B. aus einer älteren Version importiert). '
+                + 'Die Bedeutung der Zeilen bleibt; was du in der Orch Spec an Mappings geändert hast, geht verloren.'}>
+              <input type="checkbox" checked={!!st.mappingsFromBpmn} onChange={e => setSt({ ...st, mappingsFromBpmn: e.target.checked || undefined })} />
+              Mappings aus dem BPMN übernehmen
+            </label>
+          )}
           {r.lost > 0 && (
             <span className={`flex items-center gap-1 text-[10px] ${c.muted}`}
               title="Kommentare werden nie gelöscht — sie stehen im Kommentar-Panel unter «Ohne Stelle», bis sie erledigt sind">

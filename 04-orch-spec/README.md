@@ -132,6 +132,13 @@ Status für Neues [Umgesetzt ▾]  für Geändertes [Angepasst ▾]   💬 1 Kom
   die Vorschau zeigt, welche dazukommen, wegfallen oder andere Parameter
   haben («~ Prozess-Event (Benutzeraufgabe) «Rückbestätigung erfassen
   (KUBE)»: subStatusKey=… → …»).
+- **Mappings aus dem BPMN übernehmen** (Option im Dialog): Ein- und
+  Ausgaben und Mock aller Schritte so, wie sie im BPMN stehen — auch wo das
+  Diagramm sie nicht geändert hat; eine Abwahl in der Spezifikation gilt
+  dann nicht. Für eine Spezifikation, deren gespeicherte Mappings veraltet
+  sind (aus einer älteren Version importiert): sonst setzen sie sich bei
+  jedem Rundlauf Import → Export wieder durch. Die Bedeutung der Zeilen
+  bleibt; eigene Änderungen an Mappings in der Orch Spec gehen verloren.
 - **Kommentare** gehen nie verloren. Fäden an einer Stelle, die es danach
   nicht mehr gibt, stehen im Kommentar-Panel unter «Ohne Stelle» — mit dem
   Namen, den die Stelle zuletzt hatte («Ende succeeded»).
