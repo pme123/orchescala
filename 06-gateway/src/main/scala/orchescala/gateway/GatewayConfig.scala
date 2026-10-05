@@ -107,6 +107,17 @@ trait GatewayConfig:
     */
   def docsAppUrl: (projectName: String) => Option[String]
 
+  /** Resolves the base URL of the worker app that serves the UI bundle of a project
+    * (`/app/{projectName}/` → `{baseUrl}/ui/`). Defaults to [[docsAppUrl]] - the same worker app.
+    * Returns None if the project has no UI.
+    */
+  def uiAppUrl: (projectName: String) => Option[String] = docsAppUrl
+
+  /** `Content-Security-Policy` header for the UI bundle (`/app/...`). None by default - the policy
+    * depends on the app, e.g. the identity provider it talks to.
+    */
+  def uiContentSecurityPolicy: Option[String] = None
+
   /** Authentication scheme for the `/docs` routes. Defaults to [[DocsAuth.Disabled]]. */
   def docsAuth: DocsAuth = DocsAuth.Disabled
 

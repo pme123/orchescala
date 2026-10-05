@@ -66,7 +66,7 @@ trait WorkerApp extends ZIOAppDefault:
                            ZIO.logInfo(s"/worker verifies Bearer tokens: ${verified.description}")
         _           <- ZIO.logInfo(s"Server ready at http://localhost:$port")
         _           <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs/")
-        _           <- Server.serve(workerRoutes ++ docsRoutes).forever
+        _           <- Server.serve(workerRoutes ++ docsRoutes ++ UiRoutes.routes).forever
         _           <- ZIO.logInfo("Http Server is stopping.")
         _           <- workersFork.join
       yield ()
