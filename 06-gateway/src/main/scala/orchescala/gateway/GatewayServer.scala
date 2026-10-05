@@ -101,7 +101,8 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
           gatewayEngine.deploymentService
         ).routes
     ) ++
-      OpenApiRoutes().routes
+      OpenApiRoutes().routes ++
+      AppRoutes().routes
 
   // Log environment info on startup
   println(EnvironmentDetector.environmentInfo)

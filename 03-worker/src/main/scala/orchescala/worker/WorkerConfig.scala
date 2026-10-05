@@ -23,6 +23,11 @@ trait WorkerConfig:
       |""".stripMargin)
   def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 
+  /** The largest file of the UI bundle (`/ui/`) the worker app serves, in bytes. Keep it at most
+    * `GatewayConfig.uiMaxFileSize` - a bigger file passes here but is a 502 at the gateway.
+    */
+  def uiMaxFileSize: Long = UiRoutes.defaultMaxFileSize
+
 end WorkerConfig
 
 case class DefaultWorkerConfig(
