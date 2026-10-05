@@ -445,9 +445,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       </div>
 
       {/* ── Editor ─────────────────────────────────────────────────────────── */}
-      {/* Der Editor über die ganze Breite — die Felder wachsen mit */}
+      {/* Der Editor in lesbarer Breite, mittig — sonst laufen die Feldzeilen
+          auf einem breiten Bildschirm ins Leere; darin füllen die Felder die Breite */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-       <div className="w-full">
+       <div className="max-w-4xl mx-auto w-full">
         {showConfig ? (
           <GeneratedConfig spec={spec} idx={idx} isDark={isDark} canEdit={canEdit} onAdd={addInConfig} />
         ) : !current && !selectedIa ? (
