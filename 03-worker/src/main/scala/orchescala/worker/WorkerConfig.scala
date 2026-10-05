@@ -32,9 +32,13 @@ trait WorkerConfig:
     * claims of Keycloak and Entra ID ([[RoleClaims]]); override it for another IdP.
     *
     * It runs for every call of a worker with roles - on the blocking pool, but keep it fast (better
-    * no call to the IdP). An exception gives no roles - the call is refused.
+    * no call to the IdP). If it throws or takes longer than [[rolesTimeout]], the roles cannot be
+    * checked: the call is answered with 503 and the worker does not run.
     */
   def rolesOf(token: String): Set[String] = RoleClaims.fromToken(token, roleClients)
+
+  /** How long [[rolesOf]] may take - after it the call is answered with 503. */
+  def rolesTimeout: zio.Duration = zio.Duration.fromSeconds(5)
 
   /** The largest file of the UI bundle (`/ui/`) the worker app serves, in bytes. Keep it at most
     * `GatewayConfig.uiMaxFileSize` - a bigger file passes here but is a 502 at the gateway.

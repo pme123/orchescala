@@ -96,17 +96,20 @@ case class WorkerRoutes(engineContext: EngineContext):
       refuse("the worker requires roles, but tokens are not verified (TokenValidation.PresenceOnly)")
     else
       ZIO
-        .attemptBlocking(config.rolesOf(token)) // an override may do blocking IO
-        .foldCauseZIO(
+        // an override may do blocking IO - interruptible, so the timeout really ends it
+        .attemptBlockingInterrupt(config.rolesOf(token))
+        .timeoutFail(java.util.concurrent.TimeoutException(s"rolesOf took longer than ${config.rolesTimeout}"))(
+          config.rolesTimeout
+        )
+        // only failures: an interruption (the request was cancelled) is passed on, not turned into 503
+        .catchAll: err =>
           // the roles cannot be checked (e.g. the IdP is down) - not the same as "no role": 503,
           // and the worker does not run either
-          cause =>
-            ZIO.logErrorCause(s"Roles of ${TokenFingerprint(token)} cannot be read", cause) *>
-              ZIO.fail(WorkerError.ServiceRequestError(503, "The roles of the caller cannot be checked right now")),
-          roles =>
-            if roles.exists(required.contains) then ZIO.unit
-            else refuse(s"none of the roles ${required.toSeq.sorted.mkString(", ")}")
-        )
+          ZIO.logErrorCause(s"Roles of ${TokenFingerprint(token)} cannot be read", zio.Cause.fail(err)) *>
+            ZIO.fail(WorkerError.ServiceRequestError(503, "The roles of the caller cannot be checked right now"))
+        .flatMap: roles =>
+          if roles.exists(required.contains) then ZIO.unit
+          else refuse(s"none of the roles ${required.toSeq.sorted.mkString(", ")}")
     end if
   end checkRoles
 

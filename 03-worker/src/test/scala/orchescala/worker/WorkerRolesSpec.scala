@@ -91,11 +91,13 @@ object WorkerRolesSpec extends ZIOSpecDefault:
     claims.foldLeft(
       JWT.create().withIssuer(issuer).withKeyId("test").withExpiresAt(Instant.now.plusSeconds(300))
     ):
+      case (jwt, ("aud", value: String))             => jwt.withAudience(value)
       case (jwt, (name, value: String))              => jwt.withClaim(name, value)
       case (jwt, (name, value: java.util.List[?]))   => jwt.withClaim(name, value)
       case (jwt, (name, value: java.util.Map[?, ?])) =>
         jwt.withClaim(name, value.asInstanceOf[java.util.Map[String, ?]])
-      case (jwt, _)                                  => jwt
+      case (_, (name, value))                        => // a typo in a test must not silently drop a claim
+        throw IllegalArgumentException(s"unsupported claim $name: $value")
     .sign(algorithm)
 
   private def realmRoles(roles: String*) =
@@ -251,6 +253,75 @@ object WorkerRolesSpec extends ZIOSpecDefault:
         jwt.verifies,
         TokenValidation.AnyOf(jwt).verifies
       )
+    },
+    test("AnyOf verifies as well - the user with the role calls the worker") {
+      val worker = PingWorker(Set("kundenberater"))
+      for
+        jwks    <- ZIO.service[Jwks]
+        anyOf    = DefaultWorkerConfig(
+                     DefaultEngineConfig(),
+                     tokenValidation =
+                       TokenValidation.AnyOf(TokenValidation.Jwt(issuer, jwksUrl = Some(jwks.url)))
+                   )
+        allowed <- callWith(worker, token(realmRoles("kundenberater")), anyOf)
+        refused <- callWith(worker, token(realmRoles("default-roles")), anyOf)
+      yield assertTrue(allowed.status == Status.Ok, refused.status == Status.Forbidden)
+      end for
+    },
+    test("with an audience only tokens issued for this app count - also with the role") {
+      val worker = PingWorker(Set("kundenberater"))
+      for
+        jwks     <- ZIO.service[Jwks]
+        withAud   =
+          DefaultWorkerConfig(
+            DefaultEngineConfig(),
+            tokenValidation =
+              TokenValidation.Jwt(issuer, jwksUrl = Some(jwks.url), audience = Seq("my-app"))
+          )
+        otherApp <- callWith(worker, token(realmRoles("kundenberater")), withAud)
+        thisApp  <- callWith(worker, token("aud" -> "my-app", realmRoles("kundenberater")), withAud)
+      yield assertTrue(
+        otherApp.status == Status.Unauthorized,
+        thisApp.status == Status.Ok,
+        worker.runs.get == 1
+      )
+      end for
+    },
+    test("an unknown topic is 404 - before any role check") {
+      val worker  = PingWorker(Set("kundenberater"))
+      val request = Request
+        .post(URL.decode("/worker/test-roles-unknown").toOption.get, Body.fromString("{}"))
+        .addHeader(Header.Authorization.Bearer(token(realmRoles("default-roles"))))
+      for
+        jwks     <- ZIO.service[Jwks]
+        routes    = WorkerRoutes(DefaultEngineContext.example.copy(workerConfig =
+                      verified(jwks)
+                    )).routes(Set(worker))
+        response <- ZIO.scoped(routes.runZIO(request))
+      yield assertTrue(response.status == Status.NotFound)
+      end for
+    },
+    test("a hanging rolesOf ends after rolesTimeout with 503") {
+      val worker = PingWorker(Set("kundenberater"))
+      for
+        jwks     <- ZIO.service[Jwks]
+        hanging   = new DefaultWorkerConfig(
+                      DefaultEngineConfig(),
+                      tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwks.url))
+                    ):
+                      override def rolesTimeout: zio.Duration          = zio.Duration.fromMillis(200)
+                      override def rolesOf(token: String): Set[String] =
+                        Thread.sleep(30000)
+                        Set("kundenberater")
+        started  <- Clock.nanoTime
+        response <- callWith(worker, token(realmRoles("kundenberater")), hanging)
+        took     <- Clock.nanoTime.map(now => (now - started) / 1000000)
+      yield assertTrue(
+        response.status == Status.ServiceUnavailable,
+        took < 5000L,
+        worker.runs.get == 0
+      )
+      end for
     },
     test("without verified tokens a worker with roles refuses every call - fails closed") {
       val worker = PingWorker(Set("kundenberater"))
