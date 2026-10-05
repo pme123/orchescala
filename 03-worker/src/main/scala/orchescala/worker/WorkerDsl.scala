@@ -27,6 +27,10 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
   /** The roles that may call the worker through `/worker/{topic}` (the gateway, a UI) - the user
     * of the Bearer token needs at least one of them (`WorkerConfig.rolesOf`), else 403. Empty: every
     * caller with a valid token. For example `override def requiredRoles = Set("kundenberater")`.
+    * Role names are compared exactly, also in case - as the IdP issues them.
+    *
+    * Fails closed: without verified tokens (`TokenValidation.PresenceOnly`) a worker with roles
+    * refuses every call - an unverified token could carry any role.
     *
     * Only for the synchronous call: a job of a process engine runs with the identity of the
     * engine - who may start or advance the process is decided there.

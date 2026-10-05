@@ -3,7 +3,7 @@ package orchescala.worker
 import orchescala.domain.*
 import orchescala.engine.domain.EngineError
 import orchescala.engine.domain.EngineError.ProcessError
-import orchescala.engine.auth.TokenVerifier
+import orchescala.engine.auth.{TokenValidation, TokenVerifier}
 import orchescala.engine.rest.{HttpClientProvider, TokenFingerprint}
 import orchescala.engine.{AuthContext, EngineConfig, Slf4JLogger}
 import orchescala.worker.*
@@ -82,23 +82,28 @@ case class WorkerRoutes(engineContext: EngineContext):
       workerTimeout = Some(worker.timeout).collect { case timeout: scala.concurrent.duration.FiniteDuration => timeout }
     )
 
-  /** The user needs one of the `requiredRoles` of the worker - else 403. */
+  /** The user needs one of the `requiredRoles` of the worker - else 403. Fails closed: without
+    * verified tokens, or if the roles cannot be read, the call is refused.
+    */
   private[worker] def checkRoles(worker: WorkerDsl[?, ?], token: String): IO[WorkerError, Unit] =
     val required = worker.requiredRoles
+    val config   = engineContext.workerConfig
+    def refuse(reason: String) =
+      ZIO.logWarning(s"Worker '${worker.topic}' refused for ${TokenFingerprint(token)}: $reason") *>
+        ZIO.fail(WorkerError.ServiceRequestError(403, s"Not allowed to call worker '${worker.topic}'"))
     if required.isEmpty then ZIO.unit
+    else if config.tokenValidation == TokenValidation.PresenceOnly then
+      refuse("the worker requires roles, but tokens are not verified (TokenValidation.PresenceOnly)")
     else
-      val roles = engineContext.workerConfig.rolesOf(token)
-      if roles.exists(required.contains) then ZIO.unit
-      else
-        ZIO.logWarning(
-          s"Worker '${worker.topic}' refused for ${TokenFingerprint(token)}: none of the roles " +
-            required.toSeq.sorted.mkString(", ")
-        ) *>
-          ZIO.fail(WorkerError.ServiceRequestError(
-            403,
-            s"Worker '${worker.topic}' needs one of the roles: ${required.toSeq.sorted.mkString(", ")}"
-          ))
-      end if
+      ZIO
+        .attempt(config.rolesOf(token))
+        .catchAll(err =>
+          ZIO.logWarning(s"Roles of ${TokenFingerprint(token)} cannot be read: ${err.getMessage}")
+            .as(Set.empty[String])
+        )
+        .flatMap: roles =>
+          if roles.exists(required.contains) then ZIO.unit
+          else refuse(s"none of the roles ${required.toSeq.sorted.mkString(", ")}")
     end if
   end checkRoles
 

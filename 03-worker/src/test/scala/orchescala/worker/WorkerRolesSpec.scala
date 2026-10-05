@@ -2,14 +2,23 @@ package orchescala.worker
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.sun.net.httpserver.HttpServer
 import orchescala.domain.*
 import orchescala.engine.DefaultEngineConfig
+import orchescala.engine.auth.TokenValidation
 import zio.*
 import zio.http.*
 import zio.test.*
 
+import java.net.InetSocketAddress
+import java.security.KeyPairGenerator
+import java.security.interfaces.{RSAPrivateKey, RSAPublicKey}
+import java.time.Instant
+import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
 
+/** Roles with verified tokens: a JWKS endpoint of its own, tokens signed with its RSA key. */
 object WorkerRolesSpec extends ZIOSpecDefault:
 
   object PingTask extends BpmnCustomTaskDsl:
@@ -29,23 +38,73 @@ object WorkerRolesSpec extends ZIOSpecDefault:
     lazy val example = customTask(In(), Out())
   end PingTask
 
+  /** Counts its runs - proves that a refused call does not run the worker. */
   class PingWorker(roles: Set[String]) extends CustomWorkerDsl[PingTask.In, PingTask.Out]:
+    val runs                                                                             = AtomicInteger(0)
     lazy val customTask                                                                  = PingTask.example
     override def requiredRoles: Set[String]                                              = roles
     override def runWork(in: PingTask.In): Either[WorkerError.CustomError, PingTask.Out] =
+      runs.incrementAndGet()
       Right(PingTask.Out(s"pong ${in.name}"))
   end PingWorker
 
-  private def keycloakToken(realmRoles: String*) =
-    JWT.create()
-      .withClaim("preferred_username", "anna.berater")
-      .withClaim("realm_access", Map[String, Any]("roles" -> realmRoles.asJava).asJava)
-      .sign(Algorithm.HMAC256("test-only"))
+  // ---- a small identity provider: RSA key, JWKS over HTTP
+  private val issuer               = "https://sso.test/realms/test"
+  private lazy val keyPair         =
+    val generator = KeyPairGenerator.getInstance("RSA")
+    generator.initialize(2048)
+    generator.generateKeyPair()
+  private lazy val algorithm       =
+    Algorithm.RSA256(
+      keyPair.getPublic.asInstanceOf[RSAPublicKey],
+      keyPair.getPrivate.asInstanceOf[RSAPrivateKey]
+    )
+  private lazy val jwksUrl: String =
+    val key                          = keyPair.getPublic.asInstanceOf[RSAPublicKey]
+    def b64(n: java.math.BigInteger) =
+      Base64.getUrlEncoder.withoutPadding.encodeToString(n.toByteArray.dropWhile(_ == 0))
+    val jwks                         =
+      s"""{"keys":[{"kty":"RSA","kid":"test","use":"sig","alg":"RS256","n":"${b64(
+          key.getModulus
+        )}","e":"${b64(key.getPublicExponent)}"}]}"""
+    val server                       = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext(
+      "/certs",
+      exchange =>
+        val bytes = jwks.getBytes
+        exchange.getResponseHeaders.add("Content-Type", "application/json")
+        exchange.sendResponseHeaders(200, bytes.length)
+        exchange.getResponseBody.write(bytes)
+        exchange.close()
+    )
+    server.start()
+    s"http://127.0.0.1:${server.getAddress.getPort}/certs"
+  end jwksUrl
 
-  private def call(worker: PingWorker, token: String) =
-    val routes  = WorkerRoutes(
-      DefaultEngineContext.example.copy(workerConfig = DefaultWorkerConfig(DefaultEngineConfig()))
-    ).routes(Set(worker))
+  private def token(claims: (String, Any)*) =
+    claims.foldLeft(
+      JWT.create().withIssuer(issuer).withKeyId("test").withExpiresAt(Instant.now.plusSeconds(300))
+    ):
+      case (jwt, (name, value: String))              => jwt.withClaim(name, value)
+      case (jwt, (name, value: java.util.List[?]))   => jwt.withClaim(name, value)
+      case (jwt, (name, value: java.util.Map[?, ?])) =>
+        jwt.withClaim(name, value.asInstanceOf[java.util.Map[String, ?]])
+      case (jwt, _)                                  => jwt
+    .sign(algorithm)
+
+  private def realmRoles(roles: String*) =
+    "realm_access" -> Map[String, Any]("roles" -> roles.asJava).asJava
+
+  private def verified(clients: Set[String] = Set.empty): WorkerConfig =
+    new DefaultWorkerConfig(
+      DefaultEngineConfig(),
+      tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwksUrl))
+    ):
+      override def roleClients: Set[String] = clients
+
+  private def call(worker: PingWorker, token: String, config: WorkerConfig = verified()) =
+    val routes  =
+      WorkerRoutes(DefaultEngineContext.example.copy(workerConfig = config)).routes(Set(worker))
     val request = Request
       .post(
         URL.decode("/worker/test-roles-ping").toOption.get,
@@ -56,53 +115,112 @@ object WorkerRolesSpec extends ZIOSpecDefault:
   end call
 
   def spec = suite("WorkerDsl.requiredRoles")(
-    test("roles come from the Keycloak and Entra claims of the token") {
-      val keycloak = JWT.create()
-        .withClaim("realm_access", Map[String, Any]("roles" -> List("kundenberater").asJava).asJava)
-        .withClaim(
-          "resource_access",
-          Map[
-            String,
-            Any
-          ]("esprit-preview-ui" -> Map[String, Any]("roles" -> List("admin").asJava).asJava).asJava
+    suite("RoleClaims")(
+      test("app roles (Entra) and realm roles (Keycloak) count") {
+        assertTrue(
+          RoleClaims.fromToken(token(realmRoles("kundenberater"))) == Set("kundenberater"),
+          RoleClaims.fromToken(token("roles" -> List("Reviewer").asJava)) == Set("Reviewer"),
+          RoleClaims.fromToken(token(
+            "roles" -> List("Reviewer").asJava,
+            realmRoles("kundenberater")
+          )) ==
+            Set("Reviewer", "kundenberater")
         )
-        .sign(Algorithm.HMAC256("test-only"))
-      val entra    = JWT.create().withClaim(
-        "roles",
-        List("Reviewer").asJava
-      ).sign(Algorithm.HMAC256("test-only"))
-      assertTrue(
-        RoleClaims.fromToken(keycloak) == Set("kundenberater", "admin"),
-        RoleClaims.fromToken(entra) == Set("Reviewer"),
-        RoleClaims.fromToken(JWT.create().sign(Algorithm.HMAC256("test-only"))).isEmpty,
-        RoleClaims.fromToken("no-jwt").isEmpty
-      )
-    },
+      },
+      test("client roles count only for the configured clients") {
+        val clientRoles = token(
+          "resource_access" -> Map[String, Any](
+            "other-app" -> Map[String, Any]("roles" -> List("admin").asJava).asJava,
+            "my-app"    -> Map[String, Any]("roles" -> List("kundenberater").asJava).asJava
+          ).asJava
+        )
+        assertTrue(
+          RoleClaims.fromToken(clientRoles).isEmpty,
+          RoleClaims.fromToken(clientRoles, Set("my-app")) == Set("kundenberater")
+        )
+      },
+      test("a claim in an unexpected format gives no roles - never an error") {
+        assertTrue(
+          RoleClaims.fromToken(token("roles" -> List(Map[String, Any]().asJava).asJava)).isEmpty,
+          RoleClaims.fromToken(token("roles" -> "kundenberater")).isEmpty,
+          RoleClaims.fromToken(token("realm_access" -> "kundenberater")).isEmpty,
+          RoleClaims.fromToken("no-jwt").isEmpty
+        )
+      }
+    ),
     test("a user with the role calls the worker") {
+      val worker = PingWorker(Set("kundenberater"))
       for
-        response <-
-          call(PingWorker(Set("kundenberater")), keycloakToken("kundenberater", "default-roles"))
+        response <- call(worker, token(realmRoles("kundenberater", "default-roles")))
         body     <- response.body.asString
-      yield assertTrue(response.status == Status.Ok, body.contains("pong anna"))
+      yield assertTrue(
+        response.status == Status.Ok,
+        body.contains("pong anna"),
+        worker.runs.get == 1
+      )
+      end for
     },
-    test("a user without the role gets 403 - the worker does not run") {
+    test(
+      "a user without the role gets 403 - the worker does not run, the roles are not disclosed"
+    ) {
+      val worker = PingWorker(Set("kundenberater"))
       for
-        response <- call(PingWorker(Set("kundenberater")), keycloakToken("default-roles"))
+        response <- call(worker, token(realmRoles("default-roles")))
         body     <- response.body.asString
       yield assertTrue(
         response.status == Status.Forbidden,
-        body.contains("needs one of the roles: kundenberater"),
-        !body.contains("pong")
+        body.contains("Not allowed to call worker 'test-roles-ping'"),
+        !body.contains("kundenberater"),
+        worker.runs.get == 0
       )
+      end for
     },
     test("one of several roles is enough") {
-      call(PingWorker(Set("kundenberater", "admin")), keycloakToken("admin")).map: response =>
+      call(PingWorker(Set("kundenberater", "admin")), token(realmRoles("admin"))).map: response =>
         assertTrue(response.status == Status.Ok)
     },
-    test("without requiredRoles every caller with a token may call the worker") {
-      call(PingWorker(Set.empty), keycloakToken()).map(response =>
-        assertTrue(response.status == Status.Ok)
+    test("a client role counts only for a configured client") {
+      val worker = PingWorker(Set("kundenberater"))
+      val tok    = token(
+        "resource_access" -> Map[
+          String,
+          Any
+        ]("my-app" -> Map[String, Any]("roles" -> List("kundenberater").asJava).asJava).asJava
+      )
+      for
+        other <- call(worker, tok)
+        mine  <- call(worker, tok, verified(Set("my-app")))
+      yield assertTrue(other.status == Status.Forbidden, mine.status == Status.Ok)
+    },
+    test("a malformed roles claim is 403, not 500") {
+      val worker = PingWorker(Set("kundenberater"))
+      call(worker, token("roles" -> List(Map[String, Any]().asJava).asJava)).map: response =>
+        assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+    },
+    test("a failing rolesOf is 403, not 500") {
+      val failing = new DefaultWorkerConfig(
+        DefaultEngineConfig(),
+        tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwksUrl))
+      ):
+        override def rolesOf(token: String): Set[String] = throw IllegalStateException("IdP down")
+      val worker  = PingWorker(Set("kundenberater"))
+      call(worker, token(realmRoles("kundenberater")), failing).map: response =>
+        assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+    },
+    test("without verified tokens a worker with roles refuses every call - fails closed") {
+      val worker = PingWorker(Set("kundenberater"))
+      call(
+        worker,
+        token(realmRoles("kundenberater")),
+        DefaultWorkerConfig(DefaultEngineConfig())
+      ).map: response =>
+        assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+    },
+    test("without requiredRoles every caller with a valid token may call the worker") {
+      val worker = PingWorker(Set.empty)
+      call(worker, token()).map(response =>
+        assertTrue(response.status == Status.Ok, worker.runs.get == 1)
       )
     }
-  )
+  ) @@ TestAspect.withLiveClock // the JWT verifier caches the keys by the clock - TestClock starts at 0
 end WorkerRolesSpec

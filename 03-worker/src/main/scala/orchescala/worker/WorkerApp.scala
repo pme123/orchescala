@@ -69,7 +69,7 @@ trait WorkerApp extends ZIOAppDefault:
                            workerApps(this).flatMap(_.theWorkers).exists(_.requiredRoles.nonEmpty)
                        )(ZIO.logWarning(
                          "Workers require roles, but /worker does NOT verify Bearer tokens " +
-                           "(TokenValidation.PresenceOnly) - the roles could be forged."
+                           "(TokenValidation.PresenceOnly) - they refuse every call until TokenValidation.Jwt / AnyOf is configured."
                        ))
         _           <- ZIO.logInfo(s"Server ready at http://localhost:$port")
         _           <- ZIO.logInfo(s"API Documentation available at http://localhost:$port/docs/")

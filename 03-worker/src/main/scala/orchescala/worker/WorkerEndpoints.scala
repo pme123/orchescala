@@ -25,7 +25,7 @@ object WorkerEndpoints:
             ))))) { case e: ServiceRequestError if e.errorCode == 400 => true },
         oneOfVariantValueMatcher(statusCode(StatusCode.Forbidden)
           .and(jsonBody[ServiceRequestError]
-            .example(ServiceRequestError(403, "Worker 'myCompany-myProject-myWorker' needs one of the roles: kundenberater")))) {
+            .example(ServiceRequestError(403, "Not allowed to call worker 'myCompany-myProject-myWorker'")))) {
           case e: ServiceRequestError if e.errorCode == 403 => true
         },
         oneOfVariantValueMatcher(statusCode(StatusCode.NotFound)

@@ -23,10 +23,18 @@ trait WorkerConfig:
       |""".stripMargin)
   def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 
+  /** Keycloak clients whose client roles (`resource_access.{client}.roles`) count for
+    * `WorkerDsl.requiredRoles` - by default none, only app roles (`roles`) and realm roles.
+    */
+  def roleClients: Set[String] = Set.empty
+
   /** The roles of the user of a Bearer token - for `WorkerDsl.requiredRoles`. Default: the role
     * claims of Keycloak and Entra ID ([[RoleClaims]]); override it for another IdP.
+    *
+    * It runs for every call of a worker with roles: keep it pure and fast (no call to the IdP). An
+    * exception gives no roles - the call is refused.
     */
-  def rolesOf(token: String): Set[String] = RoleClaims.fromToken(token)
+  def rolesOf(token: String): Set[String] = RoleClaims.fromToken(token, roleClients)
 
   /** The largest file of the UI bundle (`/ui/`) the worker app serves, in bytes. Keep it at most
     * `GatewayConfig.uiMaxFileSize` - a bigger file passes here but is a 502 at the gateway.
