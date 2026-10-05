@@ -14,6 +14,10 @@ import scala.util.Try
   *
   * The token is only decoded - it is trusted because the worker app verified it before. A claim in
   * an unexpected format gives no roles (the call is refused), never an error.
+  *
+  * App and realm roles are not tied to an app: verify the `audience` of the token
+  * (`TokenValidation.Jwt(audience = ...)`), so a token issued for another app of the same issuer is
+  * rejected before its roles count.
   */
 object RoleClaims:
 

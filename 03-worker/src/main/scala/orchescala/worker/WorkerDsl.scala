@@ -32,6 +32,10 @@ trait WorkerDsl[In <: Product: InOutCodec, Out <: Product: InOutCodec]:
     * Fails closed: without verified tokens (`TokenValidation.PresenceOnly`) a worker with roles
     * refuses every call - an unverified token could carry any role.
     *
+    * App and realm roles hold for every token of the issuer - also one issued for another app of
+    * the same realm. Set the `audience` of `TokenValidation.Jwt` (in Keycloak: an audience mapper
+    * on the client), so only tokens issued for this app are accepted.
+    *
     * Only for the synchronous call: a job of a process engine runs with the identity of the
     * engine - who may start or advance the process is decided there.
     */

@@ -49,37 +49,43 @@ object WorkerRolesSpec extends ZIOSpecDefault:
   end PingWorker
 
   // ---- a small identity provider: RSA key, JWKS over HTTP
-  private val issuer               = "https://sso.test/realms/test"
-  private lazy val keyPair         =
+  private val issuer         = "https://sso.test/realms/test"
+  private lazy val keyPair   =
     val generator = KeyPairGenerator.getInstance("RSA")
     generator.initialize(2048)
     generator.generateKeyPair()
-  private lazy val algorithm       =
+  private lazy val algorithm =
     Algorithm.RSA256(
       keyPair.getPublic.asInstanceOf[RSAPublicKey],
       keyPair.getPrivate.asInstanceOf[RSAPrivateKey]
     )
-  private lazy val jwksUrl: String =
-    val key                          = keyPair.getPublic.asInstanceOf[RSAPublicKey]
-    def b64(n: java.math.BigInteger) =
-      Base64.getUrlEncoder.withoutPadding.encodeToString(n.toByteArray.dropWhile(_ == 0))
-    val jwks                         =
-      s"""{"keys":[{"kty":"RSA","kid":"test","use":"sig","alg":"RS256","n":"${b64(
-          key.getModulus
-        )}","e":"${b64(key.getPublicExponent)}"}]}"""
-    val server                       = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-    server.createContext(
-      "/certs",
-      exchange =>
-        val bytes = jwks.getBytes
-        exchange.getResponseHeaders.add("Content-Type", "application/json")
-        exchange.sendResponseHeaders(200, bytes.length)
-        exchange.getResponseBody.write(bytes)
-        exchange.close()
-    )
-    server.start()
-    s"http://127.0.0.1:${server.getAddress.getPort}/certs"
-  end jwksUrl
+
+  /** Where the test IdP serves its keys - a JDK HttpServer, stopped with the suite. */
+  case class Jwks(url: String)
+
+  private val jwks: ZLayer[Any, Throwable, Jwks] = ZLayer.scoped:
+    ZIO
+      .acquireRelease(ZIO.attempt:
+        val key                          = keyPair.getPublic.asInstanceOf[RSAPublicKey]
+        def b64(n: java.math.BigInteger) =
+          Base64.getUrlEncoder.withoutPadding.encodeToString(n.toByteArray.dropWhile(_ == 0))
+        val body                         =
+          s"""{"keys":[{"kty":"RSA","kid":"test","use":"sig","alg":"RS256","n":"${b64(
+              key.getModulus
+            )}","e":"${b64(key.getPublicExponent)}"}]}"""
+        val server                       = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext(
+          "/certs",
+          exchange =>
+            val bytes = body.getBytes
+            exchange.getResponseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.length)
+            exchange.getResponseBody.write(bytes)
+            exchange.close()
+        )
+        server.start()
+        server)(server => ZIO.succeed(server.stop(0)))
+      .map(server => Jwks(s"http://127.0.0.1:${server.getAddress.getPort}/certs"))
 
   private def token(claims: (String, Any)*) =
     claims.foldLeft(
@@ -95,14 +101,20 @@ object WorkerRolesSpec extends ZIOSpecDefault:
   private def realmRoles(roles: String*) =
     "realm_access" -> Map[String, Any]("roles" -> roles.asJava).asJava
 
-  private def verified(clients: Set[String] = Set.empty): WorkerConfig =
+  private def verified(jwks: Jwks, clients: Set[String] = Set.empty): WorkerConfig =
     new DefaultWorkerConfig(
       DefaultEngineConfig(),
-      tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwksUrl))
+      tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwks.url))
     ):
       override def roleClients: Set[String] = clients
 
-  private def call(worker: PingWorker, token: String, config: WorkerConfig = verified()) =
+  private def call(worker: PingWorker, token: String, config: Option[WorkerConfig] = None) =
+    for
+      jwks     <- ZIO.service[Jwks]
+      response <- callWith(worker, token, config.getOrElse(verified(jwks)))
+    yield response
+
+  private def callWith(worker: PingWorker, token: String, config: WorkerConfig) =
     val routes  =
       WorkerRoutes(DefaultEngineContext.example.copy(workerConfig = config)).routes(Set(worker))
     val request = Request
@@ -112,7 +124,7 @@ object WorkerRolesSpec extends ZIOSpecDefault:
       )
       .addHeader(Header.Authorization.Bearer(token))
     ZIO.scoped(routes.runZIO(request))
-  end call
+  end callWith
 
   def spec = suite("WorkerDsl.requiredRoles")(
     suite("RoleClaims")(
@@ -189,8 +201,10 @@ object WorkerRolesSpec extends ZIOSpecDefault:
       )
       for
         other <- call(worker, tok)
-        mine  <- call(worker, tok, verified(Set("my-app")))
+        jwks  <- ZIO.service[Jwks]
+        mine  <- callWith(worker, tok, verified(jwks, Set("my-app")))
       yield assertTrue(other.status == Status.Forbidden, mine.status == Status.Ok)
+      end for
     },
     test("a malformed roles claim is 403, not 500") {
       val worker = PingWorker(Set("kundenberater"))
@@ -198,18 +212,22 @@ object WorkerRolesSpec extends ZIOSpecDefault:
         assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
     },
     test("a failing rolesOf is 403, not 500") {
-      val failing = new DefaultWorkerConfig(
-        DefaultEngineConfig(),
-        tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwksUrl))
-      ):
-        override def rolesOf(token: String): Set[String] = throw IllegalStateException("IdP down")
-      val worker  = PingWorker(Set("kundenberater"))
-      call(worker, token(realmRoles("kundenberater")), failing).map: response =>
-        assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+      val worker = PingWorker(Set("kundenberater"))
+      for
+        jwks     <- ZIO.service[Jwks]
+        failing   = new DefaultWorkerConfig(
+                      DefaultEngineConfig(),
+                      tokenValidation = TokenValidation.Jwt(issuer, jwksUrl = Some(jwks.url))
+                    ):
+                      override def rolesOf(token: String): Set[String] =
+                        throw IllegalStateException("IdP down")
+        response <- callWith(worker, token(realmRoles("kundenberater")), failing)
+      yield assertTrue(response.status == Status.Forbidden, worker.runs.get == 0)
+      end for
     },
     test("without verified tokens a worker with roles refuses every call - fails closed") {
       val worker = PingWorker(Set("kundenberater"))
-      call(
+      callWith(
         worker,
         token(realmRoles("kundenberater")),
         DefaultWorkerConfig(DefaultEngineConfig())
@@ -222,5 +240,6 @@ object WorkerRolesSpec extends ZIOSpecDefault:
         assertTrue(response.status == Status.Ok, worker.runs.get == 1)
       )
     }
-  ) @@ TestAspect.withLiveClock // the JWT verifier caches the keys by the clock - TestClock starts at 0
+  ).provideShared(jwks.orDie)
+    @@ TestAspect.withLiveClock // the JWT verifier caches the keys by the clock - TestClock starts at 0
 end WorkerRolesSpec

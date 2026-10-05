@@ -96,10 +96,12 @@ case class WorkerRoutes(engineContext: EngineContext):
       refuse("the worker requires roles, but tokens are not verified (TokenValidation.PresenceOnly)")
     else
       ZIO
-        .attempt(config.rolesOf(token))
+        .attemptBlocking(config.rolesOf(token)) // an override may do blocking IO
         .catchAll(err =>
-          ZIO.logWarning(s"Roles of ${TokenFingerprint(token)} cannot be read: ${err.getMessage}")
-            .as(Set.empty[String])
+          ZIO.logWarningCause(
+            s"Roles of ${TokenFingerprint(token)} cannot be read: ${Option(err.getMessage).getOrElse(err.toString)}",
+            zio.Cause.fail(err)
+          ).as(Set.empty[String])
         )
         .flatMap: roles =>
           if roles.exists(required.contains) then ZIO.unit
