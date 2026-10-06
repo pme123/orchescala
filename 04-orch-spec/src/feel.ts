@@ -24,7 +24,7 @@ import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
-import { domainMember, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
+import { initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
 import { packageOf } from './scala';
 import { catalogObject, domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
@@ -332,13 +332,15 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
   if (ia) return originMember(interactionOrigin(ia, model, packageOf(spec, model)), member, model);
   // eine Entscheidung (DMN) heisst über ihre decisionId — die Schreibweise kann abweichen
   const decision = step.kind === 'rule' && step.topic
-    ? all.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase())?.owner
+    ? all.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase())
     : undefined;
   const owner = decision ? decision
-    : step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
-    : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
+    : step.topic ? all.find(t => t.topicName === step.topic && t.owner)
+    : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)
     : undefined;
-  if (owner) return domainMember(owner, member, model);
+  // In/Out aus dem Package des Objekts — gleichnamige Objekte anderer Projekte
+  // (`GetAccounts` in vollmacht und fil-is) zählen nicht
+  if (owner) return all.find(t => t.pkg === owner.pkg && t.name === `${owner.owner}.${member}`) ?? null;
   // ein Service ohne `topicName` im Katalog: das Objekt über seinen Namen und
   // das abgeleitete Package (`valiant-fil-is-cardV4.GetX` → `GetX` in
   // `valiant.fil.is.domain.card.v4`) — gleichnamige Objekte anderer Versionen zählen nicht
