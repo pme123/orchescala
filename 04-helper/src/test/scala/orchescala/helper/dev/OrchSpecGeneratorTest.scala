@@ -297,6 +297,11 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     val noImport    = implemented.replace("import valiant.graviton.domain.work.v1.PostWorkActivity\n", "")
     assertEquals(processObject.differences(noImport), Seq("imports"))
 
+  test("object name - the exported one while its file exists, otherwise without the version"):
+    assertEquals(OrchSpecNames.objectName(Some("ModuleDebitInsuranceV1"), "ModuleDebitInsurance", _ => true), "ModuleDebitInsuranceV1")
+    assertEquals(OrchSpecNames.objectName(Some("ModuleDebitInsuranceV1"), "ModuleDebitInsurance", _ => false), "ModuleDebitInsurance")
+    assertEquals(OrchSpecNames.objectName(None, "ModuleDebitInsurance", _ => true), "ModuleDebitInsurance")
+
   test("names from the process id - like Orch Spec"):
     assertEquals(
       OrchSpecNames("valiant-addresschange-kundenkontakt-dokumentieren", "valiant-addresschange"),

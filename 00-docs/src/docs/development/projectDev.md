@@ -181,6 +181,8 @@ Or with the exported files:
 
 The names (process, version, object) come from the process id of the BPMN - the same way _Orch Spec_ derives them
 (`myproject-myProcessV2` -> `myProcess`, `v2`, `MyProcess` - the version is in the package, not in the name).
+An existing process object keeps its name (_Orch Spec_ exports it under the name it knows from the domain,
+e.g. `MyProcessV2`) - but only while its file exists. Delete `MyProcessV2.scala` and the next run creates `MyProcess.scala`.
 
 This creates the same files as `process`, but with the content of the specification:
 ```

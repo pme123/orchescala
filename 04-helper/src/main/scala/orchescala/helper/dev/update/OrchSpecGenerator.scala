@@ -25,13 +25,19 @@ case class OrchSpecGenerator()(using config: DevConfig):
     // the package is in the exported classes - so they decide, if there are any
     val fromExport                = Option.when(files.nonEmpty):
       val (processName, version) = processAndVersion(packageOf(OrchSpecExport.processDir(files)))
-      OrchSpecNames(
-        processName,
-        version,
-        processFile.headOption.map(_.path.last.stripSuffix(".scala"))
-          .orElse(fromBpmn.filter(_.processName == processName).map(_.objectName))
-          .getOrElse(s"${processName.head.toUpper}${processName.tail}")
+      val dir                    = BpmnGenerator().domainPath(processName, Some(version))
+      // Orch Spec names the file after the object it knows from the domain - that one counts only
+      // while its file exists; otherwise the name follows the process (the version is in the package)
+      val exported               = processFile.headOption.map(_.path.last.stripSuffix(".scala"))
+      val objectName             = OrchSpecNames.objectName(
+        exported,
+        fromBpmn.filter(_.processName == processName).map(_.objectName)
+          .getOrElse(s"${processName.head.toUpper}${processName.tail}"),
+        name => os.exists(dir / s"$name.scala")
       )
+      for e <- exported if e != objectName do
+        println(s"${Console.YELLOW}$e.scala does not exist (any more) - the process object is $objectName.${Console.RESET}")
+      OrchSpecNames(processName, version, objectName)
     for b <- fromBpmn; e <- fromExport if b != e do
       println(
         s"${Console.YELLOW}WARNING: The BPMN (${bpmnProcessId.mkString}) gives $b, the Scala classes $e - the Scala classes are taken.${Console.RESET}"
@@ -223,6 +229,12 @@ case class OrchSpecNames(processName: String, version: Int, objectName: String):
 
 object OrchSpecNames:
   private val Versioned = """([A-Za-z][A-Za-z0-9]*?)V(\d+)""".r
+
+  /** The name of the process object: the exported one (the object Orch Spec knows from the domain)
+    * as long as its file exists - otherwise the name derived from the process (without the version).
+    */
+  def objectName(exported: Option[String], derived: String, exists: String => Boolean): String =
+    exported.filter(exists).getOrElse(derived)
 
   /** The names from the process id - the same way Orch Spec derives them:
     *   - `valiant-addresschange-kundenkontakt-dokumentieren` -> `kundenkontaktDokumentieren`, 1, `KundenkontaktDokumentieren`
