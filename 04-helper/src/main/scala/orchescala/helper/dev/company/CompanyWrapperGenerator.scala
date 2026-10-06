@@ -141,8 +141,9 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private def engineName(engine: EngineType): String = engine.toString.toLowerCase
 
   private def engineLabel(engine: EngineType): String = engine match
+    case EngineType.C7 => "Camunda 7"
+    case EngineType.C8 => "Camunda 8"
     case EngineType.Op => "Operaton"
-    case other         => s"Camunda ${other.toString.drop(1)}"
 
   private def engineWrapper(engines: Seq[EngineType]) =
     s"""package $companyName.orchescala.engine

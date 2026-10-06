@@ -5,7 +5,9 @@ import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.update.*
 
 /** @param supportedEngines
-  *   Operaton (`EngineType.Op`) adds the Operaton worker - Camunda 7 and 8 are always there.
+  *   only decides on the Operaton worker (`EngineType.Op`): the Camunda 7 and 8 workers are always
+  *   in the company build, as before - a company with one Camunda engine keeps both, so
+  *   regenerating `Settings.scala` never removes a dependency its workers may use.
   */
 case class CompanySbtGenerator(
     supportedEngines: Seq[EngineType] = Seq(EngineType.C7, EngineType.C8)

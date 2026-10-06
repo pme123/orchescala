@@ -63,6 +63,9 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     )
   end executeJob
 
+  /** No default for `rootLookup` (use `OpWorker.noRootLookup`): C7Worker and OpWorker both have an
+    * overloaded `run` - with a default argument in both, a worker mixing them does not compile.
+    */
   private[worker] def run(
       externalTaskService: operaton.ExternalTaskService,
       rootLookup: String => IO[String, Option[String]]

@@ -573,6 +573,8 @@ lazy val companyCheckHelper     =
 addCommandAlias(
   "companyCheck",
   Seq(
+    // the templates for each combination of engines - the compile steps below check C7 C8 Op
+    "helper/testOnly orchescala.helper.dev.company.CompanyWrapperGeneratorTest",
     "helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check C7 C8 Op",
     "companyCheckDomain/compile",
     "companyCheckEngine/compile",
