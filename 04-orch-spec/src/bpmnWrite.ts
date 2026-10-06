@@ -24,7 +24,7 @@ import { juelOptions, referencedVariables, resultVariables } from './feel';
 import { catalogEntry } from './interactions';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
-import { appendEl, prependEl, removeEl } from './xmlFormat';
+import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -364,6 +364,8 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
     if (ext) controlsLast(ext);
   }
 
+  // die Reihenfolge des Schemas — sonst lehnt Camunda 7 das Deployment ab
+  orderBpmn(doc);
   let out = new XMLSerializer().serializeToString(doc);
   // Die XML-Deklaration soll bleiben — und auf einer eigenen Zeile stehen
   const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];

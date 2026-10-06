@@ -24,7 +24,7 @@
 import type { EngineId } from './types';
 import { feelBody, feelToJuel } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
-import { appendEl, prependEl, removeEl } from './xmlFormat';
+import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 import type { WriteIssue, WriteResult } from './bpmnWrite';
 import { errorListSource, parseErrorList } from './errorCodes';
 
@@ -157,6 +157,7 @@ export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: 
     if (a.name.startsWith('xmlns:') && a.value === oldNs && !usesNs(defs, oldNs)) defs.removeAttribute(a.name);
   }
 
+  orderBpmn(doc);
   let out = new XMLSerializer().serializeToString(doc);
   const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;

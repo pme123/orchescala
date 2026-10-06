@@ -28,7 +28,7 @@
 // sein Inhalt sind die Blöcke und die Erweiterungen des Prozesses selbst.
 
 import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types';
-import { appendEl, prependEl, removeEl } from './xmlFormat';
+import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 import { uid } from './util';
 import { ORCHESCALA_TYPES } from './orchescalaTypes';
 import { domainRef } from './serviceTypes';
@@ -1046,6 +1046,8 @@ class Writer {
     return di;
   }
   serialize(original: string): string {
+    // die Reihenfolge des Schemas — sonst lehnt Camunda 7 das Deployment ab
+    orderBpmn(this.doc);
     let out = new XMLSerializer().serializeToString(this.doc);
     const decl = /^<\?xml[^>]*\?>/.exec(original)?.[0];
     if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
