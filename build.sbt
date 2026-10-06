@@ -564,7 +564,7 @@ lazy val companyCheckDmn        =
 lazy val companyCheckSimulation =
   companyCheckModule("03-simulation", "simulation").dependsOn(companyCheckEngine, simulation)
 lazy val companyCheckWorker     =
-  companyCheckModule("03-worker", "worker").dependsOn(companyCheckEngine, workerC7, workerC8)
+  companyCheckModule("03-worker", "worker").dependsOn(companyCheckEngine, workerC7, workerC8, workerOp)
 lazy val companyCheckGateway    =
   companyCheckModule("04-gateway", "gateway").dependsOn(companyCheckWorker, gateway)
 lazy val companyCheckHelper     =
@@ -573,7 +573,7 @@ lazy val companyCheckHelper     =
 addCommandAlias(
   "companyCheck",
   Seq(
-    "helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check C7 C8",
+    "helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check C7 C8 Op",
     "companyCheckDomain/compile",
     "companyCheckEngine/compile",
     "companyCheckApi/compile",
