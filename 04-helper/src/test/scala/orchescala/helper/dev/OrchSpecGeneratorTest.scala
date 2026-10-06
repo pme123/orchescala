@@ -280,6 +280,49 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |""".stripMargin
     assert(registered(api.register(existing)).contains("    api(Proc.example)(\n      CheckUT.example,\n    )\n  end procApi"))
 
+  private def apiOf(name: String) = OrchSpecRegistration(
+    "ApiProjectCreator",
+    "document(",
+    name,
+    Seq("CheckUT.example"),
+    _ => s"  private lazy val $name =\n    api(X.example)()\n  end $name"
+  )
+  // as ApiGenerator writes it - with the example in a block comment - and one process registered
+  private lazy val generatedApi =
+    """object ApiProjectCreator extends CompanyApiCreator:
+      |  document(
+      |    updateAvailabilityApi,
+      |    //myProcessApi,
+      |  )
+      |
+      |  /* example:
+      |  private lazy val myProcessApi =
+      |    import myProcess.v1.*
+      |    api(MyProcess.example)(
+      |      // userTasks / workers etc.
+      |    )
+      |  */
+      |
+      |  private lazy val updateAvailabilityApi =
+      |    api(UpdateAvailability.example)()
+      |  end updateAvailabilityApi
+      |end ApiProjectCreator
+      |""".stripMargin
+
+  test("registration - a block in a comment is no neighbour: the new block stays outside"):
+    // `bookAppointmentApi` comes before `myProcessApi` - it went into the example
+    val result  = registered(apiOf("bookAppointmentApi").register(generatedApi))
+    val comment = result.indexOf("  */")
+    val block   = result.indexOf("  private lazy val bookAppointmentApi")
+    assert(block > comment, result)
+    assert(block < result.indexOf("  private lazy val updateAvailabilityApi"), result)
+    assert(result.contains("    bookAppointmentApi,\n    updateAvailabilityApi,"), result)
+
+  test("registration - a block in a comment is not registered yet"):
+    val result = registered(apiOf("myProcessApi").register(generatedApi))
+    assert(result.contains("  end myProcessApi"), result)
+    assert(result.contains("    //myProcessApi,"), "the commented entry stays as it is")
+
   test("registration - unexpected form"):
     assert(workerRegistration.register("object WorkerApp:\n  val x = 1\n").isInstanceOf[RegistrationResult.Manual])
 

@@ -288,11 +288,28 @@ case class OrchSpecRegistration(
 ):
 
   def register(content: String): RegistrationResult =
-    val lines = content.linesIterator.toSeq
-    val start = lines.indexWhere(_.matches(s"""\\s*(private\\s+)?lazy val $name\\s*=.*"""))
+    val lines  = content.linesIterator.toSeq
+    val hidden = commented(lines)
+    val start  = lines.indices.find(i =>
+      !hidden(i) && lines(i).matches(s"""\\s*(private\\s+)?lazy val $name\\s*=.*""")
+    ).getOrElse(-1)
     if start >= 0 then addEntries(lines, start)
     else addBlock(lines)
   end register
+
+  /** The lines in a block comment (`/* … */`) - like the example of the generated
+    * `ApiProjectCreator`: a block there is no registration, neither the process's own nor a
+    * neighbour to sort the new block next to.
+    */
+  private def commented(lines: Seq[String]): Set[Int] =
+    lines.indices
+      .foldLeft((Set.empty[Int], false)):
+        case ((hidden, open), i) =>
+          val line   = lines(i)
+          val starts = open || line.contains("/*")
+          val closes = starts && line.lastIndexOf("*/") > line.lastIndexOf("/*")
+          (if starts then hidden + i else hidden, starts && !closes)
+      ._1
 
   def snippet(missing: Seq[String]): String =
     s"""  $listStart
@@ -358,7 +375,8 @@ case class OrchSpecRegistration(
     val blockLines = block(entries).linesIterator.toSeq
     val suffix     = "[A-Z][a-z0-9]*$".r.findFirstIn(name).getOrElse("")
     val start      = s"""\\s*(?:private\\s+)?lazy val (\\w+$suffix)\\s*=.*""".r
-    val blocks     = (0 until end).flatMap(i =>
+    val hidden     = commented(lines)
+    val blocks     = (0 until end).filterNot(hidden).flatMap(i =>
       lines(i) match
         case start(other) => Seq(i -> other)
         case _            => Seq.empty
