@@ -6,7 +6,7 @@
 // als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
-import type { DomainType, EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
+import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainRequired, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
@@ -61,13 +61,21 @@ function requiredNames(refFields: Field[] | null, dom: DomainType | null, servic
  * den Prozessvariablen) und nicht, wenn ein Pattern den Aufruf festlegt.
  * Eine abgewählte Zeile zählt als vorhanden: das hat jemand so entschieden.
  */
+/**
+ * Wer sein `In` direkt aus den Prozessvariablen liest — ohne Mapping, also ohne
+ * Befund «Pflichtfeld fehlt»: Benutzeraufgaben, eigene Worker, DMN Decisions
+ * des Prozesses und der Init-Worker. Eine Regel für beide Prüfungen
+ * (`missingRequiredInputs`, `stepFindings`).
+ */
+export const readsInDirectly = (kind: InteractionKind | null | undefined, initWorker: boolean): boolean =>
+  initWorker || kind === 'userTask' || kind === 'customTask' || kind === 'decision';
+
 export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Model | null): string[] {
   const processId = spec.processId ?? '';
   const initWorker = isInitWorker(step, processId);
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
   const kind = ia?.kind ?? interactionKind(step, processId);
-  // eine DMN Decision liest ihr In ebenso direkt aus den Prozessvariablen
-  if (initWorker || kind === 'userTask' || kind === 'customTask' || kind === 'decision') return [];
+  if (readsInDirectly(kind, initWorker)) return [];
   if (patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7').inputs.size) return [];
   const types = spec.types ?? [];
   const inT = ia?.inTypeId ? types.find(t => t.id === ia.inTypeId) : undefined;
@@ -222,8 +230,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
 
   const ownKind = ia?.kind ?? interactionKind(step, processId);
-  // eine DMN Decision liest ihr In ebenso direkt aus den Prozessvariablen (wie in missingRequiredInputs)
-  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask' || ownKind === 'decision' || initWorker;
+  const implicitIn = readsInDirectly(ownKind, initWorker);
   // was ein Pattern am Element beisteuert, ist Implementation — nicht geprüft,
   // und fehlende Pflichtfelder meldet es nicht: den Aufruf legt das Pattern fest
   const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');

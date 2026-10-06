@@ -296,8 +296,13 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
 
   // Eine Entscheidung (Business-Rule-Task) schreibt ihr Ergebnis in **eine**
   // Variable (`resultVariable`) — ohne Mapping, wie die eigenen Worker oben
+  // Das gilt für jede Entscheidung, auch eine fremde: die Engine setzt die
+  // Variable; ohne bekanntes Out ist sie `any`, dann prüft niemand ihre Felder.
   for (const s of allSteps(spec.steps)) {
     if (s.kind !== 'rule' || !s.resultVariable) continue;
+    // Camunda 8 mit Output-Mappings: Zeebe übernimmt nur die gemappten Variablen
+    // (oben bei den Ausgaben) — die resultVariable bleibt lokal am Task
+    if (spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name)) continue;
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
 

@@ -376,7 +376,7 @@ lazy val orchDocClient = project
       val specDir   = (LocalRootProject / baseDirectory).value / "04-orch-spec"
       val bundleDir = clientDir / "bundle"
       val apps      = Seq(clientDir, specDir)
-      val inputs    = (apps.flatMap(d => Seq("src", "public", "tools").map(d / _)).flatMap(_.allPaths.get()) ++
+      val inputs    = (apps.flatMap(d => Seq("src", "public", "tools", "tests").map(d / _)).flatMap(_.allPaths.get()) ++
         apps.flatMap(d =>
           Seq("index.html", "api.html", "package.json", "package-lock.json", "vite.config.ts", "vite.single.config.ts", "tsconfig.json")
             .map(d / _)
@@ -395,6 +395,8 @@ lazy val orchDocClient = project
           // orch-spec is built from orch-doc's `build:spec` - it needs its own node_modules
           if (!(specDir / "node_modules" / ".bin" / "vite").exists())
             NpmBuild.run("orch-spec", "npm ci", specDir, log)
+          // orch-spec's unit tests (node:test) - a failing test stops the build, also on CI
+          NpmBuild.run("orch-spec", "npm test", specDir, log)
           NpmBuild.build("the documentation apps", clientDir, Seq("build:all", "build:single"), log)
           // orch-spec's catalog tools as standalone node scripts - the helper runs them (if
           // Node.js is there) to generate the spec catalog of a company's site
