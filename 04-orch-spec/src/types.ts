@@ -416,6 +416,20 @@ export interface Interaction {
   inTypeId?: string;
   outTypeId?: string;
   /**
+   * In bzw. Out ist ein anderer Typ (`type In = OrderCardUT.In`): das Mitglied
+   * einer anderen Interaktion (`<id>.In`, `<id>.Out`) oder ein Typ der Domain
+   * (`dom:<id>`). Die Felder stehen weiter über `inTypeId`/`outTypeId` bereit
+   * (Mappings, Prüfungen); der Alias bestimmt nur, was der Export schreibt.
+   */
+  inAlias?: string;
+  outAlias?: string;
+  /**
+   * Abweichende Werte im Beispiel der Interaktion — je Feld der Scala-Ausdruck:
+   * `userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)`
+   */
+  inExample?: Record<string, string>;
+  outExample?: Record<string, string>;
+  /**
    * DMN Decision: die Form des Ergebnisses — `singleEntry` (ein einfacher
    * Wert), `singleResult` (ein Objekt), `collectEntries` (Liste einfacher
    * Werte), `resultList` (Liste von Objekten). Bei einem einfachen Wert hat
@@ -733,6 +747,12 @@ export interface DomainType {
   ownerDescrExpr?: string;
   /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustOrderUT.In` */
   target?: string;
+  /**
+   * Abweichende Werte im Beispiel des Objekts: `lazy val example =
+   * userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)` —
+   * je Mitglied (In, Out) die Felder mit ihrem Scala-Ausdruck
+   */
+  exampleCopies?: { In?: Record<string, string>; Out?: Record<string, string> };
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
   source?: string;
   /**

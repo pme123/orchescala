@@ -21,7 +21,7 @@
 // weg, statt zu raten.
 
 import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
-import { cleanText, descriptionExpression, exampleArgs, parseParams } from './scalaTypes.ts';
+import { cleanText, descriptionExpression, exampleArgs, parseParams, splitParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
 const IMPORT = /^import\s/;
@@ -51,6 +51,8 @@ const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
  * Companion — ebenso `exampleMinimal`; und `example = In.exampleMinimal.copy(`
  */
 const EXAMPLE = /^\s+lazy\s+val\s+(example|exampleMinimal)\s*(?::\s*[\w.]+\s*)?=\s*([A-Za-z][\w.]*)\s*\(/;
+/** Das Beispiel eines Objekts der DSL: `lazy val example = userTask(` — In, Out als Argumente */
+const FACTORY_EXAMPLE = /^\s+lazy\s+val\s+example\s*=\s*(userTask|customTask|serviceTask|signalEvent|messageEvent|timerEvent)\s*\(/;
 /** `In.exampleMinimal.copy` bzw. `exampleMinimal.copy` — das Beispiel ist eine Kopie des minimalen */
 const COPY_OF_MINIMAL = /^(?:([A-Z][\w.]*)\.)?exampleMinimal\.copy$/;
 
@@ -271,6 +273,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const labels = new Map<string, { de: string; fr: string }>();
   /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
   const decisionResults = new Map<string, DecisionResult>();
+  const exampleCopies = new Map<string, NonNullable<DomainType['exampleCopies']>>();
   /**
    * `lazy val example = X(…)` bzw. `exampleMinimal = X(…)` — der Aufruf, das
    * umschliessende Objekt und die Argumente (roh); `example = X.exampleMinimal.copy(…)`
@@ -354,6 +357,34 @@ export function scanScala(source: string, path = ''): DomainType[] {
     }
     const dr = owner ? /^\s+lazy val example\s*=\s*(singleEntry|singleResult|collectEntries|resultList)\s*\(/.exec(line) : null;
     if (owner && dr) { decisionResults.set(owner, dr[1] as DecisionResult); continue; }
+
+    // Das Beispiel des Objekts (`userTask(OrderCardUT.In.example.copy(a = false), Out.example)`):
+    // was es gegenüber dem Beispiel von In bzw. Out abweichend setzt
+    const fx = owner ? FACTORY_EXAMPLE.exec(line) : null;
+    if (owner && fx) {
+      const open = fx[0].length - 1;
+      const state = { triple: false };
+      let depth = balance(line.slice(open), 0, state);
+      let text = line.slice(open + 1);
+      let j = i;
+      while (depth > 0 && j + 1 < lines.length) {
+        j++;
+        text += '\n' + lines[j];
+        depth = balance(lines[j], depth, state);
+      }
+      const close = text.lastIndexOf(')');
+      const copies: NonNullable<DomainType['exampleCopies']> = {};
+      splitParams(close >= 0 ? text.slice(0, close) : text).forEach((arg, k) => {
+        const member = k === 0 ? 'In' : k === 1 ? 'Out' : null;
+        const m = member ? /^\s*[A-Z][\w.]*\.example(?:Minimal)?\.copy\(([\s\S]*)\)\s*$/.exec(arg) : null;
+        if (!member || !m) return;
+        const values = exampleArgs(m[1], []);
+        if (values.size) copies[member] = Object.fromEntries(values);
+      });
+      if (copies.In || copies.Out) exampleCopies.set(owner, copies);
+      i = j;
+      continue;
+    }
 
     // Beispieldaten im Companion: die Argumente bis zur schliessenden Klammer
     // einsammeln — zugeordnet wird am Ende, wenn alle Klassen bekannt sind
@@ -525,6 +556,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (pl) t.processLabels = pl;
     const dr = decisionResults.get(t.owner);
     if (dr) t.decisionResult = dr;
+    const ec = exampleCopies.get(t.owner);
+    if (ec) t.exampleCopies = ec;
   }
   return out;
 }

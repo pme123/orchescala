@@ -237,6 +237,16 @@ export function overlayPasted(spec: ProcessSpec, pasted: PastedElements): { spec
     const orig = src.interactions.find(i => iaMap.get(i.id)?.id === ia.id)!;
     if (orig.inTypeId && idMap.has(orig.inTypeId)) ia.inTypeId = idMap.get(orig.inTypeId);
     if (orig.outTypeId && idMap.has(orig.outTypeId)) ia.outTypeId = idMap.get(orig.outTypeId);
+    // ein Alias auf eine mitkopierte Interaktion folgt ihr; einer auf eine
+    // andere der Quelle fällt weg (ihre Felder kamen als Kopie mit), einer auf die Domain bleibt
+    for (const key of ['inAlias', 'outAlias'] as const) {
+      const ref = ia[key];
+      if (!ref || ref.startsWith('dom:')) continue;
+      const dot = ref.lastIndexOf('.');
+      const to = iaMap.get(ref.slice(0, dot));
+      if (to) ia[key] = `${to.id}${ref.slice(dot)}`;
+      else delete ia[key];
+    }
   }
 
   return {

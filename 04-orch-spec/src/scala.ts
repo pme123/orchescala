@@ -18,7 +18,7 @@ import { evaluate, FeelDate, FeelDateTime, FeelDuration } from 'feelin';
 import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
 import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
-import { deriveObject, objectOf } from './serviceTypes.ts';
+import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
@@ -510,15 +510,33 @@ const indent = (text: string, by = '  ') =>
 function descriptionLine(text: string): string {
   const clean = text.trim();
   if (!clean) return '';
-  if (!clean.includes('\n')) return `@description("${escape(clean)}")`;
+  if (!clean.includes('\n')) return `@description(${scalaKey(clean)})`;
   // die erste Zeile steht hinter `"""`, die übrigen mit `|` darunter — in
   // `"""…"""` wird nichts escaped
   const [first, ...rest] = clean.split('\n');
-  const lines = rest.map(l => `  |${l}`).join('\n');
-  return `@description(\n  """${first}\n${lines ? `${lines}\n` : ''}  |""".stripMargin\n)`;
+  const lines = rest.map(l => `  |${tripleText(l, clean)}`).join('\n');
+  return `@description(\n  ${tripleOpen(clean)}${tripleText(first, clean)}\n${lines ? `${lines}\n` : ''}  |""".stripMargin\n)`;
 }
 
 const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+/**
+ * Ein Wert aus Scala im Text (`valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
+ * `… ${OrderCard.processName} …`): dann ist das Literal interpoliert (`s"…"`) —
+ * sonst stünde der Platzhalter wörtlich darin, und z. B. kein Signal käme an.
+ * Nur wenn jedes `${…}` ein Pfad ist: `${execution.processInstanceId}` (JUEL
+ * im Text) bleibt Text. In Kommentaren gilt das nicht — dort steht es, wie es ist.
+ */
+export function interpolated(text: string): boolean {
+  const refs = [...text.matchAll(/\$\{([^}]*)\}/g)].map(m => m[1].trim());
+  return refs.length > 0 && refs.every(r => /^[A-Za-z_][\w.]*$/.test(r) && !/^execution\b/.test(r));
+}
+/** Ein einzelnes `$` in einem `s"…"` heisst `$$` */
+const dollars = (text: string) => text.replace(/\$(?!\{)/g, '$$$$');
+/** Ein Text als Scala-Literal — interpoliert, wo er Werte aus Scala nennt (siehe interpolated) */
+export const scalaKey = (text: string): string => (interpolated(text) ? `s"${dollars(escape(text))}"` : `"${escape(text)}"`);
+/** Mehrzeilig: `"""…"""` bzw. `s"""…"""` — darin wird nichts escaped */
+const tripleOpen = (text: string) => (interpolated(text) ? 's"""' : '"""');
+const tripleText = (text: string, all: string) => (interpolated(all) ? dollars(text) : text);
 
 /**
  * Die Beschreibung eines Feldes in FEEL (`= …`) als Text — wie das Beispiel,
@@ -692,6 +710,24 @@ export function renderType(t: TypeDef, idx: TypeIndex): string {
 // Jede Interaktion wird ein eigenes Objekt mit dem passenden DSL-Trait; `In`
 // und `Out` liegen darin, nicht in `schema/`. Fehlt ein Typ, steht dort
 // `NoInput` — so wie es die Domain auch schreibt.
+/**
+ * Der Scala-Name hinter einem Alias von In bzw. Out (siehe Interaction.inAlias):
+ * `OrderCardUT.In` — das Mitglied einer anderen Interaktion oder ein Typ der Domain.
+ */
+export function aliasName(ref: string | undefined, spec: ProcessSpec, idx: TypeIndex): string | null {
+  if (!ref?.trim()) return null;
+  if (ref.startsWith(DOMAIN_PREFIX)) return idx.domainOf(ref)?.name ?? null;
+  const dot = ref.lastIndexOf('.');
+  const other = (spec.interactions ?? []).find(i => i.id === ref.slice(0, dot));
+  return other?.name ? `${other.name}.${ref.slice(dot + 1)}` : null;
+}
+
+/** `X.example` mit abweichenden Werten: `X.example.copy(a = false)` */
+const withCopy = (expr: string, values: Record<string, string> | undefined): string => {
+  const entries = Object.entries(values ?? {}).filter(([k, v]) => k.trim() && v.trim());
+  return entries.length ? `${expr}.copy(${entries.map(([k, v]) => `${k} = ${v.trim()}`).join(', ')})` : expr;
+};
+
 export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeIndex): string {
   const meta = INTERACTION_META[ia.kind];
   const types = spec.types ?? [];
@@ -703,12 +739,20 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   if (ia.descr) lines.push(scaladoc(ia.descr));
   lines.push(`object ${ia.name} extends ${meta.dsl}:`);
   lines.push('');
-  lines.push(`  val ${meta.keyName} = "${escape(ia.key ?? ia.name ?? '')}"`);
+  lines.push(`  val ${meta.keyName} = ${scalaKey(ia.key ?? ia.name ?? '')}`);
   // die DSL verlangt `descr` (BpmnDsl) — leer, wenn es keine gibt
   lines.push(descrLine(ia));
   lines.push('');
 
   const member = (t: TypeDef | null, name: 'In' | 'Out') => {
+    const values = name === 'In' ? ia.inExample : ia.outExample;
+    // ein anderer Typ: `type In = OrderCardUT.In` — sein Beispiel, mit den abweichenden Werten
+    const alias = aliasName(name === 'In' ? ia.inAlias : ia.outAlias, spec, idx);
+    if (alias) {
+      lines.push(`  type ${name} = ${alias}`);
+      lines.push('');
+      return withCopy(`${alias}.example`, values);
+    }
     if (!t) {
       lines.push(`  type ${name} = NoInput`);
       lines.push('');
@@ -716,7 +760,7 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
     }
     lines.push(indent(renderType({ ...t, name }, idx), '  '));
     lines.push('');
-    return `${name}.example`;
+    return withCopy(`${name}.example`, values);
   };
 
   const inExpr = member(inType, 'In');
@@ -916,9 +960,9 @@ export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | nu
 function descrLine(ia: Interaction): string {
   if (ia.descrExpr?.trim()) return `  val descr: String = ${ia.descrExpr.trim()}`;
   const text = (ia.descr ?? '').trim();
-  if (!text.includes('\n')) return `  val descr: String = "${escape(text)}"`;
+  if (!text.includes('\n')) return `  val descr: String = ${scalaKey(text)}`;
   const [first, ...rest] = text.split('\n');
-  return [`  val descr: String =`, `    """${first}`, ...rest.map(l => `      |${l}`), '      |""".stripMargin'].join('\n');
+  return [`  val descr: String =`, `    ${tripleOpen(text)}${tripleText(first, text)}`, ...rest.map(l => `      |${tripleText(l, text)}`), '      |""".stripMargin'].join('\n');
 }
 
 function firstLine(text: string): string {
@@ -1050,10 +1094,17 @@ function srcDir(spec: ProcessSpec, model: Model | null): string {
 export const homeOf = (spec: ProcessSpec): string => (spec.project ?? '').split('-').filter(Boolean).join('.');
 
 /** Die Imports einer Interaktion — die ihres `In` und `Out` (Katalog-Typen, Beispielwerte). */
-function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex): string {
+function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex, pkg: string): string {
   const typeOf = (id: string | undefined) => (spec.types ?? []).find(t => t.id === id);
+  // ein Alias braucht die Felder nicht — nur sein Objekt, wenn es woanders liegt
+  const aliasImport = (ref: string | undefined): string[] => {
+    const d = ref?.startsWith(DOMAIN_PREFIX) ? idx.domainOf(ref) : null;
+    const owner = d ? d.owner ?? d.name.split('.')[0] : null;
+    return d && owner && d.pkg !== pkg ? [`import ${d.pkg}.${owner}`] : [];
+  };
   const lines = [...new Set([
-    ...[typeOf(ia.inTypeId), typeOf(ia.outTypeId)].flatMap(t => (t ? importsOf(t, idx) : [])),
+    ...(ia.inAlias ? aliasImport(ia.inAlias) : typeOf(ia.inTypeId) ? importsOf(typeOf(ia.inTypeId)!, idx) : []),
+    ...(ia.outAlias ? aliasImport(ia.outAlias) : typeOf(ia.outTypeId) ? importsOf(typeOf(ia.outTypeId)!, idx) : []),
     // die Objekte in einem `descr`-Ausdruck
     ...(ia.descrExpr ? (ia.descrImports ?? []).map(i => `import ${i}`) : []),
   ])];
@@ -1142,7 +1193,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,
-      content: `package ${pkg}\n${interactionImports(ia, spec, idx)}\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
+      content: `package ${pkg}\n${interactionImports(ia, spec, idx, pkg)}\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
       ...(section ? { section } : {}),
     });
   }

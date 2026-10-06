@@ -283,6 +283,26 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     });
     pickType(id);
   };
+  /**
+   * In bzw. Out auf einen anderen Typ stellen (`type In = OrderCardUT.In`) —
+   * oder zurück auf eine eigene Klasse (`null`). Die Felder kommen vom Ziel;
+   * die eigene Klasse dieser Interaktion fällt weg.
+   */
+  const setAlias = (ia: Interaction, member: 'In' | 'Out', ref: string | null) => {
+    const aliasKey = member === 'In' ? 'inAlias' : 'outAlias';
+    const typeKey = member === 'In' ? 'inTypeId' : 'outTypeId';
+    const own = ia[typeKey] ? types.find(t => t.id === ia[typeKey] && t.interactionId === ia.id) : undefined;
+    const dot = ref ? ref.lastIndexOf('.') : -1;
+    const other = ref && dot > 0 ? interactions.find(i => i.id === ref.slice(0, dot)) : undefined;
+    const targetId = other ? (ref!.slice(dot + 1) === 'In' ? other.inTypeId : other.outTypeId) : undefined;
+    onChange({
+      ...spec,
+      types: own ? types.filter(t => t.id !== own.id) : types,
+      interactions: interactions.map(i => (i.id === ia.id
+        ? { ...i, [aliasKey]: ref ?? undefined, [typeKey]: ref ? targetId : undefined }
+        : i)),
+    });
+  };
   const patchType = (id: string, patch: Partial<TypeDef>) =>
     setTypes(types.map(t => (t.id === id ? { ...t, ...patch } : t)));
 
@@ -560,6 +580,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             orphan={!stepIds.has(interactions.find(i => i.id === selectedIa)?.stepId ?? '')}
             onPatch={patch => patchIa(selectedIa, patch)}
             onOpen={member => openMember(interactions.find(i => i.id === selectedIa)!, member)}
+            interactions={interactions} model={model}
+            onAlias={(member, ref) => setAlias(interactions.find(i => i.id === selectedIa)!, member, ref)}
             onRemove={() => {
               // ihr In und Out gehören nur ihr — sie gehen mit
               onChange({
@@ -639,12 +661,17 @@ function GeneratedNote({ isDark }: { isDark: boolean }) {
 // ── Interaktion ──────────────────────────────────────────────────────────────
 // Kopf der Interaktion: Objektname, Schlüssel (`val name` / `topicName` /
 // `messageName`) und Beschreibung. `In` und `Out` liegen daneben in der Liste.
-function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen, onRemove }: {
+function InteractionEditor({ ia, isDark, canEdit, types, orphan, interactions, model, onPatch, onOpen, onAlias, onRemove }: {
   ia: Interaction; isDark: boolean; canEdit: boolean; types: TypeDef[];
   /** der Schritt steht nicht mehr im Ablauf */
   orphan: boolean;
+  /** alle Interaktionen — ihre In und Out taugen als anderer Typ */
+  interactions: Interaction[];
+  model: Model | null;
   onPatch: (patch: Partial<Interaction>) => void;
   onOpen: (member: 'In' | 'Out') => void;
+  /** In bzw. Out auf einen anderen Typ stellen — `null`: eigene Klasse */
+  onAlias: (member: 'In' | 'Out', ref: string | null) => void;
   onRemove: () => void;
 }) {
   const confirm = useConfirm();
@@ -726,24 +753,105 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen
         className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
 
       <div className="flex gap-2">
-        {(['In', 'Out'] as const).filter(m => m === 'In' || meta.hasOut).map(m => {
-          const t = typeOf(m === 'In' ? ia.inTypeId : ia.outTypeId);
-          return (
-            <button key={m} onClick={() => onOpen(m)}
-              className={`flex-1 text-[11px] px-3 py-2 rounded border text-left ${c.border2} ${c.hover}`}>
-              <div className={`font-mono ${c.text}`}>{m}</div>
-              <div className={`text-[10px] ${c.muted}`}>
-                {t ? `${t.fields?.length ?? 0} Felder — bearbeiten` : 'noch keines — anlegen'}
-              </div>
-            </button>
-          );
-        })}
+        {(['In', 'Out'] as const).filter(m => m === 'In' || meta.hasOut).map(m => (
+          <MemberCard key={m} ia={ia} member={m} types={types} interactions={interactions} model={model}
+            isDark={isDark} canEdit={canEdit} onOpen={() => onOpen(m)} onAlias={ref => onAlias(m, ref)}
+            onExample={values => onPatch(m === 'In' ? { inExample: values } : { outExample: values })} />
+        ))}
       </div>
 
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Ohne eigenes {meta.hasOut ? '«In» bzw. «Out»' : '«In»'} erzeugt der Generator
         <span className="font-mono"> type In = NoInput</span> — so schreibt es die Domain auch.
       </p>
+    </div>
+  );
+}
+
+/**
+ * In bzw. Out einer Interaktion: eine eigene Klasse — oder ein anderer Typ
+ * (`type In = OrderCardUT.In`), das Mitglied einer anderen Interaktion bzw. ein
+ * Typ der Domain. Dazu die Werte, die im Beispiel der Interaktion abweichen
+ * (`OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false)`).
+ */
+function MemberCard({ ia, member, types, interactions, model, isDark, canEdit, onOpen, onAlias, onExample }: {
+  ia: Interaction; member: 'In' | 'Out'; types: TypeDef[]; interactions: Interaction[]; model: Model | null;
+  isDark: boolean; canEdit: boolean;
+  onOpen: () => void; onAlias: (ref: string | null) => void; onExample: (values: Record<string, string> | undefined) => void;
+}) {
+  const c = cls(isDark);
+  const confirm = useConfirm();
+  const alias = member === 'In' ? ia.inAlias : ia.outAlias;
+  const typeId = member === 'In' ? ia.inTypeId : ia.outTypeId;
+  const t = types.find(x => x.id === typeId) ?? null;
+  const values = (member === 'In' ? ia.inExample : ia.outExample) ?? {};
+  const label = (ref: string): string => {
+    if (ref.startsWith('dom:')) return (model?.domainTypes ?? []).find(d => `dom:${d.id}` === ref)?.name ?? ref.slice(4);
+    const dot = ref.lastIndexOf('.');
+    const other = interactions.find(i => i.id === ref.slice(0, dot));
+    return other ? `${other.name}.${ref.slice(dot + 1)}` : '(nicht mehr da)';
+  };
+  // die Mitglieder der anderen Interaktionen, die es gibt
+  const options = interactions.filter(i => i.id !== ia.id && i.name?.trim()).flatMap(i => [
+    ...(i.inTypeId && !i.inAlias ? [`${i.id}.In`] : []),
+    ...(i.outTypeId && !i.outAlias && INTERACTION_META[i.kind].hasOut ? [`${i.id}.Out`] : []),
+  ]);
+  const fieldNames = [...(t?.fields ?? []), ...(t?.values ?? []).flatMap(v => v.fields ?? [])].map(f => f.name).filter(Boolean);
+  const setValue = (name: string, value: string | null, rename?: string) => {
+    const next = { ...values };
+    delete next[name];
+    if (value != null) next[rename ?? name] = value;
+    onExample(Object.keys(next).length ? next : undefined);
+  };
+  const own = !alias && t && t.interactionId === ia.id;
+  return (
+    <div className={`flex-1 min-w-0 rounded border ${c.border2}`}>
+      <button onClick={onOpen} className={`w-full text-[11px] px-3 py-2 text-left ${c.hover}`}>
+        <div className={`font-mono ${c.text}`}>{member}{alias ? ` = ${label(alias)}` : ''}</div>
+        <div className={`text-[10px] ${c.muted}`}>
+          {alias ? `${t?.fields?.length ?? 0} Felder von ${label(alias)} — ansehen` : t ? `${t.fields?.length ?? 0} Felder — bearbeiten` : 'noch keines — anlegen'}
+        </div>
+      </button>
+      <div className={`px-3 py-2 space-y-1.5 border-t ${c.border}`}>
+        <select value={alias ?? ''} disabled={!canEdit}
+          onChange={async e => {
+            const v = e.target.value || null;
+            // die eigene Klasse geht verloren — mit Feldern erst nachfragen
+            if (v && own && (t?.fields?.length ?? 0) > 0
+              && !(await confirm({ title: `${member} auf ${label(v)} stellen?`, text: `Die eigene Klasse ${ia.name}.${member} (${t!.fields!.length} Felder) fällt weg.`, confirmLabel: 'Umstellen' }))) return;
+            onAlias(v);
+          }}
+          title="Ein anderer Typ: der Export schreibt `type In = OrderCardUT.In` — Felder und Beispiel kommen von dort"
+          className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`}>
+          <option value="">eigene Klasse</option>
+          {alias && !options.includes(alias) && <option value={alias}>= {label(alias)}</option>}
+          {options.map(o => <option key={o} value={o}>= {label(o)}</option>)}
+        </select>
+        {(Object.keys(values).length > 0 || canEdit) && (
+          <div className="space-y-1">
+            <div className={`text-[9px] uppercase tracking-widest ${c.muted}`}
+              title={`Werte, die im Beispiel der Interaktion anders sind: ${alias ? label(alias) : member}.example.copy(…)`}>
+              Beispiel abweichend
+            </div>
+            {Object.entries(values).map(([name, value]) => (
+              <div key={name} className="flex items-center gap-1">
+                <select value={name} disabled={!canEdit} onChange={e => setValue(name, value, e.target.value)}
+                  className={`w-28 text-[10px] px-1 py-0.5 rounded border outline-none font-mono ${c.input}`}>
+                  {[...new Set([name, ...fieldNames])].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <input value={value} disabled={!canEdit} onChange={e => setValue(name, e.target.value)}
+                  placeholder="Scala, z. B. false" title="Scala-Ausdruck — wie im Beispiel"
+                  className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`} />
+                {canEdit && <button onClick={() => setValue(name, null)} title="Wert entfernen" className={c.muted}><X size={10} /></button>}
+              </div>
+            ))}
+            {canEdit && fieldNames.some(n => !(n in values)) && (
+              <button onClick={() => setValue(fieldNames.find(n => !(n in values))!, '')}
+                className={`text-[10px] ${c.muted} hover:underline`}>+ Wert</button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

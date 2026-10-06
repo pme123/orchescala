@@ -424,6 +424,21 @@ heisst dort `CheckDuplicatesTask`, das Objekt `CheckDuplicatesUT`), wird
 deshalb vorgeschlagen und ist danach frei änderbar. Ohne eigenes `In`/`Out`
 erzeugt der Generator `type In = NoInput` — so schreibt es die Domain auch.
 
+**In bzw. Out als anderer Typ:** auf der Karte der Interaktion statt «eigene
+Klasse» das In/Out einer anderen Interaktion wählen (`= OrderCardUT.In`). Der
+Export schreibt dann `type In = OrderCardUT.In`; Felder, Mappings und Prüfungen
+nehmen die des Ziels (die eigene Klasse fällt weg). Darunter **Beispiel
+abweichend**: Werte, die im Beispiel der Interaktion anders sind als im
+Beispiel des Typs — je Feld ein Scala-Ausdruck. Daraus wird
+`userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), Out.example)`
+(geht auch bei einer eigenen Klasse: `In.example.copy(…)`).
+
+**Werte aus Scala in Texten:** ein Schlüssel, `descr` oder `@description` mit
+`${…}` auf einen Scala-Pfad (`valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
+`${OrderCard.processName}`) wird ein interpolierter String `s"…"` — sonst stünde
+der Platzhalter wörtlich darin (ein Signal käme nie an). JUEL im Text
+(`${execution.processInstanceId}`) bleibt Text; in Kommentaren bleibt alles, wie es ist.
+
 Am Sparkonto geprüft: aus dem Ablauf entstehen genau `ExtractClientKey`,
 `CheckDuplicatesUT` und `CreatePrintDocuments` — dieselben drei Objekte, die
 in `globex-savings/01-domain` liegen.
@@ -544,8 +559,11 @@ Was dabei entsteht, ohne Raten:
   Nachricht über den Namen im BPMN (`<bpmn:signal name>`, bis zum dynamischen
   Teil `${…}`) — auch gefangene Signale —, sonst über die Namenskonvention.
   Jede bekommt ihre `In`/`Out` als eigene Klassen; `type In = AdjustOrderUT.In`
-  wird eine Kopie mit dem Hinweis `= AdjustOrderUT.In`, `NoInput` bleibt
-  leer. `val descr` wird die Beschreibung. Objekte des Pakets ohne Schritt
+  bleibt ein Verweis — auf das In der Interaktion `AdjustOrderUT` des Prozesses
+  (dieselben Felder), sonst auf den Typ der Domain (die Felder als Kopie, für
+  die Mappings). Was das Beispiel des Objekts abweichend setzt
+  (`userTask(AdjustOrderUT.In.example.copy(a = false), …)`), kommt als
+  «Beispiel abweichend» mit. `NoInput` bleibt leer. `val descr` wird die Beschreibung. Objekte des Pakets ohne Schritt
   werden gemeldet. Ein älterer Katalog ohne DSL-Angabe wird über Topic und
   Namensendung (`…UT`, `…SE`, `…ME`) gelesen — Benutzeraufgaben, deren
   Objektname nicht der Konvention folgt (`ApproveOrderUT` für

@@ -49,6 +49,28 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("interaction"):
     assertEquals(OrchSpecExport.interaction(files(1).content), Some("CreateContactNote" -> "CustomTask"))
 
+  test("interaction - In and Out as another type (alias) with deviating example values"):
+    val content =
+      """package acme.demo.domain.orderCard.v1
+        |
+        |object PostProcessCardUT extends CompanyBpmnUserTaskDsl:
+        |
+        |  val name = "PostprocessKUBETask"
+        |  val descr: String = ""
+        |
+        |  type In = OrderCardUT.In
+        |
+        |  type Out = PostProcessOrderUT.Out
+        |
+        |  lazy val example = userTask(
+        |    OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false),
+        |    PostProcessOrderUT.Out.example
+        |  )
+        |end PostProcessCardUT
+        |""".stripMargin
+    assertEquals(OrchSpecExport.interaction(content), Some("PostProcessCardUT" -> "UserTask"))
+    assertEquals(OrchSpecExport.differences(content, content), Seq.empty)
+
   test("workers only for the custom tasks of the process - not for user tasks, signals, messages"):
     val interactions = Seq(
       ("PrepareOrderCard", "CustomTask", Some("valiant-product-orderCard-PrepareOrderCard")),

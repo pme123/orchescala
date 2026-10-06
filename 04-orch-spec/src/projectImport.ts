@@ -553,6 +553,8 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const processId = spec.processId ?? '';
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
 
+  /** `type In = OrderCardUT.In`: aufgelöst, wenn alle Interaktionen da sind — siehe unten */
+  const aliases: Array<{ iaId: string; member: 'In' | 'Out'; target: DomainType; copyId: string }> = [];
   const memberType = (o: DomainType, name: 'In' | 'Out', iaId: string): string | undefined => {
     const t = domain.find(x => x.id === `${o.pkg}.${o.owner}.${name}`);
     if (!t) return undefined;
@@ -561,7 +563,9 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       // `type In = AdjustOrderUT.In` — dieselben Felder unter eigenem Namen
       const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
-        return conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
+        const copyId = conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
+        aliases.push({ iaId, member: name, target, copyId });
+        return copyId;
       }
       warnings.push(`${o.owner}.${name} = ${t.target}: Ziel nicht gefunden.`);
     }
@@ -608,17 +612,41 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       const outId = memberType(obj, 'Out', ia.id);
       if (outId) ia.outTypeId = outId;
     }
+    // `userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)` — die abweichenden Werte
+    if (obj.exampleCopies?.In) ia.inExample = obj.exampleCopies.In;
+    if (obj.exampleCopies?.Out) ia.outExample = obj.exampleCopies.Out;
     interactions.push(ia);
     matched.push(obj.owner!);
   }
   const unmatched = objects.filter(o => o.pkg === pkg).map(o => o.owner!).filter(o => !matched.includes(o));
+
+  // Ein Alias bleibt einer: das Mitglied einer Interaktion des Prozesses teilt
+  // deren Felder (die Kopie fällt weg), sonst verweist er auf den Typ der Domain
+  // und behält die Kopie für die Felder
+  const dropped = new Set<string>();
+  for (const a of aliases) {
+    const ia = interactions.find(i => i.id === a.iaId);
+    if (!ia) continue;
+    const aliasKey = a.member === 'In' ? 'inAlias' : 'outAlias';
+    const typeKey = a.member === 'In' ? 'inTypeId' : 'outTypeId';
+    const targetMember = a.target.name.endsWith('.Out') ? 'Out' : 'In';
+    const other = a.target.owner ? interactions.find(i => i.id !== ia.id && i.name === a.target.owner) : undefined;
+    const sharedId = other ? (targetMember === 'In' ? other.inTypeId : other.outTypeId) : undefined;
+    if (other && sharedId) {
+      ia[aliasKey] = `${other.id}.${targetMember}`;
+      ia[typeKey] = sharedId;
+      dropped.add(a.copyId);
+    } else {
+      ia[aliasKey] = domainRef(a.target.id);
+    }
+  }
 
   const enriched: ProcessSpec = {
     ...spec,
     ...(procType.ownerDescr && !spec.description ? { description: procType.ownerDescr } : {}),
     // die Bezeichnung je Sprache kommt aus der Domain — der Export gibt sie mit
     ...(procType.processLabels ? { processLabels: procType.processLabels } : {}),
-    types: conv.types,
+    types: dropped.size ? conv.types.filter(t => !dropped.has(t.id)) : conv.types,
     interactions,
   };
   // was die Domain nicht kennt, wird vorbereitet — als Entwurf, zum Nachziehen
