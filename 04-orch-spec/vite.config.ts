@@ -88,13 +88,11 @@ export default defineConfig(({ mode }) => ({
           if (pkg === 'feelin' || pkg.startsWith('@lezer') || pkg === 'lezer-feel') return 'feel';
           if (pkg === 'lucide-react') return 'icons';
           if (['marked', 'js-yaml', 'fflate'].includes(pkg)) return 'text';
-          // der DMN-Editor (dmn-js) — erst geladen, wenn eine Tabelle aufgeht;
-          // aufgeteilt nach Ansicht, sonst wäre er ein Chunk über der Grenze
-          if (pkg === 'dmn-js-decision-table' || pkg === 'table-js') return 'dmn-table';
-          if (pkg === 'dmn-js-drd') return 'dmn-drd';
-          if (pkg.startsWith('dmn-js') || pkg === 'dmn-moddle' || pkg === 'camunda-dmn-moddle' || pkg.startsWith('inferno')) return 'dmn';
-          // die Zeichenfläche — gemeinsam für BPMN- und DMN-Editor
-          if (pkg === 'diagram-js' || pkg === 'diagram-js-direct-editing') return 'diagram';
+          // der DMN-Editor (dmn-js) kommt erst, wenn eine Tabelle aufgeht — als ein
+          // Chunk wäre er über der Grenze. Nur die Tabellen-Ansicht bekommt einen
+          // eigenen; den Rest teilt Rollup selbst auf. Mehr feste Zuordnungen
+          // (DRD, gemeinsame Teile) lassen die Chunks im Kreis voneinander abhängen.
+          if (pkg === 'dmn-js-decision-table') return 'dmn-table';
           return undefined;
         },
       },
