@@ -24,6 +24,9 @@ React 19 · TypeScript · Vite · Tailwind CSS 4 · lucide-react · bpmn-js.
 npm install && npm run dev
 ```
 
+Tests: `npm test` (`node:test`, die Fälle unter `tests/`) — läuft auch im
+sbt-Build (`orchDocClient/bundleDocClient`) und damit auf CI.
+
 Dann <http://localhost:3002/orch-spec/?demo> öffnen — die App startet
 direkt mit den Beispieldaten aus `sample-data/` (ohne Ordnerauswahl, nur im
 Dev-Server; verlangt deren `model.json` eine Anmeldung, dann mit Login). Die Beispieldaten sind **echt**: sie

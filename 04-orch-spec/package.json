@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
+    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --log-level=warning && node --test \"dist-tests/*.test.mjs\"",
     "build:tools": "esbuild tools/openapi2catalog.ts tools/domain2catalog.ts tools/site2catalog.ts --bundle --platform=node --format=esm --outdir=dist-tools --log-level=warning"
   },
   "dependencies": {
