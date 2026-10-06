@@ -17,7 +17,7 @@ import orchescala.domain.BpmnProcessType
   */
 case class OrchSpecGenerator()(using config: DevConfig):
 
-  def createProcess(bpmn: Option[String], scalaExport: String): Unit =
+  def createProcess(bpmn: Option[String], scalaExport: String, dmns: Seq[(String, String)] = Seq.empty): Unit =
     val files                     = OrchSpecExport.parse(scalaExport)
     val (processFile, classFiles) = files.partition(_.insert)
     val bpmnProcessId             = bpmn.flatMap(OrchSpecExport.processId)
@@ -74,23 +74,28 @@ case class OrchSpecGenerator()(using config: DevConfig):
     mergeProcessObject(domainDir / s"$objectName.scala", processObject)
     processObject.warnings.foreach(w => println(s"${Console.YELLOW}WARNING: $w${Console.RESET}"))
 
-    // bpmn
+    // bpmn - its engine decides where the diagrams go (camunda or camunda8)
+    def processTypeOf(c8: Boolean): BpmnProcessType =
+      if c8 then
+        config.projectBpmnProcessType match
+          case c8: BpmnProcessType.C8 => c8
+          case _                      => BpmnProcessType.C8()
+      else
+        config.projectBpmnProcessType match
+          case _: BpmnProcessType.C8 => BpmnProcessType.C7()
+          case other                 => other
     bpmn match
       case Some(xml) =>
-        val processType =
-          if OrchSpecExport.isC8(xml) then
-            config.projectBpmnProcessType match
-              case c8: BpmnProcessType.C8 => c8
-              case _                      => BpmnProcessType.C8()
-          else
-            config.projectBpmnProcessType match
-              case _: BpmnProcessType.C8 => BpmnProcessType.C7()
-              case other                 => other
-        val name        = processId.stripPrefix(s"${config.companyName}-")
-        createOrCompare(os.pwd / processType.diagramPath / s"$name.bpmn", xml)()
+        val name = processId.stripPrefix(s"${config.companyName}-")
+        createOrCompare(os.pwd / processTypeOf(OrchSpecExport.isC8(xml)).diagramPath / s"$name.bpmn", xml)()
       case None      =>
         BpmnProcessGenerator(config.projectBpmnProcessType).createBpmn(setupElement)
     end match
+
+    // the tables of the DMN decisions - next to the BPMN (without a BPMN: the engine of the DMN)
+    dmns.foreach: (file, xml) =>
+      val c8 = bpmn.map(OrchSpecExport.isC8).getOrElse(OrchSpecExport.isC8Dmn(xml))
+      createOrCompare(os.pwd / processTypeOf(c8).diagramPath / OrchSpecExport.dmnFileName(file), xml)()
 
     // workers
     WorkerGenerator().createProcessWorker(
@@ -497,6 +502,15 @@ object OrchSpecExport:
   def isC8(bpmn: String): Boolean =
     bpmn.contains("http://camunda.org/schema/zeebe/1.0")
 
+  /** A DMN of the Camunda Modeler for Camunda 8 - `modeler:executionPlatform="Camunda Cloud"`. */
+  def isC8Dmn(dmn: String): Boolean =
+    dmn.contains("executionPlatform=\"Camunda Cloud\"")
+
+  /** The file name of a DMN table - only the name (no path out of the diagram folder), with `.dmn`. */
+  def dmnFileName(file: String): String =
+    val name = file.split("[/\\\\]").last.trim
+    if name.endsWith(".dmn") then name else s"$name.dmn"
+
   /** Object name and DSL of an interaction - `MyTask -> CustomTask` for `object MyTask extends CompanyBpmnCustomTaskDsl`. */
   def interaction(content: String): Option[(String, String)] =
     """(?m)^object (\w+) extends CompanyBpmn(\w+)Dsl""".r
@@ -636,7 +650,10 @@ case class OrchSpecProcessObject(
     val sections    = ObjectSections(lines)
     sections.find(_.name == g.name) match
       case Some(e) if Seq("InConfig", "InitIn").contains(g.name) =>
-        lines.patch(e.from, CaseClassParams.addMissing(e.lines(lines), replacement), e.until - e.from)
+        val own    = e.lines(lines)
+        // a field without default must also be in the `example` - otherwise it does not compile
+        val merged = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
+        lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
       case Some(e) => lines.patch(e.from, replacement, e.until - e.from)
       case None    =>
@@ -900,6 +917,56 @@ object CaseClassParams:
       end if
   end addMissing
 
+  /** The fields that `generated` adds to `own` and that have no default - with their argument in
+    * the `lazy val example = X(…)` of `generated` added to the example of `section` (a field with
+    * a default is fine without). Without an example in `section` or `generated` nothing changes.
+    */
+  def addMissingToExample(section: Seq[String], own: Seq[String], generated: Seq[String], name: String): Seq[String] =
+    val ownNames = params(own).map(_.name).toSet
+    val required = params(generated).filterNot(p => ownNames.contains(p.name)).filterNot(hasDefault).map(_.name)
+    val genArgs  = exampleArgs(generated, name)
+    val toAdd    = required.flatMap(n => genArgs.find(_.name == n))
+    val start    = exampleStart(section, name)
+    if toAdd.isEmpty || start < 0 then section
+    else if section(start).trim.endsWith(s"$name()") then
+      // `lazy val example = InitIn()` - on one line
+      val indent = section(start).takeWhile(_ == ' ')
+      section.patch(
+        start,
+        (section(start).stripSuffix("()") + "(") +: withCommas(toAdd.map(_.lines)) :+ s"$indent)",
+        1
+      )
+    else
+      val close = closing(section, start)
+      if close < 0 then section
+      else
+        val args    = exampleArgs(section, name)
+        val last    = (start + 1 until close).filter(j => isCode(section(j))).lastOption
+        val withEnd = last match
+          case Some(j) if args.nonEmpty && !section(j).trim.endsWith(",") => section.updated(j, section(j) + ",")
+          case _                                                         => section
+        withEnd.patch(close, withCommas(toAdd.map(_.lines)), 0)
+    end if
+  end addMissingToExample
+
+  private def exampleStart(section: Seq[String], name: String): Int =
+    section.indexWhere(_.matches(s"""\\s*lazy val example\\s*=\\s*$name\\(.*"""))
+
+  /** The named arguments of `lazy val example = X(…)` - each with its lines. */
+  private def exampleArgs(section: Seq[String], name: String): Seq[Param] =
+    val start = exampleStart(section, name)
+    val close = if start < 0 || section(start).trim.endsWith(s"$name()") then -1 else closing(section, start)
+    if close < 0 then Seq.empty
+    else
+      split(section.slice(start + 1, close)).flatMap: ls =>
+        ls.collectFirst { case l if l.matches("""\s*\w+\s*=.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
+          .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
+
+  // from the line with the name on - the annotations before it (`@description("a = b")`) do not count
+  private def hasDefault(p: Param): Boolean =
+    p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode).mkString(" ")
+      .matches("""(?s)\s*\w+\s*:[^=]*=.*""")
+
   case class Param(name: String, lines: Seq[String])
 
   /** The parameters between `case class X(` and its closing `)`. */
@@ -908,18 +975,20 @@ object CaseClassParams:
     val close = closing(section, start)
     if start < 0 || close < 0 then Seq.empty
     else
-      // a parameter ends with the comma at depth 0 - its annotations and comments come before it
-      section.slice(start + 1, close).foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
-        case ((done, current, depth), line) =>
-          val d = depth + balance(line)
-          if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
-          else (done, current :+ line, d)
-      match
-        case (done, rest, _) =>
-          (done ++ Option.when(rest.exists(isCode))(rest)).flatMap: ls =>
-            ls.collectFirst { case l if l.matches("""\s*\w+\s*:.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
-              .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
+      split(section.slice(start + 1, close)).flatMap: ls =>
+        ls.collectFirst { case l if l.matches("""\s*\w+\s*:.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
+          .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
   end params
+
+  // a parameter (an argument) ends with the comma at depth 0 - its annotations and comments come before it
+  private def split(lines: Seq[String]): Seq[Seq[String]] =
+    lines.foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
+      case ((done, current, depth), line) =>
+        val d = depth + balance(line)
+        if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
+        else (done, current :+ line, d)
+    match
+      case (done, rest, _) => done ++ Option.when(rest.exists(isCode))(rest)
 
   // the comma after the parameter - on its last line of code
   private def withoutComma(ls: Seq[String]): Seq[String] =

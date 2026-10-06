@@ -9,7 +9,7 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainRequired, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
-import { feelBody, feelToJuel } from './feelJuel';
+import { feelBody, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin } from './interactions';
 import { dmnIssues, packageOf } from './scala';
@@ -271,7 +271,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
         if (spec.engine !== 'c8') {
           const body = feelBody(m.expression);
           const j = body != null ? feelToJuel(body) : null;
-          if (j && !j.ok) warnings.push(`«${m.name}»: für Camunda 7 nicht nach JUEL übersetzbar (${j.reason}).`);
+          // eine Liste bzw. ein Kontext geht als JSON-Skript (Groovy) — nur nicht als `camunda:in`
+          const json = body != null && step.kind !== 'call' && feelToGroovy(body).ok;
+          if (j && !j.ok && !json) warnings.push(`«${m.name}»: für Camunda 7 nicht nach JUEL übersetzbar (${j.reason}).`);
         }
       } else if (isScriptValue(m.expression)) {
         warnings.push(`«${m.name}»: ${scriptWarning(spec.engine)}`);

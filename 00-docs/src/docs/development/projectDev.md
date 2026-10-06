@@ -155,7 +155,8 @@ Usage:
 ```
 
 The simplest way: in _Orch Spec_ _Export_ > **Process from Spec** - it copies the whole command
-with the BPMN and the Scala classes in one argument (`orchspec:` + base64url(gzip(JSON))).
+with the BPMN, the Scala classes and the DMN tables of the DMN decisions in one argument
+(`orchspec:` + base64url(gzip(JSON))).
 Paste it in the terminal of your project and press Enter:
 ```
 ./helper.scala processFromSpec orchspec:H4sIAPO9vGoCA-0cW3IbN_IqKCW1ll…
@@ -185,9 +186,11 @@ This creates the same files as `process`, but with the content of the specificat
 ```
 // the BPMN - to camunda8 if it is a Camunda 8 diagram; without BPMN export the template
 src           - main -> myproject-myProcessV1.bpmn
+// the DMN tables of the DMN decisions - next to the BPMN, with their file name in the project
+src           - main -> myproject-myProcessV1-MyDecisionDmn.dmn
 // the domain - In, Out, InConfig, InitIn of the specification (In gets the inConfig)
 01-domain     - main -> mycompany.myproject.domain.myProcess.v1.MyProcess
-// the interactions (UserTasks, CustomTasks, Signals, Messages) and the classes in schema/
+// the interactions (UserTasks, CustomTasks, DMN Decisions, Signals, Messages) and the classes in schema/
 01-domain     - main -> mycompany.myproject.domain.myProcess.v1.MyUserTaskUT
                         mycompany.myproject.domain.myProcess.v1.schema.MyClass
 // the Simulation
@@ -208,6 +211,7 @@ The process object is the exception - _Orch Spec_ is merged into it (`UPDATED`):
 - `In`, `Out` and the other types of the export replace the ones with the same name
   (unless they only differ in blanks and line breaks); a missing one goes to its place in the order above.
 - `InConfig` and `InitIn` only get the fields they miss - what is there (own mocks, examples) stays.
+  A new field without default also goes into their `example` (with the value of the export) - otherwise it would not compile.
 - Imports are only added if the name is not imported yet (from wherever) and not visible through the package clause.
 - Everything else stays as it is: the package clause, `descr`, `processLabels`, the examples of the process, comments.
 - An existing process object without `processLabels` gets them from the export - the init worker sets `callingProcessKeyDE/FR` from them.

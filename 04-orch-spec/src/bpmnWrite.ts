@@ -20,9 +20,9 @@
 
 import type { EngineId, Mapping, ProcessSpec, Step } from './types';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
-import { referencedVariables } from './feel';
-import { engineExpression, feelBody, feelToJuel } from './feelJuel';
-import { importExpression, nullSafeCondition, stripNullSafe } from './juelFeel';
+import { optionalVariables, referencedVariables } from './feel';
+import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
+import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
@@ -70,7 +70,23 @@ const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim()
  * Mappings und Bedingungen der Spezifikation ins BPMN schreiben. Das XML
  * bleibt sonst unverändert (Layout, IDs, alles andere).
  */
+/**
+ * Wie FEEL für Camunda 7 übersetzt wird — gesetzt für die Dauer von
+ * `writeBpmn`: die optionalen Prozessvariablen (In, InitIn …) liest JUEL mit
+ * `execution.getVariable("x")`, sonst wirft es, wenn sie fehlen.
+ */
+let juelOpts: JuelOptions = {};
+
 export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
+  juelOpts = { optional: optionalVariables(spec) };
+  try {
+    return writeBpmnWith(xml, spec);
+  } finally {
+    juelOpts = {};
+  }
+}
+
+function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
   const issues: WriteIssue[] = [];
   const engine: EngineId = spec.engine ?? 'c7';
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -134,9 +150,20 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
     const before = el ? elementState(el) : null;
     // jeder Service im Diagramm hat seit dem Import eine Art — fehlt sie, ist die
     // Spezifikation älter, und es gilt das Diagramm (ohne `_manualOutMapping`: nicht manuell)
+    // Ein Service mit eigenen Ausgaben, aber weder `_manualOutMapping` noch
+    // `_outputVariables` im Diagramm (neu gezeichnet oder so importiert): er
+    // wird wie ein in der Spezifikation angelegter geschrieben (manuell
+    // gemappt). Sonst schriebe der Worker sein ganzes Out als Prozessvariablen —
+    // und überschriebe z. B. ein `accountKey` des Prozesses. Ein eigener Worker
+    // (Topic beginnt mit der Prozess-ID) gibt sein Out dagegen absichtlich zurück.
+    const ownWorker = !!step0.topic && !!spec.processId && step0.topic.startsWith(spec.processId);
+    const mappedLater = step0.kind === 'service' && !!before && before.manual === undefined && !before.hasOutputVariables
+      && !isInitWorker(step0, spec.processId) && !ownWorker
+      && active(step0.outputs).some(m => !m.fromService);
     const step: Step = {
       ...step0,
-      ...(step0.manualOutMapping === undefined && step0.kind === 'service' && before ? { manualOutMapping: !!before.manual } : {}),
+      ...(mappedLater ? { manualOutMapping: undefined, outputVariables: undefined } : {}),
+      ...(!mappedLater && step0.manualOutMapping === undefined && step0.kind === 'service' && before ? { manualOutMapping: !!before.manual } : {}),
       ...(step0.outputVariables === undefined && before?.outputVariables ? { outputVariables: before.outputVariables } : {}),
       ...(step0.mock === undefined && before?.mock ? { mock: before.mock } : {}),
     };
@@ -230,20 +257,30 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       const flow = byId.get(b.id);
       if (!flow || local(flow) !== 'sequenceFlow') continue;
       // unverändert seit dem Import → der alte Text bleibt wörtlich — in
-      // Camunda 8 nur, wenn er schon null-sicher ist (siehe nullSafeCondition)
+      // Camunda 8 nur, wenn er schon null-sicher ist (siehe nullSafeCondition).
+      // Und nur, wenn er schon in der Form der Engine steht: ein `= …` im
+      // Diagramm von Camunda 7 ist kein Ausdruck, sondern ein fester Text
+      // (die Bedingung ergäbe einen String) — der wird übersetzt
       const before = firstNamed(flow, 'conditionExpression');
       const old = before?.textContent ?? '';
       const safe = engine !== 'c8' || stripNullSafe(old) !== old || /^=\s*(true|false)\s*$/.test(old.trim());
-      if (before && safe && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) continue;
+      const inEngineForm = engine === 'c8' ? old.trim().startsWith('=') : isJuel(old);
       let text: string;
+      let translated = true;
       if (engine === 'c8') text = `=${nullSafeCondition(body)}`;
       else {
-        const r = feelToJuel(body);
+        const r = feelToJuel(body, juelOpts);
         if (r.ok) text = `\${${r.juel}}`;
-        else {
-          text = b.condition;
-          issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${r.reason}` });
-        }
+        else { text = b.condition; translated = false; }
+      }
+      if (before && safe && inEngineForm && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) {
+        // derselbe Ausdruck — er bleibt, wie er dasteht; ausser er unterscheidet
+        // sich nur darin, welche Variable fehlen darf (`execution.getVariable`):
+        // das folgt dem heutigen Datenmodell
+        const bare = (t: string) => t.replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1').replace(/\s+/g, '');
+        if (engine === 'c8' || !translated || old.trim() === text || bare(old) !== bare(text)) continue;
+      } else if (!translated) {
+        issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${(feelToJuel(body, juelOpts) as { reason: string }).reason}` });
       }
       let cond = firstNamed(flow, 'conditionExpression');
       if (!cond) {
@@ -439,7 +476,7 @@ function writeImplementation(
       const holder = engine === 'c8' ? zeebe('assignmentDefinition') : el;
       const old = holder ? attr(holder, key) : undefined;
       if (old != null && importExpression(old).trim() === value) continue;
-      const r = engineExpression(value, engine);
+      const r = engineExpression(value, engine, juelOpts);
       if (r.issue) issues.push({ stepId: step.id, where: 'Zuständigkeit', text: `${key} nicht nach JUEL übersetzbar: ${r.issue}` });
       if (engine === 'c8') zeebeOrNew('assignmentDefinition').setAttribute(key, r.text);
       else el.setAttributeNS(CAMUNDA_NS, `camunda:${key}`, r.text);
@@ -643,14 +680,34 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
 }
 
 // ── Camunda 7 ────────────────────────────────────────────────────────────────
-/** FEEL → `${…}`; JUEL aus einem alten Import bleibt; nicht Übersetzbares wird gemeldet. */
-function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[]): { text: string; plain?: string } {
+/**
+ * FEEL → `${…}`; JUEL aus einem alten Import bleibt; nicht Übersetzbares wird
+ * gemeldet. `script`: eine Liste bzw. ein Kontext (JSON) geht als
+ * Groovy-Skript (siehe feelToGroovy) — nur wo ein Skript stehen kann
+ * (`camunda:inputParameter` / `outputParameter`, nicht `camunda:in`).
+ */
+function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[], script = false): { text: string; plain?: string; script?: string } {
   const body = feelBody(m.expression);
   if (body == null) return { text: m.expression };
-  const r = feelToJuel(body);
+  const r = feelToJuel(body, juelOpts);
   if (r.ok) return { text: `\${${r.juel}}`, ...(r.plain ? { plain: r.plain } : {}) };
+  if (script) {
+    const g = feelToGroovy(body);
+    if (g.ok) return { text: m.expression, script: g.script };
+    issues.push({ stepId, where, text: `nicht nach JUEL übersetzbar: ${r.reason}; als JSON-Skript auch nicht: ${g.reason} — FEEL steht unverändert im BPMN.` });
+    return { text: m.expression };
+  }
   issues.push({ stepId, where, text: `nicht nach JUEL übersetzbar: ${r.reason} — FEEL steht unverändert im BPMN.` });
   return { text: m.expression };
+}
+
+/** Den Wert eines `camunda:inputParameter` / `outputParameter` setzen — als Text oder als Groovy-Skript */
+function setCamundaValue(doc: Document, p: Element, v: { text: string; script?: string }) {
+  if (!v.script) { p.textContent = v.text; return; }
+  const sc = doc.createElementNS(CAMUNDA_NS, 'camunda:script');
+  sc.setAttribute('scriptFormat', 'groovy');
+  sc.textContent = v.script;
+  p.appendChild(sc);
 }
 
 function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
@@ -684,14 +741,14 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (keep.has(`in:${m.name.trim()}`) || scriptGone(m, `Eingabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
     p.setAttribute('name', m.name.trim());
-    p.textContent = juelOf(m, stepId, `Eingabe «${m.name}»`, issues).text;
+    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true));
     appendEl(io, p);
   }
   for (const m of outs) {
     if (keep.has(`out:${m.name.trim()}`) || scriptGone(m, `Ausgabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:outputParameter');
     p.setAttribute('name', m.name.trim());
-    p.textContent = juelOf(m, stepId, `Ausgabe «${m.name}»`, issues).text;
+    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true));
     appendEl(io, p);
   }
   if (!kids(io).length) removeEl(io);

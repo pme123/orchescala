@@ -63,8 +63,8 @@ trait DevHelper:
           // the command is doubled: so take the `orchspec:` argument wherever it is.
           case arguments if arguments.exists(_.trim.startsWith(OrchSpecInput.commandPrefix)) =>
             val argument             = arguments.find(_.trim.startsWith(OrchSpecInput.commandPrefix)).get
-            val (bpmn, scalaClasses) = OrchSpecInput.fromCommand(argument.trim)
-            createProcessFromSpec(bpmn, scalaClasses)
+            val spec     = OrchSpecInput.fromCommand(argument.trim)
+            createProcessFromSpec(spec.bpmn, spec.scala, spec.dmns)
           case Seq(bpmnExport, scalaExport) =>
             createProcessFromSpec(Some(readFile(bpmnExport)), readFile(scalaExport))
           case Seq(file) if file.endsWith(".bpmn")     =>
@@ -195,9 +195,9 @@ trait DevHelper:
     ))
   end createProcess
 
-  // creates the process from the exports of Orch Spec - the BPMN and the Scala classes
-  def createProcessFromSpec(bpmn: Option[String], scalaClasses: String): Unit =
-    OrchSpecGenerator().createProcess(bpmn, scalaClasses)
+  // creates the process from the exports of Orch Spec - the BPMN, the Scala classes and the DMN tables
+  def createProcessFromSpec(bpmn: Option[String], scalaClasses: String, dmns: Seq[(String, String)] = Seq.empty): Unit =
+    OrchSpecGenerator().createProcess(bpmn, scalaClasses, dmns)
 
   private def readFile(path: String): String = os.read(os.Path(path, os.pwd))
 

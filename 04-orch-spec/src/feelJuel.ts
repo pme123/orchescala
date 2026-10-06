@@ -21,6 +21,12 @@
 //   Anzahl           count(x)                → x.size()
 //   leere Liste      x = []                  → empty x
 //
+// Eine Variable, die fehlen darf, liest Camunda 7 mit `execution.getVariable("x")`
+// — `${x}` wirft «Unknown property», wenn `x` nicht gesetzt ist. Das gilt für
+// jede Variable, die mit `null` verglichen oder auf leer geprüft wird
+// (`x != null`, `empty x`), und für jede, die laut Datenmodell optional ist
+// (`JuelOptions.optional`).
+//
 // Alles andere — übrige Funktionen, Kontexte, Datumswerte, for/some/every —
 // hat kein JUEL-Gegenstück; die Übersetzung meldet das statt zu raten.
 
@@ -53,8 +59,13 @@ const children = (n: SyntaxNode): SyntaxNode[] => {
   return out;
 };
 
+export interface JuelOptions {
+  /** Prozessvariablen, die fehlen dürfen (optional im Datenmodell) — `execution.getVariable("x")` */
+  optional?: ReadonlySet<string>;
+}
+
 /** FEEL-Rumpf nach JUEL (ohne `${}`) übersetzen. */
-export function feelToJuel(body: string): JuelResult {
+export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   const src = body.trim();
   if (!src) return { ok: false, reason: 'leerer Ausdruck' };
   let top: SyntaxNode;
@@ -64,6 +75,21 @@ export function feelToJuel(body: string): JuelResult {
     return { ok: false, reason: e instanceof FeelSyntaxError ? 'kein gültiges FEEL' : String(e) };
   }
   const text = (n: SyntaxNode) => src.slice(n.from, n.to);
+  /** aus: der blosse Pfad (`plain`, für `camunda:in source`) — ohne `execution.getVariable` */
+  let wrap = true;
+  const getVariable = (name: string) => `execution.getVariable("${name}")`;
+  /**
+   * Eine Variable, die hier fehlen darf: verglichen mit `null` oder auf leer
+   * geprüft. Bei einem Pfad (`a.b`) ihr Anfang — `null.b` ist in JUEL null.
+   */
+  const unsetSafe = (n: SyntaxNode): string => {
+    if (n.name === 'PathExpression') {
+      const [base, , prop] = children(n).filter(k => !k.type.isError);
+      if (base && prop) return `${unsetSafe(base)}.${text(prop)}`;
+    }
+    const name = n.name === 'VariableName' ? text(n) : '';
+    return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && /^[A-Za-z_]\w*$/.test(name) ? getVariable(name) : tr(n);
+  };
 
   /** `string(x)` → der Ausdruck dahinter, sonst null */
   const stringCall = (n: SyntaxNode): SyntaxNode | null => {
@@ -128,8 +154,9 @@ export function feelToJuel(body: string): JuelResult {
       case 'VariableName': {
         const name = text(n);
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
-        // was Camunda 8 als Variable führt, hat Camunda 7 an der Ausführung
-        return EXECUTION_JUEL[name] ?? name;
+        // was Camunda 8 als Variable führt, hat Camunda 7 an der Ausführung;
+        // eine optionale Variable liest es so, dass sie fehlen darf
+        return EXECUTION_JUEL[name] ?? (wrap && opts.optional?.has(name) ? getVariable(name) : name);
       }
       case 'PathExpression': {
         const [base, , prop] = kids;
@@ -165,8 +192,12 @@ export function feelToJuel(body: string): JuelResult {
           if (!b) throw new Unsupported('unvollständiger Vergleich');
           // `x = []` — die leere Liste heisst in JUEL `empty`
           if ((o === '=' || o === '!=') && (emptyList(b) || emptyList(a))) {
-            const x = tr(emptyList(b) ? a : b);
+            const x = unsetSafe(emptyList(b) ? a : b);
             return o === '=' ? `empty ${x}` : `!empty ${x}`;
+          }
+          // `x != null` — gerade dann darf `x` fehlen
+          if ((o === '=' || o === '!=') && (b.name === 'null' || a.name === 'null')) {
+            return `${unsetSafe(a)} ${o === '=' ? '==' : o} ${unsetSafe(b)}`;
           }
           return `${tr(a)} ${o === '=' ? '==' : o} ${tr(b)}`;
         }
@@ -202,7 +233,7 @@ export function feelToJuel(body: string): JuelResult {
           });
           const x = tested[0]?.x;
           if (x && tested.every(t => t?.x === x) && new Set(tested.map(t => t!.v)).size === 3
-            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) return `empty ${tr(kids0(parts.flatMap(flat)[0]))}`;
+            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) return `empty ${unsetSafe(kids0(parts.flatMap(flat)[0]))}`;
         }
         return parts.map(tr).join(n.name === 'Conjunction' ? ' && ' : ' || ');
       }
@@ -245,11 +276,119 @@ export function feelToJuel(body: string): JuelResult {
   try {
     const juel = tr(top);
     const first = children(top)[0];
-    const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? juel : undefined;
+    // der blosse Pfad — ohne `execution.getVariable`, das gehört nicht in ein `source`
+    wrap = false;
+    const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? tr(top) : undefined;
     return { ok: true, juel, ...(plain ? { plain } : {}) };
   } catch (e) {
     if (e instanceof Unsupported) return { ok: false, reason: e.message };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── FEEL → Groovy (JSON in Camunda 7) ───────────────────────────────────────
+//
+// Eine Liste oder ein Kontext (`[{ accountKey: x, validUntil: "2299-12-31" }]`)
+// hat in JUEL kein Gegenstück. Camunda 7 baut JSON mit einem Groovy-Skript und
+// Spin — so wie die Hauskonvention (`org.camunda.spin.Spin.JSON(…)`):
+//
+//   // FEEL: [{accountKey: x, validUntil: "2299-12-31"}]
+//   def v = { … }   // Variable bzw. Pfad lesen — fehlt sie, null
+//   org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson([['accountKey': v('x'), 'validUntil': '2299-12-31']]))
+//
+// Die erste Zeile trägt das FEEL: der Import liest es daraus zurück (siehe
+// `fachlich` in bpmn.ts), ein Abgleich mit dem Diagramm ersetzt es also nicht
+// durch das Skript. Übersetzt wird, was JSON ausmacht: Listen, Kontexte,
+// Literale, Variablen und Pfade (`client.address.zip`) — Rechnen, Funktionen,
+// `if` darin nicht (das wird gemeldet).
+
+/** Kennzeichnet ein Skript, das aus FEEL entstanden ist — dahinter steht das FEEL */
+export const FEEL_SCRIPT_MARK = '// FEEL: ';
+
+/** Liest im Skript eine Variable bzw. einen Pfad — fehlt sie, null; JSON (Spin) wird zu Map/List */
+const GROOVY_READ = [
+  'def v = { String name, String... path ->',
+  '  def x = execution.getVariable(name)',
+  '  for (p in path) {',
+  '    if (x == null) return null',
+  '    x = x instanceof org.camunda.spin.json.SpinJsonNode ? (x.hasProp(p) ? x.prop(p) : null) : x instanceof Map ? x[p] : x."$p"',
+  '  }',
+  '  x instanceof org.camunda.spin.json.SpinJsonNode ? new groovy.json.JsonSlurper().parseText(x.toString()) : x',
+  '}',
+].join('\n');
+
+export type GroovyResult = { ok: true; script: string } | { ok: false; reason: string };
+
+/** Eine FEEL-Liste bzw. ein -Kontext als Groovy-Skript, das JSON (Spin) liefert */
+export function feelToGroovy(body: string): GroovyResult {
+  const src = body.trim();
+  let top: SyntaxNode;
+  try {
+    top = parseExpression(src, {}, 'expression').topNode;
+  } catch {
+    return { ok: false, reason: 'kein gültiges FEEL' };
+  }
+  const text = (n: SyntaxNode) => src.slice(n.from, n.to);
+  const kids = (n: SyntaxNode) => children(n).filter(k => !k.type.isError);
+  const str = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  let reads = false;
+  const path = (n: SyntaxNode): string[] => {
+    if (n.name === 'VariableName') return [text(n)];
+    if (n.name === 'PathExpression') {
+      const [base, , prop] = kids(n);
+      if (base && prop) return [...path(base), text(prop)];
+    }
+    throw new Unsupported(`«${text(n)}» geht im JSON nicht — nur Werte, Variablen und Pfade`);
+  };
+  const tr = (n: SyntaxNode): string => {
+    if (n.type.isError) throw new Unsupported('kein gültiges FEEL');
+    switch (n.name) {
+      case 'Expression': {
+        const k = kids(n);
+        if (k.length !== 1) throw new Unsupported('unerwarteter Aufbau');
+        return tr(k[0]);
+      }
+      case 'List':
+        return `[${kids(n).filter(k => k.name !== '[' && k.name !== ']').map(tr).join(', ')}]`;
+      case 'Context': {
+        const entries = kids(n).filter(k => k.name === 'ContextEntry');
+        if (!entries.length) return '[:]';
+        return `[${entries.map(e => {
+          const [key, value] = kids(e);
+          if (!key || !value) throw new Unsupported('unvollständiger Eintrag');
+          const name = kids(key)[0];
+          const k = name?.name === 'StringLiteral' ? JSON.parse(text(name)) as string : text(key).trim();
+          return `${str(k)}: ${tr(value)}`;
+        }).join(', ')}]`;
+      }
+      case 'StringLiteral': return str(JSON.parse(text(n)) as string);
+      case 'NumericLiteral': case 'BooleanLiteral': case 'null': return text(n);
+      case 'ParenthesizedExpression': {
+        const inner = kids(n).find(k => k.name !== '(' && k.name !== ')');
+        if (!inner) throw new Unsupported('leere Klammer');
+        return tr(inner);
+      }
+      case 'VariableName': case 'PathExpression': {
+        const [name, ...rest] = path(n);
+        reads = true;
+        return `v(${[name, ...rest].map(str).join(', ')})`;
+      }
+      default:
+        throw new Unsupported(`«${text(n)}» geht im JSON nicht — nur Werte, Variablen und Pfade`);
+    }
+  };
+  try {
+    const first = kids(top)[0];
+    if (!first || (first.name !== 'List' && first.name !== 'Context')) return { ok: false, reason: 'nur eine Liste oder ein Kontext wird zu JSON' };
+    const literal = tr(top);
+    const script = [
+      `${FEEL_SCRIPT_MARK}${src.replace(/\s*\n\s*/g, ' ')}`,
+      ...(reads ? [GROOVY_READ] : []),
+      `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${literal}))`,
+    ].join('\n');
+    return { ok: true, script };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Unsupported ? e.message : e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -258,11 +397,11 @@ export function feelToJuel(body: string): JuelResult {
  * FEEL (`= …`) wird für Camunda 8 zu `=…`, für Camunda 7 zu `${…}`; alles
  * andere (JUEL aus einem alten Import) bleibt, wie es ist.
  */
-export function engineExpression(expression: string, engine: EngineId | undefined): { text: string; issue?: string } {
+export function engineExpression(expression: string, engine: EngineId | undefined, opts: JuelOptions = {}): { text: string; issue?: string } {
   const body = feelBody(expression);
   if (body == null) return { text: expression };
   if (engine === 'c8') return { text: `=${body}` };
-  const r = feelToJuel(body);
+  const r = feelToJuel(body, opts);
   if (r.ok) return { text: `\${${r.juel}}` };
   return { text: expression, issue: r.reason };
 }

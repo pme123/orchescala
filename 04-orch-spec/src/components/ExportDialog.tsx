@@ -1,7 +1,8 @@
 // Export-Dialog: Zielgruppe wählen, Ergebnis prüfen, kopieren oder speichern.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Copy, Download, Terminal, X } from 'lucide-react';
-import { EXPORT_META, exportBpmnFor, exportFileName, exportSpec, helperCommand, type ExportKind } from '../exporters';
+import { EXPORT_META, exportBpmnFor, exportFileName, exportSpec, helperCommand, type ExportKind, type HelperDmn } from '../exporters';
+import { useStore } from '../store';
 import { ENGINES } from '../template';
 import type { EngineId, Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
@@ -12,7 +13,17 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   spec: ProcessSpec; model: Model | null; bpmn?: string; isDark: boolean; onClose: () => void;
 }) {
   const c = cls(isDark);
+  const { loadDmn } = useStore();
   const [kind, setKind] = useState<ExportKind>('orchescala');
+  // die Tabellen der DMN Decisions — vorab geladen, damit das Kopieren im Klick bleibt
+  const [dmns, setDmns] = useState<HelperDmn[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const own = (spec.interactions ?? []).filter(i => i.kind === 'decision' && i.dmnFile && i.key);
+    void Promise.all(own.map(async i => ({ file: String(i.dmnFile), xml: await loadDmn(spec.slug, i.key) })))
+      .then(list => { if (alive) setDmns(list.filter((d): d is HelperDmn => !!d.xml)); });
+    return () => { alive = false; };
+  }, [spec.interactions, spec.slug, loadDmn]);
   const [copied, setCopied] = useState(false);
   // Grösse des kopierten Helper-Befehls in KB — null, solange nichts kopiert ist
   const [helperCopied, setHelperCopied] = useState<number | null>(null);
@@ -44,7 +55,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   // BPMN und Scala-Klassen in einem Befehl — `./helper.scala processFromSpec orchspec:…`
   const copyForHelper = async () => {
     // das BPMN für die Engine, die im BPMN-Reiter gewählt ist
-    const command = helperCommand(spec, model, bpmn, engine);
+    const command = helperCommand(spec, model, bpmn, engine, dmns);
     try {
       await navigator.clipboard.writeText(command);
       setHelperShown(null);

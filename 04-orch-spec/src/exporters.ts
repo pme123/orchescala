@@ -394,19 +394,25 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
 }
 
 // ── Für den Helper ───────────────────────────────────────────────────────────
+/** Eine Tabelle einer DMN Decision für den Helper */
+export interface HelperDmn { file: string; xml: string }
+
 /**
  * Der Befehl, der im Projekt den Prozess anlegt — BPMN und Scala-Klassen in
  * **einem** Argument: `orchspec:` + base64url(gzip(JSON)). So braucht der
  * Helper weder Dateien noch eine Anmeldung an SharePoint; `v` erlaubt, das
  * Format später zu ändern (der Helper lehnt eine unbekannte Version ab).
  *
- * Das BPMN ist dasselbe wie im BPMN-Export für die gewählte Engine.
+ * Das BPMN ist dasselbe wie im BPMN-Export für die gewählte Engine. Dazu die
+ * Tabellen der DMN Decisions (`dmns`: Dateiname im Projekt und XML) — der
+ * Helper legt sie neben das BPMN (`src/main/resources/camunda[8]`).
  */
-export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId): string {
+export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId, dmns: HelperDmn[] = []): string {
   const payload = JSON.stringify({
     v: 1,
     ...(bpmn ? { bpmn: exportBpmnFor(spec, bpmn, engine).xml } : {}),
     scala: scalaBundle(spec, model),
+    ...(dmns.length ? { dmns } : {}),
   });
   const zipped = gzipSync(strToU8(payload), { level: 9 });
   let binary = '';

@@ -423,6 +423,12 @@ export interface Interaction {
    */
   decisionResult?: DecisionResult;
   /**
+   * DMN Decision mit eigener Tabelle: der Dateiname im Projekt
+   * (`src/main/resources/camunda[8]/…`) — gesetzt, sobald die App die Tabelle
+   * führt (`processes/<slug>/<decisionId>.dmn`, siehe dmn.ts)
+   */
+  dmnFile?: string;
+  /**
    * Package des Domain-Objekts, wenn die Interaktion eines aus dem Katalog ist
    * (über ihren Schlüssel gefunden, siehe `interactionOrigin`) — ein fremdes
    * Package heisst: referenziert, wird nicht exportiert. Fehlt bei einer neuen.

@@ -326,11 +326,23 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("fromCommand - BPMN and Scala classes"):
     assertEquals(
       OrchSpecInput.fromCommand(command("""{"v":1,"bpmn":"<bpmn/>","scala":"// einfügen «x»"}""")),
-      Some("<bpmn/>") -> "// einfügen «x»"
+      OrchSpecCommand(Some("<bpmn/>"), "// einfügen «x»")
     )
 
+  test("fromCommand - with the DMN tables"):
+    assertEquals(
+      OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x","dmns":[{"file":"product-subStatusKey.dmn","xml":"<definitions/>"}]}""")).dmns,
+      Seq("product-subStatusKey.dmn" -> "<definitions/>")
+    )
+
+  test("dmn - file name without a path, engine from the modeler"):
+    assertEquals(OrchSpecExport.dmnFileName("../a/b.dmn"), "b.dmn")
+    assertEquals(OrchSpecExport.dmnFileName("subStatus"), "subStatus.dmn")
+    assert(OrchSpecExport.isC8Dmn("""<definitions modeler:executionPlatform="Camunda Cloud">"""))
+    assert(!OrchSpecExport.isC8Dmn("""<definitions modeler:executionPlatform="Camunda Platform">"""))
+
   test("fromCommand - without BPMN"):
-    assertEquals(OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x"}""")), None -> "x")
+    assertEquals(OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x"}""")), OrchSpecCommand(None, "x"))
 
   test("fromCommand - unknown version"):
     intercept[IllegalArgumentException](OrchSpecInput.fromCommand(command("""{"v":2,"scala":"x"}""")))
@@ -579,6 +591,84 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("merge - nothing to do the second time"):
     assertEquals(mergeObject.differences(merged), Seq.empty)
     assertEquals(mergeObject.merge(merged), merged)
+
+  test("merge - a field without default in InitIn also goes into its example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InitIn(
+        |      @description("a = b")
+        |      counter: Int = 0,
+        |      @description("the fee")
+        |      fee: Int,
+        |      flag: Boolean = false
+        |  )
+        |
+        |  object InitIn:
+        |    given ApiSchema[InitIn]  = deriveApiSchema
+        |    given InOutCodec[InitIn] = deriveInOutCodec
+        |
+        |    lazy val example = InitIn(
+        |      counter = 0,
+        |      fee = 90,
+        |      flag = false
+        |    )
+        |  end InitIn""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |
+        |  val processName   = "a-b-procV1"
+        |  val descr: String = "x"
+        |
+        |  case class InitIn(
+        |      counter: Int = 0
+        |  )
+        |  object InitIn:
+        |    given ApiSchema[InitIn]  = deriveApiSchema
+        |    given InOutCodec[InitIn] = deriveInOutCodec
+        |
+        |    lazy val example = InitIn(
+        |      counter = 1
+        |    )
+        |  end InitIn
+        |end Proc
+        |""".stripMargin
+    val m        = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains("      counter: Int = 0,\n      @description(\"the fee\")\n      fee: Int,\n      flag: Boolean = false\n  )"), m)
+    // only the field without default - the own value of counter stays
+    assert(m.contains("    lazy val example = InitIn(\n      counter = 1,\n      fee = 90\n    )"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - an empty example of InitIn gets the field without default"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InitIn(
+        |      fee: Int
+        |  )
+        |
+        |  object InitIn:
+        |    lazy val example = InitIn(
+        |      fee = 90
+        |    )
+        |  end InitIn""".stripMargin
+    val existing =
+      """object Proc extends CompanyBpmnProcessDsl:
+        |
+        |  val processName   = "a-b-procV1"
+        |  val descr: String = "x"
+        |
+        |  case class InitIn()
+        |  object InitIn:
+        |    lazy val example = InitIn()
+        |  end InitIn
+        |end Proc
+        |""".stripMargin
+    val m        = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains("    lazy val example = InitIn(\n      fee = 90\n    )"), m)
 
   test("merge - processLabels go in when the object has none"):
     val without = existingProc.replace(

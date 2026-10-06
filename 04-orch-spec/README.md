@@ -382,6 +382,29 @@ Export schreibt `type Out = Int` und dessen Beispiel (`singleEntry(In.example, 3
 Das Ergebnis in der `resultVariable` kennt die App in FEEL in dieser Form.
 Eine Entscheidung eines anderen Projekts bleibt ein Verweis in den Katalog.
 
+**Die Tabelle selbst** steht am Schritt unter **DMN-Tabelle** — wie das BPMN
+zum Ablauf ist sie die Quelle, die App leitet ab:
+
+- **Aus dem Projekt** sucht in den gemerkten Projekt-Ordnern (der eigene
+  zuerst) unter `src/main/resources/camunda`, für Camunda 8 unter
+  `…/camunda8`, die DMN-Datei mit dieser `decisionId`; **Datei wählen** nimmt
+  eine beliebige; **Neu anlegen** baut eine Tabelle aus `In` und `Out` (je
+  Feld eine Spalte).
+- **Bearbeiten** öffnet die Tabelle in **dmn-js** (bpmn.io, das Gegenstück
+  zum BPMN-Modeler; wird erst dann geladen). «Übernehmen» legt sie ab.
+- Danach folgen `In` und `Out` den Spalten: Eingaben (Name = Ausdruck der
+  Spalte, sonst ihre Beschriftung) und Ausgaben (`name`), Typ aus `typeRef`
+  (`string` → String, `integer` → Int, `number` → Double, `boolean`,
+  `date` → LocalDateTime in Camunda 7, LocalDate in Camunda 8 …).
+  Beschreibung, Beispiel und `optional` bleiben, Felder ohne Spalte fallen
+  weg. Die **Ergebnisform** folgt der Tabelle: eine Ausgabe → `singleEntry`,
+  mehrere → `singleResult`; COLLECT (ohne Aggregation), RULE ORDER oder
+  OUTPUT ORDER → `collectEntries` bzw. `resultList`.
+- Ablage: `processes/<slug>/<decisionId>.dmn` neben der Spezifikation.
+  «Process from Spec» nimmt sie mit; der Helper legt sie neben das BPMN
+  (`src/main/resources/camunda[8]`), unter ihrem Dateinamen im Projekt bzw.
+  der `decisionId` ohne Firma.
+
 Am Schritt selbst steht der Abschnitt **Klassen**: «Als Benutzeraufgabe
 beschreiben» legt das Objekt an, danach führen zwei Zeilen zu `In` und `Out`.
 Kennt der Katalog die Felder — die OpenAPI beschreibt Benutzeraufgaben mit
@@ -1308,7 +1331,11 @@ Zeile überschriebe die erste.
 Ein Mapping-Wert oder eine Zweigbedingung, die mit `=` beginnt, ist ein
 FEEL-Ausdruck — **unabhängig von der Engine**. Die Spezifikation spricht
 FEEL; was die Engine braucht, entsteht beim Export (siehe unten). Die App
-prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld:
+prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld.
+Ein FEEL-Feld ist eine Zeile — beim **Reinklicken** klappt es auf: der ganze
+Ausdruck steht da, umgebrochen, und das Feld wächst beim Tippen mit (Enter
+gibt eine neue Zeile; in den Pattern-Parametern übernimmt Enter, Shift+Enter
+gibt die Zeile). Geprüft wird:
 
 - **Syntax** — `= amount +` ist kein gültiges FEEL («Fehler an Position 9,
   Ausdruck unvollständig»).
@@ -1368,6 +1395,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
 | Service (in der Spezifikation angelegt) | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
 | Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
+| Service (kein eigener Worker) mit eigenen Ausgaben, aber ohne `_manualOutMapping` und `_outputVariables` im Diagramm (z. B. neu gezeichnet) | wie in der Spezifikation angelegt: `_manualOutMapping` und `_outputVariables` — sonst schriebe der Worker sein ganzes `Out` als Prozessvariablen (und überschriebe etwa ein `accountKey` des Prozesses) | ebenso |
 | Init-Worker | nie `_outputVariables` oder `_manualOutMapping` — er gibt das `InitIn` zurück | ebenso |
 | Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — nur mit `propagateAllParentVariables="false"`, sonst sieht der Teilprozess sie ohnehin | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer; dazu `impersonateUserId` (der alte Weg zur Identität — BPF/MAP starten noch ohne `_identityCorrelation`, ohne ihn riefe der Teilprozess die Services mit dem technischen Benutzer) |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` (am Teilprozess `source="createContractMock"`) |
@@ -1375,6 +1403,8 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
+| Liste bzw. Kontext (JSON), z. B. `[{accountKey: accountKey, validUntil: "2299-12-31"}]` | `=[…]` | ein **Groovy-Skript** mit Spin: `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson([['accountKey': v('accountKey'), …]]))` — `v(…)` liest Variablen und Pfade (fehlt etwas, `null`). Die erste Zeile `// FEEL: …` trägt den Ausdruck; der Abgleich liest ihn daraus zurück. Nur Werte, Variablen und Pfade; nicht in `camunda:in` |
+| Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").b`. Nicht optional ist, was der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, seine Ausgaben, ein optionales Feld des `In` mit Vorgabe. Eine Bedingung, die sich im Diagramm nur darin unterscheidet, folgt beim Export dem heutigen Datenmodell |
 
 FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit
 Textersetzung, sonst würde aus `a = b` in einer Zeichenkette ein `==`. Die

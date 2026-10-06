@@ -564,23 +564,37 @@ lazy val companyCheckDmn        =
 lazy val companyCheckSimulation =
   companyCheckModule("03-simulation", "simulation").dependsOn(companyCheckEngine, simulation)
 lazy val companyCheckWorker     =
-  companyCheckModule("03-worker", "worker").dependsOn(companyCheckEngine, workerC7, workerC8)
+  companyCheckModule("03-worker", "worker").dependsOn(companyCheckEngine, workerC7, workerC8, workerOp)
 lazy val companyCheckGateway    =
   companyCheckModule("04-gateway", "gateway").dependsOn(companyCheckWorker, gateway)
 lazy val companyCheckHelper     =
   companyCheckModule("04-helper", "helper").dependsOn(companyCheckApi, companyCheckSimulation, helper)
 
+// the compile steps of companyCheck - after generating the company project
+lazy val companyCheckCompile = Seq(
+  "companyCheckDomain/compile",
+  "companyCheckEngine/compile",
+  "companyCheckApi/compile",
+  "companyCheckDmn/compile",
+  "companyCheckSimulation/compile",
+  "companyCheckWorker/compile",
+  "companyCheckGateway/compile",
+  "companyCheckHelper/compile"
+)
+def companyCheckGenerate(engines: String) =
+  s"helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check $engines"
+
 addCommandAlias(
   "companyCheck",
-  Seq(
-    "helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check C7 C8",
-    "companyCheckDomain/compile",
-    "companyCheckEngine/compile",
-    "companyCheckApi/compile",
-    "companyCheckDmn/compile",
-    "companyCheckSimulation/compile",
-    "companyCheckWorker/compile",
-    "companyCheckGateway/compile",
-    "companyCheckHelper/compile"
+  (
+    // the templates for each combination of engines (generated strings only)
+    "helper/testOnly orchescala.helper.dev.company.CompanyWrapperGeneratorTest" +:
+      // compiled: all engines (the mixed CompanyWorker - C8Worker shares no member with C7Worker
+      // and OpWorker, so this covers C7 Op as well), Camunda 7 and 8 (as existing companies)
+      // and Operaton only (the generated sources without Camunda 7 - the module dependencies
+      // stay the same)
+      Seq("C7 C8 Op", "C7 C8", "Op").flatMap(engines =>
+        companyCheckGenerate(engines) +: companyCheckCompile
+      )
   ).mkString("; ")
 )
