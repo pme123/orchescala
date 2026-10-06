@@ -26,7 +26,7 @@ import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
 import { domainMember, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
 import { packageOf } from './scala';
-import { domainRef, parseDomainRef } from './serviceTypes';
+import { catalogObject, domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
 import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
 
@@ -338,7 +338,13 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
     : step.topic ? all.find(t => t.topicName === step.topic && t.owner)?.owner
     : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)?.owner
     : undefined;
-  return owner ? domainMember(owner, member, model) : null;
+  if (owner) return domainMember(owner, member, model);
+  // ein Service ohne `topicName` im Katalog: das Objekt über seinen Namen und
+  // das abgeleitete Package (`valiant-fil-is-cardV4.GetX` → `GetX` in
+  // `valiant.fil.is.domain.card.v4`) — gleichnamige Objekte anderer Versionen zählen nicht
+  const ref = step.serviceId ?? step.topic;
+  const obj = ref && step.kind === 'service' ? catalogObject(ref, model) : null;
+  return obj ? all.find(t => t.pkg === obj.pkg && t.name === `${obj.object}.${member}`) ?? null : null;
 }
 
 /** Erwarteter Typ eines Feldes laut Domain-Katalog — `null`, wenn unbekannt. */

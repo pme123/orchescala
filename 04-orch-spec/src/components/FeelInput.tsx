@@ -51,12 +51,14 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     plain: '',
   };
 
-  // Vorschläge erst, wenn vor dem Cursor ein Buchstabe des Namens steht — sonst
-  // übernähme Enter (neue Zeile) den obersten Vorschlag
+  // Vorschläge erst, wenn vor dem Cursor ein Buchstabe des Namens steht oder
+  // ein Punkt (`client.` → die Felder) — sonst übernähme Enter (neue Zeile)
+  // den obersten Vorschlag
   const refresh = (text: string, cursor: number | null) => {
     if (!variables || cursor == null) { setRange(null); return; }
     const r = completions(text, cursor, variables);
-    if (!r || !/[A-Za-z_]/.test(text.slice(r.from, cursor))) { setRange(null); setItems([]); return; }
+    const typed = !!r && (/[A-Za-z_]/.test(text.slice(r.from, cursor)) || /\.\s*$/.test(text.slice(0, r.from)));
+    if (!r || !typed) { setRange(null); setItems([]); return; }
     setItems(r.items.slice(0, 40));
     setRange({ from: r.from, to: r.to });
     setActive(0);

@@ -319,6 +319,27 @@ const GROOVY_READ = [
 
 export type GroovyResult = { ok: true; script: string } | { ok: false; reason: string };
 
+/** Ist der FEEL-Rumpf syntaktisch vollständig? (Der Parser liefert sonst Fehlerknoten statt zu werfen.) */
+export function feelSyntaxOk(body: string): boolean {
+  try {
+    const c = parseExpression(body.trim(), {}, 'expression').cursor();
+    do { if (c.type.isError) return false; } while (c.next());
+    return !!body.trim();
+  } catch {
+    return false;
+  }
+}
+
+/** Ist der Ausdruck eine Liste bzw. ein Kontext (JSON)? */
+export function isJsonLiteral(body: string): boolean {
+  try {
+    const first = children(parseExpression(body.trim(), {}, 'expression').topNode)[0];
+    return first?.name === 'List' || first?.name === 'Context';
+  } catch {
+    return false;
+  }
+}
+
 /** Eine FEEL-Liste bzw. ein -Kontext als Groovy-Skript, das JSON (Spin) liefert */
 export function feelToGroovy(body: string): GroovyResult {
   const src = body.trim();

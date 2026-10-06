@@ -14,7 +14,7 @@ import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, pat
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
-import { feelBody, feelToGroovy, feelToJuel } from '../feelJuel';
+import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
 import DmnTableSection from './DmnTableSection';
@@ -85,11 +85,13 @@ function juelIssues(expression: string, engine: EngineId | undefined, json = fal
   if (body == null) return [];
   const r = feelToJuel(body);
   if (r.ok) return [];
+  // kein gültiges FEEL (unvollständig): das meldet schon die Prüfung des Ausdrucks
+  if (!feelSyntaxOk(body)) return [];
   // eine Liste bzw. ein Kontext: in Camunda 7 ein Groovy-Skript mit Spin — wo ein Skript stehen kann
-  if (json) {
+  if (json && isJsonLiteral(body)) {
     const g = feelToGroovy(body);
     if (g.ok) return [];
-    return [{ level: 'warn', text: `Für Camunda 7 weder nach JUEL noch als JSON-Skript übersetzbar (${g.reason}) — beim Export bleibt das FEEL stehen.` }];
+    return [{ level: 'warn', text: `Für Camunda 7 als JSON-Skript nicht übersetzbar (${g.reason}) — beim Export bleibt das FEEL stehen.` }];
   }
   return [{ level: 'warn', text: `Für Camunda 7 nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
 }
