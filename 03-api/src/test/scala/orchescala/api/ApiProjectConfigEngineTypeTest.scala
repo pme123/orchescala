@@ -26,8 +26,18 @@ class ApiProjectConfigEngineTypeTest extends FunSuite:
   test("without engineType - the company's default"):
     assertEquals(ApiProjectConfig(projectConf("")).engineType, None)
 
-  test("an unknown engineType names the valid ones"):
-    val error = intercept[IllegalArgumentException](ApiProjectConfig(projectConf("engineType: C9")))
+  test("engineType with surrounding spaces"):
+    assertEquals(ApiProjectConfig(projectConf("engineType: \" Op \"")).engineType, Some(BpmnProcessType.Op()))
+
+  test("an unknown engineType names the value as written, the valid ones and the file"):
+    val conf  = projectConf("engineType: C9")
+    val error = intercept[IllegalArgumentException](ApiProjectConfig(conf))
+    assert(error.getMessage.contains("'C9'"), error.getMessage)
+    assert(error.getMessage.contains("C7, C8 or Op"), error.getMessage)
+    assert(error.getMessage.contains(conf.toString), error.getMessage)
+
+  test("an empty engineType is an error, not the company's default"):
+    val error = intercept[IllegalArgumentException](ApiProjectConfig(projectConf("engineType: \"\"")))
     assert(error.getMessage.contains("C7, C8 or Op"), error.getMessage)
 
 end ApiProjectConfigEngineTypeTest

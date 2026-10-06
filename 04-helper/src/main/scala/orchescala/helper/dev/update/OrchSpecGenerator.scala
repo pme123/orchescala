@@ -76,14 +76,7 @@ case class OrchSpecGenerator()(using config: DevConfig):
 
     // bpmn - its engine decides where the diagrams go (camunda or camunda8)
     def processTypeOf(c8: Boolean): BpmnProcessType =
-      if c8 then
-        config.projectBpmnProcessType match
-          case c8: BpmnProcessType.C8 => c8
-          case _                      => BpmnProcessType.C8()
-      else
-        config.projectBpmnProcessType match
-          case _: BpmnProcessType.C8 => BpmnProcessType.C7()
-          case other                 => other
+      OrchSpecGenerator.processTypeOf(config.projectBpmnProcessType, c8)
     bpmn match
       case Some(xml) =>
         val name = processId.stripPrefix(s"${config.companyName}-")
@@ -1042,3 +1035,18 @@ object OrchSpecImports:
       .collect { case l if l.startsWith("package ") => l.stripPrefix("package ").trim }
       .scanLeft("")((acc, p) => if acc.isEmpty then p else s"$acc.$p").drop(1)
 end OrchSpecImports
+
+object OrchSpecGenerator:
+  /** Where a diagram goes: a C8 export to the C8 path, any other to the project's own engine (C7
+    * or Op) - an export of the other engine than the project's falls back to that engine's default.
+    */
+  def processTypeOf(projectType: BpmnProcessType, c8: Boolean): BpmnProcessType =
+    if c8 then
+      projectType match
+        case c8: BpmnProcessType.C8 => c8
+        case _                      => BpmnProcessType.C8()
+    else
+      projectType match
+        case _: BpmnProcessType.C8 => BpmnProcessType.C7()
+        case other                 => other
+end OrchSpecGenerator

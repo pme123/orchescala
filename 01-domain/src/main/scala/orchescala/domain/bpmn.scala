@@ -222,8 +222,8 @@ object BpmnProcessType:
       case "c7" => C7()
       case "c8" => C8()
       case "op" => Op()
-      case other =>
-        throw IllegalArgumentException(s"Unknown engineType '$other' - use C7, C8 or Op.")
+      case _    =>
+        throw IllegalArgumentException(s"Unknown engineType '$engineType' - use C7, C8 or Op.")
 
   def diagramPaths: Seq[os.RelPath] =
     Seq(C7().diagramPath) // TODO not supported yet: , C8().diagramPath)

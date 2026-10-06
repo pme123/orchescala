@@ -73,7 +73,10 @@ object ApiProjectConfig:
       else Seq.empty
     val engineType         =
       Option.when(projectConfig.hasPath("engineType")):
-        BpmnProcessType.fromEngineType(projectConfig.getString("engineType"))
+        try BpmnProcessType.fromEngineType(projectConfig.getString("engineType"))
+        catch
+          case e: IllegalArgumentException =>
+            throw IllegalArgumentException(s"$projectConfigPath: ${e.getMessage}", e)
 
     ApiProjectConfig(
       projectName,
