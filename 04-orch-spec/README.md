@@ -1331,7 +1331,11 @@ Zeile überschriebe die erste.
 Ein Mapping-Wert oder eine Zweigbedingung, die mit `=` beginnt, ist ein
 FEEL-Ausdruck — **unabhängig von der Engine**. Die Spezifikation spricht
 FEEL; was die Engine braucht, entsteht beim Export (siehe unten). Die App
-prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld:
+prüft jeden Ausdruck **beim Tippen** und zeigt den Befund über dem Feld.
+Ein FEEL-Feld ist eine Zeile — beim **Reinklicken** klappt es auf: der ganze
+Ausdruck steht da, umgebrochen, und das Feld wächst beim Tippen mit (Enter
+gibt eine neue Zeile; in den Pattern-Parametern übernimmt Enter, Shift+Enter
+gibt die Zeile). Geprüft wird:
 
 - **Syntax** — `= amount +` ist kein gültiges FEEL («Fehler an Position 9,
   Ausdruck unvollständig»).
@@ -1399,6 +1403,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
+| Liste bzw. Kontext (JSON), z. B. `[{accountKey: accountKey, validUntil: "2299-12-31"}]` | `=[…]` | ein **Groovy-Skript** mit Spin: `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson([['accountKey': v('accountKey'), …]]))` — `v(…)` liest Variablen und Pfade (fehlt etwas, `null`). Die erste Zeile `// FEEL: …` trägt den Ausdruck; der Abgleich liest ihn daraus zurück. Nur Werte, Variablen und Pfade; nicht in `camunda:in` |
 | Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").b`. Nicht optional ist, was der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, seine Ausgaben, ein optionales Feld des `In` mit Vorgabe. Eine Bedingung, die sich im Diagramm nur darin unterscheidet, folgt beim Export dem heutigen Datenmodell |
 
 FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit

@@ -21,7 +21,7 @@
 import type { EngineId, Mapping, ProcessSpec, Step } from './types';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
 import { optionalVariables, referencedVariables } from './feel';
-import { engineExpression, feelBody, feelToJuel, type JuelOptions } from './feelJuel';
+import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 
@@ -680,14 +680,34 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
 }
 
 // ── Camunda 7 ────────────────────────────────────────────────────────────────
-/** FEEL → `${…}`; JUEL aus einem alten Import bleibt; nicht Übersetzbares wird gemeldet. */
-function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[]): { text: string; plain?: string } {
+/**
+ * FEEL → `${…}`; JUEL aus einem alten Import bleibt; nicht Übersetzbares wird
+ * gemeldet. `script`: eine Liste bzw. ein Kontext (JSON) geht als
+ * Groovy-Skript (siehe feelToGroovy) — nur wo ein Skript stehen kann
+ * (`camunda:inputParameter` / `outputParameter`, nicht `camunda:in`).
+ */
+function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[], script = false): { text: string; plain?: string; script?: string } {
   const body = feelBody(m.expression);
   if (body == null) return { text: m.expression };
   const r = feelToJuel(body, juelOpts);
   if (r.ok) return { text: `\${${r.juel}}`, ...(r.plain ? { plain: r.plain } : {}) };
+  if (script) {
+    const g = feelToGroovy(body);
+    if (g.ok) return { text: m.expression, script: g.script };
+    issues.push({ stepId, where, text: `nicht nach JUEL übersetzbar: ${r.reason}; als JSON-Skript auch nicht: ${g.reason} — FEEL steht unverändert im BPMN.` });
+    return { text: m.expression };
+  }
   issues.push({ stepId, where, text: `nicht nach JUEL übersetzbar: ${r.reason} — FEEL steht unverändert im BPMN.` });
   return { text: m.expression };
+}
+
+/** Den Wert eines `camunda:inputParameter` / `outputParameter` setzen — als Text oder als Groovy-Skript */
+function setCamundaValue(doc: Document, p: Element, v: { text: string; script?: string }) {
+  if (!v.script) { p.textContent = v.text; return; }
+  const sc = doc.createElementNS(CAMUNDA_NS, 'camunda:script');
+  sc.setAttribute('scriptFormat', 'groovy');
+  sc.textContent = v.script;
+  p.appendChild(sc);
 }
 
 function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
@@ -721,14 +741,14 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (keep.has(`in:${m.name.trim()}`) || scriptGone(m, `Eingabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
     p.setAttribute('name', m.name.trim());
-    p.textContent = juelOf(m, stepId, `Eingabe «${m.name}»`, issues).text;
+    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true));
     appendEl(io, p);
   }
   for (const m of outs) {
     if (keep.has(`out:${m.name.trim()}`) || scriptGone(m, `Ausgabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:outputParameter');
     p.setAttribute('name', m.name.trim());
-    p.textContent = juelOf(m, stepId, `Ausgabe «${m.name}»`, issues).text;
+    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true));
     appendEl(io, p);
   }
   if (!kids(io).length) removeEl(io);

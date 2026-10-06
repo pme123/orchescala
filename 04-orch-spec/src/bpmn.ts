@@ -143,7 +143,11 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
 // ── Ein-/Ausgaben ────────────────────────────────────────────────────────────
 /** Ein fachlicher Parameterwert: Text wird JUEL → FEEL; Skript, Liste und Map bleiben beschreibend. */
 function fachlich(p: Element): string {
-  if (firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
+  // ein Skript, das der Export aus FEEL gemacht hat (JSON für Camunda 7): das FEEL steht in der ersten Zeile
+  const script = firstNamed(p, 'script');
+  const fromFeel = script ? /^\s*\/\/ FEEL: (.+)$/m.exec(text(script).split('\n').find(l => l.trim()) ?? '') : null;
+  if (fromFeel) return `= ${fromFeel[1].trim()}`;
+  if (script || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
   return importExpression(text(p));
 }
 

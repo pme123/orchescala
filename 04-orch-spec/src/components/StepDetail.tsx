@@ -14,7 +14,7 @@ import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, pat
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
-import { feelBody, feelToJuel } from '../feelJuel';
+import { feelBody, feelToGroovy, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
 import DmnTableSection from './DmnTableSection';
@@ -79,12 +79,19 @@ const ASSIGNMENT_FIELDS = [
   { key: 'candidateUsers', label: 'Candidate users', placeholder: 'Personen, die die Aufgabe sehen', title: 'Personen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
 ] as const;
 
-function juelIssues(expression: string, engine: EngineId | undefined): FeelIssue[] {
+function juelIssues(expression: string, engine: EngineId | undefined, json = false): FeelIssue[] {
   if (engine === 'c8') return [];
   const body = feelBody(expression);
   if (body == null) return [];
   const r = feelToJuel(body);
-  return r.ok ? [] : [{ level: 'warn', text: `Für Camunda 7 nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
+  if (r.ok) return [];
+  // eine Liste bzw. ein Kontext: in Camunda 7 ein Groovy-Skript mit Spin — wo ein Skript stehen kann
+  if (json) {
+    const g = feelToGroovy(body);
+    if (g.ok) return [];
+    return [{ level: 'warn', text: `Für Camunda 7 weder nach JUEL noch als JSON-Skript übersetzbar (${g.reason}) — beim Export bleibt das FEEL stehen.` }];
+  }
+  return [{ level: 'warn', text: `Für Camunda 7 nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
 }
 
 // ── Prozess-Ebene (kein Schritt gewählt) ─────────────────────────────────────
@@ -818,7 +825,13 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
                   <span className={`w-28 flex-shrink-0 truncate ${c.muted2}`}>{p.label || p.name}</span>
                   {/* Blur übernimmt — wie beim Feld vorher; Enter verlässt das Feld */}
                   <div className="flex-1 min-w-0" onBlur={commit}
-                    onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.target.blur(); }}>
+                    onKeyDown={e => {
+                      // Enter übernimmt (Shift+Enter: neue Zeile) — auch im aufgeklappten FEEL-Feld
+                      if (e.key === 'Enter' && !e.shiftKey && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+                        e.preventDefault();
+                        e.target.blur();
+                      }
+                    }}>
                     <FeelInput value={p.inBlock ? '' : draft[p.name] ?? ''} disabled={!editable || p.inBlock} isDark={isDark}
                       variables={variables}
                       onChange={v => setDraft(d => ({ ...d, [p.name]: v }))}
@@ -1326,7 +1339,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
           const feelIssues: FeelIssue[] = [
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
-            ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine)] : []),
+            // ein Parameter (kein `camunda:in` am Teilprozess) kann JSON als Skript tragen
+            ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine, step.kind !== 'call')] : []),
             // ein Skript aus dem BPMN (Groovy): beschrieben, nicht übersetzt
             ...(!off && isScriptValue(m.expression) ? [{ level: 'warn' as const, text: scriptWarning(engine) }] : []),
             // JUEL, das der Import nicht übersetzen konnte — bleibt, bis es jemand als FEEL schreibt

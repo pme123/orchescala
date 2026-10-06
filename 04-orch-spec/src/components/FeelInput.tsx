@@ -21,7 +21,7 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   className?: string;
   /** `md`: so gross wie die übrigen Felder im Klassenbauer */
   size?: 'sm' | 'md';
-  /** mehrzeilig: bricht um und wächst mit dem Text (z. B. eine Beschreibung) */
+  /** immer mehrzeilig: bricht um und wächst mit dem Text (z. B. eine Beschreibung) — sonst nur beim Bearbeiten */
   multiline?: boolean;
   /** Text in Festbreitenschrift — FEEL (`= …`) steht immer so */
   mono?: boolean;
@@ -35,6 +35,10 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   const open = !!range && items.length > 0;
   const backRef = useRef<HTMLDivElement>(null);
   const highlight = !!variables && isFeel(value);
+  // Beim Bearbeiten ganz zu sehen: mehrzeilig, umgebrochen, wächst mit dem
+  // Text — sonst eine Zeile wie die übrigen Felder
+  const [focused, setFocused] = useState(false);
+  const expanded = multiline || focused;
   const box = size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5';
   // FEEL immer in Festbreitenschrift — sonst stünde die Färbung neben dem Text
   const font = mono || highlight ? 'font-mono' : '';
@@ -47,10 +51,12 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     plain: '',
   };
 
+  // Vorschläge erst, wenn vor dem Cursor ein Buchstabe des Namens steht — sonst
+  // übernähme Enter (neue Zeile) den obersten Vorschlag
   const refresh = (text: string, cursor: number | null) => {
     if (!variables || cursor == null) { setRange(null); return; }
     const r = completions(text, cursor, variables);
-    if (!r) { setRange(null); setItems([]); return; }
+    if (!r || !/[A-Za-z_]/.test(text.slice(r.from, cursor))) { setRange(null); setItems([]); return; }
     setItems(r.items.slice(0, 40));
     setRange({ from: r.from, to: r.to });
     setActive(0);
@@ -87,37 +93,46 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     if (!open) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => (a + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => (a - 1 + items.length) % items.length); }
-    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); accept(items[active]); }
+    else if (e.key === 'Enter' || e.key === 'Tab') {
+      // schon ganz getippt: Enter gibt die neue Zeile, statt dasselbe nochmals einzusetzen
+      if (e.key === 'Enter' && range && items[active]?.insert === value.slice(range.from, range.to)) { close(); return; }
+      e.preventDefault();
+      accept(items[active]);
+    }
     else if (e.key === 'Escape') { e.preventDefault(); close(); }
   };
 
   return (
     <div className={`relative ${className ?? ''}`}>
-      {(() => {
-        const props = {
-          ref: inputRef, value, disabled, placeholder, title,
-          onScroll: (e: React.UIEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-            if (!backRef.current) return;
-            backRef.current.scrollLeft = e.currentTarget.scrollLeft;
-            backRef.current.scrollTop = e.currentTarget.scrollTop;
-          },
-          style: highlight ? { color: 'transparent', caretColor: isDark ? '#e5e7eb' : '#111827' } : undefined,
-          onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(e.target.value); refresh(e.target.value, e.target.selectionStart); },
-          onKeyDown,
-          onKeyUp: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) refresh(value, e.currentTarget.selectionStart);
-          },
-          onClick: (e: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) => refresh(value, e.currentTarget.selectionStart),
-          onBlur: () => setTimeout(close, 120),
-          // Prosa (eine Beschreibung) darf die Rechtschreibprüfung haben, Ausdrücke nicht
-          autoComplete: 'off', spellCheck: !mono && !highlight,
-          className: `w-full ${box} rounded border outline-none ${font} ${multiline ? 'block resize-none [field-sizing:content]' : ''} ${c.input}`,
-        };
-        return multiline ? <textarea rows={1} {...props} /> : <input {...props} />;
-      })()}
+      <textarea ref={inputRef} rows={1} wrap={expanded ? 'soft' : 'off'}
+        value={value} disabled={disabled} placeholder={placeholder} title={title}
+        onScroll={e => {
+          if (!backRef.current) return;
+          backRef.current.scrollLeft = e.currentTarget.scrollLeft;
+          backRef.current.scrollTop = e.currentTarget.scrollTop;
+        }}
+        style={highlight ? { color: 'transparent', caretColor: isDark ? '#e5e7eb' : '#111827' } : undefined}
+        onChange={e => { onChange(e.target.value); refresh(e.target.value, e.target.selectionStart); }}
+        onKeyDown={onKeyDown}
+        // Cursor bewegt: eine offene Liste folgt (oder schliesst) — geöffnet wird nur beim Tippen
+        onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) && open) refresh(value, e.currentTarget.selectionStart); }}
+        onClick={() => { if (open) close(); }}
+        onFocus={() => setFocused(true)}
+        onBlur={e => {
+          setFocused(false);
+          // zugeklappt wieder vom Anfang an
+          e.currentTarget.scrollLeft = 0;
+          if (backRef.current) backRef.current.scrollLeft = 0;
+          setTimeout(close, 120);
+        }}
+        // Prosa (eine Beschreibung) darf die Rechtschreibprüfung haben, Ausdrücke nicht
+        autoComplete="off" spellCheck={!mono && !highlight}
+        className={`block w-full resize-none ${box} rounded border outline-none ${font} ${expanded
+          ? '[field-sizing:content] max-h-[60vh] overflow-y-auto'
+          : 'overflow-hidden whitespace-pre'} ${c.input}`} />
       {highlight && (
         <div ref={backRef} aria-hidden
-          className={`absolute inset-0 overflow-hidden pointer-events-none font-mono border border-transparent ${multiline ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${box}`}>
+          className={`absolute inset-0 overflow-hidden pointer-events-none font-mono border border-transparent ${expanded ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${box}`}>
           {tokenizeFeel(value, variables!).map((t, k) => <span key={k} className={tone[t.kind]}>{t.text}</span>)}
         </div>
       )}

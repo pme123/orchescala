@@ -286,6 +286,112 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   }
 }
 
+// ── FEEL → Groovy (JSON in Camunda 7) ───────────────────────────────────────
+//
+// Eine Liste oder ein Kontext (`[{ accountKey: x, validUntil: "2299-12-31" }]`)
+// hat in JUEL kein Gegenstück. Camunda 7 baut JSON mit einem Groovy-Skript und
+// Spin — so wie die Hauskonvention (`org.camunda.spin.Spin.JSON(…)`):
+//
+//   // FEEL: [{accountKey: x, validUntil: "2299-12-31"}]
+//   def v = { … }   // Variable bzw. Pfad lesen — fehlt sie, null
+//   org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson([['accountKey': v('x'), 'validUntil': '2299-12-31']]))
+//
+// Die erste Zeile trägt das FEEL: der Import liest es daraus zurück (siehe
+// `fachlich` in bpmn.ts), ein Abgleich mit dem Diagramm ersetzt es also nicht
+// durch das Skript. Übersetzt wird, was JSON ausmacht: Listen, Kontexte,
+// Literale, Variablen und Pfade (`client.address.zip`) — Rechnen, Funktionen,
+// `if` darin nicht (das wird gemeldet).
+
+/** Kennzeichnet ein Skript, das aus FEEL entstanden ist — dahinter steht das FEEL */
+export const FEEL_SCRIPT_MARK = '// FEEL: ';
+
+/** Liest im Skript eine Variable bzw. einen Pfad — fehlt sie, null; JSON (Spin) wird zu Map/List */
+const GROOVY_READ = [
+  'def v = { String name, String... path ->',
+  '  def x = execution.getVariable(name)',
+  '  for (p in path) {',
+  '    if (x == null) return null',
+  '    x = x instanceof org.camunda.spin.json.SpinJsonNode ? (x.hasProp(p) ? x.prop(p) : null) : x instanceof Map ? x[p] : x."$p"',
+  '  }',
+  '  x instanceof org.camunda.spin.json.SpinJsonNode ? new groovy.json.JsonSlurper().parseText(x.toString()) : x',
+  '}',
+].join('\n');
+
+export type GroovyResult = { ok: true; script: string } | { ok: false; reason: string };
+
+/** Eine FEEL-Liste bzw. ein -Kontext als Groovy-Skript, das JSON (Spin) liefert */
+export function feelToGroovy(body: string): GroovyResult {
+  const src = body.trim();
+  let top: SyntaxNode;
+  try {
+    top = parseExpression(src, {}, 'expression').topNode;
+  } catch {
+    return { ok: false, reason: 'kein gültiges FEEL' };
+  }
+  const text = (n: SyntaxNode) => src.slice(n.from, n.to);
+  const kids = (n: SyntaxNode) => children(n).filter(k => !k.type.isError);
+  const str = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  let reads = false;
+  const path = (n: SyntaxNode): string[] => {
+    if (n.name === 'VariableName') return [text(n)];
+    if (n.name === 'PathExpression') {
+      const [base, , prop] = kids(n);
+      if (base && prop) return [...path(base), text(prop)];
+    }
+    throw new Unsupported(`«${text(n)}» geht im JSON nicht — nur Werte, Variablen und Pfade`);
+  };
+  const tr = (n: SyntaxNode): string => {
+    if (n.type.isError) throw new Unsupported('kein gültiges FEEL');
+    switch (n.name) {
+      case 'Expression': {
+        const k = kids(n);
+        if (k.length !== 1) throw new Unsupported('unerwarteter Aufbau');
+        return tr(k[0]);
+      }
+      case 'List':
+        return `[${kids(n).filter(k => k.name !== '[' && k.name !== ']').map(tr).join(', ')}]`;
+      case 'Context': {
+        const entries = kids(n).filter(k => k.name === 'ContextEntry');
+        if (!entries.length) return '[:]';
+        return `[${entries.map(e => {
+          const [key, value] = kids(e);
+          if (!key || !value) throw new Unsupported('unvollständiger Eintrag');
+          const name = kids(key)[0];
+          const k = name?.name === 'StringLiteral' ? JSON.parse(text(name)) as string : text(key).trim();
+          return `${str(k)}: ${tr(value)}`;
+        }).join(', ')}]`;
+      }
+      case 'StringLiteral': return str(JSON.parse(text(n)) as string);
+      case 'NumericLiteral': case 'BooleanLiteral': case 'null': return text(n);
+      case 'ParenthesizedExpression': {
+        const inner = kids(n).find(k => k.name !== '(' && k.name !== ')');
+        if (!inner) throw new Unsupported('leere Klammer');
+        return tr(inner);
+      }
+      case 'VariableName': case 'PathExpression': {
+        const [name, ...rest] = path(n);
+        reads = true;
+        return `v(${[name, ...rest].map(str).join(', ')})`;
+      }
+      default:
+        throw new Unsupported(`«${text(n)}» geht im JSON nicht — nur Werte, Variablen und Pfade`);
+    }
+  };
+  try {
+    const first = kids(top)[0];
+    if (!first || (first.name !== 'List' && first.name !== 'Context')) return { ok: false, reason: 'nur eine Liste oder ein Kontext wird zu JSON' };
+    const literal = tr(top);
+    const script = [
+      `${FEEL_SCRIPT_MARK}${src.replace(/\s*\n\s*/g, ' ')}`,
+      ...(reads ? [GROOVY_READ] : []),
+      `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${literal}))`,
+    ].join('\n');
+    return { ok: true, script };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Unsupported ? e.message : e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /**
  * Ein Ausdruck der Spezifikation in der Form, die die Engine braucht.
  * FEEL (`= …`) wird für Camunda 8 zu `=…`, für Camunda 7 zu `${…}`; alles
