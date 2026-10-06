@@ -23,15 +23,20 @@ class CompanyWrapperGeneratorTest extends FunSuite:
     Seq(Op, C7)     -> "CompanyEngineContext"
   )
 
-  private def generated(engines: Seq[EngineType])(check: Generated => Unit): Unit =
+  /** A company project in a temporary directory - removed afterwards. */
+  private def inCompany(body: DevConfig ?=> os.Path => Unit): Unit =
     val dir = os.temp.dir(prefix = "company-wrapper-")
     try
       os.dynamicPwd.withValue(dir):
         given DevConfig = DevConfig.configForCompany("democompany-orchescala")
-        CompanyWrapperGenerator().generate(engines)
-        CompanySbtGenerator(engines).generate
-      check(Generated(dir / "democompany-orchescala"))
+        body(dir / "democompany-orchescala")
     finally os.remove.all(dir)
+
+  private def generated(engines: Seq[EngineType])(check: Generated => Unit): Unit =
+    inCompany: projectDir =>
+      CompanyWrapperGenerator().generate(engines)
+      CompanySbtGenerator(engines).generate
+      check(Generated(projectDir))
 
   private case class Generated(projectDir: os.Path):
     private val base                             = os.RelPath("src/main/scala/democompany/orchescala")
@@ -51,20 +56,24 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       assert(error.getMessage.contains("at least one of C7, C8 or Op"), error.getMessage)
 
   test("a company adding Op later: the worker-op dependency comes with the re-generated Settings"):
-    val dir = os.temp.dir(prefix = "company-wrapper-")
-    try
-      os.dynamicPwd.withValue(dir):
-        given DevConfig = DevConfig.configForCompany("democompany-orchescala")
-        val settings    = dir / "democompany-orchescala" / "project" / "Settings.scala"
-        val workerOpDep = """"io.github.pme123" %% "orchescala-worker-op" % orchescalaV"""
-        CompanySbtGenerator(Seq(C7, C8)).generate
-        assert(!os.read(settings).contains(workerOpDep))
-        CompanySbtGenerator(Seq(C7, C8, Op)).generate
-        assert(os.read(settings).contains(workerOpDep))
-    finally os.remove.all(dir)
+    inCompany: projectDir =>
+      val settings    = projectDir / "project" / "Settings.scala"
+      val workerOpDep = """"io.github.pme123" %% "orchescala-worker-op" % orchescalaV"""
+      CompanySbtGenerator(Seq(C7, C8)).generate
+      assert(!os.read(settings).contains(workerOpDep))
+      CompanySbtGenerator(Seq(C7, C8, Op)).generate
+      assert(os.read(settings).contains(workerOpDep))
+
+  test("a company adding Op later: the existing CompanyWorker misses Op"):
+    inCompany: _ =>
+      val generator = CompanyWrapperGenerator()
+      generator.generate(Seq(C7, C8))
+      assertEquals(generator.missingInCompanyWorker(Seq(C7, C8)), Seq.empty)
+      generator.generate(Seq(C7, C8, Op))
+      assertEquals(generator.missingInCompanyWorker(Seq(C7, C8, Op)), Seq(Op))
 
   combinations.foreach: (engines, engineContext) =>
-    val name = engines.mkString(" ")
+    val name  = engines.mkString(" ")
     val hasC7 = engines.contains(C7)
     val hasC8 = engines.contains(C8)
     val hasOp = engines.contains(Op)

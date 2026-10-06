@@ -66,7 +66,22 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     // the former Redoc CompanyOpenApi.html resource is gone - the API page is orch-doc's
     // OrchDocApi.html from the orchescala-orch-doc jar
     os.remove(helperCompanyOpenApiHtmlPath)
+    val missing = missingInCompanyWorker(engines)
+    if missing.nonEmpty then
+      println(
+        s"""WARNING: CompanyWorker is not generated again and does not mix in ${missing.map(e => s"${e}Worker").mkString(", ")}
+           |  - no worker runs on ${missing.map(engineLabel).mkString(", ")}. Add the engine to CompanyWorker,
+           |  CompanyWorkerApp, CompanySimulation and GatewayServerApp (or delete them to have them generated again).""".stripMargin
+      )
+    end if
   end generate
+
+  /** The engines an existing CompanyWorker does not mix in - e.g. an engine added later. */
+  private[company] def missingInCompanyWorker(engines: Seq[EngineType]): Seq[EngineType] =
+    if os.exists(projectWorkerPath) then
+      val worker = os.read(projectWorkerPath)
+      engines.filterNot(e => worker.contains(s"${e}Worker["))
+    else engines
 
   private lazy val companyName     = config.companyName
   private lazy val companyNameNice = s"${config.companyName.head.toUpper}${config.companyName.tail}"
