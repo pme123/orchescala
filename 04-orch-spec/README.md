@@ -1398,6 +1398,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
+| Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").b` |
 
 FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit
 Textersetzung, sonst würde aus `a = b` in einer Zeichenkette ein `==`. Die

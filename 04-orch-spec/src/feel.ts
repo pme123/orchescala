@@ -290,6 +290,11 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   return out;
 }
 
+/** Die Prozessvariablen, die fehlen dürfen — Camunda 7 liest sie mit `execution.getVariable("x")` (siehe feelJuel.ts) */
+export function optionalVariables(spec: ProcessSpec, model: Model | null = null): Set<string> {
+  return new Set(processVariables(spec, model).filter(v => v.optional).map(v => v.name));
+}
+
 /**
  * Was im **Quell-Ausdruck einer Ausgabe** sichtbar ist: das Ergebnis des
  * Services. Der Worker gibt sein `Out` zurück, und dessen Felder werden zu

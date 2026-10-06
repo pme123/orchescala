@@ -19,7 +19,8 @@ import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
-import { engineExpression } from '../feelJuel';
+import { engineExpression, type JuelOptions } from '../feelJuel';
+import { optionalVariables } from '../feel';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, removePattern, updatePattern } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
@@ -91,20 +92,21 @@ function ancestorsOf(steps: Step[], oben: string[] = [], out = new Map<string, s
 
 // Was der Fachbereich hier festlegt, gehört auch ins BPMN — sonst überschreibt
 // es der nächste Abgleich mit der Datei wieder.
-const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined, bpmn: BpmnHandle | null, engine?: EngineId) => {
+const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined, bpmn: BpmnHandle | null, engine?: EngineId, juel: JuelOptions = {}) => {
   if (!bpmn) return;
   // Zuständigkeit: FEEL in der Spezifikation, im Diagramm in der Form der Engine
   const assignment = ASSIGNMENT_KEYS.filter(k => k in patch);
   if (assignment.length) {
     bpmn.setAssignment(id, Object.fromEntries(assignment.map(k =>
-      [k, patch[k]?.trim() ? engineExpression(patch[k], engine).text : undefined])), engine);
+      [k, patch[k]?.trim() ? engineExpression(patch[k], engine, juel).text : undefined])), engine);
   }
   if (patch.branches) {
     const alt = new Map((before?.branches ?? []).map(b => [b.id, b]));
     for (const b of patch.branches) {
       const old = alt.get(b.id);
       if (old?.label !== b.label) bpmn.setProps(b.id, { name: b.label });
-      if (old?.condition !== b.condition) bpmn.setCondition(b.id, b.condition);
+      // in der Form der Engine — ein rohes `= …` wäre in Camunda 7 ein fester Text
+      if (old?.condition !== b.condition) bpmn.setCondition(b.id, b.condition?.trim() ? engineExpression(b.condition, engine, juel).text : undefined);
     }
   }
   if (patch.errors || 'regexHandledErrors' in patch) {
@@ -316,7 +318,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const patchStep = useCallback((id: string, patch: Partial<Step>) => {
     if (!spec) return;
     if (typeof patch.name === 'string') bpmnRef.current?.rename(id, patch.name);
-    applyToBpmn(id, patch, byIdRef.current.get(id), bpmnRef.current, spec.engine);
+    applyToBpmn(id, patch, byIdRef.current.get(id), bpmnRef.current, spec.engine, { optional: optionalVariables(spec, model) });
     // Worker oder Teilprozess gewählt → das Element bekommt die Farbe seines Projekts
     if ('serviceId' in patch || 'topic' in patch || 'calledProcess' in patch) {
       const s = { ...byIdRef.current.get(id), ...patch };
@@ -726,7 +728,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               ...(s.branches ? { branches: s.branches } : {}),
               ...(held ? { errors: s.errors ?? [], regexHandledErrors: s.regexHandledErrors } : {}),
             };
-            applyToBpmn(id, patch, undefined, bpmnRef.current, engine);
+            applyToBpmn(id, patch, undefined, bpmnRef.current, engine, { optional: optionalVariables(plan.spec, modelRef.current) });
           }
         }
         setSelected(plan.placed[0]);

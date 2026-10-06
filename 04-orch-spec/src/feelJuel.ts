@@ -21,6 +21,12 @@
 //   Anzahl           count(x)                → x.size()
 //   leere Liste      x = []                  → empty x
 //
+// Eine Variable, die fehlen darf, liest Camunda 7 mit `execution.getVariable("x")`
+// — `${x}` wirft «Unknown property», wenn `x` nicht gesetzt ist. Das gilt für
+// jede Variable, die mit `null` verglichen oder auf leer geprüft wird
+// (`x != null`, `empty x`), und für jede, die laut Datenmodell optional ist
+// (`JuelOptions.optional`).
+//
 // Alles andere — übrige Funktionen, Kontexte, Datumswerte, for/some/every —
 // hat kein JUEL-Gegenstück; die Übersetzung meldet das statt zu raten.
 
@@ -53,8 +59,13 @@ const children = (n: SyntaxNode): SyntaxNode[] => {
   return out;
 };
 
+export interface JuelOptions {
+  /** Prozessvariablen, die fehlen dürfen (optional im Datenmodell) — `execution.getVariable("x")` */
+  optional?: ReadonlySet<string>;
+}
+
 /** FEEL-Rumpf nach JUEL (ohne `${}`) übersetzen. */
-export function feelToJuel(body: string): JuelResult {
+export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   const src = body.trim();
   if (!src) return { ok: false, reason: 'leerer Ausdruck' };
   let top: SyntaxNode;
@@ -64,6 +75,21 @@ export function feelToJuel(body: string): JuelResult {
     return { ok: false, reason: e instanceof FeelSyntaxError ? 'kein gültiges FEEL' : String(e) };
   }
   const text = (n: SyntaxNode) => src.slice(n.from, n.to);
+  /** aus: der blosse Pfad (`plain`, für `camunda:in source`) — ohne `execution.getVariable` */
+  let wrap = true;
+  const getVariable = (name: string) => `execution.getVariable("${name}")`;
+  /**
+   * Eine Variable, die hier fehlen darf: verglichen mit `null` oder auf leer
+   * geprüft. Bei einem Pfad (`a.b`) ihr Anfang — `null.b` ist in JUEL null.
+   */
+  const unsetSafe = (n: SyntaxNode): string => {
+    if (n.name === 'PathExpression') {
+      const [base, , prop] = children(n).filter(k => !k.type.isError);
+      if (base && prop) return `${unsetSafe(base)}.${text(prop)}`;
+    }
+    const name = n.name === 'VariableName' ? text(n) : '';
+    return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && /^[A-Za-z_]\w*$/.test(name) ? getVariable(name) : tr(n);
+  };
 
   /** `string(x)` → der Ausdruck dahinter, sonst null */
   const stringCall = (n: SyntaxNode): SyntaxNode | null => {
@@ -128,8 +154,9 @@ export function feelToJuel(body: string): JuelResult {
       case 'VariableName': {
         const name = text(n);
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
-        // was Camunda 8 als Variable führt, hat Camunda 7 an der Ausführung
-        return EXECUTION_JUEL[name] ?? name;
+        // was Camunda 8 als Variable führt, hat Camunda 7 an der Ausführung;
+        // eine optionale Variable liest es so, dass sie fehlen darf
+        return EXECUTION_JUEL[name] ?? (wrap && opts.optional?.has(name) ? getVariable(name) : name);
       }
       case 'PathExpression': {
         const [base, , prop] = kids;
@@ -165,8 +192,12 @@ export function feelToJuel(body: string): JuelResult {
           if (!b) throw new Unsupported('unvollständiger Vergleich');
           // `x = []` — die leere Liste heisst in JUEL `empty`
           if ((o === '=' || o === '!=') && (emptyList(b) || emptyList(a))) {
-            const x = tr(emptyList(b) ? a : b);
+            const x = unsetSafe(emptyList(b) ? a : b);
             return o === '=' ? `empty ${x}` : `!empty ${x}`;
+          }
+          // `x != null` — gerade dann darf `x` fehlen
+          if ((o === '=' || o === '!=') && (b.name === 'null' || a.name === 'null')) {
+            return `${unsetSafe(a)} ${o === '=' ? '==' : o} ${unsetSafe(b)}`;
           }
           return `${tr(a)} ${o === '=' ? '==' : o} ${tr(b)}`;
         }
@@ -202,7 +233,7 @@ export function feelToJuel(body: string): JuelResult {
           });
           const x = tested[0]?.x;
           if (x && tested.every(t => t?.x === x) && new Set(tested.map(t => t!.v)).size === 3
-            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) return `empty ${tr(kids0(parts.flatMap(flat)[0]))}`;
+            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) return `empty ${unsetSafe(kids0(parts.flatMap(flat)[0]))}`;
         }
         return parts.map(tr).join(n.name === 'Conjunction' ? ' && ' : ' || ');
       }
@@ -245,7 +276,9 @@ export function feelToJuel(body: string): JuelResult {
   try {
     const juel = tr(top);
     const first = children(top)[0];
-    const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? juel : undefined;
+    // der blosse Pfad — ohne `execution.getVariable`, das gehört nicht in ein `source`
+    wrap = false;
+    const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? tr(top) : undefined;
     return { ok: true, juel, ...(plain ? { plain } : {}) };
   } catch (e) {
     if (e instanceof Unsupported) return { ok: false, reason: e.message };
@@ -258,11 +291,11 @@ export function feelToJuel(body: string): JuelResult {
  * FEEL (`= …`) wird für Camunda 8 zu `=…`, für Camunda 7 zu `${…}`; alles
  * andere (JUEL aus einem alten Import) bleibt, wie es ist.
  */
-export function engineExpression(expression: string, engine: EngineId | undefined): { text: string; issue?: string } {
+export function engineExpression(expression: string, engine: EngineId | undefined, opts: JuelOptions = {}): { text: string; issue?: string } {
   const body = feelBody(expression);
   if (body == null) return { text: expression };
   if (engine === 'c8') return { text: `=${body}` };
-  const r = feelToJuel(body);
+  const r = feelToJuel(body, opts);
   if (r.ok) return { text: `\${${r.juel}}` };
   return { text: expression, issue: r.reason };
 }

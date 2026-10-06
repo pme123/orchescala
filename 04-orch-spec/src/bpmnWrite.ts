@@ -20,9 +20,9 @@
 
 import type { EngineId, Mapping, ProcessSpec, Step } from './types';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
-import { referencedVariables } from './feel';
-import { engineExpression, feelBody, feelToJuel } from './feelJuel';
-import { importExpression, nullSafeCondition, stripNullSafe } from './juelFeel';
+import { optionalVariables, referencedVariables } from './feel';
+import { engineExpression, feelBody, feelToJuel, type JuelOptions } from './feelJuel';
+import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
@@ -70,7 +70,23 @@ const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim()
  * Mappings und Bedingungen der Spezifikation ins BPMN schreiben. Das XML
  * bleibt sonst unverändert (Layout, IDs, alles andere).
  */
+/**
+ * Wie FEEL für Camunda 7 übersetzt wird — gesetzt für die Dauer von
+ * `writeBpmn`: die optionalen Prozessvariablen (In, InitIn …) liest JUEL mit
+ * `execution.getVariable("x")`, sonst wirft es, wenn sie fehlen.
+ */
+let juelOpts: JuelOptions = {};
+
 export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
+  juelOpts = { optional: optionalVariables(spec) };
+  try {
+    return writeBpmnWith(xml, spec);
+  } finally {
+    juelOpts = {};
+  }
+}
+
+function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
   const issues: WriteIssue[] = [];
   const engine: EngineId = spec.engine ?? 'c7';
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -230,15 +246,19 @@ export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
       const flow = byId.get(b.id);
       if (!flow || local(flow) !== 'sequenceFlow') continue;
       // unverändert seit dem Import → der alte Text bleibt wörtlich — in
-      // Camunda 8 nur, wenn er schon null-sicher ist (siehe nullSafeCondition)
+      // Camunda 8 nur, wenn er schon null-sicher ist (siehe nullSafeCondition).
+      // Und nur, wenn er schon in der Form der Engine steht: ein `= …` im
+      // Diagramm von Camunda 7 ist kein Ausdruck, sondern ein fester Text
+      // (die Bedingung ergäbe einen String) — der wird übersetzt
       const before = firstNamed(flow, 'conditionExpression');
       const old = before?.textContent ?? '';
       const safe = engine !== 'c8' || stripNullSafe(old) !== old || /^=\s*(true|false)\s*$/.test(old.trim());
-      if (before && safe && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) continue;
+      const inEngineForm = engine === 'c8' ? old.trim().startsWith('=') : isJuel(old);
+      if (before && safe && inEngineForm && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) continue;
       let text: string;
       if (engine === 'c8') text = `=${nullSafeCondition(body)}`;
       else {
-        const r = feelToJuel(body);
+        const r = feelToJuel(body, juelOpts);
         if (r.ok) text = `\${${r.juel}}`;
         else {
           text = b.condition;
@@ -439,7 +459,7 @@ function writeImplementation(
       const holder = engine === 'c8' ? zeebe('assignmentDefinition') : el;
       const old = holder ? attr(holder, key) : undefined;
       if (old != null && importExpression(old).trim() === value) continue;
-      const r = engineExpression(value, engine);
+      const r = engineExpression(value, engine, juelOpts);
       if (r.issue) issues.push({ stepId: step.id, where: 'Zuständigkeit', text: `${key} nicht nach JUEL übersetzbar: ${r.issue}` });
       if (engine === 'c8') zeebeOrNew('assignmentDefinition').setAttribute(key, r.text);
       else el.setAttributeNS(CAMUNDA_NS, `camunda:${key}`, r.text);
@@ -647,7 +667,7 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
 function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[]): { text: string; plain?: string } {
   const body = feelBody(m.expression);
   if (body == null) return { text: m.expression };
-  const r = feelToJuel(body);
+  const r = feelToJuel(body, juelOpts);
   if (r.ok) return { text: `\${${r.juel}}`, ...(r.plain ? { plain: r.plain } : {}) };
   issues.push({ stepId, where, text: `nicht nach JUEL übersetzbar: ${r.reason} — FEEL steht unverändert im BPMN.` });
   return { text: m.expression };
