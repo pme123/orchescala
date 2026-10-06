@@ -771,6 +771,15 @@ verschiedenen Status an verschiedenen Enden der Typ `ProcessStatus`; anderes
 wird Text. `output-mocked` zählt nicht (dann liefert der Prozess den Mock), ein
 `Out` mit Fällen bleibt, wie es ist.
 
+**Parameter, die nur Text nehmen:** steht der Platzhalter im Pattern in einer
+Zeichenkette eines Ausdrucks (`setVariable("processStatus", "{{processStatus}}")`),
+ist der Wert Text, kein FEEL — das Feld am Schritt ist ein einfaches Textfeld,
+`= ProcessStatus.succeeded` bzw. `= "succeeded"` wird zu `succeeded`. Zur Auswahl
+stehen die Werte, die der Admin beim Parameter nennt (`values`), für
+`processStatus` die Status von Orchescala; ein eigener Status (`ordered`) lässt
+sich trotzdem eintippen. Im Datenmodell steht `ProcessStatus` (Orchescala) in der
+Typ-Auswahl in einer eigenen Gruppe, immer sichtbar.
+
 **Der Import erkennt Pattern** — aus demselben BPMN: ein Element trägt ein
 Pattern, wenn alles, was am Anker hängt, auch an ihm hängt; die Werte der
 Parameter werden dabei zurückgelesen. Verglichen wird tolerant: Reihenfolge,

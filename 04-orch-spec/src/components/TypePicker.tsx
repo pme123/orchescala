@@ -1,8 +1,9 @@
 // Suchbare Typ-Auswahl für ein Feld.
 //
 // Reihenfolge der Gruppen, von nah nach fern: erst die **einfachen Typen**,
-// dann die **eigenen Typen** des Prozesses, dann die **Service-Objekte** aus
-// dem Katalog. Tippen filtert über alles, Namenstreffer zuerst; Enter nimmt
+// dann die **eigenen Typen** des Prozesses, die **Typen von Orchescala**
+// (`ProcessStatus` — gehört zu den Pattern, immer da), dann die
+// **Service-Objekte** aus dem Katalog. Tippen filtert über alles, Namenstreffer zuerst; Enter nimmt
 // den ersten Treffer.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Braces, ChevronDown, Code, ListOrdered, Plug, Search, Type as TypeIcon, X } from 'lucide-react';
@@ -10,6 +11,7 @@ import { SCALA_TYPES, type Model, type TypeDef } from '../types';
 import { domainRef, serviceTypes, type ServiceType } from '../serviceTypes';
 import { cls } from '../ui';
 import { isScalaTypeExpression } from '../scala';
+import { ORCHESCALA_TYPES } from '../orchescalaTypes';
 
 export const NEW_CASE = '__newCase';
 export const NEW_ENUM = '__newEnum';
@@ -20,7 +22,7 @@ interface Entry {
   name: string;
   /** Zusatz rechts (Package, Art, Service) */
   hint?: string;
-  group: 'einfach' | 'eigene' | 'service';
+  group: 'einfach' | 'eigene' | 'orchescala' | 'service';
   icon: typeof Braces;
   warn?: boolean;
   /** worüber gesucht wird */
@@ -30,6 +32,7 @@ interface Entry {
 const GROUP_LABEL: Record<Entry['group'], string> = {
   einfach: 'Einfache Typen',
   eigene: 'Eigene Typen',
+  orchescala: 'Orchescala',
   service: 'Service-Objekte',
 };
 
@@ -75,9 +78,18 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
         icon: t.kind === 'enum' ? ListOrdered : Braces,
         haystack: `${t.name} ${t.description ?? ''}`.toLowerCase(),
       })),
+    // aus `orchescala.domain` — ohne Katalog und ohne Suche da
+    ...ORCHESCALA_TYPES.map(d => ({
+      value: domainRef(d.id),
+      name: d.name,
+      hint: d.pkg,
+      group: 'orchescala' as const,
+      icon: d.kind === 'enum' ? ListOrdered : Braces,
+      haystack: `${d.name} ${d.pkg} ${(d.values ?? []).join(' ')}`.toLowerCase(),
+    })),
     // `InConfig` und `InitIn` stehen im Katalog (für den Abgleich), sind aber
     // Implementations-Details — als Feldtyp haben sie nichts verloren.
-    ...domain.filter(d => !/\.(InConfig|InitIn)$/.test(d.name)).map(d => ({
+    ...domain.filter(d => !/\.(InConfig|InitIn)$/.test(d.name) && !ORCHESCALA_TYPES.some(o => o.id === d.id)).map(d => ({
       value: domainRef(d.id),
       name: d.name,
       hint: d.pkg,
@@ -144,7 +156,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
 
   const pick = (v: string) => { onPick(v); setOpen(false); setQ(''); };
 
-  const groups: Entry['group'][] = ['einfach', 'eigene', 'service'];
+  const groups: Entry['group'][] = ['einfach', 'eigene', 'orchescala', 'service'];
   const truncated = q.trim() && hits.length >= 120;
   const moreServices = !q.trim() && entries.filter(e => e.group === 'service').length > 20;
 

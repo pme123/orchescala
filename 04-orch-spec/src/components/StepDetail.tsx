@@ -11,7 +11,7 @@ import { catalogEntry, createMemberType, interactionKind, interactionOrigin, sug
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
-import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
+import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
@@ -820,21 +820,27 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
 }) {
   const c = cls(isDark);
   const { warn, err } = tones(isDark);
-  const params: Array<{ name: string; label?: string; description?: string; default?: string; inBlock?: boolean }> = def
+  const params: Array<{ name: string; label?: string; description?: string; default?: string; inBlock?: boolean; textOnly?: boolean; options?: string[] }> = def
     ? patternParamsFor(def, engine, atProcess)
     : Object.keys(applied.params ?? {}).map(name => ({ name }));
   const stored = applied.params ?? {};
   const storedKey = JSON.stringify(stored);
   // bearbeitet wird die FEEL-Ansicht; gespeichert die Form der Engine
   const viewOf = (ps: Record<string, string>) => Object.fromEntries(Object.entries(ps).map(([k, v]) => [k, paramView(v)]));
-  const [draft, setDraft] = useState<Record<string, string>>(() => viewOf(stored));
-  useEffect(() => { setDraft(viewOf(JSON.parse(storedKey))); }, [storedKey]);
+  const textView = (ps: Record<string, string>) => {
+    const text = new Set(params.filter(p => p.textOnly).map(p => p.name));
+    return Object.fromEntries(Object.entries(viewOf(ps)).map(([k, v]) => [k, text.has(k) ? paramText(v) : v]));
+  };
+  const [draft, setDraft] = useState<Record<string, string>>(() => textView(stored));
+  useEffect(() => { setDraft(textView(JSON.parse(storedKey))); }, [storedKey]);
   const [confirm, setConfirm] = useState(false);
   const commit = () => {
     // was nicht angefasst wurde, bleibt wörtlich, wie es im BPMN steht — die
     // Werte eines Patterns von Orchescala stehen nicht im BPMN, sondern so, wie getippt
+    // ein Parameter in einer Zeichenkette des Patterns nimmt nur Text (`succeeded`, nicht `= ProcessStatus.succeeded`)
+    const text = new Set(params.filter(p => p.textOnly).map(p => p.name));
     const next = Object.fromEntries(Object.entries(draft).map(([k, v]) =>
-      [k, def?.builtin ? v : stored[k] != null && paramView(stored[k]) === v ? stored[k] : paramStored(v, engine, variables)]));
+      [k, def?.builtin ? v : text.has(k) ? paramText(v) : stored[k] != null && paramView(stored[k]) === v ? stored[k] : paramStored(v, engine, variables)]));
     if (JSON.stringify(next) !== storedKey) onParams(next);
   };
   const issuesOf = (v: string | undefined): FeelIssue[] => {
@@ -866,7 +872,7 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
       {!!params.length && (
         <div className="space-y-0.5">
           {params.map(p => {
-            const issues = p.inBlock ? [] : issuesOf(draft[p.name]);
+            const issues = p.inBlock || p.textOnly ? [] : issuesOf(draft[p.name]);
             return (
               <div key={p.name}>
                 <div className="flex items-center gap-1.5 text-[10px]"
@@ -881,11 +887,26 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
                         e.target.blur();
                       }
                     }}>
+                    {p.textOnly && !p.inBlock ? (
+                      <>
+                        <input value={draft[p.name] ?? ''} disabled={!editable} list={p.options ? `opts-${applied.id}-${p.name}` : undefined}
+                          onChange={e => setDraft(d => ({ ...d, [p.name]: e.target.value }))}
+                          placeholder={p.default ? `Vorgabe: ${p.default}` : p.options ? `z. B. ${p.options[0]}` : 'Text'}
+                          title={`${p.description ? `${p.description}\n` : ''}Steht im Pattern in einer Zeichenkette — nur Text, kein FEEL.${p.options ? ` Zur Auswahl: ${p.options.join(', ')}; ein eigener Wert geht auch.` : ''}`}
+                          className={`w-full text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
+                        {p.options && (
+                          <datalist id={`opts-${applied.id}-${p.name}`}>
+                            {p.options.map(o => <option key={o} value={o} />)}
+                          </datalist>
+                        )}
+                      </>
+                    ) : (
                     <FeelInput value={p.inBlock ? '' : draft[p.name] ?? ''} disabled={!editable || p.inBlock} isDark={isDark}
                       variables={variables}
                       onChange={v => setDraft(d => ({ ...d, [p.name]: v }))}
                       placeholder={p.inBlock ? 'im gemeinsamen Block' : p.default ? `Vorgabe: ${p.default}` : 'Text — oder = FEEL'}
                       title={`${p.description ? `${p.description}\n` : ''}Mit «=» ein FEEL-Ausdruck (wie bei den Mappings) — im BPMN für ${engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 als ${…}'}; sonst fester Text.`} />
+                    )}
                   </div>
                 </div>
                 {issues.map((it, k) => (

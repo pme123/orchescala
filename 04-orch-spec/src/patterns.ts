@@ -202,13 +202,58 @@ export function placeholders(xml: string): string[] {
  * Engine vorkommen. `inBlock`: steht nur im gemeinsamen Block — wirkt beim
  * ersten Einfügen, danach gehört der Block dem Prozess (im Diagramm ändern).
  */
-export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: boolean): Array<PatternParam & { inBlock?: boolean }> {
+export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: boolean): Array<PatternParam & { inBlock?: boolean; textOnly?: boolean; options?: string[] }> {
   const x = fragmentFor(def, engine);
   const fr = x ? parseFragment(x) : null;
-  if (!fr || 'error' in fr) return patternParams(def);
+  const text = x ? textOnlyParams(x) : new Set<string>();
+  const withKind = (p: PatternParam) => {
+    const options = paramOptions(p);
+    return { ...p, ...(text.has(p.name) ? { textOnly: true } : {}), ...(options ? { options } : {}) };
+  };
+  if (!fr || 'error' in fr) return patternParams(def).map(withKind);
   return patternParams(def)
     .filter(p => fr.elementParams.has(p.name) || fr.blockParams.has(p.name))
-    .map(p => (!atProcess && fr.blockParams.has(p.name) ? { ...p, inBlock: true } : p));
+    .map(p => (!atProcess && fr.blockParams.has(p.name) ? { ...withKind(p), inBlock: true } : withKind(p)));
+}
+
+/**
+ * Parameter, die im Pattern in einer Zeichenkette eines Ausdrucks stehen
+ * (`setVariable("processStatus", "{{processStatus}}")`) — dort geht nur Text,
+ * kein FEEL. Ausser dem FEEL-Text von Camunda 8 (`source="=&#34;{{p}}&#34;"`),
+ * den ein Ausdruck ganz ersetzt (siehe QUOTED_PH).
+ */
+function textOnlyParams(xml: string): Set<string> {
+  const rest = xml.replace(QUOTED_PH, '');
+  return new Set([...rest.matchAll(/(?:&#34;|&quot;|')\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}(?:&#34;|&quot;|')/g)].map(m => m[1]));
+}
+
+/**
+ * Die Werte zur Auswahl: was der Admin beim Parameter nennt (`values`), für
+ * `processStatus` die Status von Orchescala (`ProcessStatus`) — eigene Status
+ * (`CustomProcessStatus.ordered`) lassen sich trotzdem eintippen.
+ */
+function paramOptions(p: PatternParam): string[] | undefined {
+  if (Array.isArray(p.values) && p.values.every(v => typeof v === 'string')) return p.values as string[];
+  if (p.name === 'processStatus') return ORCHESCALA_TYPES.find(t => t.name === 'ProcessStatus')?.values;
+  return undefined;
+}
+
+/**
+ * Ein Wert für einen Parameter, der nur Text nimmt: `= "succeeded"`,
+ * `= ProcessStatus.succeeded` (ein Fall) und was die Übersetzung nach JUEL
+ * daraus gemacht hatte (`${ProcessStatus.prop("succeeded")}`) — alles `succeeded`.
+ */
+export function paramText(value: string): string {
+  let t = value.trim();
+  const juel = /^[$#]\{([\s\S]*)\}$/.exec(t);
+  if (juel) t = juel[1].trim().replace(/^([A-Z]\w*)\.prop\((["'])(.*)\2\)$/, '$1.$3');
+  else if (t.startsWith('=')) t = t.slice(1).trim();
+  else return value;
+  const str = /^"((?:[^"\\]|\\.)*)"$/.exec(t);
+  if (str) return str[1];
+  const enumCase = /^[A-Z]\w*\.(?:`([^`]+)`|([\w-]+))$/.exec(t);
+  if (enumCase) return enumCase[1] ?? enumCase[2];
+  return value;
 }
 
 /** Alle Parameter eines Patterns: gepflegte plus die, die nur im BPMN stehen */
@@ -1156,6 +1201,12 @@ export function withEndOutFields(spec: ProcessSpec, vars: Array<{ name: string; 
     const have = fields.find(f => f.name === v.name);
     const isCase = v.name === 'processStatus' && (status.fixedCases ?? status.values ?? []).includes(v.value);
     if (have) {
+      // vorher als Text angelegt (der Status war kein Fall): jetzt der feste Fall
+      if (isCase && have.type === 'String' && !fields.some(f => f !== have && f.name === v.name)) {
+        fields = fields.map(f => (f === have ? { ...f, type: domainRef(status.id), enumCase: v.value } : f));
+        changed = true;
+        continue;
+      }
       // ein anderer Status am anderen Ende: kein fester Fall mehr
       if (have.enumCase && have.enumCase !== v.value) {
         const { enumCase: _, ...rest } = have;
