@@ -382,6 +382,29 @@ Export schreibt `type Out = Int` und dessen Beispiel (`singleEntry(In.example, 3
 Das Ergebnis in der `resultVariable` kennt die App in FEEL in dieser Form.
 Eine Entscheidung eines anderen Projekts bleibt ein Verweis in den Katalog.
 
+**Die Tabelle selbst** steht am Schritt unter **DMN-Tabelle** — wie das BPMN
+zum Ablauf ist sie die Quelle, die App leitet ab:
+
+- **Aus dem Projekt** sucht in den gemerkten Projekt-Ordnern (der eigene
+  zuerst) unter `src/main/resources/camunda`, für Camunda 8 unter
+  `…/camunda8`, die DMN-Datei mit dieser `decisionId`; **Datei wählen** nimmt
+  eine beliebige; **Neu anlegen** baut eine Tabelle aus `In` und `Out` (je
+  Feld eine Spalte).
+- **Bearbeiten** öffnet die Tabelle in **dmn-js** (bpmn.io, das Gegenstück
+  zum BPMN-Modeler; wird erst dann geladen). «Übernehmen» legt sie ab.
+- Danach folgen `In` und `Out` den Spalten: Eingaben (Name = Ausdruck der
+  Spalte, sonst ihre Beschriftung) und Ausgaben (`name`), Typ aus `typeRef`
+  (`string` → String, `integer` → Int, `number` → Double, `boolean`,
+  `date` → LocalDateTime in Camunda 7, LocalDate in Camunda 8 …).
+  Beschreibung, Beispiel und `optional` bleiben, Felder ohne Spalte fallen
+  weg. Die **Ergebnisform** folgt der Tabelle: eine Ausgabe → `singleEntry`,
+  mehrere → `singleResult`; COLLECT (ohne Aggregation), RULE ORDER oder
+  OUTPUT ORDER → `collectEntries` bzw. `resultList`.
+- Ablage: `processes/<slug>/<decisionId>.dmn` neben der Spezifikation.
+  «Process from Spec» nimmt sie mit; der Helper legt sie neben das BPMN
+  (`src/main/resources/camunda[8]`), unter ihrem Dateinamen im Projekt bzw.
+  der `decisionId` ohne Firma.
+
 Am Schritt selbst steht der Abschnitt **Klassen**: «Als Benutzeraufgabe
 beschreiben» legt das Objekt an, danach führen zwei Zeilen zu `In` und `Out`.
 Kennt der Katalog die Felder — die OpenAPI beschreibt Benutzeraufgaben mit

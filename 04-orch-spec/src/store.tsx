@@ -23,6 +23,7 @@ import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, SharePointFolder } from 
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
 import { appendAudit, auditPath, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
+import { dmnPath } from './dmn';
 
 const DIR = 'processes';
 /** Stammdaten — in `config/`, damit dort nur Admins schreiben können */
@@ -99,6 +100,9 @@ interface StoreCtx {
   /** das BPMN zur Spezifikation — `processes/<slug>.bpmn` */
   loadBpmn: (slug: string) => Promise<string | null>;
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** die Tabelle einer DMN Decision — `processes/<slug>/<decisionId>.dmn` */
+  loadDmn: (slug: string, decisionId: string) => Promise<string | null>;
+  saveDmn: (slug: string, decisionId: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** `audit`: Protokoll-Einträge zu diesem Stand — angehängt, sobald die Spezifikation geschrieben ist */
   saveSpec: (data: ProcessSpec, expectedVersion: string | null, audit?: AuditEntry[]) => Promise<SaveResult>;
   /** das Änderungsprotokoll, älteste zuerst — null, wenn es nicht lesbar ist */
@@ -663,6 +667,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return w.ok ? { ok: true as const } : { ok: false as const, message: w.message };
   }, []);
 
+  // Die Tabellen der DMN Decisions — im Unterordner der Spezifikation
+  const loadDmn = useCallback(async (slug: string, decisionId: string) => {
+    const be = backendRef.current;
+    if (!be) return null;
+    try {
+      return (await be.read(dmnPath(DIR, slug, decisionId)))?.text ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const saveDmn = useCallback(async (slug: string, decisionId: string, xml: string) => {
+    const be = backendRef.current;
+    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
+    const w = await be.write(dmnPath(DIR, slug, decisionId), xml);
+    return w.ok ? { ok: true as const } : { ok: false as const, message: w.message };
+  }, []);
+
   const saveSpec = useCallback(async (data: ProcessSpec, expectedVersion: string | null, audit: AuditEntry[] = []): Promise<SaveResult> => {
     const be = backendRef.current;
     if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
@@ -729,6 +751,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // das Protokoll gehört zur Spezifikation — eine neue mit demselben Namen fängt leer an
     // (Archive bleiben liegen: die nennt die Liste nicht, und sie stören nicht)
     await be.delete(auditPath(DIR, slug));
+    // die Tabellen der DMN Decisions
+    try {
+      for (const f of await be.list(`${DIR}/${slug}`)) if (f.name.endsWith('.dmn')) await be.delete(`${DIR}/${slug}/${f.name}`);
+    } catch { /* kein Unterordner */ }
     return { ok: true as const };
   }, []);
 
@@ -764,7 +790,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       folderLinkError, clearFolderLinkError: () => setFolderLinkError(null), reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
-      specs, specsLoading, refreshSpecs, loadSpec, saveSpec, loadAudit, createSpec, deleteSpec, loadBpmn, saveBpmn,
+      specs, specsLoading, refreshSpecs, loadSpec, saveSpec, loadAudit, createSpec, deleteSpec, loadBpmn, saveBpmn, loadDmn, saveDmn,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
       {children}

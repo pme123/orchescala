@@ -326,11 +326,23 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("fromCommand - BPMN and Scala classes"):
     assertEquals(
       OrchSpecInput.fromCommand(command("""{"v":1,"bpmn":"<bpmn/>","scala":"// einfügen «x»"}""")),
-      Some("<bpmn/>") -> "// einfügen «x»"
+      OrchSpecCommand(Some("<bpmn/>"), "// einfügen «x»")
     )
 
+  test("fromCommand - with the DMN tables"):
+    assertEquals(
+      OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x","dmns":[{"file":"product-subStatusKey.dmn","xml":"<definitions/>"}]}""")).dmns,
+      Seq("product-subStatusKey.dmn" -> "<definitions/>")
+    )
+
+  test("dmn - file name without a path, engine from the modeler"):
+    assertEquals(OrchSpecExport.dmnFileName("../a/b.dmn"), "b.dmn")
+    assertEquals(OrchSpecExport.dmnFileName("subStatus"), "subStatus.dmn")
+    assert(OrchSpecExport.isC8Dmn("""<definitions modeler:executionPlatform="Camunda Cloud">"""))
+    assert(!OrchSpecExport.isC8Dmn("""<definitions modeler:executionPlatform="Camunda Platform">"""))
+
   test("fromCommand - without BPMN"):
-    assertEquals(OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x"}""")), None -> "x")
+    assertEquals(OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x"}""")), OrchSpecCommand(None, "x"))
 
   test("fromCommand - unknown version"):
     intercept[IllegalArgumentException](OrchSpecInput.fromCommand(command("""{"v":2,"scala":"x"}""")))

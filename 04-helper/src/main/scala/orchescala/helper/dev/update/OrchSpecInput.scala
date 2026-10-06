@@ -9,15 +9,19 @@ import scala.util.Try
   * Each one either from the clipboard (`Kopieren` in the export dialog, then Enter) or pasted into
   * the terminal. The clipboard is the safer way: a terminal may cut long lines of a paste.
   */
+/** What «Process from Spec» brings: the BPMN (if the spec has a diagram), the Scala classes and
+  * the tables of the DMN decisions (file name in the project -> XML).
+  */
+case class OrchSpecCommand(bpmn: Option[String], scala: String, dmns: Seq[(String, String)] = Seq.empty)
+
 object OrchSpecInput:
 
   val commandPrefix = "orchspec:"
 
   /** The argument of «Process from Spec» in Orch Spec: `orchspec:` + base64url(gzip(JSON)) with
-    * `{ v: 1, bpmn?: String, scala: String }` - returns the BPMN (if the spec has a diagram) and the
-    * Scala classes.
+    * `{ v: 1, bpmn?: String, scala: String, dmns?: [{ file: String, xml: String }] }`.
     */
-  def fromCommand(argument: String): (Option[String], String) =
+  def fromCommand(argument: String): OrchSpecCommand =
     val json = Try:
       val zipped = java.util.Base64.getUrlDecoder.decode(argument.stripPrefix(commandPrefix).trim)
       val in     = java.util.zip.GZIPInputStream(java.io.ByteArrayInputStream(zipped))
@@ -30,9 +34,14 @@ object OrchSpecInput:
     val cursor = io.circe.parser.parse(json).fold(e => throw IllegalArgumentException(e.getMessage), _.hcursor)
     cursor.get[Int]("v") match
       case Right(1) =>
-        (
+        OrchSpecCommand(
           cursor.get[Option[String]]("bpmn").toOption.flatten,
-          cursor.get[String]("scala").getOrElse("")
+          cursor.get[String]("scala").getOrElse(""),
+          cursor.downField("dmns").values.toSeq.flatten.flatMap: d =>
+            for
+              file <- d.hcursor.get[String]("file").toOption
+              xml  <- d.hcursor.get[String]("xml").toOption
+            yield file -> xml
         )
       case other    =>
         throw IllegalArgumentException(

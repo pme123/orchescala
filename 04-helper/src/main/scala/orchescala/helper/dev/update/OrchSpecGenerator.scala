@@ -17,7 +17,7 @@ import orchescala.domain.BpmnProcessType
   */
 case class OrchSpecGenerator()(using config: DevConfig):
 
-  def createProcess(bpmn: Option[String], scalaExport: String): Unit =
+  def createProcess(bpmn: Option[String], scalaExport: String, dmns: Seq[(String, String)] = Seq.empty): Unit =
     val files                     = OrchSpecExport.parse(scalaExport)
     val (processFile, classFiles) = files.partition(_.insert)
     val bpmnProcessId             = bpmn.flatMap(OrchSpecExport.processId)
@@ -74,23 +74,28 @@ case class OrchSpecGenerator()(using config: DevConfig):
     mergeProcessObject(domainDir / s"$objectName.scala", processObject)
     processObject.warnings.foreach(w => println(s"${Console.YELLOW}WARNING: $w${Console.RESET}"))
 
-    // bpmn
+    // bpmn - its engine decides where the diagrams go (camunda or camunda8)
+    def processTypeOf(c8: Boolean): BpmnProcessType =
+      if c8 then
+        config.bpmnProcessType match
+          case c8: BpmnProcessType.C8 => c8
+          case _                      => BpmnProcessType.C8()
+      else
+        config.bpmnProcessType match
+          case _: BpmnProcessType.C8 => BpmnProcessType.C7()
+          case other                 => other
     bpmn match
       case Some(xml) =>
-        val processType =
-          if OrchSpecExport.isC8(xml) then
-            config.bpmnProcessType match
-              case c8: BpmnProcessType.C8 => c8
-              case _                      => BpmnProcessType.C8()
-          else
-            config.bpmnProcessType match
-              case _: BpmnProcessType.C8 => BpmnProcessType.C7()
-              case other                 => other
-        val name        = processId.stripPrefix(s"${config.companyName}-")
-        createOrCompare(os.pwd / processType.diagramPath / s"$name.bpmn", xml)()
+        val name = processId.stripPrefix(s"${config.companyName}-")
+        createOrCompare(os.pwd / processTypeOf(OrchSpecExport.isC8(xml)).diagramPath / s"$name.bpmn", xml)()
       case None      =>
         BpmnProcessGenerator(config.bpmnProcessType).createBpmn(setupElement)
     end match
+
+    // the tables of the DMN decisions - next to the BPMN (without a BPMN: the engine of the DMN)
+    dmns.foreach: (file, xml) =>
+      val c8 = bpmn.map(OrchSpecExport.isC8).getOrElse(OrchSpecExport.isC8Dmn(xml))
+      createOrCompare(os.pwd / processTypeOf(c8).diagramPath / OrchSpecExport.dmnFileName(file), xml)()
 
     // workers
     WorkerGenerator().createProcessWorker(
@@ -496,6 +501,15 @@ object OrchSpecExport:
 
   def isC8(bpmn: String): Boolean =
     bpmn.contains("http://camunda.org/schema/zeebe/1.0")
+
+  /** A DMN of the Camunda Modeler for Camunda 8 - `modeler:executionPlatform="Camunda Cloud"`. */
+  def isC8Dmn(dmn: String): Boolean =
+    dmn.contains("executionPlatform=\"Camunda Cloud\"")
+
+  /** The file name of a DMN table - only the name (no path out of the diagram folder), with `.dmn`. */
+  def dmnFileName(file: String): String =
+    val name = file.split("[/\\\\]").last.trim
+    if name.endsWith(".dmn") then name else s"$name.dmn"
 
   /** Object name and DSL of an interaction - `MyTask -> CustomTask` for `object MyTask extends CompanyBpmnCustomTaskDsl`. */
   def interaction(content: String): Option[(String, String)] =

@@ -17,6 +17,7 @@ import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, 
 import { feelBody, feelToJuel } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
+import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
@@ -453,6 +454,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && !ofPattern && (
         <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} onSyncId={onSyncId} current={service} />
       )}
+      {/* DMN Decision dieses Prozesses: die Tabelle selbst — In und Out folgen ihr */}
+      {step.kind === 'rule' && !ofPattern && interactionKind(step, spec.processId ?? '') === 'decision' && (
+        <DmnTableSection step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onSpecChange={onSpecChange} />
+      )}
 
       {step.calledProcess && (
         <Row label="Ruft Prozess" isDark={isDark}><span className="font-mono">{step.calledProcess}</span></Row>
@@ -865,6 +870,8 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
       name: suggestName(step, kind, spec.processId ?? '', model),
       key: kind === 'userTask' ? step.id : step.topic ?? step.name,
       ...(step.description ? { descr: step.description } : {}),
+      // DMN Decision: die Ergebnisform aus dem BPMN (`camunda:mapDecisionResult`)
+      ...(kind === 'decision' && step.decisionResult ? { decisionResult: step.decisionResult } : {}),
       status: 'draft',
     };
     onSpecChange({ ...spec, interactions: [...interactions, withOrigin(neu, model, packageOf(spec, model))] });
