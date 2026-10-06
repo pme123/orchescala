@@ -294,6 +294,18 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     if (dom) for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source });
   }
 
+  // Eine Entscheidung (Business-Rule-Task) schreibt ihr Ergebnis in **eine**
+  // Variable (`resultVariable`) — ohne Mapping, wie die eigenen Worker oben
+  // Das gilt für jede Entscheidung, auch eine fremde: die Engine setzt die
+  // Variable; ohne bekanntes Out ist sie `any`, dann prüft niemand ihre Felder.
+  for (const s of allSteps(spec.steps)) {
+    if (s.kind !== 'rule' || !s.resultVariable) continue;
+    // Camunda 8 mit Output-Mappings: Zeebe übernimmt nur die gemappten Variablen
+    // (oben bei den Ausgaben) — die resultVariable bleibt lokal am Task
+    if (spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name)) continue;
+    for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
+  }
+
   // Was die Engine selbst führt — in Camunda 7 an der Ausführung (`execution.…`,
   // der Export übersetzt es), in Camunda 8 unter diesen Namen
   add({ name: 'processInstanceKey', type: 'any', label: 'Prozess-Instanz', source: 'Engine', description: 'Kennung der Prozess-Instanz — Camunda 7: execution.processInstanceId' });

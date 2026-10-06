@@ -5,3 +5,4 @@ dist/
 /.idea/*
 /public/catalog.generated.json
 /.env.local
+/dist-tests/
