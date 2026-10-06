@@ -183,7 +183,8 @@ Tippen.
   `Option[…]`, das `InitIn` bekommt dasselbe Feld als Pflicht, und der
   Init-Worker setzt es — `fee = in.fee.getOrElse(90)`. Der Export gibt diesen
   `customInit` als Hinweis mit, `./helper.scala processFromSpec` setzt ihn in
-  den Worker. Überall sonst wird eine Vorgabe nicht verwendet und gemeldet.
+  den Worker. Die übrigen Felder des `InitIn` stehen dort als `???` — nicht
+  als Beispielwerte: so schlägt der Worker fehl, bis sie implementiert sind. Überall sonst wird eine Vorgabe nicht verwendet und gemeldet.
 - Die **Vorgabe** ist FEEL, wenn sie mit `=` beginnt — wie überall in der App.
   Der Export wertet sie aus und schreibt sie nach dem Typ des Feldes als Scala:
   `= [90, 110, 140]` → `Seq(90, 110, 140)`, `= "CH"` → `Some("CH")` bei einem

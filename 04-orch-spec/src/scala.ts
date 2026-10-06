@@ -891,7 +891,7 @@ export function renderInitIn(spec: ProcessSpec, idx: TypeIndex): string {
 
 /**
  * Was der Init-Worker im `customInit` zurückgibt, wenn das `In` Vorgaben hat —
- * die übrigen Felder des InitIn kommen (noch) aus dem Beispiel. `null`: keine Vorgaben.
+ * die übrigen Felder des InitIn sind `???`, bis der Worker sie setzt. `null`: keine Vorgaben.
  */
 export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | null {
   const fromIn = defaultsForInit(spec, idx);
@@ -902,8 +902,11 @@ export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | nu
     const value = r.scala ?? `??? /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
     return `  ${f.name} = in.${f.name}.getOrElse(${value})`;
   });
-  const rest = own.some(o => !fromIn.some(f => f.name === o.name));
-  return `${rest ? 'InitIn.example.copy' : 'InitIn'}(\n${args.join(',\n')}\n)`;
+  // die übrigen Felder des InitIn berechnet der Worker — `???` statt der Beispielwerte:
+  // so schlägt er fehl, bis es implementiert ist
+  const rest = own.filter(o => !fromIn.some(f => f.name === o.name))
+    .map(o => `  ${o.name} = ??? /* TODO im InitWorker setzen */`);
+  return `InitIn(\n${[...args, ...rest].join(',\n')}\n)`;
 }
 
 /**

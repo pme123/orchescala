@@ -100,7 +100,8 @@ case class OrchSpecGenerator()(using config: DevConfig):
     WorkerGenerator().createProcessWorker(
       setupElement,
       processObject.customInit
-        .getOrElse(if processObject.hasInitIn then "InitIn.example" else "InitIn()")
+        // not the example - that would run with its values; `???` fails, so it is clear what is to do
+        .getOrElse(if processObject.hasInitIn then "???" else "InitIn()")
     )
     val interactions = ownFiles.flatMap(f =>
       OrchSpecExport.interaction(f.content).map((name, dsl) => (name, dsl, OrchSpecExport.topicName(f.content)))

@@ -229,6 +229,10 @@ override def customInit(in: In): InitIn =
   )
 ```
 
+The other fields of the `InitIn` are `???` - and without such defaults the whole `customInit` is `???`.
+Not the example: that would run with its values - `???` fails until it is implemented, like the generated
+custom and service task workers.
+
 The process is registered in the `WorkerApp` and in the `ApiProjectCreator`:
 ```scala
 object WorkerApp extends CompanyWorkerApp:

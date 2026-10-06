@@ -10,7 +10,7 @@ case class WorkerGenerator()(using config: DevConfig):
     createOrUpdate(workerConfigPath / "logback.xml", logbackXml)
   end generate
 
-  // initIn: the expression customInit returns - e.g. `InitIn.example` if InitIn has required fields
+  // initIn: the expression customInit returns - `???` if InitIn has required fields (fails until implemented)
   def createProcessWorker(setupElement: SetupElement, initIn: String = "InitIn()"): Unit =
     // a multi-line expression goes on with the indentation of the method body
     val expression = initIn.replace("\n", "\n    ")
