@@ -12,7 +12,7 @@ import { checkFeel, conditionExpected, domainRequired, referencedVariables, expe
 import { feelBody, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin } from './interactions';
-import { packageOf } from './scala';
+import { dmnIssues, packageOf } from './scala';
 import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantAllows, variantsOf } from './variants';
@@ -66,7 +66,8 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   const initWorker = isInitWorker(step, processId);
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
   const kind = ia?.kind ?? interactionKind(step, processId);
-  if (initWorker || kind === 'userTask' || kind === 'customTask') return [];
+  // eine DMN Decision liest ihr In ebenso direkt aus den Prozessvariablen
+  if (initWorker || kind === 'userTask' || kind === 'customTask' || kind === 'decision') return [];
   if (patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7').inputs.size) return [];
   const types = spec.types ?? [];
   const inT = ia?.inTypeId ? types.find(t => t.id === ia.inTypeId) : undefined;
@@ -187,6 +188,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     const inT = ia.inTypeId ? types.find(t => t.id === ia.inTypeId) : null;
     const outT = ia.outTypeId ? types.find(t => t.id === ia.outTypeId) : null;
     const empty = (t: typeof inT) => !!t && !(t.fields ?? []).some(f => f.name) && !(t.values ?? []).some(v => v.name);
+    // DMN Decision: einfache Werte, und bei einem einzelnen Wert genau ein Feld im Out
+    if (!origin.foreign) for (const m of dmnIssues(ia, types)) warnings.push(`${ia.name}: ${m}`);
     if (INTERACTION_META[ia.kind].hasOut && !origin.foreign) {
       if (!inT) warnings.push(`${ia.name}: In fehlt.`);
       else if (empty(inT)) warnings.push(`${ia.name}: In ist leer.`);

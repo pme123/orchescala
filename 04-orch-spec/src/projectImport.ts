@@ -491,7 +491,7 @@ function memberFromStep(ia: Interaction, member: 'In' | 'Out', step: Step, entry
 }
 
 const DSL_KIND: Record<string, InteractionKind> = {
-  UserTask: 'userTask', CustomTask: 'customTask', SignalEvent: 'signal', MessageEvent: 'message',
+  UserTask: 'userTask', CustomTask: 'customTask', SignalEvent: 'signal', MessageEvent: 'message', Decision: 'decision',
 };
 
 /**
@@ -501,6 +501,7 @@ const DSL_KIND: Record<string, InteractionKind> = {
 function objectKind(t: DomainType): InteractionKind | null {
   if (t.dsl) return DSL_KIND[t.dsl] ?? null;
   if (t.topicName) return 'customTask';
+  if (t.keyName === 'decisionId') return 'decision';
   if (/UT$/.test(t.owner ?? '')) return 'userTask';
   if (/SE$/.test(t.owner ?? '')) return 'signal';
   if (/ME$/.test(t.owner ?? '')) return 'message';
@@ -582,6 +583,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       if (objectKind(o) !== kind) return false;
       if (kind === 'customTask') return o.topicName === step.topic;
       if (kind === 'userTask' && o.key) return o.key === step.id;
+      if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase();
       // Signal / Nachricht: über den Namen im BPMN (bis zum dynamischen Teil)
       const key = (o.key ?? '').split('${')[0];
       if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
@@ -592,6 +594,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     const ia: Interaction = {
       id: uid('ia'), stepId: step.id, kind, name: obj.owner!,
       key: obj.key ?? obj.topicName ?? (kind === 'userTask' ? step.id : step.messageName ?? ''),
+      ...(kind === 'decision' && obj.decisionResult ? { decisionResult: obj.decisionResult } : {}),
       ...(obj.ownerDescr ? { descr: obj.ownerDescr } : {}),
       // ein Ausdruck (`s"…${X.processName}…"`) bleibt einer — mit den Imports seiner Datei
       ...(obj.ownerDescrExpr ? { descrExpr: obj.ownerDescrExpr } : {}),
@@ -601,7 +604,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     };
     const inId = memberType(obj, 'In', ia.id);
     if (inId) ia.inTypeId = inId;
-    if (kind === 'userTask' || kind === 'customTask') {
+    if (kind === 'userTask' || kind === 'customTask' || kind === 'decision') {
       const outId = memberType(obj, 'Out', ia.id);
       if (outId) ia.outTypeId = outId;
     }

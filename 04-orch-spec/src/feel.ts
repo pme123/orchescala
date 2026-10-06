@@ -372,20 +372,24 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
 
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
   const ownOut = ia?.outTypeId ? types.find(t => t.id === ia.outTypeId) : undefined;
-  if (ownOut) {
+  if (ownOut && !(step.kind === 'rule' && step.resultVariable)) {
     for (const f of ownOut.fields ?? []) add(nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()));
   } else {
-    const dom = stepDomainMember(step, spec, model, 'Out');
+    const dom = ownOut ? null : stepDomainMember(step, spec, model, 'Out');
     if (step.kind === 'rule' && step.resultVariable) {
       // Entscheidung: das Ergebnis steht in **einer** Variable — je nach Form ein
-      // Wert, ein Objekt mit den Feldern des Out oder eine Liste davon
-      const fields = dom ? domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? [] : [];
-      const form = step.decisionResult ?? dom?.decisionResult ?? (spec.engine === 'c8'
+      // Wert, ein Objekt mit den Feldern des Out oder eine Liste davon. Die
+      // Felder aus der DMN Decision des Prozesses, sonst aus der Domain
+      const fields = ownOut
+        ? (ownOut.fields ?? []).map(f => nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()))
+        : dom ? domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? [] : [];
+      const form = (ownOut ? ia?.decisionResult : undefined) ?? step.decisionResult ?? dom?.decisionResult ?? (spec.engine === 'c8'
         ? (fields.length === 1 ? 'singleEntry' : 'singleResult')
         : 'resultList');
-      const source = `Ergebnis der Entscheidung${dom ? ` (${dom.name})` : ''}`;
+      const what = ownOut ? ia!.name : dom?.name;
+      const source = `Ergebnis der Entscheidung${what ? ` (${what})` : ''}`;
       const name = step.resultVariable;
-      const label = dom ? `${dom.name} · ${form}` : form;
+      const label = what ? `${what} · ${form}` : form;
       if (!fields.length) add({ name, type: 'any', label, source });
       else if (form === 'singleEntry') add({ ...fields[0], name, label, source });
       else if (form === 'collectEntries') add({ name, type: 'list', label, source });

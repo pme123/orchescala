@@ -369,6 +369,18 @@ unter **Interaktionen**; **«N aus dem Ablauf»** holt sie aus dem Ablauf:
 | eigener Worker (Topic beginnt mit dem Prozess) | `CompanyBpmnCustomTaskDsl` | `val topicName` |
 | werfendes Signal | `CompanyBpmnSignalEventDsl` | `val messageName` |
 | werfende Nachricht | `CompanyBpmnMessageEventDsl` | `val messageName` |
+| DMN Decision (Business-Rule-Task, `decisionRef` beginnt mit dem Prozess) | `CompanyBpmnDecisionDsl` | `val decisionId` |
+
+Eine **DMN Decision** folgt Orchescala (`BpmnDecisionDsl`): die Felder von
+`In` und `Out` sind einfache Werte (String, Boolean, Int, Long, Double,
+LocalDate, LocalDateTime oder eine Auswahl) — sonst steht ein Befund da. Die
+**Ergebnisform** steht an der Interaktion (aus dem BPMN bzw. der Domain) und
+wählt die Fabrik im `example`: `singleResult(In.example, Out.example)`,
+`resultList(…, Seq(Out.example))` — oder für einen einfachen Wert
+`singleEntry` / `collectEntries`: dann hat das `Out` genau ein Feld, der
+Export schreibt `type Out = Int` und dessen Beispiel (`singleEntry(In.example, 3)`).
+Das Ergebnis in der `resultVariable` kennt die App in FEEL in dieser Form.
+Eine Entscheidung eines anderen Projekts bleibt ein Verweis in den Katalog.
 
 Am Schritt selbst steht der Abschnitt **Klassen**: «Als Benutzeraufgabe
 beschreiben» legt das Objekt an, danach führen zwei Zeilen zu `In` und `Out`.

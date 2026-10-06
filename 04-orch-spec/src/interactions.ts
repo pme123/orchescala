@@ -53,6 +53,13 @@ export function pascal(text: string): string {
  * und `CreatePensionProduct` ist der Prozess selbst.
  */
 export function suggestName(step: Step, kind: InteractionKind, processId: string, model: Model | null = null): string {
+  // DMN Decision: der Teil der decisionId nach der Prozess-ID — `…orderCardV1-SubStatusKeyDmn` → `SubStatusKeyDmn`
+  if (kind === 'decision' && step.topic) {
+    const bekannt = (model?.domainTypes ?? []).find(t => t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase() && t.owner);
+    if (bekannt) return bekannt.owner!;
+    const tail = pascal(step.topic.slice(processId.length).replace(/^[-.]/, ''));
+    if (tail) return /Dmn$/.test(tail) ? tail : `${tail}Dmn`;
+  }
   if (kind === 'customTask' && step.topic) {
     const bekannt = (model?.domainTypes ?? []).find(t => t.topicName === step.topic && t.owner);
     if (bekannt) return bekannt.owner!;
@@ -68,13 +75,18 @@ export function suggestName(step: Step, kind: InteractionKind, processId: string
 /** Der Schlüssel: `val name` / `val topicName` / `val messageName`. */
 function keyOf(step: Step, kind: InteractionKind): string {
   if (kind === 'userTask') return step.id;
-  if (kind === 'customTask') return step.topic ?? step.id;
+  if (kind === 'customTask' || kind === 'decision') return step.topic ?? step.id;
   return step.name;
 }
 
 /** Zu welcher Art Interaktion gehört dieser Schritt — oder zu keiner? */
 export function interactionKind(step: Step, processId: string): InteractionKind | null {
   if (step.kind === 'user') return 'userTask';
+  // DMN Decision dieses Prozesses (`decisionRef` beginnt mit der Prozess-ID) —
+  // eine fremde Entscheidung hat ihre Domain anderswo, sie bleibt ein Katalog-Eintrag
+  if (step.kind === 'rule') {
+    return step.topic && processId && step.topic.toLowerCase().startsWith(processId.toLowerCase()) ? 'decision' : null;
+  }
   if (step.kind === 'service') {
     // Nur die Worker dieses Prozesses; fremde Services haben ihre eigene Domain
     if (!step.topic || !processId) return null;
@@ -127,6 +139,8 @@ export function toInteraction(s: Suggestion): Interaction {
     name: s.name,
     key: s.key,
     ...(s.step.description ? { descr: s.step.description } : {}),
+    // DMN Decision: die Ergebnisform aus dem BPMN (`camunda:mapDecisionResult`)
+    ...(s.kind === 'decision' && s.step.decisionResult ? { decisionResult: s.step.decisionResult } : {}),
     status: 'draft',
   };
 }
@@ -348,7 +362,7 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
 
 /** Die Art des Domain-Objekts laut DSL — wie sie der Katalog führt (`DomainType.dsl`). */
 const DSL_OF: Record<InteractionKind, string> = {
-  userTask: 'UserTask', customTask: 'CustomTask', signal: 'SignalEvent', message: 'MessageEvent',
+  userTask: 'UserTask', customTask: 'CustomTask', signal: 'SignalEvent', message: 'MessageEvent', decision: 'Decision',
 };
 
 /** `${execution.getProcessInstanceId()}` (BPMN) und `${SignalEvent.Dynamic_ProcessInstance}` (Domain) sind derselbe Platzhalter. */
@@ -387,7 +401,10 @@ export function interactionOrigin(
   const hits = new Map<string, DomainType>(); // je Package ein Objekt
   for (const t of model?.domainTypes ?? []) {
     if (!t.owner || t.dsl !== dsl) continue;
-    const matches = ia.kind === 'customTask' ? t.topicName === key : !!t.key && normKey(t.key) === normKey(key);
+    const matches = ia.kind === 'customTask' ? t.topicName === key
+      // die decisionRef im BPMN und die decisionId der Domain unterscheiden sich teils in der Schreibweise
+      : ia.kind === 'decision' ? !!t.key && t.key.toLowerCase() === key.toLowerCase()
+        : !!t.key && normKey(t.key) === normKey(key);
     if (key && matches && !hits.has(t.pkg)) hits.set(t.pkg, t);
   }
   if (ia.pkg) return { owner: hits.get(ia.pkg)?.owner, pkg: ia.pkg, foreign: ia.pkg !== ownPkg };

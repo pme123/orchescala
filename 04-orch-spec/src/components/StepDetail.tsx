@@ -1354,7 +1354,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   onChange={e => onChange(list, i, { name: e.target.value })}
                   placeholder="name"
                   title={pflicht ? `${hint.name}\n\n${pflicht} — weder abwählen noch entfernen.` : hint.name}
-                  className={`w-32 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${off ? 'line-through' : ''}`} />
+                  className={`flex-[2] min-w-[7rem] text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${off ? 'line-through' : ''}`} />
                 {pflicht && (
                   <span title={`${pflicht} — weder abwählen noch entfernen.`}
                     className={`flex-shrink-0 -ml-1 ${off ? err : c.muted}`}>
@@ -1371,7 +1371,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     feelOk && feel?.result ? `FEEL gültig · Ergebnis: ${FEEL_TYPE_LABEL[feel.result]}` : '',
                     m.expression ? `Aktuell: ${m.expression}` : '',
                   ].filter(Boolean).join('\n\n')}
-                  className="flex-1 min-w-0" />
+                  className="flex-[3] min-w-0" />
                 {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
                 {m.name && <CommentBubble target={sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`)} quiet />}

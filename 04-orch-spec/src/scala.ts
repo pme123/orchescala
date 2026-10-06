@@ -720,13 +720,69 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   };
 
   const inExpr = member(inType, 'In');
-  const outExpr = meta.hasOut ? member(outType, 'Out') : null;
+  let factory = meta.factory;
+  let outExpr: string | null;
+  if (ia.kind === 'decision') {
+    // DMN Decision (Orchescala, BpmnDecisionDsl): die Fabrik nach der
+    // Ergebnisform — ein einfacher Wert ist das eine Feld des Out
+    const form = ia.decisionResult ?? 'singleResult';
+    factory = form;
+    const value = dmnValueField(outType);
+    if ((form === 'singleEntry' || form === 'collectEntries') && value) {
+      const bare = { ...value, optional: false, collection: false, map: false };
+      lines.push(`  type Out = ${fieldType(bare, idx)}`);
+      lines.push('');
+      const ex = exampleValue(bare, idx);
+      outExpr = form === 'collectEntries' ? `Seq(${ex})` : ex;
+    } else {
+      const ex = member(outType, 'Out');
+      outExpr = form === 'resultList' ? `Seq(${ex})` : ex;
+    }
+  } else {
+    outExpr = meta.hasOut ? member(outType, 'Out') : null;
+  }
 
-  lines.push(`  lazy val example = ${meta.factory}(`);
+  lines.push(`  lazy val example = ${factory}(`);
   lines.push(`    ${inExpr}${outExpr ? `,\n    ${outExpr}` : ''}`);
   lines.push('  )');
   lines.push(`end ${ia.name}`);
   return lines.join('\n');
+}
+
+/** Das eine Feld des Out einer DMN Decision, die einen einfachen Wert liefert — sonst null. */
+function dmnValueField(out: TypeDef | null): Field | null {
+  const fields = (out?.fields ?? []).filter(f => f.name?.trim());
+  return out?.kind === 'case' && fields.length === 1 ? fields[0] : null;
+}
+
+/** Einfache Werte einer DMN-Spalte (DmnValueType in Orchescala) — dazu eine Auswahl (enum) */
+const DMN_VALUE_TYPES = new Set(['String', 'Boolean', 'Int', 'Long', 'Double', 'LocalDate', 'LocalDateTime']);
+
+/**
+ * Was eine DMN Decision verlangt (Orchescala, BpmnDecisionDsl): jedes Feld des
+ * `In` ist ein einfacher Wert (eine Spalte der Tabelle) — ebenso die des
+ * `Out`; bei `singleEntry` / `collectEntries` hat das `Out` genau ein Feld.
+ */
+export function dmnIssues(ia: Interaction, types: TypeDef[]): string[] {
+  if (ia.kind !== 'decision') return [];
+  const byId = new Map(types.map(t => [t.id, t]));
+  const simple = (f: Field) => !f.collection && !f.map
+    && (DMN_VALUE_TYPES.has(f.type) || (byId.get(f.type)?.kind === 'enum' && !isAdt(byId.get(f.type)!)));
+  const out: string[] = [];
+  const check = (t: TypeDef | undefined, member: 'In' | 'Out') => {
+    for (const f of (t?.fields ?? []).filter(x => x.name?.trim())) {
+      if (!simple(f)) out.push(`${member}.${f.name}: in einer DMN geht nur ein einfacher Wert (String, Boolean, Int, Long, Double, LocalDate, LocalDateTime oder eine Auswahl).`);
+    }
+  };
+  const inT = ia.inTypeId ? byId.get(ia.inTypeId) : undefined;
+  const outT = ia.outTypeId ? byId.get(ia.outTypeId) : undefined;
+  check(inT, 'In');
+  check(outT, 'Out');
+  const form = ia.decisionResult ?? 'singleResult';
+  if ((form === 'singleEntry' || form === 'collectEntries') && outT && !dmnValueField(outT)) {
+    out.push(`${form}: das Out ist ein einfacher Wert — es braucht genau ein Feld (sein Typ ist der Wert).`);
+  }
+  return out;
 }
 
 // ── InConfig und InitIn ──────────────────────────────────────────────────────

@@ -384,7 +384,7 @@ export const isAdt = (t: { kind: string; values?: EnumValue[]; fields?: Field[] 
 // Der Scala-Objektname lässt sich nicht aus dem BPMN ableiten (die Aufgabe
 // heisst dort `DepotActivityUnlockAdvisorTask`, das Objekt `AdvisorDepotUnlockUT`) —
 // er wird deshalb hier geführt.
-export type InteractionKind = 'userTask' | 'customTask' | 'signal' | 'message';
+export type InteractionKind = 'userTask' | 'customTask' | 'signal' | 'message' | 'decision';
 
 export const INTERACTION_META: Record<InteractionKind, {
   label: string; dsl: string; keyName: string; factory: string; suffix: string; hasOut: boolean;
@@ -393,6 +393,8 @@ export const INTERACTION_META: Record<InteractionKind, {
   customTask: { label: 'Eigener Worker',  dsl: 'CompanyBpmnCustomTaskDsl',   keyName: 'topicName',   factory: 'customTask',  suffix: '',   hasOut: true },
   signal:     { label: 'Signal',          dsl: 'CompanyBpmnSignalEventDsl',  keyName: 'messageName', factory: 'signalEvent', suffix: 'SE', hasOut: false },
   message:    { label: 'Nachricht',       dsl: 'CompanyBpmnMessageEventDsl', keyName: 'messageName', factory: 'messageEvent', suffix: 'ME', hasOut: false },
+  // die Fabrik hängt an der Ergebnisform (`decisionResult`, siehe dmnFactory in scala.ts)
+  decision:   { label: 'DMN Decision',    dsl: 'CompanyBpmnDecisionDsl',     keyName: 'decisionId',  factory: 'singleResult', suffix: 'Dmn', hasOut: true },
 };
 
 export interface Interaction {
@@ -413,6 +415,13 @@ export interface Interaction {
   /** ids der TypeDefs für In und Out */
   inTypeId?: string;
   outTypeId?: string;
+  /**
+   * DMN Decision: die Form des Ergebnisses — `singleEntry` (ein einfacher
+   * Wert), `singleResult` (ein Objekt), `collectEntries` (Liste einfacher
+   * Werte), `resultList` (Liste von Objekten). Bei einem einfachen Wert hat
+   * das `Out` genau ein Feld, dessen Typ der Wert ist. Ohne Angabe `singleResult`.
+   */
+  decisionResult?: DecisionResult;
   /**
    * Package des Domain-Objekts, wenn die Interaktion eines aus dem Katalog ist
    * (über ihren Schlüssel gefunden, siehe `interactionOrigin`) — ein fremdes

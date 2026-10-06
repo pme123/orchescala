@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { isAdt,
   CONSTRAINTS, INTERACTION_META, STATUSES, STATUS_META,
-  type ConstraintTemplate, type Field, type Interaction, type Model, type ProcessSpec,
+  type ConstraintTemplate, type DecisionResult, type Field, type Interaction, type Model, type ProcessSpec,
   type Status, type TypeDef,
 } from '../types';
 import {
@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
+import { checkTypes, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, cls, patternTone } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -94,9 +94,17 @@ function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valu
 }
 const SCALA_KEY = 'orch-spec.showScala';
 
+/** Ergebnisformen einer DMN Decision — die Fabriken in Orchescala (BpmnDecisionDsl) */
+const DMN_FORMS: Array<{ id: DecisionResult; label: string }> = [
+  { id: 'singleEntry', label: 'ein einfacher Wert (Out mit genau einem Feld)' },
+  { id: 'singleResult', label: 'ein Objekt (Out)' },
+  { id: 'collectEntries', label: 'Liste einfacher Werte (Out mit genau einem Feld)' },
+  { id: 'resultList', label: 'Liste von Objekten (Out)' },
+];
+
 /** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
 const KIND_GROUP: Record<Interaction['kind'], string> = {
-  userTask: 'User Tasks', customTask: 'Worker', signal: 'Signale', message: 'Nachrichten',
+  userTask: 'User Tasks', customTask: 'Worker', decision: 'DMN Decisions', signal: 'Signale', message: 'Nachrichten',
 };
 
 // ── Seitenleiste: was ein Typ ist, was ihm fehlt, ob er gebraucht wird ─────
@@ -373,7 +381,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             </button>
           </div>
 
-          {(['userTask', 'customTask', 'signal', 'message'] as const).map(kind => {
+          {(['userTask', 'customTask', 'decision', 'signal', 'message'] as const).map(kind => {
             const group = interactions.filter(ia => ia.kind === kind);
             if (!group.length) return null;
             // Hauptablauf zuerst, dann je eigenem Block bzw. Ereignis-Subprozess eine Klammer
@@ -694,6 +702,23 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, onPatch, onOpen
         <input value={ia.key} disabled={!canEdit} onChange={e => onPatch({ key: e.target.value })}
           className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
       </div>
+
+      {ia.kind === 'decision' && (
+        <div>
+          <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.muted}`}>Ergebnis</label>
+          <select value={ia.decisionResult ?? 'singleResult'} disabled={!canEdit}
+            onChange={e => onPatch({ decisionResult: e.target.value as DecisionResult })}
+            title="Die Form des Ergebnisses — wie die Fabrik in Orchescala (BpmnDecisionDsl)"
+            className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`}>
+            {DMN_FORMS.map(f => <option key={f.id} value={f.id}>{f.id} — {f.label}</option>)}
+          </select>
+          {dmnIssues(ia, types).map((m, k) => (
+            <p key={k} className={`mt-1 text-[10px] flex items-start gap-1 ${amber(isDark)}`}>
+              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{m}</span>
+            </p>
+          ))}
+        </div>
+      )}
 
       <textarea value={ia.descr ?? ''} disabled={!canEdit} rows={3}
         onChange={e => onPatch({ descr: e.target.value || undefined })}
