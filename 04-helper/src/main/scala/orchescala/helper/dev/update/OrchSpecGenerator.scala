@@ -650,7 +650,10 @@ case class OrchSpecProcessObject(
     val sections    = ObjectSections(lines)
     sections.find(_.name == g.name) match
       case Some(e) if Seq("InConfig", "InitIn").contains(g.name) =>
-        lines.patch(e.from, CaseClassParams.addMissing(e.lines(lines), replacement), e.until - e.from)
+        val own    = e.lines(lines)
+        // a field without default must also be in the `example` - otherwise it does not compile
+        val merged = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
+        lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
       case Some(e) => lines.patch(e.from, replacement, e.until - e.from)
       case None    =>
@@ -914,6 +917,56 @@ object CaseClassParams:
       end if
   end addMissing
 
+  /** The fields that `generated` adds to `own` and that have no default - with their argument in
+    * the `lazy val example = X(…)` of `generated` added to the example of `section` (a field with
+    * a default is fine without). Without an example in `section` or `generated` nothing changes.
+    */
+  def addMissingToExample(section: Seq[String], own: Seq[String], generated: Seq[String], name: String): Seq[String] =
+    val ownNames = params(own).map(_.name).toSet
+    val required = params(generated).filterNot(p => ownNames.contains(p.name)).filterNot(hasDefault).map(_.name)
+    val genArgs  = exampleArgs(generated, name)
+    val toAdd    = required.flatMap(n => genArgs.find(_.name == n))
+    val start    = exampleStart(section, name)
+    if toAdd.isEmpty || start < 0 then section
+    else if section(start).trim.endsWith(s"$name()") then
+      // `lazy val example = InitIn()` - on one line
+      val indent = section(start).takeWhile(_ == ' ')
+      section.patch(
+        start,
+        (section(start).stripSuffix("()") + "(") +: withCommas(toAdd.map(_.lines)) :+ s"$indent)",
+        1
+      )
+    else
+      val close = closing(section, start)
+      if close < 0 then section
+      else
+        val args    = exampleArgs(section, name)
+        val last    = (start + 1 until close).filter(j => isCode(section(j))).lastOption
+        val withEnd = last match
+          case Some(j) if args.nonEmpty && !section(j).trim.endsWith(",") => section.updated(j, section(j) + ",")
+          case _                                                         => section
+        withEnd.patch(close, withCommas(toAdd.map(_.lines)), 0)
+    end if
+  end addMissingToExample
+
+  private def exampleStart(section: Seq[String], name: String): Int =
+    section.indexWhere(_.matches(s"""\\s*lazy val example\\s*=\\s*$name\\(.*"""))
+
+  /** The named arguments of `lazy val example = X(…)` - each with its lines. */
+  private def exampleArgs(section: Seq[String], name: String): Seq[Param] =
+    val start = exampleStart(section, name)
+    val close = if start < 0 || section(start).trim.endsWith(s"$name()") then -1 else closing(section, start)
+    if close < 0 then Seq.empty
+    else
+      split(section.slice(start + 1, close)).flatMap: ls =>
+        ls.collectFirst { case l if l.matches("""\s*\w+\s*=.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
+          .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
+
+  // from the line with the name on - the annotations before it (`@description("a = b")`) do not count
+  private def hasDefault(p: Param): Boolean =
+    p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode).mkString(" ")
+      .matches("""(?s)\s*\w+\s*:[^=]*=.*""")
+
   case class Param(name: String, lines: Seq[String])
 
   /** The parameters between `case class X(` and its closing `)`. */
@@ -922,18 +975,20 @@ object CaseClassParams:
     val close = closing(section, start)
     if start < 0 || close < 0 then Seq.empty
     else
-      // a parameter ends with the comma at depth 0 - its annotations and comments come before it
-      section.slice(start + 1, close).foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
-        case ((done, current, depth), line) =>
-          val d = depth + balance(line)
-          if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
-          else (done, current :+ line, d)
-      match
-        case (done, rest, _) =>
-          (done ++ Option.when(rest.exists(isCode))(rest)).flatMap: ls =>
-            ls.collectFirst { case l if l.matches("""\s*\w+\s*:.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
-              .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
+      split(section.slice(start + 1, close)).flatMap: ls =>
+        ls.collectFirst { case l if l.matches("""\s*\w+\s*:.*""") => l.trim.takeWhile(c => c.isLetterOrDigit || c == '_') }
+          .map(Param(_, withoutComma(ls.reverse.dropWhile(_.isBlank).reverse)))
   end params
+
+  // a parameter (an argument) ends with the comma at depth 0 - its annotations and comments come before it
+  private def split(lines: Seq[String]): Seq[Seq[String]] =
+    lines.foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
+      case ((done, current, depth), line) =>
+        val d = depth + balance(line)
+        if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
+        else (done, current :+ line, d)
+    match
+      case (done, rest, _) => done ++ Option.when(rest.exists(isCode))(rest)
 
   // the comma after the parameter - on its last line of code
   private def withoutComma(ls: Seq[String]): Seq[String] =
