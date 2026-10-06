@@ -757,7 +757,18 @@ dem Prozess. Belegt das Element eine Variable des Patterns schon anders
 (`camunda:in`/`out` gleichen Ziels, Input-/Output-Parameter gleichen Namens,
 `zeebe:input`/`output`), gilt das Pattern: die bisherige Zuordnung wird
 ersetzt, statt doppelt dazustehen. Ein schon doppeltes Element bereinigt das
-Anpassen eines Parameters.
+Anpassen eines Parameters. Gibt es einen gemeinsamen Block schon (sein
+Einstieg, z. B. das Link-Ziel `output-mocked`), ergänzt das Einfügen an seinen
+Elementen, was fehlt — etwa den Listener am Ende.
+
+**Setzt ein Pattern am Endereignis eine Variable** (Camunda 7: Listener
+`execution.setVariable("processStatus", "canceled")`, Camunda 8: Ausgabe),
+ist das ein Ergebnis des Prozesses: das Einfügen legt das Feld im `Out` an.
+`processStatus` mit einem Status von Orchescala wird ein fester Fall
+(`processStatus: ProcessStatus.canceled.type = ProcessStatus.canceled`), mit
+verschiedenen Status an verschiedenen Enden der Typ `ProcessStatus`; anderes
+wird Text. `output-mocked` zählt nicht (dann liefert der Prozess den Mock), ein
+`Out` mit Fällen bleibt, wie es ist.
 
 **Der Import erkennt Pattern** — aus demselben BPMN: ein Element trägt ein
 Pattern, wenn alles, was am Anker hängt, auch an ihm hängt; die Werte der

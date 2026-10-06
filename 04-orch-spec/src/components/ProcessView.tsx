@@ -22,7 +22,7 @@ import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
-import { applyPattern, removePattern, updatePattern } from '../patterns';
+import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
@@ -700,10 +700,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
    * `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst).
    * `origin`: woher das Diagramm kommt — ohne ist es «Mit BPMN abgleichen» mit einer Datei.
    */
-  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin, pasted?: PastedElements) => {
+  const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin, pasted?: PastedElements,
+    /** was mit derselben Änderung ins Datenmodell gehört (das `Out` eines Patterns …) */
+    adjust?: (s: ProcessSpec) => ProcessSpec) => {
     try {
-      const plan = planXml(raw, from, DEFAULT_MERGE_STATUS, pasted);
-      if (!plan) return;
+      const planned = planXml(raw, from, DEFAULT_MERGE_STATUS, pasted);
+      if (!planned) return;
+      const plan = adjust ? { ...planned, spec: adjust(planned.spec) } : planned;
       const r = plan.report;
       const show = !quiet || (quiet !== 'silent' && (r.added.length || r.removed.length || r.changed.length));
       const src = pasted?.spec?.source;
@@ -765,7 +768,10 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         : updatePattern(x, def, engine, targetId, params, defs, previous);
     if (!r.changed) { setNotice({ tone: 'warn', message: r.issues.join(' ') || 'Nichts geändert.' }); return; }
     const was = action === 'add' ? 'eingefügt' : action === 'remove' ? 'entfernt' : 'angepasst';
-    await applyXml(r.xml, `Pattern ${def.name}`, 'silent', { source: 'manual', note: `Pattern «${def.name}» ${was}` });
+    // setzt das Pattern am Ende eine Variable (`processStatus`), gehört sie ins Out
+    const ends = action === 'remove' ? [] : endVariables(def, engine, params);
+    await applyXml(r.xml, `Pattern ${def.name}`, 'silent', { source: 'manual', note: `Pattern «${def.name}» ${was}` }, undefined,
+      ends.length ? s => withEndOutFields(s, ends) : undefined);
     setNotice({ tone: r.issues.length ? 'warn' : 'info', message: [`Pattern «${def.name}» im Diagramm ${was}.`, ...r.issues].join(' ') });
   }, [applyXml]);
 

@@ -1272,7 +1272,9 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       }
     }
     const fields = t.kind === 'enum' ? allFields(t) : (t.fields ?? []);
-    if (!fields.length && t.kind === 'case') issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
+    // InitIn und InConfig dürfen leer sein — dann gibt es sie im Export nicht
+    // (NoInput); «leer» in der Liste bleibt als Hinweis
+    if (!fields.length && t.kind === 'case' && !t.initIn && !t.inConfig) issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
     const seen = new Set<string>();
     for (const f of fields) {
       if (!SCALA_NAME.test(f.name)) {

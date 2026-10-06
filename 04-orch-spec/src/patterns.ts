@@ -30,6 +30,8 @@
 import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
 import { uid } from './util';
+import { ORCHESCALA_TYPES } from './orchescalaTypes';
+import { domainRef } from './serviceTypes';
 
 export const ANCHOR_ID = 'PatternTarget';
 /** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */
@@ -722,7 +724,7 @@ function reachOwned(g: Graph, start: Element): Element[] {
  * Pattern abweicht. Sonst stünde ein zweites, gleichnamiges Link-Ziel im
  * Prozess, sobald ein Block ein Feld mehr oder weniger hat.
  */
-function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Binding): Array<{ b: Binding; elements: Element[] } | null> {
+function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Binding): Array<{ b: Binding; elements: Element[]; entry: Element } | null> {
   return fr.blocks.map(block => {
     const entry = block.entry;
     const esp = local(entry) === 'subProcess' && entry.getAttribute('triggeredByEvent') === 'true';
@@ -739,7 +741,7 @@ function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Bindi
           if (!b) break;
         }
       } else b = matchEl(entry, tn, base);
-      if (b) return { b, elements: reachOwned(tg, tn) };
+      if (b) return { b, elements: reachOwned(tg, tn), entry: tn };
     }
     return null;
   });
@@ -1111,6 +1113,138 @@ function valuesFor(def: PatternDef, params: Record<string, string>, t: Element |
 }
 
 /**
+ * Was ein Pattern an einem Endereignis setzt — in Camunda 7 ein Listener
+ * `execution.setVariable("processStatus", "canceled")`, in Camunda 8 eine
+ * Ausgabe `processStatus = "canceled"`. Das ist das Ergebnis des Prozesses und
+ * gehört in sein `Out` (siehe withEndOutFields).
+ */
+export function endVariables(def: PatternDef, engine: EngineId, params: Record<string, string> = {}): Array<{ name: string; value: string }> {
+  const src = fragmentFor(def, engine);
+  if (!src) return [];
+  const fr = parseFragment(fillPlaceholders(src, valuesFor(def, params, null, null)));
+  if ('error' in fr || fr.anchorTag !== 'endEvent' || !fr.anchor) return [];
+  const out: Array<{ name: string; value: string }> = [];
+  const literal = (v: string) => v.trim().replace(/^=\s*/, '').replace(/^(["'])(.*)\1$/, '$2');
+  for (const el of descendants(fr.anchor)) {
+    const n = local(el);
+    if (n === 'executionListener') {
+      for (const m of (el.getAttribute('expression') ?? '').matchAll(/setVariable\(\s*["']([A-Za-z_]\w*)["']\s*,\s*["']([^"']*)["']\s*\)/g)) out.push({ name: m[1], value: m[2] });
+    } else if (n === 'output' && el.getAttribute('target')) {
+      out.push({ name: el.getAttribute('target')!, value: literal(el.getAttribute('source') ?? '') });
+    }
+  }
+  return out;
+}
+
+/**
+ * Die Variablen eines Patterns am Ende (endVariables) als Felder des `Out`:
+ * `processStatus` mit einem Status von Orchescala als fester Fall
+ * (`ProcessStatus.canceled.type`), mit verschiedenen Status der Typ selbst;
+ * sonst Text. `output-mocked` zählt nicht — dann liefert der Prozess den Mock.
+ */
+export function withEndOutFields(spec: ProcessSpec, vars: Array<{ name: string; value: string }>): ProcessSpec {
+  const wanted = vars.filter(v => v.value !== 'output-mocked');
+  if (!wanted.length) return spec;
+  const types = spec.types ?? [];
+  const out = types.find(t => t.processOut);
+  // ein Out mit Fällen: welcher Fall, weiss nur das Modell — dort von Hand
+  if (out?.kind === 'enum') return spec;
+  const status = ORCHESCALA_TYPES.find(t => t.name === 'ProcessStatus')!;
+  let fields = [...(out?.fields ?? [])];
+  let changed = false;
+  for (const v of wanted) {
+    const have = fields.find(f => f.name === v.name);
+    const isCase = v.name === 'processStatus' && (status.fixedCases ?? status.values ?? []).includes(v.value);
+    if (have) {
+      // ein anderer Status am anderen Ende: kein fester Fall mehr
+      if (have.enumCase && have.enumCase !== v.value) {
+        const { enumCase: _, ...rest } = have;
+        fields = fields.map(f => (f === have ? rest : f));
+        changed = true;
+      }
+      continue;
+    }
+    fields.push(isCase
+      ? { id: uid('f'), name: v.name, type: domainRef(status.id), enumCase: v.value, description: 'Wie der Prozess ausgegangen ist — gesetzt am Endereignis (Pattern).' }
+      : { id: uid('f'), name: v.name, type: 'String', description: 'Gesetzt am Endereignis (Pattern).' });
+    changed = true;
+  }
+  if (!changed) return spec;
+  return {
+    ...spec,
+    types: out
+      ? types.map(t => (t === out ? { ...t, fields } : t))
+      : [...types, { id: uid('t'), name: 'Out', kind: 'case', processOut: true, status: 'draft', fields }],
+  };
+}
+
+/**
+ * Die Erweiterungen der Vorlage an `t` ergänzen, soweit sie fehlen. Belegt `t`
+ * eine Variable schon anders, gilt das Pattern — sonst stünde sie doppelt da.
+ * `fext`: das `extensionElements` der Vorlage (Muster für ein neues).
+ */
+function addItems(w: Writer, items: Item[], fext: Element | null, t: Element, prefix: string, idMap: Map<string, string>, fragDoc: Document): boolean {
+  let changed = false;
+  const tItems = itemsOf(t);
+  const usedItems = new Set<Element>();
+  let ext = firstNamed(t, 'extensionElements');
+  for (const fi of items) {
+    const have = tItems.find(ti => sameSlot(fi, ti) && !usedItems.has(ti.el) && matchEl(fi.el, ti.el, new Map()));
+    if (have) { usedItems.add(have.el); continue; }
+    const key = mappingKey(fi.el);
+    if (key) {
+      for (const ti of tItems) {
+        if (usedItems.has(ti.el) || !sameSlot(fi, ti) || mappingKey(ti.el) !== key) continue;
+        usedItems.add(ti.el);
+        removeEl(ti.el);
+      }
+    }
+    const el = w.adopt(fi.el, prefix, idMap, fragDoc);
+    if (!fi.inExt) appendEl(t, el);
+    else {
+      if (!ext) {
+        ext = w.doc.importNode(fext!, false) as Element;
+        prependEl(t, ext);
+      }
+      if (!fi.container) appendEl(ext, el);
+      else {
+        let box = firstNamed(ext, fi.container);
+        if (!box) {
+          box = w.doc.importNode(fi.el.parentElement!, false) as Element;
+          appendEl(ext, box);
+        }
+        appendEl(box, el);
+      }
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Ein vorhandener gemeinsamer Block und der des Patterns, Knoten für Knoten —
+ * vom Einstieg den Flüssen nach, gepaart nach Art des Knotens.
+ */
+function pairBlock(fg: Graph, fEntry: Element, tg: Graph, tEntry: Element): Array<[Element, Element]> {
+  const pairs: Array<[Element, Element]> = [];
+  const seen = new Set<Element>();
+  const go = (f: Element, t: Element) => {
+    if (seen.has(f) || seen.has(t)) return;
+    seen.add(f); seen.add(t);
+    pairs.push([f, t]);
+    const next = (g: Graph, n: Element) => (g.out.get(n.getAttribute('id') ?? '') ?? [])
+      .map(fl => g.byId.get(fl.getAttribute('targetRef') ?? '')).filter((x): x is Element => !!x);
+    const tNext = next(tg, t);
+    for (const fn of next(fg, f)) {
+      const tn = tNext.find(x => !seen.has(x) && local(x) === local(fn));
+      if (tn) go(fn, tn);
+    }
+  };
+  go(fEntry, tEntry);
+  return pairs;
+}
+
+/**
  * Ein Pattern an ein Element (bzw. den Prozess, `targetId === null`)
  * hängen. Das XML bleibt sonst, wie es ist; die neuen Teile stehen dort, wo
  * sie im Pattern-BPMN relativ zum Anker stehen, gemeinsame Blöcke unter dem
@@ -1162,41 +1296,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     if (a.namespaceURI) t.setAttributeNS(a.namespaceURI, a.name, a.value); else t.setAttribute(a.name, a.value);
     changed = true;
   }
-  const tItems = itemsOf(t);
-  const usedItems = new Set<Element>();
-  let ext = firstNamed(t, 'extensionElements');
-  for (const fi of fr.items) {
-    const have = tItems.find(ti => sameSlot(fi, ti) && !usedItems.has(ti.el) && matchEl(fi.el, ti.el, new Map()));
-    if (have) { usedItems.add(have.el); continue; }
-    // dieselbe Variable schon anders belegt: das Pattern gilt — sonst stünde sie doppelt da
-    const key = mappingKey(fi.el);
-    if (key) {
-      for (const ti of tItems) {
-        if (usedItems.has(ti.el) || !sameSlot(fi, ti) || mappingKey(ti.el) !== key) continue;
-        usedItems.add(ti.el);
-        removeEl(ti.el);
-      }
-    }
-    const el = w.adopt(fi.el, targetId ?? 'process', idMap, fr.doc);
-    if (!fi.inExt) appendEl(t, el);
-    else {
-      if (!ext) {
-        const fext = firstNamed(fr.anchor ?? fr.process, 'extensionElements')!;
-        ext = w.doc.importNode(fext, false) as Element;
-        prependEl(t, ext);
-      }
-      if (!fi.container) appendEl(ext, el);
-      else {
-        let box = firstNamed(ext, fi.container);
-        if (!box) {
-          box = w.doc.importNode(fi.el.parentElement!, false) as Element;
-          appendEl(ext, box);
-        }
-        appendEl(box, el);
-      }
-    }
-    changed = true;
-  }
+  if (addItems(w, fr.items, firstNamed(fr.anchor ?? fr.process, 'extensionElements'), t, targetId ?? 'process', idMap, fr.doc)) changed = true;
 
   // 2. am Element hängend: Boundary-Ereignisse samt Pfad — relativ zum Anker
   const tBox = targetId ? boundsOf(w.di.get(targetId)) : null;
@@ -1241,6 +1341,14 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   // 3. einmal im Prozess: Blöcke, die es im Scope noch nicht gibt — unter das Diagramm
   const matched = matchBlocks(fr, tg, new Set(), builtins(targetId ? t : null, proc));
   const missing = fr.blocks.filter((_, i) => !matched[i]);
+  // ein Block, den es schon gibt: an seinen Knoten ergänzen, was fehlt (der Listener am Ende …)
+  fr.blocks.forEach((b, i) => {
+    const m = matched[i];
+    if (!m || local(b.entry) === 'subProcess') return;
+    for (const [f, tn] of pairBlock(fr.graph, b.entry, tg, m.entry)) {
+      if (addItems(w, itemsOf(f).filter(it => !(local(it.el).endsWith('EventDefinition'))), firstNamed(f, 'extensionElements'), tn, '', idMap, fr.doc)) changed = true;
+    }
+  });
   if (missing.length) {
     const fromDi = missing.flatMap(b => [...b.nodes, ...b.flows]).map(e => fragDi.get(e.getAttribute('id') ?? '')).filter((x): x is Element => !!x);
     const fbox = extent(fromDi);
