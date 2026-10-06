@@ -65,7 +65,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   private[worker] def run(
       externalTaskService: operaton.ExternalTaskService,
-      rootLookup: String => IO[String, Option[String]] = OpWorker.noRootLookup
+      rootLookup: String => IO[String, Option[String]]
   )(using
       externalTask: operaton.ExternalTask
   ): ZIO[SttpClientBackend, Throwable, Unit] =
@@ -246,7 +246,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         error: WorkerError,
         inTestMode: Boolean = false
     ): HelperContext[URIO[Any, Unit]] =
-      val retries           = calcRetries(error, operatonContext.workerConfig.doRetryList, inTestMode)
+      val retries           = OpWorker.calcRetries(error, operatonContext.workerConfig.doRetryList, inTestMode)
       val taskId            = summon[operaton.ExternalTask].getId
       val processInstanceId = summon[operaton.ExternalTask].getProcessInstanceId
       val businessKey       = summon[operaton.ExternalTask].getBusinessKey
@@ -265,7 +265,7 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             orchescala.engine.LogSafe.summary(error.causeMsg),
             error.toString,
             Math.max(retries, 0), // < 0 not allowed
-            retryTimeout(error).toMillis
+            OpWorker.retryTimeout(error).toMillis
           )
         ).catchAll: throwable => // this should not happen
           logError(s"Problem handling Failure to Operaton: ${throwable.getMessage}.\n${throwable.getStackTrace.mkString("\n")}")
@@ -287,17 +287,23 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   end extension
 
-  /** Retries left after this failure - as C7Worker.calcRetries: counts down on every failure; on
-    * the first one (retries still `null`) a ServiceError or an error of `doRetryMsgs` gets 2
-    * retries, any other error none. Sending the unchanged count (as before) retried a failing
-    * task every 10s without end.
-    */
+end OpWorker
+
+object OpWorker:
+  /** Without the registry's lookup (e.g. a worker called directly) the root is unknown. */
+  val noRootLookup: String => IO[String, Option[String]] = _ => ZIO.none
+
   /** When the engine hands a failed task out again. */
   private[worker] def retryTimeout(error: WorkerError): Duration =
     error match
       case _: IdentityCorrelationPendingError => 2.seconds
       case _                                  => 10.seconds
 
+  /** Retries left after this failure - as C7Worker.calcRetries: counts down on every failure; on
+    * the first one (retries still `null`) a ServiceError or an error of `doRetryMsgs` gets 2
+    * retries, any other error none. Sending the unchanged count (as before) retried a failing
+    * task every 10s without end.
+    */
   private[worker] def calcRetries(
       error: WorkerError,
       doRetryMsgs: Seq[String],
@@ -318,10 +324,4 @@ trait OpWorker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             2
           case _                                                                   => 0
   end calcRetries
-
-end OpWorker
-
-object OpWorker:
-  /** Without the registry's lookup (e.g. a worker called directly) the root is unknown. */
-  val noRootLookup: String => IO[String, Option[String]] = _ => ZIO.none
 end OpWorker

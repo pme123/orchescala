@@ -67,7 +67,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
 
   private[worker] def run(
       externalTaskService: camunda.ExternalTaskService,
-      rootLookup: String => IO[String, Option[String]] = C7Worker.noRootLookup
+      rootLookup: String => IO[String, Option[String]]
   )(using
       externalTask: camunda.ExternalTask
   ): ZIO[SttpClientBackend, Throwable, Unit] =
@@ -258,7 +258,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       val taskId            = summon[camunda.ExternalTask].getId
       val processInstanceId = summon[camunda.ExternalTask].getProcessInstanceId
       val businessKey       = summon[camunda.ExternalTask].getBusinessKey
-      val retries           = calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
+      val retries           = C7Worker.calcRetries(error, c7Context.workerConfig.doRetryList, inTestMode)
       val logMsg            =
         s"Handle Failure for taskId: $taskId | processInstanceId: $processInstanceId | retries: $retries | ${orchescala.engine.LogSafe.forLog(error.toString)}"
 
@@ -270,7 +270,7 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             orchescala.engine.LogSafe.summary(error.causeMsg),
             error.toString,
             Math.max(retries, 0),
-            retryTimeout(error).toMillis
+            C7Worker.retryTimeout(error).toMillis
           )
         ).foldZIO(
           {
@@ -306,6 +306,11 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     end filteredOutput
 
   end extension
+end C7Worker
+
+object C7Worker:
+  /** Without the registry's lookup (e.g. a worker called directly) the root is unknown. */
+  val noRootLookup: String => IO[String, Option[String]] = _ => ZIO.none
 
   /** When the engine hands a failed task out again. */
   private[worker] def retryTimeout(error: WorkerError): Duration =
@@ -336,8 +341,3 @@ trait C7Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
           case _                                                                   => 0
 
   end calcRetries
-end C7Worker
-
-object C7Worker:
-  /** Without the registry's lookup (e.g. a worker called directly) the root is unknown. */
-  val noRootLookup: String => IO[String, Option[String]] = _ => ZIO.none

@@ -22,21 +22,21 @@ class C7WorkerCalcRetriesTest extends FunSuite:
   // Simple test helper that replicates the calcRetries logic
   def calcRetries(error: WorkerError, currentRetries: Int, inTestMode: Boolean = false): Int = {
     externalTask.setRetries(currentRetries)
-    testWorker.calcRetries(error, doRetryList, inTestMode)
+    C7Worker.calcRetries(error, doRetryList, inTestMode)
   }
 
   // Helper for the initial-attempt scenario where retries is null
   def calcRetriesInitial(error: WorkerError): Int = {
     val freshTask = new ExternalTaskImpl()
     given ExternalTask = freshTask
-    testWorker.calcRetries(error, doRetryList, false)
+    C7Worker.calcRetries(error, doRetryList, false)
   }
 
   test("calcRetries - IdentityCorrelation pending: quick tries, also in test mode (a simulation)"):
     val freshTask = new ExternalTaskImpl()
     given ExternalTask = freshTask
-    assertEquals(testWorker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = true), 3)
-    assertEquals(testWorker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = false), 3)
+    assertEquals(C7Worker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = true), 3)
+    assertEquals(C7Worker.calcRetries(IdentityCorrelationPendingError(), doRetryList, inTestMode = false), 3)
 
   test("calcRetries - in test mode"):
     val error = UnexpectedError("Some unexpected error")
@@ -45,7 +45,7 @@ class C7WorkerCalcRetriesTest extends FunSuite:
 
   test("calcRetries - retries is null"):
     val error = UnexpectedError("Some unexpected error")
-    val result = testWorker.calcRetries(error, doRetryList, false)
+    val result = C7Worker.calcRetries(error, doRetryList, false)
     assertEquals(result, 2) // retries - 1
 
   test("calcRetries - normal error with retries > 0"):
