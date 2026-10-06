@@ -1,5 +1,6 @@
 package orchescala.helper.dev
 
+import orchescala.domain.BpmnProcessType
 import orchescala.helper.dev.update.*
 
 class OrchSpecGeneratorTest extends munit.FunSuite:
@@ -702,5 +703,19 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(OrchSpecImports.covered(lines, "import a.b.domain.proc.v1.Thing"))
     assert(!OrchSpecImports.covered(lines, "import a.b.domain.Thing"))
     assert(!OrchSpecImports.covered(lines, "import a.b.domain.proc.v1.schema.*"))
+
+  test("processTypeOf - a C7/Op export goes to the project's engine"):
+    assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.Op(), c8 = false), BpmnProcessType.Op())
+    assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.C7(), c8 = false), BpmnProcessType.C7())
+
+  test("processTypeOf - a C8 export in an Op project goes to the C8 path"):
+    assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.Op(), c8 = true), BpmnProcessType.C8())
+
+  test("processTypeOf - a C7 export in a C8 project goes to the C7 path"):
+    assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.C8(), c8 = false), BpmnProcessType.C7())
+
+  test("processTypeOf - a C8 export in a C8 project keeps the project's path"):
+    val custom = BpmnProcessType.C8(os.rel / "bpmn8")
+    assertEquals(OrchSpecGenerator.processTypeOf(custom, c8 = true), custom)
 
 end OrchSpecGeneratorTest

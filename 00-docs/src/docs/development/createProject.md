@@ -52,6 +52,9 @@ dependencies: [
   // example-helper
   // example-accounts
 ]
+// optional - the engine of this project: C7 | C8 | Op
+// without it the company's default (`bpmnProcessType` of the company's DevConfig)
+// engineType: Op
 ```
 
 @:callout(info)
