@@ -570,19 +570,26 @@ lazy val companyCheckGateway    =
 lazy val companyCheckHelper     =
   companyCheckModule("04-helper", "helper").dependsOn(companyCheckApi, companyCheckSimulation, helper)
 
+// the compile steps of companyCheck - after generating the company project
+lazy val companyCheckCompile = Seq(
+  "companyCheckDomain/compile",
+  "companyCheckEngine/compile",
+  "companyCheckApi/compile",
+  "companyCheckDmn/compile",
+  "companyCheckSimulation/compile",
+  "companyCheckWorker/compile",
+  "companyCheckGateway/compile",
+  "companyCheckHelper/compile"
+)
+def companyCheckGenerate(engines: String) =
+  s"helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check $engines"
+
 addCommandAlias(
   "companyCheck",
-  Seq(
-    // the templates for each combination of engines - the compile steps below check C7 C8 Op
+  (Seq(
+    // the templates for each combination of engines (generated strings only)
     "helper/testOnly orchescala.helper.dev.company.CompanyWrapperGeneratorTest",
-    "helper/Test/runMain orchescala.helper.dev.company.CompanyCheckGenerator target/company-check C7 C8 Op",
-    "companyCheckDomain/compile",
-    "companyCheckEngine/compile",
-    "companyCheckApi/compile",
-    "companyCheckDmn/compile",
-    "companyCheckSimulation/compile",
-    "companyCheckWorker/compile",
-    "companyCheckGateway/compile",
-    "companyCheckHelper/compile"
-  ).mkString("; ")
+    // compiled: all engines (the mixed CompanyWorker) and Operaton only (no Camunda 7 to fall back to)
+    companyCheckGenerate("C7 C8 Op")
+  ) ++ companyCheckCompile ++ Seq(companyCheckGenerate("Op")) ++ companyCheckCompile).mkString("; ")
 )

@@ -141,9 +141,21 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private def engineName(engine: EngineType): String = engine.toString.toLowerCase
 
   private def engineLabel(engine: EngineType): String = engine match
-    case EngineType.C7 => "Camunda 7"
-    case EngineType.C8 => "Camunda 8"
-    case EngineType.Op => "Operaton"
+    case EngineType.C7      => "Camunda 7"
+    case EngineType.C8      => "Camunda 8"
+    case EngineType.Op      => "Operaton"
+    case EngineType.Gateway => noCompanyEngine
+
+  // the Camunda 7 context keeps its former name CompanyEngineContext
+  private def engineContextName(engine: EngineType): String = engine match
+    case EngineType.C7      => "CompanyEngineContext"
+    case EngineType.C8      => "CompanyEngineC8Context"
+    case EngineType.Op      => "CompanyEngineOpContext"
+    case EngineType.Gateway => noCompanyEngine
+
+  // `generate` filters it out
+  private def noCompanyEngine: Nothing =
+    throw IllegalArgumentException("The Gateway is not an engine of the company wrappers.")
 
   private def engineWrapper(engines: Seq[EngineType]) =
     s"""package $companyName.orchescala.engine
@@ -542,9 +554,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
   private lazy val workerC8ContextWrapper = workerEngineContextWrapper(EngineType.C8)
   private lazy val workerOpContextWrapper = workerEngineContextWrapper(EngineType.Op)
 
-  // the Camunda 7 context keeps its former name CompanyEngineContext
   private def workerEngineContextWrapper(engine: EngineType) =
-    val className = if engine == EngineType.C7 then "CompanyEngineContext" else s"CompanyEngine${engine}Context"
+    val className = engineContextName(engine)
     s"""package $companyName.orchescala.worker
        |
        |import $companyName.orchescala.engine.CompanyEngine${engine}Config
@@ -579,9 +590,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
     val registries = engines.map:
       case EngineType.C7 => "C7WorkerRegistry(CompanyC7Client)"
       case other         => s"${other}WorkerRegistry(Company${other}Client)"
-    val context    =
-      if engines.contains(EngineType.C7) then "CompanyEngineContext"
-      else s"CompanyEngine${engines.head}Context"
+    // the Camunda 7 context if there is one - otherwise the one of the first engine
+    val context    = engineContextName(engines.find(_ == EngineType.C7).getOrElse(engines.head))
     s"""package $companyName.orchescala.worker
        |
        |${engines.map(e => s"import orchescala.worker.${engineName(e)}.${e}WorkerRegistry").mkString("\n       |")}

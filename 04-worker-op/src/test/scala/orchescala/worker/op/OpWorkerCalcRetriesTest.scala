@@ -1,18 +1,13 @@
 package orchescala.worker.op
 
 import munit.FunSuite
-import orchescala.domain.{NoInput, NoOutput}
 import orchescala.engine.DefaultEngineConfig
 import orchescala.worker.WorkerError.*
-import orchescala.worker.{DefaultWorkerConfig, Worker, WorkerError}
+import orchescala.worker.{DefaultWorkerConfig, WorkerError}
 import org.operaton.bpm.client.task.ExternalTask
 import org.operaton.bpm.client.task.impl.ExternalTaskImpl
 
 class OpWorkerCalcRetriesTest extends FunSuite:
-
-  private lazy val testWorker: OpWorker[NoInput, NoOutput] = new OpWorker[NoInput, NoOutput]:
-    protected def operatonContext: OpContext  = null
-    def worker: Worker[NoInput, NoOutput, ?] = null
 
   private val doRetryList = DefaultWorkerConfig(DefaultEngineConfig()).doRetryList
 

@@ -1,10 +1,9 @@
 package orchescala.worker.c7
 
 import munit.FunSuite
-import orchescala.domain.{NoInput, NoOutput}
 import orchescala.engine.DefaultEngineConfig
 import orchescala.worker.WorkerError.*
-import orchescala.worker.{DefaultWorkerConfig, Worker, WorkerError}
+import orchescala.worker.{DefaultWorkerConfig, WorkerError}
 import org.camunda.bpm.client.task.ExternalTask
 import org.camunda.bpm.client.task.impl.ExternalTaskImpl
 
@@ -12,10 +11,6 @@ class C7WorkerCalcRetriesTest extends FunSuite:
   lazy val externalTask = new ExternalTaskImpl()
 
   given ExternalTask = externalTask
-
-  lazy val testWorker: C7Worker[NoInput, NoOutput] = new C7Worker[NoInput, NoOutput]:
-    protected def c7Context: C7Context              = null
-    def worker: Worker[NoInput, NoOutput, ?]        = null
 
   private val doRetryList: Seq[String] = DefaultWorkerConfig(DefaultEngineConfig()).doRetryList
 
