@@ -136,6 +136,9 @@ trait GatewayConfig:
   /** How [[validateToken]] checks the Bearer token - reported at startup. */
   def tokenValidation: TokenValidation = TokenValidation.PresenceOnly
 
+  /** What is reachable without a Bearer token (`/public/...`) - nothing by default. */
+  def publicAccess: PublicAccess = PublicAccess.none
+
 end GatewayConfig
 
 case class DefaultGatewayConfig(
@@ -155,7 +158,9 @@ case class DefaultGatewayConfig(
       * [[TokenValidation.AnyOf]] for several identity providers - with
       * [[TokenValidation.PresenceOnly]] the identity claims are not verified (warned at startup).
       */
-    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly
+    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly,
+    /** What is reachable without a Bearer token - see [[PublicAccess]]. */
+    override val publicAccess: PublicAccess = PublicAccess.none
 ) extends GatewayConfig:
 
   private lazy val tokenVerifier: Option[TokenVerifier] = TokenVerifier(tokenValidation)

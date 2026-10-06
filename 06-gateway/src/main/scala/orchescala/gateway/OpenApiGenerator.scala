@@ -35,7 +35,11 @@ object OpenApiGenerator:
       UserTaskEndpoints.completeUserTaskForApi,
       WorkerEndpoints.triggerWorker,
       DeploymentEndpoints.postDeployments,
-      DeploymentEndpoints.getDeployments
+      DeploymentEndpoints.getDeployments,
+      // without a Bearer token - only what PublicAccess of the installation lists
+      PublicEndpoints.worker,
+      PublicEndpoints.startProcess,
+      PublicEndpoints.message
     )
 
     OpenAPIDocsInterpreter()

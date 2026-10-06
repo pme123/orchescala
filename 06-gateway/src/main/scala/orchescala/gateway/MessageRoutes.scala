@@ -20,17 +20,30 @@ case class MessageRoutes(
       config.validateToken(token).mapError(ServiceRequestError.apply)
     .serverLogic: validatedToken =>
       (messageName, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables) =>
-        // Set the bearer token in AuthContext so it can be used by the engine services
-        AuthContext.withBearerToken(validatedToken):
-          messageService
-            .sendMessage(
-              name = messageName,
-              tenantId = tenantId,
-              timeToLiveInSec = timeToLiveInSec,
-              businessKey = businessKey,
-              processInstanceId = processInstanceId,
-              variables = variables
-            )
-            .mapError(ServiceRequestError.apply)
+        send(validatedToken, messageName, tenantId, timeToLiveInSec, businessKey, processInstanceId, variables)
+
+  /** Sends the message with the (validated) token - also for a public one ([[PublicRoutes]]). */
+  private[gateway] def send(
+      validatedToken: String,
+      messageName: String,
+      tenantId: Option[String],
+      timeToLiveInSec: Option[Int],
+      businessKey: Option[String],
+      processInstanceId: Option[String],
+      variables: Option[io.circe.JsonObject]
+  ): IO[ServiceRequestError, orchescala.engine.domain.MessageCorrelationResult] =
+    // Set the bearer token in AuthContext so it can be used by the engine services
+    AuthContext.withBearerToken(validatedToken):
+      messageService
+        .sendMessage(
+          name = messageName,
+          tenantId = tenantId,
+          timeToLiveInSec = timeToLiveInSec,
+          businessKey = businessKey,
+          processInstanceId = processInstanceId,
+          variables = variables
+        )
+        .mapError(ServiceRequestError.apply)
+  end send
 
 end MessageRoutes

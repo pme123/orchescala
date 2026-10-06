@@ -1137,6 +1137,247 @@ paths:
                 $ref: '#/components/schemas/ServiceRequestError'
       security:
       - httpAuth: []
+  /public/worker/{workerTopicName}:
+    post:
+      tags:
+      - Public
+      summary: Calls a public worker - without a token
+      description: Only the workers of `PublicAccess.workers`; the gateway calls them
+        with its own token.
+      operationId: 'Public: Forward to Worker'
+      parameters:
+      - name: workerTopicName
+        in: path
+        description: Worker definition ID (worker topic name)
+        required: true
+        schema:
+          type: string
+        example: process-order-worker
+      requestBody:
+        description: Variables to send to the worker as a JSON object
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '204':
+          description: ''
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 404
+                errorMsg: Not Found
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 500
+                errorMsg: Internal Server Error
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+  /public/process/{processDefinitionKey}/async:
+    post:
+      tags:
+      - Public
+      summary: Starts a public process - without a token
+      description: Only the processes of `PublicAccess.processStarts`; the gateway
+        starts them with its own token (the process runs with that identity).
+      operationId: 'Public: Start Process Async'
+      parameters:
+      - name: processDefinitionKey
+        in: path
+        description: Process definition ID or key
+        required: true
+        schema:
+          default: '{{processDefinitionKey}}'
+          type: string
+        example: '{{processDefinitionKey}}'
+      - name: businessKey
+        in: query
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
+        required: false
+        schema:
+          default: From Test Client
+          type: string
+      requestBody:
+        description: Request body with process variables as a JSON object
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonObject'
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessInfo'
+              example:
+                processInstanceId: f150c3f1-13f5-11ec-936e-0242ac1d0007
+                businessKey: ORDER-2025-12345
+                status: Active
+                engineType: C7
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 404
+                errorMsg: Not Found
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 500
+                errorMsg: Internal Server Error
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+  /public/message/{messageName}:
+    post:
+      tags:
+      - Public
+      summary: Sends a public message - without a token
+      description: Only the messages of `PublicAccess.messages`, correlated by the
+        business key.
+      operationId: 'Public: Send Message'
+      parameters:
+      - name: messageName
+        in: path
+        description: The messageName of the Event (Signal or Message).
+        required: true
+        schema:
+          type: string
+        example: order-received
+      - name: businessKey
+        in: query
+        description: Business Key, be aware that in Camunda 8 this is an additional
+          process variable.
+        required: false
+        schema:
+          default: From Test Client
+          type: string
+      requestBody:
+        description: Variables to send with the message as a JSON object
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonObject'
+        required: false
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageCorrelationResult'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 400
+                errorMsg: There is no body in the response and the ServiceOut is neither
+                  NoOutput nor Option (Class is class java.lang.String).
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 401
+                errorMsg: 'Problem authenticating request: error'
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 404
+                errorMsg: Not Found
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
+              example:
+                errorCode: 500
+                errorMsg: Internal Server Error
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestError'
 components:
   schemas:
     EngineType:

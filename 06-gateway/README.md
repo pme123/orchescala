@@ -221,6 +221,38 @@ object MyC7Client extends C7BearerTokenClient:
 
 The token from `AuthContext` will automatically be included in all requests to Camunda.
 
+### Public Access (without a token)
+
+Some calls come from people without a login - e.g. a booking form on the homepage of a bank. List
+them in `publicAccess`; nothing else is reachable without a token:
+
+```scala
+DefaultGatewayConfig(
+  engineConfig = …,
+  workerConfig = …,
+  publicAccess = PublicAccess(
+    workers = Set("mycompany-shop-freeSlots", "mycompany-shop-reserveSlot"),
+    processStarts = Set("mycompany-shop-bookAppointmentV1"),
+    messages = Set("mycompany-shop-bookAppointmentV1-emailVerified"),
+    // the gateway logs in itself - the browser never gets a token
+    login = Some(OAuthConfig.ClientCredentials(…))
+  )
+)
+```
+
+| Without a token | Same as |
+|---|---|
+| `POST /public/worker/{topic}` | `POST /worker/{topic}` |
+| `POST /public/process/{key}/async?businessKey=…` | `POST /process/{key}/async` |
+| `POST /public/message/{name}?businessKey=…` | `POST /message/{name}` (the business key is required) |
+
+Each call is checked first: a name that is not listed is a 404, a body larger than `maxBodyBytes` a
+413, a filled-in honeypot field (`_hp`, a hidden form field only bots fill in) a 400 - an empty one
+is removed. More than `requestsPerMinute` calls per client are a 429; behind a proxy set
+`clientIpHeader` (e.g. `X-Forwarded-For`) - only if the proxy sets it. This limit is a fallback: an
+API gateway in front should limit as well. A process started this way runs with the identity of the
+technical user - let a human see nothing before e.g. an e-mail opt-in.
+
 ## Integration with Existing Code
 
 The HTTP API integrates seamlessly with the existing Gateway infrastructure:
