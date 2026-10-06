@@ -732,8 +732,9 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   relativ zur Lage im Pattern, an Elemente anderer Grösse angepasst, und auf
   dem Rand verschoben, wo schon ein Ereignis sitzt.
 - **Losgelöste Blöcke** (Link-Ziel → Aufruf → Ende, ein Ereignis-Subprozess)
-  braucht der Prozess **einmal**: fehlt der Block, kommt er unter das Diagramm
-  (der Pool wächst mit, was darunter liegt, rückt nach), sonst nicht.
+  braucht der Prozess **einmal**: fehlt der Block, kommt er unter das Diagramm,
+  rechts bündig mit dem Ablauf (der Pool wächst mit, was darunter liegt, rückt
+  nach), sonst nicht.
   Signale, Nachrichten und Fehler werden über ihren Namen wiederverwendet.
 - Ein Pattern **ohne Anker** gehört an den Prozess selbst (z. B. ein
   Ereignis-Subprozess für den Abbruch).

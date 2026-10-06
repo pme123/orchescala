@@ -1247,8 +1247,8 @@ function pairBlock(fg: Graph, fEntry: Element, tg: Graph, tEntry: Element): Arra
 /**
  * Ein Pattern an ein Element (bzw. den Prozess, `targetId === null`)
  * hängen. Das XML bleibt sonst, wie es ist; die neuen Teile stehen dort, wo
- * sie im Pattern-BPMN relativ zum Anker stehen, gemeinsame Blöcke unter dem
- * Diagramm.
+ * sie im Pattern-BPMN relativ zum Anker stehen, gemeinsame Blöcke unten
+ * rechts im Diagramm.
  */
 export function applyPattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, params: Record<string, string> = {}): PatternResult {
   const same = (issues: string[]): PatternResult => ({ xml, changed: false, issues });
@@ -1338,7 +1338,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     }
   }
 
-  // 3. einmal im Prozess: Blöcke, die es im Scope noch nicht gibt — unter das Diagramm
+  // 3. einmal im Prozess: Blöcke, die es im Scope noch nicht gibt — unten rechts ins Diagramm
   const matched = matchBlocks(fr, tg, new Set(), builtins(targetId ? t : null, proc));
   const missing = fr.blocks.filter((_, i) => !matched[i]);
   // ein Block, den es schon gibt: an seinen Knoten ergänzen, was fehlt (der Listener am Ende …)
@@ -1357,7 +1357,9 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     const tb = extent([...content, ...newDi]);
     const part = participantOf(w, proc);
     const pBox = part ? boundsOf(w.di.get(part.getAttribute('id') ?? '')) : null;
-    const x0 = pBox ? pBox.x + 60 : tb?.x ?? 0;
+    // unten rechts — bündig mit dem Ablauf, damit die Hilfsblöcke nicht am Anfang stehen
+    const right = tb ? tb.x + tb.w : pBox ? pBox.x + pBox.w - 60 : (fbox?.w ?? 0);
+    const x0 = Math.max(pBox ? pBox.x + 60 : tb?.x ?? 0, right - (fbox?.w ?? 0));
     const y0 = (tb ? tb.y + tb.h : pBox ? pBox.y : 0) + 70;
     const dx = fbox ? x0 - fbox.x : 0, dy = fbox ? y0 - fbox.y : 0;
     // gemeinsame Blöcke behalten die IDs aus dem Pattern-BPMN (Hauskonvention) — nur bei Kollision mit Zähler
