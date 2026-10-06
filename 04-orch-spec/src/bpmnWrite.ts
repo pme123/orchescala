@@ -18,9 +18,9 @@
 // angefasst; abgewählte Zeilen kommen nicht ins BPMN. Steuerparameter
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
-import type { EngineId, Mapping, ProcessSpec, Step } from './types';
+import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
-import { optionalVariables, referencedVariables } from './feel';
+import { juelOptions, referencedVariables } from './feel';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
@@ -64,7 +64,25 @@ const isScript = (m: Mapping): boolean => /^(=\s*")?«/.test(m.expression.trimSt
  * über FEEL nicht eins zu eins zurückbringt. Nur was jemand geändert hat,
  * wird neu geschrieben.
  */
-const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim() === m.expression.trim();
+const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim() === m.expression.trim()
+  && !bareJsonPath(attr(p, 'sourceExpression') ?? (firstNamed(p, 'script') ? '' : p.textContent ?? ''));
+
+/**
+ * JUEL aus einem älteren Stand, das einen Pfad wie ein Java-Feld liest
+ * (`${a.b.c}`, `execution.getVariable("a").b`). In Camunda 7 ist `a` JSON
+ * (Spin) — das geht nur mit `prop("b")`, also wird der Text neu geschrieben.
+ * Ausser `execution.…` und dem Ergebnis einer DMN Decision (eine Map).
+ */
+function bareJsonPath(text: string): boolean {
+  if (!isJuel(text)) return false;
+  const code = text
+    .replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1')
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""');
+  for (const m of code.matchAll(/(?<![\w.)\]])([A-Za-z_]\w*)\s*\.\s*[A-Za-z_]\w*\b(?!\s*\()/g)) {
+    if (m[1] !== 'execution' && !juelOpts.plainRoots?.has(m[1])) return true;
+  }
+  return false;
+}
 
 /**
  * Mappings und Bedingungen der Spezifikation ins BPMN schreiben. Das XML
@@ -77,8 +95,8 @@ const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim()
  */
 let juelOpts: JuelOptions = {};
 
-export function writeBpmn(xml: string, spec: ProcessSpec): WriteResult {
-  juelOpts = { optional: optionalVariables(spec) };
+export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
+  juelOpts = juelOptions(spec, model);
   try {
     return writeBpmnWith(xml, spec);
   } finally {
@@ -278,7 +296,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
         // sich nur darin, welche Variable fehlen darf (`execution.getVariable`):
         // das folgt dem heutigen Datenmodell
         const bare = (t: string) => t.replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1').replace(/\s+/g, '');
-        if (engine === 'c8' || !translated || old.trim() === text || bare(old) !== bare(text)) continue;
+        if (engine === 'c8' || !translated || old.trim() === text || (bare(old) !== bare(text) && !bareJsonPath(old))) continue;
       } else if (!translated) {
         issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${(feelToJuel(body, juelOpts) as { reason: string }).reason}` });
       }
@@ -475,7 +493,7 @@ function writeImplementation(
       if (!value) continue;
       const holder = engine === 'c8' ? zeebe('assignmentDefinition') : el;
       const old = holder ? attr(holder, key) : undefined;
-      if (old != null && importExpression(old).trim() === value) continue;
+      if (old != null && importExpression(old).trim() === value && !bareJsonPath(old)) continue;
       const r = engineExpression(value, engine, juelOpts);
       if (r.issue) issues.push({ stepId: step.id, where: 'Zuständigkeit', text: `${key} nicht nach JUEL übersetzbar: ${r.issue}` });
       if (engine === 'c8') zeebeOrNew('assignmentDefinition').setAttribute(key, r.text);

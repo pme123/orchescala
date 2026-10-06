@@ -219,6 +219,24 @@ function method(target: string, name: string, args: string[]): string {
   }
 }
 
+/**
+ * Der Test auf einen Spin-Pfad, wie ihn der Export schreibt (feelJuel.ts:
+ * `a != null && a.hasProp("b") && !a.prop("b").isNull()`), kommt wörtlich als
+ * `a != null and a.b != null and not(a.b = null)` an — gemeint ist `a.b != null`.
+ */
+function presence(feel: string): string {
+  const P = String.raw`[A-Za-z_][\w.]*`;
+  let prev: string;
+  let f = feel;
+  do {
+    prev = f;
+    f = f.replace(new RegExp(String.raw`(?<![\w.])(${P}) != null and not\(\1 = null\)`, 'g'), '$1 != null')
+      .replace(new RegExp(String.raw`(?<![\w.])(${P}) != null and (?=\1\.[A-Za-z_][\w.]* != null)`, 'g'), '')
+      .replace(new RegExp(String.raw`not\(\((${P}) != null\)\)|not\((${P}) != null\)`, 'g'), (_m, a, b) => `${a ?? b} = null`);
+  } while (f !== prev);
+  return f;
+}
+
 /** Den Rumpf eines JUEL-Ausdrucks (ohne `${}`) nach FEEL übersetzen. */
 export function juelToFeel(body: string): FeelResult {
   try {
@@ -333,7 +351,7 @@ export function juelToFeel(body: string): FeelResult {
 
     const feel = expr();
     if (peek().t !== 'end') throw new Unsupported(`unerwartet: «${(peek() as { v?: string }).v ?? ''}»`);
-    return { ok: true, feel };
+    return { ok: true, feel: presence(feel) };
   } catch (e) {
     if (e instanceof Unsupported) return { ok: false, reason: e.message };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };

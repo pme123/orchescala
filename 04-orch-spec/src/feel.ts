@@ -28,6 +28,7 @@ import { initOutputs, interactionKind, interactionOrigin, loopSettings, originMe
 import { packageOf } from './scala';
 import { catalogObject, domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
+import type { JuelOptions } from './feelJuel';
 import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
 
 export type FeelType =
@@ -306,6 +307,19 @@ export function optionalVariables(spec: ProcessSpec, model: Model | null = null)
   const rootFields = [...(root?.fields ?? []), ...(root?.values ?? []).flatMap(v => v.fields ?? [])];
   for (const f of rootFields) if (f.optional && f.default?.trim()) set.add(f.name);
   return new Set(processVariables(spec, model).filter(v => v.optional && !set.has(v.name)).map(v => v.name));
+}
+
+/**
+ * Wie FEEL für Camunda 7 übersetzt wird (siehe feelJuel.ts): welche Variablen
+ * fehlen dürfen, die Felder der Variablen (das Ende eines Spin-Pfads) und die
+ * Ergebnisse der DMN Decisions — eine Map bzw. Liste, kein JSON.
+ */
+export function juelOptions(spec: ProcessSpec, model: Model | null = null): JuelOptions {
+  return {
+    optional: optionalVariables(spec, model),
+    vars: processVariables(spec, model),
+    plainRoots: new Set(allSteps(spec.steps).filter(s => s.kind === 'rule' && s.resultVariable?.trim()).map(s => s.resultVariable!.trim())),
+  };
 }
 
 /**

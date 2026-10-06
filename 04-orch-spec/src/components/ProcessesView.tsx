@@ -16,12 +16,8 @@
 // gleich wieder an. Erlaubt ist es nur mit Admin-Rolle oder ohne
 // Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
 // Spezifikation **und** BPMN.
-//
-// **Epics** (Admin → Epics) filtern die Liste: ein Klick zeigt nur die
-// Prozesse dieses Epics. Der Filter bleibt im Browser gemerkt — wer an einem
-// Change arbeitet, kommt aus dem Prozess in dieselbe Auswahl zurück.
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowUpDown, FileCode2, Flag, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowUpDown, FileCode2, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
 import { collectFindings, withServiceRows } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
 import { useStore } from '../store';
@@ -30,8 +26,7 @@ import { allSteps, importBpmn, patternSummary, statusCounts, withStatus } from '
 import { alignPoolIds } from '../poolIds';
 import { DEFAULT_ENGINE, ENGINES, applyTemplate, loadTemplate } from '../template';
 import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status } from '../types';
-import { EpicChip, PatternSummary, StatusChip, cls, epicTone } from '../ui';
-import { epicsOf } from '../epics';
+import { PatternSummary, StatusChip, cls } from '../ui';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
 
@@ -40,8 +35,6 @@ const BAR: Record<Status, string> = {
   draft: 'bg-neutral-400/60', review: 'bg-amber-400', final: 'bg-blue-400',
   implemented: 'bg-emerald-400', accepted: 'bg-emerald-600', changed: 'bg-rose-400',
 };
-
-const EPIC_FILTER_KEY = 'orch-spec.epicFilter';
 
 /** «heute», «gestern», «vor 3 Tagen» … aus dem ISO-Zeitpunkt. */
 function relativeTime(iso: string | undefined): string {
@@ -81,21 +74,6 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const [listQuery, setListQuery] = useState('');
   const [listStatus, setListStatus] = useState<Status | null>(null);
   const [sortBy, setSortBy] = useState<'title' | 'updated'>('title');
-  const [listEpic, setListEpic] = useState<string | null>(() => {
-    try { return localStorage.getItem(EPIC_FILTER_KEY); } catch { return null; }
-  });
-  useEffect(() => {
-    try {
-      if (listEpic) localStorage.setItem(EPIC_FILTER_KEY, listEpic);
-      else localStorage.removeItem(EPIC_FILTER_KEY);
-    } catch { /* ohne Speicher gilt der Filter nur bis zum Verlassen */ }
-  }, [listEpic]);
-  // Epics im Filter: alle offenen, dazu abgeschlossene, solange ein Prozess sie trägt
-  const epicFilter = useMemo(() => (model?.epics ?? [])
-    .map(e => ({ ...e, n: specs.filter(s => s.data.epics?.includes(e.id)).length }))
-    .filter(e => !e.closed || e.n > 0), [model, specs]);
-  // ein gemerktes Epic, das es nicht mehr gibt, filtert nicht ins Leere
-  const activeEpic = listEpic && epicFilter.some(e => e.id === listEpic) ? listEpic : null;
   // Je Prozess: Status-Zähler und Befunde — einmal je Stand der Liste
   const summaries = useMemo(() => new Map(specs.map(({ slug, data }) => {
     const counts = statusCounts(data);
@@ -112,13 +90,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const visible = useMemo(() => {
     const q = listQuery.trim().toLowerCase();
     const list = specs.filter(({ slug, data }) =>
-      (!q || `${data.title} ${data.processId ?? ''} ${data.project ?? ''} ${slug} ${epicsOf(data, model).map(e => e.name).join(' ')}`.toLowerCase().includes(q))
-      && (!listStatus || data.status === listStatus)
-      && (!activeEpic || !!data.epics?.includes(activeEpic)));
+      (!q || `${data.title} ${data.processId ?? ''} ${data.project ?? ''} ${slug}`.toLowerCase().includes(q))
+      && (!listStatus || data.status === listStatus));
     return sortBy === 'updated'
       ? [...list].sort((a, b) => (b.data.updatedAt ?? '').localeCompare(a.data.updatedAt ?? ''))
       : list;
-  }, [specs, listQuery, listStatus, activeEpic, sortBy, model]);
+  }, [specs, listQuery, listStatus, sortBy]);
   // Gruppen je Projekt, in der Reihenfolge ihres ersten Prozesses
   const groups = useMemo(() => {
     const map = new Map<string, typeof visible>();
@@ -455,20 +432,6 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               {STATUS_META[st].label} {specs.filter(x => x.data.status === st).length}
             </button>
           ))}
-          {epicFilter.length > 0 && (
-            <span className={`flex items-center gap-1 flex-wrap pl-2 border-l ${c.border2}`}>
-              <Flag size={10} className={c.muted} />
-              {epicFilter.map(e => (
-                <button key={e.id} onClick={() => setListEpic(activeEpic === e.id ? null : e.id)}
-                  title={`Nur Prozesse im Epic «${e.name}»${e.description ? ` — ${e.description}` : ''}${e.closed ? ' (abgeschlossen)' : ''}`}
-                  className={`text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${epicTone(isDark)} ${
-                    e.closed ? 'border-dashed' : ''} ${activeEpic && activeEpic !== e.id ? 'opacity-30' : ''} ${
-                    activeEpic === e.id ? 'ring-1 ring-current' : ''}`}>
-                  {e.name} {e.n}
-                </button>
-              ))}
-            </span>
-          )}
           <button onClick={() => setSortBy(sortBy === 'title' ? 'updated' : 'title')}
             title="Sortierung wechseln"
             className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
@@ -486,12 +449,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
           Noch keine Spezifikation. {canEdit ? '«Aus BPMN» liest die Struktur direkt aus der Implementation.' : ''}
         </div>
       ) : !visible.length ? (
-        <div className={`text-xs ${c.muted} py-10 text-center`}>
-          Kein Prozess passt zu Suche und Filter.
-          {(listStatus || activeEpic || listQuery) && (
-            <button onClick={() => { setListStatus(null); setListEpic(null); setListQuery(''); }} className="ml-1.5 hover:underline">Filter aus</button>
-          )}
-        </div>
+        <div className={`text-xs ${c.muted} py-10 text-center`}>Kein Prozess passt zu Suche und Filter.</div>
       ) : (
         <div className="space-y-4">
           {groups.map(([project, items]) => (
@@ -515,11 +473,6 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                         <div className="min-w-0 flex-1">
                           <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
                           <div className={`text-[10px] font-mono truncate ${c.muted}`}>{data.processId || data.name}</div>
-                          {!!data.epics?.length && (
-                            <div className="flex items-center gap-1 mt-1 flex-wrap">
-                              {epicsOf(data, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
-                            </div>
-                          )}
                         </div>
                         {/* Fortschritt: ein Balken in Statusfarben, die Zahlen im Tooltip */}
                         <div className="hidden sm:flex flex-col items-end gap-1 w-40 flex-shrink-0">

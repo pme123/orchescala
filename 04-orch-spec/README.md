@@ -647,7 +647,7 @@ Datei gleich wieder an.
 
 ### Der Admin-Bereich
 
-Sechs Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+Fünf Bereiche, in der Reihenfolge, in der sie gebraucht werden:
 
 1. **Auftritt** — Kunde und Logo für die Kopfzeile.
 2. **Katalog** — importieren, exportieren, nachschlagen. Das zählt in jeder
@@ -655,38 +655,14 @@ Sechs Bereiche, in der Reihenfolge, in der sie gebraucht werden:
    Das lokale Erzeugen (Projekt-Ordner, OpenAPI, Doku-Site) steckt darin
    zugeklappt: dazu müssen die Quellen erreichbar sein.
 3. **Pattern** — wiederkehrende BPMN-Bausteine, siehe [Pattern](#pattern).
-4. **Epics** — Klammern über mehrere Prozesse, siehe [Epics](#epics).
-5. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
-6. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
+4. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
+5. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
    Antworten in Kommentaren: ein/aus, Wartezeit, Vorlage.
 
 Bewusst **keine** Liste zum Durchblättern: die Klassen eines Prozesses stehen
 in seiner Spezifikation unter «Datenmodell», dort wo sie gebraucht werden.
 Hier bleibt eine Suche über Services **und** Domain-Typen zugleich — für die
 eine Frage, die sich im Admin stellt: steht das drin?
-
-### Epics
-
-Ein Epic klammert mehrere Prozesse, die zusammen geändert werden — z. B.
-«Change XY». Ein Prozess kann in **beliebig vielen** Epics stehen (0..*).
-
-- **Anlegen** darf nur ein Admin (Admin → Epics): Name, kurze Beschreibung,
-  optional ein Link (z. B. auf das Jira-Epic). Die ID entsteht beim Anlegen
-  aus dem Namen (`change-xy`) und bleibt; umbenennen ändert nur die Anzeige.
-- **Zuordnen** kann, wer bearbeitet: im Prozess-Panel (kein Schritt gewählt)
-  unter «Epics» — als Chip, «×» nimmt ihn wieder heraus.
-- **Filtern** in der Übersicht: die Epics stehen als Chips neben den
-  Status-Filtern, mit der Zahl ihrer Prozesse; ein Klick zeigt nur noch
-  diese. Der Filter bleibt im Browser gemerkt. Jede Zeile zeigt ihre Epics,
-  und die Suche findet Prozesse auch über den Epic-Namen.
-- **Abschliessen** statt löschen: ein abgeschlossenes Epic lässt sich nicht
-  mehr zuweisen, bleibt aber am Prozess (gestrichelt) und im Filter. Löschen
-  entfernt es nur aus der `model.json` — in den Spezifikationen bleibt die
-  ID stehen, wird aber nicht mehr gezeigt.
-
-Die Definitionen liegen in `config/model.json` (`epics`), der Prozess trägt
-nur die IDs (`epics: ["change-xy"]`). Ein erneuter BPMN-Abgleich lässt sie
-unberührt; die Exporte nennen die Epics im Kopf.
 
 ### Pattern
 
@@ -1419,8 +1395,9 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 
 | | Camunda 8 | Camunda 7 |
 | --- | --- | --- |
-| Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.name}` |
-| Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
+| Mapping | `<zeebe:ioMapping>` mit `source="=client.name"` | `<camunda:inputOutput>` mit `${client.prop("name").stringValue()}` |
+| Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.prop("name").stringValue()}"` |
+| Pfad (`a.b.c`) | `=a.b.c` | **Spin**: Orchescala legt Objekte in Camunda 7 als JSON ab — je Schritt `prop("…")`, am Ende der Wert nach dem Typ des Feldes im Datenmodell bzw. in der Domain: `stringValue()` (auch Datum), `numberValue()`, `boolValue()`; ein Objekt bzw. eine Liste bleibt der JSON-Knoten, für `count(…)` und `[1]` `elementList()`. Ohne bekannten Typ im Vergleich `value()`. `a.b != null` prüft jeden Schritt: `a != null && a.hasProp("b") && !a.prop("b").isNull()` — der Import liest das wieder als `a.b != null`. Das Ergebnis einer DMN Decision ist kein JSON (Map bzw. Liste): dort bleibt `a.b`. Ein älterer Text im Diagramm, der einen Pfad noch als `${a.b.c}` liest, wird beim Export neu geschrieben |
 | Service (in der Spezifikation angelegt) | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
 | Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
 | Service (kein eigener Worker) mit eigenen Ausgaben, aber ohne `_manualOutMapping` und `_outputVariables` im Diagramm (z. B. neu gezeichnet) | wie in der Spezifikation angelegt: `_manualOutMapping` und `_outputVariables` — sonst schriebe der Worker sein ganzes `Out` als Prozessvariablen (und überschriebe etwa ein `accountKey` des Prozesses) | ebenso |
@@ -1432,7 +1409,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
 | Liste bzw. Kontext (JSON), z. B. `[{accountKey: accountKey, validUntil: "2299-12-31"}]` | `=[…]` | ein **Groovy-Skript** mit Spin: `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson([['accountKey': v('accountKey'), …]]))` — `v(…)` liest Variablen und Pfade (fehlt etwas, `null`). Die erste Zeile `// FEEL: …` trägt den Ausdruck; der Abgleich liest ihn daraus zurück. Nur Werte, Variablen und Pfade; nicht in `camunda:in` |
-| Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").b`. Nicht optional ist, was der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, seine Ausgaben, ein optionales Feld des `In` mit Vorgabe. Eine Bedingung, die sich im Diagramm nur darin unterscheidet, folgt beim Export dem heutigen Datenmodell |
+| Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").prop("b")`. Nicht optional ist, was der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, seine Ausgaben, ein optionales Feld des `In` mit Vorgabe. Eine Bedingung, die sich im Diagramm nur darin unterscheidet, folgt beim Export dem heutigen Datenmodell |
 
 FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit
 Textersetzung, sonst würde aus `a = b` in einer Zeichenkette ein `==`. Die

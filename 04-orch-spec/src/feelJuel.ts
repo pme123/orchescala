@@ -9,7 +9,7 @@
 // nicht mit Textersetzung — sonst würde aus `a = b` in einer Zeichenkette
 // ein `==`. Die Teilmenge, die ein JUEL-Gegenstück hat:
 //
-//   Pfade            client.address.zip      → client.address.zip
+//   Pfade            client.address.zip      → client.prop("address").prop("zip").stringValue()
 //   Literale         "x" · 1 · true · null   → gleich
 //   Arithmetik       + - * /                 → gleich  (Text + Text → concat)
 //   Vergleiche       = != < > <= >=          → == != < > <= >=
@@ -27,12 +27,22 @@
 // (`x != null`, `empty x`), und für jede, die laut Datenmodell optional ist
 // (`JuelOptions.optional`).
 //
+// Ein Pfad liest in Camunda 7 JSON: Orchescala legt Objekte als Spin-JSON ab.
+// Also `prop("…")` je Schritt und am Ende der Wert nach dem Typ des Feldes
+// (`stringValue()`, `numberValue()`, `boolValue()`; eine Liste für `count` und
+// Index als `elementList()`) — wie im Projekt von Hand geschrieben. Ohne
+// bekannten Typ bleibt als Wert der JSON-Knoten, im Vergleich `value()`.
+// `a.b != null` prüft jeden Schritt (`hasProp`, `isNull`) — `prop` wirft
+// sonst. Das Ergebnis einer DMN Decision ist kein JSON, sondern eine Map bzw.
+// Liste (`JuelOptions.plainRoots`): dort bleibt `a.b`.
+//
 // Alles andere — übrige Funktionen, Kontexte, Datumswerte, for/some/every —
 // hat kein JUEL-Gegenstück; die Übersetzung meldet das statt zu raten.
 
 import { parseExpression, SyntaxError as FeelSyntaxError } from 'feelin';
 import type { SyntaxNode } from '@lezer/common';
 import type { EngineId } from './types';
+import type { FeelType, VarNode } from './feel';
 
 export type JuelResult =
   | { ok: true; juel: string; /** blosser Variablenpfad ohne `${}` — für `camunda:in source` */ plain?: string }
@@ -62,7 +72,19 @@ const children = (n: SyntaxNode): SyntaxNode[] => {
 export interface JuelOptions {
   /** Prozessvariablen, die fehlen dürfen (optional im Datenmodell) — `execution.getVariable("x")` */
   optional?: ReadonlySet<string>;
+  /** die Variablen samt Feldern — bestimmen, wie ein Spin-Pfad endet (`stringValue()` …) */
+  vars?: readonly VarNode[];
+  /** Variablen, die in Camunda 7 kein JSON sind (Ergebnis einer DMN Decision) — ihre Pfade bleiben `a.b` */
+  plainRoots?: ReadonlySet<string>;
 }
+
+/** Wie ein Spin-Pfad endet, je nach Typ des Feldes */
+const SPIN_VALUE: Partial<Record<FeelType, string>> = {
+  string: 'stringValue()', date: 'stringValue()', 'date time': 'stringValue()', time: 'stringValue()', duration: 'stringValue()',
+  number: 'numberValue()', boolean: 'boolValue()',
+};
+/** Wozu ein Wert dient: als Ergebnis, im Vergleich bzw. in einer Rechnung, als Liste, beim Test auf leer */
+type Use = 'value' | 'scalar' | 'list' | 'empty';
 
 /** FEEL-Rumpf nach JUEL (ohne `${}`) übersetzen. */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
@@ -85,10 +107,57 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   const unsetSafe = (n: SyntaxNode): string => {
     if (n.name === 'PathExpression') {
       const [base, , prop] = children(n).filter(k => !k.type.isError);
-      if (base && prop) return `${unsetSafe(base)}.${text(prop)}`;
+      if (base && prop) return spin(n) ? `${unsetSafe(base)}.prop("${text(prop)}")` : `${unsetSafe(base)}.${text(prop)}`;
     }
     const name = n.name === 'VariableName' ? text(n) : '';
     return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && /^[A-Za-z_]\w*$/.test(name) ? getVariable(name) : tr(n);
+  };
+
+  /** die Variable am Anfang eines Pfads (`a` in `a.b[1].c`) */
+  const rootOf = (n: SyntaxNode): SyntaxNode | null => {
+    if (n.name === 'VariableName') return n;
+    const [base, , index] = children(n).filter(k => !k.type.isError);
+    if (n.name === 'PathExpression' && base) return rootOf(base);
+    if (n.name === 'FilterExpression' && base && index?.name === 'NumericLiteral') return rootOf(base);
+    return null;
+  };
+  /** ein Pfad in JSON (Spin) — nicht auf der Ausführung und nicht im Ergebnis einer DMN Decision */
+  const spin = (n: SyntaxNode): boolean => {
+    if (n.name !== 'PathExpression') return false;
+    const root = rootOf(n);
+    const name = root ? text(root) : '';
+    return !!root && !EXECUTION_JUEL[name] && !opts.plainRoots?.has(name);
+  };
+  /** der Knoten im Variablenbaum — für den Typ am Ende eines Pfads */
+  const varOf = (n: SyntaxNode): VarNode | null => {
+    const [base, , prop] = children(n).filter(k => !k.type.isError);
+    if (n.name === 'VariableName') return opts.vars?.find(v => v.name === text(n)) ?? null;
+    if (n.name === 'PathExpression' && base && prop) return varOf(base)?.children?.find(c => c.name === text(prop)) ?? null;
+    if (n.name === 'FilterExpression' && base) {
+      const list = varOf(base);
+      return list?.type === 'list' ? { ...list, type: list.children?.length ? 'context' : 'any' } : null;
+    }
+    return null;
+  };
+  /** das Ende eines Spin-Pfads: der Wert, wie ihn `use` braucht */
+  const ending = (n: SyntaxNode, chain: string, use: Use): string => {
+    if (!spin(n)) return chain;
+    const type = varOf(n)?.type ?? 'any';
+    if (use === 'list') return `${chain}.elementList()`;
+    if (use === 'empty') return type === 'string' ? `${chain}.stringValue()` : type === 'list' ? `${chain}.elementList()` : chain;
+    const value = SPIN_VALUE[type];
+    if (value) return `${chain}.${value}`;
+    return use === 'scalar' && type !== 'list' && type !== 'context' ? `${chain}.value()` : chain;
+  };
+  const val = (n: SyntaxNode, use: Use): string => ending(n, tr(n), use);
+  /** ist der Wert gesetzt? Bei einem Spin-Pfad jeder Schritt — `prop` wirft, wenn das Feld fehlt */
+  const present = (n: SyntaxNode): string => {
+    if (spin(n)) {
+      const [base, , prop] = children(n).filter(k => !k.type.isError);
+      const b = unsetSafe(base), p = JSON.stringify(text(prop));
+      return `${present(base)} && ${b}.hasProp(${p}) && !${b}.prop(${p}).isNull()`;
+    }
+    return `${unsetSafe(n)} != null`;
   };
 
   /** `string(x)` → der Ausdruck dahinter, sonst null */
@@ -142,7 +211,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   const emptyList = (x: SyntaxNode | undefined): boolean => !!x && x.name === 'List' && !children(x).some(k => k.name !== '[' && k.name !== ']');
 
   /** Argument von `concat`: `string(x)` braucht dort kein string() mehr */
-  const textArg = (n: SyntaxNode): string => { const inner = stringCall(n); return inner ? tr(inner) : tr(n); };
+  const textArg = (n: SyntaxNode): string => { const inner = stringCall(n); return inner ? val(inner, 'scalar') : val(n, 'scalar'); };
 
   const tr = (n: SyntaxNode): string => {
     if (n.type.isError) throw new Unsupported('kein gültiges FEEL');
@@ -150,7 +219,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     switch (n.name) {
       case 'Expression':
         if (kids.length !== 1) throw new Unsupported('unerwarteter Aufbau');
-        return tr(kids[0]);
+        return val(kids[0], 'value');
       case 'VariableName': {
         const name = text(n);
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
@@ -161,7 +230,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
       case 'PathExpression': {
         const [base, , prop] = kids;
         if (!base || !prop) throw new Unsupported('unvollständiger Pfad');
-        return `${tr(base)}.${text(prop)}`;
+        return spin(n) ? `${tr(base)}.prop(${JSON.stringify(text(prop))})` : `${tr(base)}.${text(prop)}`;
       }
       case 'StringLiteral':
       case 'NumericLiteral':
@@ -171,7 +240,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
       case 'ParenthesizedExpression': {
         const inner = kids.find(k => k.name !== '(' && k.name !== ')');
         if (!inner) throw new Unsupported('leere Klammer');
-        return `(${tr(inner)})`;
+        return `(${val(inner, 'scalar')})`;
       }
       case 'ArithmeticExpression': {
         const [a, op, b] = kids;
@@ -180,8 +249,8 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
         if (o === '**') throw new Unsupported('Potenz «**» gibt es in JUEL nicht');
         // Text + Text: JUEL rechnet bei «+» immer numerisch. `concat` macht
         // aus dem Argument selbst einen String — `string(x)` fällt dabei weg.
-        if (o === '+' && (stringy(a) || stringy(b))) return `${tr(a)}.concat(${textArg(b)})`;
-        return `${tr(a)} ${o} ${tr(b)}`;
+        if (o === '+' && (stringy(a) || stringy(b))) return `${val(a, 'scalar')}.concat(${textArg(b)})`;
+        return `${val(a, 'scalar')} ${o} ${val(b, 'scalar')}`;
       }
       case 'Comparison': {
         const [a, op, ...rest] = kids;
@@ -192,20 +261,23 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
           if (!b) throw new Unsupported('unvollständiger Vergleich');
           // `x = []` — die leere Liste heisst in JUEL `empty`
           if ((o === '=' || o === '!=') && (emptyList(b) || emptyList(a))) {
-            const x = unsetSafe(emptyList(b) ? a : b);
+            const xn = emptyList(b) ? a : b;
+            const x = ending(xn, unsetSafe(xn), 'list');
             return o === '=' ? `empty ${x}` : `!empty ${x}`;
           }
           // `x != null` — gerade dann darf `x` fehlen
           if ((o === '=' || o === '!=') && (b.name === 'null' || a.name === 'null')) {
+            const x = b.name === 'null' ? a : b;
+            if (spin(x)) return o === '!=' ? present(x) : `!(${present(x)})`;
             return `${unsetSafe(a)} ${o === '=' ? '==' : o} ${unsetSafe(b)}`;
           }
-          return `${tr(a)} ${o === '=' ? '==' : o} ${tr(b)}`;
+          return `${val(a, 'scalar')} ${o === '=' ? '==' : o} ${val(b, 'scalar')}`;
         }
         if (op.name === 'between') {
           const lo = rest[0], hi = rest.find((k, i) => i > 0 && k.name !== 'and');
           if (!lo || !hi) throw new Unsupported('unvollständiges between');
-          const x = tr(a);
-          return `(${x} >= ${tr(lo)} && ${x} <= ${tr(hi)})`;
+          const x = val(a, 'scalar');
+          return `(${x} >= ${val(lo, 'scalar')} && ${x} <= ${val(hi, 'scalar')})`;
         }
         if (op.name === 'in') {
           const test = rest[0];
@@ -213,8 +285,8 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
           if (list?.name !== 'List') throw new Unsupported('«in» nur mit einer Liste von Werten');
           const items = children(list).filter(k => k.name !== '[' && k.name !== ']');
           if (!items.length) throw new Unsupported('leere Liste bei «in»');
-          const x = tr(a);
-          return `(${items.map(it => `${x} == ${tr(it)}`).join(' || ')})`;
+          const x = val(a, 'scalar');
+          return `(${items.map(it => `${x} == ${val(it, 'scalar')}`).join(' || ')})`;
         }
         throw new Unsupported(`Vergleich «${text(op)}» hat kein JUEL-Gegenstück`);
       }
@@ -233,24 +305,27 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
           });
           const x = tested[0]?.x;
           if (x && tested.every(t => t?.x === x) && new Set(tested.map(t => t!.v)).size === 3
-            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) return `empty ${unsetSafe(kids0(parts.flatMap(flat)[0]))}`;
+            && tested.every(t => ['null', '""', '[]'].includes(t!.v))) {
+            const xn = kids0(parts.flatMap(flat)[0]);
+            return `empty ${ending(xn, unsetSafe(xn), 'empty')}`;
+          }
         }
-        return parts.map(tr).join(n.name === 'Conjunction' ? ' && ' : ' || ');
+        return parts.map(x => val(x, 'scalar')).join(n.name === 'Conjunction' ? ' && ' : ' || ');
       }
       case 'IfExpression': {
         const parts = kids.filter(k => !['if', 'then', 'else'].includes(k.name));
         if (parts.length !== 3) throw new Unsupported('if braucht then und else');
-        return `(${tr(parts[0])} ? ${tr(parts[1])} : ${tr(parts[2])})`;
+        return `(${val(parts[0], 'scalar')} ? ${val(parts[1], 'value')} : ${val(parts[2], 'value')})`;
       }
       case 'FunctionInvocation': {
         const [fn, , params] = kids;
         const name = fn ? text(fn) : '';
         const args = params ? children(params) : [];
-        if (name === 'not' && args.length === 1) return `!(${tr(args[0])})`;
+        if (name === 'not' && args.length === 1) return `!(${val(args[0], 'scalar')})`;
         // `string(x)` allein: JUEL hat kein toString — «leer + x» macht Text daraus
-        if (name === 'string' && args.length === 1) return `"".concat(${tr(args[0])})`;
+        if (name === 'string' && args.length === 1) return `"".concat(${val(args[0], 'scalar')})`;
         // `count(x)` — eine Liste (Java oder Spin) hat `size()`
-        if (name === 'count' && args.length === 1) return `${tr(args[0])}.size()`;
+        if (name === 'count' && args.length === 1) return `${val(args[0], 'list')}.size()`;
         throw new Unsupported(`Funktion «${name}()» hat kein JUEL-Gegenstück`);
       }
       case 'FilterExpression': {
@@ -260,7 +335,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
         if (index.name !== 'NumericLiteral') return `S(${tr(base)}).jsonPath("$[?(${jpCond(index)})]").elementList()`;
         const i = Number(text(index));
         if (!Number.isInteger(i) || i < 1) throw new Unsupported('Index muss eine positive ganze Zahl sein (FEEL zählt ab 1)');
-        return `${tr(base)}[${i - 1}]`;
+        return `${val(base, 'list')}[${i - 1}]`;
       }
       case 'List':
         throw new Unsupported('Listen «[…]» gibt es in JUEL nicht');

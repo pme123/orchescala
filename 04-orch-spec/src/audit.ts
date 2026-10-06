@@ -94,7 +94,7 @@ const KEEP_LINES = 1000;
 const FIELD_LABEL: Record<string, string> = {
   name: 'Name', title: 'Titel', processId: 'Prozess-ID', project: 'Projekt', legacyProcessId: 'alter Name',
   status: 'Status', description: 'Beschreibung', descr: 'Beschreibung', sourceUrl: 'Quelle',
-  timeToLive: 'Aufbewahrung', engine: 'Engine', epics: 'Epics', patterns: 'Pattern', pattern: 'Pattern', version: 'Version',
+  timeToLive: 'Aufbewahrung', engine: 'Engine', patterns: 'Pattern', pattern: 'Pattern', version: 'Version',
   kind: 'Art', serviceId: 'Service', topic: 'Topic', calledProcess: 'Gerufener Prozess',
   inVariant: 'Variante In', outVariant: 'Variante Out', regexHandledErrors: 'Behandelte Fehler (Regex)',
   mock: 'Mock', mockKind: 'Mock-Art', gatewayType: 'Verzweigungsart', loop: 'Schleife',

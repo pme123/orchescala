@@ -16,7 +16,6 @@ import { convertBpmn } from './engineConvert.ts';
 import { engineExpression } from './feelJuel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
-import { epicsOf } from './epics.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -151,8 +150,6 @@ function exportFachlich(spec: ProcessSpec, model: Model | null): string {
   if (spec.description) out.push(spec.description, '');
   if (spec.timeToLive) out.push(`Historie wird ${spec.timeToLive} Tage aufbewahrt.`, '');
   if (spec.patterns?.length) out.push(`Pattern am Prozess: ${patternText(spec.patterns, pn)}`, '');
-  const epics = epicsOf(spec, model);
-  if (epics.length) out.push(`Epics: ${epics.map(e => e.name).join(', ')}`, '');
   const amProzess = kommentarZeilen(spec, processTarget, '');
   if (amProzess.length) out.push('### Offene Kommentare zum Prozess', '', ...amProzess, '');
   out.push('## Ablauf', '');
@@ -247,7 +244,6 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       ['Stand', spec.updatedAt],
       ...(spec.timeToLive ? [['Time to Live', `${spec.timeToLive} Tage`]] : []),
       ...(spec.sourceUrl ? [['Quelle', spec.sourceUrl]] : []),
-      ...(epicsOf(spec, model).length ? [['Epics', epicsOf(spec, model).map(e => e.name).join(', ')]] : []),
       ...(spec.patterns?.length ? [['Pattern', patternText(spec.patterns, pn, true)]] : []),
     ], ['Feld', 'Wert']),
   ];
@@ -372,9 +368,9 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
 
 // ── öffentliche API ──────────────────────────────────────────────────────────
 /** Das Diagramm mit den Mappings und Bedingungen der Spezifikation — samt dem, was nicht übersetzbar war. */
-export function exportBpmn(spec: ProcessSpec, bpmn: string): WriteResult {
+export function exportBpmn(spec: ProcessSpec, bpmn: string, model: Model | null = null): WriteResult {
   if (!bpmn) return { xml: '<!-- Zu dieser Spezifikation liegt (noch) kein Diagramm vor. -->', issues: [] };
-  return writeBpmn(bpmn, spec);
+  return writeBpmn(bpmn, spec, model);
 }
 
 /**
@@ -382,15 +378,15 @@ export function exportBpmn(spec: ProcessSpec, bpmn: string): WriteResult {
  * umgewandelt — die Spezifikation bleibt, wie sie ist. Dasselbe für den
  * BPMN-Export und den Helper-Befehl.
  */
-export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7'): WriteResult {
-  const written = exportBpmn(spec, bpmn);
+export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7', model: Model | null = null): WriteResult {
+  const written = exportBpmn(spec, bpmn, model);
   if (!bpmn || engine === (spec.engine ?? 'c7')) return written;
   const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive });
   return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
 }
 
 export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | null, bpmn = ''): string {
-  if (kind === 'bpmn') return exportBpmn(spec, bpmn).xml;
+  if (kind === 'bpmn') return exportBpmn(spec, bpmn, model).xml;
   if (kind === 'json') return JSON.stringify(spec, null, 2);
   if (kind === 'scala') return scalaBundle(spec, model);
   if (kind === 'fachlich') return exportFachlich(spec, model);
@@ -414,7 +410,7 @@ export interface HelperDmn { file: string; xml: string }
 export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId, dmns: HelperDmn[] = []): string {
   const payload = JSON.stringify({
     v: 1,
-    ...(bpmn ? { bpmn: exportBpmnFor(spec, bpmn, engine).xml } : {}),
+    ...(bpmn ? { bpmn: exportBpmnFor(spec, bpmn, engine, model).xml } : {}),
     scala: scalaBundle(spec, model),
     ...(dmns.length ? { dmns } : {}),
   });

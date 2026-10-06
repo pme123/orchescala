@@ -34,8 +34,8 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   const [engine, setEngine] = useState<EngineId>(own);
   // samt dem, was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
   const bpmnOut = useMemo(
-    () => (kind === 'bpmn' && bpmn ? exportBpmnFor(spec, bpmn, engine) : null),
-    [spec, kind, bpmn, engine]);
+    () => (kind === 'bpmn' && bpmn ? exportBpmnFor(spec, bpmn, engine, model) : null),
+    [spec, kind, bpmn, engine, model]);
   const text = useMemo(() => bpmnOut?.xml ?? exportSpec(spec, kind, model, bpmn), [bpmnOut, spec, kind, model, bpmn]);
   const issues = bpmnOut?.issues ?? [];
   const fileName = kind === 'bpmn' && engine !== own
