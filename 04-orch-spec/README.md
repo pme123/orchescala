@@ -728,7 +728,11 @@ Pattern wird herausgenommen und mit den neuen Werten an derselben Stelle
 wieder eingefügt), entfernen nimmt es samt Pfad heraus — und den gemeinsamen
 Block, wenn ihn kein anderes Element mehr braucht. Ein Parameter, der nur im
 gemeinsamen Block steht, gilt beim ersten Einfügen; danach gehört der Block
-dem Prozess.
+dem Prozess. Belegt das Element eine Variable des Patterns schon anders
+(`camunda:in`/`out` gleichen Ziels, Input-/Output-Parameter gleichen Namens,
+`zeebe:input`/`output`), gilt das Pattern: die bisherige Zuordnung wird
+ersetzt, statt doppelt dazustehen. Ein schon doppeltes Element bereinigt das
+Anpassen eines Parameters.
 
 **Der Import erkennt Pattern** — aus demselben BPMN: ein Element trägt ein
 Pattern, wenn alles, was am Anker hängt, auch an ihm hängt; die Werte der

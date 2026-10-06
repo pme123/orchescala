@@ -484,6 +484,17 @@ function itemsOf(el: Element): Item[] {
   return out;
 }
 const sameSlot = (a: Item, b: Item) => a.inExt === b.inExt && a.container === b.container;
+/**
+ * Welche Variable ein Mapping belegt (`camunda:in`/`out`, Input-/Output-Parameter,
+ * `zeebe:input`/`output`) — `null` für alles andere und für `variables="all"`.
+ */
+function mappingKey(el: Element): string | null {
+  const n = local(el);
+  const by = n === 'inputParameter' || n === 'outputParameter' ? 'name'
+    : n === 'in' || n === 'out' || n === 'input' || n === 'output' ? 'target' : null;
+  const v = by ? el.getAttribute(by) : null;
+  return v && !v.includes('{{') ? `${el.namespaceURI ?? ''}|${n}|${v}` : null;
+}
 
 export interface Fragment {
   doc: Document;
@@ -1157,6 +1168,15 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   for (const fi of fr.items) {
     const have = tItems.find(ti => sameSlot(fi, ti) && !usedItems.has(ti.el) && matchEl(fi.el, ti.el, new Map()));
     if (have) { usedItems.add(have.el); continue; }
+    // dieselbe Variable schon anders belegt: das Pattern gilt — sonst stünde sie doppelt da
+    const key = mappingKey(fi.el);
+    if (key) {
+      for (const ti of tItems) {
+        if (usedItems.has(ti.el) || !sameSlot(fi, ti) || mappingKey(ti.el) !== key) continue;
+        usedItems.add(ti.el);
+        removeEl(ti.el);
+      }
+    }
     const el = w.adopt(fi.el, targetId ?? 'process', idMap, fr.doc);
     if (!fi.inExt) appendEl(t, el);
     else {
