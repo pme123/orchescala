@@ -290,9 +290,22 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   return out;
 }
 
-/** Die Prozessvariablen, die fehlen dürfen — Camunda 7 liest sie mit `execution.getVariable("x")` (siehe feelJuel.ts) */
+/**
+ * Die Prozessvariablen, die fehlen dürfen — Camunda 7 liest sie mit
+ * `execution.getVariable("x")` (siehe feelJuel.ts). Nicht dazu gehört, was
+ * der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, eine seiner
+ * Ausgaben und ein optionales Feld des `In` mit Vorgabe (sein Pflicht-Zwilling
+ * im `InitIn`) — auch wenn das `In` es optional führt.
+ */
 export function optionalVariables(spec: ProcessSpec, model: Model | null = null): Set<string> {
-  return new Set(processVariables(spec, model).filter(v => v.optional).map(v => v.name));
+  const types = spec.types ?? [];
+  const set = new Set<string>();
+  for (const f of types.find(t => t.initIn)?.fields ?? []) if (f.name && !f.optional) set.add(f.name);
+  for (const o of initOutputs(spec)) if (o.name) set.add(o.name);
+  const root = types.find(t => t.root);
+  const rootFields = [...(root?.fields ?? []), ...(root?.values ?? []).flatMap(v => v.fields ?? [])];
+  for (const f of rootFields) if (f.optional && f.default?.trim()) set.add(f.name);
+  return new Set(processVariables(spec, model).filter(v => v.optional && !set.has(v.name)).map(v => v.name));
 }
 
 /**

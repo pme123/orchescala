@@ -1391,6 +1391,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Teilprozess | ebenfalls `zeebe:ioMapping` | `<camunda:in source="client">` bzw. `sourceExpression="${client.name}"` |
 | Service (in der Spezifikation angelegt) | `_manualOutMapping` = `=true`, `_outputVariables` = Text `="a, b"` der Variablen, die die Ausgaben lesen (auch in FEEL-Ausdrücken; ohne: `NONE`, dann entfällt `_manualOutMapping`) | `_manualOutMapping` = `#{true}`, `_outputVariables` = `a, b` |
 | Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
+| Service (kein eigener Worker) mit eigenen Ausgaben, aber ohne `_manualOutMapping` und `_outputVariables` im Diagramm (z. B. neu gezeichnet) | wie in der Spezifikation angelegt: `_manualOutMapping` und `_outputVariables` — sonst schriebe der Worker sein ganzes `Out` als Prozessvariablen (und überschriebe etwa ein `accountKey` des Prozesses) | ebenso |
 | Init-Worker | nie `_outputVariables` oder `_manualOutMapping` — er gibt das `InitIn` zurück | ebenso |
 | Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — nur mit `propagateAllParentVariables="false"`, sonst sieht der Teilprozess sie ohnehin | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer; dazu `impersonateUserId` (der alte Weg zur Identität — BPF/MAP starten noch ohne `_identityCorrelation`, ohne ihn riefe der Teilprozess die Services mit dem technischen Benutzer) |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` (am Teilprozess `source="createContractMock"`) |
@@ -1398,7 +1399,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
 | Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
-| Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").b` |
+| Variable, die fehlen darf (`x != null`, `x = []`, optional im Datenmodell) | `=x != null` | `${execution.getVariable("x") != null}` — `${x}` wirft in JUEL «Unknown property», wenn `x` nicht gesetzt ist; bei einem Pfad der Anfang: `execution.getVariable("a").b`. Nicht optional ist, was der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, seine Ausgaben, ein optionales Feld des `In` mit Vorgabe. Eine Bedingung, die sich im Diagramm nur darin unterscheidet, folgt beim Export dem heutigen Datenmodell |
 
 FEEL → JUEL wird **strukturell** übersetzt, über den Parsebaum — nicht mit
 Textersetzung, sonst würde aus `a = b` in einer Zeichenkette ein `==`. Die

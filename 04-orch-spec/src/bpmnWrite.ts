@@ -150,9 +150,20 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
     const before = el ? elementState(el) : null;
     // jeder Service im Diagramm hat seit dem Import eine Art — fehlt sie, ist die
     // Spezifikation älter, und es gilt das Diagramm (ohne `_manualOutMapping`: nicht manuell)
+    // Ein Service mit eigenen Ausgaben, aber weder `_manualOutMapping` noch
+    // `_outputVariables` im Diagramm (neu gezeichnet oder so importiert): er
+    // wird wie ein in der Spezifikation angelegter geschrieben (manuell
+    // gemappt). Sonst schriebe der Worker sein ganzes Out als Prozessvariablen —
+    // und überschriebe z. B. ein `accountKey` des Prozesses. Ein eigener Worker
+    // (Topic beginnt mit der Prozess-ID) gibt sein Out dagegen absichtlich zurück.
+    const ownWorker = !!step0.topic && !!spec.processId && step0.topic.startsWith(spec.processId);
+    const mappedLater = step0.kind === 'service' && !!before && before.manual === undefined && !before.hasOutputVariables
+      && !isInitWorker(step0, spec.processId) && !ownWorker
+      && active(step0.outputs).some(m => !m.fromService);
     const step: Step = {
       ...step0,
-      ...(step0.manualOutMapping === undefined && step0.kind === 'service' && before ? { manualOutMapping: !!before.manual } : {}),
+      ...(mappedLater ? { manualOutMapping: undefined, outputVariables: undefined } : {}),
+      ...(!mappedLater && step0.manualOutMapping === undefined && step0.kind === 'service' && before ? { manualOutMapping: !!before.manual } : {}),
       ...(step0.outputVariables === undefined && before?.outputVariables ? { outputVariables: before.outputVariables } : {}),
       ...(step0.mock === undefined && before?.mock ? { mock: before.mock } : {}),
     };
@@ -254,16 +265,22 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
       const old = before?.textContent ?? '';
       const safe = engine !== 'c8' || stripNullSafe(old) !== old || /^=\s*(true|false)\s*$/.test(old.trim());
       const inEngineForm = engine === 'c8' ? old.trim().startsWith('=') : isJuel(old);
-      if (before && safe && inEngineForm && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) continue;
       let text: string;
+      let translated = true;
       if (engine === 'c8') text = `=${nullSafeCondition(body)}`;
       else {
         const r = feelToJuel(body, juelOpts);
         if (r.ok) text = `\${${r.juel}}`;
-        else {
-          text = b.condition;
-          issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${r.reason}` });
-        }
+        else { text = b.condition; translated = false; }
+      }
+      if (before && safe && inEngineForm && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) {
+        // derselbe Ausdruck — er bleibt, wie er dasteht; ausser er unterscheidet
+        // sich nur darin, welche Variable fehlen darf (`execution.getVariable`):
+        // das folgt dem heutigen Datenmodell
+        const bare = (t: string) => t.replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1').replace(/\s+/g, '');
+        if (engine === 'c8' || !translated || old.trim() === text || bare(old) !== bare(text)) continue;
+      } else if (!translated) {
+        issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${(feelToJuel(body, juelOpts) as { reason: string }).reason}` });
       }
       let cond = firstNamed(flow, 'conditionExpression');
       if (!cond) {
