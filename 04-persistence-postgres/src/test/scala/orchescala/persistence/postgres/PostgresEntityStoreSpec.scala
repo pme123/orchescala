@@ -25,7 +25,8 @@ object PostgresEntityStoreSpec extends ZIOSpecDefault:
     if !run then
       println(
         "\n*** PostgresEntityStoreSpec IGNORED - no Docker. The store tests against Postgres did " +
-          "not run; on CI (CI set) they fail instead. ***\n"
+          "not run; on CI (CI set) they fail instead. Docker via Colima: see 'Tests with Docker' " +
+          "in the README. ***\n"
       )
     end if
     run

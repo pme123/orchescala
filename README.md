@@ -25,6 +25,18 @@ Just run `./helper.scala VERSION`.
 
 `sbt publishLocal`
 
+## Tests with Docker
+
+`persistencePostgres/test` runs the store against Postgres with [Testcontainers](https://java.testcontainers.org).
+Without Docker these tests are ignored locally (on CI they fail).
+With [Colima](https://github.com/abiosoft/colima) Testcontainers does not find the Docker socket by itself:
+
+```bash
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+sbt persistencePostgres/test
+```
+
 ## Documentation
 We use [mdoc](https://scalameta.org/mdoc/) to verify the documentation
 and [laika](https://typelevel.org/Laika/) to generate the htmls.
