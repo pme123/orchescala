@@ -590,7 +590,8 @@ addCommandAlias(
     // the templates for each combination of engines (generated strings only)
     "helper/testOnly orchescala.helper.dev.company.CompanyWrapperGeneratorTest" +:
       // compiled: all engines (the mixed CompanyWorker), Camunda 7 and 8 (as existing companies)
-      // and Operaton only (no Camunda 7 to fall back to)
+      // and Operaton only (the generated sources without Camunda 7 - the module dependencies
+      // stay the same)
       Seq("C7 C8 Op", "C7 C8", "Op").flatMap(engines =>
         companyCheckGenerate(engines) +: companyCheckCompile
       )

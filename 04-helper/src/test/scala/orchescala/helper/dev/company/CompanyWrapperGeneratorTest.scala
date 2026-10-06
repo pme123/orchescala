@@ -10,15 +10,17 @@ import orchescala.helper.util.DevConfig
   */
 class CompanyWrapperGeneratorTest extends FunSuite:
 
+  // the engines -> the engine context of CompanyWorkerApp
   private val combinations = Seq(
-    Seq(C7),
-    Seq(C8),
-    Seq(Op),
-    Seq(C7, C8),
-    Seq(C7, Op),
-    Seq(C8, Op),
-    Seq(C7, C8, Op),
-    Seq(Op, C7)
+    Seq(C7)         -> "CompanyEngineContext",
+    Seq(C8)         -> "CompanyEngineC8Context",
+    Seq(Op)         -> "CompanyEngineOpContext",
+    Seq(C7, C8)     -> "CompanyEngineContext",
+    Seq(C7, Op)     -> "CompanyEngineContext",
+    Seq(C8, Op)     -> "CompanyEngineC8Context",
+    Seq(Op, C8)     -> "CompanyEngineOpContext",
+    Seq(C7, C8, Op) -> "CompanyEngineContext",
+    Seq(Op, C7)     -> "CompanyEngineContext"
   )
 
   private def generated(engines: Seq[EngineType])(check: Generated => Unit): Unit =
@@ -43,7 +45,12 @@ class CompanyWrapperGeneratorTest extends FunSuite:
     def sbtSettings: String                      = os.read(projectDir / "project" / "Settings.scala")
   end Generated
 
-  combinations.foreach: engines =>
+  Seq(Seq.empty[EngineType], Seq(Gateway)).foreach: engines =>
+    test(s"no company engine (${engines.mkString(" ")}): fails with a clear message"):
+      val error = intercept[IllegalArgumentException](generated(engines)(_ => ()))
+      assert(error.getMessage.contains("at least one of C7, C8 or Op"), error.getMessage)
+
+  combinations.foreach: (engines, engineContext) =>
     val name = engines.mkString(" ")
     val hasC7 = engines.contains(C7)
     val hasC8 = engines.contains(C8)
@@ -104,10 +111,8 @@ class CompanyWrapperGeneratorTest extends FunSuite:
 
     test(s"$name: CompanyWorkerApp"):
       generated(engines): g =>
-        val app     = g.workerApp
-        val context =
-          if hasC7 then "CompanyEngineContext" else s"CompanyEngine${engines.head}Context"
-        assert(app.contains(s"lazy val engineContext: EngineContext = $context("), app)
+        val app = g.workerApp
+        assert(app.contains(s"lazy val engineContext: EngineContext = $engineContext("), app)
         val registries = engines.map(e => s"${e}WorkerRegistry(Company${e}Client)").mkString(", ")
         assert(app.contains(s"Seq($registries)"), app)
 

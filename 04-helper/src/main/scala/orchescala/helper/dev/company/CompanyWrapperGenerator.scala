@@ -11,12 +11,20 @@ import orchescala.helper.util.*
 
 case class CompanyWrapperGenerator()(using config: DevConfig):
 
+  /** Existing files are never overwritten: a company that adds an engine later gets the files of
+    * that engine, but must add it to CompanyWorker, CompanyWorkerApp, CompanySimulation and
+    * GatewayServerApp itself (or delete them to have them generated again).
+    */
   def generate(supportedEngines: Seq[EngineType]): Unit =
     println("Generate Company Wrapper")
     // the company wrappers support Camunda 7, Camunda 8 and Operaton - in the order of the
     // supported engines
     val engines =
       supportedEngines.filter(Seq(EngineType.C7, EngineType.C8, EngineType.Op).contains).distinct
+    require(
+      engines.nonEmpty,
+      s"The company wrappers need at least one of C7, C8 or Op - supported engines: ${supportedEngines.mkString(", ")}"
+    )
     createIfNotExists(config.projectDir / "CHANGELOG.md", GenericFileGenerator().changeLog)
     createIfNotExists(projectDomainPath, domainWrapper)
     createIfNotExists(projectApiPath, apiWrapper)
