@@ -320,8 +320,48 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("registration - a block in a comment is not registered yet"):
     val result = registered(apiOf("myProcessApi").register(generatedApi))
-    assert(result.contains("  end myProcessApi"), result)
-    assert(result.contains("    //myProcessApi,"), "the commented entry stays as it is")
+    // into the list (the commented entry is none) and as a block after the comment
+    assert(result.contains("    myProcessApi,\n    updateAvailabilityApi,\n    //myProcessApi,"), result)
+    assert(result.indexOf("  end myProcessApi") > result.indexOf("  */"), result)
+    assertEquals("lazy val myProcessApi".r.findAllIn(result).size, 2, "the example and the new block")
+
+  /** `procApi` is registered - with `line` somewhere above it. A re-run must find it. */
+  private def withLine(line: String) =
+    s"""object ApiProjectCreator extends CompanyApiCreator:
+       |  document(
+       |    procApi,
+       |  )
+       |$line
+       |  private lazy val procApi =
+       |    api(Proc.example)(
+       |      CheckUT.example,
+       |    )
+       |  end procApi
+       |end ApiProjectCreator
+       |""".stripMargin
+
+  test("registration - `/*` in a line comment, a string or a character opens no comment"):
+    for line <- Seq(
+        "  // use /* to disable a process",
+        "  private val glob = \"src/*\"",
+        "  private val doc = \"\"\"a /* in a\n    |multi-line string\"\"\"",
+        "  private val c = '/'; private val star = \"*\" // '/' + \"*\""
+      )
+    do assertEquals(apiOf("procApi").register(withLine(line)), RegistrationResult.Unchanged, line)
+
+  test("registration - a comment in front of the val on the same line"):
+    val oneLine = withLine("").replace("  private lazy val procApi =", "  /* the proc */ private lazy val procApi =")
+    assertEquals(apiOf("procApi").register(oneLine), RegistrationResult.Unchanged)
+
+  test("registration - nested comments: the block stays hidden until the outer one closes"):
+    val nested = withLine("").replace(
+      "  private lazy val procApi =",
+      "  /* outer /* inner */\n  private lazy val otherApi =\n  */\n  private lazy val procApi ="
+    )
+    assertEquals(apiOf("procApi").register(nested), RegistrationResult.Unchanged)
+    val result = registered(apiOf("otherApi").register(nested))
+    assertEquals("lazy val otherApi".r.findAllIn(result).size, 2, result)
+    assert(result.indexOf("  end otherApi") > result.indexOf("  */"), result)
 
   test("registration - unexpected form"):
     assert(workerRegistration.register("object WorkerApp:\n  val x = 1\n").isInstanceOf[RegistrationResult.Manual])
