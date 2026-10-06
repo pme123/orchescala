@@ -27,8 +27,9 @@
 // Ein Pattern am **Prozess** (`appliesTo: ['process']`) hat keinen Anker:
 // sein Inhalt sind die Blöcke und die Erweiterungen des Prozesses selbst.
 
-import type { AppliedPattern, EngineId, PatternDef, PatternParam } from './types';
+import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
+import { uid } from './util';
 
 export const ANCHOR_ID = 'PatternTarget';
 /** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */
@@ -36,6 +37,92 @@ const STARTER_NAME = 'Element mit dem Pattern';
 export const PROCESS_TARGET = 'process';
 /** Platzhalter, die die App selbst füllt */
 export const BUILTIN_PARAMS = ['targetId', 'targetName', 'processId', 'startMessage'] as const;
+
+// ── Pattern von Orchescala ───────────────────────────────────────────────────
+// Fest dabei, nicht im Admin gepflegt und nicht im BPMN: ihre Werte stehen in
+// der Spezifikation und gehen über den Export in die Domain.
+
+/**
+ * Die Bezeichnung des Prozesses — `override def processLabels` im
+ * Prozess-Objekt. Der Init-Worker setzt daraus die Prozessvariablen
+ * `callingProcessKeyDE` und `callingProcessKeyFR` (ProcessLabels in
+ * Orchescala); Pattern wie «Benutzer per Mail informieren» lesen sie, und
+ * das `Out` des Prozesses gibt sie zurück. Gespeichert in `spec.processLabels`;
+ * die Felder im `Out` gehören dazu, solange das Pattern gewählt ist.
+ */
+export const PROCESS_LABELS_PATTERN = 'process-labels';
+
+/** Die Felder, die das Pattern ins `Out` bringt */
+const LABEL_FIELDS = (['DE', 'FR'] as const).map(lang => ({
+  name: `callingProcessKey${lang}`,
+  description: `Bezeichnung des Prozesses (${lang === 'DE' ? 'deutsch' : 'französisch'}) — aus processLabels`,
+  example: `processLabels.${lang.toLowerCase()}`,
+}));
+
+export const ORCHESCALA_PATTERNS: PatternDef[] = [{
+  id: PROCESS_LABELS_PATTERN,
+  name: 'Prozess-Bezeichnung',
+  description: 'Die Bezeichnung des Prozesses je Sprache — `override def processLabels` im Prozess-Objekt. '
+    + 'Der Init-Worker setzt daraus die Prozessvariablen `callingProcessKeyDE` und `callingProcessKeyFR`.',
+  appliesTo: [PROCESS_TARGET],
+  params: [
+    { name: 'de', label: 'Deutsch', description: 'wird zu callingProcessKeyDE' },
+    { name: 'fr', label: 'Französisch', description: 'wird zu callingProcessKeyFR' },
+  ],
+  bpmn: {},
+  builtin: true,
+}];
+
+/**
+ * Das Pattern von Orchescala, zu dem ein Feld gehört — `callingProcessKeyDE/FR`
+ * im `Out`, solange «Prozess-Bezeichnung» gewählt ist; auch wenn die Felder
+ * aus der Domain kommen. Sonst `null`.
+ */
+export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, field: Field): PatternDef | null {
+  if (!spec.processLabels || !type?.processOut) return null;
+  return LABEL_FIELDS.some(l => l.name === field.name) ? ORCHESCALA_PATTERNS[0] : null;
+}
+
+/** Die Pattern von Orchescala und die aus dem Admin */
+export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...(defs ?? [])];
+
+/** Die Pattern am Prozess — die von Orchescala aus der Spezifikation, die übrigen aus dem Diagramm */
+export function processPatterns(spec: ProcessSpec): AppliedPattern[] {
+  const labels = spec.processLabels;
+  return [
+    ...(labels ? [{ id: PROCESS_LABELS_PATTERN, params: { de: labels.de, fr: labels.fr } }] : []),
+    ...(spec.patterns ?? []),
+  ];
+}
+
+/**
+ * Ein Pattern von Orchescala wählen, ändern oder entfernen — ohne Diagramm.
+ * «Prozess-Bezeichnung» bringt dabei `callingProcessKeyDE/FR` ins `Out` (das
+ * `Out` entsteht, wenn es fehlt) und nimmt sie beim Entfernen wieder weg; ein
+ * Feld, das es dort schon gibt (aus der Domain), bleibt, wie es ist.
+ */
+export function changeBuiltinPattern(spec: ProcessSpec, id: string, action: 'add' | 'remove' | 'update', params: Record<string, string> = {}): ProcessSpec {
+  if (id !== PROCESS_LABELS_PATTERN) return spec;
+  const names = new Set(LABEL_FIELDS.map(l => l.name));
+  const types = spec.types ?? [];
+  const out = types.find(t => t.processOut);
+  if (action === 'remove') {
+    const { processLabels: _, ...rest } = spec;
+    return {
+      ...rest,
+      ...(out ? { types: types.map(t => (t === out ? { ...t, fields: (t.fields ?? []).filter(f => !names.has(f.name)) } : t)) } : {}),
+    } as ProcessSpec;
+  }
+  const next: ProcessSpec = { ...spec, processLabels: { de: params.de ?? spec.processLabels?.de ?? '', fr: params.fr ?? spec.processLabels?.fr ?? '' } };
+  if (action !== 'add') return next;
+  const missing: Field[] = LABEL_FIELDS.filter(l => !(out?.fields ?? []).some(f => f.name === l.name))
+    .map(l => ({ id: uid('f'), name: l.name, type: 'String', description: l.description, example: l.example }));
+  if (!missing.length) return next;
+  const withOut: TypeDef[] = out
+    ? types.map(t => (t === out ? { ...t, fields: [...(t.fields ?? []), ...missing] } : t))
+    : [...types, { id: uid('t'), name: 'Out', kind: 'case', processOut: true, status: 'draft', fields: missing }];
+  return { ...next, types: withOut };
+}
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
@@ -1354,7 +1441,7 @@ export function appliesTo(def: PatternDef): string[] {
 
 /** Die Pattern, die an einen Schritt (bzw. den Prozess) passen und für die Engine ein BPMN haben */
 export function patternsFor(defs: PatternDef[] | undefined, tags: string[], engine: EngineId): PatternDef[] {
-  return (defs ?? []).filter(d => fragmentFor(d, engine) && appliesTo(d).some(t => tags.includes(t)));
+  return (defs ?? []).filter(d => (d.builtin || fragmentFor(d, engine)) && appliesTo(d).some(t => tags.includes(t)));
 }
 
 /** Ein leeres Pattern-BPMN mit Anker — der Anfang im Admin */

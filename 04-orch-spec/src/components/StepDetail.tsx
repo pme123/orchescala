@@ -10,7 +10,7 @@ import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { KIND_LABEL, cls, patternTone } from '../ui';
-import { PROCESS_TARGET, patternMappings, patternParamsFor, patternsFor, stepTags } from '../patterns';
+import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
@@ -102,23 +102,6 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           rows={6} placeholder="Worum geht es fachlich?"
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Field>
-      {/* `override def processLabels` — der Init-Worker setzt daraus
-          callingProcessKeyDE/FR; Pattern wie «Benutzer per Mail informieren» lesen sie */}
-      <Field label="Bezeichnung (processLabels)" isDark={isDark}>
-        <div className="grid grid-cols-2 gap-2">
-          {(['de', 'fr'] as const).map(lang => (
-            <input key={lang} value={spec.processLabels?.[lang] ?? ''} disabled={!canEdit}
-              onChange={e => {
-                const next = { de: spec.processLabels?.de ?? '', fr: spec.processLabels?.fr ?? '', [lang]: e.target.value };
-                const { processLabels: _, ...rest } = spec;
-                onSpecChange(next.de || next.fr ? { ...spec, processLabels: next } : rest as typeof spec);
-              }}
-              placeholder={lang === 'de' ? 'deutsch, z. B. Neubestellung DMC' : 'französisch, z. B. Nouvelle commande DMC'}
-              title={`ProcessLabels(de, fr) im Prozess-Objekt — der Init-Worker setzt daraus die Prozessvariable callingProcessKey${lang.toUpperCase()}`}
-              className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`} />
-          ))}
-        </div>
-      </Field>
       <Field label="Time to Live (Tage)" isDark={isDark}>
         <input value={spec.timeToLive ?? ''} disabled={!canEdit}
           onChange={e => onSpecChange({ ...spec, timeToLive: e.target.value || undefined })}
@@ -132,7 +115,7 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
       </Field>
       <PatternSection target={null} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
-        onPattern={onPattern} hasDiagram={hasDiagram} />
+        onPattern={onPattern} hasDiagram={hasDiagram} onSpecChange={onSpecChange} />
       <div>
         <h3 className={`text-[10px] uppercase tracking-widest mb-2 ${c.text}`}>Prozessvariablen</h3>
         <VariableList spec={spec} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
@@ -674,42 +657,57 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 // Was der Admin als Pattern hinterlegt hat und zu diesem Element passt, lässt
 // sich hier wählen — es steht danach sofort im Diagramm (nicht erst beim
 // Export). Die Werte der Parameter gehen beim Verlassen des Felds hinein.
-function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDiagram, area }: {
+function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDiagram, area, onSpecChange }: {
   target: Step | null; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean;
   onPattern?: Props['onPattern']; hasDiagram?: boolean;
   /** nur die Pattern dieses Bereichs (`assignment`: in der Zuständigkeit, ohne eigene Überschrift) — sonst die übrigen */
   area?: PatternDef['area'];
+  /** für die Pattern von Orchescala — sie stehen in der Spezifikation, nicht im Diagramm */
+  onSpecChange?: (spec: ProcessSpec) => void;
 }) {
   const c = cls(isDark);
   const engine: EngineId = spec.engine ?? 'c7';
-  const defOf = (id: string) => model?.patterns?.find(d => d.id === id);
+  const defs = allPatterns(model?.patterns);
+  const defOf = (id: string) => defs.find(d => d.id === id);
   const here = (d: PatternDef | undefined) => (d?.area ?? undefined) === area;
-  const applied = ((target ? target.patterns : spec.patterns) ?? []).filter(a => here(defOf(a.id)));
+  const applied = ((target ? target.patterns : processPatterns(spec)) ?? []).filter(a => here(defOf(a.id)));
   const tags = target ? stepTags(target.kind, target.eventDirection, target.gatewayType) : [PROCESS_TARGET];
-  const available = patternsFor(model?.patterns, tags, engine).filter(here);
+  // ins Diagramm nur mit Diagramm; die von Orchescala gehen immer — und je einmal
+  const editableBpmn = canEdit && !!onPattern && !!hasDiagram;
+  const editableBuiltin = canEdit && !!onSpecChange;
+  const available = patternsFor(defs, tags, engine).filter(here)
+    .filter(d => !d.builtin || !applied.some(a => a.id === d.id));
+  const selectable = available.filter(d => (d.builtin ? editableBuiltin : editableBpmn));
   // Parameter mit «=» sind FEEL wie die Mapping-Werte — Vorschläge aus den Prozessvariablen
   // (vor dem frühen Ausstieg: Hooks immer in derselben Reihenfolge)
   const variables = useMemo(() => processVariables(spec, model), [spec, model]);
   if (!applied.length && !available.length) return null;
-  const editable = canEdit && !!onPattern && !!hasDiagram;
+  const editable = editableBpmn;
   const id = target?.id ?? null;
-  const cards = applied.map((a, i) => (
-    <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={defOf(a.id) ?? null}
-      isDark={isDark} editable={editable} engine={engine} atProcess={!target} variables={variables}
-      onRemove={() => onPattern?.(id, a.id, 'remove', a.params)}
-      onParams={params => onPattern?.(id, a.id, 'update', params, a.params)} />
-  ));
+  const add = (pid: string) => {
+    if (defOf(pid)?.builtin) onSpecChange?.(changeBuiltinPattern(spec, pid, 'add'));
+    else onPattern?.(id, pid, 'add');
+  };
+  const cards = applied.map((a, i) => {
+    const def = defOf(a.id) ?? null;
+    return (
+      <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={def}
+        isDark={isDark} editable={def?.builtin ? editableBuiltin : editable} engine={engine} atProcess={!target} variables={variables}
+        onRemove={() => (def?.builtin ? onSpecChange?.(changeBuiltinPattern(spec, a.id, 'remove')) : onPattern?.(id, a.id, 'remove', a.params))}
+        onParams={params => (def?.builtin ? onSpecChange?.(changeBuiltinPattern(spec, a.id, 'update', params)) : onPattern?.(id, a.id, 'update', params, a.params))} />
+    );
+  });
   // in der Zuständigkeit: die Pattern und — solange keines gewählt ist — die Auswahl, ohne eigene Überschrift
   if (area) {
     return (
       <div className="space-y-1.5">
         {cards}
-        {!applied.length && editable && (
-          <select value="" onChange={e => { if (e.target.value) onPattern!(id, e.target.value, 'add'); }}
+        {!applied.length && !!selectable.length && (
+          <select value="" onChange={e => { if (e.target.value) add(e.target.value); }}
             title="Zuständigkeit per Pattern festlegen — es wird sofort ins Diagramm eingefügt"
             className={`text-[10px] px-1.5 py-0.5 rounded border outline-none max-w-[16rem] ${c.input}`}>
             <option value="">+ Zuweisung per Pattern …</option>
-            {available.map(d => <option key={d.id} value={d.id} title={d.description}>{d.name}</option>)}
+            {selectable.map(d => <option key={d.id} value={d.id} title={d.description}>{d.name}</option>)}
           </select>
         )}
       </div>
@@ -718,12 +716,12 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   return (
     <Section id="patterns" label="Pattern" count={applied.length} isDark={isDark}
       hint={!hasDiagram ? <span className={`text-[9px] ${c.muted}`}>braucht das Diagramm</span> : undefined}
-      action={editable && available.length ? (
-        <select value="" onChange={e => { if (e.target.value) onPattern!(id, e.target.value, 'add'); }}
-          title="Pattern wählen — es wird sofort ins Diagramm eingefügt"
+      action={selectable.length ? (
+        <select value="" onChange={e => { if (e.target.value) add(e.target.value); }}
+          title="Pattern wählen — es wird sofort ins Diagramm eingefügt (die von Orchescala in die Spezifikation)"
           className={`text-[10px] px-1.5 py-0.5 rounded border outline-none max-w-[12rem] ${c.input}`}>
           <option value="">+ Pattern …</option>
-          {available.map(d => <option key={d.id} value={d.id} title={d.description}>{d.name}{applied.some(a => a.id === d.id) ? ' (noch einmal)' : ''}</option>)}
+          {selectable.map(d => <option key={d.id} value={d.id} title={d.description}>{d.name}{applied.some(a => a.id === d.id) ? ' (noch einmal)' : ''}</option>)}
         </select>
       ) : undefined}>
       <div className="space-y-1.5">
@@ -772,9 +770,10 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
   useEffect(() => { setDraft(viewOf(JSON.parse(storedKey))); }, [storedKey]);
   const [confirm, setConfirm] = useState(false);
   const commit = () => {
-    // was nicht angefasst wurde, bleibt wörtlich, wie es im BPMN steht
+    // was nicht angefasst wurde, bleibt wörtlich, wie es im BPMN steht — die
+    // Werte eines Patterns von Orchescala stehen nicht im BPMN, sondern so, wie getippt
     const next = Object.fromEntries(Object.entries(draft).map(([k, v]) =>
-      [k, stored[k] != null && paramView(stored[k]) === v ? stored[k] : paramStored(v, engine)]));
+      [k, def?.builtin ? v : stored[k] != null && paramView(stored[k]) === v ? stored[k] : paramStored(v, engine)]));
     if (JSON.stringify(next) !== storedKey) onParams(next);
   };
   const issuesOf = (v: string | undefined): FeelIssue[] => {
@@ -787,6 +786,7 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
       <div className="flex items-center gap-1.5 text-[10px]">
         <Puzzle size={10} className="flex-shrink-0" />
         <span className="font-semibold truncate" title={def?.description}>{def?.name ?? applied.id}</span>
+        {def?.builtin && <span title="Fest in Orchescala — die Werte stehen in der Spezifikation, nicht im Diagramm" className="text-[9px] opacity-70">Orchescala</span>}
         {def?.docUrl && (
           <a href={def.docUrl} target="_blank" rel="noopener noreferrer" title="Dokumentation des Patterns" className="opacity-70 hover:opacity-100">
             <ExternalLink size={9} />
@@ -795,7 +795,7 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
         {editable && def && (
           confirm
             ? <span className="ml-auto flex items-center gap-1">
-                <button onClick={() => { setConfirm(false); onRemove(); }} className="text-[9px] underline">aus dem Diagramm entfernen</button>
+                <button onClick={() => { setConfirm(false); onRemove(); }} className="text-[9px] underline">{def.builtin ? 'entfernen' : 'aus dem Diagramm entfernen'}</button>
                 <button onClick={() => setConfirm(false)} title="Abbrechen" className="opacity-70"><X size={10} /></button>
               </span>
             : <button onClick={() => setConfirm(true)} title="Pattern entfernen" className="ml-auto opacity-60 hover:opacity-100"><Trash2 size={10} /></button>

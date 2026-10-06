@@ -195,6 +195,13 @@ const isContext = (v: unknown): v is Record<string, unknown> =>
 const scalaIdent = (name: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `\`${name}\``);
 const scalaString = (v: string) => JSON.stringify(v);
 
+/**
+ * Ein reiner Pfad in FEEL (`clientKeyDescr`, `processLabels.de`): FEEL kennt
+ * den Wert nicht, Scala schon — er bleibt ein Verweis. So gilt dieselbe Regel
+ * für Vorgabe, Beispiel und Beschreibung, ohne Liste von Ausnahmen.
+ */
+const FEEL_PATH = /^(?!(?:true|false|null)$)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/;
+
 /** Die Vorgabe als Scala-Ausdruck — oder warum es nicht geht. Ohne Vorgabe: `{ scala: null }`. */
 export function scalaDefault(f: Field, idx: TypeIndex): { scala: string | null; issue?: string } {
   const d = f.default?.trim();
@@ -202,6 +209,7 @@ export function scalaDefault(f: Field, idx: TypeIndex): { scala: string | null; 
   if (!d.startsWith('=')) return { scala: d };
   const body = d.slice(1).trim();
   if (!body) return { scala: null, issue: 'Nach «=» fehlt der FEEL-Ausdruck.' };
+  if (FEEL_PATH.test(body)) return { scala: wrapExample(f, body) };
   let value: unknown;
   try {
     value = evaluate(body, {}).value;
@@ -406,6 +414,7 @@ export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; 
   if (!e?.startsWith('=')) return { scala: null };
   const body = e.slice(1).trim();
   if (!body) return { scala: null, issue: 'Beispiel: nach «=» fehlt der FEEL-Ausdruck.' };
+  if (FEEL_PATH.test(body)) return { scala: wrapExample(f, body) };
   let value: unknown;
   try {
     value = evaluate(body, {}).value;
@@ -427,18 +436,27 @@ export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; 
 /**
  * Ein Beispiel ohne «=» bei einem Text-Feld: ein Text braucht keine
  * Anführungszeichen (`rot` → `"rot"`). Scala bleibt, was danach aussieht —
- * so kommt es aus der Domain: ein Literal (`"CH"`, `s"…"`), ein Wert im
- * camelCase (`defaultClientKey`, `testEmail`), ein Verweis
- * (`Defaults.street`, `processLabels.de`, `UUID.randomUUID().toString`) oder
- * ein Aufruf. Ein Punkt allein macht noch keinen Verweis: `www.example.ch` ist Text.
+ * so kommt es aus der Domain (siehe looksLikeScala).
  */
 function textExample(f: Field, own: string): string {
   if (!['String', 'Iban'].includes(f.type) || f.enumCase) return own;
-  if (/^(s|f|raw)?"/.test(own)) return own;
-  if (/^[a-z]+[A-Z]\w*$/.test(own)) return own;
-  if (/^([A-Z]\w*|[a-z]+[A-Z]\w*)(\.\w+(\(\))?)+$/.test(own)) return own;
-  if (/^[A-Za-z_][\w.]*\(.*\)$/.test(own)) return own;
-  return scalaString(own);
+  return looksLikeScala(own, 'example') ? own : scalaString(own);
+}
+
+/**
+ * Sieht ein Text nach Scala aus statt nach Prosa? Nach den Konventionen der
+ * Domain: ein Literal (`"CH"`, `s"…${x}"`), ein Verweis (`Defaults.street`,
+ * `processLabels.de`, `UUID.randomUUID().toString`), ein Aufruf
+ * (`serviceOrProcessMockDescr(…)`) — und ein einzelner Name nur, wenn er wie
+ * ein Wert der Domain heisst: `defaultClientKey` im Beispiel, `clientKeyDescr`
+ * in der Beschreibung. `eBanking` oder `www.example.ch` sind Text.
+ */
+export function looksLikeScala(text: string, kind: 'example' | 'description'): boolean {
+  const t = text.trim();
+  if (kind === 'example' ? /^(s|f|raw)?"/.test(t) : /^s".*\$/.test(t)) return true;
+  if (kind === 'example' ? /^default[A-Z]\w*$/.test(t) : /^[a-z]\w*Descr$/.test(t)) return true;
+  return /^([A-Z]\w*|[a-z]+[A-Z]\w*)(\.\w+(\(\))?)+$/.test(t)
+    || /^[A-Za-z_][\w.]*\(.*\)$/.test(t);
 }
 
 export function exampleValue(f: Field, idx: TypeIndex): string {
@@ -502,11 +520,41 @@ function descriptionLine(text: string): string {
 
 const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
-/** `@description` eines Feldes — ein Ausdruck aus der Domain (`clientKeyDescr`) bleibt einer. */
+/**
+ * Die Beschreibung eines Feldes in FEEL (`= …`) als Text — wie das Beispiel,
+ * nur muss am Ende ein Text stehen; ein reiner Pfad (`= clientKeyDescr`)
+ * bleibt ein Verweis (`expr`). Kein FEEL: `{ text: null }`.
+ */
+export function feelDescription(f: Field): { text: string | null; expr?: string; issue?: string } {
+  const d = f.description?.trim();
+  if (!d?.startsWith('=')) return { text: null };
+  const body = d.slice(1).trim();
+  if (!body) return { text: null, issue: 'Beschreibung: nach «=» fehlt der FEEL-Ausdruck.' };
+  if (FEEL_PATH.test(body)) return { text: null, expr: body };
+  let value: unknown;
+  try {
+    value = evaluate(body, {}).value;
+  } catch {
+    return { text: null, issue: `Beschreibung «${d}» ist kein gültiges FEEL.` };
+  }
+  if (typeof value === 'string') return { text: value };
+  return { text: null, issue: `Beschreibung «${d}» ergibt keinen Text.` };
+}
+
+/**
+ * `@description` eines Feldes — ein Ausdruck aus der Domain (`clientKeyDescr`)
+ * bleibt einer, FEEL wird zum Text; was sich nicht übersetzen lässt, steht
+ * mit einem TODO da.
+ */
 function fieldDescription(f: Field): string {
   const expr = f.descriptionExpr?.trim();
   if (expr) return `@description(${expr})`;
-  return f.description ? descriptionLine(f.description) : '';
+  if (!f.description) return '';
+  const feel = feelDescription(f);
+  if (feel.expr) return `@description(${feel.expr})`;
+  if (feel.text != null) return descriptionLine(feel.text);
+  if (feel.issue) return `@description("TODO ${escape(feel.issue)}")`;
+  return descriptionLine(f.description);
 }
 
 /** Beschreibung eines Typs als Scaladoc — `@description` gilt nur für Felder. */
@@ -984,6 +1032,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   const inObject = (t: TypeDef) => inProcessObject(t, model, pkg);
   for (const t of types.filter(t => inObject(t) && t.name?.trim())) member(t);
   const customInit = initInExpression(spec, idx);
+  // das Pattern «Prozess-Bezeichnung» — ohne Werte gibt es nichts zu schreiben
+  const labels = spec.processLabels?.de?.trim() || spec.processLabels?.fr?.trim() ? spec.processLabels : undefined;
 
   if (processParts.length) {
     out.push({
@@ -999,8 +1049,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
           : []),
         // für ein neues Prozess-Objekt — ein bestehendes behält sein `descr`
         ...(spec.description?.trim() ? [`// descr: ${escape(firstLine(spec.description))}`] : []),
-        ...(spec.processLabels ? [`// processLabels: ${escape(spec.processLabels.de)} | ${escape(spec.processLabels.fr)}`] : []),
-        ...(spec.description?.trim() || spec.processLabels ? [''] : []),
+        ...(labels ? [`// processLabels: ${escape(labels.de)} | ${escape(labels.fr)}`] : []),
+        ...(spec.description?.trim() || labels ? [''] : []),
         `// in object ${objectName} einfügen`,
         '// (InConfig und InitIn werden aus dem Ablauf erzeugt — nicht von Hand pflegen)',
         '',
@@ -1187,6 +1237,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       }
       const ex = isFinished(f, idxAll) ? scalaExample(f, idxAll) : null;
       if (ex?.issue) issues.push({ typeId: t.id, field: f.id, message: ex.issue });
+      const descr = f.descriptionExpr ? null : feelDescription(f);
+      if (descr?.issue) issues.push({ typeId: t.id, field: f.id, message: descr.issue });
       const domId = parseDomainRef(f.type);
       if (domId) {
         if (model?.domainTypes && !model.domainTypes.some(d => d.id === domId)) {

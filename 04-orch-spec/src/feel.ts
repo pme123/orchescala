@@ -241,12 +241,12 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   // In, damit dessen Typ nicht verloren geht
   if (!initIn) for (const o of initOutputs(spec)) add({ name: o.name, type: 'any', label: '?', source: 'InitIn', ...(o.description ? { description: o.description } : {}) });
 
-  // Die Bezeichnung des Prozesses: der Init-Worker setzt sie als
-  // `callingProcessKeyDE/FR` (ProcessLabels.labelKeyDe/Fr in Orchescala)
+  // Das Pattern «Prozess-Bezeichnung» (von Orchescala): der Init-Worker setzt
+  // sie als `callingProcessKeyDE/FR` (ProcessLabels.labelKeyDe/Fr)
   const labels = spec.processLabels;
   if (labels?.de || labels?.fr) {
     for (const [lang, value] of [['DE', labels.de], ['FR', labels.fr]] as const) {
-      add({ name: `callingProcessKey${lang}`, type: 'string', label: 'String', source: 'processLabels',
+      add({ name: `callingProcessKey${lang}`, type: 'string', label: 'String', source: 'Pattern Prozess-Bezeichnung',
         description: `Bezeichnung des Prozesses (${lang.toLowerCase()})${value ? ` — «${value}»` : ''}; der Init-Worker setzt sie aus processLabels` });
     }
   }

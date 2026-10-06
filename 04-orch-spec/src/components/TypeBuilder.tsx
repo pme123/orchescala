@@ -7,7 +7,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, ClipboardPaste, Copy, Check, ListOrdered,
-  Plus, Trash2, Workflow, X,
+  Plus, Puzzle, Trash2, Workflow, X,
   Plug, ExternalLink, Unlink,
 } from 'lucide-react';
 import { isAdt,
@@ -19,13 +19,13 @@ import {
   catalogEntry, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction, withOrigin,
 } from '../interactions';
 import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
-import { caseName, casesOf, isSimpleEnum, renderInConfig } from '../scala';
+import { caseName, casesOf, isSimpleEnum, looksLikeScala, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
 import { checkTypes, constraintKind, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
-import { BRANCH_COLORS, cls } from '../ui';
+import { BRANCH_COLORS, cls, patternTone } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
 import { useConfirm } from './Confirm';
@@ -33,6 +33,7 @@ import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../clipboard';
 import { pasteField, pasteType, typeClosure } from '../copyPaste';
+import { patternOfField } from '../patterns';
 
 interface Props {
   spec: ProcessSpec;
@@ -62,6 +63,8 @@ interface ClipActions {
   pasteField: (typeId: string, valueIndex?: number) => void;
 }
 const ClipContext = createContext<ClipActions | null>(null);
+/** die ganze Spezifikation — für die Feldzeile (gehört ein Feld zu einem Pattern?) */
+const SpecContext = createContext<ProcessSpec | null>(null);
 
 /** Kopieren, kurz mit Häkchen bestätigt */
 function ClipCopyButton({ onCopy, title, className }: { onCopy: () => void; title: string; className: string }) {
@@ -328,6 +331,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 
   return (
     <ClipContext.Provider value={clipActions}>
+    <SpecContext.Provider value={spec}>
     <div className="flex h-full min-h-0">
       {/* ── Typen ──────────────────────────────────────────────────────────── */}
       <div className={`w-72 flex-shrink-0 border-r ${c.border} flex flex-col`}>
@@ -575,6 +579,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
        </div>
       </div>
     </div>
+    </SpecContext.Provider>
     </ClipContext.Provider>
   );
 }
@@ -916,9 +921,11 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
 }) {
   const confirm = useConfirm();
   const clip = useContext(ClipContext);
+  const spec = useContext(SpecContext);
   const c = cls(isDark);
   // der Typ, zu dem das Feld gehört — er bestimmt, ob es eine Vorgabe gibt
   const owner = types.find(t => t.id === selfId);
+  const ofPattern = spec ? patternOfField(spec, owner, f) : null;
   // der Beispielwert aus der Domain (`defaultClientKey`), den das example ohne eigene Angabe nimmt
   const fromDomain = idx.defaultOf(f);
   // Der Typ als Chip: die Farbe sagt, was es ist — einfach (grau), eigene
@@ -968,6 +975,12 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           <span title={chip.title ?? fieldType(f, idx)}
             className={`flex-shrink-0 flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[40%] ${chip.cls}`}>
             {chip.icon}<span className="truncate">{fieldType(f, idx)}</span>
+          </span>
+        )}
+        {ofPattern && (
+          <span title={`Gehört zum Pattern «${ofPattern.name}» — der Init-Worker setzt es aus processLabels; mit dem Pattern geht es wieder`}
+            className={`flex-shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${patternTone(isDark)}`}>
+            <Puzzle size={10} />{ofPattern.name}
           </span>
         )}
         {f.name && <CommentBubble target={sub(typeTarget(selfId), `field:${f.id}`)} quiet />}
@@ -1052,14 +1065,27 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
       {/* 3 · die Bedeutung und ein Beispiel */}
       <div className="flex flex-wrap items-start gap-x-1.5 gap-y-1">
         {/* ein Ausdruck aus der Domain (`clientKeyDescr`) bleibt einer, bis die Beschreibung geändert wird */}
-        {/* wächst mit dem Text (field-sizing) — eine lange Beschreibung steht ganz da */}
-        <textarea rows={1} value={f.description ?? ''} disabled={!canEdit}
-          onChange={e => onChange({ description: e.target.value || undefined, descriptionExpr: undefined })}
+        {/* wie das Beispiel: Text — mit «=» FEEL, ein Ausdruck aus der Domain
+            (`clientKeyDescr`, `s"…${X.processName}"`) bleibt Scala. Wächst mit
+            dem Text — eine lange Beschreibung steht ganz da */}
+        <FeelInput multiline mono={!!f.descriptionExpr} value={f.descriptionExpr ?? f.description ?? ''} isDark={isDark} size="md" disabled={!canEdit}
+          variables={[]}
+          onChange={v => {
+            const t = v.trim();
+            // was nach Scala aussieht, wird so exportiert (`@description(clientKeyDescr)`)
+            if (t && !t.startsWith('=') && looksLikeScala(t, 'description')) {
+              onChange({ descriptionExpr: t, description: undefined, ...(t === f.descriptionExpr ? {} : { descriptionImports: undefined }) });
+            } else {
+              onChange({ description: v || undefined, descriptionExpr: undefined, descriptionImports: undefined });
+            }
+          }}
           placeholder="fachliche Bedeutung (@description)"
-          title={f.descriptionExpr
-            ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.\nÄndern ersetzt den Ausdruck durch Text.`
-            : undefined}
-          className={`flex-[2] min-w-[14rem] resize-none [field-sizing:content] ${f.descriptionExpr ? 'font-mono' : ''} ${box}`} />
+          title={(f.descriptionExpr
+            ? `Aus der Domain: @description(${f.descriptionExpr}) — wird so exportiert.${f.description && f.description !== f.descriptionExpr ? `\nLesbar: ${f.description}` : ''}\n`
+            : 'Fachliche Bedeutung — wird zu @description("…").\n')
+            + 'Mit «=» FEEL, das einen Text ergibt, z. B. = "Kunde " + "Nummer". '
+            + 'Ein Verweis wie clientKeyDescr, Texte.kunde oder s"…${X.processName}" bleibt Scala.'}
+          className="flex-[2] min-w-[14rem]" />
         {/* wie die Vorgabe: FEEL mit «=»; ohne «=» bei Text der Text selbst, sonst Scala (so kommt es aus der Domain) */}
         <FeelInput value={f.example ?? ''} isDark={isDark} size="md" disabled={!canEdit}
           variables={[]}

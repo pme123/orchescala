@@ -249,6 +249,11 @@ export interface PatternDef {
    * «Zuständigkeit», und Gruppen/Person sind dann nicht editierbar.
    */
   area?: 'assignment';
+  /**
+   * Fest in Orchescala, nicht im Admin gepflegt und nicht im BPMN — seine
+   * Werte stehen in der Spezifikation (siehe ORCHESCALA_PATTERNS).
+   */
+  builtin?: boolean;
   [key: string]: unknown;
 }
 

@@ -199,11 +199,22 @@ Tippen.
   `= null` ist schon der ganze Wert. Ohne `=` ist es bei einem **Text-Feld**
   einfach der Text — ohne Anführungszeichen (`rot` → `"rot"`); Scala bleibt,
   was danach aussieht, so wie es aus der Domain kommt: ein Literal (`"CH"`,
-  `s"…"`), ein Wert im camelCase (`defaultClientKey`), ein Verweis
+  `s"…"`), ein Wert der Domain (`defaultClientKey`), ein Verweis
   (`Defaults.street`) oder ein Aufruf. Bei anderen Typen ist es ein
   Scala-Ausdruck wie bisher. Lässt es sich nicht übersetzen, nimmt das
   `example` das abgeleitete Beispiel mit einem `/* TODO … */` dahinter, und
   das Feld wird gemeldet.
+- Ein **reiner Pfad in FEEL** — `= clientKeyDescr`, `= processLabels.de`,
+  `= defaultClientKey` — ist ein Wert, den FEEL nicht kennt, Scala aber
+  schon: er bleibt in Vorgabe, Beispiel und Beschreibung ein Verweis
+  (`@description(clientKeyDescr)`, `Some(processLabels.de)` bei `optional`).
+- Die **Beschreibung** eines Feldes ebenso: Text wird zu
+  `@description("…")`, mit `=` ist sie FEEL, das einen Text ergibt
+  (`= "Kunde " + "Nummer"`). Ein Verweis bleibt Scala, so wie ihn die Domain
+  schreibt: `clientKeyDescr`, `Texte.kunde`, `s"…${X.processName}"` oder ein
+  Aufruf. Ein einzelnes Wort ist Text, auch im camelCase (`eBanking`) — als
+  Name gilt es nur nach der Konvention der Domain: `…Descr` in der
+  Beschreibung, `default…` im Beispiel.
 - Feld-IDs sind stabil: Umbenennen bricht keine Verweise.
 - **Geprüft wird sofort**: ungültige Scala-Namen, Schlüsselwörter, doppelte
   Felder, verwaiste Typverweise, Einschränkungen auf zusammengesetzten Typen,
@@ -273,12 +284,12 @@ gleichnamigen Typ eines anderen Projekts vor — `processStatus:
 ProcessStatus.canceled.type` bleibt ein fester Fall. Für ein neues
 Prozess-Objekt gibt der Export die Beschreibung als `// descr: …` und die
 Bezeichnung je Sprache als `// processLabels: de | fr` mit (aus
-`override def processLabels` der Domain, oder im Prozess-Panel unter
-**Bezeichnung (processLabels)** erfasst). Der Init-Worker setzt daraus die
-Prozessvariablen `callingProcessKeyDE` und `callingProcessKeyFR` — die
-Pattern «Benutzer per Mail informieren» und «Eskalation» lesen sie. In der
-App gelten sie deshalb als bekannt, sobald die Bezeichnung steht; Felder im
-Datenmodell braucht es dafür nicht. Die Imports kommen aus den Dateien
+`override def processLabels` der Domain, oder am Prozess mit dem Pattern
+**«Prozess-Bezeichnung»** erfasst, siehe [Pattern](#pattern)). Der
+Init-Worker setzt daraus die Prozessvariablen `callingProcessKeyDE` und
+`callingProcessKeyFR` — die Pattern «Benutzer per Mail informieren» und
+«Eskalation» lesen sie. In der App gelten sie deshalb als bekannt, sobald die
+Bezeichnung steht; Felder im Datenmodell braucht es dafür nicht. Die Imports kommen aus den Dateien
 der Domain: ein Feldtyp wird zuerst über sie aufgelöst (`LoadPoas` aus
 vollmacht, nicht die gleichnamige des eigenen Projekts), und Beispiele und
 Beschreibungen bringen mit, was sie brauchen (`defaultValidUntil`,
@@ -626,6 +637,19 @@ an ein Portal, eine Eskalation hängt als Timer an der Aufgabe und startet
 über einen Link den Eskalationsprozess, am Ende steht ein `processStatus`. Solche Bausteine
 legt der Admin als **Pattern** an; in der Spezifikation wählt man sie am
 Element, statt sie Stück für Stück zu zeichnen.
+
+**Pattern von Orchescala** sind fest dabei, stehen im Admin nur zur Ansicht
+und nicht im BPMN — ihre Werte stehen in der Spezifikation:
+
+- **Prozess-Bezeichnung** (`process-labels`, am Prozess): Deutsch und
+  Französisch → `override def processLabels: ProcessLabels =
+  ProcessLabels("…", "…")` im Prozess-Objekt. Der Init-Worker setzt daraus
+  `callingProcessKeyDE/FR`; die App kennt sie danach als Prozessvariablen.
+  Das Pattern bringt die beiden Felder ins **`Out`** (Beispiel
+  `processLabels.de` bzw. `.fr`; im Datenmodell tragen sie den Pattern-Chip, auch wenn sie aus der Domain kommen) —
+  das `Out` entsteht, wenn es fehlt; ein Feld, das es schon gibt, bleibt.
+  Entfernt man das Pattern, gehen die Felder mit. `processFromSpec` setzt die
+  `processLabels` in ein Prozess-Objekt, das noch keine hat.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):

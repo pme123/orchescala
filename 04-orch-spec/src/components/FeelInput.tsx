@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FEEL_TYPE_LABEL, completions, isFeel, tokenizeFeel, type Completion, type FeelTokenKind, type VarNode } from '../feel';
 import { cls } from '../ui';
 
-export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className, size }: {
+export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className, size, multiline, mono = true }: {
   value: string;
   onChange: (v: string) => void;
   /** Prozessvariablen für die Vorschläge — ohne sie gibt es keine */
@@ -21,9 +21,13 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   className?: string;
   /** `md`: so gross wie die übrigen Felder im Klassenbauer */
   size?: 'sm' | 'md';
+  /** mehrzeilig: bricht um und wächst mit dem Text (z. B. eine Beschreibung) */
+  multiline?: boolean;
+  /** Text in Festbreitenschrift — FEEL (`= …`) steht immer so */
+  mono?: boolean;
 }) {
   const c = cls(isDark);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<Completion[]>([]);
   const [range, setRange] = useState<{ from: number; to: number } | null>(null);
@@ -31,6 +35,9 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   const open = !!range && items.length > 0;
   const backRef = useRef<HTMLDivElement>(null);
   const highlight = !!variables && isFeel(value);
+  const box = size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5';
+  // FEEL immer in Festbreitenschrift — sonst stünde die Färbung neben dem Text
+  const font = mono || highlight ? 'font-mono' : '';
   // Farben: Variablen dunkelblau, Zeichenketten grün, FEEL (Funktionen, Schlüsselwörter) dunkelviolett
   const tone: Record<FeelTokenKind, string> = {
     variable: isDark ? 'text-blue-300' : 'text-blue-800',
@@ -76,7 +83,7 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' });
   }, [active, open]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (!open) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => (a + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => (a - 1 + items.length) % items.length); }
@@ -86,19 +93,31 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
 
   return (
     <div className={`relative ${className ?? ''}`}>
-      <input ref={inputRef} value={value} disabled={disabled} placeholder={placeholder} title={title}
-        onScroll={e => { if (backRef.current) backRef.current.scrollLeft = e.currentTarget.scrollLeft; }}
-        style={highlight ? { color: 'transparent', caretColor: isDark ? '#e5e7eb' : '#111827' } : undefined}
-        onChange={e => { onChange(e.target.value); refresh(e.target.value, e.target.selectionStart); }}
-        onKeyDown={onKeyDown}
-        onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) refresh(value, e.currentTarget.selectionStart); }}
-        onClick={e => refresh(value, e.currentTarget.selectionStart)}
-        onBlur={() => setTimeout(close, 120)}
-        autoComplete="off" spellCheck={false}
-        className={`w-full ${size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5'} rounded border outline-none font-mono ${c.input}`} />
+      {(() => {
+        const props = {
+          ref: inputRef, value, disabled, placeholder, title,
+          onScroll: (e: React.UIEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+            if (!backRef.current) return;
+            backRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            backRef.current.scrollTop = e.currentTarget.scrollTop;
+          },
+          style: highlight ? { color: 'transparent', caretColor: isDark ? '#e5e7eb' : '#111827' } : undefined,
+          onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(e.target.value); refresh(e.target.value, e.target.selectionStart); },
+          onKeyDown,
+          onKeyUp: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) refresh(value, e.currentTarget.selectionStart);
+          },
+          onClick: (e: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) => refresh(value, e.currentTarget.selectionStart),
+          onBlur: () => setTimeout(close, 120),
+          // Prosa (eine Beschreibung) darf die Rechtschreibprüfung haben, Ausdrücke nicht
+          autoComplete: 'off', spellCheck: !mono && !highlight,
+          className: `w-full ${box} rounded border outline-none ${font} ${multiline ? 'block resize-none [field-sizing:content]' : ''} ${c.input}`,
+        };
+        return multiline ? <textarea rows={1} {...props} /> : <input {...props} />;
+      })()}
       {highlight && (
         <div ref={backRef} aria-hidden
-          className={`absolute inset-0 overflow-hidden whitespace-pre pointer-events-none font-mono border border-transparent ${size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5'}`}>
+          className={`absolute inset-0 overflow-hidden pointer-events-none font-mono border border-transparent ${multiline ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${box}`}>
           {tokenizeFeel(value, variables!).map((t, k) => <span key={k} className={tone[t.kind]}>{t.text}</span>)}
         </div>
       )}

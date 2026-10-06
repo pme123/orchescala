@@ -12,7 +12,7 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Download, FileUp, Pencil, Plus, Puzzle, Trash2, Upload } from 'lucide-react';
 import type { EngineId, Model, PatternDef, PatternParam } from '../types';
-import { BUILTIN_PARAMS, PATTERN_TARGETS, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
+import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
 import { cls, patternTone } from '../ui';
 import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
@@ -94,6 +94,22 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
         Gross-/Kleinschreibung zählen nicht, <span className="font-mono">#{'{'}…{'}'}</span> gilt wie{' '}
         <span className="font-mono">${'{'}…{'}'}</span>, und was ein Element darüber hinaus trägt, stört nicht.</>}>
       <div className="space-y-2">
+        {/* fest in Orchescala — zur Ansicht, nicht änderbar */}
+        {ORCHESCALA_PATTERNS.map(p => (
+          <div key={p.id} title={p.description}
+            className={`rounded-lg border flex items-center gap-2 px-3 py-2 ${c.border2}`}>
+            <span className="w-3" />
+            <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-semibold ${patternTone(isDark)}`}>
+              <Puzzle size={10} />{p.name}
+            </span>
+            <span className={`text-[10px] font-mono ${c.muted}`}>{p.id}</span>
+            <span className={`text-[10px] truncate ${c.muted}`}>— fest in Orchescala, Werte in der Spezifikation</span>
+            <span className="ml-auto flex items-center gap-1">
+              {appliesTo(p).map(t => <span key={t} className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted2}`}>{targetLabel(t)}</span>)}
+              <span className={`text-[9px] font-mono ${c.muted}`}>C7 C8</span>
+            </span>
+          </div>
+        ))}
         {patterns.map(p => (
           <PatternRow key={p.id} def={p} isDark={isDark} open={open === p.id}
             onToggle={() => setOpen(open === p.id ? null : p.id)}
