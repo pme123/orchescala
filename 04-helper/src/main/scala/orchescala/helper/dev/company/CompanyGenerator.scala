@@ -24,7 +24,7 @@ case class CompanyGenerator(isInitCompany: Boolean = true)(using
     if isInitCompany then
       createOrUpdate(basePath / "helperCompany.scala", CompanyScriptCreator().companyHelper)
     // sbt
-    CompanySbtGenerator().generate
+    CompanySbtGenerator(engineConfig.supportedEngines).generate
     // company-orchescala
     // helper.scala
     createOrUpdate(

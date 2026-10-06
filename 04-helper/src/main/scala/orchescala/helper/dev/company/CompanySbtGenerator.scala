@@ -1,9 +1,17 @@
 package orchescala.helper.dev.company
 
 import orchescala.BuildInfo
+import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.update.*
 
-case class CompanySbtGenerator()(using
+/** @param supportedEngines
+  *   only decides on the Operaton worker (`EngineType.Op`): the Camunda 7 and 8 workers are always
+  *   in the company build, as before - a company with one Camunda engine keeps both, so
+  *   regenerating `Settings.scala` never removes a dependency its workers may use.
+  */
+case class CompanySbtGenerator(
+    supportedEngines: Seq[EngineType] = Seq(EngineType.C7, EngineType.C8)
+)(using
     config: DevConfig
 ):
   lazy val companyName = config.companyName
@@ -17,6 +25,11 @@ case class CompanySbtGenerator()(using
     createIfNotExists(config.sbtProjectDir / "ProjectDef.scala", projectDev)
     createOrUpdate(config.sbtProjectDir / "Settings.scala", settings)
   end generate
+
+  private lazy val opWorkerDep =
+    if supportedEngines.contains(EngineType.Op) then
+      "\n       |    \"io.github.pme123\" %% \"orchescala-worker-op\" % orchescalaV,"
+    else ""
 
   private lazy val projectConf      = config.apiProjectConfig
   private lazy val buildSbtDir      = config.projectDir / "build.sbt"
@@ -139,7 +152,7 @@ case class CompanySbtGenerator()(using
        |  )
        |  lazy val workerDeps = Seq(
        |    "io.github.pme123" %% "orchescala-worker-c7" % orchescalaV,
-       |    "io.github.pme123" %% "orchescala-worker-c8" % orchescalaV,
+       |    "io.github.pme123" %% "orchescala-worker-c8" % orchescalaV,$opWorkerDep
        |  )
        |
        |  lazy val gatewayDeps = Seq(
