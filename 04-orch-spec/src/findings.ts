@@ -222,7 +222,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
 
   const ownKind = ia?.kind ?? interactionKind(step, processId);
-  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask' || initWorker;
+  // eine DMN Decision liest ihr In ebenso direkt aus den Prozessvariablen (wie in missingRequiredInputs)
+  const implicitIn = ownKind === 'userTask' || ownKind === 'customTask' || ownKind === 'decision' || initWorker;
   // was ein Pattern am Element beisteuert, ist Implementation — nicht geprüft,
   // und fehlende Pflichtfelder meldet es nicht: den Aufruf legt das Pattern fest
   const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
