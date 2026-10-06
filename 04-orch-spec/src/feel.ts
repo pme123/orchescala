@@ -19,12 +19,12 @@
 // bei ihnen bleibt die Prüfung stumm, statt falsch zu warnen.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
-import type { DomainType, EngineId, Field, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
+import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
 import { indexTypes, type TypeIndex } from './scala';
 import { typeShape } from './scalaTypes';
-import { initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
+import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
 import { packageOf } from './scala';
 import { catalogObject, domainRef, parseDomainRef } from './serviceTypes';
 import { allSteps } from './bpmn';
@@ -254,15 +254,26 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
 
   for (const v of spec.variables ?? []) {
     const t = (v.type ?? '').trim();
-    add(isScalar(t)
-      ? nodeOf(v.name, t, { optional: false, collection: false, description: v.description, source: 'Variable', label: t }, b, 0, new Set())
+    // eine Klasse (`DebitCardDetail`, `Seq[Card]`): die eigene bzw. die der Domain — samt Feldern
+    const shape = typeShape(t);
+    const ref = !t || isScalar(shape.base) ? null
+      : types.find(x => x.name === shape.base)?.id ?? (() => { const d = resolveType(shape.base, model, packageOf(spec, model)); return d ? domainRef(d.id) : null; })();
+    add(isScalar(shape.base) || ref
+      ? nodeOf(v.name, ref ?? shape.base, { optional: shape.optional, collection: shape.collection, map: shape.map, description: v.description, source: 'Variable', label: t }, b, 0, new Set())
       : { name: v.name, type: 'any', label: t || '?', source: 'Variable', ...(v.description ? { description: v.description } : {}) });
   }
 
   for (const s of allSteps(spec.steps)) {
+    // das Ergebnis erst, wenn eine Ausgabe danach fragt — es braucht den Katalog
+    let results: VarNode[] | null = null;
+    const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
     for (const o of s.outputs ?? []) {
-      if (o.disabled) continue;
-      add({ name: o.name, type: 'any', label: '?', source: `Ausgabe von ${s.name || s.id}`, ...(o.description ? { description: o.description } : {}) });
+      if (o.disabled || !o.name || have.has(o.name)) continue;
+      const source = `Ausgabe von ${s.name || s.id}`;
+      const typed = outputNode(o, ofStep);
+      add(typed
+        ? { ...typed, name: o.name, source, ...(o.description ? { description: o.description } : {}) }
+        : { name: o.name, type: 'any', label: '?', source, ...(o.description ? { description: o.description } : {}) });
     }
   }
 
@@ -404,8 +415,16 @@ export function domainRequired(dom: DomainType | null, name: string): boolean | 
 }
 
 export function resultVariables(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null): VarNode[] {
+  const out = ownResults(step, spec, model, service);
+  const have = new Set(out.map(n => n.name));
+  for (const v of processVariables(spec, model)) if (!have.has(v.name)) { have.add(v.name); out.push(v); }
+  return out;
+}
+
+/** Nur das Ergebnis des Schritts — ohne die Prozessvariablen (siehe resultVariables) */
+function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null, built?: Builder): VarNode[] {
   const types = spec.types ?? [];
-  const b: Builder = { idx: indexTypes(types, model), model };
+  const b: Builder = built ?? { idx: indexTypes(types, model), model };
   const out: VarNode[] = [];
   const have = new Set<string>();
   const add = (n: VarNode) => { if (n.name && !have.has(n.name)) { have.add(n.name); out.push(n); } };
@@ -446,8 +465,20 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
       for (const p of service?.outputs ?? []) add({ name: p.name, type: 'any', label: '?', source: 'Ergebnis (Katalog)', ...(p.description ? { description: p.description } : {}) });
     }
   }
-  for (const v of processVariables(spec, model)) add(v);
   return out;
+}
+
+/**
+ * Der Typ einer Ausgabe: liest sie einen Pfad aus dem Ergebnis des Schritts
+ * (`= debitCardDetail`, `= result.basicData`), hat die Prozessvariable dessen
+ * Typ samt Feldern — sonst bleibt er unbekannt.
+ */
+function outputNode(o: Mapping, results: () => VarNode[]): VarNode | null {
+  const path = /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(o.expression.trim())?.[1].split('.').map(x => x.trim());
+  if (!path) return null;
+  let node = results().find(n => n.name === path[0]) ?? null;
+  for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  return node;
 }
 
 /** Erwarteter Typ eines Zielfelds — `null`, wenn er nicht bekannt ist. */

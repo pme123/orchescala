@@ -20,7 +20,8 @@
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
-import { juelOptions, referencedVariables } from './feel';
+import { juelOptions, referencedVariables, resultVariables } from './feel';
+import { catalogEntry } from './interactions';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, prependEl, removeEl } from './xmlFormat';
@@ -64,8 +65,29 @@ const isScript = (m: Mapping): boolean => /^(=\s*")?«/.test(m.expression.trimSt
  * über FEEL nicht eins zu eins zurückbringt. Nur was jemand geändert hat,
  * wird neu geschrieben.
  */
-const unchanged = (p: Element, m: Mapping): boolean => paramExpression(p).trim() === m.expression.trim()
-  && !bareJsonPath(attr(p, 'sourceExpression') ?? (firstNamed(p, 'script') ? '' : p.textContent ?? ''));
+const unchanged = (p: Element, m: Mapping, opts: JuelOptions = juelOpts): boolean => {
+  if (paramExpression(p).trim() !== m.expression.trim()) return false;
+  const old = attr(p, 'sourceExpression') ?? (firstNamed(p, 'script') ? '' : p.textContent ?? '');
+  return !bareJsonPath(old) && !lacksEnding(old, m.expression, opts);
+};
+
+const SPIN_ENDING = /\.(?:stringValue|numberValue|boolValue|value|elementList)\(\)/g;
+/**
+ * Ein Spin-Pfad, dem nur das Ende fehlt (`….prop("clientKey")` statt
+ * `….prop("clientKey").numberValue()`) — geschrieben, als der Typ noch nicht
+ * bekannt war. Sonst gleich, also neu schreiben; was jemand von Hand anders
+ * geschrieben hat, bleibt.
+ */
+function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOpts): boolean {
+  const body = feelBody(expression);
+  if (!isJuel(old) || body == null) return false;
+  const r = feelToJuel(body, opts);
+  if (!r.ok) return false;
+  const was = old.trim().replace(/^[$#]\{|\}$/g, '').replace(/\s+/g, '');
+  const now = r.juel.replace(/\s+/g, '');
+  const count = (t: string) => (t.match(SPIN_ENDING) ?? []).length;
+  return was !== now && was.replace(SPIN_ENDING, '') === now.replace(SPIN_ENDING, '') && count(now) > count(was);
+}
 
 /**
  * JUEL aus einem älteren Stand, das einen Pfad wie ein Java-Feld liest
@@ -94,13 +116,29 @@ function bareJsonPath(text: string): boolean {
  * `execution.getVariable("x")`, sonst wirft es, wenn sie fehlen.
  */
 let juelOpts: JuelOptions = {};
+/**
+ * Für die Ausgaben eines Schritts: der Ausdruck liest das Ergebnis des
+ * Services (`= debitCardDetail.basicData.clientKey`) — dessen Felder
+ * bestimmen, wie ein Spin-Pfad endet, nicht die Prozessvariablen allein.
+ */
+let outputOpts: (stepId: string) => JuelOptions = () => juelOpts;
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
+  const steps = new Map(allSteps(spec.steps).map(s => [s.id, s]));
+  const cache = new Map<string, JuelOptions>();
+  outputOpts = stepId => {
+    const step = steps.get(stepId);
+    if (!step) return juelOpts;
+    let o = cache.get(stepId);
+    if (!o) cache.set(stepId, o = { ...juelOpts, vars: resultVariables(step, spec, model, catalogEntry(step, model)) });
+    return o;
+  };
   try {
     return writeBpmnWith(xml, spec);
   } finally {
     juelOpts = {};
+    outputOpts = () => juelOpts;
   }
 }
 
@@ -296,7 +334,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
         // sich nur darin, welche Variable fehlen darf (`execution.getVariable`):
         // das folgt dem heutigen Datenmodell
         const bare = (t: string) => t.replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1').replace(/\s+/g, '');
-        if (engine === 'c8' || !translated || old.trim() === text || (bare(old) !== bare(text) && !bareJsonPath(old))) continue;
+        if (engine === 'c8' || !translated || old.trim() === text || (bare(old) !== bare(text) && !bareJsonPath(old) && !lacksEnding(old, b.condition))) continue;
       } else if (!translated) {
         issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${(feelToJuel(body, juelOpts) as { reason: string }).reason}` });
       }
@@ -704,10 +742,10 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
  * Groovy-Skript (siehe feelToGroovy) — nur wo ein Skript stehen kann
  * (`camunda:inputParameter` / `outputParameter`, nicht `camunda:in`).
  */
-function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[], script = false): { text: string; plain?: string; script?: string } {
+function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[], script = false, opts: JuelOptions = juelOpts): { text: string; plain?: string; script?: string } {
   const body = feelBody(m.expression);
   if (body == null) return { text: m.expression };
-  const r = feelToJuel(body, juelOpts);
+  const r = feelToJuel(body, opts);
   if (r.ok) return { text: `\${${r.juel}}`, ...(r.plain ? { plain: r.plain } : {}) };
   if (script) {
     const g = feelToGroovy(body);
@@ -744,7 +782,7 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (TECHNICAL.has(name)) continue;
     const tag = local(p) === 'inputParameter' ? 'in' : 'out';
     const row = (tag === 'in' ? ins : outs).find(m => m.name.trim() === name);
-    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
+    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, tag === 'in' ? juelOpts : outputOpts(stepId)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
       keep.add(`${tag}:${name}`);
       continue;
     }
@@ -766,7 +804,7 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (keep.has(`out:${m.name.trim()}`) || scriptGone(m, `Ausgabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:outputParameter');
     p.setAttribute('name', m.name.trim());
-    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true));
+    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true, outputOpts(stepId)));
     appendEl(io, p);
   }
   if (!kids(io).length) removeEl(io);
@@ -788,30 +826,31 @@ function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Ma
     if (n !== 'in' && n !== 'out') continue;
     if (attr(p, 'businessKey') || attr(p, 'variables')) continue;
     if (TECHNICAL.has(attr(p, 'target') ?? '') || TECHNICAL.has(attr(p, 'source') ?? '')) continue;
-    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m));
+    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, n === 'in' ? juelOpts : outputOpts(stepId)));
     if (row) { kept.add(row); continue; }
     removeEl(p);
   }
   const put = (tag: 'in' | 'out', m: Mapping, where: string) => {
     if (kept.has(m)) return;
     const name = m.name.trim();
+    const opts = tag === 'in' ? juelOpts : outputOpts(stepId);
     const existing = ioParam(tag, name);
     // eine lokale Variable im `inputOutput`: unverändert bleibt sie, ein
     // Skript sowieso; ein geänderter Text wird dort ersetzt — es sei denn,
     // derselbe Name geht auch als `camunda:in` durch, dann ist das die Zeile
     const twice = (tag === 'in' ? ins : outs).filter(x => x.name.trim() === name).length > 1;
-    if (existing && (unchanged(existing, m) || (isComplex(existing) && (isScript(m) || feelBody(m.expression) == null)))) return;
+    if (existing && (unchanged(existing, m, opts) || (isComplex(existing) && (isScript(m) || feelBody(m.expression) == null)))) return;
     if (isScript(m)) {
       issues.push({ stepId, where, text: 'ist ein Skript — die Spezifikation beschreibt es nur; im BPMN steht es nicht mehr. Dort pflegen.' });
       return;
     }
     if (existing && !twice) {
       for (const k of kids(existing)) k.remove();
-      existing.textContent = juelOf(m, stepId, where, issues).text;
+      existing.textContent = juelOf(m, stepId, where, issues, false, opts).text;
       return;
     }
     const p = doc.createElementNS(CAMUNDA_NS, `camunda:${tag}`);
-    const j = juelOf(m, stepId, where, issues);
+    const j = juelOf(m, stepId, where, issues, false, opts);
     // ein blosser Variablenpfad ist `source`, alles andere `sourceExpression`
     if (j.plain && !j.plain.includes('.') && !j.plain.includes('[')) p.setAttribute('source', j.plain);
     else p.setAttribute('sourceExpression', j.text);
