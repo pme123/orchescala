@@ -1153,6 +1153,7 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: Proce
     title: previous.title || fresh.title,
     description: previous.description ?? '',
     sourceUrl: previous.sourceUrl,
+    epics: previous.epics,
     variables: previous.variables ?? [],
     ...(fresh.initOutputs?.length ? { initOutputs: fresh.initOutputs } : {}),
     // Pattern am Prozess kommen aus dem BPMN — wie die Struktur

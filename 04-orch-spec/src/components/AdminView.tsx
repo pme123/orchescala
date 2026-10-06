@@ -1,14 +1,16 @@
-// Admin: Auftritt, Katalog, Pattern, Anmeldung, Benachrichtigungen.
+// Admin: Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen.
 //
-// Fünf Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+// Sechs Bereiche, in der Reihenfolge, in der sie gebraucht werden:
 //
 //  1. **Auftritt** — Kunde und Logo für die Kopfzeile.
 //  2. **Katalog** — importieren, exportieren, nachschlagen. Das ist der
 //     Bereich, der in **jeder** Umgebung zählt; in der Bankenzone ist es der
 //     einzige. Das lokale Erzeugen daraus ist optional und zugeklappt.
 //  3. **Pattern** — wiederkehrende BPMN-Bausteine, an den Elementen wählbar.
-//  4. **Anmeldung** — Entra ID.
-//  5. **Benachrichtigungen** — Teams-Nachricht bei @-Erwähnungen in Kommentaren.
+//  4. **Epics** — Klammern über mehrere Prozesse (z. B. ein Change), am
+//     Prozess zuzuordnen und in der Übersicht zu filtern.
+//  5. **Anmeldung** — Entra ID.
+//  6. **Benachrichtigungen** — Teams-Nachricht bei @-Erwähnungen in Kommentaren.
 //
 // Oben eine Statusleiste: je Bereich eine Karte mit dem Zustand, Klick
 // springt hin. So sieht man auf einen Blick, was eingerichtet ist.
@@ -21,7 +23,7 @@
 // in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
 // eine Frage, die sich hier stellt — steht das drin?
 import { useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Image, KeyRound, MessageSquare, Puzzle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink } from '../auth';
 import type { CatalogFile } from '../catalogImport';
@@ -30,6 +32,7 @@ import CatalogBuild from './CatalogBuild';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
 import PatternAdmin, { patternState } from './PatternAdmin';
+import EpicAdmin, { epicState } from './EpicAdmin';
 import { AdminSection, FieldLabel, SaveRow, StateChip, Switch, flashOf, useFlash, type AdminTone } from './adminUi';
 import { KindChip, catalogCounts } from './CatalogSearch';
 import type { Model, TeamsNotifySettings } from '../types';
@@ -39,7 +42,7 @@ import { cls } from '../ui';
 interface Zustand { tone: AdminTone; label: string; detail?: string }
 
 /** Der Zustand je Bereich — für Statusleiste und Kartenkopf dieselbe Quelle. */
-function zustaende(model: Model, generated: CatalogFile | null): Record<'branding' | 'catalog' | 'patterns' | 'auth' | 'teams', Zustand> {
+function zustaende(model: Model, generated: CatalogFile | null): Record<'branding' | 'catalog' | 'patterns' | 'epics' | 'auth' | 'teams', Zustand> {
   const services = (model.services ?? []).length, types = (model.domainTypes ?? []).length;
   const gen = generated ? (generated.services ?? []).length + (generated.domainTypes ?? []).length : 0;
   const auth = model.auth;
@@ -55,6 +58,7 @@ function zustaende(model: Model, generated: CatalogFile | null): Record<'brandin
         ? { tone: 'ok', label: `${services} Services · ${types} Typen`, detail: 'importiert oder lokal erzeugt' }
         : { tone: 'warn', label: 'leer', detail: gen ? '' : 'Katalog importieren oder lokal erzeugen' },
     patterns: patternState(model),
+    epics: epicState(model),
     auth: !auth?.enabled
       ? { tone: 'off', label: 'aus', detail: 'ohne Anmeldung, jeder darf alles' }
       : authOk
@@ -78,6 +82,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
     { id: 'branding', icon: <Image size={13} />, title: 'Auftritt', z: z.branding },
     { id: 'catalog', icon: <BookOpen size={13} />, title: 'Katalog', z: z.catalog },
     { id: 'patterns', icon: <Puzzle size={13} />, title: 'Pattern', z: z.patterns },
+    { id: 'epics', icon: <Flag size={13} />, title: 'Epics', z: z.epics },
     { id: 'auth', icon: <KeyRound size={13} />, title: 'Anmeldung', z: z.auth },
     { id: 'teams', icon: <MessageSquare size={13} />, title: 'Teams', z: z.teams },
   ];
@@ -96,7 +101,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
       <ModelLocation isDark={isDark} />
 
       {/* Statusleiste: je Bereich eine Karte, Klick springt hin */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {bereiche.map(b => (
           <button key={b.id} onClick={() => springe(b.id)} title={b.z.detail || undefined}
             className={`text-left rounded-lg border px-3 py-2 space-y-1 transition-colors ${c.border2} ${c.hover}`}>
@@ -135,6 +140,9 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <PatternAdmin model={model} isDark={isDark} onSave={saveModel}
         state={<StateChip tone={z.patterns.tone} label={z.patterns.label} isDark={isDark} title={z.patterns.detail} />} />
+
+      <EpicAdmin model={model} specs={specs.map(s => s.data)} isDark={isDark} onSave={saveModel}
+        state={<StateChip tone={z.epics.tone} label={z.epics.label} isDark={isDark} title={z.epics.detail} />} />
 
       <AuthSettingsForm model={model} isDark={isDark} onSave={saveModel} folderUrl={storage?.webUrl}
         state={<StateChip tone={z.auth.tone} label={z.auth.label} isDark={isDark} title={z.auth.detail} />} />

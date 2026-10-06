@@ -207,7 +207,7 @@ export default function App() {
           )}
           {dirHandle && model && canAdmin && (
             <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
-              title="Admin — Auftritt, Katalog, Pattern, Anmeldung, Benachrichtigungen"
+              title="Admin — Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen"
               onClick={() => setView(v => v.kind === 'admin' ? { kind: 'list' } : { kind: 'admin' })} />
           )}
 

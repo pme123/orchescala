@@ -647,7 +647,7 @@ Datei gleich wieder an.
 
 ### Der Admin-Bereich
 
-Fünf Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+Sechs Bereiche, in der Reihenfolge, in der sie gebraucht werden:
 
 1. **Auftritt** — Kunde und Logo für die Kopfzeile.
 2. **Katalog** — importieren, exportieren, nachschlagen. Das zählt in jeder
@@ -655,14 +655,38 @@ Fünf Bereiche, in der Reihenfolge, in der sie gebraucht werden:
    Das lokale Erzeugen (Projekt-Ordner, OpenAPI, Doku-Site) steckt darin
    zugeklappt: dazu müssen die Quellen erreichbar sein.
 3. **Pattern** — wiederkehrende BPMN-Bausteine, siehe [Pattern](#pattern).
-4. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
-5. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
+4. **Epics** — Klammern über mehrere Prozesse, siehe [Epics](#epics).
+5. **Anmeldung** — Entra ID (Tenant, Client, Rollen, Einrichtungs-Link).
+6. **Benachrichtigungen (Teams)** — Teams-Nachricht bei @-Erwähnungen und
    Antworten in Kommentaren: ein/aus, Wartezeit, Vorlage.
 
 Bewusst **keine** Liste zum Durchblättern: die Klassen eines Prozesses stehen
 in seiner Spezifikation unter «Datenmodell», dort wo sie gebraucht werden.
 Hier bleibt eine Suche über Services **und** Domain-Typen zugleich — für die
 eine Frage, die sich im Admin stellt: steht das drin?
+
+### Epics
+
+Ein Epic klammert mehrere Prozesse, die zusammen geändert werden — z. B.
+«Change XY». Ein Prozess kann in **beliebig vielen** Epics stehen (0..*).
+
+- **Anlegen** darf nur ein Admin (Admin → Epics): Name, kurze Beschreibung,
+  optional ein Link (z. B. auf das Jira-Epic). Die ID entsteht beim Anlegen
+  aus dem Namen (`change-xy`) und bleibt; umbenennen ändert nur die Anzeige.
+- **Zuordnen** kann, wer bearbeitet: im Prozess-Panel (kein Schritt gewählt)
+  unter «Epics» — als Chip, «×» nimmt ihn wieder heraus.
+- **Filtern** in der Übersicht: die Epics stehen als Chips neben den
+  Status-Filtern, mit der Zahl ihrer Prozesse; ein Klick zeigt nur noch
+  diese. Der Filter bleibt im Browser gemerkt. Jede Zeile zeigt ihre Epics,
+  und die Suche findet Prozesse auch über den Epic-Namen.
+- **Abschliessen** statt löschen: ein abgeschlossenes Epic lässt sich nicht
+  mehr zuweisen, bleibt aber am Prozess (gestrichelt) und im Filter. Löschen
+  entfernt es nur aus der `model.json` — in den Spezifikationen bleibt die
+  ID stehen, wird aber nicht mehr gezeigt.
+
+Die Definitionen liegen in `config/model.json` (`epics`), der Prozess trägt
+nur die IDs (`epics: ["change-xy"]`). Ein erneuter BPMN-Abgleich lässt sie
+unberührt; die Exporte nennen die Epics im Kopf.
 
 ### Pattern
 

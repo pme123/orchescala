@@ -608,6 +608,8 @@ export interface ProcessSpec {
   initOutputs?: Mapping[];
   /** Pattern am Prozess selbst (z. B. «einmalige Ausführung») */
   patterns?: AppliedPattern[];
+  /** IDs der Epics (`Model.epics`), an denen dieser Prozess mitarbeitet */
+  epics?: string[];
   steps: Step[];
   [key: string]: unknown;
 }
@@ -774,6 +776,21 @@ export interface ProjectFolder {
   [key: string]: unknown;
 }
 
+/**
+ * Ein Epic — eine Klammer über mehrere Prozesse, z. B. ein Change. Anlegen
+ * darf nur ein Admin; zuordnen, wer bearbeitet. Die Übersicht filtert danach.
+ */
+export interface EpicDef {
+  /** stabil — steht in den Spezifikationen; ein Umbenennen ändert nur `name` */
+  id: string;
+  name: string;
+  description?: string;
+  /** Link, z. B. auf das Epic im Ticketsystem */
+  url?: string;
+  /** abgeschlossen: nicht mehr zuweisbar, bleibt aber am Prozess und im Filter */
+  closed?: boolean;
+}
+
 export interface AuthSettings {
   enabled: boolean;
   tenantId: string;
@@ -813,6 +830,8 @@ export interface Model {
   projects?: ProjectFolder[];
   /** Pattern, die die Spezifikationen an ihren Elementen wählen können */
   patterns?: PatternDef[];
+  /** Epics, denen sich Prozesse zuordnen lassen — die Reihenfolge gilt auch im Filter */
+  epics?: EpicDef[];
   /**
    * Projektfarben aus dem generierten Katalog (`prepareDocs`, `ProjectConfig.color`) —
    * nur im Speicher, nie in der model.json. Eine Farbe am Projekt-Ordner geht vor.
