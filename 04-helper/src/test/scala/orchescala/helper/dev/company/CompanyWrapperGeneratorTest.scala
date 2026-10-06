@@ -50,6 +50,19 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       val error = intercept[IllegalArgumentException](generated(engines)(_ => ()))
       assert(error.getMessage.contains("at least one of C7, C8 or Op"), error.getMessage)
 
+  test("a company adding Op later: the worker-op dependency comes with the re-generated Settings"):
+    val dir = os.temp.dir(prefix = "company-wrapper-")
+    try
+      os.dynamicPwd.withValue(dir):
+        given DevConfig = DevConfig.configForCompany("democompany-orchescala")
+        val settings    = dir / "democompany-orchescala" / "project" / "Settings.scala"
+        val workerOpDep = """"io.github.pme123" %% "orchescala-worker-op" % orchescalaV"""
+        CompanySbtGenerator(Seq(C7, C8)).generate
+        assert(!os.read(settings).contains(workerOpDep))
+        CompanySbtGenerator(Seq(C7, C8, Op)).generate
+        assert(os.read(settings).contains(workerOpDep))
+    finally os.remove.all(dir)
+
   combinations.foreach: (engines, engineContext) =>
     val name = engines.mkString(" ")
     val hasC7 = engines.contains(C7)
