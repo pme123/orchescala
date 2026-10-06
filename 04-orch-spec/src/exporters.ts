@@ -16,6 +16,7 @@ import { convertBpmn } from './engineConvert.ts';
 import { engineExpression } from './feelJuel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
+import { epicsOf } from './epics.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -150,6 +151,8 @@ function exportFachlich(spec: ProcessSpec, model: Model | null): string {
   if (spec.description) out.push(spec.description, '');
   if (spec.timeToLive) out.push(`Historie wird ${spec.timeToLive} Tage aufbewahrt.`, '');
   if (spec.patterns?.length) out.push(`Pattern am Prozess: ${patternText(spec.patterns, pn)}`, '');
+  const epics = epicsOf(spec, model);
+  if (epics.length) out.push(`Epics: ${epics.map(e => e.name).join(', ')}`, '');
   const amProzess = kommentarZeilen(spec, processTarget, '');
   if (amProzess.length) out.push('### Offene Kommentare zum Prozess', '', ...amProzess, '');
   out.push('## Ablauf', '');
@@ -244,6 +247,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       ['Stand', spec.updatedAt],
       ...(spec.timeToLive ? [['Time to Live', `${spec.timeToLive} Tage`]] : []),
       ...(spec.sourceUrl ? [['Quelle', spec.sourceUrl]] : []),
+      ...(epicsOf(spec, model).length ? [['Epics', epicsOf(spec, model).map(e => e.name).join(', ')]] : []),
       ...(spec.patterns?.length ? [['Pattern', patternText(spec.patterns, pn, true)]] : []),
     ], ['Feld', 'Wert']),
   ];

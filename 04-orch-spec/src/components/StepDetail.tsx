@@ -9,7 +9,8 @@ import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping,
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
-import { KIND_LABEL, cls, patternTone } from '../ui';
+import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
+import { epicsOf, toggleEpic } from '../epics';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
@@ -106,6 +107,7 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
         <ProjectPicker spec={spec} isDark={isDark} canEdit={canEdit}
           prefixes={projectPrefixes ?? []} onRename={onRenameProject} />
       )}
+      <EpicPicker spec={spec} model={model} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
       <Field label="Ausgangslage / Ziel (Markdown)" isDark={isDark} comment={sub(processTarget, 'description')}>
         <MarkdownField value={spec.description ?? ''} disabled={!canEdit} isDark={isDark}
           onChange={v => onSpecChange({ ...spec, description: v })}
@@ -170,6 +172,50 @@ function ProjectPicker({ spec, isDark, canEdit, prefixes, onRename }: {
       <p className={`text-[10px] mt-1 ${c.muted}`}>
         Ein Wechsel benennt alle IDs «{aktuell}-…» um — Prozess-ID, Topics, Entscheidungen, Nachrichten.
       </p>
+    </Field>
+  );
+}
+
+// Epics des Prozesses — anlegen darf nur ein Admin (Admin → Epics), hier
+// wird nur zugeordnet. Abgeschlossene bleiben stehen, kommen aber nicht neu dazu.
+function EpicPicker({ spec, model, isDark, canEdit, onChange }: {
+  spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void;
+}) {
+  const c = cls(isDark);
+  const all = model?.epics ?? [];
+  const mine = epicsOf(spec, model);
+  const offen = all.filter(e => !e.closed && !mine.some(m => m.id === e.id));
+  if (!all.length && !canEdit) return null;
+  return (
+    <Field label="Epics" isDark={isDark}>
+      <div className="flex items-center gap-1 flex-wrap">
+        {mine.map(e => (
+          <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark}
+            title={[e.name, e.description, e.closed ? 'abgeschlossen' : ''].filter(Boolean).join(' — ')}>
+            {e.url && (
+              <a href={e.url} target="_blank" rel="noopener noreferrer" title="Epic öffnen" className="opacity-70 hover:opacity-100">
+                <ExternalLink size={9} />
+              </a>
+            )}
+            {canEdit && (
+              <button onClick={() => onChange(toggleEpic(spec, e.id, false))} title="Aus dem Epic nehmen"
+                className="opacity-70 hover:opacity-100"><X size={9} /></button>
+            )}
+          </EpicChip>
+        ))}
+        {canEdit && offen.length > 0 && (
+          <select value="" onChange={e => { if (e.target.value) onChange(toggleEpic(spec, e.target.value, true)); }}
+            className={`text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
+            <option value="">+ Epic</option>
+            {offen.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        )}
+        {!mine.length && (!canEdit || !offen.length) && (
+          <span className={`text-[10px] ${c.muted}`}>
+            {all.some(e => !e.closed) ? 'keinem Epic zugeordnet' : 'Noch keine offenen Epics — ein Admin legt sie unter Admin → Epics an.'}
+          </span>
+        )}
+      </div>
     </Field>
   );
 }
