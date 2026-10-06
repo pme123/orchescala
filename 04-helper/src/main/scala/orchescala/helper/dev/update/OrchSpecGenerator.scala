@@ -288,11 +288,61 @@ case class OrchSpecRegistration(
 ):
 
   def register(content: String): RegistrationResult =
-    val lines = content.linesIterator.toSeq
-    val start = lines.indexWhere(_.matches(s"""\\s*(private\\s+)?lazy val $name\\s*=.*"""))
+    val lines  = content.linesIterator.toSeq
+    val hidden = commented(lines)
+    val start  = lines.indices.indexWhere(i =>
+      !hidden(i) && lines(i).matches(s"""$leadingComments(private\\s+)?lazy val $name\\s*=.*""")
+    )
     if start >= 0 then addEntries(lines, start)
     else addBlock(lines)
   end register
+
+  /** The lines that begin inside a block comment (`/* … */`) or a multi-line string - like the
+    * example of the generated `ApiProjectCreator`: a block there is no registration, neither the
+    * process's own nor a neighbour to sort the new block next to. Read as Scala does: comments
+    * nest, and the opener of a comment in a string, a character or after `//` opens none.
+    */
+  private def commented(lines: Seq[String]): Set[Int] =
+    val hidden = Set.newBuilder[Int]
+    var depth  = 0     // open block comments
+    var triple = false // in a """…""" string - it may span lines
+    for (line, i) <- lines.zipWithIndex do
+      if depth > 0 || triple then hidden += i
+      var single = false // in a "…" string - it ends with the line at the latest
+      var j      = 0
+      def at(token: String) = line.startsWith(token, j)
+      while j < line.length do
+        if triple then
+          if at("\"\"\"") then triple = false
+          j += (if !triple then 3 else 1)
+        else if single then
+          if line(j) == '"' then single = false
+          j += (if line(j) == '\\' then 2 else 1)
+        else if depth > 0 then
+          if at("/*") then depth += 1
+          else if at("*/") then depth -= 1
+          j += (if at("/*") || at("*/") then 2 else 1)
+        else if at("//") then j = line.length
+        else if at("/*") then
+          depth += 1
+          j += 2
+        else if at("\"\"\"") then
+          triple = true
+          j += 3
+        else if line(j) == '"' then
+          single = true
+          j += 1
+        else if line(j) == '\'' then // a character - `'"'`, `'\\''` - opens nothing
+          j += (if line.lift(j + 1).contains('\\') then 4 else 3)
+        else j += 1
+        end if
+      end while
+    end for
+    hidden.result()
+  end commented
+
+  // `/* … */` in front of a `lazy val` on the same line - still the registration
+  private val leadingComments = """\s*(?:/\*.*?\*/\s*)*"""
 
   def snippet(missing: Seq[String]): String =
     s"""  $listStart
@@ -357,8 +407,9 @@ case class OrchSpecRegistration(
   private def insertBlock(lines: Seq[String], end: Int): Seq[String] =
     val blockLines = block(entries).linesIterator.toSeq
     val suffix     = "[A-Z][a-z0-9]*$".r.findFirstIn(name).getOrElse("")
-    val start      = s"""\\s*(?:private\\s+)?lazy val (\\w+$suffix)\\s*=.*""".r
-    val blocks     = (0 until end).flatMap(i =>
+    val start      = s"""$leadingComments(?:private\\s+)?lazy val (\\w+$suffix)\\s*=.*""".r
+    val hidden     = commented(lines)
+    val blocks     = (0 until end).filterNot(hidden).flatMap(i =>
       lines(i) match
         case start(other) => Seq(i -> other)
         case _            => Seq.empty
