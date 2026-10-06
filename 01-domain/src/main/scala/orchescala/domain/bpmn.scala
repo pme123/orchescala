@@ -216,6 +216,15 @@ enum BpmnProcessType:
 end BpmnProcessType
 
 object BpmnProcessType:
+  /** The engine as in a PROJECT.conf (`engineType: C7 | C8 | Op`), with the default diagram path. */
+  def fromEngineType(engineType: String): BpmnProcessType =
+    engineType.trim.toLowerCase match
+      case "c7" => C7()
+      case "c8" => C8()
+      case "op" => Op()
+      case other =>
+        throw IllegalArgumentException(s"Unknown engineType '$other' - use C7, C8 or Op.")
+
   def diagramPaths: Seq[os.RelPath] =
     Seq(C7().diagramPath) // TODO not supported yet: , C8().diagramPath)
 end BpmnProcessType

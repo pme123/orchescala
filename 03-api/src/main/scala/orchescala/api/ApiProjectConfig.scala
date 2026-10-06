@@ -12,7 +12,9 @@ final case class ApiProjectConfig(
     dependencies: Seq[DependencyConfig],
     // additional dependencies for the worker module only
     workerDependencies: Seq[DependencyConfig],
-    modules: Seq[ModuleType]
+    modules: Seq[ModuleType],
+    // the engine of this project (`engineType: C7 | C8 | Op`) - None: the company's default
+    engineType: Option[BpmnProcessType]
 ):
   lazy val companyName: String = projectName.split("-").head
   lazy val allDependencies: Seq[DependencyConfig] = (dependencies ++ workerDependencies).distinct
@@ -44,6 +46,9 @@ object ApiProjectConfig:
            |]
            |
            |modules: [${ModuleType.projectModules.mkString(", ")}]
+           |
+           |// the engine of this project: C7 | C8 | Op - without it the company's default
+           |// engineType: C8
            |""".stripMargin
       )
     end if
@@ -66,6 +71,9 @@ object ApiProjectConfig:
       if projectConfig.hasPath("workerDependencies") then
         projectConfig.getStringList("workerDependencies").asScala.map(DependencyConfig.apply).toSeq
       else Seq.empty
+    val engineType         =
+      Option.when(projectConfig.hasPath("engineType")):
+        BpmnProcessType.fromEngineType(projectConfig.getString("engineType"))
 
     ApiProjectConfig(
       projectName,
@@ -73,9 +81,29 @@ object ApiProjectConfig:
       subProjects,
       dependencies,
       workerDependencies,
-      modules
+      modules,
+      engineType
     )
   end apply
+
+  /** without `engineType` (the company's default) - as before it existed */
+  def apply(
+      projectName: String,
+      projectVersion: VersionConfig,
+      subProjects: Seq[String],
+      dependencies: Seq[DependencyConfig],
+      workerDependencies: Seq[DependencyConfig],
+      modules: Seq[ModuleType]
+  ): ApiProjectConfig =
+    new ApiProjectConfig(
+      projectName,
+      projectVersion,
+      subProjects,
+      dependencies,
+      workerDependencies,
+      modules,
+      engineType = None
+    )
 
   /** the config of a company project - it has no PROJECT.conf and wraps every module */
   def apply(projectName: String, projectVersion: String): ApiProjectConfig =

@@ -79,17 +79,17 @@ case class OrchSpecGenerator()(using config: DevConfig):
       case Some(xml) =>
         val processType =
           if OrchSpecExport.isC8(xml) then
-            config.bpmnProcessType match
+            config.projectBpmnProcessType match
               case c8: BpmnProcessType.C8 => c8
               case _                      => BpmnProcessType.C8()
           else
-            config.bpmnProcessType match
+            config.projectBpmnProcessType match
               case _: BpmnProcessType.C8 => BpmnProcessType.C7()
               case other                 => other
         val name        = processId.stripPrefix(s"${config.companyName}-")
         createOrCompare(os.pwd / processType.diagramPath / s"$name.bpmn", xml)()
       case None      =>
-        BpmnProcessGenerator(config.bpmnProcessType).createBpmn(setupElement)
+        BpmnProcessGenerator(config.projectBpmnProcessType).createBpmn(setupElement)
     end match
 
     // workers

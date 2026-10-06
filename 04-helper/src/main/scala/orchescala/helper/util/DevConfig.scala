@@ -21,6 +21,7 @@ case class DevConfig(
     // general project structure -  do not change if possible -
     modules: Seq[ModuleConfig] = DevConfig.modules,
     // processType to create new BPMN diagrams - default is Camunda 7
+    // (the company's default - a project can set its own with `engineType` in its PROJECT.conf)
     bpmnProcessType: BpmnProcessType = BpmnProcessType.C7(),
     // GitLab pipeline config
     pipelineConfig: Option[PipelineConfig] = None
@@ -33,6 +34,10 @@ case class DevConfig(
   lazy val projectClassNames: Seq[String] = projectName.split("-").toSeq.map(n => s"${n.head.toUpper}${n.tail}")
   lazy val projectShortClassName: String  = projectClassNames.last
   lazy val projectClassName: String       = projectClassNames.mkString
+
+  // the engine of the project: `engineType` of its PROJECT.conf, else the company's default
+  lazy val projectBpmnProcessType: BpmnProcessType =
+    apiProjectConfig.engineType.getOrElse(bpmnProcessType)
 
   lazy val projectDir: os.Path      = DevConfig.projectDir(projectName, baseDir)
   // subProjects to optimize compilation time - use only for big projects
