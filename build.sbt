@@ -586,10 +586,13 @@ def companyCheckGenerate(engines: String) =
 
 addCommandAlias(
   "companyCheck",
-  (Seq(
+  (
     // the templates for each combination of engines (generated strings only)
-    "helper/testOnly orchescala.helper.dev.company.CompanyWrapperGeneratorTest",
-    // compiled: all engines (the mixed CompanyWorker) and Operaton only (no Camunda 7 to fall back to)
-    companyCheckGenerate("C7 C8 Op")
-  ) ++ companyCheckCompile ++ Seq(companyCheckGenerate("Op")) ++ companyCheckCompile).mkString("; ")
+    "helper/testOnly orchescala.helper.dev.company.CompanyWrapperGeneratorTest" +:
+      // compiled: all engines (the mixed CompanyWorker), Camunda 7 and 8 (as existing companies)
+      // and Operaton only (no Camunda 7 to fall back to)
+      Seq("C7 C8 Op", "C7 C8", "Op").flatMap(engines =>
+        companyCheckGenerate(engines) +: companyCheckCompile
+      )
+  ).mkString("; ")
 )
