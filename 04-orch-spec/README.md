@@ -425,7 +425,10 @@ deshalb vorgeschlagen und ist danach frei änderbar. Ohne eigenes `In`/`Out`
 erzeugt der Generator `type In = NoInput` — so schreibt es die Domain auch.
 
 **In bzw. Out als anderer Typ:** auf der Karte der Interaktion statt «eigene
-Klasse» das In/Out einer anderen Interaktion wählen (`= OrderCardUT.In`). Der
+Klasse» das In (bzw. Out) einer anderen Interaktion des Prozesses wählen
+(`= OrderCardUT.In`) — oder über «aus dem Katalog …» ein `X.In` bzw. `X.Out`
+eines anderen Prozesses oder Projekts suchen (das eigene Paket zuerst; von dort
+kommen die Felder als Kopie, der Export importiert das Objekt). Der
 Export schreibt dann `type In = OrderCardUT.In`; Felder, Mappings und Prüfungen
 nehmen die des Ziels (die eigene Klasse fällt weg). Darunter **Beispiel
 abweichend**: Werte, die im Beispiel der Interaktion anders sind als im

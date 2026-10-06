@@ -7,6 +7,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
+import { aliasMemberType, catalogMembers } from '../src/interactions';
 import { scalaFiles, scalaKey } from '../src/scala';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -123,4 +124,22 @@ test('a key with a value from Scala is an interpolated string - JUEL stays text'
   assert.equal(scalaKey('valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}'), 's"valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}"');
   assert.equal(scalaKey('Wert ${execution.processInstanceId}'), '"Wert ${execution.processInstanceId}"');
   assert.equal(scalaKey('${OrderCard.processName} kostet 5$'), 's"${OrderCard.processName} kostet 5$$"');
+});
+
+test('the catalog offers X.In for an In - not those of the process interactions', () => {
+  const model = { domainTypes: domain } as never;
+  const ins = catalogMembers(model, 'In', PKG, new Set(['OrderCardUT'])).map(t => t.name);
+  assert.ok(ins.includes('PostProcessOrderUT.In'));
+  assert.ok(!ins.includes('OrderCardUT.In'), 'an interaction of the process is offered as = OrderCardUT.In');
+  assert.ok(ins.every(n => n.endsWith('.In')));
+  const outs = catalogMembers(model, 'Out', PKG, new Set()).map(t => t.name);
+  assert.deepEqual(outs, ['OrderCardUT.Out', 'PostProcessOrderUT.Out'], 'own package first');
+});
+
+test('a catalog type as alias brings its fields as a copy', () => {
+  const out = domain.find(t => t.name === 'PostProcessOrderUT.Out')!;
+  const t = aliasMemberType({ id: 'ia-1', name: 'PostProcessCardUT', kind: 'userTask', key: 'X', stepId: 's' }, 'Out', out);
+  assert.equal(t.name, 'PostProcessCardUT.Out');
+  assert.equal(t.interactionId, 'ia-1');
+  assert.deepEqual(t.fields?.map(f => f.name), ['comment']);
 });

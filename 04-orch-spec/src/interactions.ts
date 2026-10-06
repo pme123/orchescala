@@ -293,6 +293,35 @@ export function createMemberType(
   };
 }
 
+/**
+ * In bzw. Out als Typ aus dem Katalog (`type In = PostProcessOrderUT.Out`, siehe
+ * Interaction.inAlias): seine Felder als Kopie — für Mappings und Prüfungen;
+ * exportiert wird nur der Alias.
+ */
+export function aliasMemberType(ia: Interaction, member: 'In' | 'Out', dom: DomainType, model: Model | null = null): TypeDef {
+  const base = { id: uid('t'), name: `${ia.name}.${member}`, interactionId: ia.id, status: 'draft' as const, description: `= ${dom.name}` };
+  const fields = (dom.fields ?? []).map(f => fieldFromScala(f, model, dom.pkg));
+  if (dom.kind === 'enum' && (dom.cases?.length || dom.values?.length)) {
+    const values = dom.cases?.length
+      ? dom.cases.map(c => ({ name: c.name, fields: (c.fields ?? []).map(f => fieldFromScala(f, model, dom.pkg)) }))
+      : (dom.values ?? []).map(name => ({ name }));
+    return { ...base, kind: 'enum', ...(fields.length ? { fields } : {}), values };
+  }
+  return { ...base, kind: 'case', fields };
+}
+
+/**
+ * Was im Katalog als In bzw. Out taugt: `X.In` / `X.Out` mit Feldern oder
+ * Fällen — ohne die Objekte, die schon Interaktionen dieses Prozesses sind
+ * (die stehen in der Auswahl als `= X.In`).
+ */
+export function catalogMembers(model: Model | null, member: 'In' | 'Out', ownPkg: string, exclude: Set<string>): DomainType[] {
+  return (model?.domainTypes ?? [])
+    .filter(t => (t.kind === 'case' || t.kind === 'enum') && t.name.endsWith(`.${member}`) && t.owner
+      && !(t.pkg === ownPkg && exclude.has(t.owner)))
+    .sort((a, b) => Number(b.pkg === ownPkg) - Number(a.pkg === ownPkg) || a.name.localeCompare(b.name) || a.pkg.localeCompare(b.pkg));
+}
+
 // ── Felder aus der Domain übernehmen ─────────────────────────────────────────
 
 
