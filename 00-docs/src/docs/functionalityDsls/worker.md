@@ -74,7 +74,8 @@ of the request - the slot is taken, the link expired - use `CustomError.refused`
 ZIO.fail(WorkerError.CustomError.refused(409, "The slot is taken - please choose another one."))
 ```
 
-In a process it is a `CustomError` like any other (no retries). Only a 4xx counts - not the auth
+In a process it is a `CustomError` like any other (no retries). The status is carried as its
+`causeError` - a copy with another cause is a plain `CustomError` (500) again. Only a 4xx counts - not the auth
 statuses 401, 403 and 407, they belong to the token check.
 
 @:include(workers_advanced.md)

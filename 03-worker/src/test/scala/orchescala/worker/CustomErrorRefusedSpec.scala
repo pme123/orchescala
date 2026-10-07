@@ -106,8 +106,12 @@ object CustomErrorRefusedSpec extends ZIOSpecDefault:
         refused.causeError.exists(c => !c.toString.contains("The slot is taken"))
       )
     ,
-    test("the status survives a copy of the error (e.g. with generalVariables)"):
-      val refused = CustomError.refused(409, "The slot is taken").copy(generalVariables = Some(GeneralVariables()))
-      assertTrue(codeOf(refused) == 409)
+    test("the status survives a copy of the error (e.g. with generalVariables) - not a new cause"):
+      val refused = CustomError.refused(409, "The slot is taken")
+      assertTrue(
+        codeOf(refused.copy(generalVariables = Some(GeneralVariables()))) == 409,
+        // the cause is the marker - another cause makes it a plain CustomError (500)
+        codeOf(refused.copy(causeError = Some(ServiceRequestError(502, "upstream")))) == 500
+      )
   )
 end CustomErrorRefusedSpec
