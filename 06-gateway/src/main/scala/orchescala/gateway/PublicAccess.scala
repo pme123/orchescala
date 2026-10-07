@@ -269,7 +269,8 @@ class PublicToken(login: OAuthConfig, now: () => Long = PublicAccess.monotonicMi
 
   // the token, until when it is valid, when it was fetched
   private val cached      = AtomicReference[Option[(String, Long, Long)]](None)
-  private val failedUntil = AtomicLong(0L)
+  // Long.MinValue: the monotonic clock can be negative - 0 would block the first logins
+  private val failedUntil = AtomicLong(Long.MinValue)
   private val fetching    = Unsafe.unsafe(implicit u => Semaphore.unsafe.make(1))
 
   def token: IO[ServiceRequestError, String] =

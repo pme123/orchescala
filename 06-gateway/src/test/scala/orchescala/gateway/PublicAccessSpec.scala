@@ -275,6 +275,14 @@ object PublicAccessSpec extends ZIOSpecDefault:
           decimal <- requests("""{"access_token":"t1","expires_in":300.0}""")
         yield assertTrue(missing == ("t1" -> 2), strange == ("t1" -> 2), string == ("t1" -> 1), decimal == ("t1" -> 1))
       ,
+      test("a clock below 0 (the monotonic one can be) - logs in all the same"):
+        val clock = TestClock()
+        clock.set(-1_000_000L)
+        for
+          t     <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
+          token <- t.token.either
+        yield assertTrue(token == Right("t1"))
+      ,
       test("many calls at once - one fetch"):
         for
           t      <- fakeToken(TestClock(), Right("""{"access_token":"t1","expires_in":300}"""))
