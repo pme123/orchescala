@@ -874,7 +874,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (bad) return { ok: false as const, message: bad };
     // löschen kennt kein ifMatch - vorher lesen: eine Seite, die jemand inzwischen geändert hat, bleibt.
     // Kein Schutz, nur ein kleineres Fenster: eine Änderung zwischen Lesen und Löschen geht verloren
-    const current = await be.read(`${PAGES_DIR}/${slug}.json`).catch(() => null);
+    let current;
+    try {
+      current = await be.read(`${PAGES_DIR}/${slug}.json`); // null: die Datei gibt es nicht mehr
+    } catch (e) {
+      // nicht lesbar (z.B. SharePoint kurz weg) - dann auch nicht ungeprüft löschen
+      return { ok: false as const, message: `Die Seite ist gerade nicht lesbar – nicht gelöscht (${e instanceof Error ? e.message : String(e)}).` };
+    }
     if (current && current.version !== expectedVersion)
       return { ok: false as const, message: 'Die Seite wurde inzwischen geändert – Seite neu laden.' };
     const d = await be.delete(`${PAGES_DIR}/${slug}.json`);

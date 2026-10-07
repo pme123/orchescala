@@ -7,6 +7,10 @@ type AuthConfig = { authority: string; clientId: string };
 
 let manager: Promise<UserManager> | null = null;
 
+// der Zustand einer begonnenen Anmeldung - ausdrücklich, completeLogin sucht ihn unter diesem Präfix
+const STATE_PREFIX = 'oidc.';
+const stateStorage = () => window.localStorage;
+
 function userManager(): Promise<UserManager> {
   manager ??= fetch(`${import.meta.env.BASE_URL}config.json`, { cache: 'no-cache' })
     .then((r) => {
@@ -27,6 +31,7 @@ function userManager(): Promise<UserManager> {
         // liefe sonst gleichzeitig, und ein rotierendes Refresh-Token gilt nur einmal
         automaticSilentRenew: false,
         userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+        stateStore: new WebStorageStateStore({ store: stateStorage(), prefix: STATE_PREFIX }),
       });
     })
     .catch((e) => {
@@ -43,13 +48,13 @@ export async function completeLogin(): Promise<boolean> {
   const state = params.get('state');
   if (!(params.has('code') && state)) return false;
   // nur, wenn diese App eine Anmeldung begonnen hat - eine Seite darf eigene code/state-Parameter haben
-  const pending = [window.localStorage, window.sessionStorage].some((store) => {
+  const pending = (() => {
     try {
-      return store.getItem(`oidc.${state}`) !== null;
+      return stateStorage().getItem(`${STATE_PREFIX}${state}`) !== null;
     } catch {
       return false;
     }
-  });
+  })();
   if (!pending) return false;
   try {
     const user = await (await userManager()).signinRedirectCallback();
@@ -138,16 +143,22 @@ export async function sessionExpired(): Promise<never> {
   // Fehler - aber nicht, wenn sie schon am Gehen ist (langsame Weiterleitung). Die Listener vor login():
   // die Weiterleitung kann schon darin beginnen
   let leaving = false;
-  window.addEventListener('pagehide', () => { leaving = true; }, { once: true });
-  window.addEventListener('beforeunload', () => { leaving = true; }, { once: true });
+  const leave = () => { leaving = true; };
+  window.addEventListener('pagehide', leave);
+  window.addEventListener('beforeunload', leave);
   try {
-    await (await userManager()).removeUser();
-    await login();
-  } catch (e) {
-    // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
-    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
+    try {
+      await (await userManager()).removeUser();
+      await login();
+    } catch (e) {
+      // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
+      throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  } finally {
+    window.removeEventListener('pagehide', leave);
+    window.removeEventListener('beforeunload', leave);
   }
-  await new Promise((r) => setTimeout(r, 5000));
   if (leaving || document.visibilityState === 'hidden') return new Promise<never>(() => {});
   throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login');
 }
