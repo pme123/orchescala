@@ -90,9 +90,17 @@ export async function accessToken(): Promise<string> {
 }
 
 /** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
-export async function renewToken(): Promise<string | null> {
-  const renewed = await (await userManager()).signinSilent().catch(() => null);
-  return renewed && !renewed.expired ? renewed.access_token : null;
+// mehrere Aufrufe mit 401 gleichzeitig: eine stille Erneuerung, nicht je Aufruf
+let renewingSilently: Promise<string | null> | null = null;
+
+export function renewToken(): Promise<string | null> {
+  renewingSilently ??= (async () => {
+    const renewed = await (await userManager()).signinSilent().catch(() => null);
+    return renewed && !renewed.expired ? renewed.access_token : null;
+  })().finally(() => {
+    renewingSilently = null;
+  });
+  return renewingSilently;
 }
 
 // mehrere Aufrufe mit 401 gleichzeitig: eine Anmeldung, nicht je Aufruf

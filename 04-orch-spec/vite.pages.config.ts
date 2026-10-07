@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import { conditionProblem } from './src/pages/runtime/expr';
+import { appProblem, pageProblem } from './src/pages/runtime/validate';
 
 // The pages of an app at runtime (E15): one renderer for all projects - the bundle is always the
 // same, the pages come at runtime from pages.json, built from the folder `pages/` of a project's
@@ -26,16 +27,21 @@ function bundlePages(dir: string): string {
   if (!fs.existsSync(dir)) throw new Error(`UI_PAGES: ${dir} does not exist`);
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
   const read = (f: string) => {
+    let data: unknown;
     try {
-      return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+      data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
     } catch (e) {
       throw new Error(`UI_PAGES: ${path.join(dir, f)} is no valid JSON - ${e instanceof Error ? e.message : String(e)}`);
     }
+    // der Renderer verlässt sich auf die Form - eine Seite, die nicht passt, bricht den Build ab
+    const problem = f === 'app.json' ? appProblem(data) : pageProblem(data);
+    if (problem) throw new Error(`UI_PAGES: ${path.join(dir, f)} - ${problem}`);
+    return data as { path: string; body: Array<Record<string, unknown>> };
   };
   const app = files.includes('app.json') ? read('app.json') : {};
   const pages = files.filter((f) => f !== 'app.json').map(read);
   // eine Bedingung, die nicht passt, versteckt still - auch eine Datei von Hand gehört geprüft
-  for (const page of pages) for (const cond of conditionsOf(page.body ?? [])) {
+  for (const page of pages) for (const cond of conditionsOf(page.body)) {
     const problem = conditionProblem(cond);
     if (problem) console.warn(`  pages: ${page.path} - sichtbar, wenn «${cond}»: ${problem}`);
   }

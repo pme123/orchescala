@@ -4,7 +4,9 @@
 // Im Zustand stehen zusätzlich: query (die Parameter der URL), user (name, email, roles) und
 // was die Aktionen unter `result` ablegen.
 
-/** Eine Bedingung: `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, `pfad == true` */
+/** Eine Bedingung: `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, `pfad == true` – verknüpft mit
+  * `&&` und `||`. `!` nur vor einem Pfad, nicht vor einem Vergleich (`!a == 'x'` ist falsch: `a != 'x'`) –
+  * der Designer und der Build melden es. */
 export type Cond = string;
 
 /** Fehlertexte nach HTTP-Status ("409") und `default` – der Gateway liefert öffentlich nur den Status. */

@@ -44,7 +44,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   };
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [missing, setMissing] = useState<Set<string>>(new Set());
+  // nach dem ersten Prüfen laufend markiert - ein ergänztes Feld ist sofort nicht mehr rot
+  const [checked, setChecked] = useState(false);
+  const missing = new Set(checked ? missingIn(page.body, state) : []);
   // ein verstecktes Feld - nur Bots füllen es aus (der Gateway lehnt sie dann ab)
   const [honeypot, setHoneypot] = useState('');
   const isPublic = page.access === 'public';
@@ -111,11 +113,16 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     return true;
   }
 
+  // der Zustand `busy` gilt erst nach dem nächsten Rendern - ein Doppelklick startete sonst zweimal
+  const inFlight = useRef(false);
   async function runBusy(actions: Action[], key: string) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(key);
     try {
       await run(actions, key);
     } finally {
+      inFlight.current = false;
       if (mounted.current) setBusy(null);
     }
   }
@@ -282,7 +289,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
               onClick={() => {
                 if (comp.validate) {
                   const absent = missingIn(page.body, latest.current);
-                  setMissing(new Set(absent));
+                  setChecked(true);
                   if (absent.length > 0) {
                     setErrors((e) => ({ ...e, [key]: 'Bitte die markierten Angaben ergänzen.' }));
                     return;
@@ -311,6 +318,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
             <Loader2 size={14} className="animate-spin" /> {comp.text ? text(comp.text) : 'Einen Moment …'}
           </div>
         ) : null;
+      default:
+        // ein Baustein, den dieser Renderer nicht kennt (eine neuere Seite) - weglassen statt abstürzen
+        return null;
     }
   }
 
@@ -334,7 +344,7 @@ function Label({ text, missing, isDark }: { text: string; missing?: boolean; isD
   );
 }
 
-/** Während Aktionen laufen gesperrt - sie lesen den Zustand nacheinander, er soll derselbe bleiben. */
+/** Ein Eingabefeld - `disabled`, solange Aktionen laufen: sie lesen den Zustand nacheinander, er soll derselbe bleiben. */
 function FieldInput({ field, value, onChange, missing, isDark, disabled }: {
   field: Field; value: string; onChange: (v: string) => void; missing: boolean; isDark: boolean; disabled: boolean;
 }) {
