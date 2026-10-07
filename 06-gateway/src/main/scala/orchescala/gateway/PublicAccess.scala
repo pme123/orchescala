@@ -62,6 +62,8 @@ case class PublicAccess(
       */
     maxConcurrentCalls: Int = 100
 ):
+  require(trustedProxies >= 1, s"PublicAccess.trustedProxies must be at least 1 (is $trustedProxies).")
+
   lazy val isEmpty: Boolean = workers.isEmpty && processStarts.isEmpty && messages.isEmpty
 
   /** The client a call is counted for - the entry [[trustedProxies]] from the end of
@@ -71,7 +73,7 @@ case class PublicAccess(
   def client(remote: Option[String], headers: Seq[Header]): String =
     clientIpHeader
       .flatMap(h => headers.find(_.name.equalsIgnoreCase(h)))
-      .flatMap(_.value.split(",").map(_.trim).filter(_.nonEmpty).dropRight(trustedProxies.max(1) - 1).lastOption)
+      .flatMap(_.value.split(",").map(_.trim).filter(_.nonEmpty).dropRight(trustedProxies - 1).lastOption)
       .orElse(remote)
       .getOrElse("unknown")
 
@@ -90,6 +92,10 @@ object PublicAccess:
     * are read as top-level variables only (as process variables), so the top-level keys are checked.
     */
   val reservedFields: Set[String] = InputParams.values.map(_.toString).toSet
+
+  /** A name from a caller as it may go into the log - no line breaks or other tricks, at most 80. */
+  def loggable(name: String): String =
+    name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
 
   /** A business key as a public caller may send it - letters, digits and `._:@+-`, at most 128. */
   val businessKeyPattern = "[A-Za-z0-9._:@+-]{1,128}".r
@@ -138,6 +144,7 @@ class PublicGuard(
       full
 
   // all under the lock of calls
+  // under the lock of calls (as the map itself)
   private var lastSweep            = now()
   private var forgotten            = 0L
   // read without the lock - by every call
@@ -240,9 +247,12 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
   // public calls wait for it - shorter than the 30 seconds for the engines
   override protected def tokenCallHardTimeout: scala.concurrent.duration.FiniteDuration =
     scala.concurrent.duration.FiniteDuration(10, "seconds")
-  // kept at least that long - also if the identity provider says 0 (a refused call drops it earlier)
+  // kept at least that long (but not longer than the identity provider says) - a strange
+  // expires_in of 0 does not make every call a login
   protected def minLifetimeSeconds: Long = 5
-  // a token is dropped as rejected only if it is at least that old
+  // a token is dropped as rejected only if it is at least that old - so callers cannot force logins;
+  // the price: a token rejected in its first 10 seconds (key rotation, revoked) fails the public
+  // calls until then (503)
   protected def minRefetchMillis: Long   = 10 * 1000L
 
   // the token, until when it is valid, when it was fetched
@@ -284,7 +294,9 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
           ZIO.succeed:
             // renewed shortly before it expires - at most 30 seconds, at most half its time
             val margin   = (expiresIn / 2).min(30)
-            val validFor = (expiresIn - margin).max(minLifetimeSeconds)
+            // at least minLifetimeSeconds - but not longer than it lives (0: a strange answer)
+            val floor    = if expiresIn > 0 then minLifetimeSeconds.min(expiresIn) else minLifetimeSeconds
+            val validFor = (expiresIn - margin).max(floor)
             val at       = now()
             cached.set(Some((token, at + validFor * 1000, at)))
             token

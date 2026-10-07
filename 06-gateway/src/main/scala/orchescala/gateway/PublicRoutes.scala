@@ -125,8 +125,12 @@ class PublicRoutes(
             restore(done.await.timeout(access.callTimeout + 1.second)).someOrElseZIO(ZIO.fail(PublicAccess.unavailable))
   end forwarded
 
+  /** A refusal - the name comes from the caller (only a listed one gets further), so it is logged
+    * cleaned; 404 and 429 come at request speed from scanners - debug only.
+    */
   private def refusedLog(kind: Kind, name: String)(e: ServiceRequestError) =
-    ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}")
+    val line = s"Public $kind '${PublicAccess.loggable(name)}' refused: ${e.errorCode} ${e.errorMsg}"
+    if e.errorCode == 404 || e.errorCode == 429 then ZIO.logDebug(line) else ZIO.logWarning(line)
 
   /** What a worker or the engine answers goes to the caller without its detail (only to the log): a
     * refusal (4xx) with its status, a failure (5xx) or a defect as 503. Is the technical token

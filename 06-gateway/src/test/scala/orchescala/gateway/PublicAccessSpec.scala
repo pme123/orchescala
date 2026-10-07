@@ -221,6 +221,16 @@ object PublicAccessSpec extends ZIOSpecDefault:
           g.businessKey(Some("0b1c9a4e-7a43-4f0e-9d39-3a3f6c2d8e11"), required = true, minLength = 16).isRight
         )
       ,
+      test("trustedProxies below 1 - refused at once"):
+        assertTrue(scala.util.Try(access.copy(trustedProxies = 0)).isFailure)
+      ,
+      test("a name from a caller goes into the log cleaned and short"):
+        assertTrue(
+          PublicAccess.loggable("acme-shop-freeSlots") == "acme-shop-freeSlots",
+          PublicAccess.loggable("x\nINFO forged line") == "x?INFO?forged?line",
+          PublicAccess.loggable("x" * 200).length == 80
+        )
+      ,
       test("the secret of the login is never shown"):
         val withLogin = access.copy(login = Some(login))
         assertTrue(!withLogin.toString.contains("the-client-secret"), !login.toString.contains("the-client-secret"))
@@ -232,9 +242,10 @@ object PublicAccessSpec extends ZIOSpecDefault:
           long     <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
           short    <- fakeToken(clock, Right("""{"access_token":"t2","expires_in":20}"""))
           zero     <- fakeToken(clock, Right("""{"access_token":"t3","expires_in":0}"""))
-          _        <- long.token *> short.token *> zero.token
+          tiny     <- fakeToken(clock, Right("""{"access_token":"t4","expires_in":2}"""))
+          _        <- long.token *> short.token *> zero.token *> tiny.token
           _        <- ZIO.succeed(clock.set(4 * 1000L))
-          _        <- zero.token                // zero: kept 5 seconds
+          _        <- zero.token *> tiny.token  // zero: kept 5 seconds; tiny: not longer than its 2
           _        <- ZIO.succeed(clock.set(9 * 1000L))
           _        <- long.token *> short.token // short: still within 20 - 10 seconds
           _        <- ZIO.succeed(clock.set(11 * 1000L))
@@ -244,7 +255,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
           longReq  <- long.requests.get
           shortReq <- short.requests.get
           zeroReq  <- zero.requests.get
-        yield assertTrue(longReq == 2, shortReq == 2, zeroReq == 1)
+          tinyReq  <- tiny.requests.get
+        yield assertTrue(longReq == 2, shortReq == 2, zeroReq == 1, tinyReq == 2)
       ,
       test("expires_in missing or strange: 60 seconds; as a string or a decimal: read"):
         def requests(answer: String) =
