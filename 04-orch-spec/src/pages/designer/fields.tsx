@@ -1,4 +1,4 @@
-// Form controls of the page designer - in the style of the panels of orch-spec.
+// Formular-Elemente des Seiten-Designers - im Stil der Panels von orch-spec.
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { cls } from '../../ui';
@@ -46,7 +46,7 @@ export function TextField({ isDark, label, hint, value, onChange, multiline, pla
   );
 }
 
-/** A path of the state (or a condition) - with the paths the page knows as suggestions. */
+/** Ein Pfad des Zustands (oder eine Bedingung) - mit den Pfaden, die die Seite kennt, als Vorschläge. */
 export function PathField({ isDark, label, hint, value, onChange, suggestions, placeholder }: Base & {
   value: string | undefined; onChange: (v: string) => void; suggestions: string[]; placeholder?: string;
 }) {
@@ -84,18 +84,18 @@ export function CheckField({ isDark, label, hint, checked, onChange }: Base & { 
   );
 }
 
-/** A value as JSON - kept as text while it does not parse. */
+/** Ein Wert als JSON - als Text behalten, solange er nicht parst. */
 export function JsonField({ isDark, label, hint, value, onChange, rows = 4 }: Base & { value: unknown; onChange: (v: unknown) => void; rows?: number }) {
   const c = cls(isDark);
   const [text, setText] = useState(() => (value === undefined ? '' : JSON.stringify(value, null, 2)));
   const [error, setError] = useState<string | null>(null);
   const shown = value === undefined ? '' : JSON.stringify(value, null, 2);
-  // a change from outside (e.g. «vorbelegen») replaces the text
+  // eine Änderung von aussen (z.B. «vorbelegen») ersetzt den Text
   useEffect(() => {
     try {
       if (text.trim() === '' ? value !== undefined : JSON.stringify(JSON.parse(text)) !== JSON.stringify(value)) setText(shown);
     } catch {
-      /* the user is typing */
+      /* der Benutzer tippt gerade */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown]);
@@ -124,7 +124,7 @@ export function JsonField({ isDark, label, hint, value, onChange, rows = 4 }: Ba
   );
 }
 
-/** A list of rows - add, move, remove. */
+/** Eine Liste von Zeilen - hinzufügen, verschieben, entfernen. */
 export function RowList<T>({ isDark, items, onChange, render, add, addLabel, empty }: {
   isDark: boolean; items: T[]; onChange: (items: T[]) => void; render: (item: T, set: (item: T) => void) => React.ReactNode;
   add: () => T; addLabel: string; empty?: string;

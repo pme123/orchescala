@@ -1,5 +1,5 @@
-// The actions of a page (on load, of a button, on a change) - each with the services, processes,
-// messages and user tasks the catalog and the process specs know.
+// Die Aktionen einer Seite (beim Laden, eines Buttons, bei einer Änderung) - jede mit den Services,
+// Prozessen, Messages und Benutzer-Tasks, die der Katalog und die Prozess-Specs kennen.
 import { Wand2 } from 'lucide-react';
 import type { Action, Errors } from '../runtime/spec';
 import { cls } from '../../ui';
@@ -140,7 +140,7 @@ function ActionForm({ isDark, action: a, onChange, targets, paths, nested }: {
   );
 }
 
-/** The texts of the errors by HTTP status - the gateway gives anonymous callers only the status. */
+/** Die Fehlertexte nach HTTP-Status - der Gateway gibt anonymen Aufrufern nur den Status. */
 function ErrorsEditor({ isDark, errors, onChange }: { isDark: boolean; errors: Errors | undefined; onChange: (e: Errors | undefined) => void }) {
   const c = cls(isDark);
   const rows = Object.entries(errors ?? {}).map(([status, text]) => ({ status, text }));

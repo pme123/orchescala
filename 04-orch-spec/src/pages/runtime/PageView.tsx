@@ -10,11 +10,11 @@ type Props = {
   app: App;
   isDark: boolean;
   user?: { name?: string; email?: string; roles: string[] };
-  /** The gateway - in the designer a stand-in with sample data */
+  /** Der Gateway - im Designer ein Ersatz mit Beispieldaten */
   gateway: Gateway;
-  /** In the designer: the URL parameters (e.g. token) the page sees */
+  /** Im Designer: die Parameter der URL (z.B. token), die die Seite sieht */
   query?: Record<string, string>;
-  /** In the designer: a click on a block selects it, the selected one is marked */
+  /** Im Designer: ein Klick auf einen Baustein wählt ihn aus, der ausgewählte ist markiert */
   designer?: { selected?: string; onSelect: (key: string) => void };
 };
 
@@ -160,7 +160,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     });
   }
 
-  /** A block - in the designer in a frame that selects it on a click. */
+  /** Ein Baustein - im Designer in einem Rahmen, der ihn bei einem Klick auswählt. */
   function render(comp: Component, key: string): React.ReactNode {
     const node = renderBlock(comp, key);
     if (!designer || node === null) return node;

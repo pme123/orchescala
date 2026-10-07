@@ -1,5 +1,5 @@
-// The designer of a page (E15): the outline of its blocks, the page live - with the same renderer
-// as the app, fed with sample data of the services - and the properties of the selected block.
+// Der Designer einer Seite (E15): die Gliederung ihrer Bausteine, die Seite live - mit demselben Renderer
+// wie die App, gespeist mit Beispieldaten der Services - und die Eigenschaften des ausgewählten Bausteins.
 import {
   AlertTriangle, ArrowDown, ArrowUp, ChevronLeft, Copy, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus,
   RotateCcw, Rows3, SquareDashed, TextCursorInput, Trash2, Type, CalendarRange,
@@ -30,7 +30,7 @@ const ICONS: Record<Component['type'], React.ReactNode> = {
   loading: <Loader2 size={12} />,
 };
 
-/** What the outline shows of a block. */
+/** Was die Gliederung von einem Baustein zeigt. */
 function summaryOf(b: Component): string {
   switch (b.type) {
     case 'heading':
@@ -52,7 +52,7 @@ function summaryOf(b: Component): string {
   }
 }
 
-/** The gateway of the preview: sample data of the Out of a service, a start and the rest succeed. */
+/** Der Gateway der Vorschau: Beispieldaten des Out eines Service, ein Start und der Rest gelingen. */
 function previewGateway(targets: Targets): Gateway {
   const wait = () => new Promise((r) => setTimeout(r, 250));
   return {
@@ -82,8 +82,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [adding, setAdding] = useState(false);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
-  // ---- saving: a second after the last change, and when leaving - one write at a time (the
-  // next one needs the version of the one before), a failed one stays pending
+  // ---- speichern: eine Sekunde nach der letzten Änderung und beim Verlassen - ein Schreiben nach dem
+  // anderen (das nächste braucht die Version des vorigen), ein fehlgeschlagenes bleibt ausstehend
   const pending = useRef<Page | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));

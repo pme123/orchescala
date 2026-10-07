@@ -1,21 +1,21 @@
-// The designer of the pages (E15) - what a page can call, sample data for the preview, the block
-// tree and the checks. No React here, so it is tested like the rest (tests/pagesDesigner.test.ts).
+// Der Designer der Seiten (E15) - was eine Seite aufrufen kann, Beispieldaten für die Vorschau, der
+// Baum der Bausteine und die Befunde. Ohne React, so getestet wie der Rest (tests/pagesDesigner.test.ts).
 import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from '../../types';
 import { conditionProblem } from '../runtime/expr';
 import type { Action, Component, Page } from '../runtime/spec';
 
-// ---------------------------------------------------------------- fields
+// ---------------------------------------------------------------- Felder
 
-/** A field as the designer shows it - from the domain (Scala) or from a process spec. */
+/** Ein Feld, wie der Designer es zeigt - aus der Domain (Scala) oder aus einer Prozess-Spec. */
 export type PField = {
   name: string;
-  /** the base type: a scalar (`String`, `LocalDateTime`), an enum or a case class */
+  /** der Grundtyp: ein Skalar (`String`, `LocalDateTime`), ein Enum oder eine Case Class */
   type: string;
   optional: boolean;
   collection: boolean;
-  /** the fields of a case class */
+  /** die Felder einer Case Class */
   fields?: PField[];
-  /** the values of an enum */
+  /** die Werte eines Enums */
   values?: string[];
 };
 
@@ -24,7 +24,7 @@ const SCALARS = new Set([
   'ZonedDateTime', 'Instant', 'UUID', 'Iso8601Duration', 'Json', 'JsonObject',
 ]);
 
-/** `Option[Seq[Appointment]]` → base `Appointment`, optional, collection. */
+/** `Option[Seq[Appointment]]` → Grundtyp `Appointment`, optional, eine Liste. */
 export function parseScalaType(type: string): { base: string; qualified: string; optional: boolean; collection: boolean } {
   let t = type.trim();
   let optional = false;
@@ -41,8 +41,8 @@ export function parseScalaType(type: string): { base: string; qualified: string;
   return { base: qualified.split('.').pop() ?? qualified, qualified, optional, collection };
 }
 
-/** The domain type of a name - a qualified name (`other.pkg.Customer`) exactly, else the one of
-  * the same package first. */
+/** Der Domain-Typ eines Namens - ein qualifizierter Name (`other.pkg.Customer`) genau, sonst zuerst
+  * der aus demselben Package. */
 function domainTypeNamed(model: Model, name: string, pkg?: string): DomainType | undefined {
   // auch In/Out eines Workers (member) - ein Alias zeigt oft dorthin (`type Out = Other.Out`)
   const all = (model.domainTypes ?? []).filter((t) => t.kind === 'case' || t.kind === 'enum' || t.kind === 'alias' || t.kind === 'member');
@@ -56,8 +56,8 @@ function domainTypeNamed(model: Model, name: string, pkg?: string): DomainType |
   return matches.find((t) => t.pkg === pkg) ?? matches[0];
 }
 
-/** The fields of a type as PFields - an alias (`type Out = Other.Out`) through its target; the
-  * types of the fields in the package of the type that declares them. */
+/** Die Felder eines Typs als PFields - ein Alias (`type Out = Other.Out`) über sein Ziel; die
+  * Typen der Felder im Package des Typs, der sie deklariert. */
 function fieldsOf(model: Model, t: DomainType | undefined, depth: number, hops = 0): PField[] {
   if (!t) return [];
   if (!t.fields?.length && t.target && hops < 4) {
@@ -94,9 +94,9 @@ function fromSpecField(f: Field, spec: ProcessSpec, model: Model, depth: number)
 const specFields = (t: TypeDef | undefined, spec: ProcessSpec, model: Model): PField[] =>
   (t?.fields ?? []).map((f) => fromSpecField(f, spec, model, 0));
 
-// ---------------------------------------------------------------- targets
+// ---------------------------------------------------------------- Ziele
 
-/** What a page can call - services (workers), processes, messages and user tasks. */
+/** Was eine Seite aufrufen kann - Services (Worker), Prozesse, Messages und Benutzer-Tasks. */
 export type Targets = {
   services: { topic: string; name: string; descr?: string; in: PField[]; out: PField[] }[];
   processes: { key: string; title: string; in: PField[] }[];
@@ -104,13 +104,13 @@ export type Targets = {
   userTasks: { key: string; name: string; process: string; in: PField[]; out: PField[] }[];
 };
 
-/** The worker objects of the domain (`val topicName`) with their In/Out - and the processes of the specs. */
+/** Die Worker-Objekte der Domain (`val topicName`) mit ihrem In/Out - und die Prozesse der Specs. */
 export function targetsOf(model: Model, specs: ProcessSpec[]): Targets {
   const domain = model.domainTypes ?? [];
   const member = (topic: string, which: 'In' | 'Out') => domain.find((t) => t.topicName === topic && t.name.endsWith(`.${which}`));
   const topics = [...new Set(domain.filter((t) => t.topicName && (t.dsl ?? '').match(/Task|Worker/)).map((t) => t.topicName!))];
   const processKeys = new Set(specs.map((s) => s.processId));
-  // the workers of a process (`<processKey>-<Step>`) run in it - a page calls the others
+  // die Worker eines Prozesses (`<processKey>-<Step>`) laufen in ihm - eine Seite ruft die anderen auf
   const ofProcess = (topic: string) => [...processKeys].some((k) => k && topic.startsWith(`${k}-`));
   const services = topics
     .filter((topic) => !processKeys.has(topic) && !ofProcess(topic))
@@ -149,14 +149,14 @@ export function targetsOf(model: Model, specs: ProcessSpec[]): Targets {
   return { services, processes, messages, userTasks };
 }
 
-/** An input for an action with every field of the In type: `{"topic": "{{topic}}", …}`. */
+/** Eine Eingabe für eine Aktion mit jedem Feld des In-Typs: `{"topic": "{{topic}}", …}`. */
 export function inputSkeleton(fields: PField[]): Record<string, string> {
   return Object.fromEntries(fields.map((f) => [f.name, `{{${f.name}}}`]));
 }
 
-// ---------------------------------------------------------------- sample data
+// ---------------------------------------------------------------- Beispieldaten
 
-/** Sample data of a type - for the preview: three items per list, dates on the next days. */
+/** Beispieldaten eines Typs - für die Vorschau: drei Einträge je Liste, Daten an den nächsten Tagen. */
 export function sampleOf(fields: PField[], index = 0): Record<string, unknown> {
   return Object.fromEntries(fields.map((f) => [f.name, sampleField(f, index)]));
 }
@@ -172,7 +172,7 @@ function sampleValue(f: PField, i: number): unknown {
   const day = new Date();
   day.setDate(day.getDate() + 1 + Math.floor(i / 2));
   const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-  // a start and an end of the same slot get neighbouring times
+  // ein Start und ein Ende desselben Slots bekommen benachbarte Zeiten
   const hour = 9 + (i % 2) * 2 + (/end|bis|until/i.test(f.name) ? 1 : 0);
   switch (f.type) {
     case 'Int':
@@ -199,9 +199,9 @@ function sampleValue(f: PField, i: number): unknown {
   }
 }
 
-// ---------------------------------------------------------------- the block tree
+// ---------------------------------------------------------------- der Baum der Bausteine
 
-/** The key of a block: its index path in `body` - `"2"`, `"2.1"` (in a section). */
+/** Der Schlüssel eines Bausteins: sein Index-Pfad in `body` - `"2"`, `"2.1"` (in einem Abschnitt). */
 export type BlockKey = string;
 
 export function blockAt(body: Component[], key: BlockKey): Component | undefined {
@@ -211,7 +211,7 @@ export function blockAt(body: Component[], key: BlockKey): Component | undefined
   return block.type === 'section' ? blockAt(block.body, rest.join('.')) : undefined;
 }
 
-/** A new body with the block at `key` replaced (`fn` gets the old one). */
+/** Ein neuer body, in dem der Baustein an `key` ersetzt ist (`fn` bekommt den alten). */
 export function updateBlock(body: Component[], key: BlockKey, fn: (b: Component) => Component): Component[] {
   const [head, ...rest] = key.split('.').map(Number);
   return body.map((b, i) => {
@@ -221,7 +221,7 @@ export function updateBlock(body: Component[], key: BlockKey, fn: (b: Component)
   });
 }
 
-/** The list a key is in and its index there - as a function on that list. */
+/** Die Liste, in der ein Schlüssel steht, und sein Index darin - als Funktion auf dieser Liste. */
 function inParent(body: Component[], key: BlockKey, fn: (list: Component[], index: number) => Component[]): Component[] {
   const parts = key.split('.').map(Number);
   const index = parts.pop()!;
@@ -233,7 +233,7 @@ export function removeBlock(body: Component[], key: BlockKey): Component[] {
   return inParent(body, key, (list, i) => list.filter((_, j) => j !== i));
 }
 
-/** Moves a block one up (-1) or down (+1) in its list - the new key. */
+/** Schiebt einen Baustein eins nach oben (-1) oder unten (+1) in seiner Liste - der neue Schlüssel. */
 export function moveBlock(body: Component[], key: BlockKey, by: -1 | 1): { body: Component[]; key: BlockKey } {
   const parts = key.split('.').map(Number);
   const index = parts[parts.length - 1];
@@ -249,7 +249,7 @@ export function moveBlock(body: Component[], key: BlockKey, by: -1 | 1): { body:
   return { body: next, key: [...parts.slice(0, -1), target].join('.') };
 }
 
-/** Inserts after `key` - or into a section (as its last), or at the end without key. The new key. */
+/** Fügt nach `key` ein - oder in einen Abschnitt (als letzten), oder ohne key am Ende. Der neue Schlüssel. */
 export function insertBlock(body: Component[], block: Component, key?: BlockKey, into = false): { body: Component[]; key: BlockKey } {
   if (key === undefined) return { body: [...body, block], key: String(body.length) };
   const at = blockAt(body, key);
@@ -264,7 +264,7 @@ export function insertBlock(body: Component[], block: Component, key?: BlockKey,
   };
 }
 
-/** Every block with its key - depth first, as the outline shows them. */
+/** Jeder Baustein mit seinem Schlüssel - Tiefe zuerst, wie die Gliederung sie zeigt. */
 export function flatten(body: Component[], prefix = ''): { key: BlockKey; block: Component; depth: number }[] {
   return body.flatMap((block, i) => {
     const key = prefix ? `${prefix}.${i}` : String(i);
@@ -273,7 +273,7 @@ export function flatten(body: Component[], prefix = ''): { key: BlockKey; block:
   });
 }
 
-/** A new block of a type - with what it needs to show something. */
+/** Ein neuer Baustein eines Typs - mit dem, was er braucht, um etwas zu zeigen. */
 export function newBlock(type: Component['type']): Component {
   switch (type) {
     case 'heading':
@@ -297,9 +297,9 @@ export function newBlock(type: Component['type']): Component {
   }
 }
 
-// ---------------------------------------------------------------- the actions of a page
+// ---------------------------------------------------------------- die Aktionen einer Seite
 
-/** Every action of a page with where it is - load, a button, onChange, onError. */
+/** Jede Aktion einer Seite mit ihrem Ort - load, ein Button, onChange, onError. */
 export function actionsOf(page: Page): { where: string; key?: BlockKey; action: Action }[] {
   const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>
     (actions ?? []).flatMap((action) => [
@@ -318,7 +318,7 @@ export function actionsOf(page: Page): { where: string; key?: BlockKey; action: 
   ];
 }
 
-/** The paths of the state a page knows: its state, the results of its actions (with their fields), query, user. */
+/** Die Pfade des Zustands, die eine Seite kennt: ihr Zustand, die Resultate ihrer Aktionen (mit Feldern), query, user. */
 export function statePaths(page: Page, targets: Targets): string[] {
   const paths = new Set<string>();
   const add = (prefix: string, fields: PField[], depth = 0) => {
@@ -353,11 +353,11 @@ export function statePaths(page: Page, targets: Targets): string[] {
   return [...paths].sort();
 }
 
-// ---------------------------------------------------------------- the checks
+// ---------------------------------------------------------------- die Befunde
 
 export type PageFinding = { level: 'error' | 'warning' | 'info'; message: string; key?: BlockKey };
 
-/** What does not fit - the services, processes, messages and tasks a page calls, and its paths. */
+/** Was nicht passt - die Services, Prozesse, Messages und Tasks, die eine Seite aufruft, und ihre Pfade. */
 export function pageFindings(page: Page, targets: Targets, others: Page[] = []): PageFinding[] {
   const findings: PageFinding[] = [];
   if (!page.title?.trim()) findings.push({ level: 'error', message: 'Die Seite hat keinen Titel.' });
@@ -367,7 +367,7 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
   if (page.access !== 'public' && !page.access?.roles?.length)
     findings.push({ level: 'warning', message: 'Die Seite verlangt einen Login, aber keine Rolle.' });
 
-  // the hint for the gateway once per name - not for every action that calls it
+  // der Hinweis für den Gateway einmal je Name - nicht für jede Aktion, die ihn aufruft
   const hinted = new Set<string>();
   const gatewayHint = (name: string, list: string, key?: BlockKey) => {
     if (hinted.has(name)) return;
@@ -407,7 +407,7 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
     }
   }
 
-  // the paths of the blocks - in the state the page knows
+  // die Pfade der Bausteine - im Zustand, den die Seite kennt
   const known = statePaths(page, targets);
   const isKnown = (path: string) =>
     known.some((k) => k === path || path.startsWith(`${k}.`) || k.startsWith(`${path}.`)) || path.startsWith('query.');
@@ -431,7 +431,7 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
   return findings;
 }
 
-/** The paths of the state in the texts of a block - not those of a list item (pick). */
+/** Die Pfade des Zustands in den Texten eines Bausteins - nicht die eines Listeneintrags (pick). */
 function templatePaths(block: Component): string[] {
   const texts: string[] = [];
   switch (block.type) {
@@ -449,7 +449,7 @@ function templatePaths(block: Component): string[] {
   return texts.flatMap((t) => [...t.matchAll(/\{\{\s*([^}|]+?)\s*(?:\|[^}]*)?\}\}/g)].map((m) => m[1]));
 }
 
-/** The slug of a page file from its path: `appointments/book` → `book`. */
+/** Der Slug einer Seitendatei aus ihrem Pfad: `appointments/book` → `book`. */
 export function slugOf(path: string): string {
   return (path.split('/').filter(Boolean).pop() ?? 'page').replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 }

@@ -1,4 +1,4 @@
-// The pages of the app (E15) - a page per file in `pages/`, the settings of the app in `pages/app.json`.
+// Die Seiten der App (E15) - eine Seite je Datei in `pages/`, die Einstellungen der App in `pages/app.json`.
 import { AlertTriangle, AppWindow, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { usePermissions } from '../../auth';

@@ -6,23 +6,23 @@ import { defineConfig, type Plugin } from 'vite';
 import { conditionProblem } from './src/pages/runtime/expr';
 import { appProblem, pageProblem } from './src/pages/runtime/validate';
 
-// The pages of an app at runtime (E15): one renderer for all projects - the bundle is always the
-// same, the pages come at runtime from pages.json, built from the folder `pages/` of a project's
-// spec (the same JSON the designer of orch-spec edits). The bundle goes into the classpath of the
-// worker app (`src/main/resources/ui`); the gateway serves it at /app/{project}/.
+// Die Seiten einer App zur Laufzeit (E15): ein Renderer für alle Projekte - das Bundle ist immer
+// dasselbe, die Seiten kommen zur Laufzeit aus pages.json, gebaut aus dem Ordner `pages/` der Spec
+// eines Projekts (dasselbe JSON, das der Designer von orch-spec bearbeitet). Das Bundle kommt in den
+// Classpath der Worker-App (`src/main/resources/ui`); der Gateway liefert es unter /app/{project}/.
 //
-//   UI_BASE    the path the browser sees the app at (gateway: /app/{project}/)
-//   UI_PAGES   the folder with app.json and one file per page (spec/pages of the project)
-//   UI_CONFIG  config.json of the environment (identity provider) - optional
-//   UI_OUT     where the bundle goes - e.g. 03-worker/src/main/resources/ui of the project
-//   GATEWAY    the gateway for the dev server (npm run dev:pages)
+//   UI_BASE    der Pfad, unter dem der Browser die App sieht (Gateway: /app/{project}/)
+//   UI_PAGES   der Ordner mit app.json und einer Datei je Seite (spec/pages des Projekts)
+//   UI_CONFIG  config.json der Umgebung (Identity Provider) - optional
+//   UI_OUT     wohin das Bundle kommt - z.B. 03-worker/src/main/resources/ui des Projekts
+//   GATEWAY    der Gateway für den Dev-Server (npm run dev:pages)
 const base = process.env.UI_BASE ?? '/app/';
 const pagesDir = process.env.UI_PAGES ? path.resolve(process.env.UI_PAGES) : path.resolve(__dirname, 'sample-data/pages');
 const configFile = process.env.UI_CONFIG ? path.resolve(process.env.UI_CONFIG) : undefined;
 const gateway = process.env.GATEWAY ?? 'http://localhost:8889';
 const outDir = path.resolve(process.env.UI_OUT ?? path.resolve(__dirname, 'dist-pages'));
 
-/** app.json and every other *.json of the folder (one page per file) as one document. */
+/** app.json und jede andere *.json des Ordners (eine Seite je Datei) als ein Dokument. */
 function bundlePages(dir: string, strict: boolean): string {
   if (!fs.existsSync(dir)) throw new Error(`UI_PAGES: ${dir} does not exist`);
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
@@ -65,7 +65,7 @@ function pagesPlugin(): Plugin {
   return {
     name: 'orch-pages',
     configureServer(server) {
-      // in the dev server new on every load - a change of a page shows at once
+      // im Dev-Server bei jedem Laden neu - eine Änderung an einer Seite zeigt sich sofort
       server.middlewares.use((req, res, next) => {
         const p = req.url?.split('?')[0];
         if (p === `${base}pages.json`) {
@@ -107,7 +107,7 @@ export default defineConfig({
     emptyOutDir: ['ui', 'dist-pages'].includes(path.basename(outDir)),
   },
   server: {
-    // in the dev server the API calls go to the gateway
+    // im Dev-Server gehen die API-Aufrufe an den Gateway
     proxy: Object.fromEntries(['/public', '/worker', '/process', '/message', '/userTask'].map((p) => [p, gateway])),
   },
 });
