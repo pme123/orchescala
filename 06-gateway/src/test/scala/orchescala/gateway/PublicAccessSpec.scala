@@ -36,7 +36,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
 
   private def guard(clock: TestClock, maxClients: Int = 100_000) = PublicGuard(access, clock, maxClients)
 
-  private val login = OAuthConfig.ClientCredentials("realm", "http://sso.invalid", "client", "secret", "openid")
+  private val login = OAuthConfig.ClientCredentials("realm", "http://sso.invalid", "client", "the-client-secret", "openid")
 
   // a JWT the gateway can read the identity from (not signed - only decoded here)
   private val techToken =
@@ -193,8 +193,15 @@ object PublicAccessSpec extends ZIOSpecDefault:
           behindProxy.client(Some("10.0.0.1"), Seq.empty) == "10.0.0.1",
           // without clientIpHeader the header is ignored - a client could fake it
           access.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "1.2.3.4"))) == "10.0.0.1",
-          access.client(None, Seq.empty) == "unknown"
+          access.client(None, Seq.empty) == "unknown",
+          // a CDN and a load balancer: the second entry from the end
+          behindProxy.copy(trustedProxies = 2)
+            .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "6.6.6.6, 1.2.3.4, 10.0.0.9"))) == "1.2.3.4"
         )
+      ,
+      test("the secret of the login is never shown"):
+        val withLogin = access.copy(login = Some(login))
+        assertTrue(!withLogin.toString.contains("the-client-secret"), !login.toString.contains("the-client-secret"))
     ),
     suite("PublicToken")(
       test("kept until shortly before it expires - at most 30 seconds, at most half its time, at least 5"):
@@ -239,13 +246,13 @@ object PublicAccessSpec extends ZIOSpecDefault:
         for
           t      <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
           _      <- t.token
-          _      <- ZIO.succeed(t.invalidate("t1")) *> t.token           // younger than 10 seconds - kept
+          young  <- ZIO.succeed(t.invalidate("t1")) <* t.token           // younger than 10 seconds - kept
           _      <- ZIO.succeed(clock.set(11 * 1000L))
-          _      <- ZIO.succeed(t.invalidate("an-older-one")) *> t.token // another token - kept
+          other  <- ZIO.succeed(t.invalidate("an-older-one")) <* t.token // another token - kept
           before <- t.requests.get
-          _      <- ZIO.succeed(t.invalidate("t1")) *> t.token
+          old    <- ZIO.succeed(t.invalidate("t1")) <* t.token
           after  <- t.requests.get
-        yield assertTrue(before == 1, after == 2)
+        yield assertTrue(!young, !other, old, before == 1, after == 2)
       ,
       test("a failed login - a generic 503, and no new try for a few seconds"):
         val clock = TestClock()

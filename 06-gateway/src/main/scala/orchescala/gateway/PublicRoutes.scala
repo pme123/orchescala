@@ -108,9 +108,11 @@ class PublicRoutes(
     call.catchAll: e =>
       val log = s"Public $kind '$name': ${e.errorCode} ${e.errorMsg}"
       val err = e.errorCode match
-        case 401                      => ZIO.succeed(login.foreach(_.invalidate(token))) *>
-                                           ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
-                                             .as(PublicAccess.unavailable)
+        case 401                      =>
+          // logged as an error once per new token - not for every call while it is rejected
+          val invalidated = login.exists(_.invalidate(token))
+          (if invalidated then ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
+           else ZIO.logDebug(log)).as(PublicAccess.unavailable)
         case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(c))
         case _                        => ZIO.logError(log).as(PublicAccess.unavailable)
       err.flatMap(ZIO.fail(_))

@@ -255,15 +255,20 @@ fill in) a 400 - an empty one is removed. A general variable in the body (`_serv
 well: it would let an anonymous caller steer the process. Starts and messages go to the configured
 tenant.
 
-Behind a proxy all clients come from its address - set `clientIpHeader` (e.g. `X-Forwarded-For`, its
-last entry is taken - the one the proxy appended), but only if the proxy sets it. Without it the gateway
+Behind a proxy all clients come from its address - set `clientIpHeader` (e.g. `X-Forwarded-For`; the
+entry `trustedProxies` from the end is taken - default 1, 2 e.g. for a CDN and a load balancer), but
+only if the proxies set it. Without it the gateway
 warns at startup. At most 100'000 clients are counted at once (about 15 MB); beyond, the least
 recently used is forgotten (a warning in the log) - such a flood also resets the counts of real
 clients. The
 limit is a fallback: an API gateway in front should limit as well. A process started this way runs
 with the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
 
-What a worker or the engine answers reaches the caller without its detail (only the log has it): a
+A public worker's answer goes to the caller as it is - let it return only what anybody may see; a
+public start answers the `ProcessInfo` (with the instance id - useless without a token). The
+`/public` endpoints are always in the OpenAPI; an installation without `publicAccess` answers 404.
+
+What a worker or the engine refuses reaches the caller without its detail (only the log has it): a
 refusal (4xx, e.g. of an init worker) keeps its status with a generic text - a page shows its own
 text for it -, a failure (5xx) is a 503. The technical token is fetched once for all calls at a time
 and dropped when the engine rejects it (401 - at most every 10 seconds; a 403 can be a business

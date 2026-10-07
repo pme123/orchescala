@@ -22,7 +22,9 @@ import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
   *
   * A process started this way runs with the identity of the technical user - check the input like
   * any other untrusted input (its init worker does), and let a human see nothing before e.g. an
-  * e-mail opt-in.
+  * e-mail opt-in. The answer of a public worker goes to the caller as it is - let it return only
+  * what anybody may see; a public start answers the `ProcessInfo` (with the instance id - useless
+  * without a token).
   */
 case class PublicAccess(
     /** worker topics that may be called (`POST /public/worker/{topic}`) */
@@ -41,22 +43,27 @@ case class PublicAccess(
       * removed before the call is forwarded. None: no honeypot.
       */
     honeypotField: Option[String] = Some("_hp"),
-    /** the header with the client address behind a proxy (e.g. `X-Forwarded-For`) - its **last**
-      * entry, the one the proxy in front of the gateway appended. Only set it if that proxy sets the
-      * header; behind several proxies, name a header the outermost one sets (e.g. `X-Real-IP`).
-      * Without it, all clients behind a proxy count as one.
+    /** the header with the client address behind a proxy (e.g. `X-Forwarded-For`) - each proxy
+      * appends the address it sees, so the entry [[trustedProxies]] from the end is the one the
+      * outermost trusted proxy appended. Only set it if the proxies set the header. Without it, all
+      * clients behind a proxy count as one (the gateway warns at startup).
       */
-    clientIpHeader: Option[String] = None
+    clientIpHeader: Option[String] = None,
+    /** the proxies in front of the gateway that append to [[clientIpHeader]] (e.g. 2 for a CDN and
+      * a load balancer)
+      */
+    trustedProxies: Int = 1
 ):
   lazy val isEmpty: Boolean = workers.isEmpty && processStarts.isEmpty && messages.isEmpty
 
-  /** The client a call is counted for - the last entry of [[clientIpHeader]] (the entries before it
-    * come from the client and can be faked), else the remote address.
+  /** The client a call is counted for - the entry [[trustedProxies]] from the end of
+    * [[clientIpHeader]] (the entries before it come from the client and can be faked), else the
+    * remote address.
     */
   def client(remote: Option[String], headers: Seq[Header]): String =
     clientIpHeader
       .flatMap(h => headers.find(_.name.equalsIgnoreCase(h)))
-      .flatMap(_.value.split(",").map(_.trim).filter(_.nonEmpty).lastOption)
+      .flatMap(_.value.split(",").map(_.trim).filter(_.nonEmpty).dropRight(trustedProxies.max(1) - 1).lastOption)
       .orElse(remote)
       .getOrElse("unknown")
 
@@ -216,13 +223,16 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
         // the others wait for the one fetching - and take its token
         case None        => fetching.withPermit(ZIO.suspendSucceed(current.fold(fetch)(ZIO.succeed(_))))
 
-  /** The engine or a worker refused this token (401 / 403) - the next call fetches a new one. */
-  def invalidate(token: String): Unit =
+  /** The engine rejected this token (401) - the next call fetches a new one. False if it was kept
+    * (another token, or younger than [[minRefetchMillis]]).
+    */
+  def invalidate(token: String): Boolean =
     val at = now()
-    cached.getAndUpdate:
-      case Some((t, _, fetchedAt)) if t == token && at - fetchedAt >= minRefetchMillis => None
-      case c                                                                          => c
-    : Unit
+    cached
+      .getAndUpdate:
+        case Some((t, _, fetchedAt)) if t == token && at - fetchedAt >= minRefetchMillis => None
+        case c                                                                          => c
+      .exists((t, _, fetchedAt) => t == token && at - fetchedAt >= minRefetchMillis)
 
   private def current: Option[String] =
     cached.get().collect { case (token, validUntil, _) if now() < validUntil => token }
