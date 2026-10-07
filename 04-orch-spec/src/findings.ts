@@ -15,7 +15,7 @@ import { catalogEntry, interactionKind, interactionOrigin } from './interactions
 import { dmnIssues, packageOf } from './scala';
 import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantAllows, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -85,8 +85,10 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   const variants = variantsOf(step, spec, model, 'inputs', service);
   const chosen = chosenVariant(step, 'inputs', variants);
   const have = new Set((step.inputs ?? []).map(m => m.name.trim()));
-  return [...new Set(requiredNames(refFields, dom, service))]
-    .filter(n => variantAllows(variants, chosen, n) && !have.has(n));
+  // Weichen: eine genügt — ohne Zeile für eine davon die erste (`useCase`)
+  const routing = variants?.routing?.some(n => have.has(n)) ? [] : variants?.routing?.slice(0, 1) ?? [];
+  return [...new Set([...requiredNames(refFields, dom, service), ...routing])]
+    .filter(n => (variantRequires(variants, chosen, n) || routing.includes(n)) && !have.has(n));
 }
 
 /**
@@ -268,8 +270,11 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
     // Prozessvariablen, ohne Mapping
     if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
-      const required = requiredNames(refFields, dom, service).filter(allowed);
+      const required = requiredNames(refFields, dom, service).filter(n => variantRequires(variants, chosen, n));
       for (const n of required) if (!active.some(m => m.name === n)) errors.push(`Pflichtfeld «${n}» fehlt in den Eingaben.`);
+      // Weichen des Decoders: eine davon muss der Service bekommen
+      const routing = routingMissing(variants, active);
+      if (routing) errors.push(`Pflicht: ${routingText(routing)} fehlt in den Eingaben — eines davon wählt die Ausprägung.`);
     }
     for (const m of active) {
       if (isFeel(m.expression)) {

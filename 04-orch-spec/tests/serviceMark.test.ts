@@ -28,3 +28,8 @@ test('topicName auf der nächsten Zeile', () => {
   assert.equal(inT?.topicName, 'acme-demo-lilaSetV2-MergeNewAccounts');
   assert.deepEqual(inT?.fields?.map(f => f.name), ['accountKey', 'portfolioKey']);
 });
+
+test('final val topicName', () => {
+  const types = scanScala(source.replace('  val topicName: String =\n    "acme-demo-lilaSetV2-MergeNewAccounts"', '  final val topicName = "acme-demo-lilaSetV2-MergeNewAccounts"'));
+  assert.equal(types.find(t => t.name === 'MergeNewAccounts.In')?.topicName, 'acme-demo-lilaSetV2-MergeNewAccounts');
+});
