@@ -8,7 +8,7 @@
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainRequired, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, conditionExpected, domainRequired, inConfigFields, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin } from './interactions';
@@ -257,7 +257,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // Eingaben, die das Modell bzw. der Katalog nicht kennt: eine Erweiterung,
     // die dort noch fehlt — dieselbe Regel wie in der Tabelle (Warnung)
     if (list === 'inputs') {
-      const known = refFields ? refFields.map(f => f.name) : (service?.inputs ?? []).map(p => p.name);
+      // dazu die Felder des `InConfig` (Mocks): der Aufgerufene liest sie als eigene Variablen
+      const known = refFields ? refFields.map(f => f.name) : [...(service?.inputs ?? []).map(p => p.name), ...inConfigFields(dom, model)];
       if (refFields || known.length) {
         // eine allgemeine Variable (`_idempotentId` …) nimmt jeder Worker — keine Erweiterung
         const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name) && !GENERAL_VARIABLES.has(m.name));
