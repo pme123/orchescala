@@ -132,7 +132,7 @@ interface StoreCtx {
   pagesApp: { data: PagesApp; version: string } | null;
   savePage: (slug: string, data: Page, expectedVersion: string | null) => Promise<SaveResult>;
   createPage: (slug: string, data: Page) => Promise<{ ok: true } | { ok: false; message: string }>;
-  deletePage: (slug: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  deletePage: (slug: string, expectedVersion: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   savePagesApp: (data: PagesApp, expectedVersion: string | null) => Promise<SaveResult>;
   /** Personen für @-Erwähnungen: users.json im geteilten Ordner */
   knownUsers: DirectoryUser[];
@@ -867,11 +867,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { ok: true as const };
   }, [writeJson]);
 
-  const deletePage = useCallback(async (slug: string) => {
+  const deletePage = useCallback(async (slug: string, expectedVersion: string) => {
     const be = backendRef.current;
     if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
     const bad = pageSlugProblem(slug);
     if (bad) return { ok: false as const, message: bad };
+    // löschen kennt kein ifMatch - vorher lesen: eine Seite, die jemand inzwischen geändert hat, bleibt
+    const current = await be.read(`${PAGES_DIR}/${slug}.json`).catch(() => null);
+    if (current && current.version !== expectedVersion)
+      return { ok: false as const, message: 'Die Seite wurde inzwischen geändert – Seite neu laden.' };
     const d = await be.delete(`${PAGES_DIR}/${slug}.json`);
     if (!d.ok) return { ok: false as const, message: d.message };
     setPages(prev => prev.filter(p => p.slug !== slug));

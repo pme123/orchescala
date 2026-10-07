@@ -3,8 +3,21 @@ import { ApiError, type Gateway } from './gatewayTypes';
 
 export { ApiError, type Gateway };
 
+/** Woher das Token kommt - im Test von aussen. */
+export type TokenSource = {
+  accessToken: () => Promise<string>;
+  renewToken: () => Promise<string | null>;
+  reauthenticate: () => Promise<never>;
+};
+
 /** POST an den Gateway – öffentlich ohne Token, sonst mit dem Token des Benutzers. */
-export async function post(path: string, body: unknown, isPublic: boolean): Promise<unknown> {
+export function post(path: string, body: unknown, isPublic: boolean): Promise<unknown> {
+  return postWith({ accessToken, renewToken, reauthenticate }, path, body, isPublic);
+}
+
+export async function postWith(
+  { accessToken, renewToken, reauthenticate }: TokenSource, path: string, body: unknown, isPublic: boolean,
+): Promise<unknown> {
   const send = (token?: string) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;

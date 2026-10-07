@@ -23,7 +23,7 @@ const gateway = process.env.GATEWAY ?? 'http://localhost:8889';
 const outDir = path.resolve(process.env.UI_OUT ?? path.resolve(__dirname, 'dist-pages'));
 
 /** app.json and every other *.json of the folder (one page per file) as one document. */
-function bundlePages(dir: string): string {
+function bundlePages(dir: string, strict: boolean): string {
   if (!fs.existsSync(dir)) throw new Error(`UI_PAGES: ${dir} does not exist`);
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
   const read = (f: string) => {
@@ -41,10 +41,13 @@ function bundlePages(dir: string): string {
   const app = files.includes('app.json') ? read('app.json') : {};
   const pages = files.filter((f) => f !== 'app.json').map(read);
   // eine Bedingung, die nicht passt, versteckt still - auch eine Datei von Hand gehört geprüft
-  for (const page of pages) for (const cond of conditionsOf(page.body)) {
+  // im Build ein Abbruch, im Dev-Server eine Warnung (die Seite ist dort gerade in Arbeit)
+  const problems = pages.flatMap((page) => conditionsOf(page.body).flatMap((cond) => {
     const problem = conditionProblem(cond);
-    if (problem) console.warn(`  pages: ${page.path} - sichtbar, wenn «${cond}»: ${problem}`);
-  }
+    return problem ? [`pages: ${page.path} - sichtbar, wenn «${cond}»: ${problem}`] : [];
+  }));
+  if (strict && problems.length > 0) throw new Error(problems.join('\n'));
+  for (const p of problems) console.warn(`  ${p}`);
   return JSON.stringify({ app, pages }, null, 2);
 }
 
@@ -68,20 +71,26 @@ function pagesPlugin(): Plugin {
         if (p === `${base}pages.json`) {
           res.setHeader('Content-Type', 'application/json');
           try {
-            res.end(bundlePages(pagesDir));
+            res.end(bundlePages(pagesDir, false));
           } catch (e) {
             // eine kaputte Seite - die App zeigt die Meldung, kein nacktes 500
             res.statusCode = 500;
             res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
           }
-        } else if (p === `${base}config.json` && configFile) {
+        } else if (p === `${base}config.json`) {
+          // ohne UI_CONFIG ein 404 - sonst lieferte der SPA-Fallback index.html mit 200
+          if (!configFile) {
+            res.statusCode = 404;
+            res.end();
+            return;
+          }
           res.setHeader('Content-Type', 'application/json');
           res.end(fs.readFileSync(configFile, 'utf-8'));
         } else next();
       });
     },
     generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'pages.json', source: bundlePages(pagesDir) });
+      this.emitFile({ type: 'asset', fileName: 'pages.json', source: bundlePages(pagesDir, true) });
       if (configFile) this.emitFile({ type: 'asset', fileName: 'config.json', source: fs.readFileSync(configFile, 'utf-8') });
     },
   };

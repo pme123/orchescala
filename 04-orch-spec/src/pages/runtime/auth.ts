@@ -10,7 +10,8 @@ let manager: Promise<UserManager> | null = null;
 function userManager(): Promise<UserManager> {
   manager ??= fetch(`${import.meta.env.BASE_URL}config.json`, { cache: 'no-cache' })
     .then((r) => {
-      if (!r.ok) throw new Error('config.json fehlt – ohne IdP keine Anmeldung');
+      // ein Server, der für Unbekanntes index.html liefert (SPA-Fallback), antwortet auch mit 200
+      if (!r.ok || !r.headers.get('content-type')?.includes('json')) throw new Error('config.json fehlt – ohne IdP keine Anmeldung');
       return r.json() as Promise<AuthConfig>;
     })
     .then((config) => {
@@ -89,10 +90,10 @@ export async function accessToken(): Promise<string> {
   return renewing;
 }
 
-/** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
 // mehrere Aufrufe mit 401 gleichzeitig: eine stille Erneuerung, nicht je Aufruf
 let renewingSilently: Promise<string | null> | null = null;
 
+/** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
 export function renewToken(): Promise<string | null> {
   renewingSilently ??= (async () => {
     const renewed = await (await userManager()).signinSilent().catch(() => null);

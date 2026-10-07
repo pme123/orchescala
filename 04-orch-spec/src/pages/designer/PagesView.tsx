@@ -17,6 +17,7 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
   const c = cls(isDark);
   const [creating, setCreating] = useState(false);
   const [appOpen, setAppOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : null), [model, specs]);
 
   return (
@@ -52,6 +53,7 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         onCreate={async (slug, page) => { const r = await createPage(slug, page); if (r.ok) { setCreating(false); onOpen(slug); } return r; }}
         onClose={() => setCreating(false)} />}
 
+      {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
       {pages.length === 0 ? (
         <div className={`rounded border p-6 text-center ${c.border2}`}>
           <LayoutTemplate size={20} className={`mx-auto mb-2 ${c.muted}`} />
@@ -59,7 +61,7 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         </div>
       ) : (
         <div className="space-y-1.5">
-          {pages.map(({ slug, data }) => {
+          {pages.map(({ slug, data, version }) => {
             const findings = targets ? pageFindings(data, targets, pages.map((p) => p.data)).filter((f) => f.level !== 'info') : [];
             const errors = findings.filter((f) => f.level === 'error').length;
             return (
@@ -83,7 +85,11 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
                 </button>
                 {canDelete && (
                   <button title="Seite löschen"
-                    onClick={async () => { if (await confirm({ title: `Seite «${data.title || slug}» löschen?` })) await deletePage(slug); }}
+                    onClick={async () => {
+                      if (!(await confirm({ title: `Seite «${data.title || slug}» löschen?` }))) return;
+                      const r = await deletePage(slug, version);
+                      setDeleteError(r.ok ? null : r.message);
+                    }}
                     className={`p-2 mr-1 rounded ${c.muted} hover:text-rose-500`}>
                     <Trash2 size={13} />
                   </button>
