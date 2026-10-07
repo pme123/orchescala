@@ -97,8 +97,9 @@ class PublicRoutes(
     ZIO.fromEither(guard.businessKey(key, required)).tapError(refusedLog(kind, name))
 
   /** The call with the technical token - at most [[PublicAccess.maxConcurrentCalls]] at once and
-    * within [[PublicAccess.callTimeout]], else a 503. A call that takes too long is interrupted -
-    * its slot is free only once it has really stopped, so slow calls cannot pile up behind the cap.
+    * within [[PublicAccess.callTimeout]], else a 503. The call runs in a fiber of its own with its own
+    * timeout: it holds its slot until it has really stopped - also if the caller is gone - so slow
+    * calls cannot pile up behind the cap.
     */
   private def forwarded[A](kind: Kind, name: String)(call: String => IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
     ZIO.suspendSucceed:
@@ -107,20 +108,20 @@ class PublicRoutes(
           ZIO.logWarning(s"Public $kind '$name': more than ${access.maxConcurrentCalls} public calls at once") *>
           ZIO.fail(PublicAccess.unavailable)
       else
+        val tooLong =
+          ZIO.logError(s"Public $kind '$name': no answer within ${access.callTimeout.render}").as(PublicAccess.unavailable)
         for
           done   <- Promise.make[ServiceRequestError, A]
-          // a fiber of its own - it holds the slot until it has stopped, also after the timeout
-          fiber  <- token
+          _      <- token
                       .flatMap(t => downstream(kind, name, t)(call(t)))
+                      // interrupted at the timeout - the slot is free once it has stopped
+                      .timeout(access.callTimeout)
+                      .someOrElseZIO(tooLong.flatMap(ZIO.fail(_)))
                       .intoPromise(done)
                       .ensuring(ZIO.succeed(inFlight.decrementAndGet()))
                       .forkDaemon
-          result <- done.await
-                      .timeout(access.callTimeout)
-                      .someOrElseZIO:
-                        fiber.interrupt.forkDaemon *>
-                          ZIO.logError(s"Public $kind '$name': no answer within ${access.callTimeout.render}") *>
-                          ZIO.fail(PublicAccess.unavailable)
+          // the caller gets its 503 at the timeout - also if the call does not stop at once
+          result <- done.await.timeout(access.callTimeout).someOrElseZIO(ZIO.fail(PublicAccess.unavailable))
         yield result
 
   private def refusedLog(kind: Kind, name: String)(e: ServiceRequestError) =

@@ -344,6 +344,21 @@ object PublicAccessSpec extends ZIOSpecDefault:
           busy        <- calls(ZIO.sleep(1.second).uninterruptible)
         yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
       @@ TestAspect.withLiveClock,
+      test("the caller is gone - the call still stops at its timeout and frees its slot"):
+        for
+          token  <- techTokenOf(TestClock())
+          got    <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          n      <- Ref.make(0)
+          answer  = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then ZIO.never else ZIO.unit)
+          one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis)
+          r       = routes(one, got, answer, Some(token))
+          first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}").fork
+          _      <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
+          _      <- first.interrupt                 // the caller is gone
+          _      <- ZIO.sleep(400.millis)
+          second <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-2", "{}")
+        yield assertTrue(second.status == Status.Ok)
+      @@ TestAspect.withLiveClock,
       test("a business key that is not plain - 400"):
         for response <- post(access, "/public/process/acme-shop-bookV1/async?businessKey=a%20b", "{}")
         yield assertTrue(response.status == Status.BadRequest)
