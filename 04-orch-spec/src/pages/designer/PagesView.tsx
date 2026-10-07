@@ -8,6 +8,7 @@ import { cls } from '../../ui';
 import type { App, Page } from '../runtime/spec';
 import { JsonField, SelectField, TextField } from './fields';
 import { flatten, pageFindings, slugOf, targetsOf } from './model';
+import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
 
 export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }) {
@@ -46,7 +47,8 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         onSave={async (app) => {
           const r = await savePagesApp(app, pagesApp?.version ?? null);
           if (r.status === 'saved') setAppOpen(false);
-          return r.status === 'saved' ? null : r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message;
+          // die Eingaben bleiben hier stehen - erst kopieren, dann neu laden, sonst sind sie weg
+          return r.status === 'saved' ? null : r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – deine Eingaben bleiben hier stehen; die andere Fassung zeigt erst ein Neuladen der Seite.' : r.message;
         }}
         onClose={() => setAppOpen(false)} />}
       {creating && <NewPage existing={pages.map((p) => p.slug)}
@@ -113,6 +115,7 @@ function NewPage({ existing, onCreate, onClose }: {
   const [path, setPath] = useState('');
   const [access, setAccess] = useState<'public' | 'login'>('public');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const slug = slugOf(path || title);
   // pages/app.json sind die Einstellungen der App - kein Name für eine Seite
   const taken = existing.includes(slug) || slug === 'app';
@@ -128,13 +131,19 @@ function NewPage({ existing, onCreate, onClose }: {
         <span className={`text-[10px] font-mono ${taken ? 'text-rose-500' : c.muted}`}>pages/{slug}.json{slug === 'app' ? ' – reserviert für die Einstellungen der App' : taken ? ' – gibt es schon' : ''}</span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
-        <button disabled={!title.trim() || !path.trim() || taken}
+        {/* ein Pfad nur aus Zeichen wie / oder ä gibt keinen Dateinamen; ein Doppelklick legt nicht zweimal an */}
+        <button disabled={!title.trim() || !path.trim() || !slug || taken || busy}
           onClick={async () => {
-            const r = await onCreate(slug, {
-              path: path.trim(), title: title.trim(), access: access === 'public' ? 'public' : { roles: [] },
-              state: {}, body: [{ type: 'heading', text: title.trim() }],
-            });
-            if (!r.ok) setError(r.message);
+            setBusy(true);
+            try {
+              const r = await onCreate(slug, {
+                path: path.trim(), title: title.trim(), access: access === 'public' ? 'public' : { roles: [] },
+                state: {}, body: [{ type: 'heading', text: title.trim() }],
+              });
+              if (!r.ok) setError(r.message);
+            } finally {
+              setBusy(false);
+            }
           }}
           className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
           Anlegen
@@ -165,7 +174,11 @@ function AppSettings({ app, pages, canEdit, onSave, onClose }: {
         {error && <span className="mr-auto text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Schliessen</button>
         {canEdit && (
-          <button onClick={async () => setError(await onSave(draft))} className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
+          <button onClick={async () => {
+            // dieselbe Prüfung wie beim Lesen - eine falsche Form käme sonst in app.json und bräche die App
+            const problem = appProblem(draft);
+            setError(problem ? `So nicht speicherbar: ${problem}` : await onSave(draft));
+          }} className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
             Speichern
           </button>
         )}
