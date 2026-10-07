@@ -213,7 +213,9 @@ function method(target: string, name: string, args: string[]): string {
     case 'size': return one(a => `count(${a})`);
     case 'isEmpty': return one(a => `count(${a}) = 0`);
     case 'toString': return args.length <= 1 ? `string(${target})` : (() => { throw new Unsupported('«toString()» mit mehr als einem Argument'); })();
-    case 'intValue': case 'longValue': case 'doubleValue': return one(a => `number(${a})`);
+    // FEEL kennt nur einen Zahlentyp — `numberValue().intValue()` ist schon die Zahl
+    // (`number(…)` liest in FEEL einen Text und hätte kein JUEL-Gegenstück)
+    case 'intValue': case 'longValue': case 'doubleValue': case 'floatValue': return one(a => a);
     // Spin (Camunda 7 JSON): in FEEL ist die Variable schon JSON — eine Liste
     // ist eine Liste, ein Feld ein Feld, ein Wert ein Wert
     case 'elements': case 'elementList': case 'value': case 'stringValue': case 'numberValue': case 'boolValue': case 'listValue':

@@ -1105,6 +1105,20 @@ function jsonTextUpgrade(stored: string, fromDiagram: string | undefined): boole
   }
 }
 
+/**
+ * `= number(a.b)` — ein älterer Import machte so aus `….intValue()` einen Aufruf, den
+ * FEEL nur für Text kennt; heute liest das Diagramm `= a.b`. Gleich bis auf `number(…)`
+ * um Pfade: dann gilt das Diagramm.
+ */
+function numberUpgrade(stored: string, fromDiagram: string | undefined): boolean {
+  if (!fromDiagram || !/(?<![\w.])number\(/.test(stored)) return false;
+  const without = stored.replace(/(?<![\w.])number\(([A-Za-z_][\w.]*)\)/g, '$1');
+  return without !== stored && without.trim() === fromDiagram.trim();
+}
+/** Ein Wert, den ein älterer Import falsch las — das Diagramm liest ihn heute richtig */
+const importUpgrade = (stored: string, fromDiagram: string | undefined): boolean =>
+  jsonTextUpgrade(stored, fromDiagram) || numberUpgrade(stored, fromDiagram);
+
 function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>, base: Map<string, Step> | null, st: MergeStatus) {
   for (const s of steps) {
     seen.add(s.id);
@@ -1115,12 +1129,12 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     } else {
       const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
-      // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein —
-      // liest das Diagramm heute die Liste, gilt die
+      // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
+      // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {
         const now = new Map((fresh[list] ?? []).map(m => [m.name, m.expression]));
         if (s[list] && s[list] !== fresh[list]) {
-          s[list] = s[list]!.map(m => (jsonTextUpgrade(m.expression, now.get(m.name)) ? { ...m, expression: now.get(m.name)! } : m));
+          s[list] = s[list]!.map(m => (importUpgrade(m.expression, now.get(m.name)) ? { ...m, expression: now.get(m.name)! } : m));
         }
       }
       keepEmptyErrors(s, prev);
