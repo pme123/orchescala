@@ -295,7 +295,7 @@ gleichnamigen Typ eines anderen Projekts vor — `processStatus:
 ProcessStatus.canceled.type` bleibt ein fester Fall. Für ein neues
 Prozess-Objekt gibt der Export die Beschreibung als `// descr: …` und die
 Bezeichnung je Sprache als `// processLabels: de | fr` mit (aus
-`override def processLabels` der Domain, oder am Prozess mit dem Pattern
+`override lazy val processLabels` der Domain, oder am Prozess mit dem Pattern
 **«Prozess-Bezeichnung»** erfasst, siehe [Pattern](#pattern)). Der
 Init-Worker setzt daraus die Prozessvariablen `callingProcessKeyDE` und
 `callingProcessKeyFR` — die Pattern «Benutzer per Mail informieren» und
@@ -733,7 +733,7 @@ Element, statt sie Stück für Stück zu zeichnen.
 und nicht im BPMN — ihre Werte stehen in der Spezifikation:
 
 - **Prozess-Bezeichnung** (`process-labels`, am Prozess): Deutsch und
-  Französisch → `override def processLabels: ProcessLabels =
+  Französisch → `override lazy val processLabels: ProcessLabels =
   ProcessLabels("…", "…")` im Prozess-Objekt. Der Init-Worker setzt daraus
   `callingProcessKeyDE/FR`; die App kennt sie danach als Prozessvariablen.
   Das Pattern bringt die beiden Felder ins **`Out`** (Beispiel

@@ -790,16 +790,23 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     val m = mergeObject.merge(without)
     assert(
       m.contains(
-        "  val descr: String = \"Neubestellung\"\n\n  override def processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n\n  case class In("
+        "  val descr: String = \"Neubestellung\"\n\n  override lazy val processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n\n  case class In("
       ),
       m
     )
     assertEquals(mergeObject.merge(m), m)
 
+  test("merge - an existing override val (or lazy val) processLabels is kept, none added"):
+    for decl <- Seq("override val", "override lazy val") do
+      val withVal = existingProc.replace("  override def processLabels", s"  $decl processLabels")
+      assert(!mergeObject.differences(withVal).contains("processLabels"), mergeObject.differences(withVal))
+      val m = mergeObject.merge(withVal)
+      assertEquals(m.linesIterator.count(_.contains("processLabels: ProcessLabels")), 1, m)
+
   test("new process object - In, InitIn, InConfig, Out and the descr of the export"):
     val content = mergeObject.content
     assert(content.contains("""  val descr: String = "Neue Karte""""), content)
-    assert(content.contains("  override def processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n"), content)
+    assert(content.contains("  override lazy val processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n"), content)
     val order   = Seq("  case class In(", "  case class InitIn(", "  case class InConfig(", "  case class Out(", "  enum CustomStatus:")
       .map(content.indexOf)
     assert(order.forall(_ >= 0) && order == order.sorted, content)
