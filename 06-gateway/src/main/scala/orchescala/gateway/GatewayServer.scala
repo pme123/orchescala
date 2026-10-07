@@ -59,8 +59,11 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                  val public = config.publicAccess
                  for
                    _ <- ZIO.logInfo(s"Without a token (/public): $public")
+                   // listed but no login - it could never work: no start
                    _ <- ZIO.when(public.login.isEmpty):
-                          ZIO.logError("PublicAccess has no login - every public call answers 503.")
+                          ZIO.fail(IllegalStateException(
+                            "PublicAccess lists workers, processes or messages but has no login (PublicAccess.login)."
+                          ))
                    _ <- ZIO.when(public.clientIpHeader.isEmpty):
                           ZIO.logInfo(
                             "PublicAccess has no clientIpHeader - fine without a proxy; behind one all " +

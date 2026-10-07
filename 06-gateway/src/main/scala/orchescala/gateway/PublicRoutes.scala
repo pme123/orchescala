@@ -140,7 +140,8 @@ class PublicRoutes(
   private def downstream[A](kind: Kind, name: String, token: String)(call: IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
     call
       .catchAll: e =>
-        val log = s"Public $kind '$name': ${e.errorCode} ${e.errorMsg}"
+        // the message can echo what the caller sent - one line, at most 300 characters
+        val log = s"Public $kind '$name': ${e.errorCode} ${PublicAccess.oneLine(e.errorMsg)}"
         val err = e.errorCode match
           case 401                      =>
             // logged as an error once per new token - not for every call while it is rejected
@@ -148,7 +149,8 @@ class PublicRoutes(
             (if invalidated then ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
              else ZIO.logDebug(log)).as(PublicAccess.unavailable)
           // a message: always 400 - a 404 / 409 would tell whether a business key exists
-          case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(if kind == Kind.message then 400 else c))
+          // info: anonymous callers can cause these at the rate limit
+          case c if c >= 400 && c < 500 => ZIO.logInfo(log).as(PublicAccess.refused(if kind == Kind.message then 400 else c))
           case _                        => ZIO.logError(log).as(PublicAccess.unavailable)
         err.flatMap(ZIO.fail(_))
       // a defect (an exception) - never tapir's default answer with its detail

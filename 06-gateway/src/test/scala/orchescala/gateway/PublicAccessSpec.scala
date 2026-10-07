@@ -228,6 +228,13 @@ object PublicAccessSpec extends ZIOSpecDefault:
           g.businessKey(Some("0b1c9a4e-7a43-4f0e-9d39-3a3f6c2d8e11"), required = true, minLength = 16).isRight
         )
       ,
+      test("a text from a caller as one log line"):
+        assertTrue(
+          PublicAccess.oneLine("bad\nINFO forged\r\tline") == "bad INFO forged  line",
+          PublicAccess.oneLine("x" * 400).length == 300,
+          PublicAccess.oneLine(null) == ""
+        )
+      ,
       test("trustedProxies below 1 - refused at once"):
         assertTrue(scala.util.Try(access.copy(trustedProxies = 0)).isFailure)
       ,

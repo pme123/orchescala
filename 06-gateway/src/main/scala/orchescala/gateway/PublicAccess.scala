@@ -99,6 +99,10 @@ object PublicAccess:
   def loggable(name: String): String =
     name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
 
+  /** A text that may contain what a caller sent (e.g. the error of a worker) as one log line. */
+  def oneLine(text: String, max: Int = 300): String =
+    Option(text).mkString.take(max).map(c => if c.isControl then ' ' else c)
+
   /** A business key as a public caller may send it - letters, digits and `._:@+-`, at most 128. */
   val businessKeyPattern = "[A-Za-z0-9._:@+-]{1,128}".r
 

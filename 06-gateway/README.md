@@ -234,7 +234,7 @@ DefaultGatewayConfig(
     workers = Set("mycompany-shop-freeSlots", "mycompany-shop-reserveSlot"),
     processStarts = Set("mycompany-shop-bookAppointmentV1"),
     messages = Set("mycompany-shop-bookAppointmentV1-emailVerified"),
-    // the gateway logs in itself - the browser never gets a token
+    // the gateway logs in itself - the browser never gets a token; without it the gateway does not start
     login = Some(OAuthConfig.ClientCredentials(…))
   )
 )
