@@ -132,7 +132,8 @@ class PublicGuard(
   // all under the lock of calls
   private var lastSweep            = now()
   private var forgotten            = 0L
-  private var report: Option[Long] = None
+  // read without the lock - by every call
+  private val report               = AtomicReference[Option[Long]](None)
 
   /** May the client call this - before anything of the body is read. */
   def admit(kind: Kind, name: String, client: String): Either[ServiceRequestError, Unit] =
@@ -171,10 +172,7 @@ class PublicGuard(
     * minute with any (for a warning in the log).
     */
   def forgottenReport(): Option[Long] =
-    calls.synchronized:
-      val r = report
-      report = None
-      r
+    if report.get().isEmpty then None else report.getAndSet(None)
 
   private def withoutHoneypot(obj: JsonObject): Either[ServiceRequestError, JsonObject] =
     access.honeypotField match
@@ -199,8 +197,10 @@ class PublicGuard(
       val (start, count) = Option(calls.get(client)) match
         case Some((start, n)) if start >= at - windowMillis => (start, n + 1)
         case _                                              => (at, 1)
-      calls.put(client, start -> count)
-      count <= access.requestsPerMinute
+      val within         = count <= access.requestsPerMinute
+      // beyond the limit nothing more to count (get has marked it as used already)
+      if within then calls.put(client, start -> count)
+      within
   end withinLimit
 
   /** Removes the clients of past minutes - at most once a minute (under the lock). */
@@ -208,7 +208,7 @@ class PublicGuard(
     if at - lastSweep >= windowMillis then
       lastSweep = at
       calls.values.removeIf(_._1 < at - windowMillis)
-      if forgotten > 0 then report = Some(forgotten)
+      if forgotten > 0 then report.set(Some(forgotten))
       forgotten = 0
 
   private[gateway] def clients: Int = calls.synchronized(calls.size)
@@ -267,16 +267,15 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
         .tapError: detail =>
           ZIO.succeed(failedUntil.set(now() + retryAfterMillis)) *>
             ZIO.logError(s"Public access: the gateway cannot log in at $identityUrl: $detail")
-        .mapBoth(
-          _ => PublicAccess.unavailable,
-          (token, expiresIn) =>
+        .mapError(_ => PublicAccess.unavailable)
+        .flatMap: (token, expiresIn) =>
+          ZIO.succeed:
             // renewed shortly before it expires - at most 30 seconds, at most half its time
             val margin   = (expiresIn / 2).min(30)
             val validFor = (expiresIn - margin).max(minLifetimeSeconds)
             val at       = now()
             cached.set(Some((token, at + validFor * 1000, at)))
             token
-        )
 
   /** The raw answer of the identity provider - or what went wrong (for the log). */
   protected def requestToken: IO[String, String] =

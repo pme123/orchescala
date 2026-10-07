@@ -107,6 +107,8 @@ class PublicRoutes(
       else
         token
           .flatMap(t => downstream(kind, name, t)(call(t)))
+          // the answer at the timeout - not only once the call has stopped
+          .disconnect
           .timeout(access.callTimeout)
           .someOrElseZIO:
             ZIO.logError(s"Public $kind '$name': no answer within ${access.callTimeout.render}") *>

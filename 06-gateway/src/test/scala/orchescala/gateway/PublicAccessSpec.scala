@@ -175,6 +175,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
         val later  = g.admit(Kind.worker, "acme-shop-freeSlots", "a").isRight
         assertTrue(first.forall(_ == Left(404)), fourth == Left(429), other, later)
       ,
+      test("many calls of one client at once - exactly requestsPerMinute admitted"):
+        val g = guard(TestClock())
+        for admitted <- ZIO.foreachPar(1 to 100)(_ => ZIO.succeed(g.admit(Kind.worker, "acme-shop-freeSlots", "a").isRight))
+        yield assertTrue(admitted.count(identity) == 3)
+      ,
       test("at most maxClients - beyond, the least recently used is forgotten (nobody is locked out)"):
         val clock    = TestClock()
         val g        = guard(clock, maxClients = 3)
