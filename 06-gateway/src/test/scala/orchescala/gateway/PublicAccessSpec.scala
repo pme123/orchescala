@@ -204,6 +204,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
           // a CDN and a load balancer: the second entry from the end
           behindProxy.copy(trustedProxies = 2)
             .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "6.6.6.6, 1.2.3.4, 10.0.0.9"))) == "1.2.3.4",
+          // two lines (the proxy added its own) - the last entry of all of them
+          behindProxy.client(
+            Some("10.0.0.1"),
+            Seq(Header("X-Forwarded-For", "6.6.6.6"), Header("X-Forwarded-For", "1.2.3.4"))
+          ) == "1.2.3.4",
           // fewer entries than proxies - the remote address
           behindProxy.copy(trustedProxies = 2)
             .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "1.2.3.4"))) == "10.0.0.1"

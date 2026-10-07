@@ -68,8 +68,9 @@ case class PublicAccess(
     */
   def client(remote: Option[String], headers: Seq[Header]): String =
     clientIpHeader
-      .flatMap(h => headers.find(_.name.equalsIgnoreCase(h)))
-      .flatMap(_.value.split(",").map(_.trim).filter(_.nonEmpty).dropRight(trustedProxies - 1).lastOption)
+      // all lines of the header together - a proxy may add a line of its own instead of appending
+      .map(h => headers.filter(_.name.equalsIgnoreCase(h)).flatMap(_.value.split(",")).map(_.trim).filter(_.nonEmpty))
+      .flatMap(_.dropRight(trustedProxies - 1).lastOption)
       .orElse(remote)
       .getOrElse("unknown")
 
