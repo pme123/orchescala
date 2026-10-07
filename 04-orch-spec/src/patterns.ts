@@ -45,7 +45,7 @@ export const BUILTIN_PARAMS = ['targetId', 'targetName', 'processId', 'startMess
 // der Spezifikation und gehen über den Export in die Domain.
 
 /**
- * Die Bezeichnung des Prozesses — `override def processLabels` im
+ * Die Bezeichnung des Prozesses — `override lazy val processLabels` im
  * Prozess-Objekt. Der Init-Worker setzt daraus die Prozessvariablen
  * `callingProcessKeyDE` und `callingProcessKeyFR` (ProcessLabels in
  * Orchescala); Pattern wie «Benutzer per Mail informieren» lesen sie, und
@@ -64,7 +64,7 @@ const LABEL_FIELDS = (['DE', 'FR'] as const).map(lang => ({
 export const ORCHESCALA_PATTERNS: PatternDef[] = [{
   id: PROCESS_LABELS_PATTERN,
   name: 'Prozess-Bezeichnung',
-  description: 'Die Bezeichnung des Prozesses je Sprache — `override def processLabels` im Prozess-Objekt. '
+  description: 'Die Bezeichnung des Prozesses je Sprache — `override lazy val processLabels` im Prozess-Objekt. '
     + 'Der Init-Worker setzt daraus die Prozessvariablen `callingProcessKeyDE` und `callingProcessKeyFR`.',
   appliesTo: [PROCESS_TARGET],
   params: [

@@ -685,8 +685,9 @@ case class OrchSpecProcessObject(
     withImports(withLabels(merged), missingImports(merged)).mkString("\n") + "\n"
   end merge
 
+  // `override def`, `override val` or `override lazy val` - each is the object's own processLabels
   private def missingLabels(lines: Seq[String]): Boolean =
-    processLabels.isDefined && !lines.exists(_.trim.startsWith("override def processLabels"))
+    processLabels.isDefined && !lines.exists(_.trim.matches("""override\s+(?:def|val|lazy\s+val)\s+processLabels\b.*"""))
 
   // after `val descr` - otherwise after `val processName`
   private def withLabels(lines: Seq[String]): Seq[String] =
@@ -694,7 +695,7 @@ case class OrchSpecProcessObject(
       val descr = lines.indexWhere(_.trim.startsWith("val descr"))
       val at    = if descr >= 0 then descr else lines.indexWhere(_.trim.startsWith("val processName"))
       if at < 0 then lines
-      else lines.patch(at + 1, Seq("", "  override def processLabels: ProcessLabels =", s"""    ProcessLabels("$de", "$fr")"""), 0)
+      else lines.patch(at + 1, Seq("", "  override lazy val processLabels: ProcessLabels =", s"""    ProcessLabels("$de", "$fr")"""), 0)
 
   /** One type of the export into the lines of the process object:
     *   - missing: inserted after the type that comes before it (`typeOrder`),
@@ -789,7 +790,7 @@ case class OrchSpecProcessObject(
       ),
       processLabels.toSeq.flatMap: (de, fr) =>
         Seq(
-          "  override def processLabels: ProcessLabels =",
+          "  override lazy val processLabels: ProcessLabels =",
           s"""    ProcessLabels("$de", "$fr")""",
           ""
         ),
