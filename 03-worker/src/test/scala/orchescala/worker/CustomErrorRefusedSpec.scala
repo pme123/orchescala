@@ -70,10 +70,9 @@ object CustomErrorRefusedSpec extends ZIOSpecDefault:
         notRefusal == (500 -> Some(500))
       )
     ,
-    test("the HTTP status of /worker: 4xx / 5xx as they are, any other code 400 as before"):
+    test("the HTTP status of the default variant: a 4xx as it is, any other code 400 as before"):
       assertTrue(
         WorkerEndpoints.httpStatus(ServiceRequestError(409, "x")).code == 409,
-        WorkerEndpoints.httpStatus(ServiceRequestError(502, "x")).code == 502,
         WorkerEndpoints.httpStatus(ServiceRequestError(418, "x")).code == 418,
         WorkerEndpoints.httpStatus(ServiceRequestError(429, "x")).code == 429,
         WorkerEndpoints.httpStatus(ServiceRequestError(0, "x")).code == 400,
