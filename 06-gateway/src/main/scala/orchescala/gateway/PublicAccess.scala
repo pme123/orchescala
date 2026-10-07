@@ -103,10 +103,11 @@ object PublicAccess:
   /** A business key as a public caller may send it - letters, digits and `._:@+-`, at most 128. */
   val businessKeyPattern = "[A-Za-z0-9._:@+-]{1,128}".r
 
-  /** A public message is correlated by its business key alone - so it must not be short (a UUID has
-    * 36).
+  /** A public message is correlated by its business key alone - so the keys of public starts and
+    * messages must not be short (a UUID has 36): a caller cannot pick a short, predictable key at the
+    * start. Best is a key the server generates (e.g. a worker before the start).
     */
-  val minMessageKeyLength = 16
+  val minPublicKeyLength = 16
 
   /** What an anonymous caller gets when something inside fails - the detail goes to the log only. */
   val unavailable: ServiceRequestError =

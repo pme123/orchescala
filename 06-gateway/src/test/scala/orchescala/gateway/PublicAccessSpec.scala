@@ -119,8 +119,10 @@ object PublicAccessSpec extends ZIOSpecDefault:
       override protected def newToken(l: OAuthConfig): PublicToken  = token.getOrElse(super.newToken(l))
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(public.routes)
 
-  private def post(r: Routes[Any, Response], path: String, body: String) =
-    ZIO.scoped(r.runZIO(Request.post(URL.decode(path).toOption.get, Body.fromString(body))))
+  private def post(r: Routes[Any, Response], path: String, body: String, headers: (String, String)*) =
+    val request = headers.foldLeft(Request.post(URL.decode(path).toOption.get, Body.fromString(body))):
+      case (req, (name, value)) => req.addHeader(name, value)
+    ZIO.scoped(r.runZIO(request))
 
   private def post(publicAccess: PublicAccess, path: String, body: String): ZIO[Any, Response, Response] =
     Ref.make(Option.empty[(Option[String], Option[JsonObject])]).flatMap(got => post(routes(publicAccess, got), path, body))
@@ -382,9 +384,25 @@ object PublicAccessSpec extends ZIOSpecDefault:
           second <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
         yield assertTrue(second.status == Status.Ok)
       @@ TestAspect.withLiveClock,
-      test("a business key that is not plain - 400"):
-        for response <- post(access, "/public/process/acme-shop-bookV1/async?businessKey=a%20b", "{}")
-        yield assertTrue(response.status == Status.BadRequest)
+      test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
+        def fourth(publicAccess: PublicAccess) =
+          for
+            got   <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+            r      = routes(publicAccess, got)
+            _     <- ZIO.foreach(1 to 3)(_ => post(r, "/public/worker/acme-shop-unknown", "{}", "X-Forwarded-For" -> "1.1.1.1"))
+            same  <- post(r, "/public/worker/acme-shop-unknown", "{}", "X-Forwarded-For" -> "1.1.1.1")
+            other <- post(r, "/public/worker/acme-shop-unknown", "{}", "X-Forwarded-For" -> "2.2.2.2")
+          yield same.status.code -> other.status.code
+        for
+          behindProxy <- fourth(access.copy(clientIpHeader = Some("X-Forwarded-For")))
+          ignored     <- fourth(access)
+        yield assertTrue(behindProxy == (429 -> 404), ignored == (429 -> 429))
+      ,
+      test("a business key that is not plain or short - 400"):
+        for
+          notPlain <- post(access, "/public/process/acme-shop-bookV1/async?businessKey=a%20b", "{}")
+          short    <- post(access, "/public/process/acme-shop-bookV1/async?businessKey=r-1", "{}")
+        yield assertTrue(notPlain.status == Status.BadRequest, short.status == Status.BadRequest)
       ,
       test("without PublicAccess there is nothing under /public"):
         for response <- post(PublicAccess.none, "/public/worker/acme-shop-freeSlots", "{}")
@@ -483,7 +501,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           failed   <- answer(500)
           died     <- defect
         yield assertTrue(
-          notFound._1 == 404,
+          notFound._1 == 400, // a message: always 400 - no hint whether the key exists
           failed._1 == 503,
           died._1 == 503,
           !died._2.contains("engine.internal"),
@@ -507,7 +525,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         for
           rejected  <- calls(401)
           forbidden <- calls(403)
-        yield assertTrue(rejected == (503 -> 2), forbidden == (403 -> 1))
+        yield assertTrue(rejected == (503 -> 2), forbidden == (400 -> 1)) // a message: 400, the token kept
     )
   )
 end PublicAccessSpec

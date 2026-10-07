@@ -59,7 +59,7 @@ class PublicRoutes(
         (businessKey, raw) =>
           for
             body   <- body(Kind.processStart, key, raw)
-            bk     <- checkedKey(Kind.processStart, key, businessKey, required = false)
+            bk     <- checkedKey(Kind.processStart, key, businessKey, required = false, minLength = PublicAccess.minPublicKeyLength)
             result <- forwarded(Kind.processStart, key): token =>
                         processRoutes.startAsync(token, key, bk, tenantId, body)
           yield result
@@ -72,7 +72,7 @@ class PublicRoutes(
         (businessKey, raw) =>
           for
             body   <- body(Kind.message, name, raw)
-            bk     <- checkedKey(Kind.message, name, businessKey, required = true, minLength = PublicAccess.minMessageKeyLength)
+            bk     <- checkedKey(Kind.message, name, businessKey, required = true, minLength = PublicAccess.minPublicKeyLength)
             result <- forwarded(Kind.message, name): token =>
                         messageRoutes.send(token, name, tenantId, None, bk, None, Some(body).filter(_.nonEmpty))
           yield result
@@ -133,7 +133,7 @@ class PublicRoutes(
     if e.errorCode == 404 || e.errorCode == 429 then ZIO.logDebug(line) else ZIO.logWarning(line)
 
   /** What a worker or the engine answers goes to the caller without its detail (only to the log): a
-    * refusal (4xx) with its status, a failure (5xx) or a defect as 503. Is the technical token
+    * refusal (4xx) with its status (for a message always 400), a failure (5xx) or a defect as 503. Is the technical token
     * rejected (401 - a 403 can be a business rule), the next call fetches a new one - at most every
     * 10 seconds, so a caller can force at most a few logins a minute; calls in flight keep theirs.
     */
@@ -147,7 +147,8 @@ class PublicRoutes(
             val invalidated = login.exists(_.invalidate(token))
             (if invalidated then ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
              else ZIO.logDebug(log)).as(PublicAccess.unavailable)
-          case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(c))
+          // a message: always 400 - a 404 / 409 would tell whether a business key exists
+          case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(if kind == Kind.message then 400 else c))
           case _                        => ZIO.logError(log).as(PublicAccess.unavailable)
         err.flatMap(ZIO.fail(_))
       // a defect (an exception) - never tapir's default answer with its detail
