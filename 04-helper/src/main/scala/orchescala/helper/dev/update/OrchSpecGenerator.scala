@@ -762,6 +762,15 @@ case class OrchSpecProcessObject(
       )
     else Seq.empty
 
+  // `package valiant.product.domain` + `package lilaSet.v2` - everything of the domain package is
+  // visible without import, as in the domain files; without `domain` one clause
+  private lazy val packageClause: Seq[String] =
+    val parts = pkg.split('.').toSeq
+    val at    = parts.indexOf("domain")
+    if at >= 0 && at < parts.size - 1 then
+      Seq(s"package ${parts.take(at + 1).mkString(".")}", s"package ${parts.drop(at + 1).mkString(".")}")
+    else Seq(s"package $pkg")
+
   // no stripMargin - it would also strip the lines of the exported classes
   lazy val content: String =
     val withIn     = if defines("In") then withConfig(body) else body
@@ -779,7 +788,7 @@ case class OrchSpecProcessObject(
         sections.map(_.name).filterNot(OrchSpecProcessObject.order.contains).map(fromBlock)
     val allImports = (imports ++ schemaImport).distinct
     Seq(
-      Seq(s"package $pkg", ""),
+      packageClause :+ "",
       if allImports.isEmpty then Seq.empty else allImports :+ "",
       Seq(
         s"object $objectName extends CompanyBpmnProcessDsl:",
