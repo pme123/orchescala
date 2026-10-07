@@ -36,7 +36,8 @@ object OpenApiGenerator:
       WorkerEndpoints.triggerWorker,
       DeploymentEndpoints.postDeployments,
       DeploymentEndpoints.getDeployments,
-      // without a Bearer token - only what PublicAccess of the installation lists
+      // without a Bearer token - always documented; an installation serves only what its
+      // PublicAccess lists (without one, /public answers 404)
       PublicEndpoints.worker,
       PublicEndpoints.startProcess,
       PublicEndpoints.message
