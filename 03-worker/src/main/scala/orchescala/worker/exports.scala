@@ -158,6 +158,16 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
   end CustomError
 
+  object CustomError:
+    /** A refusal of the caller's request - called over HTTP (`/worker/{topic}`, e.g. by a page) it
+      * is answered with that status (4xx) instead of 500, e.g. `CustomError.refused(409, "The slot
+      * is taken")`. In a process it is a `CustomError` like any other.
+      */
+    def refused(status: Int, errorMsg: String): CustomError =
+      require(status >= 400 && status < 500, s"A refusal is a 4xx status (is $status).")
+      CustomError(errorMsg, causeError = Some(ServiceRequestError(status, errorMsg)))
+  end CustomError
+
   case class UnexpectedRunError(
       errorMsg: String
   ) extends RunWorkError:
@@ -219,6 +229,9 @@ object WorkerError:
         case ServiceMappingError(msg)       => ServiceRequestError(400, msg)
         case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
         case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
+        // a refusal of a custom worker (CustomError.refused) keeps its 4xx
+        case CustomError(msg, _, Some(ServiceRequestError(code, _))) if code >= 400 && code < 500 =>
+          ServiceRequestError(code, msg)
         case err                            => ServiceRequestError(500, err.errorMsg)
     end apply
   end ServiceRequestError
