@@ -242,8 +242,14 @@ object PublicAccessSpec extends ZIOSpecDefault:
           PublicAccess.oneLine(null) == ""
         )
       ,
-      test("trustedProxies below 1 - refused at once"):
-        assertTrue(scala.util.Try(access.copy(trustedProxies = 0)).isFailure)
+      test("values that would refuse every call - refused at once"):
+        assertTrue(
+          scala.util.Try(access.copy(trustedProxies = 0)).isFailure,
+          scala.util.Try(access.copy(requestsPerMinute = 0)).isFailure,
+          scala.util.Try(access.copy(maxConcurrentCalls = 0)).isFailure,
+          scala.util.Try(access.copy(maxBodyBytes = 0)).isFailure,
+          scala.util.Try(access.copy(callTimeout = Duration.Zero)).isFailure
+        )
       ,
       test("a name from a caller goes into the log cleaned and short"):
         assertTrue(

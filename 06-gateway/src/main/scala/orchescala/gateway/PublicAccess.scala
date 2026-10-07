@@ -60,7 +60,12 @@ case class PublicAccess(
       */
     maxConcurrentCalls: Int = 100
 ):
+  // a wrong value would refuse every call silently - refused at once instead
   require(trustedProxies >= 1, s"PublicAccess.trustedProxies must be at least 1 (is $trustedProxies).")
+  require(requestsPerMinute >= 1, s"PublicAccess.requestsPerMinute must be at least 1 (is $requestsPerMinute).")
+  require(maxConcurrentCalls >= 1, s"PublicAccess.maxConcurrentCalls must be at least 1 (is $maxConcurrentCalls).")
+  require(maxBodyBytes >= 2, s"PublicAccess.maxBodyBytes must be at least 2 (is $maxBodyBytes).")
+  require(callTimeout.toMillis > 0, s"PublicAccess.callTimeout must be positive (is ${callTimeout.render}).")
 
   lazy val isEmpty: Boolean = workers.isEmpty && processStarts.isEmpty && messages.isEmpty
 
