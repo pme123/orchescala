@@ -20,6 +20,7 @@
 //   Filter           items[item.x = 1]       → S(items).jsonPath("$[?(@.x == 1)]").elementList()
 //   Anzahl           count(x)                → x.size()
 //   leere Liste      x = []                  → empty x
+//   Feld setzen      context put(x, "k", 1)  → x.prop("k", 1)
 //
 // Eine Variable, die fehlen darf, liest Camunda 7 mit `execution.getVariable("x")`
 // — `${x}` wirft «Unknown property», wenn `x` nicht gesetzt ist. Das gilt für
@@ -361,6 +362,11 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
         if (name === 'string' && args.length === 1) return `"".concat(${val(args[0], 'scalar')})`;
         // `count(x)` — eine Liste (Java oder Spin) hat `size()`
         if (name === 'count' && args.length === 1) return `${val(args[0], 'list')}.size()`;
+        // `context put(x, "k", v)` — Spin setzt das Feld mit `prop("k", v)` und gibt den Knoten zurück
+        if (name === 'context put' && args.length === 3) {
+          if (args[1].name !== 'StringLiteral') throw new Unsupported('«context put» nur mit festem Feldnamen');
+          return `${tr(args[0])}.prop(${tr(args[1])}, ${val(args[2], 'value')})`;
+        }
         throw new Unsupported(`Funktion «${name}()» hat kein JUEL-Gegenstück`);
       }
       case 'FilterExpression': {

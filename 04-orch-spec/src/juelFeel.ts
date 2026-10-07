@@ -218,7 +218,9 @@ function method(target: string, name: string, args: string[]): string {
     // ist eine Liste, ein Feld ein Feld, ein Wert ein Wert
     case 'elements': case 'elementList': case 'value': case 'stringValue': case 'numberValue': case 'boolValue': case 'listValue':
       return one(a => a);
-    case 'prop': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
+    // `a.prop("k", v)` setzt das Feld und gibt den Knoten zurück — in FEEL `context put`
+    case 'prop': return args.length === 2 ? `context put(${target}, ${args[0]}, ${args[1]})`
+      : two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
     // `execution.getVariable("x")` — in FEEL heisst die Variable einfach `x`
