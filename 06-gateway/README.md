@@ -247,11 +247,16 @@ DefaultGatewayConfig(
 | `POST /public/message/{name}?businessKey=…` | `POST /message/{name}` (the business key is required) |
 
 Each call is checked first: a name that is not listed is a 404, a body larger than `maxBodyBytes` a
-413, a filled-in honeypot field (`_hp`, a hidden form field only bots fill in) a 400 - an empty one
-is removed. More than `requestsPerMinute` calls per client are a 429; behind a proxy set
-`clientIpHeader` (e.g. `X-Forwarded-For`) - only if the proxy sets it. This limit is a fallback: an
-API gateway in front should limit as well. A process started this way runs with the identity of the
-technical user - let a human see nothing before e.g. an e-mail opt-in.
+413 (while it is read, not after), a filled-in honeypot field (`_hp`, a hidden form field only bots
+fill in) a 400 - an empty one is removed. More than `requestsPerMinute` calls per client are a 429;
+behind a proxy set `clientIpHeader` (e.g. `X-Forwarded-For`) - only if the proxy sets it. This limit
+is a fallback: an API gateway in front should limit as well. A process started this way runs with
+the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
+
+Refusals (4xx, e.g. of an init worker) go to the caller as they are; when something fails inside
+(5xx, e.g. the login of the gateway) the caller gets a generic 503 and the detail goes to the log.
+The technical token is fetched once for all calls at a time; after a failed login, public calls fail
+at once for a few seconds.
 
 ## Integration with Existing Code
 

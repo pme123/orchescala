@@ -5,11 +5,11 @@ import orchescala.domain.*
 import orchescala.engine.rest.{OAuth2Flow, OAuthConfig}
 import orchescala.gateway.GatewayError.ServiceRequestError
 import sttp.client3.*
-import sttp.model.Uri
+import sttp.model.{Header, Uri}
 import zio.*
 
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 
 /** What the gateway offers **without a Bearer token** (`/public/...`) - e.g. a booking form on the
   * homepage of a bank, used by customers that have no login.
@@ -35,7 +35,7 @@ case class PublicAccess(
     login: Option[OAuthConfig] = None,
     /** calls per client and minute - more get a 429 */
     requestsPerMinute: Int = 30,
-    /** the largest body (bytes of its JSON) - a bigger one is a 413 */
+    /** the largest body in bytes - a bigger one is a 413, before it is read completely */
     maxBodyBytes: Int = 16 * 1024,
     /** a field of the body that must be empty - a hidden form field only bots fill in; it is
       * removed before the call is forwarded. None: no honeypot.
@@ -48,6 +48,17 @@ case class PublicAccess(
 ):
   lazy val isEmpty: Boolean = workers.isEmpty && processStarts.isEmpty && messages.isEmpty
 
+  /** The client a call is counted for - the first entry of [[clientIpHeader]], else the remote
+    * address.
+    */
+  def client(remote: Option[String], headers: Seq[Header]): String =
+    clientIpHeader
+      .flatMap(h => headers.find(_.name.equalsIgnoreCase(h)))
+      .map(_.value.split(",").head.trim)
+      .filter(_.nonEmpty)
+      .orElse(remote)
+      .getOrElse("unknown")
+
   override def toString: String =
     s"PublicAccess(workers: ${workers.mkString(", ")}; processStarts: ${processStarts.mkString(", ")}; " +
       s"messages: ${messages.mkString(", ")}; ${requestsPerMinute}/min per client)"
@@ -58,15 +69,30 @@ object PublicAccess:
 
   enum Kind:
     case worker, processStart, message
+
+  /** What an anonymous caller gets when something inside fails - the detail goes to the log only. */
+  val unavailable: ServiceRequestError =
+    ServiceRequestError(503, "Not available right now - please try again later.")
 end PublicAccess
 
-/** Checks a public call before it is forwarded - see [[PublicAccess]]. */
-class PublicGuard(access: PublicAccess, now: () => Long = () => java.lang.System.currentTimeMillis()):
+/** Checks a public call before it is forwarded - see [[PublicAccess]]. The size of the body is
+  * limited by the endpoints themselves (see [[PublicRoutes]]).
+  *
+  * @param maxClients
+  *   the most clients counted at once - a new client beyond is a 429 (it fails closed), so rotating
+  *   addresses cannot grow the map without bound
+  */
+class PublicGuard(
+    access: PublicAccess,
+    now: () => Long = () => java.lang.System.currentTimeMillis(),
+    maxClients: Int = 100_000
+):
   import PublicAccess.Kind
 
   private val windowMillis = 60 * 1000L
   // per client: start of its minute and the calls in it
   private val calls        = ConcurrentHashMap[String, (Long, Int)]()
+  private val lastSweep    = AtomicLong(now())
 
   /** The body to forward (without the honeypot field) - or why the call is refused. */
   def check(kind: Kind, name: String, client: String, body: Json): Either[ServiceRequestError, Json] =
@@ -77,65 +103,98 @@ class PublicGuard(access: PublicAccess, now: () => Long = () => java.lang.System
     // the limit first - it counts calls of unknown names as well (someone scanning)
     if !withinLimit(client) then Left(ServiceRequestError(429, "Too many requests - please try again later."))
     else if !allowed.contains(name) then Left(ServiceRequestError(404, "Not Found"))
-    else if body.noSpaces.getBytes("UTF-8").length > access.maxBodyBytes then
-      Left(ServiceRequestError(413, s"The request is too large (at most ${access.maxBodyBytes} bytes)."))
-    else
-      access.honeypotField match
-        case None        => Right(body)
-        case Some(field) =>
-          body.asObject match
-            case Some(obj) if obj(field).exists(v => !(v.isNull || v.asString.contains(""))) =>
-              Left(ServiceRequestError(400, "The request is not valid."))
-            case Some(obj)                                                                    => Right(Json.fromJsonObject(obj.remove(field)))
-            case None                                                                         => Right(body)
+    else withoutHoneypot(body)
   end check
+
+  private def withoutHoneypot(body: Json): Either[ServiceRequestError, Json] =
+    (access.honeypotField, body.asObject) match
+      case (Some(field), Some(obj)) =>
+        val empty = obj(field).forall(v => v.isNull || v.asString.exists(_.isEmpty))
+        if empty then Right(Json.fromJsonObject(obj.remove(field)))
+        else Left(ServiceRequestError(400, "The request is not valid."))
+      case _                        => Right(body)
 
   private def withinLimit(client: String): Boolean =
     val at = now()
-    if calls.size > 10000 then calls.entrySet.removeIf(_.getValue._1 < at - windowMillis): Unit
-    val (_, count) = calls.compute(
-      client,
-      (_, last) =>
-        if last == null || last._1 < at - windowMillis then (at, 1)
-        else (last._1, last._2 + 1)
-    )
-    count <= access.requestsPerMinute
+    sweep(at)
+    if calls.size >= maxClients && !calls.containsKey(client) then false
+    else
+      val (_, count) = calls.compute(
+        client,
+        (_, last) =>
+          if last == null || last._1 < at - windowMillis then (at, 1)
+          else (last._1, last._2 + 1)
+      )
+      count <= access.requestsPerMinute
   end withinLimit
+
+  /** Removes the clients of past minutes - at most once a minute, by one caller. */
+  private def sweep(at: Long): Unit =
+    val last = lastSweep.get()
+    if at - last >= windowMillis && lastSweep.compareAndSet(last, at) then
+      calls.entrySet.removeIf(_.getValue._1 < at - windowMillis): Unit
+
+  private[gateway] def clients: Int = calls.size
 end PublicGuard
 
 /** The technical token of the gateway for public calls - fetched with the [[OAuthConfig]] and
-  * kept until shortly before it expires.
+  * kept until shortly before it expires. One fetch at a time; after a failed one, calls fail at once
+  * for [[retryAfterMillis]] - so anonymous traffic does not hammer the identity provider.
   */
-class PublicToken(login: OAuthConfig) extends OAuth2Flow:
+class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.currentTimeMillis())
+    extends OAuth2Flow:
   protected def identityUrl: Uri = login.identityUrl
 
-  private val cached = AtomicReference[Option[(String, Long)]](None)
+  protected def retryAfterMillis: Long = 5 * 1000L
+
+  private val cached      = AtomicReference[Option[(String, Long)]](None)
+  private val failedUntil = AtomicLong(0L)
+  private val fetching    = Unsafe.unsafe(implicit u => Semaphore.unsafe.make(1))
 
   def token: IO[ServiceRequestError, String] =
-    ZIO.succeed(cached.get()).flatMap:
-      case Some((token, validUntil)) if java.lang.System.currentTimeMillis() < validUntil => ZIO.succeed(token)
-      case _                                                                              => fetch
+    ZIO.suspendSucceed:
+      current match
+        case Some(token) => ZIO.succeed(token)
+        // the others wait for the one fetching - and take its token
+        case None        => fetching.withPermit(ZIO.suspendSucceed(current.fold(fetch)(ZIO.succeed(_))))
+
+  private def current: Option[String] =
+    cached.get().collect { case (token, validUntil) if now() < validUntil => token }
 
   private def fetch: IO[ServiceRequestError, String] =
+    if now() < failedUntil.get() then ZIO.fail(PublicAccess.unavailable)
+    else
+      requestToken
+        .flatMap(raw => ZIO.fromEither(tokenOf(raw)))
+        .tapError: detail =>
+          ZIO.succeed(failedUntil.set(now() + retryAfterMillis)) *>
+            ZIO.logError(s"Public access: the gateway cannot log in at $identityUrl: $detail")
+        .mapBoth(
+          _ => PublicAccess.unavailable,
+          (token, expiresIn) =>
+            // renewed shortly before it expires - at most 30 seconds, at most half its time
+            val margin = (expiresIn / 2).min(30)
+            cached.set(Some(token -> (now() + (expiresIn - margin) * 1000)))
+            token
+        )
+
+  /** The raw answer of the identity provider - or what went wrong (for the log). */
+  protected def requestToken: IO[String, String] =
     ZIO
       .attemptBlocking(withHardTimeout(tokenRequest.body(login.asMap).send(syncBackend).body))
-      .mapError(e => ServiceRequestError(503, s"The gateway cannot log in: ${e.getMessage}"))
+      .mapError(_.getMessage)
       .flatMap:
-        case Left(err)         => ZIO.fail(ServiceRequestError(503, s"The gateway cannot log in: $err"))
-        case Right(Left(err))  => ZIO.fail(ServiceRequestError(503, s"The gateway cannot log in: ${err.take(200)}"))
-        case Right(Right(raw)) =>
-          ZIO
-            .fromEither:
-              parse(raw).flatMap: json =>
-                val c = json.hcursor
-                for
-                  token   <- c.get[String]("access_token")
-                  expires <- c.get[Option[Long]]("expires_in")
-                yield token -> expires.getOrElse(60L)
-            .mapError(e => ServiceRequestError(503, s"The gateway cannot log in: ${e.getMessage}"))
-            .map: (token, expiresIn) =>
-              // 30 seconds before it expires a new one
-              cached.set(Some(token -> (java.lang.System.currentTimeMillis() + (expiresIn - 30).max(0) * 1000)))
-              token
-  end fetch
+        case Left(err)         => ZIO.fail(err)
+        case Right(Left(err))  => ZIO.fail(err.take(200))
+        case Right(Right(raw)) => ZIO.succeed(raw)
+
+  private def tokenOf(raw: String): Either[String, (String, Long)] =
+    parse(raw)
+      .flatMap: json =>
+        val c = json.hcursor
+        for
+          token   <- c.get[String]("access_token")
+          expires <- c.get[Option[Long]]("expires_in")
+        yield token -> expires.getOrElse(60L).max(0)
+      .left.map(e => s"unexpected answer: ${e.getMessage}")
 end PublicToken
