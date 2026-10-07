@@ -58,6 +58,8 @@ export interface TypeIndex {
   referenced: Map<string, DomainType>;
   /** Paket des eigenen Projekts (`valiant.product`) */
   home: string;
+  /** Paket des Prozesses (`valiant.product.domain.lilaSet.v2`) — leer, wenn unbekannt */
+  ownPkg: string;
   /** Ein Beispielwert der Domain nach Namen (`defaultValidUntil`) — mit demselben Vorrang wie `defaultOf` */
   defaultNamed: (name: string) => DomainDefault | null;
   /** Objekt und Package eines Services oder Prozesses — aus dem Katalog, sonst abgeleitet (`objectOf`) */
@@ -167,6 +169,7 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     objectOf: (ref: string) => objectOf(ref, model),
     defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
     home,
+    ownPkg: ownPkg ?? '',
   };
 }
 
@@ -989,6 +992,26 @@ export function allFields(t: TypeDef): Field[] {
   return t.kind === 'enum' ? [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])] : (t.fields ?? []);
 }
 
+/**
+ * Die Paket-Zeilen einer Datei: geteilt nach `domain` — `package valiant.product.domain`
+ * und `package lilaSet.v2` —, damit alles aus `valiant.product.domain` ohne Import
+ * sichtbar ist, wie in den Domain-Dateien von Hand. Ohne `domain` eine Zeile.
+ */
+export function packageClause(pkg: string): string {
+  const parts = pkg.split('.');
+  const at = parts.indexOf('domain');
+  return at >= 0 && at < parts.length - 1
+    ? `package ${parts.slice(0, at + 1).join('.')}\npackage ${parts.slice(at + 1).join('.')}`
+    : `package ${pkg}`;
+}
+
+/** Das Paket der ersten Paket-Zeile (`valiant.product.domain`) — dessen Inhalt braucht keinen Import */
+const domainStem = (pkg: string): string | null => {
+  const parts = pkg.split('.');
+  const at = parts.indexOf('domain');
+  return at >= 0 && at < parts.length - 1 ? parts.slice(0, at + 1).join('.') : null;
+};
+
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   const lines: string[] = [];
   const fields = allFields(t).filter(f => isFinished(f, idx));
@@ -1009,8 +1032,8 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
         const own = f.exampleImports.filter(i => i.endsWith(`.${name}`));
         for (const i of own) external.set(i, '');
         // … ausser über verschachtelte Pakete (`package valiant.product` / `package domain`):
-        // der Export schreibt eine einzige Paket-Zeile, dann braucht ein Wert des
-        // eigenen Projekts (`valiant.product.domain.defaultCardVariety`) den Import
+        // der Export teilt die Paket-Zeile nur nach `domain` (siehe packageClause) — ein Wert
+        // des eigenen Projekts anderswo braucht den Import (unten fällt er weg, wenn sichtbar)
         const named = own.length ? null : idx.defaultNamed(name);
         if (named && idx.home && (named.pkg === idx.home || named.pkg.startsWith(`${idx.home}.`))) external.set(`${named.pkg}.${named.name}`, '');
         continue;
@@ -1028,7 +1051,10 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     const svc = idx.serviceOf(f.type);
     if (svc) external.set(svc.importPath, svc.uncertain ? '  // Pfad prüfen — aus dem Service-Namen abgeleitet' : '');
   }
+  // was direkt in `valiant.product.domain` liegt, sieht die Datei über ihre erste Paket-Zeile
+  const stem = domainStem(idx.ownPkg);
   for (const [path, note] of [...external.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (stem && path.slice(0, path.lastIndexOf('.')) === stem) continue;
     lines.push(`import ${path}${note}`);
   }
   return lines;
@@ -1194,7 +1220,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     geschrieben.add(ia.name);
     out.push({
       path: `${dir}/${ia.name}.scala`,
-      content: `package ${pkg}\n${interactionImports(ia, spec, idx, pkg)}\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
+      content: `${packageClause(pkg)}\n${interactionImports(ia, spec, idx, pkg)}\n${section ? `// ${section}\n` : ''}${renderInteraction(ia, spec, idx)}\n`,
       ...(section ? { section } : {}),
     });
   }
@@ -1203,7 +1229,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   for (const t of types.filter(t => t.name?.trim() && isSchemaClass(t) && !inObject(t) && !idx.referenced.has(t.id))) {
     out.push({
       path: `${dir}/schema/${t.name}.scala`,
-      content: `package ${pkg}.schema\n${imports(t, idx)}\n${renderType(t, idx)}\n`,
+      content: `${packageClause(`${pkg}.schema`)}\n${imports(t, idx)}\n${renderType(t, idx)}\n`,
     });
   }
   return out;

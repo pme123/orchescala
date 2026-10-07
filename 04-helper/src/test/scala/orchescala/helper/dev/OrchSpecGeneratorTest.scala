@@ -122,7 +122,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("process object - imports, name and examples"):
     val content = processObject.content
-    assert(content.startsWith("package valiant.addresschange.domain.kundenkontaktDokumentieren.v1\n\nimport io.github.iltotore.iron.*\n"))
+    assert(content.startsWith("package valiant.addresschange.domain\npackage kundenkontaktDokumentieren.v1\n\nimport io.github.iltotore.iron.*\n"))
     assert(content.contains("import valiant.graviton.domain.work.v1.PostWorkActivity\n"))
     assert(content.contains("object KundenkontaktDokumentieren extends CompanyBpmnProcessDsl:"))
     assert(content.contains("""  val processName = "valiant-addresschange-kundenkontaktDokumentierenV1""""))
