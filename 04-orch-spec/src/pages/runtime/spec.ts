@@ -6,7 +6,7 @@
 
 /** Eine Bedingung: `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, `pfad == true` – verknüpft mit
   * `&&` und `||`. `!` nur vor einem Pfad, nicht vor einem Vergleich (`!a == 'x'` ist falsch: `a != 'x'`) –
-  * der Designer und der Build melden es. */
+  * der Designer und der Build melden es. Texte in '…' oder "…", ohne Escape (`"it's"` statt `'it\'s'`). */
 export type Cond = string;
 
 /** Fehlertexte nach HTTP-Status ("409") und `default` – der Gateway liefert öffentlich nur den Status. */

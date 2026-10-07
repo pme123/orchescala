@@ -104,7 +104,11 @@ let renewingSilently: Promise<string | null> | null = null;
 /** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
 export function renewToken(): Promise<string | null> {
   renewingSilently ??= (async () => {
-    const renewed = await (await userManager()).signinSilent().catch(() => null);
+    const renewed = await (await userManager()).signinSilent().catch((e) => {
+      // Netz, invalid_grant, kein Refresh-Token - alles endet in der Anmeldung, der Grund in der Konsole
+      console.warn('[pages] stilles Erneuern des Tokens fehlgeschlagen:', e);
+      return null;
+    });
     return renewed && !renewed.expired ? renewed.access_token : null;
   })().finally(() => {
     renewingSilently = null;
@@ -160,7 +164,7 @@ export async function sessionExpired(): Promise<never> {
     window.removeEventListener('pagehide', leave);
     window.removeEventListener('beforeunload', leave);
   }
-  // am Gehen: noch etwas warten - wurde das Gehen abgebrochen, doch der Fehler statt ewig «busy»
-  if (leaving || document.visibilityState === 'hidden') await new Promise((r) => setTimeout(r, 15000));
+  // am Gehen: noch kurz warten - wurde das Gehen abgebrochen, doch der Fehler statt ewig «busy»
+  if (leaving || document.visibilityState === 'hidden') await new Promise((r) => setTimeout(r, 5000));
   throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login');
 }

@@ -26,7 +26,11 @@ export function setPath(state: State, path: string, value: unknown): State {
     // nur ein Index - `items.name` auf einer Liste ändert nichts
     const index = Number(head);
     // höchstens ein Eintrag nach dem letzten - `items.4294967294` legte sonst eine riesige Liste an
-    if (!Number.isInteger(index) || index < 0 || index > state.length) return state;
+    if (!Number.isInteger(index) || index < 0 || index > state.length) {
+      // ein Tippfehler im Pfad (set, bind) täte sonst still nichts
+      console.warn(`[pages] «${head}» ist kein Index für diese Liste (${state.length} Einträge) - nichts gesetzt`);
+      return state;
+    }
     const copy = [...state] as unknown[];
     copy[index] = next;
     return copy as unknown as State;
@@ -201,6 +205,8 @@ export function conditionProblem(cond: string | undefined): string | null {
         const right = part.slice(op.at + 2).trim();
         if (!PATH.test(left)) return `«${left}» ist kein Pfad`;
         if (!/^('.*'|".*"|true|false|null|-?\d+(\.\d+)?)$/.test(right)) return `«${right}» – ein Text braucht Anführungszeichen ('${right}')`;
+        // kein Escape: ein ' im Text geht nur zwischen "
+        if (/\\['"]/.test(right)) return `«${right}» – kein \\ in Texten: '…"…' oder "…'…" verwenden`;
       } else {
         const path = part.startsWith('!') ? part.slice(1).trim() : part;
         if (!PATH.test(path)) return `«${part}» ist weder ein Pfad noch ein Vergleich`;

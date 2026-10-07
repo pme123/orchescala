@@ -172,6 +172,7 @@ test('pageFindings - what does not fit', () => {
   has('den Benutzer-Task «NoTask»');
   has('error: Button «OK»: einen Task abschliessen geht nur mit Login');
   has("warning: Sichtbar, wenn «step == sent»: «sent» – ein Text braucht Anführungszeichen");
+  has('error: Button «OK»: auf einer öffentlichen Seite braucht der Aufruf «ohne Login»');
 });
 
 test('slugOf', () => {

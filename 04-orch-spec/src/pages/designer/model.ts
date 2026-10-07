@@ -375,6 +375,9 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
     findings.push({ level: 'info', key, message: `«${name}» muss der Gateway öffentlich freigeben (${list}).` });
   };
   for (const { where, key, action } of actionsOf(page)) {
+    // auf einer öffentlichen Seite hat niemand ein Token - ohne `public` ginge der Aufruf mit 401 zurück
+    if (page.access === 'public' && (action.do === 'call' || action.do === 'start' || action.do === 'message') && !action.public)
+      findings.push({ level: 'error', key, message: `${where}: auf einer öffentlichen Seite braucht der Aufruf «ohne Login» – sonst 401.` });
     switch (action.do) {
       case 'call': {
         const svc = targets.services.find((s) => s.topic === action.service);

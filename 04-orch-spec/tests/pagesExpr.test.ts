@@ -13,6 +13,11 @@ const state = {
 };
 const labels = { topic: { mortgage: 'Hypothek' } };
 
+test('conditionProblem - no escape in texts', () => {
+  assert.match(conditionProblem("name == 'it\\'s'") ?? '', /kein \\/);
+  assert.equal(conditionProblem(`name == "it's"`), null);
+});
+
 test('getPath / setPath', () => {
   assert.equal(getPath(state, 'contact.firstName'), 'Peter');
   assert.equal(getPath(state, 'slots.slots.0.advisorName'), 'Anna Berater');

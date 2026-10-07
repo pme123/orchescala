@@ -205,6 +205,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
                 return (
                   <button key={i} type="button" disabled={busy !== null}
                     onClick={() => {
+                      if (inFlight.current) return; // die Wahl und ihre Aktionen gehören zusammen
                       update((s) => setPath(s, comp.bind, o.value));
                       if (comp.onChange) void runBusy(comp.onChange, key);
                     }}
