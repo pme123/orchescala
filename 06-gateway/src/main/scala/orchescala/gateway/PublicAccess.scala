@@ -72,6 +72,8 @@ case class PublicAccess(
       // all lines of the header together - a proxy may add a line of its own instead of appending
       .map(h => headers.filter(_.name.equalsIgnoreCase(h)).flatMap(_.value.split(",")).map(_.trim).filter(_.nonEmpty))
       .flatMap(_.dropRight(trustedProxies - 1).lastOption)
+      // only an address (IPv4 / IPv6) - anything else is no key for the rate limit
+      .filter(PublicAccess.ipAddress.matches)
       .orElse(remote)
       .getOrElse("unknown")
 
@@ -98,6 +100,9 @@ object PublicAccess:
   /** A name from a caller as it may go into the log - no line breaks or other tricks, at most 80. */
   def loggable(name: String): String =
     name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
+
+  /** What an IPv4 or IPv6 address can look like - short, no names. */
+  val ipAddress = "[0-9A-Fa-f:.]{2,45}".r
 
   /** A text that may contain what a caller sent (e.g. the error of a worker) as one log line. */
   def oneLine(text: String, max: Int = 300): String =
