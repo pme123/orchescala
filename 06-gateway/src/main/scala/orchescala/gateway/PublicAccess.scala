@@ -109,14 +109,20 @@ object PublicAccess:
   def loggable(name: String): String =
     name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
 
-  private val ipv4 = """(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})""".r
+  private val ipv4         = """(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})""".r
+  private val ipv4WithPort = """(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}""".r
 
   /** The rate-limit key of an address - None if it is no IP literal (parsed here, never looked
     * up): IPv4 as it is, IPv6 by its /64 prefix - one end customer usually has a whole /64,
     * rotating within it must not give new limits; IPv4 in IPv6 (`::ffff:1.2.3.4`) as IPv4.
     */
   def bucket(address: String): Option[String] =
-    val addr = address.takeWhile(_ != '%').stripPrefix("[").stripSuffix("]")
+    // some proxies add the port: 1.2.3.4:5678, [2001:db8::1]:5678
+    val noPort = address match
+      case ipv4WithPort(ip)                     => ip
+      case a if a.startsWith("[") && a.contains("]") => a.drop(1).takeWhile(_ != ']')
+      case a                                    => a
+    val addr   = noPort.takeWhile(_ != '%')
     def v4(a: String) = a match
       case ipv4(parts*) if parts.forall(_.toInt <= 255) => Some(parts.map(_.toInt).mkString("."))
       case _                                           => None
@@ -133,6 +139,8 @@ object PublicAccess:
           case _           => throw IllegalArgumentException(addr)
         val all = head ++ tail
         require(all.forall(g => g.nonEmpty && g.length <= 4 && g.forall(Character.digit(_, 16) >= 0)))
+        // :: stands for at least one group
+        require(!addr.contains("::") || all.length <= 7)
         val groups = if addr.contains("::") then head ++ Array.fill(8 - all.length)("0") ++ tail else head
         require(groups.length == 8)
         groups.take(4).map(g => Integer.parseInt(g, 16).toHexString).mkString(":") + "::/64"
