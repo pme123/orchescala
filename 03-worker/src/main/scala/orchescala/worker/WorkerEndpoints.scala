@@ -53,8 +53,11 @@ object WorkerEndpoints:
       )
     )
 
+  /** The rule of [[WorkerError.CustomError.refused]]: a 4xx as it is, but no auth status (407 -
+    * 401 and 403 have their own variants) - any other code 400 as before.
+    */
   private[worker] def httpStatus(error: ServiceRequestError): StatusCode =
-    if error.errorCode >= 400 && error.errorCode < 500 then StatusCode(error.errorCode)
+    if WorkerError.RefusedRequest.isRefusal(error.errorCode) then StatusCode(error.errorCode)
     else StatusCode.BadRequest
 
   // Secured base endpoint with Bearer token authentication

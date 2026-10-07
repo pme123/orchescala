@@ -76,6 +76,8 @@ object CustomErrorRefusedSpec extends ZIOSpecDefault:
         WorkerEndpoints.httpStatus(ServiceRequestError(418, "x")).code == 418,
         WorkerEndpoints.httpStatus(ServiceRequestError(429, "x")).code == 429,
         WorkerEndpoints.httpStatus(ServiceRequestError(0, "x")).code == 400,
+        // an auth status of a failed call inside the worker - not the caller's token
+        WorkerEndpoints.httpStatus(ServiceRequestError(407, "x")).code == 400,
         WorkerEndpoints.httpStatus(ServiceRequestError(302, "x")).code == 400
       )
     ,
