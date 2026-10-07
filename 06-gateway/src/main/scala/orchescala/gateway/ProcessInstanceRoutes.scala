@@ -30,31 +30,42 @@ case class ProcessInstanceRoutes(
     }.serverLogic:
       validatedToken => // validatedToken is the String token returned from security logic
         (processDefId, businessKeyQuery, tenantIdQuery, in) =>
-          ZIO.logDebug(s"Start process $processDefId (${businessKeyQuery.mkString})") *>
-            config.extractCorrelation(validatedToken, in)
-              .mapError(ServiceRequestError.apply)
-              .flatMap: identityCorrelation =>
-                // Set the bearer token in AuthContext so it can be used by the engine services
-                AuthContext.withBearerToken(validatedToken):
-                  for
-                    inJson <- initProcess(
-                      processDefId = processDefId,
-                      in = in,
-                      token = validatedToken
-                    ).mapError(ServiceRequestError.apply)
-                    result <- processInstanceService
-                      .startProcessAsync(
-                        processDefId = processDefId,
-                        in = inJson.asObject.getOrElse(in),
-                        businessKey = businessKeyQuery,
-                        tenantId = tenantIdQuery,
-                        identityCorrelation = Some(identityCorrelation)
-                      ).mapError(ServiceRequestError.apply)
-                    _ <-
-                      ZIO.logInfo(
-                        s"Process started: $processDefId (${businessKeyQuery.mkString}) -> ${result.processInstanceId}"
-                      )
-                  yield result
+          startAsync(validatedToken, processDefId, businessKeyQuery, tenantIdQuery, in)
+
+  /** Starts the process with the (validated) token - also for a public start ([[PublicRoutes]]). */
+  private[gateway] def startAsync(
+      validatedToken: String,
+      processDefId: String,
+      businessKeyQuery: Option[String],
+      tenantIdQuery: Option[String],
+      in: io.circe.JsonObject
+  ): IO[ServiceRequestError, orchescala.engine.domain.ProcessInfo] =
+    ZIO.logDebug(s"Start process $processDefId (${businessKeyQuery.mkString})") *>
+      config.extractCorrelation(validatedToken, in)
+        .mapError(ServiceRequestError.apply)
+        .flatMap: identityCorrelation =>
+          // Set the bearer token in AuthContext so it can be used by the engine services
+          AuthContext.withBearerToken(validatedToken):
+            for
+              inJson <- initProcess(
+                processDefId = processDefId,
+                in = in,
+                token = validatedToken
+              ).mapError(ServiceRequestError.apply)
+              result <- processInstanceService
+                .startProcessAsync(
+                  processDefId = processDefId,
+                  in = inJson.asObject.getOrElse(in),
+                  businessKey = businessKeyQuery,
+                  tenantId = tenantIdQuery,
+                  identityCorrelation = Some(identityCorrelation)
+                ).mapError(ServiceRequestError.apply)
+              _ <-
+                ZIO.logInfo(
+                  s"Process started: $processDefId (${businessKeyQuery.mkString}) -> ${result.processInstanceId}"
+                )
+            yield result
+  end startAsync
 
   private lazy val startProcessByMessageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
     ProcessInstanceEndpoints.startProcessByMessage.zServerSecurityLogic { token =>
