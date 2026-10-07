@@ -93,7 +93,8 @@ export function resolve(value: unknown, state: unknown, labels: Labels = {}): un
 /** Ein Wert aus dem Zustand ohne leere Felder (wie in `resolve`). */
 function compact(value: unknown): unknown {
   if (value === null || value === '' || value === undefined) return undefined;
-  if (Array.isArray(value)) return value;
+  // wie resolve: leere Einträge fallen auch in Listen weg
+  if (Array.isArray(value)) return value.map(compact).filter((v) => v !== undefined);
   if (typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as State)
@@ -108,18 +109,48 @@ function compact(value: unknown): unknown {
  * mit `&&` und `||` (&& bindet stärker, keine Klammern). */
 export function evaluate(cond: string | undefined, state: unknown): boolean {
   if (!cond) return true;
-  if (cond.includes('||')) return cond.split('||').some((part) => evaluate(part, state));
-  if (cond.includes('&&')) return cond.split('&&').every((part) => evaluate(part, state));
+  const or = splitOutsideQuotes(cond, '||');
+  if (or.length > 1) return or.some((part) => evaluate(part, state));
+  const and = splitOutsideQuotes(cond, '&&');
+  if (and.length > 1) return and.every((part) => evaluate(part, state));
   const c = cond.trim();
   const m = c.match(/^(.+?)\s*(==|!=)\s*(.+)$/);
   if (m) {
     const actual = getPath(state, m[1].trim());
     const expected = literal(m[3].trim());
-    const same = actual === expected || (expected === null && actual === undefined);
+    const same = equal(actual, expected);
     return m[2] === '==' ? same : !same;
   }
   if (c.startsWith('!')) return !truthy(getPath(state, c.slice(1).trim()));
   return truthy(getPath(state, c));
+}
+
+/** `a || 'x||y'` → `a`, `'x||y'` - nur ausserhalb von Anführungszeichen. */
+function splitOutsideQuotes(text: string, op: string): string[] {
+  const parts: string[] = [];
+  let quote: string | null = null;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"') quote = ch;
+    else if (text.startsWith(op, i)) {
+      parts.push(text.slice(start, i));
+      start = i + op.length;
+      i += op.length - 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/** Gleich - eine Zahl und ihr Text auch (`n == '1'` bei n = 1), fehlend wie null. */
+function equal(actual: unknown, expected: unknown): boolean {
+  if (actual === expected) return true;
+  if (expected === null) return actual === undefined || actual === null;
+  const primitive = (v: unknown) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+  return primitive(actual) && primitive(expected) && String(actual) === String(expected);
 }
 
 function literal(text: string): unknown {
@@ -153,7 +184,9 @@ export function errorText(status: number, errors: Record<string, string> | undef
   return (
     errors?.[String(status)] ??
     errors?.default ??
-    (status === 429
+    (status === 401
+      ? 'Bitte neu anmelden.'
+      : status === 429
       ? 'Zu viele Anfragen – bitte in einer Minute noch einmal versuchen.'
       : status >= 500
         ? 'Das geht im Moment leider nicht – bitte später noch einmal versuchen.'

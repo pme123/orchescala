@@ -29,7 +29,16 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   }));
   // die Aktionen laufen nacheinander und lesen den neuesten Zustand - nicht den des Renderns
   const latest = useRef(state);
+  // nach dem Verlassen der Seite (oder einem neuen Stand im Designer): keine Aktion läuft weiter
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const update = (fn: (s: State) => State) => {
+    if (!mounted.current) return;
     latest.current = fn(latest.current);
     setState(latest.current);
   };
@@ -47,6 +56,14 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
       return pub ? { ...body, _hp: honeypot } : body;
     };
     const store = (path: string | undefined, value: unknown) => path && update((st) => setPath(st, path, value));
+    // ein Business Key aus einer Vorlage, die leer bleibt: die Aktion schlägt fehl - eine Message
+    // ohne Key fände ihre Instanz nicht, ein Start bekäme keinen
+    const keyOf = (template: string | undefined, required: boolean): string | undefined => {
+      if (template === undefined && !required) return undefined;
+      const key = interpolate(template ?? '', s).trim();
+      if (!key) throw new ApiError(400, `Business Key «${template ?? ''}» ist leer`);
+      return key;
+    };
     switch (a.do) {
       case 'set':
         update((st) => setPath(st, a.path, typeof a.value === 'string' ? resolve(a.value, st, labels) : a.value));
@@ -57,11 +74,11 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
       case 'start':
         store(
           a.result,
-          await gateway.start(a.process, a.businessKey && interpolate(a.businessKey, s), input(a.input, a.public), !!a.public),
+          await gateway.start(a.process, keyOf(a.businessKey, false), input(a.input, a.public), !!a.public),
         );
         return;
       case 'message':
-        store(a.result, await gateway.message(a.name, interpolate(a.businessKey, s), input(a.input, a.public), !!a.public));
+        store(a.result, await gateway.message(a.name, keyOf(a.businessKey, true)!, input(a.input, a.public), !!a.public));
         return;
       case 'completeTask':
         await gateway.completeTask(a.taskKey, interpolate(a.taskId, s), input(a.input));
@@ -73,9 +90,11 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   async function run(actions: Action[], key: string): Promise<boolean> {
     setErrors((e) => ({ ...e, [key]: '' }));
     for (const a of actions) {
+      if (!mounted.current) return false;
       try {
         await runOne(a);
       } catch (e) {
+        if (!mounted.current) return false;
         const status = e instanceof ApiError ? e.status : 0;
         if (!(e instanceof ApiError)) console.error(e);
         setErrors((er) => ({ ...er, [key]: errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
@@ -91,7 +110,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     try {
       await run(actions, key);
     } finally {
-      setBusy(null);
+      if (mounted.current) setBusy(null);
     }
   }
 

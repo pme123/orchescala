@@ -278,6 +278,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [specsLoading, setSpecsLoading] = useState(true);
   const [pages, setPages] = useState<PageListItem[]>([]);
   const [pagesApp, setPagesApp] = useState<{ data: PagesApp; version: string } | null>(null);
+  // eine app.json, die da ist, aber nicht lesbar - nie wie «keine» überschreiben
+  const pagesAppBroken = useRef(false);
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
@@ -388,6 +390,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const refreshPagesIn = useCallback(async (be: StorageBackend) => {
     const items: PageListItem[] = [];
     let app: { data: PagesApp; version: string } | null = null;
+    let brokenApp = false;
     try {
       for (const f of (await be.list(PAGES_DIR)).filter(f => f.name.endsWith('.json'))) {
         try {
@@ -395,11 +398,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (!read) continue;
           if (f.name === APP_FILE) app = { data: JSON.parse(read.text) as PagesApp, version: read.version };
           else items.push({ slug: f.name.replace(/\.json$/, ''), data: JSON.parse(read.text) as Page, version: read.version });
-        } catch { /* unlesbare Datei überspringen */ }
+        } catch {
+          // eine unlesbare Seite fehlt in der Liste - anlegen geht nur neu (createOnly), sie bleibt liegen
+          if (f.name === APP_FILE) brokenApp = true;
+        }
       }
     } catch (e) {
       console.error('[orch-spec] refreshPages:', e);
+      brokenApp = true; // die Liste ist nicht lesbar - auch app.json nicht überschreiben
     }
+    pagesAppBroken.current = brokenApp;
     items.sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de'));
     setPages(items);
     setPagesApp(app);
@@ -817,9 +825,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const be = backendRef.current;
     if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
     try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
-    const w = await be.write(path, JSON.stringify(data, null, 2) + '\n', expectedVersion != null ? { ifMatch: expectedVersion } : {});
+    // ohne Version nur neu anlegen - eine vorhandene Datei wird nie blind überschrieben
+    const w = await be.write(path, JSON.stringify(data, null, 2) + '\n', expectedVersion != null ? { ifMatch: expectedVersion } : { createOnly: true });
     if (!w.ok) {
       if (w.reason === 'conflict') return { status: 'conflict', currentVersion: w.currentVersion ?? '' };
+      if (w.reason === 'exists') return { status: 'error', message: 'Die Datei gibt es schon – Seite neu laden.' };
       return { status: 'error', message: w.reason === 'forbidden' ? w.message : 'Schreiben fehlgeschlagen — die Datei wurde NICHT gespeichert.' };
     }
     return { status: 'saved', version: w.version };
@@ -854,6 +864,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const savePagesApp = useCallback(async (data: PagesApp, expectedVersion: string | null): Promise<SaveResult> => {
+    if (pagesAppBroken.current)
+      return { status: 'error', message: `${PAGES_DIR}/${APP_FILE} ist nicht lesbar – sie wird nicht überschrieben. Bitte von Hand reparieren.` };
     const r = await writeJson(`${PAGES_DIR}/${APP_FILE}`, data, expectedVersion);
     if (r.status === 'saved') setPagesApp({ data, version: r.version });
     return r;

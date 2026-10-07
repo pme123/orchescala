@@ -62,6 +62,21 @@ test('evaluate', () => {
   assert.equal(evaluate("step == 'sent' || topic == 'x' && accepted == false", state), false);
 });
 
+test('evaluate - operators in quotes, numbers and their text', () => {
+  const st = { x: 'a||b', y: 'c&&d', n: 1, flag: true };
+  assert.equal(evaluate("x == 'a||b'", st), true);
+  assert.equal(evaluate("y == 'c&&d' && n == 1", st), true);
+  assert.equal(evaluate("n == '1'", st), true);
+  assert.equal(evaluate("flag == 'true'", st), true);
+  assert.equal(evaluate("n != '2'", st), true);
+});
+
+test('resolve - empty values fall away in lists as well (also of a single expression)', () => {
+  const st = { list: ['a', '', null, { v: '', w: 1 }], x: '' };
+  assert.deepEqual(resolve('{{list}}', st), ['a', { w: 1 }]);
+  assert.deepEqual(resolve(['{{x}}', 'b'], st), ['b']);
+});
+
 test('groupBy keeps the order', () => {
   const groups = groupBy([1, 2, 3, 5, 6], (n) => (n < 4 ? 'klein' : 'gross'));
   assert.deepEqual(groups, [
@@ -75,4 +90,5 @@ test('errorText - the text of the action, else a general one', () => {
   assert.equal(errorText(400, { default: 'ungültig' }), 'ungültig');
   assert.match(errorText(503, undefined), /im Moment/);
   assert.match(errorText(429, undefined), /Zu viele/);
+  assert.match(errorText(401, undefined), /anmelden/);
 });

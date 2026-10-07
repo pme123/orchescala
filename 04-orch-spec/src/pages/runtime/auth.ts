@@ -1,4 +1,5 @@
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
+import { ApiError } from './gatewayTypes';
 
 // Nur Seiten mit Login brauchen das – die öffentlichen laden nie einen IdP. Die Verbindung kommt
 // zur Laufzeit aus config.json (neben index.html), so läuft dasselbe Bundle gegen jeden IdP.
@@ -54,9 +55,15 @@ export async function logout(): Promise<void> {
 }
 
 export async function accessToken(): Promise<string> {
-  const user = await currentUser();
-  if (!user) return sessionExpired();
-  return user.access_token;
+  const um = await userManager();
+  const user = await um.getUser();
+  if (user && !user.expired) return user.access_token;
+  // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung
+  if (user) {
+    const renewed = await um.signinSilent().catch(() => null);
+    if (renewed && !renewed.expired) return renewed.access_token;
+  }
+  return sessionExpired();
 }
 
 /** Die Rollen im Access Token (Keycloak: realm_access.roles). */
@@ -71,7 +78,12 @@ export function rolesOf(user: User): string[] {
 
 /** Die Anmeldung gilt nicht mehr: die Sitzung im Browser verwerfen und neu anmelden. */
 export async function sessionExpired(): Promise<never> {
-  await (await userManager()).removeUser();
-  await login();
+  try {
+    await (await userManager()).removeUser();
+    await login();
+  } catch (e) {
+    // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
+    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
+  }
   return new Promise<never>(() => {}); // die Seite geht zum IdP
 }

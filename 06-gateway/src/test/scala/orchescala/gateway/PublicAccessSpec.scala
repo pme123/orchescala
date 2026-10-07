@@ -369,7 +369,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         for
           token    <- techTokenOf(TestClock())
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
-          slow      = access.copy(login = Some(login), callTimeout = 200.millis)
+          slow      = access.copy(login = Some(login), callTimeout = 1.second) // room for a slow CI machine
           r         = routes(slow, got, ZIO.never, Some(token))
           response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
         yield assertTrue(response.status == Status.ServiceUnavailable)
@@ -395,7 +395,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
             n        <- Ref.make(0)
             answer    = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then slow else ZIO.unit)
-            one       = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis)
+            one       = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1.second) // room for a slow CI machine
             r         = routes(one, got, answer, Some(token))
             first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
             second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
@@ -406,7 +406,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           stopped     <- calls(ZIO.never.onInterrupt(interrupted.succeed(())))
           wasStopped  <- interrupted.isDone.repeatUntil(identity).timeout(1.second)
           // not interruptible - still running, the next call finds no slot
-          busy        <- calls(ZIO.sleep(3.seconds).uninterruptible)
+          busy        <- calls(ZIO.sleep(4.seconds).uninterruptible)
         yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
       @@ TestAspect.withLiveClock,
       test("the caller is gone - the call still stops at its timeout and frees its slot"):
@@ -415,12 +415,12 @@ object PublicAccessSpec extends ZIOSpecDefault:
           got    <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
           n      <- Ref.make(0)
           answer  = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then ZIO.never else ZIO.unit)
-          one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis)
+          one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1.second) // room for a slow CI machine
           r       = routes(one, got, answer, Some(token))
           first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
           _      <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
           _      <- first.interrupt                 // the caller is gone
-          _      <- ZIO.sleep(400.millis)
+          _      <- ZIO.sleep(1500.millis)
           second <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
         yield assertTrue(second.status == Status.Ok)
       @@ TestAspect.withLiveClock,

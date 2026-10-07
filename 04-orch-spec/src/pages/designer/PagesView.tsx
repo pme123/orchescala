@@ -42,7 +42,11 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
       </p>
 
       {appOpen && <AppSettings app={pagesApp?.data ?? {}} pages={pages.map((p) => p.data)} canEdit={canEdit}
-        onSave={async (app) => { const r = await savePagesApp(app, pagesApp?.version ?? null); if (r.status === 'saved') setAppOpen(false); }}
+        onSave={async (app) => {
+          const r = await savePagesApp(app, pagesApp?.version ?? null);
+          if (r.status === 'saved') setAppOpen(false);
+          return r.status === 'saved' ? null : r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message;
+        }}
         onClose={() => setAppOpen(false)} />}
       {creating && <NewPage existing={pages.map((p) => p.slug)}
         onCreate={async (slug, page) => { const r = await createPage(slug, page); if (r.ok) { setCreating(false); onOpen(slug); } return r; }}
@@ -133,11 +137,12 @@ function NewPage({ existing, onCreate, onClose }: {
 }
 
 function AppSettings({ app, pages, canEdit, onSave, onClose }: {
-  app: App; pages: Page[]; canEdit: boolean; onSave: (app: App) => Promise<void>; onClose: () => void;
+  app: App; pages: Page[]; canEdit: boolean; onSave: (app: App) => Promise<string | null>; onClose: () => void;
 }) {
   const { isDark } = useStore();
   const c = cls(isDark);
   const [draft, setDraft] = useState<App>(app);
+  const [error, setError] = useState<string | null>(null);
   return (
     <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
       <div className="grid grid-cols-3 gap-2">
@@ -148,10 +153,11 @@ function AppSettings({ app, pages, canEdit, onSave, onClose }: {
       </div>
       <JsonField isDark={isDark} label="Texte für Werte" hint="{{wert|label:topic}} – je Name die Texte der Werte" rows={8}
         value={draft.labels} onChange={(labels) => setDraft({ ...draft, labels: labels as App['labels'] })} />
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {error && <span className="mr-auto text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Schliessen</button>
         {canEdit && (
-          <button onClick={() => void onSave(draft)} className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
+          <button onClick={async () => setError(await onSave(draft))} className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
             Speichern
           </button>
         )}
