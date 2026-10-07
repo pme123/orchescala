@@ -343,15 +343,37 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         bpmnRef.current?.setColor(id, projectColor(ref, spec.project, model?.projects, model?.projectColors));
       }
     }
+    // Ein neuer Status gilt auch für alles darunter — Pfade, Subprozess, Fehler- und Nebenpfade
+    const status = patch.status;
+    let below = 0;
+    const deep = (steps: Step[]): Step[] => steps.map(s => {
+      below++;
+      const next: Step = { ...s, status: status! };
+      if (s.children) next.children = deep(s.children);
+      if (s.branches) next.branches = s.branches.map(b => ({ ...b, steps: deep(b.steps) }));
+      if (s.errors) next.errors = s.errors.map(e => (e.steps ? { ...e, steps: deep(e.steps) } : e));
+      return next;
+    });
     const walk = (steps: Step[]): Step[] => steps.map(s => {
-      if (s.id === id) return { ...s, ...patch };
+      if (s.id === id) {
+        const own: Step = { ...s, ...patch };
+        if (!status) return own;
+        if (own.children) own.children = deep(own.children);
+        if (own.branches) own.branches = own.branches.map(b => ({ ...b, steps: deep(b.steps) }));
+        if (own.errors) own.errors = own.errors.map(e => (e.steps ? { ...e, steps: deep(e.steps) } : e));
+        return own;
+      }
       const next: Step = { ...s };
       if (s.children) next.children = walk(s.children);
       if (s.branches) next.branches = s.branches.map(b => ({ ...b, steps: walk(b.steps) }));
       if (s.errors) next.errors = s.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e));
       return next;
     });
-    update({ ...spec, steps: walk(spec.steps) });
+    const steps = walk(spec.steps);
+    const name = byIdRef.current.get(id)?.name || id;
+    update({ ...spec, steps }, status && below
+      ? { source: 'manual', note: `Status «${STATUS_META[status].label}» für «${name}» und ${below} Schritt${below === 1 ? '' : 'e'} darunter` }
+      : undefined);
   }, [spec, update]);
 
   // Ein im Baum gewählter Schritt wird im Diagramm mitgewählt

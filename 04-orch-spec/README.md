@@ -86,6 +86,13 @@ Service. Der Status «Umgesetzt» ist gedämpft, damit «Angepasst» und
 «Entwurf» herausstechen. Im Kopf filtern die Status-Chips den Ablauf, der
 Chip **⚠ n** zeigt nur Schritte mit Befund; die Suche findet auch den
 Objektnamen der Interaktion und den Namen des Katalog-Services.
+Beim Filtern bleiben die Schritte darüber stehen (der Weg zum Treffer), von
+ihren Pfaden aber nur die mit einem Treffer — passt ein Gateway selbst, alle.
+
+**Status setzen:** ein neuer Status (Chip im Baum oder Auswahl im Schritt) gilt
+auch für alles darunter — die Pfade eines Gateways, den Inhalt eines
+Subprozesses, Fehler- und Nebenpfade. Im Verlauf ist das ein Eintrag («Status
+«Final» für «…» und n Schritte darunter») und lässt sich dort zurücknehmen.
 
 ### Spezifikation und Implementation nebeneinander
 
