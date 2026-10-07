@@ -97,6 +97,7 @@ class PublicToken(login: OAuthConfig, now: () => Long = PublicAccess.monotonicMi
         val expires = c.downField("expires_in").focus.flatMap: v =>
           v.asNumber.flatMap(_.toBigDecimal).orElse(v.asString.flatMap(_.trim.toDoubleOption.map(BigDecimal(_))))
             .map(_.toLong)
-        c.get[String]("access_token").map(_ -> expires.getOrElse(60L).max(0))
+        // at most a day - a huge value would overflow to "expired" and make every call a login
+        c.get[String]("access_token").map(_ -> expires.getOrElse(60L).max(0).min(24 * 3600L))
       .left.map(e => s"unexpected answer: ${e.getMessage}")
 end PublicToken

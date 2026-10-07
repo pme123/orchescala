@@ -290,7 +290,14 @@ object PublicAccessSpec extends ZIOSpecDefault:
           strange <- requests("""{"access_token":"t1","expires_in":"soon"}""")
           string  <- requests("""{"access_token":"t1","expires_in":"300"}""")
           decimal <- requests("""{"access_token":"t1","expires_in":300.0}""")
-        yield assertTrue(missing == ("t1" -> 2), strange == ("t1" -> 2), string == ("t1" -> 1), decimal == ("t1" -> 1))
+          huge    <- requests("""{"access_token":"t1","expires_in":9000000000000000}""")
+        yield assertTrue(
+          missing == ("t1" -> 2),
+          strange == ("t1" -> 2),
+          string == ("t1" -> 1),
+          decimal == ("t1" -> 1),
+          huge == ("t1" -> 1) // capped at a day - no overflow to "expired"
+        )
       ,
       test("a clock below 0 (the monotonic one can be) - logs in all the same"):
         val clock = TestClock()
