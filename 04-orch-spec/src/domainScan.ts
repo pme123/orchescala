@@ -412,7 +412,13 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const mark = owner ? SERVICE_MARK.exec(line) : null;
     if (owner && mark) {
       if (!serviceObjects.includes(owner)) serviceObjects.push(owner);
-      const wert = mark[2]?.trim();
+      let wert = mark[2]?.trim();
+      // der Wert auf der nächsten Zeile (`val topicName: String =` ⏎ `"…"`) — scalafmt bricht lange Zeilen so um
+      const next = !wert && /=\s*$/.test(line) ? /^\s*s?"([^"\n]*)"\s*$/.exec(lines[i + 1] ?? '') : null;
+      if (next) {
+        wert = next[1].trim();
+        i++;
+      }
       if (wert) {
         if (mark[1] === 'processName') processNames.set(owner, wert);
         else if (mark[1] === 'topicName') topicNames.set(owner, wert);
