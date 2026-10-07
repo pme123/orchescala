@@ -66,6 +66,33 @@ function tokenize(src: string): Tok[] {
 }
 
 const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+/** Ein JSON-Wert als FEEL-Literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
+export function jsonToFeel(v: unknown): string {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return `[${v.map(jsonToFeel).join(', ')}]`;
+  if (typeof v === 'object') {
+    return `{${Object.entries(v as Record<string, unknown>)
+      .map(([k, x]) => `${/^[A-Za-z_]\w*$/.test(k) ? k : feelString(k)}: ${jsonToFeel(x)}`).join(', ')}}`;
+  }
+  if (typeof v === 'string') return feelString(v);
+  return String(v);
+}
+
+/**
+ * Das Argument von `JSON('…')` / `S('…')` (als FEEL-Text `"[6026, 102]"`): ist der
+ * Text eine JSON-Liste oder ein JSON-Objekt, das FEEL-Literal dafür — sonst null.
+ */
+function jsonTextToFeel(feelText: string): string | null {
+  if (!/^"[\s\S]*"$/.test(feelText)) return null;
+  try {
+    const text = JSON.parse(feelText) as string;
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === 'object' ? jsonToFeel(value) : null;
+  } catch {
+    return null;
+  }
+}
 /**
  * Ein Teil einer Text-Verkettung: FEEL addiert nur Text mit Text, JUEL
  * macht aus allem einen String. Was kein Text-Literal ist, wird deshalb
@@ -327,9 +354,9 @@ export function juelToFeel(body: string): FeelResult {
           if (!isOp(')')) { args.push(expr()); while (isOp(',')) { take(); args.push(expr()); } }
           expect(')');
           if ((t.v === 'S' || t.v === 'JSON') && args.length === 1) {
-            if (args[0] === '"[]"') return '[]';
-            if (args[0] === '"{}"') return '{}';
-            return args[0];
+            // `JSON('[6026, 102]')`: der Text ist JSON — in FEEL der Wert selbst (Liste, Kontext)
+            const literal = jsonTextToFeel(args[0]);
+            return literal ?? args[0];
           }
           if (t.v === 'dateTime' && args.length === 0) return 'now()';
           throw new Unsupported(`Funktion «${t.v}()» hat kein FEEL-Gegenstück`);

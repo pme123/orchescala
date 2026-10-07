@@ -11,7 +11,7 @@
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind } from './types';
-import { feelIfPossible, importExpression, stripNullSafe } from './juelFeel.ts';
+import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -1093,6 +1093,18 @@ function keepEmptyErrors(s: Step, prev: Step) {
   s.errors = errs.map(e => (blank(e) ? e : fresh.get(e.code) ?? e));
 }
 
+/** `= "[6026, 102]"` (JSON als Text) gegenüber dem Literal aus dem Diagramm `= [6026, 102]` — dasselbe, nur richtig gelesen */
+function jsonTextUpgrade(stored: string, fromDiagram: string | undefined): boolean {
+  const m = /^=\s*("(?:[^"\\]|\\.)*")\s*$/.exec(stored.trim());
+  if (!m || !fromDiagram) return false;
+  try {
+    const value: unknown = JSON.parse(JSON.parse(m[1]) as string);
+    return value !== null && typeof value === 'object' && fromDiagram.trim() === `= ${jsonToFeel(value)}`;
+  } catch {
+    return false;
+  }
+}
+
 function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, seen: Set<string>, base: Map<string, Step> | null, st: MergeStatus) {
   for (const s of steps) {
     seen.add(s.id);
@@ -1101,7 +1113,16 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (s.kind !== 'goto') report.added.push(s.name);
       s.status = st.added;
     } else {
+      const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
+      // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein —
+      // liest das Diagramm heute die Liste, gilt die
+      for (const list of ['inputs', 'outputs'] as const) {
+        const now = new Map((fresh[list] ?? []).map(m => [m.name, m.expression]));
+        if (s[list] && s[list] !== fresh[list]) {
+          s[list] = s[list]!.map(m => (jsonTextUpgrade(m.expression, now.get(m.name)) ? { ...m, expression: now.get(m.name)! } : m));
+        }
+      }
       keepEmptyErrors(s, prev);
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
       // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation —

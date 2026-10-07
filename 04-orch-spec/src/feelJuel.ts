@@ -160,6 +160,41 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     return `${unsetSafe(n)} != null`;
   };
 
+  /**
+   * Eine Liste bzw. ein Kontext nur aus festen Werten als JSON-Text
+   * (`[6026, 102]`, `{"a": 1}`) — null, sobald etwas darin kein Literal ist.
+   */
+  const constantJson = (n: SyntaxNode): string | null => {
+    const kids = children(n).filter(k => !k.type.isError);
+    switch (n.name) {
+      case 'List': {
+        const items = kids.filter(k => k.name !== '[' && k.name !== ']').map(constantJson);
+        return items.some(x => x == null) ? null : `[${items.join(', ')}]`;
+      }
+      case 'Context': {
+        const parts: string[] = [];
+        for (const e of kids.filter(k => k.name === 'ContextEntry')) {
+          const [key, value] = children(e).filter(k => !k.type.isError);
+          if (!key || !value) return null;
+          const name = children(key)[0];
+          const k = name?.name === 'StringLiteral' ? JSON.parse(text(name)) as string : text(key).trim();
+          const v = constantJson(value);
+          if (v == null) return null;
+          parts.push(`${JSON.stringify(k)}: ${v}`);
+        }
+        return `{${parts.join(', ')}}`;
+      }
+      case 'StringLiteral': return JSON.stringify(JSON.parse(text(n)) as string);
+      case 'NumericLiteral': case 'BooleanLiteral': case 'null': return text(n);
+      case 'ArithmeticExpression': {
+        // eine negative Zahl (`-5`) ist hier eine Rechnung
+        const t = text(n).replace(/\s+/g, '');
+        return /^-\d+(\.\d+)?$/.test(t) ? t : null;
+      }
+      default: return null;
+    }
+  };
+
   /** `string(x)` → der Ausdruck dahinter, sonst null */
   const stringCall = (n: SyntaxNode): SyntaxNode | null => {
     if (n.name !== 'FunctionInvocation') return null;
@@ -337,10 +372,15 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
         if (!Number.isInteger(i) || i < 1) throw new Unsupported('Index muss eine positive ganze Zahl sein (FEEL zählt ab 1)');
         return `${val(base, 'list')}[${i - 1}]`;
       }
+      // aus festen Werten: JSON über Spin — `JSON('[6026, 102]')`, wie im Projekt von Hand
       case 'List':
-        throw new Unsupported('Listen «[…]» gibt es in JUEL nicht');
-      case 'Context':
-        throw new Unsupported('Kontexte «{…}» gibt es in JUEL nicht');
+      case 'Context': {
+        const json = constantJson(n);
+        if (json == null) throw new Unsupported(n.name === 'List'
+          ? 'Listen «[…]» gibt es in JUEL nur aus festen Werten (JSON)'
+          : 'Kontexte «{…}» gibt es in JUEL nur aus festen Werten (JSON)');
+        return `JSON('${json.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+      }
       case 'DateTimeLiteral':
         throw new Unsupported('Datums- und Zeitwerte gibt es in JUEL nicht');
       default:
