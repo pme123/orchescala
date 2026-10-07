@@ -14,8 +14,8 @@ import zio.*
   * a size limit for the body, a honeypot field (a hidden form field only bots fill in) and a rate
   * limit per client. The rate limit is a fallback - a fixed window per minute, so up to twice
   * [[requestsPerMinute]] at the turn of a minute, and per gateway instance (N replicas: N times);
-  * in front of the gateway, an API gateway (e.g. Gravitee) should limit as well - with several
-  * replicas it is required.
+  * in production an API gateway (e.g. Gravitee) in front must limit as well - against a
+  * distributed flood this fallback fails open (it forgets clients beyond `maxClients`).
   *
   * A process started this way runs with the identity of the technical user - check the input like
   * any other untrusted input (its init worker does), and let a human see nothing before e.g. an

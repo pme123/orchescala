@@ -268,8 +268,8 @@ header and get a new limit with every call. Without it the gateway notes that at
 100'000 clients are counted at once (about 15 MB); beyond, the least
 recently used is forgotten (a warning in the log) - such a flood also resets the counts of real
 clients. The
-limit is a fallback and per gateway instance: an API gateway in front should limit as well - with
-several replicas it is required. A process started this way runs
+limit is a fallback and per gateway instance: in production an API gateway in front must limit as
+well - against a distributed flood the fallback fails open. A process started this way runs
 with the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
 
 A public worker's answer goes to the caller as it is - let it return only what anybody may see; a
