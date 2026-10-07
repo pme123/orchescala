@@ -24,11 +24,10 @@ class PublicGuard(
 
   private val windowMillis = 60 * 1000L
 
-  // per client: start of its minute and the calls in it - the least recently used first. One lock:
-  // its work is a map lookup and removing a few expired clients - cheap next to a call to a worker
-  // or the engine; with a sharded map the LRU order and the cap would no longer be exact.
-  // (start of its window, calls in it, last call). Every access - also a get, it reorders - under
-  // the lock of calls.
+  // per client: (start of its window, calls in it, last call) - the least recently called first.
+  // Every access - also a get, it reorders - under the lock of calls: its work is a lookup and
+  // removing a few expired clients, cheap next to a call to a worker or the engine; with a sharded
+  // map the LRU order and the cap would no longer be exact.
   private val calls = new java.util.LinkedHashMap[String, (Long, Int, Long)](16, 0.75f, true):
     override def removeEldestEntry(eldest: java.util.Map.Entry[String, (Long, Int, Long)]): Boolean =
       val full = size > maxClients

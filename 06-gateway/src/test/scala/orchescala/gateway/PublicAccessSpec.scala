@@ -216,6 +216,10 @@ object PublicAccessSpec extends ZIOSpecDefault:
           behindProxy.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "2001:DB8:0:0:ffff::7"))) == "2001:db8:0:0::/64",
           access.client(Some("fe80::1%eth0"), Seq.empty) == "fe80:0:0:0::/64",
           access.client(Some("::ffff:1.2.3.4"), Seq.empty) == "1.2.3.4",
+          // no IP literal in the header - the remote address
+          List("::.", "a:.", "1.2.3", "300.1.1.1", "1:2:3", "::ffff:x.y", "1:2:3:4:5:6:7:8:9").forall: junk =>
+            behindProxy.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", junk))) == "10.0.0.1"
+          ,
           // fewer entries than proxies - the remote address
           behindProxy.copy(trustedProxies = 2)
             .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "1.2.3.4"))) == "10.0.0.1"

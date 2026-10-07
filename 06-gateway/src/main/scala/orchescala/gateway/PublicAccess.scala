@@ -74,14 +74,15 @@ case class PublicAccess(
     * remote address.
     */
   def client(remote: Option[String], headers: Seq[Header]): String =
-    clientIpHeader
+    val fromHeader = clientIpHeader
       // all lines of the header together - a proxy may add a line of its own instead of appending
-      .map(h => headers.filter(_.name.equalsIgnoreCase(h)).flatMap(_.value.split(",")).map(_.trim).filter(_.nonEmpty))
+      .map: h =>
+        headers.filter(_.name.equalsIgnoreCase(h)).flatMap(_.value.split(",")).map(_.trim).filter(_.nonEmpty)
       .flatMap(_.dropRight(trustedProxies - 1).lastOption)
-      // only an address (IPv4 / IPv6) - anything else is no key for the rate limit
-      .filter(PublicAccess.ipAddress.matches)
+    // only an address (IPv4 / IPv6) is a key - anything else falls back to the remote address
+    fromHeader.flatMap(PublicAccess.bucket)
+      .orElse(remote.flatMap(PublicAccess.bucket))
       .orElse(remote)
-      .map(PublicAccess.bucket)
       .getOrElse("unknown")
 
   override def toString: String =
@@ -108,26 +109,34 @@ object PublicAccess:
   def loggable(name: String): String =
     name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
 
-  /** What an IPv4 or IPv6 address can look like - short, no names. */
-  val ipAddress = "[0-9A-Fa-f:.]{2,45}".r
+  private val ipv4 = """(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})""".r
 
-  /** The rate-limit key of an address: IPv4 as it is, IPv6 by its /64 prefix - one end customer
-    * usually has a whole /64, rotating within it must not give new limits.
+  /** The rate-limit key of an address - None if it is no IP literal (parsed here, never looked
+    * up): IPv4 as it is, IPv6 by its /64 prefix - one end customer usually has a whole /64,
+    * rotating within it must not give new limits; IPv4 in IPv6 (`::ffff:1.2.3.4`) as IPv4.
     */
-  def bucket(address: String): String =
+  def bucket(address: String): Option[String] =
     val addr = address.takeWhile(_ != '%').stripPrefix("[").stripSuffix("]")
-    if !addr.contains(':') then addr
-    else if addr.contains('.') then addr.substring(addr.lastIndexOf(':') + 1) // IPv4 in IPv6 (::ffff:1.2.3.4)
+    def v4(a: String) = a match
+      case ipv4(parts*) if parts.forall(_.toInt <= 255) => Some(parts.map(_.toInt).mkString("."))
+      case _                                           => None
+    if addr.length > 45 then None
+    else if !addr.contains(':') then v4(addr)
+    else if addr.contains('.') then
+      // only the mapped form ::ffff:a.b.c.d
+      Option.when(addr.toLowerCase.startsWith("::ffff:"))(addr.drop(7)).flatMap(v4)
     else
       scala.util.Try:
         val (head, tail) = addr.split("::", -1) match
           case Array(h, t) => (h.split(':').filter(_.nonEmpty), t.split(':').filter(_.nonEmpty))
-          case Array(h)    => (h.split(':'), Array.empty[String])
+          case Array(h)    => (h.split(":", -1), Array.empty[String])
           case _           => throw IllegalArgumentException(addr)
-        val groups       = head ++ Array.fill(8 - head.length - tail.length)("0") ++ tail
+        val all = head ++ tail
+        require(all.forall(g => g.nonEmpty && g.length <= 4 && g.forall(Character.digit(_, 16) >= 0)))
+        val groups = if addr.contains("::") then head ++ Array.fill(8 - all.length)("0") ++ tail else head
         require(groups.length == 8)
         groups.take(4).map(g => Integer.parseInt(g, 16).toHexString).mkString(":") + "::/64"
-      .getOrElse(addr)
+      .toOption
 
   /** A text that may contain what a caller sent (e.g. the error of a worker) as one log line. */
   def oneLine(text: String, max: Int = 300): String =
