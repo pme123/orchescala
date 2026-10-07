@@ -94,7 +94,8 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
 
   /** Die Aktionen nacheinander - beim ersten Fehler Schluss, sein Text unter `key`. */
   async function run(actions: Action[], key: string): Promise<boolean> {
-    setErrors((e) => ({ ...e, [key]: '' }));
+    // auch der Fehler des onError vom letzten Mal - errorOf zeigt beide
+    setErrors((e) => ({ ...e, [key]: '', [`${key}.onError`]: '' }));
     for (const a of actions) {
       if (!mounted.current) return false;
       try {

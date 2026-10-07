@@ -134,6 +134,12 @@ export function rolesOf(user: User): string[] {
 
 /** Die Anmeldung gilt nicht mehr: die Sitzung im Browser verwerfen und neu anmelden. */
 export async function sessionExpired(): Promise<never> {
+  // die Seite geht zum IdP: das Warten endet mit ihr. Bleibt sie (Weiterleitung blockiert), nach 5 s ein
+  // Fehler - aber nicht, wenn sie schon am Gehen ist (langsame Weiterleitung). Die Listener vor login():
+  // die Weiterleitung kann schon darin beginnen
+  let leaving = false;
+  window.addEventListener('pagehide', () => { leaving = true; }, { once: true });
+  window.addEventListener('beforeunload', () => { leaving = true; }, { once: true });
   try {
     await (await userManager()).removeUser();
     await login();
@@ -141,11 +147,6 @@ export async function sessionExpired(): Promise<never> {
     // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
     throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
   }
-  // die Seite geht zum IdP: das Warten endet mit ihr. Bleibt sie (Weiterleitung blockiert), nach 5 s ein
-  // Fehler - aber nicht, wenn sie schon am Gehen ist (langsame Weiterleitung)
-  let leaving = false;
-  window.addEventListener('pagehide', () => { leaving = true; }, { once: true });
-  window.addEventListener('beforeunload', () => { leaving = true; }, { once: true });
   await new Promise((r) => setTimeout(r, 5000));
   if (leaving || document.visibilityState === 'hidden') return new Promise<never>(() => {});
   throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login');

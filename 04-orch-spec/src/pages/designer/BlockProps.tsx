@@ -197,7 +197,7 @@ export function PageProps({ page, onChange, ...ctx }: Ctx & { page: Page; onChan
           onChange={(v) => setAccess(v === 'public' ? 'public' : { roles: roles.length ? roles : ['kundenberater'] })}
           options={[{ value: 'public', label: 'öffentlich – ohne Login' }, { value: 'login', label: 'mit Login und Rolle' }]} />
         {page.access !== 'public' && (
-          <TextField isDark={isDark} label="Rollen" hint="durch Komma getrennt" mono value={roles.join(', ')}
+          <TextField isDark={isDark} label="Rollen" hint="durch Komma getrennt - eine davon genügt, leer: jeder mit Login" mono value={roles.join(', ')}
             onChange={(v) => setAccess({ roles: v.split(',').map((r) => r.trim()).filter(Boolean) })} />
         )}
       </Group>

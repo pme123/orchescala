@@ -9,6 +9,12 @@ import { cls, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
 
+/** Eine der Rollen genügt; ohne Rollen jeder mit Login. Nur für die Anzeige - was ein Aufruf darf,
+  * prüfen Gateway und Worker. */
+function mayOpen(roles: string[], has: string[]): boolean {
+  return roles.length === 0 || roles.some((r) => has.includes(r));
+}
+
 /** Der Pfad der Seite unter der App – `/app/democompany-customer/appointments/book` → `appointments/book`. */
 function pagePath(): string {
   const path = window.location.pathname;
@@ -65,10 +71,10 @@ export default function App() {
         <button onClick={() => login()} className={`mt-4 rounded-lg px-4 py-2 text-xs font-bold ${c.btnPrimary}`}>Anmelden</button>
       </Card>
     );
-  else if (page.access !== 'public' && user && !page.access.roles.every((r) => rolesOf(user).includes(r)))
+  else if (page.access !== 'public' && user && !mayOpen(page.access.roles, rolesOf(user)))
     content = (
       <Card isDark={isDark} icon={<ShieldAlert size={26} />} title="Keine Berechtigung"
-        text={`Dafür braucht es die Rolle «${page.access.roles.join(', ')}». Bitte beim Admin anfragen.`} />
+        text={`Dafür braucht es ${page.access.roles.length > 1 ? 'eine der Rollen' : 'die Rolle'} «${page.access.roles.join(', ')}». Bitte beim Admin anfragen.`} />
     );
   else
     content = (

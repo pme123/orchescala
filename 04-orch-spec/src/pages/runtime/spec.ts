@@ -63,6 +63,7 @@ export type Component = Base &
     | { type: 'loading'; text?: string }
   );
 
+/** `public` ohne Login - sonst mit Login und einer der Rollen (ohne Rollen: jeder mit Login). */
 export type Access = 'public' | { roles: string[] };
 
 export type Page = {

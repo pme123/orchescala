@@ -872,7 +872,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
     const bad = pageSlugProblem(slug);
     if (bad) return { ok: false as const, message: bad };
-    // löschen kennt kein ifMatch - vorher lesen: eine Seite, die jemand inzwischen geändert hat, bleibt
+    // löschen kennt kein ifMatch - vorher lesen: eine Seite, die jemand inzwischen geändert hat, bleibt.
+    // Kein Schutz, nur ein kleineres Fenster: eine Änderung zwischen Lesen und Löschen geht verloren
     const current = await be.read(`${PAGES_DIR}/${slug}.json`).catch(() => null);
     if (current && current.version !== expectedVersion)
       return { ok: false as const, message: 'Die Seite wurde inzwischen geändert – Seite neu laden.' };

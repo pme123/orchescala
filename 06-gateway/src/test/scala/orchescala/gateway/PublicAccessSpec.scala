@@ -426,7 +426,9 @@ object PublicAccessSpec extends ZIOSpecDefault:
           second <- (ZIO.sleep(50.millis) *> post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}"))
                       .repeatUntil(_.status == Status.Ok)
                       .timeout(10.seconds)
-        yield assertTrue(second.exists(_.status == Status.Ok))
+                      .timed
+        // free by the timeout of the call (200 ms) - not much later
+        yield assertTrue(second._2.exists(_.status == Status.Ok), second._1 < 3.seconds)
       @@ TestAspect.withLiveClock,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =
