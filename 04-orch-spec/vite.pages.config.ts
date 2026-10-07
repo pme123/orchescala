@@ -23,7 +23,13 @@ const gateway = process.env.GATEWAY ?? 'http://localhost:8889';
 function bundlePages(dir: string): string {
   if (!fs.existsSync(dir)) throw new Error(`UI_PAGES: ${dir} does not exist`);
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
-  const read = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+  const read = (f: string) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+    } catch (e) {
+      throw new Error(`UI_PAGES: ${path.join(dir, f)} is no valid JSON - ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const app = files.includes('app.json') ? read('app.json') : {};
   const pages = files.filter((f) => f !== 'app.json').map(read);
   return JSON.stringify({ app, pages }, null, 2);

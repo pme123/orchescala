@@ -1,7 +1,7 @@
 // The expressions of the page specs (pages/*.json) - paths, templates, conditions.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { conditionProblem, errorText, evaluate, format, getPath, groupBy, interpolate, resolve, setPath } from '../src/pages/runtime/expr';
+import { actionInput, conditionProblem, errorText, evaluate, format, getPath, groupBy, interpolate, resolve, setPath } from '../src/pages/runtime/expr';
 
 const state = {
   step: 'choose',
@@ -94,6 +94,18 @@ test('conditionProblem - what does not parse', () => {
   assert.match(conditionProblem("!a == 'x'")!, /kein Pfad/);
   assert.match(conditionProblem('a && ')!, /leerer Teil/);
   assert.match(conditionProblem('a b')!, /weder/);
+});
+
+test('actionInput - the honeypot only for public calls; empty fields fall away, the rest stays as it is', () => {
+  const st = { name: ' Peter ', empty: '  ' };
+  assert.deepEqual(actionInput({ name: '{{name}}', e: '{{empty}}' }, st, {}, true, ''), { name: ' Peter ', _hp: '' });
+  assert.deepEqual(actionInput({ name: '{{name}}' }, st, {}, false, 'bot'), { name: ' Peter ' });
+  assert.deepEqual(actionInput(undefined, st, {}, true, 'bot'), { _hp: 'bot' });
+});
+
+test('format - an impossible date stays the text it is', () => {
+  assert.equal(format('2026-13-45T09:00', 'date'), '2026-13-45T09:00');
+  assert.equal(format('2026-02-30', 'date'), '2026-02-30');
 });
 
 test('groupBy keeps the order', () => {

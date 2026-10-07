@@ -38,7 +38,9 @@ function asDate(value: unknown): Date | null {
   const [d, t = '00:00'] = value.split('T');
   const [y, m, day] = d.split('-').map(Number);
   const [h, min] = t.split(':').map(Number);
-  return new Date(y, m - 1, day, h || 0, min || 0);
+  const date = new Date(y, m - 1, day, h || 0, min || 0);
+  // 2026-13-45 wäre sonst ein anderer Tag - dann bleibt der Text, wie er ist
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === day ? date : null;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -85,7 +87,7 @@ export function resolve(value: unknown, state: unknown, labels: Labels = {}): un
     const single = value.match(SINGLE);
     if (single) return compact(getPath(state, single[1]));
     const text = interpolate(value, state, labels);
-    return text === '' ? undefined : text;
+    return text.trim() === '' ? undefined : text;
   }
   if (Array.isArray(value)) return value.map((v) => resolve(v, state, labels)).filter((v) => v !== undefined);
   if (value != null && typeof value === 'object') {
@@ -109,7 +111,8 @@ function compact(value: unknown): unknown {
         .filter(([, v]) => v !== undefined),
     );
   }
-  return typeof value === 'string' ? value.trim() || undefined : value;
+  // nur leer (oder nur Leerzeichen) fällt weg - der Inhalt bleibt, wie er ist
+  return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
 
 /** `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'` (auch true, false, null, Zahlen), verbunden
@@ -241,3 +244,10 @@ export function errorText(status: number, errors: Record<string, string> | undef
 
 /** Ob eine E-Mail-Adresse so aussieht. */
 export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+/** Die Eingabe einer Aktion - ein öffentlicher Aufruf bekommt das Honeypot-Feld mit (nur Bots
+  * füllen es aus; der Gateway lehnt sie dann ab), ein Aufruf mit Login nicht. */
+export function actionInput(raw: unknown, state: unknown, labels: Labels, isPublic: boolean, honeypot: string): Record<string, unknown> {
+  const body = (resolve(raw ?? {}, state, labels) ?? {}) as Record<string, unknown>;
+  return isPublic ? { ...body, _hp: honeypot } : body;
+}

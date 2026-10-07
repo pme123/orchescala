@@ -77,19 +77,35 @@ export async function accessToken(): Promise<string> {
       const renewed = await um.signinSilent().catch(() => null);
       if (renewed && !renewed.expired) return renewed.access_token;
     }
-    return sessionExpired();
+    return reauthenticate();
   })().finally(() => {
     renewing = null;
   });
   return renewing;
 }
 
-/** Die Rollen im Access Token (Keycloak: realm_access.roles). */
+// mehrere Aufrufe mit 401 gleichzeitig: eine Anmeldung, nicht je Aufruf
+let signingIn: Promise<never> | null = null;
+
+/** Neu anmelden - einmal, auch wenn mehrere Aufrufe es wollen. */
+export function reauthenticate(): Promise<never> {
+  signingIn ??= sessionExpired().finally(() => {
+    signingIn = null;
+  });
+  return signingIn;
+}
+
+/** Die Rollen im Access Token. */
 export function rolesOf(user: User): string[] {
   try {
-    const payload = JSON.parse(atob(user.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload?.realm_access?.roles ?? [];
-  } catch {
+    const b64 = user.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    // UTF-8 - Namen mit Umlauten im Token
+    const json = new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+    const payload = JSON.parse(json);
+    // Keycloak: realm_access.roles; Entra und andere: roles
+    return [...(payload?.realm_access?.roles ?? []), ...(Array.isArray(payload?.roles) ? payload.roles : [])];
+  } catch (e) {
+    console.error('[pages] die Rollen im Token sind nicht lesbar:', e);
     return [];
   }
 }

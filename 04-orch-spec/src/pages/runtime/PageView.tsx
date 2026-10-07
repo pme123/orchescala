@@ -1,7 +1,7 @@
 import { Check, Loader2, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, type Gateway } from './gatewayTypes';
-import { errorText, evaluate, format, getPath, groupBy, interpolate, isEmail, resolve, setPath, type State } from './expr';
+import { actionInput, errorText, evaluate, format, getPath, groupBy, interpolate, isEmail, resolve, setPath, type State } from './expr';
 import type { Action, App, Component, Field, Page } from './spec';
 import { cls } from './ui';
 
@@ -48,13 +48,12 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   // ein verstecktes Feld - nur Bots füllen es aus (der Gateway lehnt sie dann ab)
   const [honeypot, setHoneypot] = useState('');
   const isPublic = page.access === 'public';
+  // der Fehler einer Aktion - und, falls auch das scheiterte, der ihres onError
+  const errorOf = (key: string) => [errors[key], errors[`${key}.onError`]].filter(Boolean).join(' – ');
 
   async function runOne(a: Action): Promise<void> {
     const s = latest.current;
-    const input = (raw: unknown, pub?: boolean) => {
-      const body = (resolve(raw ?? {}, s, labels) ?? {}) as Record<string, unknown>;
-      return pub ? { ...body, _hp: honeypot } : body;
-    };
+    const input = (raw: unknown, pub?: boolean) => actionInput(raw, s, labels, !!pub, honeypot);
     const store = (path: string | undefined, value: unknown) => path && update((st) => setPath(st, path, value));
     // ein Business Key aus einer Vorlage, die leer bleibt: die Aktion schlägt fehl - eine Message
     // ohne Key fände ihre Instanz nicht, ein Start bekäme keinen
@@ -206,7 +205,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
                 );
               })}
             </div>
-            {errors[key] && <Alert text={errors[key]} isDark={isDark} />}
+            {errorOf(key) && <Alert text={errorOf(key)} isDark={isDark} />}
           </div>
         );
       }
@@ -295,7 +294,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
               {running && <Loader2 size={12} className="animate-spin" />}
               {text(comp.label)}
             </button>
-            {errors[key] && <Alert text={errors[key]} isDark={isDark} />}
+            {errorOf(key) && <Alert text={errorOf(key)} isDark={isDark} />}
           </div>
         );
       }
@@ -322,7 +321,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
           onChange={(e) => setHoneypot(e.target.value)}
           className="pointer-events-none absolute -left-[9999px] h-px w-px opacity-0" />
       )}
-      {errors.load && <Alert text={errors.load} isDark={isDark} />}
+      {errorOf('load') && <Alert text={errorOf('load')} isDark={isDark} />}
       {page.body.map((comp, i) => render(comp, String(i)))}
     </div>
   );

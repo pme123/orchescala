@@ -1,4 +1,4 @@
-import { accessToken, sessionExpired } from './auth';
+import { accessToken, reauthenticate } from './auth';
 import { ApiError, type Gateway } from './gatewayTypes';
 
 export { ApiError, type Gateway };
@@ -8,7 +8,7 @@ export async function post(path: string, body: unknown, isPublic: boolean): Prom
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (!isPublic) headers.Authorization = `Bearer ${await accessToken()}`;
   const response = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
-  if (response.status === 401 && !isPublic) return sessionExpired();
+  if (response.status === 401 && !isPublic) return reauthenticate();
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     let message = text;
