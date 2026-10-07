@@ -246,20 +246,26 @@ DefaultGatewayConfig(
 | `POST /public/process/{key}/async?businessKey=…` | `POST /process/{key}/async` |
 | `POST /public/message/{name}?businessKey=…` | `POST /message/{name}` (the business key is required) |
 
-Each call is checked first: a name that is not listed is a 404, a body larger than `maxBodyBytes` a
-413 (while it is read, not after), a filled-in honeypot field (`_hp`, a hidden form field only bots
+Each call is checked first - rate limit and allow list before the body is read: more than
+`requestsPerMinute` calls per client are a 429 (a fixed window per minute - at its turn up to twice
+that), a name that is not listed is a 404. Then the body: larger than `maxBodyBytes` a 413 (while it
+is read), not a JSON object a 400, a filled-in honeypot field (`_hp`, a hidden form field only bots
 fill in) a 400 - an empty one is removed. A general variable in the body (`_servicesMocked`,
 `_mockedWorkers`, `_outputMock`, `_identityCorrelation`, ... - see `GeneralVariables`) is a 400 as
 well: it would let an anonymous caller steer the process. Starts and messages go to the configured
-tenant. More than `requestsPerMinute` calls per client are a 429;
-behind a proxy set `clientIpHeader` (e.g. `X-Forwarded-For`) - only if the proxy sets it. This limit
-is a fallback: an API gateway in front should limit as well. A process started this way runs with
-the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
+tenant.
 
-Refusals (4xx, e.g. of an init worker) go to the caller as they are; when something fails inside
-(5xx, e.g. the login of the gateway) the caller gets a generic 503 and the detail goes to the log.
-The technical token is fetched once for all calls at a time; after a failed login, public calls fail
-at once for a few seconds.
+Behind a proxy all clients come from its address - set `clientIpHeader` (e.g. `X-Forwarded-For`, its
+last entry is taken - the one the proxy appended), but only if the proxy sets it. At most 100'000
+clients are counted at once; beyond, the least recently used is forgotten (a warning in the log). The
+limit is a fallback: an API gateway in front should limit as well. A process started this way runs
+with the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
+
+What a worker or the engine answers reaches the caller without its detail (only the log has it): a
+refusal (4xx, e.g. of an init worker) keeps its status with a generic text - a page shows its own
+text for it -, a failure (5xx) is a 503. The technical token is fetched once for all calls at a time
+and dropped when the engine refuses it (401 / 403); after a failed login, public calls fail at once
+for a few seconds.
 
 ## Integration with Existing Code
 

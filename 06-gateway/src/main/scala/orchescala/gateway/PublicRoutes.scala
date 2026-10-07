@@ -3,7 +3,6 @@ package orchescala.gateway
 import orchescala.domain.*
 import orchescala.engine.rest.{HttpClientProvider, OAuthConfig, WorkerForwardUtil}
 import orchescala.engine.AuthContext
-import orchescala.engine.domain.EngineError
 import orchescala.gateway.GatewayError.ServiceRequestError
 import orchescala.gateway.PublicAccess.Kind
 import sttp.capabilities.WebSockets
@@ -12,75 +11,107 @@ import sttp.tapir.server.model.EndpointExtensions.*
 import sttp.tapir.ztapir.*
 import zio.*
 
-/** The calls without a Bearer token - see [[PublicAccess]]. Each is checked by the [[PublicGuard]]
-  * and then made with the technical token of the gateway, through the same code as with a token.
-  * Build it once - the rate limit and the token live in it.
+/** The calls without a Bearer token - see [[PublicAccess]]. Each is admitted by the [[PublicGuard]]
+  * before its body is read, then made with the technical token of the gateway, through the same code
+  * as with a token. Build it once - the rate limit and the token live in it.
   */
 class PublicRoutes(
     processRoutes: ProcessInstanceRoutes,
     messageRoutes: MessageRoutes
 )(using config: GatewayConfig):
 
-  private val access = config.publicAccess
-  private val guard  = PublicGuard(access)
+  private val access     = config.publicAccess
+  private lazy val guard = newGuard(access)
   private lazy val login = access.login.map(newToken)
   private val maxBytes   = access.maxBodyBytes.toLong
   // public calls go to the configured tenant - starts and messages alike
   private val tenantId   = config.engineConfig.tenantId
 
-  protected def newToken(login: OAuthConfig): PublicToken = PublicToken(login)
+  protected def newGuard(access: PublicAccess): PublicGuard = PublicGuard(access)
+  protected def newToken(login: OAuthConfig): PublicToken   = PublicToken(login)
 
   lazy val routes: List[ZServerEndpoint[Any, ZioStreams & WebSockets]] =
     if access.isEmpty then List.empty else List(workerEndpoint, startProcessEndpoint, messageEndpoint)
 
   private lazy val workerEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-    PublicEndpoints.worker.maxRequestBodyLength(maxBytes).zServerLogic: (topic, body, remote, headers) =>
-      val call = for
-        checked <- checked(Kind.worker, topic, remote, headers, body)
-        token   <- token
-        out     <- AuthContext.withBearerToken(token):
-                     // the layer is the shared backend - no client per call
-                     WorkerForwardUtil.forwardWorkerRequest(topic, checked, token)(using config.engineConfig)
-                       .provideLayer(HttpClientProvider.live)
-                       .map(Option.apply)
-                       .mapError:
-                         case err: EngineError => ServiceRequestError(err)
-                         case err              => ServiceRequestError(500, err.getMessage)
-      yield out
-      generic(Kind.worker, topic)(call)
+    PublicEndpoints.worker
+      .maxRequestBodyLength(maxBytes)
+      .zServerSecurityLogic(admit(Kind.worker))
+      .serverLogic: topic =>
+        raw =>
+          for
+            body  <- body(Kind.worker, topic, raw)
+            token <- token
+            out   <- downstream(Kind.worker, topic, token):
+                       AuthContext.withBearerToken(token):
+                         WorkerForwardUtil.forwardWorkerRequest(topic, Json.fromJsonObject(body), token)(using config.engineConfig)
+                           // the shared backend - no client per call
+                           .provideEnvironment(ZEnvironment(HttpClientProvider.cachedBackend))
+                           .map(Option.apply)
+                           .mapError(ServiceRequestError.apply)
+          yield out
 
   private lazy val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-    PublicEndpoints.startProcess.maxRequestBodyLength(maxBytes).zServerLogic: (key, businessKey, in, remote, headers) =>
-      val call = for
-        checked <- checked(Kind.processStart, key, remote, headers, in)
-        // the checked body - never the unchecked one
-        vars    <- ZIO.fromOption(checked.asObject).orElseFail(ServiceRequestError(400, "The request is not valid."))
-        token   <- token
-        result  <- processRoutes.startAsync(token, key, businessKey, tenantId, vars)
-      yield result
-      generic(Kind.processStart, key)(call)
+    PublicEndpoints.startProcess
+      .maxRequestBodyLength(maxBytes)
+      .zServerSecurityLogic(admit(Kind.processStart))
+      .serverLogic: key =>
+        (businessKey, raw) =>
+          for
+            body   <- body(Kind.processStart, key, raw)
+            token  <- token
+            result <- downstream(Kind.processStart, key, token):
+                        processRoutes.startAsync(token, key, businessKey, tenantId, body)
+          yield result
 
   private lazy val messageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-    PublicEndpoints.message.maxRequestBodyLength(maxBytes).zServerLogic: (name, businessKey, body, remote, headers) =>
-      val call = for
-        checked <- checked(Kind.message, name, remote, headers, body)
-        _       <- ZIO.when(businessKey.isBlank)(ZIO.fail(ServiceRequestError(400, "A public message needs the businessKey.")))
-        token   <- token
-        result  <- messageRoutes.send(token, name, tenantId, None, Some(businessKey), None, checked.asObject.filter(_.nonEmpty))
-      yield result
-      generic(Kind.message, name)(call)
+    PublicEndpoints.message
+      .maxRequestBodyLength(maxBytes)
+      .zServerSecurityLogic(admit(Kind.message))
+      .serverLogic: name =>
+        (businessKey, raw) =>
+          for
+            _      <- ZIO.when(businessKey.isBlank):
+                        ZIO.fail(ServiceRequestError(400, "A public message needs the businessKey."))
+            body   <- body(Kind.message, name, raw)
+            token  <- token
+            result <- downstream(Kind.message, name, token):
+                        messageRoutes.send(token, name, tenantId, None, Some(businessKey), None, Some(body).filter(_.nonEmpty))
+          yield result
 
-  private def checked(kind: Kind, name: String, remote: Option[String], headers: List[sttp.model.Header], body: String) =
-    ZIO
-      .fromEither(guard.check(kind, name, access.client(remote, headers), body))
-      .tapError(e => ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}"))
+  /** Rate limit and allow list - the name is passed on to the logic. */
+  private def admit(kind: Kind)(admission: PublicEndpoints.Admission): IO[ServiceRequestError, String] =
+    val (name, remote, headers) = admission
+    val warnForgotten           = ZIO.foreachDiscard(guard.forgottenReport()): n =>
+      ZIO.logWarning(s"Public access: $n clients forgotten in the last minute (too many at once) - an attack?")
+    warnForgotten *>
+      ZIO
+        .fromEither(guard.admit(kind, name, access.client(remote, headers)))
+        .as(name)
+        .tapError(refusedLog(kind, name))
+  end admit
 
-  /** A refusal (4xx) goes to the caller as it is - what failed inside (5xx) only to the log. */
-  private def generic[A](kind: Kind, name: String)(call: IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
-    call.catchSome:
-      case e if e.errorCode >= 500 && e != PublicAccess.unavailable =>
-        ZIO.logError(s"Public $kind '$name' failed: ${e.errorCode} ${e.errorMsg}") *>
-          ZIO.fail(PublicAccess.unavailable)
+  /** The body as the guard checked it. */
+  private def body(kind: Kind, name: String, raw: String): IO[ServiceRequestError, JsonObject] =
+    ZIO.fromEither(guard.body(raw)).tapError(refusedLog(kind, name))
+
+  private def refusedLog(kind: Kind, name: String)(e: ServiceRequestError) =
+    ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}")
+
+  /** What a worker or the engine answers goes to the caller without its detail (only to the log): a
+    * refusal (4xx) with its status, a failure (5xx) as 503. Is the technical token refused (401 /
+    * 403), the next call fetches a new one.
+    */
+  private def downstream[A](kind: Kind, name: String, token: String)(call: IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
+    call.catchAll: e =>
+      val log = s"Public $kind '$name': ${e.errorCode} ${e.errorMsg}"
+      val err = e.errorCode match
+        case 401 | 403                => ZIO.succeed(login.foreach(_.invalidate(token))) *>
+                                           ZIO.logError(s"$log - the technical token was refused, a new one is fetched")
+                                             .as(PublicAccess.unavailable)
+        case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(c))
+        case _                        => ZIO.logError(log).as(PublicAccess.unavailable)
+      err.flatMap(ZIO.fail(_))
 
   private def token: IO[ServiceRequestError, String] =
     login match
