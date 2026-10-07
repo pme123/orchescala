@@ -426,19 +426,42 @@ export function domainRequired(dom: DomainType | null, name: string): boolean | 
   return !typeShape(p.type).optional && !p.default;
 }
 
+const inConfigFieldOf = (dom: DomainType | null) => dom?.fields?.find(x => /(?:^|\.)InConfig$/.test(typeShape(x.type).base));
+
+/**
+ * Das Feld `inConfig: Option[InConfig]` eines Domain-`In` — null ohne. Ein Aufrufer
+ * gibt es nicht mit: sein eigenes `inConfig` ist ein anderes als das des Aufgerufenen;
+ * nur einzelne Felder daraus (Mocks).
+ */
+export const inConfigField = (dom: DomainType | null): string | null => inConfigFieldOf(dom)?.name ?? null;
+
+/** Warnung an einer aktiven Zeile `inConfig` */
+export const inConfigWarning = (name: string): string =>
+  `«${name}» nicht mitgeben — das InConfig des Aufgerufenen ist ein anderes als das eigene; nur einzelne Felder daraus (z. B. Mocks) mitgeben.`;
+
 /**
  * Die Felder des `InConfig` eines Domain-`In` (`inConfig: Option[InConfig]`) —
  * Mocks und Stellschrauben (`postAccountMock`). Ein Aufrufer gibt sie als
  * eigene Variablen mit; das `InConfig` liest sie dort. Leer ohne `InConfig`.
  */
 export function inConfigFields(dom: DomainType | null, model: Model | null): string[] {
-  const f = dom?.fields?.find(x => /(?:^|\.)InConfig$/.test(typeShape(x.type).base));
+  const f = inConfigFieldOf(dom);
   if (!dom || !f) return [];
   const base = typeShape(f.type).base;
   const name = base.includes('.') ? base : dom.owner ? `${dom.owner}.${base}` : base;
   const cfg = (model?.domainTypes ?? []).find(t => t.pkg === dom.pkg && t.name === name);
   return (cfg?.fields ?? []).map(x => x.name);
 }
+
+/**
+ * Was die Domain im `In` kennt: die Felder (bei einem enum auch die der Fälle,
+ * dazu `inConfig` — siehe `inConfigWarning`) und die des `InConfig`. Der Katalog aus der OpenAPI kennt
+ * davon nicht alles — `inConfig` und die Mocks fehlen dort.
+ */
+export function domainInputNames(dom: DomainType | null, model: Model | null): string[] {
+  return [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].map(f => f.name).concat(inConfigFields(dom, model));
+}
+
 
 export function resultVariables(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null): VarNode[] {
   const out = ownResults(step, spec, model, service);
