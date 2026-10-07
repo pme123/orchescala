@@ -1,0 +1,171 @@
+package orchescala.gateway
+
+import orchescala.domain.*
+import orchescala.engine.rest.OAuthConfig
+import orchescala.gateway.GatewayError.ServiceRequestError
+import sttp.model.Header
+import zio.*
+
+/** What the gateway offers **without a Bearer token** (`/public/...`) - e.g. a booking form on the
+  * homepage of a bank, used by customers that have no login.
+  *
+  * Only what is listed here is reachable; anything else under `/public` is a 404. Inside, the
+  * gateway uses its own technical token ([[login]]) - the browser never gets a token. Against misuse:
+  * a size limit for the body, a honeypot field (a hidden form field only bots fill in) and a rate
+  * limit per client. The rate limit is a fallback - a fixed window per minute, so up to twice
+  * [[requestsPerMinute]] at the turn of a minute, and per gateway instance (N replicas: N times);
+  * in production an API gateway (e.g. Gravitee) in front must limit as well - against a
+  * distributed flood this fallback fails open (it forgets clients beyond `maxClients`).
+  *
+  * A process started this way runs with the identity of the technical user - check the input like
+  * any other untrusted input (its init worker does), and let a human see nothing before e.g. an
+  * e-mail opt-in. A public message is correlated by its business key alone - make that key
+  * unguessable (e.g. a random token in the opt-in link). The answer of a public worker goes to the
+  * caller as it is - let it return only what anybody may see; a public start answers the
+  * `ProcessInfo` (with the instance id - useless without a token).
+  */
+case class PublicAccess(
+    /** worker topics that may be called (`POST /public/worker/{topic}`) */
+    workers: Set[String] = Set.empty,
+    /** processes that may be started (`POST /public/process/{key}/async`) */
+    processStarts: Set[String] = Set.empty,
+    /** messages that may be sent (`POST /public/message/{name}`) */
+    messages: Set[String] = Set.empty,
+    /** the login of the gateway for public calls - client credentials or password grant */
+    login: Option[OAuthConfig] = None,
+    /** calls per client and minute - more get a 429 */
+    requestsPerMinute: Int = 30,
+    /** the largest body in bytes - a bigger one is a 413, before it is read completely */
+    maxBodyBytes: Int = 16 * 1024,
+    /** a field of the body that must be empty - a hidden form field only bots fill in; it is
+      * removed before the call is forwarded. None: no honeypot.
+      */
+    honeypotField: Option[String] = Some("_hp"),
+    /** the header with the client address behind a proxy (e.g. `X-Forwarded-For`) - each proxy
+      * appends the address it sees, so the entry [[trustedProxies]] from the end is the one the
+      * outermost trusted proxy appended. Only set it if the proxies set the header and the gateway
+      * is reachable through them only - else callers fake it and get a new limit with every call.
+      * Without it, all clients behind a proxy count as one - one caller can then lock out all
+      * (noted at startup).
+      */
+    clientIpHeader: Option[String] = None,
+    /** the proxies in front of the gateway that append to [[clientIpHeader]] (e.g. 2 for a CDN and
+      * a load balancer)
+      */
+    trustedProxies: Int = 1,
+    /** the longest a public call may take (token, worker, engine) - then a 503 */
+    callTimeout: Duration = 30.seconds,
+    /** public calls at once on this gateway - more are a 503 at once, so slow workers or a slow
+      * engine cannot pile up anonymous calls
+      */
+    maxConcurrentCalls: Int = 100
+):
+  // a wrong value would refuse every call silently - refused at once instead
+  require(trustedProxies >= 1, s"PublicAccess.trustedProxies must be at least 1 (is $trustedProxies).")
+  require(requestsPerMinute >= 1, s"PublicAccess.requestsPerMinute must be at least 1 (is $requestsPerMinute).")
+  require(maxConcurrentCalls >= 1, s"PublicAccess.maxConcurrentCalls must be at least 1 (is $maxConcurrentCalls).")
+  require(maxBodyBytes >= 2, s"PublicAccess.maxBodyBytes must be at least 2 (is $maxBodyBytes).")
+  require(callTimeout.toMillis > 0, s"PublicAccess.callTimeout must be positive (is ${callTimeout.render}).")
+
+  lazy val isEmpty: Boolean = workers.isEmpty && processStarts.isEmpty && messages.isEmpty
+
+  /** The client a call is counted for - the entry [[trustedProxies]] from the end of
+    * [[clientIpHeader]] (the entries before it come from the client and can be faked), else the
+    * remote address.
+    */
+  def client(remote: Option[String], headers: Seq[Header]): String =
+    val fromHeader = clientIpHeader
+      // all lines of the header together - a proxy may add a line of its own instead of appending
+      .map: h =>
+        headers.filter(_.name.equalsIgnoreCase(h)).flatMap(_.value.split(",")).map(_.trim).filter(_.nonEmpty)
+      .flatMap(_.dropRight(trustedProxies - 1).lastOption)
+    // only an address (IPv4 / IPv6) is a key - anything else falls back to the remote address
+    fromHeader.flatMap(PublicAccess.bucket)
+      .orElse(remote.flatMap(PublicAccess.bucket))
+      .orElse(remote)
+      .getOrElse("unknown")
+
+  override def toString: String =
+    s"PublicAccess(workers: ${workers.mkString(", ")}; processStarts: ${processStarts.mkString(", ")}; " +
+      s"messages: ${messages.mkString(", ")}; ${requestsPerMinute}/min per client; " +
+      s"at most $maxConcurrentCalls at once within ${callTimeout.render}; login: ${if login.isDefined then "yes" else "none"})"
+end PublicAccess
+
+object PublicAccess:
+  val none: PublicAccess = PublicAccess()
+
+  enum Kind:
+    case worker, processStart, message
+
+  /** The general variables ([[GeneralVariables]]) - a public call with one of them is refused. They
+    * are read as top-level variables only (as process variables), so the top-level keys are checked.
+    */
+  val reservedFields: Set[String] = InputParams.values.map(_.toString).toSet
+
+  /** Milliseconds for windows and lifetimes - monotonic, so a clock set back (NTP) stretches nothing. */
+  val monotonicMillis: () => Long = () => java.lang.System.nanoTime() / 1_000_000
+
+  /** A name from a caller as it may go into the log - no line breaks or other tricks, at most 80. */
+  def loggable(name: String): String =
+    name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
+
+  private val ipv4         = """(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})""".r
+  private val ipv4WithPort = """(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}""".r
+
+  /** The rate-limit key of an address - None if it is no IP literal (parsed here, never looked
+    * up): IPv4 as it is, IPv6 by its /64 prefix - one end customer usually has a whole /64,
+    * rotating within it must not give new limits; IPv4 in IPv6 (`::ffff:1.2.3.4`) as IPv4.
+    */
+  def bucket(address: String): Option[String] =
+    // some proxies add the port: 1.2.3.4:5678, [2001:db8::1]:5678
+    val noPort = address match
+      case ipv4WithPort(ip)                     => ip
+      case a if a.startsWith("[") && a.contains("]") => a.drop(1).takeWhile(_ != ']')
+      case a                                    => a
+    val addr   = noPort.takeWhile(_ != '%')
+    def v4(a: String) = a match
+      case ipv4(parts*) if parts.forall(_.toInt <= 255) => Some(parts.map(_.toInt).mkString("."))
+      case _                                           => None
+    if addr.length > 45 then None
+    else if !addr.contains(':') then v4(addr)
+    else if addr.contains('.') then
+      // only the mapped form ::ffff:a.b.c.d
+      Option.when(addr.toLowerCase.startsWith("::ffff:"))(addr.drop(7)).flatMap(v4)
+    else
+      scala.util.Try:
+        val (head, tail) = addr.split("::", -1) match
+          case Array(h, t) => (h.split(':').filter(_.nonEmpty), t.split(':').filter(_.nonEmpty))
+          case Array(h)    => (h.split(":", -1), Array.empty[String])
+          case _           => throw IllegalArgumentException(addr)
+        val all = head ++ tail
+        require(all.forall(g => g.nonEmpty && g.length <= 4 && g.forall(Character.digit(_, 16) >= 0)))
+        // :: stands for at least one group
+        require(!addr.contains("::") || all.length <= 7)
+        val groups = if addr.contains("::") then head ++ Array.fill(8 - all.length)("0") ++ tail else head
+        require(groups.length == 8)
+        groups.take(4).map(g => Integer.parseInt(g, 16).toHexString).mkString(":") + "::/64"
+      .toOption
+
+  /** A text that may contain what a caller sent (e.g. the error of a worker) as one log line. */
+  def oneLine(text: String, max: Int = 300): String =
+    Option(text).mkString.take(max).map(c => if c.isControl then ' ' else c)
+
+  /** A business key as a public caller may send it - letters, digits and `._:@+-`, at most 128. */
+  val businessKeyPattern = "[A-Za-z0-9._:@+-]{1,128}".r
+
+  /** A public message is correlated by its business key alone - so the keys of public starts and
+    * messages must not be short (a UUID has 36): a caller cannot pick a short, predictable key at the
+    * start. Best is a key the server generates (e.g. a worker before the start).
+    */
+  val minPublicKeyLength = 16
+
+  /** What an anonymous caller gets when something inside fails - the detail goes to the log only. */
+  val unavailable: ServiceRequestError =
+    ServiceRequestError(503, "Not available right now - please try again later.")
+
+  /** What an anonymous caller gets when a worker or the engine refuses the call (4xx) - the status
+    * stays (a page can show its own text for it), the detail goes to the log only.
+    */
+  def refused(status: Int): ServiceRequestError =
+    ServiceRequestError(status, "The request was refused.")
+end PublicAccess

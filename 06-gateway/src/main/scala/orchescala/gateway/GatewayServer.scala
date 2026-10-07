@@ -55,6 +55,21 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                    )
                  case verified                     =>
                    ZIO.logInfo(s"Bearer tokens are verified: ${verified.description}")
+          _ <- ZIO.unless(config.publicAccess.isEmpty):
+                 val public = config.publicAccess
+                 for
+                   _ <- ZIO.logInfo(s"Without a token (/public): $public")
+                   // listed but no login - it could never work: no start
+                   _ <- ZIO.when(public.login.isEmpty):
+                          ZIO.fail(IllegalStateException(
+                            "PublicAccess lists workers, processes or messages but has no login (PublicAccess.login)."
+                          ))
+                   _ <- ZIO.when(public.clientIpHeader.isEmpty):
+                          ZIO.logInfo(
+                            "PublicAccess has no clientIpHeader - fine without a proxy; behind one all " +
+                              "clients share one rate limit."
+                          )
+                 yield ()
 
           // Create gateway engine (with shared client layers provided)
           gatewayEngine      <- engineZIO
@@ -81,25 +96,26 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
   end start
 
   private def routes(gatewayEngine: ProcessEngine)(using GatewayConfig): Routes[Any, Response] =
-
+    val processRoutes = ProcessInstanceRoutes(
+      gatewayEngine.processInstanceService,
+      gatewayEngine.historicVariableService
+    )
+    val messageRoutes = MessageRoutes(gatewayEngine.messageService)
     ZioHttpInterpreter(ZioHttpServerOptions.default).toHttp(
       WorkerRoutes().routes ++
-        ProcessInstanceRoutes(
-          gatewayEngine.processInstanceService,
-          gatewayEngine.historicVariableService
-        ).routes ++
+        processRoutes.routes ++
         UserTaskRoutes(
           gatewayEngine.userTaskService
         ).routes ++
         SignalRoutes(
           gatewayEngine.signalService
         ).routes ++
-        MessageRoutes(
-          gatewayEngine.messageService
-        ).routes ++
+        messageRoutes.routes ++
         DeploymentRoutes(
           gatewayEngine.deploymentService
-        ).routes
+        ).routes ++
+        // without a Bearer token - only what PublicAccess lists
+        PublicRoutes(processRoutes, messageRoutes).routes
     ) ++
       OpenApiRoutes().routes ++
       AppRoutes().routes

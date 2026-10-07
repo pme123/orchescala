@@ -221,6 +221,68 @@ object MyC7Client extends C7BearerTokenClient:
 
 The token from `AuthContext` will automatically be included in all requests to Camunda.
 
+### Public Access (without a token)
+
+Some calls come from people without a login - e.g. a booking form on the homepage of a bank. List
+them in `publicAccess`; nothing else is reachable without a token:
+
+```scala
+DefaultGatewayConfig(
+  engineConfig = …,
+  workerConfig = …,
+  publicAccess = PublicAccess(
+    workers = Set("mycompany-shop-freeSlots", "mycompany-shop-reserveSlot"),
+    processStarts = Set("mycompany-shop-bookAppointmentV1"),
+    messages = Set("mycompany-shop-bookAppointmentV1-emailVerified"),
+    // the gateway logs in itself - the browser never gets a token; without it the gateway does not start
+    login = Some(OAuthConfig.ClientCredentials(…))
+  )
+)
+```
+
+| Without a token | Same as |
+|---|---|
+| `POST /public/worker/{topic}` | `POST /worker/{topic}` |
+| `POST /public/process/{key}/async?businessKey=…` | `POST /process/{key}/async` |
+| `POST /public/message/{name}?businessKey=…` | `POST /message/{name}` (the business key is required) |
+
+Each call is checked first - rate limit and allow list before the body is read: more than
+`requestsPerMinute` calls per client are a 429 (a fixed window per minute - at its turn up to twice
+that), a name that is not listed is a 404. Then the body: larger than `maxBodyBytes` a 413 (while it
+is read), not a JSON object a 400, a filled-in honeypot field (`_hp`, a hidden form field only bots
+fill in) a 400 - an empty one is removed. A general variable in the body (`_servicesMocked`,
+`_mockedWorkers`, `_outputMock`, `_identityCorrelation`, ... - see `GeneralVariables`) is a 400 as
+well: it would let an anonymous caller steer the process. Starts and messages go to the configured
+tenant; their business key must be plain (letters, digits, `._:@+-`, at most 128). For a public
+message the business key is all a caller needs - make it unguessable (e.g. a random token in the
+opt-in link), not an id made of names and times; the business keys of public starts and messages
+need at least 16 characters (a UUID has 36). A refused message is always a 400 - its status would
+tell whether a business key exists. A public call
+takes at most `callTimeout` (30 s) and at most `maxConcurrentCalls` (100) run at once - beyond, a
+503.
+
+Behind a proxy all clients come from its address - set `clientIpHeader` (e.g. `X-Forwarded-For`; the
+entry `trustedProxies` from the end is taken - default 1, 2 e.g. for a CDN and a load balancer), but
+only if the proxies set it and the gateway is reachable through them only - else callers fake the
+header and get a new limit with every call. Without it the gateway notes that at startup. An IPv6 address counts by its /64 prefix (one customer usually has a whole /64). At most
+100'000 clients are counted at once (about 15 MB); beyond, the least
+recently used is forgotten (a warning in the log) - such a flood also resets the counts of real
+clients. The
+limit is a fallback and per gateway instance: in production an API gateway in front must limit as
+well - against a distributed flood the fallback fails open. A process started this way runs
+with the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
+
+A public worker's answer goes to the caller as it is - let it return only what anybody may see; a
+public start answers the `ProcessInfo` (with the instance id - useless without a token). The
+`/public` endpoints are always in the OpenAPI; an installation without `publicAccess` answers 404.
+
+What a worker or the engine refuses reaches the caller without its detail (only the log has it): a
+refusal (4xx, e.g. of an init worker) keeps its status with a generic text - a page shows its own
+text for it -, a failure (5xx) is a 503. The technical token is fetched once for all calls at a time
+and dropped when the engine rejects it (401 - at most every 10 seconds; a 403 can be a business
+rule and keeps it); after a failed login, public calls fail at once
+for a few seconds.
+
 ## Integration with Existing Code
 
 The HTTP API integrates seamlessly with the existing Gateway infrastructure:

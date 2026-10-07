@@ -5,8 +5,11 @@ import sttp.model.StatusCode
 
 object EndpointsUtil:
 
-  lazy val baseEndpoint = endpoint
+  lazy val baseEndpoint = publicBaseEndpoint
     .securityIn(auth.bearer[String]())
+
+  /** Without a Bearer token - only for [[PublicRoutes]]. */
+  lazy val publicBaseEndpoint = endpoint
     .errorOut(
       oneOf[ServiceRequestError](
         oneOfVariantValueMatcher(statusCode(StatusCode.Unauthorized)
