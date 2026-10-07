@@ -24,7 +24,7 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
-import { exampleOf, importsForExpression, typeShape } from './scalaTypes';
+import { exampleOf, importsForExpression, isFixedCaseDefault, typeShape } from './scalaTypes';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
 import { packageOf, referencedClass } from './scala';
 import { INTERACTION_META } from './types';
@@ -294,7 +294,7 @@ class Converter {
         if (ft.enumCase) f.enumCase = ft.enumCase;
         const constraint = shape.constraint ?? ft.constraint;
         if (constraint) f.constraint = constraint;
-        if (p.default && p.default !== 'None') f.default = p.default;
+        if (p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default)) f.default = p.default;
         if (p.description) f.description = p.description;
         if (p.descriptionExpr) {
           f.descriptionExpr = p.descriptionExpr;

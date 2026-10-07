@@ -20,6 +20,7 @@ import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
+import { isFixedCaseDefault } from './scalaTypes.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -1339,7 +1340,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       seen.add(f.name);
       // eine Vorgabe gibt es nur im InConfig und bei optionalen Feldern der
       // Prozess-Eingabe — und eine FEEL-Vorgabe muss sich nach Scala übersetzen lassen
-      if (f.default?.trim() && !defaultIsUsed(t, f)) {
+      // bei einem festen Fall ist die Vorgabe der Fall selbst — sie folgt aus dem Typ
+      if (f.default?.trim() && !defaultIsUsed(t, f) && !isFixedCaseDefault(f.enumCase, f.default)) {
         issues.push({ typeId: t.id, field: f.id, message: t.root
           ? `Vorgabe von «${f.name}» wird nicht verwendet — nur bei einem optionalen Feld (der Init-Worker setzt es dann im InitIn).`
           : `Vorgabe von «${f.name}» wird nicht verwendet — Vorgaben gibt es nur im InConfig, im InitIn und bei optionalen Feldern der Prozess-Eingabe.` });

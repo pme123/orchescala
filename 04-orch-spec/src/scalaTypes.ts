@@ -282,6 +282,17 @@ const WRAPPERS_COLLECTION = ['Seq', 'List', 'Set', 'Vector', 'Array', 'Iterable'
  * Einschränkung `ValidEmail`. Hüllen werden in beliebiger Reihenfolge
  * abgetragen; was übrig bleibt, ist der Grundtyp.
  */
+/**
+ * Die Vorgabe eines festen Falls (`processStatus: ProcessStatus.succeeded.type =
+ * ProcessStatus.succeeded`) ist der Fall selbst — sie folgt aus dem Typ, der
+ * Export schreibt sie ohnehin. Keine eigene Vorgabe also.
+ */
+export function isFixedCaseDefault(enumCase: string | undefined, value: string | undefined): boolean {
+  if (!enumCase || !value?.trim()) return false;
+  const v = value.trim().replace(/`/g, '');
+  return v === enumCase || v.endsWith(`.${enumCase.replace(/`/g, '')}`);
+}
+
 export function typeShape(expr: string): TypeShape {
   let t = expr.trim();
   let optional = false;
