@@ -12,7 +12,13 @@ const base = import.meta.env.BASE_URL;
 /** Der Pfad der Seite unter der App – `/app/democompany-customer/appointments/book` → `appointments/book`. */
 function pagePath(): string {
   const path = window.location.pathname;
-  return (path.startsWith(base) ? path.slice(base.length) : path).replace(/^\/+|\/+$/g, '');
+  const rel = (path.startsWith(base) ? path.slice(base.length) : path).replace(/^\/+|\/+$/g, '');
+  // der Browser kodiert z.B. Umlaute (`%C3%BC`) - die Spezifikation nicht
+  try {
+    return decodeURIComponent(rel);
+  } catch {
+    return rel;
+  }
 }
 
 type Loaded = { pages: Pages; page?: Page; user: User | null };
@@ -31,7 +37,9 @@ export default function App() {
         return r.json();
       });
       const loggedIn = await completeLogin().catch(() => false); // Rückkehr vom IdP
-      if (pagePath() === '' && pages.app.home) window.history.replaceState({}, '', `${base}${pages.app.home}`);
+      // zur Startseite - mit den Parametern des Links (z.B. ?token=…)
+      if (pagePath() === '' && pages.app.home)
+        window.history.replaceState({}, '', `${base}${pages.app.home}${window.location.search}`);
       const page = pages.pages.find((p) => p.path === pagePath());
       // ein IdP nur für Seiten mit Login - eine öffentliche Seite kommt ohne aus
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;

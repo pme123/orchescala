@@ -24,8 +24,8 @@ const SCALARS = new Set([
 ]);
 
 /** `Option[Seq[Appointment]]` → base `Appointment`, optional, collection. */
-export function parseScalaType(type: string): { base: string; optional: boolean; collection: boolean } {
-  let t = type.trim().replace(/\s*:\|.*$/, ''); // Iron: String :| ValidEmail
+export function parseScalaType(type: string): { base: string; qualified: string; optional: boolean; collection: boolean } {
+  let t = type.trim();
   let optional = false;
   let collection = false;
   for (;;) {
@@ -35,23 +35,44 @@ export function parseScalaType(type: string): { base: string; optional: boolean;
     else collection = true;
     t = m[2].trim();
   }
-  return { base: t.split('.').pop() ?? t, optional, collection };
+  // Iron erst jetzt - in `Option[Seq[String :| ValidEmail]]` steht es innen
+  const qualified = t.replace(/\s*:\|.*$/, '').trim();
+  return { base: qualified.split('.').pop() ?? qualified, qualified, optional, collection };
 }
 
-/** The domain type of a name - the one of the same package first. */
+/** The domain type of a name - a qualified name (`other.pkg.Customer`) exactly, else the one of
+  * the same package first. */
 function domainTypeNamed(model: Model, name: string, pkg?: string): DomainType | undefined {
-  const all = (model.domainTypes ?? []).filter((t) => t.kind === 'case' || t.kind === 'enum');
-  const matches = all.filter((t) => t.name === name || t.name.endsWith(`.${name}`));
+  // auch In/Out eines Workers (member) - ein Alias zeigt oft dorthin (`type Out = Other.Out`)
+  const all = (model.domainTypes ?? []).filter((t) => t.kind === 'case' || t.kind === 'enum' || t.kind === 'alias' || t.kind === 'member');
+  const exact = all.find((t) => t.id === name || `${t.pkg}.${t.name}` === name);
+  if (exact) return exact;
+  // der ganze Name (`Other.Out`) vor dem letzten Teil (`Out` - das wären alle Out)
+  const named = all.filter((t) => t.name === name);
+  if (named.length) return named.find((t) => t.pkg === pkg) ?? named[0];
+  const base = name.split('.').pop() ?? name;
+  const matches = all.filter((t) => t.name === name || t.name === base || t.name.endsWith(`.${name}`) || t.name.endsWith(`.${base}`));
   return matches.find((t) => t.pkg === pkg) ?? matches[0];
 }
 
+/** The fields of a type as PFields - an alias (`type Out = Other.Out`) through its target; the
+  * types of the fields in the package of the type that declares them. */
+function fieldsOf(model: Model, t: DomainType | undefined, depth: number, hops = 0): PField[] {
+  if (!t) return [];
+  if (!t.fields?.length && t.target && hops < 4) {
+    const target = domainTypeNamed(model, parseScalaType(t.target).qualified, t.pkg);
+    return target && target !== t ? fieldsOf(model, target, depth, hops + 1) : [];
+  }
+  return (t.fields ?? []).map((f) => fromDomainField(f, model, t.pkg, depth));
+}
+
 function fromDomainField(f: DomainField, model: Model, pkg: string | undefined, depth: number): PField {
-  const { base, optional, collection } = parseScalaType(f.type);
+  const { base, qualified, optional, collection } = parseScalaType(f.type);
   const field: PField = { name: f.name, type: base, optional, collection };
   if (SCALARS.has(base) || depth > 3) return field;
-  const dt = domainTypeNamed(model, base, pkg);
+  const dt = domainTypeNamed(model, qualified, pkg);
   if (dt?.kind === 'enum') field.values = dt.values ?? dt.cases?.map((c) => c.name);
-  else if (dt) field.fields = (dt.fields ?? []).map((sub) => fromDomainField(sub, model, dt.pkg, depth + 1));
+  else if (dt) field.fields = fieldsOf(model, dt, depth + 1);
   return field;
 }
 
@@ -100,8 +121,8 @@ export function targetsOf(model: Model, specs: ProcessSpec[]): Targets {
         topic,
         name: owner?.owner ?? owner?.name.split('.')[0] ?? topic,
         descr: owner?.ownerDescr,
-        in: (inT?.fields ?? []).map((f) => fromDomainField(f, model, inT?.pkg, 0)),
-        out: (outT?.fields ?? []).map((f) => fromDomainField(f, model, outT?.pkg, 0)),
+        in: fieldsOf(model, inT, 0),
+        out: fieldsOf(model, outT, 0),
       };
     })
     .sort((a, b) => a.topic.localeCompare(b.topic));

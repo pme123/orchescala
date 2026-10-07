@@ -56,10 +56,31 @@ const page: Page = {
   ],
 };
 
-test('parseScalaType - Option, Seq and Iron', () => {
-  assert.deepEqual(parseScalaType('Option[Seq[Slot]]'), { base: 'Slot', optional: true, collection: true });
-  assert.deepEqual(parseScalaType('String :| ValidEmail'), { base: 'String', optional: false, collection: false });
-  assert.deepEqual(parseScalaType('schema.Topic'), { base: 'Topic', optional: false, collection: false });
+test('parseScalaType - Option, Seq and Iron (also inside)', () => {
+  assert.deepEqual(parseScalaType('Option[Seq[Slot]]'), { base: 'Slot', qualified: 'Slot', optional: true, collection: true });
+  assert.deepEqual(parseScalaType('String :| ValidEmail'), { base: 'String', qualified: 'String', optional: false, collection: false });
+  assert.deepEqual(parseScalaType('Option[Seq[String :| ValidEmail]]'), { base: 'String', qualified: 'String', optional: true, collection: true });
+  assert.deepEqual(parseScalaType('schema.Topic'), { base: 'Topic', qualified: 'schema.Topic', optional: false, collection: false });
+});
+
+test('targetsOf - a qualified type from another package, an aliased Out', () => {
+  const other = 'acme.crm.domain';
+  const m = {
+    version: 1, services: [],
+    domainTypes: [
+      { id: `${pkg}.Lookup.In`, name: 'Lookup.In', pkg, kind: 'member', importPath: '', topicName: 'acme-shop-lookup', dsl: 'CustomTask', fields: [] },
+      // type Out = Other.Out
+      { id: `${pkg}.Lookup.Out`, name: 'Lookup.Out', pkg, kind: 'alias', importPath: '', topicName: 'acme-shop-lookup', dsl: 'CustomTask', target: 'Other.Out' },
+      { id: `${other}.Other.Out`, name: 'Other.Out', pkg: other, kind: 'member', importPath: '',
+        fields: [{ name: 'local', type: 'Customer' }, { name: 'crm', type: `${other}.Customer` }] },
+      { id: `${pkg}.Customer`, name: 'Customer', pkg, kind: 'case', importPath: '', fields: [{ name: 'shopId', type: 'String' }] },
+      { id: `${other}.Customer`, name: 'Customer', pkg: other, kind: 'case', importPath: '', fields: [{ name: 'crmId', type: 'String' }] },
+    ],
+  } as unknown as Model;
+  const out = targetsOf(m, []).services.find((s) => s.topic === 'acme-shop-lookup')!.out;
+  assert.deepEqual(out.map((f) => f.name), ['local', 'crm']); // through the alias
+  assert.deepEqual(out[1].fields?.map((f) => f.name), ['crmId']); // the qualified one, not the local
+  assert.deepEqual(out[0].fields?.map((f) => f.name), ['crmId']); // unqualified: the package of Other.Out
 });
 
 test('targetsOf - the workers of the domain with their fields, the processes, messages and tasks', () => {

@@ -63,7 +63,9 @@ test('evaluate', () => {
 });
 
 test('evaluate - operators in quotes, numbers and their text', () => {
-  const st = { x: 'a||b', y: 'c&&d', n: 1, flag: true };
+  const st = { x: 'a||b', y: 'c&&d', n: 1, flag: true, z: 'x != y' };
+  assert.equal(evaluate("z == 'x != y'", st), true);
+  assert.equal(evaluate("z != 'x == y'", st), true);
   assert.equal(evaluate("x == 'a||b'", st), true);
   assert.equal(evaluate("y == 'c&&d' && n == 1", st), true);
   assert.equal(evaluate("n == '1'", st), true);
@@ -75,6 +77,14 @@ test('resolve - empty values fall away in lists as well (also of a single expres
   const st = { list: ['a', '', null, { v: '', w: 1 }], x: '' };
   assert.deepEqual(resolve('{{list}}', st), ['a', { w: 1 }]);
   assert.deepEqual(resolve(['{{x}}', 'b'], st), ['b']);
+});
+
+test('getPath reads own fields only - setPath keeps lists lists', () => {
+  assert.equal(getPath({ a: {} }, 'a.constructor'), undefined);
+  assert.equal(getPath({}, '__proto__'), undefined);
+  const next = setPath({ items: [{ name: 'a' }, { name: 'b' }] }, 'items.1.name', 'c') as { items: { name: string }[] };
+  assert.ok(Array.isArray(next.items));
+  assert.deepEqual(next.items, [{ name: 'a' }, { name: 'c' }]);
 });
 
 test('groupBy keeps the order', () => {

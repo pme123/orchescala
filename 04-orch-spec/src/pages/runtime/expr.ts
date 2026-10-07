@@ -8,18 +8,25 @@ export function getPath(state: unknown, path: string): unknown {
   return path
     .split('.')
     .filter(Boolean)
-    .reduce<unknown>((o, k) => (o != null && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), state);
+    // nur eigene Felder - `constructor`, `__proto__` & Co. gibt es im Zustand nicht
+    .reduce<unknown>((o, k) => (o != null && typeof o === 'object' && Object.hasOwn(o, k) ? (o as Record<string, unknown>)[k] : undefined), state);
 }
 
 /** Ein neuer Zustand mit `value` an `path` – die Objekte auf dem Weg werden kopiert. */
 export function setPath(state: State, path: string, value: unknown): State {
   const [head, ...rest] = path.split('.').filter(Boolean);
   if (head === undefined) return state;
-  const current = state[head];
+  const current = (state as Record<string, unknown>)[head];
   const next =
     rest.length === 0
       ? value
       : setPath(current != null && typeof current === 'object' ? (current as State) : {}, rest.join('.'), value);
+  // eine Liste bleibt eine Liste (`items.0.name`)
+  if (Array.isArray(state)) {
+    const copy = [...state] as unknown[];
+    copy[Number(head)] = next;
+    return copy as unknown as State;
+  }
   return { ...state, [head]: next };
 }
 
@@ -114,15 +121,28 @@ export function evaluate(cond: string | undefined, state: unknown): boolean {
   const and = splitOutsideQuotes(cond, '&&');
   if (and.length > 1) return and.every((part) => evaluate(part, state));
   const c = cond.trim();
-  const m = c.match(/^(.+?)\s*(==|!=)\s*(.+)$/);
-  if (m) {
-    const actual = getPath(state, m[1].trim());
-    const expected = literal(m[3].trim());
+  const op = operatorOutsideQuotes(c);
+  if (op) {
+    const actual = getPath(state, c.slice(0, op.at).trim());
+    const expected = literal(c.slice(op.at + 2).trim());
     const same = equal(actual, expected);
-    return m[2] === '==' ? same : !same;
+    return op.op === '==' ? same : !same;
   }
   if (c.startsWith('!')) return !truthy(getPath(state, c.slice(1).trim()));
   return truthy(getPath(state, c));
+}
+
+/** Das erste `==` / `!=` ausserhalb von Anführungszeichen. */
+function operatorOutsideQuotes(text: string): { op: '==' | '!='; at: number } | null {
+  let quote: string | null = null;
+  for (let i = 0; i < text.length - 1; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"') quote = ch;
+    else if (text.startsWith('==', i) || text.startsWith('!=', i)) return { op: text.slice(i, i + 2) as '==' | '!=', at: i };
+  }
+  return null;
 }
 
 /** `a || 'x||y'` → `a`, `'x||y'` - nur ausserhalb von Anführungszeichen. */

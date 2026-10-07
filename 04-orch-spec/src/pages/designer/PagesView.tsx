@@ -107,7 +107,8 @@ function NewPage({ existing, onCreate, onClose }: {
   const [access, setAccess] = useState<'public' | 'login'>('public');
   const [error, setError] = useState('');
   const slug = slugOf(path || title);
-  const taken = existing.includes(slug);
+  // pages/app.json sind die Einstellungen der App - kein Name für eine Seite
+  const taken = existing.includes(slug) || slug === 'app';
   return (
     <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
       <div className="grid grid-cols-3 gap-2">
@@ -117,7 +118,7 @@ function NewPage({ existing, onCreate, onClose }: {
           options={[{ value: 'public', label: 'öffentlich' }, { value: 'login', label: 'mit Login' }]} />
       </div>
       <div className="flex items-center gap-2">
-        <span className={`text-[10px] font-mono ${taken ? 'text-rose-500' : c.muted}`}>pages/{slug}.json{taken ? ' – gibt es schon' : ''}</span>
+        <span className={`text-[10px] font-mono ${taken ? 'text-rose-500' : c.muted}`}>pages/{slug}.json{slug === 'app' ? ' – reserviert für die Einstellungen der App' : taken ? ' – gibt es schon' : ''}</span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
         <button disabled={!title.trim() || !path.trim() || taken}

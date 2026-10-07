@@ -48,6 +48,9 @@ export interface PageListItem {
   version: string;
 }
 
+/** Die Seiten nach ihrem Pfad */
+const byPath = (a: PageListItem, b: PageListItem) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de');
+
 export type SaveResult =
   /** `auditError`: gespeichert, aber das Protokoll nicht — die Einträge gehen mit dem nächsten Speichern nochmals */
   | { status: 'saved'; version: string; auditError?: string }
@@ -407,9 +410,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       console.error('[orch-spec] refreshPages:', e);
       brokenApp = true; // die Liste ist nicht lesbar - auch app.json nicht überschreiben
     }
+    // ein spätes Lesen eines anderen Ordners (Ordner gewechselt) überschreibt nichts
+    if (backendRef.current !== be) return;
     pagesAppBroken.current = brokenApp;
-    items.sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de'));
-    setPages(items);
+    setPages(items.sort(byPath));
     setPagesApp(app);
   }, []);
 
@@ -838,21 +842,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null): Promise<SaveResult> => {
     const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
     if (r.status === 'saved')
-      setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }]
-        .sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de')));
+      setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }].sort(byPath));
     return r;
   }, [writeJson]);
 
   const createPage = useCallback(async (slug: string, data: Page) => {
-    const be = backendRef.current;
-    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
-    try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
-    const w = await be.write(`${PAGES_DIR}/${slug}.json`, JSON.stringify(data, null, 2) + '\n', { createOnly: true });
-    if (!w.ok) return { ok: false as const, message: w.reason === 'exists' ? 'Eine Seite mit diesem Namen gibt es schon.' : w.message };
-    setPages(prev => [...prev, { slug, data, version: w.version }]
-      .sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de')));
+    if (slug === APP_FILE.replace(/\.json$/, '')) return { ok: false as const, message: '«app» ist für die Einstellungen der App reserviert.' };
+    // ohne Version: nur neu anlegen (createOnly)
+    const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, null);
+    if (r.status !== 'saved') return { ok: false as const, message: r.status === 'error' && r.message.includes('gibt es schon') ? 'Eine Seite mit diesem Namen gibt es schon.' : r.status === 'error' ? r.message : 'Konflikt.' };
+    setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
     return { ok: true as const };
-  }, []);
+  }, [writeJson]);
 
   const deletePage = useCallback(async (slug: string) => {
     const be = backendRef.current;

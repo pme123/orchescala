@@ -66,7 +66,8 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     };
     switch (a.do) {
       case 'set':
-        update((st) => setPath(st, a.path, typeof a.value === 'string' ? resolve(a.value, st, labels) : a.value));
+        // Vorlagen auch in Objekten und Listen - null bleibt null (ein Wert löschen)
+        update((st) => setPath(st, a.path, a.value === null ? null : resolve(a.value, st, labels)));
         return;
       case 'call':
         store(a.result, await gateway.call(a.service, input(a.input, a.public), !!a.public));
@@ -80,9 +81,13 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
       case 'message':
         store(a.result, await gateway.message(a.name, keyOf(a.businessKey, true)!, input(a.input, a.public), !!a.public));
         return;
-      case 'completeTask':
-        await gateway.completeTask(a.taskKey, interpolate(a.taskId, s), input(a.input));
+      case 'completeTask': {
+        // wie der Business Key: ohne Task-ID ginge der Aufruf an /userTask/<key>//complete
+        const taskId = interpolate(a.taskId, s).trim();
+        if (!taskId) throw new ApiError(400, `Task-ID «${a.taskId}» ist leer`);
+        await gateway.completeTask(a.taskKey, taskId, input(a.input));
         return;
+      }
     }
   }
 
@@ -184,10 +189,10 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
           <div key={key} className="space-y-2">
             {comp.label && <Label text={text(comp.label)} missing={missing.has(comp.bind)} isDark={isDark} />}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {comp.options.map((o) => {
+              {comp.options.map((o, i) => {
                 const selected = JSON.stringify(o.value) === JSON.stringify(value);
                 return (
-                  <button key={String(o.value)} type="button" disabled={busy !== null}
+                  <button key={i} type="button" disabled={busy !== null}
                     onClick={() => {
                       update((s) => setPath(s, comp.bind, o.value));
                       if (comp.onChange) void runBusy(comp.onChange, key);
@@ -226,7 +231,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
                       {g.items.map((item, i) => {
                         const selected = JSON.stringify(item) === value;
                         return (
-                          <button key={i} type="button" onClick={() => update((s) => setPath(s, comp.bind, item))}
+                          <button key={i} type="button" disabled={busy !== null} onClick={() => update((s) => setPath(s, comp.bind, item))}
                             className={`rounded-lg border px-3 py-1.5 text-left text-xs transition-colors ${selected ? c.selected : `${c.border2} ${c.hover}`}`}>
                             <div className="font-bold">{interpolate(comp.itemLabel, item, labels)}</div>
                             {comp.itemHint && <div className={`text-[10px] ${c.muted}`}>{interpolate(comp.itemHint, item, labels)}</div>}
@@ -247,7 +252,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
             {comp.label && <Label text={text(comp.label)} isDark={isDark} />}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {comp.fields.filter((f) => evaluate(f.visible, state)).map((f) => (
-                <FieldInput key={f.bind} field={f} isDark={isDark} missing={missing.has(f.bind)}
+                <FieldInput key={f.bind} field={f} isDark={isDark} missing={missing.has(f.bind)} disabled={busy !== null}
                   value={String(getPath(state, f.bind) ?? '')}
                   onChange={(v) => update((s) => setPath(s, f.bind, v))} />
               ))}
@@ -328,8 +333,9 @@ function Label({ text, missing, isDark }: { text: string; missing?: boolean; isD
   );
 }
 
-function FieldInput({ field, value, onChange, missing, isDark }: {
-  field: Field; value: string; onChange: (v: string) => void; missing: boolean; isDark: boolean;
+/** Während Aktionen laufen gesperrt - sie lesen den Zustand nacheinander, er soll derselbe bleiben. */
+function FieldInput({ field, value, onChange, missing, isDark, disabled }: {
+  field: Field; value: string; onChange: (v: string) => void; missing: boolean; isDark: boolean; disabled: boolean;
 }) {
   const c = cls(isDark);
   const base = `w-full rounded-lg border px-3 py-2 text-xs outline-none transition-colors ${c.input} ${missing ? '!border-rose-500' : ''}`;
@@ -340,9 +346,9 @@ function FieldInput({ field, value, onChange, missing, isDark }: {
         {field.required && ' *'}
       </span>
       {field.input === 'textarea' ? (
-        <textarea rows={3} value={value} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} className={base} />
+        <textarea rows={3} value={value} disabled={disabled} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} className={base} />
       ) : (
-        <input type={field.input ?? 'text'} value={value} placeholder={field.placeholder}
+        <input type={field.input ?? 'text'} value={value} disabled={disabled} placeholder={field.placeholder}
           onChange={(e) => onChange(e.target.value)} className={base} />
       )}
     </label>

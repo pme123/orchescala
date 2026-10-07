@@ -55,7 +55,10 @@ function ActionForm({ isDark, action: a, onChange, targets, paths, nested }: {
         <Wand2 size={10} /> Eingabe vorbelegen
       </button>
     ) : null;
-  const errors = 'errors' in a ? <ErrorsEditor isDark={isDark} errors={a.errors} onChange={(errors) => onChange({ ...a, errors } as Action)} /> : null;
+  // jede Aktion ausser «Wert setzen» kann scheitern - auch eine neue ohne Texte
+  const errors = a.do !== 'set'
+    ? <ErrorsEditor isDark={isDark} errors={a.errors} onChange={(errors) => onChange({ ...a, errors } as Action)} />
+    : null;
 
   return (
     <div className="space-y-2">

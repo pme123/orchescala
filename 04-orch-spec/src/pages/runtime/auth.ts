@@ -32,7 +32,17 @@ function userManager(): Promise<UserManager> {
 /** Die Rückkehr vom IdP (code/state in der URL) – danach zurück auf die Seite vor der Anmeldung. */
 export async function completeLogin(): Promise<boolean> {
   const params = new URLSearchParams(window.location.search);
-  if (!(params.has('code') && params.has('state'))) return false;
+  const state = params.get('state');
+  if (!(params.has('code') && state)) return false;
+  // nur, wenn diese App eine Anmeldung begonnen hat - eine Seite darf eigene code/state-Parameter haben
+  const pending = [window.localStorage, window.sessionStorage].some((store) => {
+    try {
+      return store.getItem(`oidc.${state}`) !== null;
+    } catch {
+      return false;
+    }
+  });
+  if (!pending) return false;
   const user = await (await userManager()).signinRedirectCallback();
   const returnTo = typeof user.state === 'string' ? user.state : import.meta.env.BASE_URL;
   window.history.replaceState({}, '', returnTo);
@@ -85,5 +95,7 @@ export async function sessionExpired(): Promise<never> {
     // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
     throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return new Promise<never>(() => {}); // die Seite geht zum IdP
+  // die Seite geht zum IdP - bleibt sie (Weiterleitung blockiert), nach 5 s ein Fehler statt warten
+  await new Promise((r) => setTimeout(r, 5000));
+  throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.');
 }

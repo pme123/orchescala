@@ -82,23 +82,43 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [adding, setAdding] = useState(false);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
-  // ---- saving: a second after the last change, and when leaving
+  // ---- saving: a second after the last change, and when leaving - one write at a time (the
+  // next one needs the version of the one before), a failed one stays pending
   const pending = useRef<Page | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flush = useCallback(async () => {
+  const saving = useRef<Promise<boolean>>(Promise.resolve(true));
+  const flush = useCallback((): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    const data = pending.current;
-    if (!data) return;
-    pending.current = null;
-    const r = await savePage(slug, data, version.current);
-    if (r.status === 'saved') {
-      version.current = r.version;
-      setSaveState({ at: new Date() });
-    } else if (r.status === 'conflict') setSaveState({ error: 'Die Datei wurde inzwischen geändert – Seite neu laden.' });
-    else setSaveState({ error: r.message });
+    saving.current = saving.current.then(async () => {
+      const data = pending.current;
+      if (!data) return true;
+      pending.current = null;
+      const r = await savePage(slug, data, version.current);
+      if (r.status === 'saved') {
+        version.current = r.version;
+        setSaveState({ at: new Date() });
+        return true;
+      }
+      // nicht verlieren: bleibt ausstehend, solange nichts Neueres kam
+      pending.current ??= data;
+      setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
+      return false;
+    });
+    return saving.current;
   }, [slug, savePage]);
-  useEffect(() => () => void flush(), [flush]);
+  useEffect(() => {
+    // beim Verlassen der Seite oder des Tabs - React räumt beim Schliessen nicht auf
+    const now = () => void flush();
+    const hidden = () => document.visibilityState === 'hidden' && now();
+    window.addEventListener('pagehide', now);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', now);
+      document.removeEventListener('visibilitychange', hidden);
+      now();
+    };
+  }, [flush]);
   const update = (next: Page) => {
     if (!canEdit) return;
     setPage(next);
@@ -141,7 +161,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     <div className="flex flex-col h-full">
       {/* Werkzeugleiste */}
       <div className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 border-b ${c.border} ${c.top}`}>
-        <button onClick={() => void flush().then(onBack)} className={`flex items-center gap-1 text-[11px] ${c.muted2}`}>
+        {/* zurück erst, wenn gespeichert ist - sonst bleibt der Editor mit dem Fehler offen */}
+        <button onClick={() => void flush().then((ok) => ok && onBack())} className={`flex items-center gap-1 text-[11px] ${c.muted2}`}>
           <ChevronLeft size={12} /> Seiten
         </button>
         <span className={`text-xs font-semibold ${c.text}`}>{page.title || slug}</span>
@@ -240,10 +261,11 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         {/* Eigenschaften */}
         <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (
-            <BlockProps isDark={isDark} block={block} targets={targets} paths={paths}
+            // key: ein anderer Baustein bekommt frische Formulare (kein halber JSON-Text des vorigen)
+            <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
               onChange={(b) => setBody(updateBlock(page.body, selected, () => b))} />
           ) : (
-            <PageProps isDark={isDark} page={page} targets={targets} paths={paths} onChange={update} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={update} />
           )}
         </div>
       </div>
