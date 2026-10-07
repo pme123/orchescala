@@ -161,12 +161,14 @@ object WorkerError:
   object CustomError:
     /** A refusal of the caller's request - called over HTTP (`/worker/{topic}`, e.g. by a page) it
       * is answered with that status (4xx) instead of 500, e.g. `CustomError.refused(409, "The slot
-      * is taken")`. In a process it is a `CustomError` like any other. A status that is no 4xx
-      * gives a plain `CustomError` (a 500) - a refusal is always the caller's fault.
+      * is taken")`. In a process it is a `CustomError` like any other. A status that is no 4xx -
+      * or an auth status (401, 403, 407: they belong to the token check, not to the worker) - gives
+      * a plain `CustomError` (a 500).
       */
     def refused(status: Int, errorMsg: String): CustomError =
       if RefusedRequest.isRefusal(status) then
-        CustomError(errorMsg, causeError = Some(RefusedRequest(status, errorMsg)))
+        // the cause names only the status - the message is in the CustomError (logged once)
+        CustomError(errorMsg, causeError = Some(RefusedRequest(status, s"refused with $status")))
       else CustomError(errorMsg)
   end CustomError
 
@@ -178,7 +180,8 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
 
   object RefusedRequest:
-    private[worker] def isRefusal(status: Int): Boolean = status >= 400 && status < 500
+    private[worker] def isRefusal(status: Int): Boolean =
+      status >= 400 && status < 500 && !Set(401, 403, 407).contains(status)
 
   case class UnexpectedRunError(
       errorMsg: String

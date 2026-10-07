@@ -74,6 +74,8 @@ object CustomErrorRefusedSpec extends ZIOSpecDefault:
       assertTrue(
         WorkerEndpoints.httpStatus(ServiceRequestError(409, "x")).code == 409,
         WorkerEndpoints.httpStatus(ServiceRequestError(502, "x")).code == 502,
+        WorkerEndpoints.httpStatus(ServiceRequestError(418, "x")).code == 418,
+        WorkerEndpoints.httpStatus(ServiceRequestError(429, "x")).code == 429,
         WorkerEndpoints.httpStatus(ServiceRequestError(0, "x")).code == 400,
         WorkerEndpoints.httpStatus(ServiceRequestError(302, "x")).code == 400
       )
@@ -87,11 +89,16 @@ object CustomErrorRefusedSpec extends ZIOSpecDefault:
         codeOf(CustomError("upstream", causeError = Some(ServiceRequestError(404, "not found")))) == 500
       )
     ,
-    test("a status that is no 4xx - a plain CustomError (500), no exception"):
+    test("a status that is no 4xx, or an auth status - a plain CustomError (500), no exception"):
       assertTrue(
         ServiceRequestError(CustomError.refused(500, "no")).errorCode == 500,
         ServiceRequestError(CustomError.refused(200, "no")).errorCode == 500,
-        CustomError.refused(503, "no") == CustomError("no")
+        CustomError.refused(503, "no") == CustomError("no"),
+        // the auth statuses belong to the token check
+        List(401, 403, 407).forall(status => CustomError.refused(status, "no") == CustomError("no"))
       )
+    ,
+    test("logged once - the cause names only the status"):
+      assertTrue(CustomError.refused(409, "The slot is taken").toString.split("The slot is taken").length == 2)
   )
 end CustomErrorRefusedSpec
