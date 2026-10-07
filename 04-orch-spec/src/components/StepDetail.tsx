@@ -13,7 +13,7 @@ import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainRequired, expectedFor, inConfigFields, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -1264,8 +1264,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // wird nicht mitgespeichert, solange niemand sie übernimmt.
   const fromCatalog = new Map((service?.[list] ?? []).map(p => [p.name, p.description]));
   const vorhanden = new Set(all.map(m => m.name));
-  // dazu die Felder des `InConfig` (Mocks) — wie in findings.ts; nur beim Katalog, das Modell kennt sein In selbst
-  const bekannt = reference ? new Set([...reference.names, ...(list === 'inputs' && reference.quelle === 'Katalog' ? inConfigFields(domain, model) : [])]) : null;
+  // dazu, was die Domain im In führt (`inConfig`, Mocks) — wie in findings.ts; nur beim Katalog, das Modell kennt sein In selbst
+  const bekannt = reference ? new Set([...reference.names, ...(list === 'inputs' && reference.quelle === 'Katalog' ? domainInputNames(domain, model) : [])]) : null;
   const fehlend = reference ? reference.names.filter(n => !vorhanden.has(n)).length : 0;
   // Zeilen, die das Modell bzw. der Katalog nicht kennt: eine **Erweiterung**,
   // die dort noch fehlt — oder ein Feld, das es nicht mehr gibt. Beides ist
@@ -1411,6 +1411,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           // Doppelt ist ein Fehler (rot), eine Erweiterung nur eine Warnung (gelb)
           const problem = dupl
             ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.`
+            : !off && list === 'inputs' && !refFields && m.name === inConfigField(domain) ? inConfigWarning(m.name)
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
           // FEEL (Camunda 8): `= …` wird beim Tippen geprüft — Syntax, Pfade, Typ
           // Solltyp: die eigene Klasse zuerst, sonst der Domain-Katalog

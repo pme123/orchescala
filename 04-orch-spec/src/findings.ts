@@ -8,7 +8,7 @@
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainRequired, inConfigFields, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin } from './interactions';
@@ -115,12 +115,14 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
       && !patternMappings(model?.patterns, s.patterns, spec.engine ?? 'c7').inputs.size;
     if (eligible) {
       const service = catalogEntry(s, model);
+      const inConfig = inConfigField(stepDomainMember(s, spec, model, 'In'));
       const fieldsOf = (list: 'inputs' | 'outputs'): Array<{ name: string; description?: string }> => {
         const typeId = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
         const own = typeId ? types.find(t => t.id === typeId) : undefined;
         if (own) return [...(own.fields ?? []), ...(own.values ?? []).flatMap(v => v.fields ?? [])].filter(f => f.name).map(f => ({ name: f.name, description: f.description }));
         const dom = stepDomainMember(s, spec, model, list === 'inputs' ? 'In' : 'Out');
-        if (dom) return [...(dom.fields ?? []), ...(dom.cases ?? []).flatMap(c => c.fields ?? [])].map(f => ({ name: f.name, description: f.description }));
+        // `inConfig` nicht: das eigene ist ein anderes als das des Aufgerufenen
+        if (dom) return [...(dom.fields ?? []), ...(dom.cases ?? []).flatMap(c => c.fields ?? [])].filter(f => f.name !== inConfig).map(f => ({ name: f.name, description: f.description }));
         return ((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).map(p => ({ name: p.name, description: p.description }));
       };
       const required = new Set(missingRequiredInputs(s, spec, model));
@@ -130,7 +132,10 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
         // wird angehakt — z. B. beim Öffnen ergänzt, bevor der Abgleich die Liste brachte.
         // Wer sie abwählt, nimmt sie beim Export aus `_outputVariables` heraus.
         let enabled = false;
-        const have = (s[list] ?? []).map(m => {
+        // eine abgewählte Zeile `inConfig`, wie sie hier früher angelegt wurde, fällt weg
+        const kept = (s[list] ?? []).filter(m => !(list === 'inputs' && m.disabled && m.name === inConfig));
+        if (kept.length !== (s[list] ?? []).length) enabled = true;
+        const have = kept.map(m => {
           if (list !== 'outputs' || !m.disabled || !wanted.has(m.name.trim())) return m;
           enabled = true;
           added.push(`${s.name}: ${m.name}`);
@@ -257,8 +262,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // Eingaben, die das Modell bzw. der Katalog nicht kennt: eine Erweiterung,
     // die dort noch fehlt — dieselbe Regel wie in der Tabelle (Warnung)
     if (list === 'inputs') {
-      // dazu die Felder des `InConfig` (Mocks): der Aufgerufene liest sie als eigene Variablen
-      const known = refFields ? refFields.map(f => f.name) : [...(service?.inputs ?? []).map(p => p.name), ...inConfigFields(dom, model)];
+      // dazu, was die Domain im In führt — auch `inConfig` und die Felder des `InConfig` (Mocks)
+      const known = refFields ? refFields.map(f => f.name) : [...(service?.inputs ?? []).map(p => p.name), ...domainInputNames(dom, model)];
       if (refFields || known.length) {
         // eine allgemeine Variable (`_idempotentId` …) nimmt jeder Worker — keine Erweiterung
         const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name) && !GENERAL_VARIABLES.has(m.name));
@@ -267,6 +272,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
         }
       }
     }
+    // `inConfig` des Aufgerufenen: das eigene ist ein anderes — nur einzelne Felder mitgeben
+    const cfg = list === 'inputs' && !refFields ? inConfigField(dom) : null;
+    if (cfg && active.some(m => m.name === cfg)) warnings.push(inConfigWarning(cfg));
     // Pflichtfelder, die fehlen oder abgewählt sind — nicht bei Benutzer-
     // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
     // Prozessvariablen, ohne Mapping
