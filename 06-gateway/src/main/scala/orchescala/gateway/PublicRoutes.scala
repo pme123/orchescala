@@ -25,6 +25,8 @@ class PublicRoutes(
   private val guard  = PublicGuard(access)
   private lazy val login = access.login.map(newToken)
   private val maxBytes   = access.maxBodyBytes.toLong
+  // public calls go to the configured tenant - starts and messages alike
+  private val tenantId   = config.engineConfig.tenantId
 
   protected def newToken(login: OAuthConfig): PublicToken = PublicToken(login)
 
@@ -50,26 +52,25 @@ class PublicRoutes(
   private lazy val startProcessEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
     PublicEndpoints.startProcess.maxRequestBodyLength(maxBytes).zServerLogic: (key, businessKey, in, remote, headers) =>
       val call = for
-        checked <- checked(Kind.processStart, key, remote, headers, Json.fromJsonObject(in))
+        checked <- checked(Kind.processStart, key, remote, headers, in)
         // the checked body - never the unchecked one
         vars    <- ZIO.fromOption(checked.asObject).orElseFail(ServiceRequestError(400, "The request is not valid."))
         token   <- token
-        result  <- processRoutes.startAsync(token, key, businessKey, None, vars)
+        result  <- processRoutes.startAsync(token, key, businessKey, tenantId, vars)
       yield result
       generic(Kind.processStart, key)(call)
 
   private lazy val messageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
-    PublicEndpoints.message.maxRequestBodyLength(maxBytes).zServerLogic: (name, businessKey, variables, remote, headers) =>
-      val body = variables.map(Json.fromJsonObject).getOrElse(Json.obj())
+    PublicEndpoints.message.maxRequestBodyLength(maxBytes).zServerLogic: (name, businessKey, body, remote, headers) =>
       val call = for
         checked <- checked(Kind.message, name, remote, headers, body)
-        _       <- ZIO.when(businessKey.forall(_.isBlank))(ZIO.fail(ServiceRequestError(400, "A public message needs the businessKey.")))
+        _       <- ZIO.when(businessKey.isBlank)(ZIO.fail(ServiceRequestError(400, "A public message needs the businessKey.")))
         token   <- token
-        result  <- messageRoutes.send(token, name, None, None, businessKey, None, checked.asObject.filter(_.nonEmpty))
+        result  <- messageRoutes.send(token, name, tenantId, None, Some(businessKey), None, checked.asObject.filter(_.nonEmpty))
       yield result
       generic(Kind.message, name)(call)
 
-  private def checked(kind: Kind, name: String, remote: Option[String], headers: List[sttp.model.Header], body: Json) =
+  private def checked(kind: Kind, name: String, remote: Option[String], headers: List[sttp.model.Header], body: String) =
     ZIO
       .fromEither(guard.check(kind, name, access.client(remote, headers), body))
       .tapError(e => ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}"))

@@ -1229,11 +1229,9 @@ paths:
         example: '{{processDefinitionKey}}'
       - name: businessKey
         in: query
-        description: Business Key, be aware that in Camunda 8 this is an additional
-          process variable.
+        description: Business Key of the new process instance.
         required: false
         schema:
-          default: From Test Client
           type: string
       requestBody:
         description: Request body with process variables as a JSON object
@@ -1315,11 +1313,9 @@ paths:
         example: order-received
       - name: businessKey
         in: query
-        description: Business Key, be aware that in Camunda 8 this is an additional
-          process variable.
-        required: false
+        description: Business Key of the process instance - required.
+        required: true
         schema:
-          default: From Test Client
           type: string
       requestBody:
         description: Variables to send with the message as a JSON object

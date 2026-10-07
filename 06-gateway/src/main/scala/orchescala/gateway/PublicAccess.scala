@@ -70,6 +70,9 @@ object PublicAccess:
   enum Kind:
     case worker, processStart, message
 
+  /** The general variables ([[GeneralVariables]]) - a public call with one of them is refused. */
+  val reservedFields: Set[String] = InputParams.values.map(_.toString).toSet
+
   /** What an anonymous caller gets when something inside fails - the detail goes to the log only. */
   val unavailable: ServiceRequestError =
     ServiceRequestError(503, "Not available right now - please try again later.")
@@ -94,8 +97,10 @@ class PublicGuard(
   private val calls        = ConcurrentHashMap[String, (Long, Int)]()
   private val lastSweep    = AtomicLong(now())
 
-  /** The body to forward (without the honeypot field) - or why the call is refused. */
-  def check(kind: Kind, name: String, client: String, body: Json): Either[ServiceRequestError, Json] =
+  /** The body to forward (without the honeypot field) - or why the call is refused. The body comes
+    * as it is sent, so the limit counts calls with a broken body as well.
+    */
+  def check(kind: Kind, name: String, client: String, body: String): Either[ServiceRequestError, Json] =
     val allowed = kind match
       case Kind.worker       => access.workers
       case Kind.processStart => access.processStarts
@@ -103,7 +108,14 @@ class PublicGuard(
     // the limit first - it counts calls of unknown names as well (someone scanning)
     if !withinLimit(client) then Left(ServiceRequestError(429, "Too many requests - please try again later."))
     else if !allowed.contains(name) then Left(ServiceRequestError(404, "Not Found"))
-    else withoutHoneypot(body)
+    else
+      for
+        json  <- if body.isBlank then Right(Json.obj())
+                 else parse(body).left.map(_ => ServiceRequestError(400, "The request is not valid JSON."))
+        clean <- withoutHoneypot(json)
+        _     <- withoutReserved(clean)
+      yield clean
+    end if
   end check
 
   private def withoutHoneypot(body: Json): Either[ServiceRequestError, Json] =
@@ -113,6 +125,14 @@ class PublicGuard(
         if empty then Right(Json.fromJsonObject(obj.remove(field)))
         else Left(ServiceRequestError(400, "The request is not valid."))
       case _                        => Right(body)
+
+  /** The variables that steer a process or worker (mocking, output mapping, identity, ...) - never
+    * from an anonymous caller.
+    */
+  private def withoutReserved(body: Json): Either[ServiceRequestError, Unit] =
+    body.asObject.flatMap(_.keys.find(PublicAccess.reservedFields)) match
+      case Some(field) => Left(ServiceRequestError(400, s"The field '$field' is not allowed here."))
+      case None        => Right(())
 
   private def withinLimit(client: String): Boolean =
     val at = now()

@@ -12,17 +12,27 @@ object PublicEndpoints:
 
   private val apiGroup = "Public"
 
+  /** The body as it is sent - [[PublicGuard]] parses it after the rate limit, so broken bodies are
+    * counted as well.
+    */
+  private def body[T](description: String)(using schema: Schema[T]) =
+    stringJsonBody.schema(schema.as[String]).description(description)
+
+  // no default (the protected endpoints have one for the test client)
+  private val businessKey =
+    query[Option[String]]("businessKey").description("Business Key of the new process instance.")
+
   /** The address of the client - the remote address, or the header of [[PublicAccess.clientIpHeader]]. */
   private val clientIn =
     extractFromRequest(_.connectionInfo.remote.map(_.getAddress.getHostAddress))
       .and(headers)
 
-  lazy val worker: PublicEndpoint[(String, Json, Option[String], List[sttp.model.Header]), ServiceRequestError, Option[Json], Any] =
+  lazy val worker: PublicEndpoint[(String, String, Option[String], List[sttp.model.Header]), ServiceRequestError, Option[Json], Any] =
     EndpointsUtil.publicBaseEndpoint
       .post
       .in("public" / "worker")
       .in(workerTopicNamePath)
-      .in(jsonBody[Json].description("Variables to send to the worker as a JSON object"))
+      .in(body[Json]("Variables to send to the worker as a JSON object"))
       .in(clientIn)
       .out(WorkerEndpoints.triggerWorker.output)
       .name("Public: Forward to Worker")
@@ -31,7 +41,7 @@ object PublicEndpoints:
       .tag(apiGroup)
 
   lazy val startProcess: PublicEndpoint[
-    (String, Option[String], JsonObject, Option[String], List[sttp.model.Header]),
+    (String, Option[String], String, Option[String], List[sttp.model.Header]),
     ServiceRequestError,
     ProcessInfo,
     Any
@@ -41,8 +51,8 @@ object PublicEndpoints:
       .in("public" / "process")
       .in(processDefinitionKeyPath)
       .in("async")
-      .in(businessKeyQuery)
-      .in(jsonBody[JsonObject].description("Request body with process variables as a JSON object"))
+      .in(businessKey)
+      .in(body[JsonObject]("Request body with process variables as a JSON object"))
       .in(clientIn)
       .out(jsonBody[ProcessInfo].example(ProcessInfo.example))
       .name("Public: Start Process Async")
@@ -54,7 +64,7 @@ object PublicEndpoints:
       .tag(apiGroup)
 
   lazy val message: PublicEndpoint[
-    (String, Option[String], Option[JsonObject], Option[String], List[sttp.model.Header]),
+    (String, String, String, Option[String], List[sttp.model.Header]),
     ServiceRequestError,
     MessageCorrelationResult,
     Any
@@ -63,8 +73,8 @@ object PublicEndpoints:
       .post
       .in("public" / "message")
       .in(signalOrMessageNamePath)
-      .in(businessKeyQuery)
-      .in(jsonBody[Option[JsonObject]].description("Variables to send with the message as a JSON object"))
+      .in(query[String]("businessKey").description("Business Key of the process instance - required."))
+      .in(body[Option[JsonObject]]("Variables to send with the message as a JSON object"))
       .in(clientIn)
       .out(jsonBody[MessageCorrelationResult])
       .name("Public: Send Message")

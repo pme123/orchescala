@@ -248,7 +248,10 @@ DefaultGatewayConfig(
 
 Each call is checked first: a name that is not listed is a 404, a body larger than `maxBodyBytes` a
 413 (while it is read, not after), a filled-in honeypot field (`_hp`, a hidden form field only bots
-fill in) a 400 - an empty one is removed. More than `requestsPerMinute` calls per client are a 429;
+fill in) a 400 - an empty one is removed. A general variable in the body (`_servicesMocked`,
+`_mockedWorkers`, `_outputMock`, `_identityCorrelation`, ... - see `GeneralVariables`) is a 400 as
+well: it would let an anonymous caller steer the process. Starts and messages go to the configured
+tenant. More than `requestsPerMinute` calls per client are a 429;
 behind a proxy set `clientIpHeader` (e.g. `X-Forwarded-For`) - only if the proxy sets it. This limit
 is a fallback: an API gateway in front should limit as well. A process started this way runs with
 the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.

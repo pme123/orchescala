@@ -84,12 +84,12 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield
           val g = guard(at)
           assertTrue(
-            g.check(Kind.worker, "acme-shop-freeSlots", "a", json("{}")).isRight,
-            g.check(Kind.worker, "acme-shop-other", "b", json("{}")).left.map(_.errorCode) == Left(404),
+            g.check(Kind.worker, "acme-shop-freeSlots", "a", "{}").isRight,
+            g.check(Kind.worker, "acme-shop-other", "b", "{}").left.map(_.errorCode) == Left(404),
             // a process key is no worker topic
-            g.check(Kind.worker, "acme-shop-bookV1", "c", json("{}")).left.map(_.errorCode) == Left(404),
-            g.check(Kind.processStart, "acme-shop-bookV1", "d", json("{}")).isRight,
-            g.check(Kind.message, "acme-shop-bookV1-verified", "e", json("{}")).isRight
+            g.check(Kind.worker, "acme-shop-bookV1", "c", "{}").left.map(_.errorCode) == Left(404),
+            g.check(Kind.processStart, "acme-shop-bookV1", "d", "{}").isRight,
+            g.check(Kind.message, "acme-shop-bookV1-verified", "e", "{}").isRight
           )
       ,
       test("the honeypot: filled in - refused; empty - removed before the call"):
@@ -97,38 +97,59 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield
           val g = guard(at)
           assertTrue(
-            g.check(Kind.worker, "acme-shop-freeSlots", "a", json("""{"topic":"x","_hp":"I am a bot"}"""))
+            g.check(Kind.worker, "acme-shop-freeSlots", "a", """{"topic":"x","_hp":"I am a bot"}""")
               .left.map(_.errorCode) == Left(400),
-            g.check(Kind.worker, "acme-shop-freeSlots", "b", json("""{"topic":"x","_hp":""}""")) == Right(json("""{"topic":"x"}""")),
-            g.check(Kind.worker, "acme-shop-freeSlots", "c", json("""{"topic":"x","_hp":null}""")) == Right(json("""{"topic":"x"}""")),
+            g.check(Kind.worker, "acme-shop-freeSlots", "b", """{"topic":"x","_hp":""}""") == Right(json("""{"topic":"x"}""")),
+            g.check(Kind.worker, "acme-shop-freeSlots", "c", """{"topic":"x","_hp":null}""") == Right(json("""{"topic":"x"}""")),
             // anything else is filled in
             List("false", "0", "[]", "{}", "\" \"").forall: v =>
-              g.check(Kind.worker, "acme-shop-freeSlots", s"d$v", json(s"""{"_hp":$v}""")).left.map(_.errorCode) == Left(400)
+              g.check(Kind.worker, "acme-shop-freeSlots", s"d$v", s"""{"_hp":$v}""").left.map(_.errorCode) == Left(400)
             ,
             // a body that is no object has no honeypot
-            g.check(Kind.worker, "acme-shop-freeSlots", "e", json("[1]")) == Right(json("[1]"))
+            g.check(Kind.worker, "acme-shop-freeSlots", "e", "[1]") == Right(json("[1]"))
+          )
+      ,
+      test("the general variables (mocking, output mapping, identity, ...) - refused"):
+        for at <- Ref.make(0L)
+        yield
+          val g = guard(at)
+          assertTrue(
+            List("_servicesMocked", "_mockedWorkers", "_outputMock", "_identityCorrelation", "servicesMocked")
+              .forall: field =>
+                g.check(Kind.processStart, "acme-shop-bookV1", field, s"""{"$field":true}""").left.map(_.errorCode) == Left(400)
+          )
+      ,
+      test("a broken body - 400, after the limit (it counts)"):
+        for at <- Ref.make(0L)
+        yield
+          val g      = guard(at)
+          val broken = (1 to 3).map(_ => g.check(Kind.worker, "acme-shop-freeSlots", "a", "{not json").left.map(_.errorCode))
+          assertTrue(
+            broken.forall(_ == Left(400)),
+            g.check(Kind.worker, "acme-shop-freeSlots", "a", "{}").left.map(_.errorCode) == Left(429),
+            g.check(Kind.message, "acme-shop-bookV1-verified", "b", "") == Right(json("{}"))
           )
       ,
       test("at most maxClients at once - a new one beyond is a 429; past minutes are swept once a minute"):
         for
           at    <- Ref.make(0L)
           g      = guard(at, maxClients = 3)
-          first <- ZIO.succeed((1 to 3).map(i => g.check(Kind.worker, "acme-shop-freeSlots", s"c$i", json("{}")).isRight))
-          fourth = g.check(Kind.worker, "acme-shop-freeSlots", "c4", json("{}")).left.map(_.errorCode)
-          known  = g.check(Kind.worker, "acme-shop-freeSlots", "c1", json("{}")).isRight
+          first <- ZIO.succeed((1 to 3).map(i => g.check(Kind.worker, "acme-shop-freeSlots", s"c$i", "{}").isRight))
+          fourth = g.check(Kind.worker, "acme-shop-freeSlots", "c4", "{}").left.map(_.errorCode)
+          known  = g.check(Kind.worker, "acme-shop-freeSlots", "c1", "{}").isRight
           _     <- at.set(61 * 1000L)
-          later  = g.check(Kind.worker, "acme-shop-freeSlots", "c4", json("{}")).isRight
+          later  = g.check(Kind.worker, "acme-shop-freeSlots", "c4", "{}").isRight
         yield assertTrue(first.forall(identity), fourth == Left(429), known, later, g.clients == 1)
       ,
       test("the rate limit per client and minute - unknown names count as well"):
         for
           at     <- Ref.make(0L)
           g       = guard(at)
-          first  <- ZIO.succeed((1 to 3).map(_ => g.check(Kind.worker, "acme-shop-unknown", "a", json("{}")).left.map(_.errorCode)))
-          fourth  = g.check(Kind.worker, "acme-shop-freeSlots", "a", json("{}")).left.map(_.errorCode)
-          other   = g.check(Kind.worker, "acme-shop-freeSlots", "b", json("{}")).isRight
+          first  <- ZIO.succeed((1 to 3).map(_ => g.check(Kind.worker, "acme-shop-unknown", "a", "{}").left.map(_.errorCode)))
+          fourth  = g.check(Kind.worker, "acme-shop-freeSlots", "a", "{}").left.map(_.errorCode)
+          other   = g.check(Kind.worker, "acme-shop-freeSlots", "b", "{}").isRight
           _      <- at.set(61 * 1000L)
-          later   = g.check(Kind.worker, "acme-shop-freeSlots", "a", json("{}")).isRight
+          later   = g.check(Kind.worker, "acme-shop-freeSlots", "a", "{}").isRight
         yield assertTrue(first.forall(_ == Left(404)), fourth == Left(429), other, later)
       ,
       test("the client: the first entry of clientIpHeader - else the remote address"):
@@ -209,9 +230,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
         for response <- post(access, "/public/process/acme-shop-bookV1/async", """{"_hp":"x"}""")
         yield assertTrue(response.status == Status.BadRequest)
       ,
-      test("a public message needs the business key"):
-        for response <- post(access, "/public/message/acme-shop-bookV1-verified", "{}")
-        yield assertTrue(response.status == Status.BadRequest)
+      test("a public message needs the business key - missing or blank"):
+        for
+          missing <- post(access, "/public/message/acme-shop-bookV1-verified", "{}")
+          blank   <- post(access, "/public/message/acme-shop-bookV1-verified?businessKey=%20", "{}")
+        yield assertTrue(missing.status == Status.BadRequest, blank.status == Status.BadRequest)
       ,
       test("a body that is too large - 413, before anything is called"):
         val big = s"""{"text":"${"x" * 200}"}"""
