@@ -86,7 +86,8 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
                 {canDelete && (
                   <button title="Seite löschen"
                     onClick={async () => {
-                      if (!(await confirm({ title: `Seite «${data.title || slug}» löschen?` }))) return;
+                      if (!(await confirm({ title: `Seite «${data.title || slug}» löschen?`,
+                        text: 'Hat sie jemand eben erst geändert, wird das meist erkannt - aber nicht in jedem Fall: löschen ist nicht an die Version gebunden.' }))) return;
                       const r = await deletePage(slug, version);
                       setDeleteError(r.ok ? null : r.message);
                     }}

@@ -58,7 +58,8 @@ export async function completeLogin(): Promise<boolean> {
   if (!pending) return false;
   try {
     const user = await (await userManager()).signinRedirectCallback();
-    const returnTo = typeof user.state === 'string' ? user.state : import.meta.env.BASE_URL;
+    // nur ein Pfad dieser Seite (ein /, nicht //host) - der state kommt mit der URL zurück
+    const returnTo = typeof user.state === 'string' && /^\/(?![/\\])/.test(user.state) ? user.state : import.meta.env.BASE_URL;
     window.history.replaceState({}, '', returnTo);
     return true;
   } catch (e) {
@@ -159,6 +160,7 @@ export async function sessionExpired(): Promise<never> {
     window.removeEventListener('pagehide', leave);
     window.removeEventListener('beforeunload', leave);
   }
-  if (leaving || document.visibilityState === 'hidden') return new Promise<never>(() => {});
+  // am Gehen: noch etwas warten - wurde das Gehen abgebrochen, doch der Fehler statt ewig «busy»
+  if (leaving || document.visibilityState === 'hidden') await new Promise((r) => setTimeout(r, 15000));
   throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login');
 }

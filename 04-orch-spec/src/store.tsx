@@ -833,7 +833,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Seiten ────────────────────────────────────────────────────────────────
-  const writeJson = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult & { exists?: true }> => {
+  // `stale`: inzwischen ist ein anderer Ordner gewählt - das Ergebnis gehört nicht in dessen Liste
+  const writeJson = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult & { exists?: true; stale?: boolean }> => {
     const be = backendRef.current;
     if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
     try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
@@ -844,14 +845,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (w.reason === 'exists') return { status: 'error', message: 'Die Datei gibt es schon – Seite neu laden.', exists: true };
       return { status: 'error', message: w.reason === 'forbidden' ? w.message : 'Schreiben fehlgeschlagen — die Datei wurde NICHT gespeichert.' };
     }
-    return { status: 'saved', version: w.version };
+    return { status: 'saved', version: w.version, stale: backendRef.current !== be };
   }, []);
 
   const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null): Promise<SaveResult> => {
     const bad = pageSlugProblem(slug);
     if (bad) return { status: 'error', message: bad };
     const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
-    if (r.status === 'saved')
+    if (r.status === 'saved' && !r.stale)
       setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }].sort(byPath));
     return r;
   }, [writeJson]);
@@ -862,8 +863,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // ohne Version: nur neu anlegen (createOnly)
     const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, null);
     if (r.status !== 'saved')
-      return { ok: false as const, message: 'exists' in r && r.exists ? 'Eine Seite mit diesem Namen gibt es schon (vielleicht unlesbar - siehe Konsole).' : r.status === 'error' ? r.message : 'Konflikt.' };
-    setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
+      return { ok: false as const, message: 'exists' in r && r.exists ? 'Eine Seite mit diesem Namen gibt es schon (vielleicht unlesbar - siehe Konsole).'
+        : r.status === 'error' ? r.message
+        // createOnly kennt keinen Konflikt - kommt er doch, die Version des Backends nennen statt raten
+        : `Unerwartete Antwort beim Anlegen (Konflikt, Version ${r.currentVersion || '?'}) – Seite neu laden.` };
+    if (!r.stale) setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
     return { ok: true as const };
   }, [writeJson]);
 
@@ -885,7 +889,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ok: false as const, message: 'Die Seite wurde inzwischen geändert – Seite neu laden.' };
     const d = await be.delete(`${PAGES_DIR}/${slug}.json`);
     if (!d.ok) return { ok: false as const, message: d.message };
-    setPages(prev => prev.filter(p => p.slug !== slug));
+    if (backendRef.current === be) setPages(prev => prev.filter(p => p.slug !== slug));
     return { ok: true as const };
   }, []);
 
@@ -893,7 +897,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (pagesAppBroken.current)
       return { status: 'error', message: `${PAGES_DIR}/${APP_FILE} ist nicht lesbar – sie wird nicht überschrieben. Bitte von Hand reparieren.` };
     const r = await writeJson(`${PAGES_DIR}/${APP_FILE}`, data, expectedVersion);
-    if (r.status === 'saved') setPagesApp({ data, version: r.version });
+    if (r.status === 'saved' && !r.stale) setPagesApp({ data, version: r.version });
     return r;
   }, [writeJson]);
 

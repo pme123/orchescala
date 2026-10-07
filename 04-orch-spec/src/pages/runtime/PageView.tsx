@@ -53,6 +53,8 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   // der Fehler einer Aktion - und, falls auch das scheiterte, der ihres onError
   const errorOf = (key: string) => [errors[key], errors[`${key}.onError`]].filter(Boolean).join(' – ');
 
+  // je Aktion der Zustand von jetzt - mit dem, was die Aktionen davor abgelegt haben (latest, nicht
+  // der des Renderns). labels und honeypot ändern sich während der Aktionen nicht (Eingaben gesperrt)
   async function runOne(a: Action): Promise<void> {
     const s = latest.current;
     const input = (raw: unknown, pub?: boolean) => actionInput(raw, s, labels, !!pub, honeypot);

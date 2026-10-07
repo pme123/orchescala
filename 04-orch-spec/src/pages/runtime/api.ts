@@ -26,7 +26,9 @@ export async function postWith(
   let response = await send(isPublic ? undefined : await accessToken());
   if (response.status === 401 && !isPublic) {
     // ein Token, das eben abgelaufen ist (oder eine schiefe Uhr): still erneuern und noch einmal -
-    // erst dann zur Anmeldung (sie verliert, was auf der Seite eingegeben ist)
+    // erst dann zur Anmeldung (sie verliert, was auf der Seite eingegeben ist). Noch einmal senden
+    // ist sicher, weil der Gateway das Token prüft, bevor er etwas tut: ein 401 heisst «nicht
+    // ausgeführt» (ein Proxy dazwischen, der nach dem Ausführen 401 sagt, bräche das)
     const renewed = await renewToken();
     if (renewed) response = await send(renewed);
     if (response.status === 401) return reauthenticate();

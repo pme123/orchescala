@@ -154,11 +154,15 @@ export function sameValue(a: unknown, b: unknown): boolean {
  * mit `&&` und `||` (&& bindet stärker, keine Klammern). */
 export function evaluate(cond: string | undefined, state: unknown): boolean {
   if (!cond) return true;
-  warnOnce(cond);
+  warnOnce(cond); // die ganze Bedingung - nicht jeder Teil noch einmal
+  return holds(cond, state);
+}
+
+function holds(cond: string, state: unknown): boolean {
   const or = splitOutsideQuotes(cond, '||');
-  if (or.length > 1) return or.some((part) => evaluate(part, state));
+  if (or.length > 1) return or.some((part) => holds(part, state));
   const and = splitOutsideQuotes(cond, '&&');
-  if (and.length > 1) return and.every((part) => evaluate(part, state));
+  if (and.length > 1) return and.every((part) => holds(part, state));
   const c = cond.trim();
   const op = operatorOutsideQuotes(c);
   if (op) {
