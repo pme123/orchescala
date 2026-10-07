@@ -24,8 +24,12 @@ import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
 import { appendAudit, auditPath, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
 import { dmnPath } from './dmn';
+import type { App as PagesApp, Page } from './pages/runtime/spec';
 
 const DIR = 'processes';
+/** Die Seiten der App (E15) - eine Datei pro Seite, dazu `app.json` */
+const PAGES_DIR = 'pages';
+const APP_FILE = 'app.json';
 /** Stammdaten — in `config/`, damit dort nur Admins schreiben können */
 export const MODEL_PATH = 'config/model.json';
 /** Frühere Ablage im Hauptordner — wird gelesen, bis ein Admin sie verschiebt */
@@ -34,6 +38,13 @@ export const LEGACY_MODEL_PATH = 'model.json';
 export interface SpecListItem {
   slug: string;
   data: ProcessSpec;
+  version: string;
+}
+
+/** Eine Seite der App - `pages/<slug>.json` */
+export interface PageListItem {
+  slug: string;
+  data: Page;
   version: string;
 }
 
@@ -110,6 +121,14 @@ interface StoreCtx {
   createSpec: (spec: ProcessSpec) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** Spezifikation samt BPMN aus dem Ordner löschen — nur für Admins (siehe usePermissions) */
   deleteSpec: (slug: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** die Seiten der App (`pages/*.json`) */
+  pages: PageListItem[];
+  /** die Einstellungen der App (`pages/app.json`) - null, wenn es keine gibt */
+  pagesApp: { data: PagesApp; version: string } | null;
+  savePage: (slug: string, data: Page, expectedVersion: string | null) => Promise<SaveResult>;
+  createPage: (slug: string, data: Page) => Promise<{ ok: true } | { ok: false; message: string }>;
+  deletePage: (slug: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  savePagesApp: (data: PagesApp, expectedVersion: string | null) => Promise<SaveResult>;
   /** Personen für @-Erwähnungen: users.json im geteilten Ordner */
   knownUsers: DirectoryUser[];
   searchDirectory: (query: string) => Promise<DirectorySearchResult>;
@@ -257,6 +276,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [specs, setSpecs] = useState<SpecListItem[]>([]);
   // bis die Liste zum ersten Mal gelesen ist: laden, nicht «leer»
   const [specsLoading, setSpecsLoading] = useState(true);
+  const [pages, setPages] = useState<PageListItem[]>([]);
+  const [pagesApp, setPagesApp] = useState<{ data: PagesApp; version: string } | null>(null);
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
@@ -362,6 +383,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const refreshSpecs = useCallback(async () => {
     if (backendRef.current) await refreshSpecsIn(backendRef.current);
   }, [refreshSpecsIn]);
+
+  // Die Seiten: wenige kleine Dateien - nacheinander gelesen
+  const refreshPagesIn = useCallback(async (be: StorageBackend) => {
+    const items: PageListItem[] = [];
+    let app: { data: PagesApp; version: string } | null = null;
+    try {
+      for (const f of (await be.list(PAGES_DIR)).filter(f => f.name.endsWith('.json'))) {
+        try {
+          const read = await be.read(`${PAGES_DIR}/${f.name}`);
+          if (!read) continue;
+          if (f.name === APP_FILE) app = { data: JSON.parse(read.text) as PagesApp, version: read.version };
+          else items.push({ slug: f.name.replace(/\.json$/, ''), data: JSON.parse(read.text) as Page, version: read.version });
+        } catch { /* unlesbare Datei überspringen */ }
+      }
+    } catch (e) {
+      console.error('[orch-spec] refreshPages:', e);
+    }
+    items.sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de'));
+    setPages(items);
+    setPagesApp(app);
+  }, []);
 
   // ── users.json: wer arbeitet in diesem Ordner (für @-Erwähnungen) ──────────
   // null = Datei beschädigt (kein JSON, keine Liste «users») — das ist etwas
@@ -479,8 +521,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         try { await be.ensureDir(DIR); } catch { /* readonly? Liste bleibt leer */ }
         await refreshSpecsIn(be);
       })(),
+      refreshPagesIn(be),
     ]);
-  }, [loadModel, loadUsersIn, refreshSpecsIn]);
+  }, [loadModel, loadUsersIn, refreshSpecsIn, refreshPagesIn]);
 
   // ── lokaler Ordner ────────────────────────────────────────────────────────
   const pickDirectory = useCallback(async () => {
@@ -769,6 +812,53 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { ok: true as const };
   }, []);
 
+  // ── Seiten ────────────────────────────────────────────────────────────────
+  const writeJson = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult> => {
+    const be = backendRef.current;
+    if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
+    try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
+    const w = await be.write(path, JSON.stringify(data, null, 2) + '\n', expectedVersion != null ? { ifMatch: expectedVersion } : {});
+    if (!w.ok) {
+      if (w.reason === 'conflict') return { status: 'conflict', currentVersion: w.currentVersion ?? '' };
+      return { status: 'error', message: w.reason === 'forbidden' ? w.message : 'Schreiben fehlgeschlagen — die Datei wurde NICHT gespeichert.' };
+    }
+    return { status: 'saved', version: w.version };
+  }, []);
+
+  const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null): Promise<SaveResult> => {
+    const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
+    if (r.status === 'saved')
+      setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }]
+        .sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de')));
+    return r;
+  }, [writeJson]);
+
+  const createPage = useCallback(async (slug: string, data: Page) => {
+    const be = backendRef.current;
+    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
+    try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
+    const w = await be.write(`${PAGES_DIR}/${slug}.json`, JSON.stringify(data, null, 2) + '\n', { createOnly: true });
+    if (!w.ok) return { ok: false as const, message: w.reason === 'exists' ? 'Eine Seite mit diesem Namen gibt es schon.' : w.message };
+    setPages(prev => [...prev, { slug, data, version: w.version }]
+      .sort((a, b) => (a.data.path || a.slug).localeCompare(b.data.path || b.slug, 'de')));
+    return { ok: true as const };
+  }, []);
+
+  const deletePage = useCallback(async (slug: string) => {
+    const be = backendRef.current;
+    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
+    const d = await be.delete(`${PAGES_DIR}/${slug}.json`);
+    if (!d.ok) return { ok: false as const, message: d.message };
+    setPages(prev => prev.filter(p => p.slug !== slug));
+    return { ok: true as const };
+  }, []);
+
+  const savePagesApp = useCallback(async (data: PagesApp, expectedVersion: string | null): Promise<SaveResult> => {
+    const r = await writeJson(`${PAGES_DIR}/${APP_FILE}`, data, expectedVersion);
+    if (r.status === 'saved') setPagesApp({ data, version: r.version });
+    return r;
+  }, [writeJson]);
+
   const saveModel = useCallback(async (m: Model): Promise<{ ok: true } | { ok: false; message: string }> => {
     const be = backendRef.current;
     if (!be) return { ok: false, message: 'Kein Ordner gewählt.' };
@@ -802,6 +892,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
       specs, specsLoading, refreshSpecs, loadSpec, saveSpec, loadAudit, createSpec, deleteSpec, loadBpmn, saveBpmn, loadDmn, saveDmn,
+      pages, pagesApp, savePage, createPage, deletePage, savePagesApp,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
       {children}

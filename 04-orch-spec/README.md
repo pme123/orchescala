@@ -1603,6 +1603,77 @@ Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 Der Orchescala-Export ist bewusst flach und explizit, damit daraus ohne
 Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 
+### Seiten der App – der Designer (E15)
+
+Eine App ist eine Sammlung von Prozessen **und Seiten**: was nur liest oder einen Prozess
+anstösst, ist eine Seite – öffentlich (ohne Login, über `/public` am Gateway) oder mit Login und
+Rollen. Die Kopfzeile führt mit **Seiten** zu ihnen:
+
+```
+Seiten der App                                              [App] [+ Neu]
+Termin buchen        /appointments/book       öffentlich
+Termin bestätigen    /appointments/confirm    kundenberater   ⚠ 1
+E-Mail bestätigt     /appointments/verified   öffentlich
+```
+
+Eine Seite öffnet den **Designer**, dreigeteilt:
+
+- **Aufbau** – die Bausteine der Seite als Gliederung: Überschrift, Text, Auswahl (fest), Auswahl
+  aus Liste (z. B. freie Termine), Eingabefelder, Zusammenfassung, Button, Abschnitt,
+  Laden-Anzeige. Hinzufügen, verschieben, verdoppeln, entfernen; darunter die **Befunde**.
+- **Vorschau** – die Seite live, mit **demselben Renderer wie die App**. Die Services liefern
+  Beispieldaten aus ihrem `Out`-Typ (drei Einträge je Liste, Termine an den nächsten Tagen),
+  Start, Message und Task gelingen. Ein Klick wählt den Baustein; die URL-Parameter (z. B.
+  `token`) sind einstellbar.
+- **Eigenschaften** – des Bausteins bzw. der Seite (Titel, Pfad, Zugang, Anfangszustand, Aktionen
+  beim Laden). Die **Aktionen** – Service aufrufen, Prozess starten, Message senden,
+  Benutzer-Task abschliessen, Wert setzen – wählen aus dem, was es gibt: die Worker der Domain
+  (`val topicName`, aus dem Domain-Katalog), die Prozesse, Messages und Benutzer-Tasks der
+  Spezifikationen. «Eingabe vorbelegen» trägt jedes Feld des `In` als `{{feld}}` ein. Pfade
+  schlagen vor, was der Zustand kennt – auch die Felder der Ergebnisse.
+
+Die **Befunde** prüfen: unbekannte Services, Prozesse, Messages und Tasks; Pfade in Texten und
+Listen, die im Zustand nicht vorkommen; ein Task-Abschluss auf einer öffentlichen Seite; doppelte
+Pfade; was der Gateway öffentlich freigeben muss (`PUBLIC_WORKERS`, `PUBLIC_PROCESSES`,
+`PUBLIC_MESSAGES`).
+
+**Die App zur Laufzeit:** Der Renderer (`src/pages/runtime/`) ist ein eigenes Bundle – immer
+dasselbe, die Seiten kommen zur Laufzeit aus `pages.json`. Gebaut für ein Projekt:
+
+```bash
+UI_BASE=/app/<projekt>/ UI_PAGES=<spec>/pages UI_CONFIG=<config.json> \
+  UI_OUT=<projekt>/03-worker/src/main/resources/ui npm run build:pages
+```
+
+Die Worker-App liefert es aus ihrem Classpath (`ui/`), der Gateway unter `/app/<projekt>/`.
+`config.json` nennt den IdP (`authority`, `clientId`) – nur Seiten mit Login melden sich an.
+`npm run dev:pages` zeigt die Seiten eines Ordners mit dem Gateway dahinter (`GATEWAY`).
+
+Das Format einer Seite:
+
+```json
+{
+  "path": "appointments/book", "title": "Termin buchen", "access": "public",
+  "state": { "step": "choose", "topic": "advice" },
+  "load": [{ "do": "call", "service": "acme-shop-freeSlots", "public": true,
+             "input": { "topic": "{{topic}}" }, "result": "slots" }],
+  "body": [
+    { "type": "pick", "bind": "appointment", "items": "slots.slots",
+      "groupBy": { "path": "start", "format": "day" }, "itemLabel": "{{start|time}}–{{end|time}}" },
+    { "type": "button", "label": "Anfragen", "validate": true, "actions": [
+      { "do": "call", "service": "acme-shop-reserveSlot", "public": true, "result": "reservation",
+        "errors": { "409": "Leider vergeben – bitte einen anderen wählen." } },
+      { "do": "start", "process": "acme-shop-bookV1", "public": true, "businessKey": "{{reservation.token}}" },
+      { "do": "set", "path": "step", "value": "sent" } ] }
+  ]
+}
+```
+
+Vorlagen: `{{pfad}}` (allein: der Wert selbst, auch ein Objekt; leere Werte fallen in Eingaben
+weg), Formate `|date`, `|time`, `|datetime`, `|day`, `|label:<name>` (Texte aus `app.json`).
+Bedingungen (`visible`): `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, mit `&&` und `||`.
+Fehlertexte nach HTTP-Status – der Gateway gibt Anonymen nur den Status weiter.
+
 ## Datenablage im geteilten Ordner
 
 ```
@@ -1610,6 +1681,9 @@ Navigieren im Baum Domain, Worker und Simulation abgeleitet werden können.
 ├── config/
 │   └── model.json            Service-Katalog, Domain-Typen, Anmeldung, Benachrichtigungen
 ├── users.json                wer hier arbeitet — Vorschläge bei «@» in Kommentaren
+├── pages/
+│   ├── app.json              Titel, Startseite und Texte für Werte der App
+│   └── <slug>.json           eine Seite (siehe «Seiten der App»)
 └── processes/
     ├── <slug>.json           die Spezifikation
     ├── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
@@ -1741,6 +1815,8 @@ verworfen: globex.core.banking.domain.client.v1 (13 Typen) — Vorrang hat inite
 | `src/components/BpmnEditor.tsx` | bpmn-js im Editor, Abgleich in beide Richtungen |
 | `src/clipboard.ts`, `src/copyPaste.ts`, `src/bpmnClipboard.ts` | Kopieren und Einfügen: Zwischenablage über Tabs, was mitwandert, der Baum von bpmn-js als JSON |
 | `src/components/` | Liste, Prozessansicht, Detailspalte, Klassenbauer, Export, Admin |
+| `src/pages/runtime/` | der Renderer der Seiten – App-Bundle (`vite.pages.config.ts`) und Vorschau im Designer |
+| `src/pages/designer/` | der Designer: Liste, Editor, Eigenschaften, Aktionen; `model.ts` – Ziele, Beispieldaten, Bausteine, Befunde |
 
 ## Offene Punkte
 

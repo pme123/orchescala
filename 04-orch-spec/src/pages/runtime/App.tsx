@@ -1,0 +1,117 @@
+import { Loader2, LogIn, LogOut, Moon, ShieldAlert, Sun } from 'lucide-react';
+import type { User } from 'oidc-client-ts';
+import { useEffect, useState } from 'react';
+import { gateway } from './api';
+import { completeLogin, currentUser, login, logout, rolesOf } from './auth';
+import PageView from './PageView';
+import type { Page, Pages } from './spec';
+import { cls, useTheme } from './ui';
+
+const base = import.meta.env.BASE_URL;
+
+/** Der Pfad der Seite unter der App – `/app/democompany-customer/appointments/book` → `appointments/book`. */
+function pagePath(): string {
+  const path = window.location.pathname;
+  return (path.startsWith(base) ? path.slice(base.length) : path).replace(/^\/+|\/+$/g, '');
+}
+
+type Loaded = { pages: Pages; page?: Page; user: User | null };
+
+export default function App() {
+  const { isDark, toggleTheme } = useTheme();
+  const c = cls(isDark);
+  const embedded = new URLSearchParams(window.location.search).has('embed');
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const pages: Pages = await fetch(`${base}pages.json`, { cache: 'no-cache' }).then((r) => {
+        if (!r.ok) throw new Error(`pages.json: ${r.status}`);
+        return r.json();
+      });
+      const loggedIn = await completeLogin().catch(() => false); // Rückkehr vom IdP
+      if (pagePath() === '' && pages.app.home) window.history.replaceState({}, '', `${base}${pages.app.home}`);
+      const page = pages.pages.find((p) => p.path === pagePath());
+      // ein IdP nur für Seiten mit Login - eine öffentliche Seite kommt ohne aus
+      const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
+      setLoaded({ pages, page, user });
+      document.title = [page?.title, pages.app.title].filter(Boolean).join(' · ');
+    })().catch((e) => setFailure(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const app = loaded?.pages.app;
+  const page = loaded?.page;
+  const user = loaded?.user;
+
+  let content: React.ReactNode;
+  if (failure) content = <Card isDark={isDark} icon={<ShieldAlert size={26} />} title="Die App lädt nicht" text={failure} />;
+  else if (!loaded) content = <Spinner isDark={isDark} />;
+  else if (!page) content = <Card isDark={isDark} icon={<ShieldAlert size={26} />} title="Seite nicht gefunden" text="Diesen Link gibt es nicht (mehr)." />;
+  else if (page.access !== 'public' && !user)
+    content = (
+      <Card isDark={isDark} icon={<LogIn size={26} />} title={page.title} text="Für diese Seite braucht es eine Anmeldung.">
+        <button onClick={() => login()} className={`mt-4 rounded-lg px-4 py-2 text-xs font-bold ${c.btnPrimary}`}>Anmelden</button>
+      </Card>
+    );
+  else if (page.access !== 'public' && user && !page.access.roles.every((r) => rolesOf(user).includes(r)))
+    content = (
+      <Card isDark={isDark} icon={<ShieldAlert size={26} />} title="Keine Berechtigung"
+        text={`Dafür braucht es die Rolle «${page.access.roles.join(', ')}». Bitte beim Admin anfragen.`} />
+    );
+  else
+    content = (
+      <PageView page={page} app={app!} isDark={isDark} gateway={gateway}
+        user={user ? { name: user.profile.name, email: user.profile.email, roles: rolesOf(user) } : undefined} />
+    );
+
+  return (
+    <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`}>
+      {!embedded && (
+        <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
+          <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />
+          <span className={`text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
+          {app?.subtitle && <span className={`text-[10px] ${c.muted}`}>{app.subtitle}</span>}
+          <div className="ml-auto flex items-center gap-3">
+            {user && (
+              <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
+                <span>{user.profile.name ?? user.profile.preferred_username}</span>
+                <button onClick={() => logout()} title="Abmelden" className={`rounded p-1 transition-colors ${c.icon}`}>
+                  <LogOut size={12} />
+                </button>
+              </div>
+            )}
+            <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} className={`rounded p-1.5 transition-colors ${c.icon}`}>
+              {isDark ? <Sun size={13} /> : <Moon size={13} />}
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="flex-1">{content}</div>
+    </div>
+  );
+}
+
+function Spinner({ isDark }: { isDark: boolean }) {
+  return (
+    <div className={`flex h-64 items-center justify-center ${cls(isDark).muted}`}>
+      <Loader2 size={16} className="animate-spin" />
+    </div>
+  );
+}
+
+function Card({ isDark, icon, title, text, children }: {
+  isDark: boolean; icon: React.ReactNode; title: string; text: string; children?: React.ReactNode;
+}) {
+  const c = cls(isDark);
+  return (
+    <div className="flex justify-center p-6 pt-16">
+      <div className={`w-full max-w-md rounded-xl border p-8 text-center ${c.border} ${c.panel}`}>
+        <div className={`mx-auto mb-4 flex justify-center ${c.muted}`}>{icon}</div>
+        <div className="text-sm font-bold">{title}</div>
+        <p className={`mt-2 text-xs ${c.muted2}`}>{text}</p>
+        {children}
+      </div>
+    </div>
+  );
+}

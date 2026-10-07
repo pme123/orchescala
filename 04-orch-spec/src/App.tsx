@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -9,9 +9,13 @@ import AdminView from './components/AdminView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
 import { AccountChip, Breadcrumb, HeaderButton } from './components/Header';
 import FeelCheatSheet from './components/FeelCheatSheet';
+// die Seiten (E15) kommen erst, wenn jemand sie öffnet - der Designer samt Renderer ist ein eigener Chunk
+const PagesView = lazy(() => import('./pages/designer/PagesView'));
+const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
-type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' };
+type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' }
+  | { kind: 'pages' } | { kind: 'page'; slug: string };
 
 // Deep Link (?spec=<slug>&comment=<id>, siehe util.deepLink): beim Start aus
 // der URL nehmen und im Tab merken — so überlebt er den Login-Redirect — und
@@ -39,7 +43,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 export default function App() {
   const [feelOpen, setFeelOpen] = useState(false);
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, specs, previousStorage, resumePrevious } = useStore();
+    savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, specs, pages, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -175,7 +179,7 @@ export default function App() {
           ist reserviert, wo die Zeile sonst bis dorthin liefe. */}
       <div className={`relative border-b ${border} ${topBg} flex-shrink-0`}>
         <div className={`flex items-center gap-3 py-2 ${
-          view.kind === 'spec' ? 'pl-3 pr-[9.5rem] max-xl:pr-14' : 'max-w-5xl mx-auto px-6 max-xl:pr-14'}`}>
+          view.kind === 'spec' || view.kind === 'page' ? 'pl-3 pr-[9.5rem] max-xl:pr-14' : 'max-w-5xl mx-auto px-6 max-xl:pr-14'}`}>
           {/* Wortmarke: Logo und Kunde fett, «Orch Spec» klein daneben; die Version im Tooltip */}
           <span className="flex items-center gap-2 flex-shrink-0" title={`Orch Spec · Stand ${APP_VERSION}`}>
             {model?.logo && (
@@ -194,6 +198,9 @@ export default function App() {
             <Breadcrumb isDark={isDark} items={[
               { label: 'Prozesse', onClick: view.kind !== 'list' ? () => setView({ kind: 'list' }) : undefined },
               ...(view.kind === 'admin' ? [{ label: 'Administration' }] : []),
+              ...(view.kind === 'pages' ? [{ label: 'Seiten' }] : []),
+              ...(view.kind === 'page' ? [{ label: 'Seiten', onClick: () => setView({ kind: 'pages' }) },
+                { label: pages.find(x => x.slug === view.slug)?.data.title || view.slug }] : []),
               ...(view.kind === 'spec' ? [{ label: specs.find(x => x.slug === view.slug)?.data.title || view.slug }] : []),
             ]} />
           )}
@@ -204,6 +211,11 @@ export default function App() {
             title="FEEL-Spickzettel — Syntax, Funktionen, Camunda 7 → 8" onClick={() => setFeelOpen(true)} />
           {docHref && (
             <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
+          )}
+          {dirHandle && model && (
+            <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
+              title="Seiten der App - öffentlich oder mit Login, mit Live-Vorschau (pages/*.json)"
+              onClick={() => setView(v => v.kind === 'pages' ? { kind: 'list' } : { kind: 'pages' })} />
           )}
           {dirHandle && model && canAdmin && (
             <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
@@ -247,7 +259,7 @@ export default function App() {
       {feelOpen && <FeelCheatSheet isDark={isDark} onClose={() => setFeelOpen(false)} />}
 
       {/* Main content */}
-      <div className={`flex-1 ${view.kind === 'spec' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+      <div className={`flex-1 ${view.kind === 'spec' || view.kind === 'page' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {gated ? (
           // Anmeldung (Microsoft Entra ID) — vor allem anderen
           <StartCard isDark={isDark} model={model} icon={<LogIn size={20} />} tone={auth.status === 'error' ? 'red' : 'blue'}
@@ -381,6 +393,14 @@ export default function App() {
           <StartCard isDark={isDark} icon={<FolderOpen size={20} />} title="Ordner wird gelesen" lead="model.json und processes/ …" />
         ) : view.kind === 'list' ? (
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
+        ) : view.kind === 'pages' ? (
+          <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
+            <PagesView onOpen={slug => setView({ kind: 'page', slug })} />
+          </Suspense>
+        ) : view.kind === 'page' ? (
+          <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
+            <PageEditor key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'pages' })} />
+          </Suspense>
         ) : view.kind === 'admin' ? (
           canAdmin
             ? <AdminView onBack={() => setView({ kind: 'list' })} />
