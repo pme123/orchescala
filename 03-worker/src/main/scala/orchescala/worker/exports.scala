@@ -153,6 +153,7 @@ object WorkerError:
   case class CustomError(
       errorMsg: String,
       override val generalVariables: Option[GeneralVariables] = None,
+      // also the marker of CustomError.refused (RefusedRequest) - keep it when copying the error
       override val causeError: Option[WorkerError] = None
   ) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
@@ -181,8 +182,11 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
 
   object RefusedRequest:
+    // they belong to the token check, not to the worker
+    private val authStatuses = Set(401, 403, 407)
+
     private[worker] def isRefusal(status: Int): Boolean =
-      status >= 400 && status < 500 && !Set(401, 403, 407).contains(status)
+      status >= 400 && status < 500 && !authStatuses.contains(status)
 
   case class UnexpectedRunError(
       errorMsg: String
