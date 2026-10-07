@@ -19,7 +19,7 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
-import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, paramExpression } from './bpmn';
+import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
 import { juelOptions, referencedVariables, resultVariables } from './feel';
 import { catalogEntry } from './interactions';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
@@ -283,7 +283,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
       // steht schon dieselbe Variable da (`source="getPoasMock"`), bleibt es, wie es ist
       const mockControl = (name: '_outputMock' | '_outputServiceMock', on: boolean) => {
         const was = before?.inputs.get(name);
-        if (on && was !== undefined && mockFieldOf({ name: step.name, mock: was }) === mockFieldOf(step)) return;
+        if (on && was !== undefined && mockRef(was) === mockFieldOf(step)) return;
         setControl(doc, ext, engine, name, on ? pass(mockFieldOf(step)) : undefined, call);
       };
       mockControl('_outputMock', kind === 'output');

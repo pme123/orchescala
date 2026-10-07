@@ -12,7 +12,7 @@ import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
-import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf } from '../bpmn';
+import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
@@ -703,7 +703,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             Beim Export: <span className="font-mono">_servicesMocked = _servicesMocked</span>{step.kind === 'call' && <>, <span className="font-mono">_mockedWorkers = _mockedWorkers</span>, <span className="font-mono">_identityCorrelation = _identityCorrelation</span></>}
             {step.mockKind && <>, dazu <span className="font-mono">{step.mockKind === 'service' ? '_outputServiceMock' : '_outputMock'} = {mockFieldOf(step)}</span> und im InConfig das Feld <span className="font-mono">{mockFieldOf(step)}</span></>}.
           </p>
-          {step.mock && mockFieldOf(step) === mockFieldOf({ name: step.name }) && !/^=\s*\w+Mock$|getVariable/.test(step.mock) && (
+          {step.mock && mockRef(step.mock) !== mockFieldOf(step) && (
             <pre className={`mt-1 text-[10px] px-2 py-1.5 rounded border overflow-x-auto ${c.border2} ${c.muted2}`} title="bisheriger Wert im BPMN — beim Export ersetzt">{step.mock}</pre>
           )}
         </Section>
