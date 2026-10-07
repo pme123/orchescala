@@ -170,9 +170,10 @@ object WorkerError:
   end CustomError
 
   /** The marker of [[CustomError.refused]] - only made there, so another 4xx cause (e.g. of a failed
-    * call to another service) stays a 500 for the caller.
+    * call to another service) stays a 500 for the caller. No `ServiceError` - in a process a refusal
+    * is not retried, like any other `CustomError`.
     */
-  case class RefusedRequest private[worker] (status: Int, errorMsg: String) extends ServiceError:
+  case class RefusedRequest private[worker] (status: Int, errorMsg: String) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
 
   object RefusedRequest:

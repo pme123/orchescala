@@ -29,6 +29,10 @@ class OpWorkerCalcRetriesTest extends FunSuite:
   test("first failure of a ServiceError: 2 retries"):
     assertEquals(calcRetries(ServiceUnexpectedError("service down"), None), 2)
 
+  test("a refusal (CustomError.refused) is not retried - like any other CustomError"):
+    assertEquals(calcRetries(CustomError.refused(409, "The slot is taken"), None), 0)
+    assertEquals(calcRetries(CustomError("failed"), None), 0)
+
   test("first failure matching the doRetryList: 2 retries"):
     assertEquals(
       calcRetries(UnexpectedError("Entity was updated by another transaction concurrently"), None),

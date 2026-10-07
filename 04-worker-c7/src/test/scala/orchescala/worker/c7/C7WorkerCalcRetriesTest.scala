@@ -53,6 +53,10 @@ class C7WorkerCalcRetriesTest extends FunSuite:
     val result = calcRetries(error, 0)
     assertEquals(result, -1) // retries - 1
 
+  test("calcRetries - a refusal (CustomError.refused) is not retried - like any other CustomError"):
+    assertEquals(calcRetriesInitial(CustomError.refused(409, "The slot is taken")), 0)
+    assertEquals(calcRetriesInitial(CustomError("failed")), 0)
+
   test("calcRetries - retryable error (doRetryList) on initial attempt"):
     val error = UnexpectedError("Entity was updated by another transaction concurrently")
     val result = calcRetriesInitial(error)
