@@ -161,12 +161,22 @@ object WorkerError:
   object CustomError:
     /** A refusal of the caller's request - called over HTTP (`/worker/{topic}`, e.g. by a page) it
       * is answered with that status (4xx) instead of 500, e.g. `CustomError.refused(409, "The slot
-      * is taken")`. In a process it is a `CustomError` like any other.
+      * is taken")`. In a process it is a `CustomError` like any other. A status that is no 4xx
+      * gives a plain `CustomError` (a 500) - a refusal is always the caller's fault.
       */
     def refused(status: Int, errorMsg: String): CustomError =
-      require(status >= 400 && status < 500, s"A refusal is a 4xx status (is $status).")
-      CustomError(errorMsg, causeError = Some(ServiceRequestError(status, errorMsg)))
+      if RefusedRequest.isRefusal(status) then CustomError(errorMsg, causeError = Some(RefusedRequest(status, errorMsg)))
+      else CustomError(errorMsg)
   end CustomError
+
+  /** The marker of [[CustomError.refused]] - only made there, so another 4xx cause (e.g. of a failed
+    * call to another service) stays a 500 for the caller.
+    */
+  case class RefusedRequest private[worker] (status: Int, errorMsg: String) extends ServiceError:
+    val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
+
+  object RefusedRequest:
+    def isRefusal(status: Int): Boolean = status >= 400 && status < 500
 
   case class UnexpectedRunError(
       errorMsg: String
@@ -230,8 +240,7 @@ object WorkerError:
         case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
         case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
         // a refusal of a custom worker (CustomError.refused) keeps its 4xx
-        case CustomError(msg, _, Some(ServiceRequestError(code, _))) if code >= 400 && code < 500 =>
-          ServiceRequestError(code, msg)
+        case CustomError(msg, _, Some(RefusedRequest(status, _))) => ServiceRequestError(status, msg)
         case err                            => ServiceRequestError(500, err.errorMsg)
     end apply
   end ServiceRequestError
