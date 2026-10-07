@@ -76,6 +76,7 @@ case class PublicAccess(
       // only an address (IPv4 / IPv6) - anything else is no key for the rate limit
       .filter(PublicAccess.ipAddress.matches)
       .orElse(remote)
+      .map(PublicAccess.bucket)
       .getOrElse("unknown")
 
   override def toString: String =
@@ -104,6 +105,24 @@ object PublicAccess:
 
   /** What an IPv4 or IPv6 address can look like - short, no names. */
   val ipAddress = "[0-9A-Fa-f:.]{2,45}".r
+
+  /** The rate-limit key of an address: IPv4 as it is, IPv6 by its /64 prefix - one end customer
+    * usually has a whole /64, rotating within it must not give new limits.
+    */
+  def bucket(address: String): String =
+    val addr = address.takeWhile(_ != '%').stripPrefix("[").stripSuffix("]")
+    if !addr.contains(':') then addr
+    else if addr.contains('.') then addr.substring(addr.lastIndexOf(':') + 1) // IPv4 in IPv6 (::ffff:1.2.3.4)
+    else
+      scala.util.Try:
+        val (head, tail) = addr.split("::", -1) match
+          case Array(h, t) => (h.split(':').filter(_.nonEmpty), t.split(':').filter(_.nonEmpty))
+          case Array(h)    => (h.split(':'), Array.empty[String])
+          case _           => throw IllegalArgumentException(addr)
+        val groups       = head ++ Array.fill(8 - head.length - tail.length)("0") ++ tail
+        require(groups.length == 8)
+        groups.take(4).map(g => Integer.parseInt(g, 16).toHexString).mkString(":") + "::/64"
+      .getOrElse(addr)
 
   /** A text that may contain what a caller sent (e.g. the error of a worker) as one log line. */
   def oneLine(text: String, max: Int = 300): String =

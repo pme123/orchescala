@@ -211,7 +211,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
           ) == "1.2.3.4",
           // no address - the remote address
           behindProxy.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "x" * 200))) == "10.0.0.1",
-          behindProxy.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "2001:db8::1"))) == "2001:db8::1",
+          // IPv6 by its /64 - rotating within it gives no new limit
+          behindProxy.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "2001:db8::1"))) == "2001:db8:0:0::/64",
+          behindProxy.client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "2001:DB8:0:0:ffff::7"))) == "2001:db8:0:0::/64",
+          access.client(Some("fe80::1%eth0"), Seq.empty) == "fe80:0:0:0::/64",
+          access.client(Some("::ffff:1.2.3.4"), Seq.empty) == "1.2.3.4",
           // fewer entries than proxies - the remote address
           behindProxy.copy(trustedProxies = 2)
             .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "1.2.3.4"))) == "10.0.0.1"
