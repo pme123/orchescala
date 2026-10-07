@@ -85,6 +85,9 @@ test('getPath reads own fields only - setPath keeps lists lists', () => {
   const next = setPath({ items: [{ name: 'a' }, { name: 'b' }] }, 'items.1.name', 'c') as { items: { name: string }[] };
   assert.ok(Array.isArray(next.items));
   assert.deepEqual(next.items, [{ name: 'a' }, { name: 'c' }]);
+  // no index on a list - nothing changes
+  const same = setPath({ items: [1, 2] }, 'items.name', 3) as { items: unknown[] };
+  assert.deepEqual(same.items, [1, 2]);
 });
 
 test('conditionProblem - what does not parse', () => {

@@ -1,14 +1,23 @@
-import { accessToken, reauthenticate } from './auth';
+import { accessToken, reauthenticate, renewToken } from './auth';
 import { ApiError, type Gateway } from './gatewayTypes';
 
 export { ApiError, type Gateway };
 
 /** POST an den Gateway – öffentlich ohne Token, sonst mit dem Token des Benutzers. */
 export async function post(path: string, body: unknown, isPublic: boolean): Promise<unknown> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (!isPublic) headers.Authorization = `Bearer ${await accessToken()}`;
-  const response = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
-  if (response.status === 401 && !isPublic) return reauthenticate();
+  const send = (token?: string) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
+  };
+  let response = await send(isPublic ? undefined : await accessToken());
+  if (response.status === 401 && !isPublic) {
+    // ein Token, das eben abgelaufen ist (oder eine schiefe Uhr): still erneuern und noch einmal -
+    // erst dann zur Anmeldung (sie verliert, was auf der Seite eingegeben ist)
+    const renewed = await renewToken();
+    if (renewed) response = await send(renewed);
+    if (response.status === 401) return reauthenticate();
+  }
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     let message = text;

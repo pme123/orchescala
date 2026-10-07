@@ -25,6 +25,11 @@ function userManager(): Promise<UserManager> {
         automaticSilentRenew: true,
         userStore: new WebStorageStateStore({ store: window.sessionStorage }),
       });
+    })
+    .catch((e) => {
+      // nicht für immer: der nächste Aufruf versucht es wieder (z.B. nach einem Netzfehler)
+      manager = null;
+      throw e;
     });
   return manager;
 }
@@ -82,6 +87,12 @@ export async function accessToken(): Promise<string> {
     renewing = null;
   });
   return renewing;
+}
+
+/** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
+export async function renewToken(): Promise<string | null> {
+  const renewed = await (await userManager()).signinSilent().catch(() => null);
+  return renewed && !renewed.expired ? renewed.access_token : null;
 }
 
 // mehrere Aufrufe mit 401 gleichzeitig: eine Anmeldung, nicht je Aufruf

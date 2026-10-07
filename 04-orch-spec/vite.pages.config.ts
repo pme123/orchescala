@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
+import { conditionProblem } from './src/pages/runtime/expr';
 
 // The pages of an app at runtime (E15): one renderer for all projects - the bundle is always the
 // same, the pages come at runtime from pages.json, built from the folder `pages/` of a project's
@@ -18,6 +19,7 @@ const base = process.env.UI_BASE ?? '/app/';
 const pagesDir = process.env.UI_PAGES ? path.resolve(process.env.UI_PAGES) : path.resolve(__dirname, 'sample-data/pages');
 const configFile = process.env.UI_CONFIG ? path.resolve(process.env.UI_CONFIG) : undefined;
 const gateway = process.env.GATEWAY ?? 'http://localhost:8889';
+const outDir = path.resolve(process.env.UI_OUT ?? path.resolve(__dirname, 'dist-pages'));
 
 /** app.json and every other *.json of the folder (one page per file) as one document. */
 function bundlePages(dir: string): string {
@@ -32,7 +34,22 @@ function bundlePages(dir: string): string {
   };
   const app = files.includes('app.json') ? read('app.json') : {};
   const pages = files.filter((f) => f !== 'app.json').map(read);
+  // eine Bedingung, die nicht passt, versteckt still - auch eine Datei von Hand gehört geprüft
+  for (const page of pages) for (const cond of conditionsOf(page.body ?? [])) {
+    const problem = conditionProblem(cond);
+    if (problem) console.warn(`  pages: ${page.path} - sichtbar, wenn «${cond}»: ${problem}`);
+  }
   return JSON.stringify({ app, pages }, null, 2);
+}
+
+/** Alle Bedingungen der Bausteine (auch in Abschnitten, Feldern, Zeilen). */
+function conditionsOf(body: Array<Record<string, unknown>>): string[] {
+  return body.flatMap((b) => [
+    ...(typeof b.visible === 'string' ? [b.visible] : []),
+    ...(Array.isArray(b.fields) ? b.fields.map((f: { visible?: string }) => f.visible).filter((v): v is string => !!v) : []),
+    ...(Array.isArray(b.items) ? b.items.map((i: { visible?: string }) => i.visible).filter((v): v is string => !!v) : []),
+    ...(Array.isArray(b.body) ? conditionsOf(b.body) : []),
+  ]);
 }
 
 function pagesPlugin(): Plugin {
@@ -44,7 +61,13 @@ function pagesPlugin(): Plugin {
         const p = req.url?.split('?')[0];
         if (p === `${base}pages.json`) {
           res.setHeader('Content-Type', 'application/json');
-          res.end(bundlePages(pagesDir));
+          try {
+            res.end(bundlePages(pagesDir));
+          } catch (e) {
+            // eine kaputte Seite - die App zeigt die Meldung, kein nacktes 500
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+          }
         } else if (p === `${base}config.json` && configFile) {
           res.setHeader('Content-Type', 'application/json');
           res.end(fs.readFileSync(configFile, 'utf-8'));
@@ -63,8 +86,10 @@ export default defineConfig({
   base,
   plugins: [react(), tailwindcss(), pagesPlugin()],
   build: {
-    outDir: path.resolve(process.env.UI_OUT ?? path.resolve(__dirname, 'dist-pages')),
-    emptyOutDir: true,
+    outDir,
+    // nur ein eigener Ordner wird geleert (`…/ui`, `dist-pages`) - ein falsches UI_OUT
+    // (z.B. src/main/resources) löscht sonst alles darin
+    emptyOutDir: ['ui', 'dist-pages'].includes(path.basename(outDir)),
   },
   server: {
     // in the dev server the API calls go to the gateway

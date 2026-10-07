@@ -32,8 +32,11 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const pages: Pages = await fetch(`${base}pages.json`, { cache: 'no-cache' }).then((r) => {
-        if (!r.ok) throw new Error(`pages.json: ${r.status}`);
+      const pages: Pages = await fetch(`${base}pages.json`, { cache: 'no-cache' }).then(async (r) => {
+        if (!r.ok) {
+          const detail = await r.json().then((j) => j?.error as string | undefined).catch(() => undefined);
+          throw new Error(`pages.json: ${detail ?? r.status}`);
+        }
         return r.json();
       });
       const loggedIn = await completeLogin().catch(() => false); // Rückkehr vom IdP

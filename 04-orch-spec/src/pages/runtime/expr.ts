@@ -23,8 +23,11 @@ export function setPath(state: State, path: string, value: unknown): State {
       : setPath(current != null && typeof current === 'object' ? (current as State) : {}, rest.join('.'), value);
   // eine Liste bleibt eine Liste (`items.0.name`)
   if (Array.isArray(state)) {
+    // nur ein Index - `items.name` auf einer Liste ändert nichts
+    const index = Number(head);
+    if (!Number.isInteger(index) || index < 0) return state;
     const copy = [...state] as unknown[];
-    copy[Number(head)] = next;
+    copy[index] = next;
     return copy as unknown as State;
   }
   return { ...state, [head]: next };
