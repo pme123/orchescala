@@ -426,6 +426,20 @@ export function domainRequired(dom: DomainType | null, name: string): boolean | 
   return !typeShape(p.type).optional && !p.default;
 }
 
+/**
+ * Die Felder des `InConfig` eines Domain-`In` (`inConfig: Option[InConfig]`) —
+ * Mocks und Stellschrauben (`postAccountMock`). Ein Aufrufer gibt sie als
+ * eigene Variablen mit; das `InConfig` liest sie dort. Leer ohne `InConfig`.
+ */
+export function inConfigFields(dom: DomainType | null, model: Model | null): string[] {
+  const f = dom?.fields?.find(x => /(?:^|\.)InConfig$/.test(typeShape(x.type).base));
+  if (!dom || !f) return [];
+  const base = typeShape(f.type).base;
+  const name = base.includes('.') ? base : dom.owner ? `${dom.owner}.${base}` : base;
+  const cfg = (model?.domainTypes ?? []).find(t => t.pkg === dom.pkg && t.name === name);
+  return (cfg?.fields ?? []).map(x => x.name);
+}
+
 export function resultVariables(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null): VarNode[] {
   const out = ownResults(step, spec, model, service);
   const have = new Set(out.map(n => n.name));
