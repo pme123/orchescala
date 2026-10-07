@@ -62,8 +62,9 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                    _ <- ZIO.when(public.login.isEmpty):
                           ZIO.logError("PublicAccess has no login - every public call answers 503.")
                    _ <- ZIO.when(public.clientIpHeader.isEmpty):
-                          ZIO.logWarning(
-                            "PublicAccess has no clientIpHeader - behind a proxy all clients share one rate limit."
+                          ZIO.logInfo(
+                            "PublicAccess has no clientIpHeader - fine without a proxy; behind one all " +
+                              "clients share one rate limit."
                           )
                  yield ()
 

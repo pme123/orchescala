@@ -48,7 +48,7 @@ case class PublicAccess(
     /** the header with the client address behind a proxy (e.g. `X-Forwarded-For`) - each proxy
       * appends the address it sees, so the entry [[trustedProxies]] from the end is the one the
       * outermost trusted proxy appended. Only set it if the proxies set the header. Without it, all
-      * clients behind a proxy count as one (the gateway warns at startup).
+      * clients behind a proxy count as one (noted at startup).
       */
     clientIpHeader: Option[String] = None,
     /** the proxies in front of the gateway that append to [[clientIpHeader]] (e.g. 2 for a CDN and
@@ -135,17 +135,16 @@ class PublicGuard(
   private val windowMillis = 60 * 1000L
 
   // per client: start of its minute and the calls in it - the least recently used first. One lock:
-  // its work is a map lookup (the sweep once a minute) - cheap next to a call to a worker or the
-  // engine; with a sharded map the LRU order and the cap would no longer be exact.
+  // its work is a map lookup and removing a few expired clients - cheap next to a call to a worker
+  // or the engine; with a sharded map the LRU order and the cap would no longer be exact.
   private val calls = new java.util.LinkedHashMap[String, (Long, Int)](16, 0.75f, true):
     override def removeEldestEntry(eldest: java.util.Map.Entry[String, (Long, Int)]): Boolean =
       val full = size > maxClients
       if full then forgotten += 1
       full
 
-  // all under the lock of calls
   // under the lock of calls (as the map itself)
-  private var lastSweep            = now()
+  private var lastReport           = now()
   private var forgotten            = 0L
   // read without the lock - by every call
   private val report               = AtomicReference[Option[Long]](None)
@@ -222,16 +221,26 @@ class PublicGuard(
       within
   end withinLimit
 
-  /** Removes the clients of past minutes - at most once a minute (under the lock). */
+  /** Removes a few clients of past minutes from the head (the least recently used) - a little with
+    * every call, never a scan of the whole map under the lock; the report once a minute.
+    */
   private def sweep(at: Long): Unit =
-    if at - lastSweep >= windowMillis then
-      lastSweep = at
-      calls.values.removeIf(_._1 < at - windowMillis)
+    val it      = calls.values.iterator
+    var removed = 0
+    while removed < PublicGuard.sweepPerCall && it.hasNext && it.next()._1 < at - windowMillis do
+      it.remove()
+      removed += 1
+    if at - lastReport >= windowMillis then
+      lastReport = at
       if forgotten > 0 then report.set(Some(forgotten))
       forgotten = 0
 
   private[gateway] def clients: Int = calls.synchronized(calls.size)
 end PublicGuard
+
+object PublicGuard:
+  // expired clients removed per call - more than one, so the map shrinks faster than it grows
+  private val sweepPerCall = 8
 
 /** The technical token of the gateway for public calls - fetched with the [[OAuthConfig]] and
   * kept until shortly before it expires, or until the engine rejects it ([[invalidate]] - at most every

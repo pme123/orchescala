@@ -262,7 +262,7 @@ takes at most `callTimeout` (30 s) and at most `maxConcurrentCalls` (100) run at
 Behind a proxy all clients come from its address - set `clientIpHeader` (e.g. `X-Forwarded-For`; the
 entry `trustedProxies` from the end is taken - default 1, 2 e.g. for a CDN and a load balancer), but
 only if the proxies set it. Without it the gateway
-warns at startup. At most 100'000 clients are counted at once (about 15 MB); beyond, the least
+notes that at startup. At most 100'000 clients are counted at once (about 15 MB); beyond, the least
 recently used is forgotten (a warning in the log) - such a flood also resets the counts of real
 clients. The
 limit is a fallback and per gateway instance: an API gateway in front should limit as well - with
