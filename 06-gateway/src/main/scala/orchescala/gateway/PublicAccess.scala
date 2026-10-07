@@ -43,8 +43,9 @@ case class PublicAccess(
     honeypotField: Option[String] = Some("_hp"),
     /** the header with the client address behind a proxy (e.g. `X-Forwarded-For`) - each proxy
       * appends the address it sees, so the entry [[trustedProxies]] from the end is the one the
-      * outermost trusted proxy appended. Only set it if the proxies set the header. Without it, all
-      * clients behind a proxy count as one (noted at startup).
+      * outermost trusted proxy appended. Only set it if the proxies set the header and the gateway
+      * is reachable through them only - else callers fake it and get a new limit with every call.
+      * Without it, all clients behind a proxy count as one (noted at startup).
       */
     clientIpHeader: Option[String] = None,
     /** the proxies in front of the gateway that append to [[clientIpHeader]] (e.g. 2 for a CDN and
