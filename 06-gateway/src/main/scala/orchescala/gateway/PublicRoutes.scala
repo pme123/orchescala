@@ -118,10 +118,11 @@ class PublicRoutes(
             ZIO.logWarning(s"Public $kind '$name': more than ${access.maxConcurrentCalls} public calls at once") *>
             ZIO.fail(PublicAccess.unavailable)
         else
-          // restore: the call itself stays interruptible (by its timeout) - a fork inherits the mask
-          restore(work).intoPromise(done).ensuring(ZIO.succeed(inFlight.decrementAndGet())).forkDaemon *>
-            // the caller gets its 503 at the timeout - also if the call does not stop at once
-            restore(done.await.timeout(access.callTimeout)).someOrElseZIO(ZIO.fail(PublicAccess.unavailable))
+          // restore: the call itself stays interruptible (by its timeout) - a fork inherits the mask;
+          // the slot is free before the caller gets the answer
+          restore(work).ensuring(ZIO.succeed(inFlight.decrementAndGet())).intoPromise(done).forkDaemon *>
+            // normally the call answers (also its own timeout); this only if it does not stop at once
+            restore(done.await.timeout(access.callTimeout + 1.second)).someOrElseZIO(ZIO.fail(PublicAccess.unavailable))
   end forwarded
 
   private def refusedLog(kind: Kind, name: String)(e: ServiceRequestError) =
