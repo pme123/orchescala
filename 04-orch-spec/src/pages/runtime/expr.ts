@@ -25,7 +25,8 @@ export function setPath(state: State, path: string, value: unknown): State {
   if (Array.isArray(state)) {
     // nur ein Index - `items.name` auf einer Liste ändert nichts
     const index = Number(head);
-    if (!Number.isInteger(index) || index < 0) return state;
+    // höchstens ein Eintrag nach dem letzten - `items.4294967294` legte sonst eine riesige Liste an
+    if (!Number.isInteger(index) || index < 0 || index > state.length) return state;
     const copy = [...state] as unknown[];
     copy[index] = next;
     return copy as unknown as State;
@@ -174,6 +175,7 @@ export function evaluate(cond: string | undefined, state: unknown): boolean {
 const checked = new Set<string>();
 function warnOnce(cond: string) {
   if (checked.has(cond)) return;
+  if (checked.size >= 500) checked.clear(); // im Designer kommt mit jedem Tastendruck eine neue dazu
   checked.add(cond);
   const problem = conditionProblem(cond);
   if (problem) console.warn(`[pages] sichtbar, wenn «${cond}»: ${problem} - gilt als falsch`);

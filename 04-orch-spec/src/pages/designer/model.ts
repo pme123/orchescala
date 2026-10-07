@@ -304,7 +304,7 @@ export function actionsOf(page: Page): { where: string; key?: BlockKey; action: 
   const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>
     (actions ?? []).flatMap((action) => [
       { where, key, action },
-      ...(action.do === 'call' ? nested(`${where} (onError)`, action.onError, key) : []),
+      ...('onError' in action ? nested(`${where} (onError)`, action.onError, key) : []),
     ]);
   return [
     ...nested('Laden', page.load),

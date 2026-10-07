@@ -17,11 +17,11 @@ export type Action =
   /** Ein Worker/Service: POST /worker/{service} – mit `public` ohne Login über /public/worker */
   | { do: 'call'; service: string; public?: boolean; input?: unknown; result?: string; errors?: Errors; onError?: Action[] }
   /** Ein Prozess starten: POST /process/{process}/async */
-  | { do: 'start'; process: string; public?: boolean; businessKey?: string; input?: unknown; result?: string; errors?: Errors }
+  | { do: 'start'; process: string; public?: boolean; businessKey?: string; input?: unknown; result?: string; errors?: Errors; onError?: Action[] }
   /** Eine Message: POST /message/{name} – öffentlich nur mit businessKey */
-  | { do: 'message'; name: string; public?: boolean; businessKey: string; input?: unknown; result?: string; errors?: Errors }
+  | { do: 'message'; name: string; public?: boolean; businessKey: string; input?: unknown; result?: string; errors?: Errors; onError?: Action[] }
   /** Einen Benutzer-Task abschliessen: POST /userTask/{taskKey}/{taskId}/complete */
-  | { do: 'completeTask'; taskKey: string; taskId: string; input?: unknown; errors?: Errors };
+  | { do: 'completeTask'; taskKey: string; taskId: string; input?: unknown; errors?: Errors; onError?: Action[] };
 
 export type Field = {
   bind: string;

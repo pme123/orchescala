@@ -56,9 +56,21 @@ function ActionForm({ isDark, action: a, onChange, targets, paths, nested }: {
       </button>
     ) : null;
   // jede Aktion ausser «Wert setzen» kann scheitern - auch eine neue ohne Texte
-  const errors = a.do !== 'set'
-    ? <ErrorsEditor isDark={isDark} errors={a.errors} onChange={(errors) => onChange({ ...a, errors } as Action)} />
-    : null;
+  // und danach weitere Aktionen (nicht verschachtelt: ein onError hat kein eigenes)
+  const errors = a.do !== 'set' ? (
+    <>
+      <ErrorsEditor isDark={isDark} errors={a.errors} onChange={(errors) => onChange({ ...a, errors } as Action)} />
+      {!nested && (
+        <details>
+          <summary className={`text-[10px] cursor-pointer ${c.muted2}`}>Bei einem Fehler zusätzlich ({a.onError?.length ?? 0})</summary>
+          <div className="pt-2">
+            <ActionsEditor isDark={isDark} actions={a.onError} nested targets={targets} paths={paths}
+              onChange={(onError) => onChange({ ...a, onError: onError.length ? onError : undefined } as Action)} />
+          </div>
+        </details>
+      )}
+    </>
+  ) : null;
 
   return (
     <div className="space-y-2">
@@ -80,15 +92,6 @@ function ActionForm({ isDark, action: a, onChange, targets, paths, nested }: {
           <PathField isDark={isDark} label="Ergebnis nach" hint="ein Pfad im Zustand" value={a.result} suggestions={paths}
             onChange={(result) => onChange({ ...a, result: result || undefined })} />
           {errors}
-          {!nested && (
-            <details>
-              <summary className={`text-[10px] cursor-pointer ${c.muted2}`}>Bei einem Fehler zusätzlich ({a.onError?.length ?? 0})</summary>
-              <div className="pt-2">
-                <ActionsEditor isDark={isDark} actions={a.onError} nested targets={targets} paths={paths}
-                  onChange={(onError) => onChange({ ...a, onError: onError.length ? onError : undefined })} />
-              </div>
-            </details>
-          )}
         </>
       )}
       {a.do === 'start' && (

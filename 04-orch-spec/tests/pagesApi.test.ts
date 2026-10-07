@@ -1,7 +1,7 @@
 // The calls of a page to the gateway: the token, a silent renewal on 401, then the login.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { ApiError, postWith, type TokenSource } from '../src/pages/runtime/api';
+import { ApiError, gateway, postWith, type TokenSource } from '../src/pages/runtime/api';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -75,4 +75,18 @@ test('an error - the status and the errorMsg of the gateway; 204 is null', async
   await assert.rejects(postWith(tokens('new').source, '/worker/x', {}, false), (e: ApiError) => e.status === 409 && e.message === 'vergeben');
   gatewayAnswers(new Response(null, { status: 204 }));
   assert.equal(await postWith(tokens('new').source, '/worker/x', {}, false), null);
+});
+
+test('the public paths - as the gateway serves them (PublicEndpoints: /public/worker|process|message)', async () => {
+  const sent = gatewayAnswers(json({}), json({}), json({}), json({}));
+  await gateway.call('acme-shop-freeSlots', {}, true);
+  await gateway.start('acme-shop-bookV1', 'r-0123456789abcdef', {}, true);
+  await gateway.message('acme-shop-bookV1-verified', 'r-0123456789abcdef', {}, true);
+  await gateway.start('acme shop', undefined, {}, true);
+  assert.deepEqual(sent.map((s) => [s.url, s.auth]), [
+    ['/public/worker/acme-shop-freeSlots', undefined],
+    ['/public/process/acme-shop-bookV1/async?businessKey=r-0123456789abcdef', undefined],
+    ['/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef', undefined],
+    ['/public/process/acme%20shop/async', undefined],
+  ]);
 });

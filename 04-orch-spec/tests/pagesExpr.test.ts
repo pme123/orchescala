@@ -100,6 +100,11 @@ test('sameValue - deep, the order of the fields does not matter', () => {
   assert.ok(!sameValue([], {}));
 });
 
+test('setPath on a list - at most one entry after the last, no huge sparse list', () => {
+  assert.deepEqual(setPath({ items: ['a'] }, 'items.1', 'b'), { items: ['a', 'b'] });
+  assert.deepEqual(setPath({ items: ['a'] }, 'items.4294967294', 'x'), { items: ['a'] });
+});
+
 test('getPath reads own fields only - setPath keeps lists lists', () => {
   assert.equal(getPath({ a: {} }, 'a.constructor'), undefined);
   assert.equal(getPath({}, '__proto__'), undefined);

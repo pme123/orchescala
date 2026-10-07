@@ -61,7 +61,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     // ohne Key fände ihre Instanz nicht, ein Start bekäme keinen
     const keyOf = (template: string | undefined, required: boolean): string | undefined => {
       if (template === undefined && !required) return undefined;
-      const key = interpolate(template ?? '', s).trim();
+      const key = interpolate(template ?? '', s, labels).trim();
       if (!key) throw new ApiError(400, `Business Key «${template ?? ''}» ist leer`);
       return key;
     };
@@ -84,7 +84,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         return;
       case 'completeTask': {
         // wie der Business Key: ohne Task-ID ginge der Aufruf an /userTask/<key>//complete
-        const taskId = interpolate(a.taskId, s).trim();
+        const taskId = interpolate(a.taskId, s, labels).trim();
         if (!taskId) throw new ApiError(400, `Task-ID «${a.taskId}» ist leer`);
         await gateway.completeTask(a.taskKey, taskId, input(a.input));
         return;
@@ -107,7 +107,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         // eine Anmeldung, die nicht geht (IdP weg, config.json fehlt), sagt das selbst - nicht «neu anmelden»
         const login = e instanceof ApiError && e.kind === 'login' ? e.message : null;
         setErrors((er) => ({ ...er, [key]: login ?? errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
-        if (a.do === 'call' && a.onError) await run(a.onError, `${key}.onError`);
+        if ('onError' in a && a.onError) await run(a.onError, `${key}.onError`);
         return false;
       }
     }
@@ -262,7 +262,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {comp.fields.filter((f) => evaluate(f.visible, state)).map((f) => (
                 <FieldInput key={f.bind} field={f} isDark={isDark} missing={missing.has(f.bind)} disabled={busy !== null}
-                  value={String(getPath(state, f.bind) ?? '')}
+                  value={asText(getPath(state, f.bind))}
                   onChange={(v) => update((s) => setPath(s, f.bind, v))} />
               ))}
             </div>
@@ -328,7 +328,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   return (
     <div className="relative mx-auto w-full max-w-3xl space-y-5 p-6">
       {isPublic && (
-        <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" value={honeypot}
+        // kein Name, den Browser oder Passwort-Manager ausfüllen (website, url, …) - sonst lehnt der Gateway echte Benutzer ab
+        <input type="text" name="hp_x7q" tabIndex={-1} autoComplete="off" aria-hidden="true" data-lpignore="true" data-1p-ignore="true"
+          data-bwignore="true" data-form-type="other" value={honeypot}
           onChange={(e) => setHoneypot(e.target.value)}
           className="pointer-events-none absolute -left-[9999px] h-px w-px opacity-0" />
       )}
@@ -336,6 +338,11 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
       {page.body.map((comp, i) => render(comp, String(i)))}
     </div>
   );
+}
+
+/** Der Wert eines Felds als Text - ein Objekt oder eine Liste (falsch gebunden) nicht als «[object Object]». */
+function asText(value: unknown): string {
+  return value === null || value === undefined || typeof value === 'object' ? '' : String(value);
 }
 
 function Label({ text, missing, isDark }: { text: string; missing?: boolean; isDark: boolean }) {
