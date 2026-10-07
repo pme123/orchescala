@@ -26,6 +26,7 @@ class PublicRoutes(
   private val maxBytes   = access.maxBodyBytes.toLong
   // public calls go to the configured tenant - starts and messages alike
   private val tenantId   = config.engineConfig.tenantId
+  private val inFlight   = java.util.concurrent.atomic.AtomicInteger(0)
 
   protected def newGuard(access: PublicAccess): PublicGuard = PublicGuard(access)
   protected def newToken(login: OAuthConfig): PublicToken   = PublicToken(login)
@@ -40,9 +41,8 @@ class PublicRoutes(
       .serverLogic: topic =>
         raw =>
           for
-            body  <- body(Kind.worker, topic, raw)
-            token <- token
-            out   <- downstream(Kind.worker, topic, token):
+            body <- body(Kind.worker, topic, raw)
+            out  <- forwarded(Kind.worker, topic): token =>
                        AuthContext.withBearerToken(token):
                          WorkerForwardUtil.forwardWorkerRequest(topic, Json.fromJsonObject(body), token)(using config.engineConfig)
                            // the shared backend - no client per call
@@ -59,9 +59,9 @@ class PublicRoutes(
         (businessKey, raw) =>
           for
             body   <- body(Kind.processStart, key, raw)
-            token  <- token
-            result <- downstream(Kind.processStart, key, token):
-                        processRoutes.startAsync(token, key, businessKey, tenantId, body)
+            bk     <- checkedKey(Kind.processStart, key, businessKey, required = false)
+            result <- forwarded(Kind.processStart, key): token =>
+                        processRoutes.startAsync(token, key, bk, tenantId, body)
           yield result
 
   private lazy val messageEndpoint: ZServerEndpoint[Any, ZioStreams & WebSockets] =
@@ -72,13 +72,9 @@ class PublicRoutes(
         (businessKey, raw) =>
           for
             body   <- body(Kind.message, name, raw)
-            key    <- ZIO
-                        .fromOption(businessKey.filter(!_.isBlank))
-                        .orElseFail(ServiceRequestError(400, "A public message needs the businessKey."))
-                        .tapError(refusedLog(Kind.message, name))
-            token  <- token
-            result <- downstream(Kind.message, name, token):
-                        messageRoutes.send(token, name, tenantId, None, Some(key), None, Some(body).filter(_.nonEmpty))
+            bk     <- checkedKey(Kind.message, name, businessKey, required = true)
+            result <- forwarded(Kind.message, name): token =>
+                        messageRoutes.send(token, name, tenantId, None, bk, None, Some(body).filter(_.nonEmpty))
           yield result
 
   /** Rate limit and allow list - the name is passed on to the logic. */
@@ -96,6 +92,25 @@ class PublicRoutes(
   /** The body as the guard checked it. */
   private def body(kind: Kind, name: String, raw: String): IO[ServiceRequestError, JsonObject] =
     ZIO.fromEither(guard.body(raw)).tapError(refusedLog(kind, name))
+
+  private def checkedKey(kind: Kind, name: String, key: Option[String], required: Boolean) =
+    ZIO.fromEither(guard.businessKey(key, required)).tapError(refusedLog(kind, name))
+
+  /** The call with the technical token - at most [[PublicAccess.maxConcurrentCalls]] at once and
+    * within [[PublicAccess.callTimeout]], else a 503.
+    */
+  private def forwarded[A](kind: Kind, name: String)(call: String => IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
+    ZIO.acquireReleaseWith(ZIO.succeed(inFlight.incrementAndGet()))(_ => ZIO.succeed(inFlight.decrementAndGet())): n =>
+      if n > access.maxConcurrentCalls then
+        ZIO.logWarning(s"Public $kind '$name': more than ${access.maxConcurrentCalls} public calls at once") *>
+          ZIO.fail(PublicAccess.unavailable)
+      else
+        token
+          .flatMap(t => downstream(kind, name, t)(call(t)))
+          .timeout(access.callTimeout)
+          .someOrElseZIO:
+            ZIO.logError(s"Public $kind '$name': no answer within ${access.callTimeout.render}") *>
+              ZIO.fail(PublicAccess.unavailable)
 
   private def refusedLog(kind: Kind, name: String)(e: ServiceRequestError) =
     ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}")

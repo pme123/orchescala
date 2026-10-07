@@ -196,7 +196,21 @@ object PublicAccessSpec extends ZIOSpecDefault:
           access.client(None, Seq.empty) == "unknown",
           // a CDN and a load balancer: the second entry from the end
           behindProxy.copy(trustedProxies = 2)
-            .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "6.6.6.6, 1.2.3.4, 10.0.0.9"))) == "1.2.3.4"
+            .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "6.6.6.6, 1.2.3.4, 10.0.0.9"))) == "1.2.3.4",
+          // fewer entries than proxies - the remote address
+          behindProxy.copy(trustedProxies = 2)
+            .client(Some("10.0.0.1"), Seq(Header("X-Forwarded-For", "1.2.3.4"))) == "10.0.0.1"
+        )
+      ,
+      test("the business key: optional or required, short and plain"):
+        val g = guard(TestClock())
+        assertTrue(
+          g.businessKey(None, required = false) == Right(None),
+          g.businessKey(Some(" "), required = false) == Right(None),
+          g.businessKey(None, required = true).left.map(_.errorCode) == Left(400),
+          g.businessKey(Some("anna.berater-2026-10-08T09:00"), required = true) == Right(Some("anna.berater-2026-10-08T09:00")),
+          g.businessKey(Some("a b"), required = true).left.map(_.errorCode) == Left(400),
+          g.businessKey(Some("x" * 129), required = true).left.map(_.errorCode) == Left(400)
         )
       ,
       test("the secret of the login is never shown"):
@@ -281,6 +295,33 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
     ),
     suite("PublicRoutes")(
+      test("no answer within callTimeout - a 503"):
+        for
+          token    <- techTokenOf(TestClock())
+          got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          slow      = access.copy(login = Some(login), callTimeout = 200.millis)
+          r         = routes(slow, got, ZIO.never, Some(token))
+          response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+        yield assertTrue(response.status == Status.ServiceUnavailable)
+      @@ TestAspect.withLiveClock,
+      test("more than maxConcurrentCalls at once - a 503 at once"):
+        for
+          token    <- techTokenOf(TestClock())
+          got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          release  <- Promise.make[Nothing, Unit]
+          one       = access.copy(login = Some(login), maxConcurrentCalls = 1)
+          r         = routes(one, got, release.await, Some(token))
+          first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}").fork
+          _        <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
+          second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-2", "{}")
+          _        <- release.succeed(())
+          done     <- first.join
+        yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
+      @@ TestAspect.withLiveClock,
+      test("a business key that is not plain - 400"):
+        for response <- post(access, "/public/process/acme-shop-bookV1/async?businessKey=a%20b", "{}")
+        yield assertTrue(response.status == Status.BadRequest)
+      ,
       test("without PublicAccess there is nothing under /public"):
         for response <- post(PublicAccess.none, "/public/worker/acme-shop-freeSlots", "{}")
         yield assertTrue(response.status == Status.NotFound)

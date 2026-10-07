@@ -53,7 +53,13 @@ case class PublicAccess(
     /** the proxies in front of the gateway that append to [[clientIpHeader]] (e.g. 2 for a CDN and
       * a load balancer)
       */
-    trustedProxies: Int = 1
+    trustedProxies: Int = 1,
+    /** the longest a public call may take (token, worker, engine) - then a 503 */
+    callTimeout: Duration = 30.seconds,
+    /** public calls at once on this gateway - more are a 503 at once, so slow workers or a slow
+      * engine cannot pile up anonymous calls
+      */
+    maxConcurrentCalls: Int = 100
 ):
   lazy val isEmpty: Boolean = workers.isEmpty && processStarts.isEmpty && messages.isEmpty
 
@@ -81,6 +87,9 @@ object PublicAccess:
 
   /** The general variables ([[GeneralVariables]]) - a public call with one of them is refused. */
   val reservedFields: Set[String] = InputParams.values.map(_.toString).toSet
+
+  /** A business key as a public caller may send it - letters, digits and `._:@+-`, at most 128. */
+  val businessKeyPattern = "[A-Za-z0-9._:@+-]{1,128}".r
 
   /** What an anonymous caller gets when something inside fails - the detail goes to the log only. */
   val unavailable: ServiceRequestError =
@@ -111,7 +120,9 @@ class PublicGuard(
 
   private val windowMillis = 60 * 1000L
 
-  // per client: start of its minute and the calls in it - the least recently used first
+  // per client: start of its minute and the calls in it - the least recently used first. One lock:
+  // its work is a map lookup (the sweep once a minute) - cheap next to a call to a worker or the
+  // engine; with a sharded map the LRU order and the cap would no longer be exact.
   private val calls = new java.util.LinkedHashMap[String, (Long, Int)](16, 0.75f, true):
     override def removeEldestEntry(eldest: java.util.Map.Entry[String, (Long, Int)]): Boolean =
       val full = size > maxClients
@@ -144,6 +155,13 @@ class PublicGuard(
       clean <- withoutHoneypot(obj)
       _     <- withoutReserved(clean)
     yield clean
+
+  /** The business key - None is fine unless it is required; else a short plain one. */
+  def businessKey(key: Option[String], required: Boolean): Either[ServiceRequestError, Option[String]] =
+    key.filter(!_.isBlank) match
+      case None if required                                          => Left(ServiceRequestError(400, "The businessKey is required."))
+      case Some(k) if !PublicAccess.businessKeyPattern.matches(k)    => Left(ServiceRequestError(400, "The businessKey is not valid."))
+      case k                                                         => Right(k)
 
   /** [[admit]] and [[body]] in one - for tests. */
   private[gateway] def check(kind: Kind, name: String, client: String, raw: String): Either[ServiceRequestError, Json] =
@@ -207,6 +225,9 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
   protected def identityUrl: Uri = login.identityUrl
 
   protected def retryAfterMillis: Long = 5 * 1000L
+  // public calls wait for it - shorter than the 30 seconds for the engines
+  override protected def tokenCallHardTimeout: scala.concurrent.duration.FiniteDuration =
+    scala.concurrent.duration.FiniteDuration(10, "seconds")
   // kept at least that long - also if the identity provider says 0 (a refused call drops it earlier)
   protected def minLifetimeSeconds: Long = 5
   // a token is dropped as rejected only if it is at least that old
