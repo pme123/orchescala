@@ -5,6 +5,7 @@
 //                Fehler, Mocks — vollständig und eindeutig
 //  · json        die Spezifikation selbst (Sicherung / Weiterverarbeitung)
 
+import { overallStatus } from './status.ts';
 import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
 import { STATUS_META } from './types.ts';
 import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
@@ -145,7 +146,7 @@ function exportFachlich(spec: ProcessSpec, model: Model | null): string {
   const out: string[] = [
     `# ${spec.title}`,
     '',
-    `Status: **${STATUS_META[spec.status].label}** · Stand ${spec.updatedAt.slice(0, 10)}`,
+    `Status: **${STATUS_META[overallStatus(spec)].label}** · Stand ${spec.updatedAt.slice(0, 10)}`,
     '',
   ];
   if (spec.description) out.push(spec.description, '');
@@ -242,7 +243,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       ['Prozess-ID', `\`${spec.processId ?? ''}\``],
       ['Projekt', `\`${spec.project ?? ''}\``],
       ['Titel', spec.title],
-      ['Status', STATUS_META[spec.status].label],
+      ['Status', STATUS_META[overallStatus(spec)].label],
       ['Engine', engineLabel(spec.engine)],
       ['Stand', spec.updatedAt],
       ...(spec.timeToLive ? [['Time to Live', `${spec.timeToLive} Tage`]] : []),

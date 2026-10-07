@@ -11,7 +11,12 @@
 // Reihenfolge = Fortschritt; ein Klick auf den Chip schaltet weiter.
 // «Angepasst» steht am Ende: dorthin setzt der BPMN-Abgleich einen Schritt,
 // dessen Implementation sich geändert hat — auch einen abgenommenen.
-export const STATUSES = ['draft', 'review', 'final', 'implemented', 'accepted', 'changed'] as const;
+/**
+ * In der Reihenfolge des Fortschritts — «Angepasst» (technisch geändert, nach
+ * «Final») steht vor «Umgesetzt»: der kleinste Status ist der Stand des Ganzen
+ * (siehe overallStatus).
+ */
+export const STATUSES = ['draft', 'review', 'final', 'changed', 'implemented', 'accepted'] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const STATUS_META: Record<Status, { label: string; short: string; dark: string; light: string }> = {

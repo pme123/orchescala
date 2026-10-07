@@ -1282,11 +1282,18 @@ Export, nicht in der JSON (siehe [Datenablage](#datenablage-im-geteilten-ordner)
 
 ### Status je Schritt
 
-**Entwurf · In Prüfung · Final · Umgesetzt · Abgenommen · Angepasst** — am
-ganzen Prozess und an jedem einzelnen Schritt. «Abgenommen» ist der
-Endzustand und deshalb als einziger Chip gefüllt statt getönt. Die Verteilung
-steht im Kopf und ist zugleich Filter; ein Klick auf den Chip im Baum schaltet
-weiter.
+**Entwurf → In Prüfung → Final → Angepasst → Umgesetzt → Abgenommen** — in
+dieser Reihenfolge, an jedem Schritt (und an Klassen und Interaktionen im
+Datenmodell). «Abgenommen» ist der Endzustand und deshalb als einziger Chip
+gefüllt statt getönt. Die Verteilung steht im Kopf und ist zugleich Filter;
+ein Klick auf den Chip im Baum schaltet weiter.
+
+Der **Status der Spezifikation** wird nicht gesetzt: er ist der **kleinste**
+Status ihrer Teile — der Schritte und dessen, was im Datenmodell einen Status
+trägt. Steht ein Schritt noch auf «Entwurf», ist die ganze Spezifikation ein
+Entwurf; erst wenn alles abgenommen ist, ist sie «Abgenommen». Oben rechts
+steht er als Chip, ein Klick filtert den Ablauf danach; die Übersicht der
+Prozesse und die Exporte zeigen denselben Stand.
 
 ### Was der Requirements Engineer festlegt
 

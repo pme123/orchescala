@@ -21,6 +21,7 @@ import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
+import { overallStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
@@ -304,7 +305,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
    * Eintrag im Protokoll; ohne gilt sie als Handarbeit.
    */
   const update = useCallback((next: ProcessSpec, origin?: AuditOrigin) => {
-    const data = { ...next, updatedAt: nowIsoWithTimezone() };
+    // der Status der Spezifikation ist der kleinste ihrer Teile — nie von Hand
+    const data = { ...next, status: overallStatus(next), updatedAt: nowIsoWithTimezone() };
     if (origin) {
       cutAudit(latest.current);
       cutAudit(data, origin);
@@ -996,12 +998,10 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
             <Download size={12} /> Export
           </button>
-          <select value={spec.status} disabled={!canEdit}
-            onChange={e => update({ ...spec, status: e.target.value as Status })}
-            title="Status der Spezifikation"
-            className={`text-[11px] px-2 py-1.5 rounded border outline-none flex-shrink-0 ${c.input}`}>
-            {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
-          </select>
+          {/* der Stand des Ganzen: der kleinste Status der Schritte und des Datenmodells — ein Klick filtert danach */}
+          <StatusChip status={overallStatus(spec)} isDark={isDark}
+            title={`Status der Spezifikation: der kleinste Status aller Schritte und Klassen (${STATUSES.map(s => STATUS_META[s].label).join(' → ')}) — klicken zeigt, welche`}
+            onClick={() => setStatusFilter(overallStatus(spec))} />
         </div>
       </div>
 

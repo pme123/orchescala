@@ -20,6 +20,7 @@
 // **Epics** (Admin → Epics) filtern die Liste: ein Klick zeigt nur die
 // Prozesse dieses Epics. Der Filter bleibt im Browser gemerkt — wer an einem
 // Change arbeitet, kommt aus dem Prozess in dieselbe Auswahl zurück.
+import { overallStatus } from '../status';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowUpDown, FileCode2, Flag, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
 import { collectFindings, withServiceRows } from '../findings';
@@ -113,7 +114,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     const q = listQuery.trim().toLowerCase();
     const list = specs.filter(({ slug, data }) =>
       (!q || `${data.title} ${data.processId ?? ''} ${data.project ?? ''} ${slug} ${epicsOf(data, model).map(e => e.name).join(' ')}`.toLowerCase().includes(q))
-      && (!listStatus || data.status === listStatus)
+      && (!listStatus || overallStatus(data) === listStatus)
       && (!activeEpic || !!data.epics?.includes(activeEpic)));
     return sortBy === 'updated'
       ? [...list].sort((a, b) => (b.data.updatedAt ?? '').localeCompare(a.data.updatedAt ?? ''))
@@ -447,12 +448,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               className={`flex-1 min-w-0 bg-transparent outline-none text-[11px] ${c.text}`} />
             {listQuery && <button onClick={() => setListQuery('')} className={c.muted}><X size={10} /></button>}
           </div>
-          {STATUSES.filter(st => specs.some(x => x.data.status === st)).map(st => (
+          {STATUSES.filter(st => specs.some(x => overallStatus(x.data) === st)).map(st => (
             <button key={st} onClick={() => setListStatus(listStatus === st ? null : st)}
               title={`Nur Prozesse mit Status «${STATUS_META[st].label}»`}
               className={`text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${isDark ? STATUS_META[st].dark : STATUS_META[st].light} ${
                 listStatus && listStatus !== st ? 'opacity-30' : ''}`}>
-              {STATUS_META[st].label} {specs.filter(x => x.data.status === st).length}
+              {STATUS_META[st].label} {specs.filter(x => overallStatus(x.data) === st).length}
             </button>
           ))}
           {epicFilter.length > 0 && (
@@ -558,7 +559,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                         ) : (
                           <span className="w-8" />
                         )}
-                        <StatusChip status={data.status as Status} isDark={isDark} />
+                        <StatusChip status={overallStatus(data)} isDark={isDark} title="Der kleinste Status der Schritte und Klassen" />
                       </button>
                       {/* Löschen — nur Admin (oder ohne Anmeldepflicht) */}
                       {canDelete && (
