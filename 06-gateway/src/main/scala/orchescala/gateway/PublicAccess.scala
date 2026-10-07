@@ -93,6 +93,9 @@ object PublicAccess:
     */
   val reservedFields: Set[String] = InputParams.values.map(_.toString).toSet
 
+  /** Milliseconds for windows and lifetimes - monotonic, so a clock set back (NTP) stretches nothing. */
+  val monotonicMillis: () => Long = () => java.lang.System.nanoTime() / 1_000_000
+
   /** A name from a caller as it may go into the log - no line breaks or other tricks, at most 80. */
   def loggable(name: String): String =
     name.take(80).map(c => if c.isLetterOrDigit || "._-".contains(c) then c else '?')
@@ -127,7 +130,7 @@ end PublicAccess
   */
 class PublicGuard(
     access: PublicAccess,
-    now: () => Long = () => java.lang.System.currentTimeMillis(),
+    now: () => Long = PublicAccess.monotonicMillis,
     maxClients: Int = 100_000
 ):
   import PublicAccess.Kind
@@ -248,7 +251,7 @@ object PublicGuard:
   * fetch at a time; after a failed one, calls fail at once for [[retryAfterMillis]] - so anonymous
   * traffic does not hammer the identity provider.
   */
-class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.currentTimeMillis())
+class PublicToken(login: OAuthConfig, now: () => Long = PublicAccess.monotonicMillis)
     extends OAuth2Flow:
   protected def identityUrl: Uri = login.identityUrl
 
