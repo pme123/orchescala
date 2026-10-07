@@ -83,7 +83,7 @@ class PublicToken(login: OAuthConfig, now: () => Long = PublicAccess.monotonicMi
   protected def requestToken: IO[String, String] =
     ZIO
       .attemptBlocking(withHardTimeout(tokenRequest.body(login.asMap).send(syncBackend).body))
-      .mapError(_.getMessage)
+      .mapError(e => Option(e.getMessage).getOrElse(e.toString))
       .flatMap:
         case Left(err)         => ZIO.fail(err)
         case Right(Left(err))  => ZIO.fail(err.take(200))
