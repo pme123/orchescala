@@ -240,8 +240,11 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
     let vomNutzer = false;
     modeler.on('element.click', 1500, () => { vomNutzer = true; });
     modeler.on('element.click', 500, () => { vomNutzer = false; });
-    modeler.on('selection.changed', (e: { newSelection: Array<{ id: string }> }) => {
-      const id = e.newSelection?.[0]?.id ?? null;
+    modeler.on('selection.changed', (e: { newSelection: Array<{ id: string; type?: string; host?: { id: string } }> }) => {
+      // ein Boundary-Event ist in der Spezifikation kein Schritt, sondern ein behandelter
+      // Fehler (Nebenpfad) des Schritts, an dem es hängt — gezeigt wird dieser Schritt
+      const first = e.newSelection?.[0];
+      const id = (first?.type === 'bpmn:BoundaryEvent' ? first.host?.id : first?.id) ?? null;
       const geklickt = vomNutzer;
       vomNutzer = false;
       // Beim Aufbauen und beim Import meldet bpmn-js eine leere Auswahl. Das
@@ -265,6 +268,8 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
           // Im Diagramm angeklickt: die Auswahl kommt nur zurück — der
           // Ausschnitt bleibt (sonst rückt ein Element am Rand ins Bild)
           if (selection.get().includes(el)) return;
+          // ein angeklicktes Boundary-Event des Schritts bleibt gewählt
+          if ((selection.get() as Array<{ type?: string; host?: unknown }>).some(x => x.type === 'bpmn:BoundaryEvent' && x.host === el)) return;
           selection.select(el);
           canvas.scrollToElement(el);
         } catch { /* Element (noch) nicht im Diagramm */ }
