@@ -234,11 +234,14 @@ object PublicAccessSpec extends ZIOSpecDefault:
           req    <- t.requests.get
         yield assertTrue(tokens.forall(_ == "t1"), req == 1)
       ,
-      test("invalidated - the next call fetches a new one; another token is not touched"):
+      test("invalidated - the next call fetches a new one; not a younger one, not another token"):
+        val clock = TestClock()
         for
-          t      <- fakeToken(TestClock(), Right("""{"access_token":"t1","expires_in":300}"""))
+          t      <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
           _      <- t.token
-          _      <- ZIO.succeed(t.invalidate("an-older-one")) *> t.token
+          _      <- ZIO.succeed(t.invalidate("t1")) *> t.token           // younger than 10 seconds - kept
+          _      <- ZIO.succeed(clock.set(11 * 1000L))
+          _      <- ZIO.succeed(t.invalidate("an-older-one")) *> t.token // another token - kept
           before <- t.requests.get
           _      <- ZIO.succeed(t.invalidate("t1")) *> t.token
           after  <- t.requests.get
@@ -358,15 +361,23 @@ object PublicAccessSpec extends ZIOSpecDefault:
           !failed._2.contains("engine.internal")
         )
       ,
-      test("the technical token refused (401) - a 503, and the next call fetches a new one"):
+      test("the technical token rejected (401) - a 503, and a new one once it is old enough; 403 keeps it"):
+        def calls(code: Int) =
+          val clock = TestClock()
+          for
+            token    <- techTokenOf(clock)
+            got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+            r         = routes(access.copy(login = Some(login)), got, ZIO.fail(EngineError.ServiceRequestError(code, "no")), Some(token))
+            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            _        <- ZIO.succeed(clock.set(11 * 1000L))
+            _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            requests <- token.requests.get
+          yield first.status.code -> requests
         for
-          token    <- techTokenOf(TestClock())
-          got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
-          r         = routes(access.copy(login = Some(login)), got, ZIO.fail(EngineError.ServiceRequestError(401, "expired")), Some(token))
-          first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
-          _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
-          requests <- token.requests.get
-        yield assertTrue(first.status == Status.ServiceUnavailable, requests == 2)
+          rejected  <- calls(401)
+          forbidden <- calls(403)
+        yield assertTrue(rejected == (503 -> 2), forbidden == (403 -> 1))
     )
   )
 end PublicAccessSpec

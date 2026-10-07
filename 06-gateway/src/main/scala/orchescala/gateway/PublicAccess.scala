@@ -91,7 +91,8 @@ end PublicAccess
   * @param maxClients
   *   the most clients counted at once - beyond, the client used least recently is forgotten (its
   *   count starts anew), so rotating addresses can neither grow the map without bound nor lock out
-  *   others
+  *   others; the price: such a flood also resets the counts of real clients. 100'000 entries are
+  *   about 15 MB.
   */
 class PublicGuard(
     access: PublicAccess,
@@ -188,7 +189,8 @@ class PublicGuard(
 end PublicGuard
 
 /** The technical token of the gateway for public calls - fetched with the [[OAuthConfig]] and
-  * kept until shortly before it expires, or until a call is refused with it ([[invalidate]]). One
+  * kept until shortly before it expires, or until the engine rejects it ([[invalidate]] - at most every
+  * [[minRefetchMillis]], so callers cannot drive the identity provider with rejected calls). One
   * fetch at a time; after a failed one, calls fail at once for [[retryAfterMillis]] - so anonymous
   * traffic does not hammer the identity provider.
   */
@@ -199,8 +201,11 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
   protected def retryAfterMillis: Long = 5 * 1000L
   // kept at least that long - also if the identity provider says 0 (a refused call drops it earlier)
   protected def minLifetimeSeconds: Long = 5
+  // a token is dropped as rejected only if it is at least that old
+  protected def minRefetchMillis: Long   = 10 * 1000L
 
-  private val cached      = AtomicReference[Option[(String, Long)]](None)
+  // the token, until when it is valid, when it was fetched
+  private val cached      = AtomicReference[Option[(String, Long, Long)]](None)
   private val failedUntil = AtomicLong(0L)
   private val fetching    = Unsafe.unsafe(implicit u => Semaphore.unsafe.make(1))
 
@@ -213,10 +218,14 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
 
   /** The engine or a worker refused this token (401 / 403) - the next call fetches a new one. */
   def invalidate(token: String): Unit =
-    cached.getAndUpdate(c => if c.exists(_._1 == token) then None else c): Unit
+    val at = now()
+    cached.getAndUpdate:
+      case Some((t, _, fetchedAt)) if t == token && at - fetchedAt >= minRefetchMillis => None
+      case c                                                                          => c
+    : Unit
 
   private def current: Option[String] =
-    cached.get().collect { case (token, validUntil) if now() < validUntil => token }
+    cached.get().collect { case (token, validUntil, _) if now() < validUntil => token }
 
   private def fetch: IO[ServiceRequestError, String] =
     if now() < failedUntil.get() then ZIO.fail(PublicAccess.unavailable)
@@ -232,7 +241,8 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
             // renewed shortly before it expires - at most 30 seconds, at most half its time
             val margin   = (expiresIn / 2).min(30)
             val validFor = (expiresIn - margin).max(minLifetimeSeconds)
-            cached.set(Some(token -> (now() + validFor * 1000)))
+            val at       = now()
+            cached.set(Some((token, at + validFor * 1000, at)))
             token
         )
 

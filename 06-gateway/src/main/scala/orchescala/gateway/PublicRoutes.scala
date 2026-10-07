@@ -71,12 +71,14 @@ class PublicRoutes(
       .serverLogic: name =>
         (businessKey, raw) =>
           for
-            _      <- ZIO.when(businessKey.isBlank):
-                        ZIO.fail(ServiceRequestError(400, "A public message needs the businessKey."))
             body   <- body(Kind.message, name, raw)
+            key    <- ZIO
+                        .fromOption(businessKey.filter(!_.isBlank))
+                        .orElseFail(ServiceRequestError(400, "A public message needs the businessKey."))
+                        .tapError(refusedLog(Kind.message, name))
             token  <- token
             result <- downstream(Kind.message, name, token):
-                        messageRoutes.send(token, name, tenantId, None, Some(businessKey), None, Some(body).filter(_.nonEmpty))
+                        messageRoutes.send(token, name, tenantId, None, Some(key), None, Some(body).filter(_.nonEmpty))
           yield result
 
   /** Rate limit and allow list - the name is passed on to the logic. */
@@ -99,15 +101,15 @@ class PublicRoutes(
     ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}")
 
   /** What a worker or the engine answers goes to the caller without its detail (only to the log): a
-    * refusal (4xx) with its status, a failure (5xx) as 503. Is the technical token refused (401 /
-    * 403), the next call fetches a new one.
+    * refusal (4xx) with its status, a failure (5xx) as 503. Is the technical token rejected (401 -
+    * a 403 can be a business rule), the next call fetches a new one.
     */
   private def downstream[A](kind: Kind, name: String, token: String)(call: IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
     call.catchAll: e =>
       val log = s"Public $kind '$name': ${e.errorCode} ${e.errorMsg}"
       val err = e.errorCode match
-        case 401 | 403                => ZIO.succeed(login.foreach(_.invalidate(token))) *>
-                                           ZIO.logError(s"$log - the technical token was refused, a new one is fetched")
+        case 401                      => ZIO.succeed(login.foreach(_.invalidate(token))) *>
+                                           ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
                                              .as(PublicAccess.unavailable)
         case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(c))
         case _                        => ZIO.logError(log).as(PublicAccess.unavailable)

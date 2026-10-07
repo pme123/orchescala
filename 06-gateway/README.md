@@ -256,15 +256,18 @@ well: it would let an anonymous caller steer the process. Starts and messages go
 tenant.
 
 Behind a proxy all clients come from its address - set `clientIpHeader` (e.g. `X-Forwarded-For`, its
-last entry is taken - the one the proxy appended), but only if the proxy sets it. At most 100'000
-clients are counted at once; beyond, the least recently used is forgotten (a warning in the log). The
+last entry is taken - the one the proxy appended), but only if the proxy sets it. Without it the gateway
+warns at startup. At most 100'000 clients are counted at once (about 15 MB); beyond, the least
+recently used is forgotten (a warning in the log) - such a flood also resets the counts of real
+clients. The
 limit is a fallback: an API gateway in front should limit as well. A process started this way runs
 with the identity of the technical user - let a human see nothing before e.g. an e-mail opt-in.
 
 What a worker or the engine answers reaches the caller without its detail (only the log has it): a
 refusal (4xx, e.g. of an init worker) keeps its status with a generic text - a page shows its own
 text for it -, a failure (5xx) is a 503. The technical token is fetched once for all calls at a time
-and dropped when the engine refuses it (401 / 403); after a failed login, public calls fail at once
+and dropped when the engine rejects it (401 - at most every 10 seconds; a 403 can be a business
+rule and keeps it); after a failed login, public calls fail at once
 for a few seconds.
 
 ## Integration with Existing Code

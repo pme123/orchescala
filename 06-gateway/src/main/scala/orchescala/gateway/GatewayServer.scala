@@ -56,9 +56,16 @@ abstract class GatewayServer extends EngineApp, ZIOAppDefault:
                  case verified                     =>
                    ZIO.logInfo(s"Bearer tokens are verified: ${verified.description}")
           _ <- ZIO.unless(config.publicAccess.isEmpty):
-                 ZIO.logInfo(s"Without a token (/public): ${config.publicAccess}") *>
-                   ZIO.when(config.publicAccess.login.isEmpty):
-                     ZIO.logError("PublicAccess has no login - every public call answers 503.")
+                 val public = config.publicAccess
+                 for
+                   _ <- ZIO.logInfo(s"Without a token (/public): $public")
+                   _ <- ZIO.when(public.login.isEmpty):
+                          ZIO.logError("PublicAccess has no login - every public call answers 503.")
+                   _ <- ZIO.when(public.clientIpHeader.isEmpty):
+                          ZIO.logWarning(
+                            "PublicAccess has no clientIpHeader - behind a proxy all clients share one rate limit."
+                          )
+                 yield ()
 
           // Create gateway engine (with shared client layers provided)
           gatewayEngine      <- engineZIO

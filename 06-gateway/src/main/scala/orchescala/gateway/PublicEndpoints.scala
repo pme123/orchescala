@@ -27,7 +27,8 @@ object PublicEndpoints:
 
   /** The address of the client - the remote address, or the header of [[PublicAccess.clientIpHeader]]. */
   private val clientIn =
-    extractFromRequest(_.connectionInfo.remote.map(_.getAddress.getHostAddress))
+    // getHostString: also for an unresolved address (getAddress is null then)
+    extractFromRequest(_.connectionInfo.remote.map(_.getHostString))
       .and(headers)
 
   /** The name (topic, process key or message) and the client. */
@@ -64,13 +65,19 @@ object PublicEndpoints:
       )
       .tag(apiGroup)
 
-  lazy val message: Endpoint[Admission, (String, String), ServiceRequestError, MessageCorrelationResult, Any] =
+  lazy val message: Endpoint[Admission, (Option[String], String), ServiceRequestError, MessageCorrelationResult, Any] =
     EndpointsUtil.publicBaseEndpoint
       .post
       .securityIn("public" / "message")
       .securityIn(signalOrMessageNamePath)
       .securityIn(clientIn)
-      .in(query[String]("businessKey").description("Business Key of the process instance - required."))
+      // decoded as an Option - so a missing one is refused (and counted) like the other refusals;
+      // the schema documents it as required
+      .in(
+        query[Option[String]]("businessKey")
+          .schema(summon[Schema[String]].as[Option[String]])
+          .description("Business Key of the process instance - required.")
+      )
       .in(body[Option[JsonObject]]("Variables to send with the message as a JSON object"))
       .out(jsonBody[MessageCorrelationResult])
       .name("Public: Send Message")
