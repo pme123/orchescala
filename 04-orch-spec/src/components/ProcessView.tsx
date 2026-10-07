@@ -65,6 +65,21 @@ let directoryWarned = false;
 const cssAttr = (s: string) => s.replace(/["\\]/g, '\\$&');
 
 // Alle Schritt-IDs, die Kinder haben (für «alles ein-/ausklappen»)
+/** Schlüssel eines Pattern-Blocks im Baum (PatternFold) — über seinen ersten Schritt */
+const foldKey = (steps: Step[]) => `fold:${steps[0]?.id ?? ''}`;
+
+/** Die Pattern-Blöcke im Baum: gemeinsame Blöcke (Schritte mit `pattern`) und Fehlerpfade eines Patterns */
+function foldIds(steps: Step[], out: string[] = []): string[] {
+  for (const s of steps) {
+    if (s.pattern) out.push(foldKey([s]));
+    for (const e of s.errors ?? []) if (e.pattern && e.steps?.length) out.push(foldKey(e.steps));
+    for (const b of s.branches ?? []) foldIds(b.steps, out);
+    for (const e of s.errors ?? []) foldIds(e.steps ?? [], out);
+    foldIds(s.children ?? [], out);
+  }
+  return out;
+}
+
 function containerIds(steps: Step[], out: string[] = []): string[] {
   for (const s of steps) {
     if (s.branches?.length || s.children?.length || s.errors?.some(e => e.steps?.length)) out.push(s.id);
@@ -195,7 +210,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       latest.current = r.data;
       auditQueue.current = [...r.audit];
       // Subprozesse und Fehlerpfade zu Beginn zugeklappt: erst der Überblick
-      const start = new Set<string>();
+      // die Pattern-Blöcke ebenso — ihre Verdrahtung zeigt man nur bei Bedarf
+      const start = new Set<string>(foldIds(r.data.steps));
       for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       setCollapsed(start);
     });
@@ -409,7 +425,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
   const counts = useMemo(() => (spec ? statusCounts(spec) : null), [spec]);
-  const containers = useMemo(() => (spec ? containerIds(spec.steps) : []), [spec]);
+  const containers = useMemo(() => (spec ? [...containerIds(spec.steps), ...foldIds(spec.steps)] : []), [spec]);
   const ancestors = useMemo(() => (spec ? ancestorsOf(spec.steps) : new Map<string, string[]>()), [spec]);
   const ancestorsRef = useRef(ancestors);
   ancestorsRef.current = ancestors;
@@ -580,8 +596,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     [deferredSpec, model],
   );
 
-  // Suche/Filter: passt ein Schritt oder einer seiner Nachfahren?
-  const matches = useCallback((s: Step): boolean => {
+  // Suche/Filter: passt ein Schritt selbst — und (matches) er oder einer seiner Nachfahren?
+  const matchesSelf = useCallback((s: Step): boolean => {
     const q = query.trim().toLowerCase();
     // gesucht wird auch im Objektnamen der Interaktion und im Namen des
     // Katalog-Services — so findet «Approve» die Aufgabe, deren Schritt
@@ -589,13 +605,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const ia = spec?.interactions?.find(i => i.stepId === s.id);
     const svc = catalogEntry(s, model);
     const haystack = `${s.name} ${s.description ?? ''} ${s.serviceId ?? ''} ${s.topic ?? ''} ${ia?.name ?? ''} ${svc?.name ?? ''} ${s.calledProcess ?? ''}`.toLowerCase();
-    const hit = (!q || haystack.includes(q))
+    return (!q || haystack.includes(q))
       && (!statusFilter || s.status === statusFilter)
       && (!findingsOnly || findings.has(s.id));
-    if (hit) return true;
+  }, [query, statusFilter, findingsOnly, findings, spec?.interactions, model]);
+  const matches = useCallback((s: Step): boolean => {
+    if (matchesSelf(s)) return true;
     const sub = [...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])];
     return sub.some(matches);
-  }, [query, statusFilter, findingsOnly, findings, spec?.interactions, model]);
+  }, [matchesSelf]);
 
   const active = query.trim() !== '' || statusFilter !== null || findingsOnly;
 
@@ -1045,7 +1063,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               <div className="flex-1 overflow-y-auto px-4 py-3">
                 <StepList steps={spec.steps} depth={0} isDark={isDark} collapsed={collapsed} toggle={toggle}
                   selected={selected} onSelect={setSelected} byId={byId}
-                  matches={matches} filterActive={active}
+                  matches={matches} matchesSelf={matchesSelf} filterActive={active}
                   onStatus={canEdit ? (id, s) => patchStep(id, { status: s }) : undefined}
                   findings={findings}
                   interactionOf={id => (spec.interactions ?? []).find(i => i.stepId === id) ?? null}
@@ -1270,6 +1288,8 @@ interface ListProps {
   onSelect: (id: string) => void;
   byId: Map<string, Step>;
   matches: (s: Step) => boolean;
+  /** passt der Schritt selbst (ohne Nachfahren)? */
+  matchesSelf: (s: Step) => boolean;
   filterActive: boolean;
   onStatus?: (id: string, s: Status) => void;
   /** Anzeigename eines Patterns (aus dem Admin) */
@@ -1283,10 +1303,14 @@ interface ListProps {
  */
 function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
   const c = cls(p.isDark);
-  const [open, setOpen] = useState(false);
+  // auf und zu wie jede Ebene (collapsed) — «Alles ausklappen» erreicht auch ihn
+  const key = foldKey(steps);
+  const open = !p.collapsed.has(key);
+  const setOpen = (next: boolean) => { if (next !== open) p.toggle(key); };
   // steckt das gewählte Element darin, geht die Zeile auf — sonst sähe man es nicht
   const holdsSelected = useMemo(() => !!p.selected && allSteps(steps).some(s => s.id === p.selected), [steps, p.selected]);
-  useEffect(() => { if (holdsSelected) setOpen(true); }, [holdsSelected]);
+  // nur beim Wechsel der Auswahl — sonst ginge der Block nach dem Zuklappen gleich wieder auf
+  useEffect(() => { if (holdsSelected && p.collapsed.has(key)) p.toggle(key); }, [holdsSelected]);
   const n = countSteps(steps);
   return (
     <div className={`ml-6 pl-3 border-l-2 border-dashed ${p.isDark ? 'border-fuchsia-500/40' : 'border-fuchsia-300'}`}>
@@ -1353,6 +1377,8 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   const Icon = STEP_ICON[step.kind];
   const isOpen = !p.collapsed.has(step.id);
   const hasChildren = !!(step.branches?.length || step.children?.length || step.errors?.some(e => e.steps?.length));
+  // beim Filtern: ein Pfad bleibt, wenn darin etwas passt — oder der Schritt selbst passt
+  const shows = (steps: Step[] | undefined) => !p.filterActive || p.matchesSelf(step) || (steps ?? []).some(p.matches);
   const isSelected = p.selected === step.id;
 
   if (step.kind === 'goto') {
@@ -1434,13 +1460,14 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
       {isOpen && hasChildren && (
         <div className="flex flex-col">
           {/* Verzweigungen */}
-          {step.branches?.map((b, i) => <BranchBlock key={b.id} branch={b} index={i} gatewayId={step.id} {...p} />)}
+          {/* beim Filtern nur die Pfade mit einem Treffer — passt das Gateway selbst, alle */}
+          {step.branches?.map((b, i) => (shows(b.steps) ? <BranchBlock key={b.id} branch={b} index={i} gatewayId={step.id} {...p} /> : null))}
 
           {/* Fehler- und Nebenpfade */}
-          {step.errors?.filter(e => e.steps?.length && e.pattern).map(e => (
+          {step.errors?.filter(e => e.steps?.length && e.pattern && shows(e.steps)).map(e => (
             <PatternFold key={e.code} pattern={e.pattern!} what={e.side ? `Nebenpfad «${e.code}»` : `Fehler «${e.code}»`} steps={e.steps!} p={p} />
           ))}
-          {step.errors?.filter(e => e.steps?.length && !e.pattern).map(e => (
+          {step.errors?.filter(e => e.steps?.length && !e.pattern && shows(e.steps)).map(e => (
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${
               e.side
                 ? (p.isDark ? 'border-indigo-500/40' : 'border-indigo-400')
