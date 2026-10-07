@@ -348,7 +348,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           sent     <- got.get
         yield assertTrue(response.status == Status.Ok, sent == Some(Some(techToken) -> json("""{"ok":true}""").asObject))
       ,
-      test("what the engine answers - without its detail: 4xx keeps its status, 5xx is a 503"):
+      test("what the engine answers - without its detail: 4xx keeps its status, 5xx and defects are a 503"):
         def answer(code: Int) =
           for
             token    <- techTokenOf(TestClock())
@@ -358,12 +358,23 @@ object PublicAccessSpec extends ZIOSpecDefault:
             response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
             body     <- response.body.asString
           yield response.status.code -> body
+        def defect =
+          for
+            token    <- techTokenOf(TestClock())
+            got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+            r         = routes(access.copy(login = Some(login)), got, ZIO.die(RuntimeException("boom at http://engine.internal")), Some(token))
+            response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            body     <- response.body.asString
+          yield response.status.code -> body
         for
           notFound <- answer(404)
           failed   <- answer(500)
+          died     <- defect
         yield assertTrue(
           notFound._1 == 404,
           failed._1 == 503,
+          died._1 == 503,
+          !died._2.contains("engine.internal"),
           !notFound._2.contains("engine.internal"),
           !failed._2.contains("engine.internal")
         )

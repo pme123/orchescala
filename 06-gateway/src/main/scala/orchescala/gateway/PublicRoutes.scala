@@ -101,21 +101,26 @@ class PublicRoutes(
     ZIO.logWarning(s"Public $kind '$name' refused: ${e.errorCode} ${e.errorMsg}")
 
   /** What a worker or the engine answers goes to the caller without its detail (only to the log): a
-    * refusal (4xx) with its status, a failure (5xx) as 503. Is the technical token rejected (401 -
-    * a 403 can be a business rule), the next call fetches a new one.
+    * refusal (4xx) with its status, a failure (5xx) or a defect as 503. Is the technical token
+    * rejected (401 - a 403 can be a business rule), the next call fetches a new one - at most every
+    * 10 seconds, so a caller can force at most a few logins a minute; calls in flight keep theirs.
     */
   private def downstream[A](kind: Kind, name: String, token: String)(call: IO[ServiceRequestError, A]): IO[ServiceRequestError, A] =
-    call.catchAll: e =>
-      val log = s"Public $kind '$name': ${e.errorCode} ${e.errorMsg}"
-      val err = e.errorCode match
-        case 401                      =>
-          // logged as an error once per new token - not for every call while it is rejected
-          val invalidated = login.exists(_.invalidate(token))
-          (if invalidated then ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
-           else ZIO.logDebug(log)).as(PublicAccess.unavailable)
-        case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(c))
-        case _                        => ZIO.logError(log).as(PublicAccess.unavailable)
-      err.flatMap(ZIO.fail(_))
+    call
+      .catchAll: e =>
+        val log = s"Public $kind '$name': ${e.errorCode} ${e.errorMsg}"
+        val err = e.errorCode match
+          case 401                      =>
+            // logged as an error once per new token - not for every call while it is rejected
+            val invalidated = login.exists(_.invalidate(token))
+            (if invalidated then ZIO.logError(s"$log - the technical token was rejected, a new one is fetched")
+             else ZIO.logDebug(log)).as(PublicAccess.unavailable)
+          case c if c >= 400 && c < 500 => ZIO.logWarning(log).as(PublicAccess.refused(c))
+          case _                        => ZIO.logError(log).as(PublicAccess.unavailable)
+        err.flatMap(ZIO.fail(_))
+      // a defect (an exception) - never tapir's default answer with its detail
+      .catchAllDefect: defect =>
+        ZIO.logErrorCause(s"Public $kind '$name' failed", Cause.die(defect)) *> ZIO.fail(PublicAccess.unavailable)
 
   private def token: IO[ServiceRequestError, String] =
     login match

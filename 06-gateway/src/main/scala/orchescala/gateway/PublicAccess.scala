@@ -17,8 +17,9 @@ import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
   * gateway uses its own technical token ([[login]]) - the browser never gets a token. Against misuse:
   * a size limit for the body, a honeypot field (a hidden form field only bots fill in) and a rate
   * limit per client. The rate limit is a fallback - a fixed window per minute, so up to twice
-  * [[requestsPerMinute]] at the turn of a minute; in front of the gateway, an API gateway (e.g.
-  * Gravitee) should limit as well.
+  * [[requestsPerMinute]] at the turn of a minute, and per gateway instance (N replicas: N times);
+  * in front of the gateway, an API gateway (e.g. Gravitee) should limit as well - with several
+  * replicas it is required.
   *
   * A process started this way runs with the identity of the technical user - check the input like
   * any other untrusted input (its init worker does), and let a human see nothing before e.g. an
@@ -144,8 +145,8 @@ class PublicGuard(
       _     <- withoutReserved(clean)
     yield clean
 
-  /** [[admit]] and [[body]] in one. */
-  def check(kind: Kind, name: String, client: String, raw: String): Either[ServiceRequestError, Json] =
+  /** [[admit]] and [[body]] in one - for tests. */
+  private[gateway] def check(kind: Kind, name: String, client: String, raw: String): Either[ServiceRequestError, Json] =
     admit(kind, name, client).flatMap(_ => body(raw)).map(Json.fromJsonObject)
 
   /** How many clients were forgotten in the last minute because of [[maxClients]] - once after each
