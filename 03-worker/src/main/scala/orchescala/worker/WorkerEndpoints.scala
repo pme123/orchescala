@@ -43,9 +43,22 @@ object WorkerEndpoints:
             .example(ServiceRequestError(500, "Internal Server Error")))) {
           case e: ServiceRequestError if e.errorCode >= 500 => true
         },
-        oneOfDefaultVariant(jsonBody[ServiceRequestError])
+        // the 4xx without a variant above (e.g. a 409 of CustomError.refused) as they are - any other
+        // code as before 400 (every 5xx is matched by the 500 variant above)
+        oneOfDefaultVariant(
+          statusCode
+            .and(jsonBody[ServiceRequestError])
+            .map((_, error) => error)(error => (httpStatus(error), error))
+        )
       )
     )
+
+  /** The rule of [[WorkerError.CustomError.refused]]: a 4xx as it is, but no auth status (407 -
+    * 401 and 403 have their own variants) - any other code 400 as before.
+    */
+  private[worker] def httpStatus(error: ServiceRequestError): StatusCode =
+    if WorkerError.RefusedRequest.isRefusal(error.errorCode) then StatusCode(error.errorCode)
+    else StatusCode.BadRequest
 
   // Secured base endpoint with Bearer token authentication
   private val securedBaseEndpoint = baseEndpoint

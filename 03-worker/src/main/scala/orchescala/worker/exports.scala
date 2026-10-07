@@ -153,10 +153,40 @@ object WorkerError:
   case class CustomError(
       errorMsg: String,
       override val generalVariables: Option[GeneralVariables] = None,
+      // also the marker of CustomError.refused (RefusedRequest) - keep it when copying the error
       override val causeError: Option[WorkerError] = None
   ) extends RunWorkError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
   end CustomError
+
+  object CustomError:
+    /** A refusal of the caller's request - called over HTTP (`/worker/{topic}`, e.g. by a page) it
+      * is answered with that status (4xx) instead of 500, e.g. `CustomError.refused(409, "The slot
+      * is taken")`. In a process it is a `CustomError` like any other. A status that is no 4xx -
+      * or an auth status (401, 403, 407: they belong to the token check, not to the worker) - gives
+      * a plain `CustomError` (a 500).
+      */
+    def refused(status: Int, errorMsg: String): CustomError =
+      if RefusedRequest.isRefusal(status) then
+        // the cause names only the status - the message is in the CustomError (logged once)
+        CustomError(errorMsg, causeError = Some(RefusedRequest(status, s"refused with $status")))
+      else CustomError(errorMsg)
+  end CustomError
+
+  /** The marker of [[CustomError.refused]] - meant to be made only there (the constructor is
+    * `private[worker]`), so another 4xx cause (e.g. of a failed call to another service) stays a
+    * 500 for the caller. No `ServiceError` - in a process a refusal
+    * is not retried, like any other `CustomError`.
+    */
+  case class RefusedRequest private[worker] (status: Int, errorMsg: String) extends RunWorkError:
+    val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
+
+  object RefusedRequest:
+    // they belong to the token check, not to the worker
+    private val authStatuses = Set(401, 403, 407)
+
+    private[worker] def isRefusal(status: Int): Boolean =
+      status >= 400 && status < 500 && !authStatuses.contains(status)
 
   case class UnexpectedRunError(
       errorMsg: String
@@ -219,6 +249,9 @@ object WorkerError:
         case ServiceMappingError(msg)       => ServiceRequestError(400, msg)
         case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
         case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
+        // a refusal of a custom worker (CustomError.refused) keeps its 4xx
+        case CustomError(msg, _, Some(RefusedRequest(status, _)))
+            if RefusedRequest.isRefusal(status) => ServiceRequestError(status, msg)
         case err                            => ServiceRequestError(500, err.errorMsg)
     end apply
   end ServiceRequestError

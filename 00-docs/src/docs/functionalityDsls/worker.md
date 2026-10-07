@@ -67,6 +67,17 @@ private def doSomethingThatCanFail(in: In): Either[Throwable, In] = ???
 `doSomethingThatCanFail` does some mapping or business logic that can fail.
 If it fails, it returns a `Left` with an error message, that you wrap with a _WorkerError.CustomError_.
 
+Called over HTTP (`POST /worker/{topic}`, e.g. by a page) a `CustomError` is a 500. Is it a refusal
+of the request - the slot is taken, the link expired - use `CustomError.refused` with a 4xx status:
+
+```scala
+ZIO.fail(WorkerError.CustomError.refused(409, "The slot is taken - please choose another one."))
+```
+
+In a process it is a `CustomError` like any other (no retries). The status is carried as its
+`causeError` - a copy with another cause is a plain `CustomError` (500) again. Only a 4xx counts - not the auth
+statuses 401, 403 and 407, they belong to the token check.
+
 @:include(workers_advanced.md)
 
 ## Init Process Worker

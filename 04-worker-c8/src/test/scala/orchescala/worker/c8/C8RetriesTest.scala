@@ -12,6 +12,8 @@ class C8RetriesTest extends FunSuite:
   test("an error not worth trying again: an incident at once - it counted down the job's 3 retries"):
     assertEquals(C8Worker.retriesAfter(ValidatorError("amount must be positive"), 3, doRetryList), 0)
     assertEquals(C8Worker.retriesAfter(UnexpectedError("bug"), 3, doRetryList), 0)
+    // a refusal (CustomError.refused) like any other CustomError
+    assertEquals(C8Worker.retriesAfter(CustomError.refused(409, "The slot is taken"), 3, doRetryList), 0)
 
   test("a ServiceError counts down the retries of the job"):
     assertEquals(C8Worker.retriesAfter(ServiceUnexpectedError("service down"), 3, doRetryList), 2)
