@@ -229,13 +229,21 @@ export function mockField(name: string): string {
 /**
  * Das Feld im InConfig, auf das der Mock des Schritts zeigt — wie im BPMN:
  * `#{execution.getVariable('getPoasMock')}`, `${getPoasMock}`, `=getPoasMock`
- * oder `getPoasMock`. Ohne solchen Verweis der Name aus dem Schritt (`mockField`).
+ * oder `getPoasMock`. Ohne solchen Verweis der Name aus dem Schritt (`mockField`) —
+ * ebenso, wenn der Verweis eine allgemeine Variable ist (`_outputMock`): die gehört
+ * nicht ins InConfig.
  */
 export function mockFieldOf(step: { name: string; mock?: string }): string {
-  const m = step.mock?.trim() ?? '';
+  const v = mockRef(step.mock);
+  return v && !GENERAL_VARIABLES.has(v) && !v.startsWith('_') ? v : mockField(step.name);
+}
+
+/** Die Variable, die ein Mock-Wert im BPMN liest (`getPoasMock`, auch `_outputMock`) — null ohne */
+export function mockRef(mock: string | undefined): string | null {
+  const m = mock?.trim() ?? '';
   const v = /^#\{\s*execution\.getVariable\(\s*['"](\w+)['"]\s*\)\s*\}$/.exec(m)
-    ?? /^[$#]\{\s*(\w+)\s*\}$/.exec(m) ?? /^=\s*(\w+)$/.exec(m) ?? /^([a-z]\w*)$/.exec(m);
-  return v ? v[1] : mockField(step.name);
+    ?? /^[$#]\{\s*(\w+)\s*\}$/.exec(m) ?? /^=\s*(\w+)$/.exec(m) ?? /^([a-z_]\w*)$/.exec(m);
+  return v ? v[1] : null;
 }
 
 /** Service-Worker: ein Service aus dem Katalog — nur er kennt `_outputServiceMock` */
