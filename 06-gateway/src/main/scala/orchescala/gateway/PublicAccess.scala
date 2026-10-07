@@ -23,9 +23,10 @@ import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
   *
   * A process started this way runs with the identity of the technical user - check the input like
   * any other untrusted input (its init worker does), and let a human see nothing before e.g. an
-  * e-mail opt-in. The answer of a public worker goes to the caller as it is - let it return only
-  * what anybody may see; a public start answers the `ProcessInfo` (with the instance id - useless
-  * without a token).
+  * e-mail opt-in. A public message is correlated by its business key alone - make that key
+  * unguessable (e.g. a random token in the opt-in link). The answer of a public worker goes to the
+  * caller as it is - let it return only what anybody may see; a public start answers the
+  * `ProcessInfo` (with the instance id - useless without a token).
   */
 case class PublicAccess(
     /** worker topics that may be called (`POST /public/worker/{topic}`) */

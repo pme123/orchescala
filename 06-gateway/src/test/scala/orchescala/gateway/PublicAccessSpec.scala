@@ -323,6 +323,27 @@ object PublicAccessSpec extends ZIOSpecDefault:
           done     <- first.join
         yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
       @@ TestAspect.withLiveClock,
+      test("a call that takes too long - interrupted; its slot is free once it has stopped"):
+        def calls(slow: UIO[Unit]) =
+          for
+            token    <- techTokenOf(TestClock())
+            got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+            n        <- Ref.make(0)
+            answer    = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then slow else ZIO.unit)
+            one       = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis)
+            r         = routes(one, got, answer, Some(token))
+            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-2", "{}")
+          yield first.status.code -> second.status.code
+        for
+          interrupted <- Promise.make[Nothing, Unit]
+          // interruptible - stopped at the timeout, the next call gets the slot
+          stopped     <- calls(ZIO.never.onInterrupt(interrupted.succeed(())))
+          wasStopped  <- interrupted.isDone.repeatUntil(identity).timeout(1.second)
+          // not interruptible - still running, the next call finds no slot
+          busy        <- calls(ZIO.sleep(1.second).uninterruptible)
+        yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
+      @@ TestAspect.withLiveClock,
       test("a business key that is not plain - 400"):
         for response <- post(access, "/public/process/acme-shop-bookV1/async?businessKey=a%20b", "{}")
         yield assertTrue(response.status == Status.BadRequest)
