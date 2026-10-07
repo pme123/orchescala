@@ -224,15 +224,22 @@ object PublicAccessSpec extends ZIOSpecDefault:
           zeroReq  <- zero.requests.get
         yield assertTrue(longReq == 2, shortReq == 2, zeroReq == 1)
       ,
-      test("without expires_in: 60 seconds"):
-        val clock = TestClock()
+      test("expires_in missing or strange: 60 seconds; as a string or a decimal: read"):
+        def requests(answer: String) =
+          val clock = TestClock()
+          for
+            t     <- fakeToken(clock, Right(answer))
+            token <- t.token
+            _     <- ZIO.succeed(clock.set(29 * 1000L)) *> t.token
+            _     <- ZIO.succeed(clock.set(31 * 1000L)) *> t.token
+            req   <- t.requests.get
+          yield token -> req
         for
-          t     <- fakeToken(clock, Right("""{"access_token":"t1"}"""))
-          token <- t.token
-          _     <- ZIO.succeed(clock.set(29 * 1000L)) *> t.token
-          _     <- ZIO.succeed(clock.set(31 * 1000L)) *> t.token
-          req   <- t.requests.get
-        yield assertTrue(token == "t1", req == 2)
+          missing <- requests("""{"access_token":"t1"}""")
+          strange <- requests("""{"access_token":"t1","expires_in":"soon"}""")
+          string  <- requests("""{"access_token":"t1","expires_in":"300"}""")
+          decimal <- requests("""{"access_token":"t1","expires_in":300.0}""")
+        yield assertTrue(missing == ("t1" -> 2), strange == ("t1" -> 2), string == ("t1" -> 1), decimal == ("t1" -> 1))
       ,
       test("many calls at once - one fetch"):
         for

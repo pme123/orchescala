@@ -270,10 +270,11 @@ class PublicToken(login: OAuthConfig, now: () => Long = () => java.lang.System.c
   private def tokenOf(raw: String): Either[String, (String, Long)] =
     parse(raw)
       .flatMap: json =>
-        val c = json.hcursor
-        for
-          token   <- c.get[String]("access_token")
-          expires <- c.get[Option[Long]]("expires_in")
-        yield token -> expires.getOrElse(60L).max(0)
+        val c       = json.hcursor
+        // a number, a decimal or a string - else 60 seconds (a strange expires_in is no failure)
+        val expires = c.downField("expires_in").focus.flatMap: v =>
+          v.asNumber.flatMap(_.toBigDecimal).orElse(v.asString.flatMap(_.trim.toDoubleOption.map(BigDecimal(_))))
+            .map(_.toLong)
+        c.get[String]("access_token").map(_ -> expires.getOrElse(60L).max(0))
       .left.map(e => s"unexpected answer: ${e.getMessage}")
 end PublicToken
