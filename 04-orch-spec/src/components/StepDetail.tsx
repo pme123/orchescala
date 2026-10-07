@@ -5,7 +5,7 @@
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
-import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, Status, Step, TypeDef } from '../types';
+import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
@@ -1112,6 +1112,11 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
     const name = autoName ? nameFromService(refOf(svc), prefixes) : null;
     const inParams = (svc.inputs ?? []).filter(pm => variantAllows(vin.v, vin.chosen, pm.name));
     const outParams = (svc.outputs ?? []).filter(pm => variantAllows(vout.v, vout.chosen, pm.name));
+    // derselbe Service nochmals gewählt: Zeilen, die sein Katalog nicht kennt, bleiben —
+    // eine Erweiterung oder ein Feld, das der (ältere) Katalog noch nicht führt
+    const same = current?.id === svc.id;
+    const extra = (list: Mapping[] | undefined, params: ServiceParam[]) =>
+      (same ? list ?? [] : []).filter(m => !params.some(pm => pm.name === m.name));
     onPatch(step.id, {
       ...(name && name !== step.name ? { name } : {}),
       serviceId: svc.id,
@@ -1125,13 +1130,13 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
         expression: oldIn.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldIn.get(pm.name)?.description ?? pm.description ? { description: oldIn.get(pm.name)?.description ?? pm.description } : {}),
         ...(oldIn.get(pm.name)?.disabled ? { disabled: true } : {}),
-      })),
+      })).concat(extra(step.inputs, inParams)),
       outputs: outParams.map(pm => ({
         name: pm.name,
         expression: oldOut.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
         ...(oldOut.get(pm.name)?.disabled ? { disabled: true } : {}),
-      })),
+      })).concat(extra(step.outputs, outParams)),
       ...(svc.handledErrors?.length
         ? { errors: [...(step.errors ?? []), ...svc.handledErrors.filter(code => !(step.errors ?? []).some(e => e.code === code)).map(code => ({ code }))] }
         : {}),
@@ -1151,8 +1156,11 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       <button disabled={!canEdit} onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 30); }}
         className={`w-full flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border text-left ${c.border2} ${canEdit ? c.hover : ''}`}>
         <span className={`flex-1 truncate font-mono ${current ? c.text : c.muted}`}>
-          {/* eine Entscheidung heisst über ihre decisionId, ein Worker über sein Topic */}
-          {step.serviceId ?? (step.topic ? `${step.kind === 'rule' ? 'decisionId' : 'Topic'}: ${step.topic}` : step.kind === 'rule' ? 'keine Entscheidung gewählt' : 'kein Service gewählt')}
+          {/* eine Entscheidung heisst über ihre decisionId, ein Worker über sein Topic, ein Aufruf über
+              seinen Prozess — der Import setzt dort nur `calledProcess`, kein `serviceId` */}
+          {step.serviceId ?? current?.id ?? (step.calledProcess ? `Prozess: ${step.calledProcess}`
+            : step.topic ? `${step.kind === 'rule' ? 'decisionId' : 'Topic'}: ${step.topic}`
+            : step.kind === 'rule' ? 'keine Entscheidung gewählt' : step.kind === 'call' ? 'kein Prozess gewählt' : 'kein Service gewählt')}
         </span>
         {canEdit && <ChevronDown size={12} className={c.muted} />}
       </button>
