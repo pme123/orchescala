@@ -24,7 +24,7 @@ import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, rowsForVariant, variantAllows, variantKey, variantsOf, type Chosen, type Variants } from '../variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
 interface Props {
@@ -1286,6 +1286,14 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // lässt sich deshalb weder abwählen noch entfernen.
   const pflichtGrund = (name: string): string | null => {
     if (list !== 'inputs' || !name || implicitIn || !allowed(name)) return null;
+    // Weichen des Decoders: eine genügt — Pflicht ist die einzige aktive, ohne aktive die erste
+    const routing = variants?.routing;
+    if (routing?.includes(name)) {
+      const on = routing.filter(n => all.some(m => m.name === n && !m.disabled));
+      return (on.length ? on.length === 1 && on[0] === name : routing[0] === name)
+        ? `Pflicht: ${routingText(routing)} — eines davon wählt die Ausprägung` : null;
+    }
+    if (!variantRequires(variants, chosen, name)) return null;
     if (refFields) {
       const f = refFields.find(x => x.name === name);
       return f && !f.optional ? `Pflichtfeld: «${name}» ist im In nicht optional` : null;
@@ -1356,6 +1364,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             <option value="">— nur gemeinsame Felder —</option>
             {/* der Service liefert einen Fall — welchen, entscheidet er: die Ausgaben dürfen alle lesen */}
             {list === 'outputs' && <option value={ALL_VARIANTS}>— alle Ausprägungen —</option>}
+            {/* die Weiche wählt den Fall erst zur Laufzeit — erkannt, nicht wählbar */}
+            {list === 'inputs' && chosen.runtime && <option value={ALL_VARIANTS} disabled>— zur Laufzeit über {chosen.runtime} —</option>}
             {variants.cases.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
           </select>
           {chosen.inferred && <span className={`text-[10px] ${c.muted}`} title="Nicht gewählt, sondern aus den aktiven Zeilen erkannt">erkannt</span>}

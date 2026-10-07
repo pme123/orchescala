@@ -12,7 +12,7 @@
 // Übernommen aus arch-review — bewusst dieselbe Mechanik (Konflikterkennung
 // über Version/ETag, gemerkter Ordner, Autosave im Aufrufer).
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { DirectoryUser, Model, ProcessSpec, ServiceDef, ServiceParam, Step, UsersFile } from './types';
+import type { DirectoryUser, DomainType, Model, ProcessSpec, ServiceDef, ServiceParam, Step, UsersFile } from './types';
 import { feelIfPossible, healExecution } from './juelFeel';
 import { withOrchescalaTypes } from './orchescalaTypes';
 import { getHandle, putHandle } from './handles.ts';
@@ -161,12 +161,23 @@ const feelParams = (s: ServiceDef): ServiceDef => {
   return { ...s, ...(s.inputs ? { inputs: conv(s.inputs) } : {}), ...(s.outputs ? { outputs: conv(s.outputs) } : {}) };
 };
 
+/** Angaben des Domain-Scans, die ältere Kataloge noch nicht haben */
+const NEWER_SCAN = ['routing', 'topicName'] as const satisfies ReadonlyArray<keyof DomainType>;
+
 function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
   // ProcessStatus & Co. aus orchescala.domain gibt es immer — als «generiert», also nie in der model.json
   const user = { ...user0, services: user0.services.map(feelParams), domainTypes: withOrchescalaTypes(user0.domainTypes) };
   if (!gen) return user;
   const genServices = (gen.services ?? []).map(s => ({ ...feelParams(s), generated: true }));
-  const genTypes = (gen.domainTypes ?? []).map(t => ({ ...t, generated: true }));
+  // was ein neuerer Scan als die Tools des Katalogs erkennt, ergänzt den Eintrag —
+  // der Katalog kommt erst mit dem nächsten Release dazu (Weichen des Decoders,
+  // `final val topicName`); was der Katalog selbst hat, gilt
+  const ownTypes = new Map((user.domainTypes ?? []).map(t => [t.id, t]));
+  const genTypes = (gen.domainTypes ?? []).map(t => {
+    const own = ownTypes.get(t.id);
+    const newer = Object.fromEntries(NEWER_SCAN.filter(k => own?.[k] != null && t[k] == null).map(k => [k, own![k]]));
+    return { ...t, ...newer, generated: true };
+  });
   const kennt = new Set<string>();
   for (const s of genServices) {
     kennt.add(s.id);

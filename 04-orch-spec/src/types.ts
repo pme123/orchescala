@@ -758,6 +758,13 @@ export interface DomainType {
    * je Mitglied (In, Out) die Felder mit ihrem Scala-Ausdruck
    */
   exampleCopies?: { In?: Record<string, string>; Out?: Record<string, string> };
+  /**
+   * Die Weichen des Decoders eines `In` mit Fällen: Felder, von denen **eines**
+   * genügt, damit der Decoder den Fall wählt — `useCase` direkt oder `clientType`
+   * (der Decoder setzt `useCase` dann selbst). Das erste ist das direkte Feld,
+   * die übrigen wählen den Fall zur Laufzeit. Siehe domainScan.ts und variants.ts.
+   */
+  routing?: string[];
   /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
   source?: string;
   /**

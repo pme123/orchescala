@@ -44,7 +44,7 @@ const FIELD = /^\s*(?:@\w+.*)?(?:^|\s)([a-z]\w*)\s*:\s*\S/;
 const SCALADOC = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
 const END = /^(\s*)end\s+(\w+)/;
 // Woran ein Service- oder Prozess-Objekt zu erkennen ist
-const SERVICE_MARK = /^\s+(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
+const SERVICE_MARK = /^\s+(?:(?:final|override)\s+)*(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
 /**
  * `lazy val example = In(` bzw. `lazy val example: In.Standard = In.Standard(` im
@@ -55,6 +55,32 @@ const EXAMPLE = /^\s+lazy\s+val\s+(example|exampleMinimal)\s*(?::\s*[\w.]+\s*)?=
 const FACTORY_EXAMPLE = /^\s+lazy\s+val\s+example\s*=\s*(userTask|customTask|serviceTask|signalEvent|messageEvent|timerEvent)\s*\(/;
 /** `In.exampleMinimal.copy` bzw. `exampleMinimal.copy` — das Beispiel ist eine Kopie des minimalen */
 const COPY_OF_MINIMAL = /^(?:([A-Z][\w.]*)\.)?exampleMinimal\.copy$/;
+/** `lazy val decoder: InOutDecoder[In] =` bzw. `given InOutDecoder[In] =` — ein eigener Decoder des `In` */
+const IN_DECODER = /^(\s*)(?:(?:lazy\s+)?val\s+\w+\s*:|given\s+(?:\w+\s*:\s*)?)\s*\w*Decoder\[(?:\w+\.)?In\]/;
+
+/**
+ * Die Weichen eines Decoders: gelesen wird `x <- c.downField("f").as[Option[…]]`;
+ * eine Weiche ist ein solches Feld, auf dessen Wert der Decoder den Fall wählt
+ * (`x.map: …`, `x.fold(…)`, `x match`). Ein Feld, das nur mitentscheidet
+ * (`(clientType, isUpdate) match`), ist keine — es genügt nicht allein.
+ *
+ *   maybeClientType <- c.downField("clientType").as[Option[ClientType]]
+ *   maybeUseCase    <- c.downField("useCase").as[Option[PutUseCaseType]]
+ *   in <- maybeClientType.map: … .getOrElse: maybeUseCase.map: …
+ *
+ * ergibt `useCase`, `clientType`: zuerst das Feld, das der Decoder selbst setzt
+ * (`_.add("useCase", …)`) — es nennt den Fall direkt —, dann die übrigen.
+ * Erst ab zwei Weichen gibt es eine Wahl.
+ */
+export function decoderRouting(block: string): string[] {
+  const out: string[] = [];
+  for (const m of block.matchAll(/(\w+)\s*<-\s*c\.downField\(\s*"(\w+)"\s*\)\.as\[Option\[/g)) {
+    const [, v, field] = m;
+    if (new RegExp(String.raw`\b${v}\s*\.\s*(?:map|fold|flatMap)\b|\b${v}\s+match\b`).test(block) && !out.includes(field)) out.push(field);
+  }
+  const added = new Set([...block.matchAll(/\.add\(\s*"(\w+)"/g)].map(m => m[1]));
+  return out.length >= 2 ? [...out.filter(f => added.has(f)), ...out.filter(f => !added.has(f))] : [];
+}
 
 /**
  * Klammern zählen, um das Ende einer Parameterliste zu finden. Zeichenketten
@@ -274,6 +300,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
   /** Entscheidung: `lazy val example = singleResult(…)` — die Form des Ergebnisses */
   const decisionResults = new Map<string, DecisionResult>();
   const exampleCopies = new Map<string, NonNullable<DomainType['exampleCopies']>>();
+  /** die Weichen des Decoders von `In` je Objekt (siehe decoderRouting) */
+  const routings = new Map<string, string[]>();
   /**
    * `lazy val example = X(…)` bzw. `exampleMinimal = X(…)` — der Aufruf, das
    * umschliessende Objekt und die Argumente (roh); `example = X.exampleMinimal.copy(…)`
@@ -405,6 +433,18 @@ export function scanScala(source: string, path = ''): DomainType[] {
       const copy = COPY_OF_MINIMAL.exec(ex[2]);
       if (copy) examples.push({ owner, which: ex[1], minimalOf: copy[1] ?? companion ?? undefined, args });
       else if (/^[A-Z]/.test(ex[2]) && !ex[2].endsWith('.copy')) examples.push({ owner, which: ex[1], ctor: ex[2], args });
+      i = j;
+      continue;
+    }
+
+    // ein eigener Decoder des `In`: der Block bis zur Zeile, die nicht tiefer steht
+    const dec = owner ? IN_DECODER.exec(line) : null;
+    if (owner && dec) {
+      const indent = dec[1].length;
+      let j = i;
+      while (j + 1 < lines.length && (!lines[j + 1].trim() || lines[j + 1].search(/\S/) > indent)) j++;
+      const routing = decoderRouting(lines.slice(i, j + 1).join('\n'));
+      if (routing.length) routings.set(owner, routing);
       i = j;
       continue;
     }
@@ -564,6 +604,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (dr) t.decisionResult = dr;
     const ec = exampleCopies.get(t.owner);
     if (ec) t.exampleCopies = ec;
+    const routing = routings.get(t.owner);
+    if (routing && t.name === `${t.owner}.In`) t.routing = routing;
   }
   return out;
 }

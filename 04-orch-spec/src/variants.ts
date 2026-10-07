@@ -12,6 +12,13 @@
 // Quelle der Fälle: die eigene In-/Out-Klasse (Interaktion) als enum mit
 // Feldern je Fall, sonst der Domain-Katalog (`cases` des enum), sonst die
 // OpenAPI (`oneOf` → `variants` am Parameter).
+//
+// **Weichen.** Ein eigener Decoder kann den Fall auch selbst wählen: aus
+// `useCase` direkt oder aus `clientType` (er setzt `useCase` dann selbst —
+// `routing` im Domain-Katalog, das direkte Feld zuerst). Eine der Weichen
+// genügt; keine ist für sich Pflicht. Ist eine andere Weiche als das direkte
+// Feld aktiv, wählt der Decoder den Fall erst zur Laufzeit: die Felder aller
+// Fälle sind erlaubt, Pflicht sind nur die gemeinsamen.
 
 import type { DomainField, Field, Mapping, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { stepDomainMember } from './feel';
@@ -29,6 +36,8 @@ export interface Variants {
   common: Set<string>;
   /** Felder, die nur manche Ausprägungen haben */
   specific: Set<string>;
+  /** die Weichen des Decoders, das direkte Feld zuerst — eine davon genügt (siehe oben) */
+  routing?: string[];
 }
 
 export interface Chosen {
@@ -38,6 +47,8 @@ export interface Chosen {
   inferred: boolean;
   /** aktive Zeilen aus mehreren Ausprägungen zugleich — das stimmt so nicht */
   mixed: string[];
+  /** die Weiche, über die der Decoder den Fall zur Laufzeit wählt (`clientType`) */
+  runtime?: string;
 }
 
 const NONE: Chosen = { name: null, inferred: false, mixed: [] };
@@ -70,17 +81,28 @@ export function classFieldsOf(t: TypeDef): Field[] {
   return [...out.values()];
 }
 
+/** Die Weichen dazu — nur die, die es als Feld gibt */
+function withRouting(v: Variants | null, routing: string[] | undefined): Variants | null {
+  const known = (routing ?? []).filter(n => v?.common.has(n) || v?.specific.has(n));
+  return v && known.length >= 2 ? { ...v, routing: known } : v;
+}
+
 /** Die Ausprägungen des `In` bzw. `Out` am Schritt — null, wenn es keine gibt. */
 export function variantsOf(step: Step, spec: ProcessSpec, model: Model | null, list: MappingList, service: ServiceDef | null): Variants | null {
   // eine eigene In-/Out-Klasse (Interaktion): ihre Fälle, wenn sie ein enum mit Feldern ist
   if ((spec.interactions ?? []).some(i => i.stepId === step.id)) {
     const t = classOf(step, spec, list);
     if (t?.kind !== 'enum' || !t.values?.length) return null;
-    return build(t.values.map(v => ({ name: v.name, fields: (v.fields ?? []).filter(f => f.name) })), (t.fields ?? []).map(f => f.name).filter(Boolean));
+    const v = build(t.values.map(c => ({ name: c.name, fields: (c.fields ?? []).filter(f => f.name) })), (t.fields ?? []).map(f => f.name).filter(Boolean));
+    // die Weichen stehen im Decoder — also in der Domain, aus der die Klasse kommt
+    const dom = list === 'inputs' && v
+      ? (model?.domainTypes ?? []).find(d => d.id === t.domainId) ?? stepDomainMember(step, spec, model, 'In') : null;
+    return withRouting(v, dom?.routing);
   }
   const dom = stepDomainMember(step, spec, model, list === 'inputs' ? 'In' : 'Out');
   if (dom?.kind === 'enum' && dom.cases?.length) {
-    return build(dom.cases.map(c => ({ name: c.name, fields: c.fields ?? [] })), (dom.fields ?? []).map(f => f.name));
+    const v = build(dom.cases.map(c => ({ name: c.name, fields: c.fields ?? [] })), (dom.fields ?? []).map(f => f.name));
+    return withRouting(v, list === 'inputs' ? dom.routing : undefined);
   }
   if (dom) return null;
   const params = (list === 'inputs' ? service?.inputs : service?.outputs) ?? [];
@@ -98,6 +120,13 @@ export function chosenVariant(step: Step, list: MappingList, v: Variants | null)
   const explicit = step[variantKey(list)];
   if (list === 'outputs' && explicit === ALL_VARIANTS) return { name: ALL_VARIANTS, inferred: false, mixed: [] };
   if (typeof explicit === 'string' && v.cases.some(c => c.name === explicit)) return { name: explicit, inferred: false, mixed: [] };
+  // eine Weiche ausser dem gemeinsamen Feld aktiv: der Decoder wählt den Fall zur Laufzeit
+  if (list === 'inputs' && v.routing) {
+    const on = new Set((step.inputs ?? []).filter(m => !m.disabled).map(m => m.name));
+    // auch neben `useCase`: der Decoder fragt die übrigen Weichen zuerst, `useCase` gilt nur ohne sie
+    const runtime = v.routing.slice(1).find(n => on.has(n));
+    if (runtime) return { name: ALL_VARIANTS, inferred: true, mixed: [], runtime };
+  }
   const active = new Set((step[list] ?? []).filter(m => !m.disabled && v.specific.has(m.name)).map(m => m.name));
   if (!active.size) return NONE;
   const hit = v.cases.filter(c => c.fields.some(f => active.has(f.name)));
@@ -112,6 +141,26 @@ export function variantAllows(v: Variants | null, chosen: Chosen, name: string):
   if (!v || !v.specific.has(name) || chosen.name === ALL_VARIANTS) return true;
   return !!chosen.name && !!v.cases.find(c => c.name === chosen.name)?.fields.some(f => f.name === name);
 }
+
+/**
+ * Ist das Feld Pflicht, sofern es laut Domain nicht optional ist? Nicht die
+ * Weichen (eine genügt — siehe `routingMissing`), und wählt der Decoder den
+ * Fall zur Laufzeit, nicht die Felder der Fälle.
+ */
+export function variantRequires(v: Variants | null, chosen: Chosen, name: string): boolean {
+  if (v?.routing?.includes(name)) return false;
+  if (chosen.runtime && v?.specific.has(name)) return false;
+  return variantAllows(v, chosen, name);
+}
+
+/** Die Weichen, wenn keine davon eine aktive Zeile hat — sonst null. */
+export function routingMissing(v: Variants | null, rows: Mapping[]): string[] | null {
+  if (!v?.routing) return null;
+  return rows.some(m => !m.disabled && v.routing!.includes(m.name.trim())) ? null : v.routing;
+}
+
+/** «useCase» oder «clientType» */
+export const routingText = (routing: string[]): string => routing.map(n => `«${n}»`).join(' oder ');
 
 /** Die Felder der gewählten Ausprägung samt den gemeinsamen */
 export function variantFieldsOf(v: Variants, chosen: string | null): VariantCase['fields'] {
