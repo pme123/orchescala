@@ -86,11 +86,18 @@ object PublicAccess:
   enum Kind:
     case worker, processStart, message
 
-  /** The general variables ([[GeneralVariables]]) - a public call with one of them is refused. */
+  /** The general variables ([[GeneralVariables]]) - a public call with one of them is refused. They
+    * are read as top-level variables only (as process variables), so the top-level keys are checked.
+    */
   val reservedFields: Set[String] = InputParams.values.map(_.toString).toSet
 
   /** A business key as a public caller may send it - letters, digits and `._:@+-`, at most 128. */
   val businessKeyPattern = "[A-Za-z0-9._:@+-]{1,128}".r
+
+  /** A public message is correlated by its business key alone - so it must not be short (a UUID has
+    * 36).
+    */
+  val minMessageKeyLength = 16
 
   /** What an anonymous caller gets when something inside fails - the detail goes to the log only. */
   val unavailable: ServiceRequestError =
@@ -158,12 +165,15 @@ class PublicGuard(
       _     <- withoutReserved(clean)
     yield clean
 
-  /** The business key - None is fine unless it is required; else a short plain one. */
-  def businessKey(key: Option[String], required: Boolean): Either[ServiceRequestError, Option[String]] =
+  /** The business key - None is fine unless it is required; else a plain one of at least
+    * `minLength`.
+    */
+  def businessKey(key: Option[String], required: Boolean, minLength: Int = 1): Either[ServiceRequestError, Option[String]] =
     key.filter(!_.isBlank) match
-      case None if required                                          => Left(ServiceRequestError(400, "The businessKey is required."))
-      case Some(k) if !PublicAccess.businessKeyPattern.matches(k)    => Left(ServiceRequestError(400, "The businessKey is not valid."))
-      case k                                                         => Right(k)
+      case None if required => Left(ServiceRequestError(400, "The businessKey is required."))
+      case Some(k) if !PublicAccess.businessKeyPattern.matches(k) || k.length < minLength =>
+        Left(ServiceRequestError(400, "The businessKey is not valid."))
+      case k                => Right(k)
 
   /** [[admit]] and [[body]] in one - for tests. */
   private[gateway] def check(kind: Kind, name: String, client: String, raw: String): Either[ServiceRequestError, Json] =
@@ -173,6 +183,7 @@ class PublicGuard(
     * minute with any (for a warning in the log).
     */
   def forgottenReport(): Option[Long] =
+    // a read first - every call asks, a write only when there is a report
     if report.get().isEmpty then None else report.getAndSet(None)
 
   private def withoutHoneypot(obj: JsonObject): Either[ServiceRequestError, JsonObject] =

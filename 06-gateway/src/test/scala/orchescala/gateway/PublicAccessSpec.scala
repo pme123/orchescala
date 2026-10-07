@@ -215,7 +215,10 @@ object PublicAccessSpec extends ZIOSpecDefault:
           g.businessKey(None, required = true).left.map(_.errorCode) == Left(400),
           g.businessKey(Some("anna.berater-2026-10-08T09:00"), required = true) == Right(Some("anna.berater-2026-10-08T09:00")),
           g.businessKey(Some("a b"), required = true).left.map(_.errorCode) == Left(400),
-          g.businessKey(Some("x" * 129), required = true).left.map(_.errorCode) == Left(400)
+          g.businessKey(Some("x" * 129), required = true).left.map(_.errorCode) == Left(400),
+          // for a public message: at least 16
+          g.businessKey(Some("1"), required = true, minLength = 16).left.map(_.errorCode) == Left(400),
+          g.businessKey(Some("0b1c9a4e-7a43-4f0e-9d39-3a3f6c2d8e11"), required = true, minLength = 16).isRight
         )
       ,
       test("the secret of the login is never shown"):
@@ -306,7 +309,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
           slow      = access.copy(login = Some(login), callTimeout = 200.millis)
           r         = routes(slow, got, ZIO.never, Some(token))
-          response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+          response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
         yield assertTrue(response.status == Status.ServiceUnavailable)
       @@ TestAspect.withLiveClock,
       test("more than maxConcurrentCalls at once - a 503 at once"):
@@ -316,9 +319,9 @@ object PublicAccessSpec extends ZIOSpecDefault:
           release  <- Promise.make[Nothing, Unit]
           one       = access.copy(login = Some(login), maxConcurrentCalls = 1)
           r         = routes(one, got, release.await, Some(token))
-          first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}").fork
+          first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
           _        <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
-          second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-2", "{}")
+          second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
           _        <- release.succeed(())
           done     <- first.join
         yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
@@ -332,8 +335,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
             answer    = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then slow else ZIO.unit)
             one       = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis)
             r         = routes(one, got, answer, Some(token))
-            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
-            second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-2", "{}")
+            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
+            second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
           yield first.status.code -> second.status.code
         for
           interrupted <- Promise.make[Nothing, Unit]
@@ -352,11 +355,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
           answer  = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then ZIO.never else ZIO.unit)
           one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis)
           r       = routes(one, got, answer, Some(token))
-          first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}").fork
+          first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
           _      <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
           _      <- first.interrupt                 // the caller is gone
           _      <- ZIO.sleep(400.millis)
-          second <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-2", "{}")
+          second <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
         yield assertTrue(second.status == Status.Ok)
       @@ TestAspect.withLiveClock,
       test("a business key that is not plain - 400"):
@@ -418,7 +421,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           token    <- techTokenOf(clock)
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
           r         = routes(access.copy(login = Some(login)), got, token = Some(token))
-          response <- post(r, "/public/process/acme-shop-bookV1/async?businessKey=r-1", """{"ok":true,"_hp":""}""")
+          response <- post(r, "/public/process/acme-shop-bookV1/async?businessKey=r-0123456789abcdef", """{"ok":true,"_hp":""}""")
           sent     <- got.get
         yield assertTrue(
           response.status == Status.Ok,
@@ -433,7 +436,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           token    <- techTokenOf(clock)
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
           r         = routes(access.copy(login = Some(login)), got, token = Some(token))
-          response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", """{"ok":true,"_hp":""}""")
+          response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", """{"ok":true,"_hp":""}""")
           sent     <- got.get
         yield assertTrue(response.status == Status.Ok, sent == Some(Some(techToken) -> json("""{"ok":true}""").asObject))
       ,
@@ -444,7 +447,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
             fail      = ZIO.fail(EngineError.ServiceRequestError(code, "definition x not found at http://engine.internal"))
             r         = routes(access.copy(login = Some(login)), got, fail, Some(token))
-            response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
             body     <- response.body.asString
           yield response.status.code -> body
         def defect =
@@ -452,7 +455,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
             token    <- techTokenOf(TestClock())
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
             r         = routes(access.copy(login = Some(login)), got, ZIO.die(RuntimeException("boom at http://engine.internal")), Some(token))
-            response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
             body     <- response.body.asString
           yield response.status.code -> body
         for
@@ -475,10 +478,10 @@ object PublicAccessSpec extends ZIOSpecDefault:
             token    <- techTokenOf(clock)
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
             r         = routes(access.copy(login = Some(login)), got, ZIO.fail(EngineError.ServiceRequestError(code, "no")), Some(token))
-            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
             _        <- ZIO.succeed(clock.set(11 * 1000L))
-            _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
-            _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-1", "{}")
+            _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
+            _        <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
             requests <- token.requests.get
           yield first.status.code -> requests
         for

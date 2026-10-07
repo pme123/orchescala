@@ -255,7 +255,7 @@ fill in) a 400 - an empty one is removed. A general variable in the body (`_serv
 well: it would let an anonymous caller steer the process. Starts and messages go to the configured
 tenant; their business key must be plain (letters, digits, `._:@+-`, at most 128). For a public
 message the business key is all a caller needs - make it unguessable (e.g. a random token in the
-opt-in link), not an id made of names and times. A public call
+opt-in link), not an id made of names and times; it needs at least 16 characters (a UUID has 36). A public call
 takes at most `callTimeout` (30 s) and at most `maxConcurrentCalls` (100) run at once - beyond, a
 503.
 
