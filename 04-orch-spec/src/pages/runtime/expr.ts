@@ -83,8 +83,9 @@ export function interpolate(text: string, state: unknown, labels: Labels = {}): 
 }
 
 /** Die Eingabe einer Aktion: Vorlagen in Objekten und Listen eingesetzt. `"{{pfad}}"` allein gibt
- * den Wert selbst (z.B. ein Objekt). Leere Werte (undefined, null, "") fallen weg – so werden
- * optionale Felder nicht als leerer Text geschickt. */
+ * den Wert selbst (z.B. ein Objekt). Leere Felder (undefined, null, "") fallen in Objekten weg – so
+ * werden optionale Felder nicht als leerer Text geschickt. In Listen bleibt jeder Eintrag an seinem
+ * Platz (auch ein leerer), sonst verschöben sich die Indizes. */
 export function resolve(value: unknown, state: unknown, labels: Labels = {}): unknown {
   if (typeof value === 'string') {
     const single = value.match(SINGLE);
@@ -92,7 +93,12 @@ export function resolve(value: unknown, state: unknown, labels: Labels = {}): un
     const text = interpolate(value, state, labels);
     return text.trim() === '' ? undefined : text;
   }
-  if (Array.isArray(value)) return value.map((v) => resolve(v, state, labels)).filter((v) => v !== undefined);
+  if (Array.isArray(value))
+    return value.map((v) => {
+      if (typeof v !== 'string') return resolve(v, state, labels) ?? null;
+      const single = v.match(SINGLE);
+      return single ? entry(getPath(state, single[1])) : interpolate(v, state, labels);
+    });
   if (value != null && typeof value === 'object') {
     const entries = Object.entries(value)
       .map(([k, v]) => [k, resolve(v, state, labels)] as const)
@@ -105,8 +111,7 @@ export function resolve(value: unknown, state: unknown, labels: Labels = {}): un
 /** Ein Wert aus dem Zustand ohne leere Felder (wie in `resolve`). */
 function compact(value: unknown): unknown {
   if (value === null || value === '' || value === undefined) return undefined;
-  // wie resolve: leere Einträge fallen auch in Listen weg
-  if (Array.isArray(value)) return value.map(compact).filter((v) => v !== undefined);
+  if (Array.isArray(value)) return value.map(entry);
   if (typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as State)
@@ -118,10 +123,37 @@ function compact(value: unknown): unknown {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
 
+/** Ein Eintrag einer Liste: bleibt an seinem Platz - nur in Objekten darin fallen leere Felder weg. */
+function entry(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (Array.isArray(value)) return value.map(entry);
+  return value !== null && typeof value === 'object' ? compact(value) : value;
+}
+
+/** Der Wert einer Aktion «Wert setzen»: wie `resolve`, aber ein Text bleibt, wie er ist - auch leer
+ * (`""` oder `"{{x}}"` mit leerem x leert ein Feld). */
+export function resolveValue(value: unknown, state: unknown, labels: Labels = {}): unknown {
+  if (typeof value !== 'string') return resolve(value, state, labels);
+  const single = value.match(SINGLE);
+  return single ? getPath(state, single[1]) : interpolate(value, state, labels);
+}
+
+/** Gleich - auch Objekte mit den Feldern in anderer Reihenfolge (eine neu geladene Liste). */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => sameValue(v, b[i]));
+  const ka = Object.keys(a as State);
+  const kb = Object.keys(b as State);
+  return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && sameValue((a as State)[k], (b as State)[k]));
+}
+
 /** `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'` (auch true, false, null, Zahlen), verbunden
  * mit `&&` und `||` (&& bindet stärker, keine Klammern). */
 export function evaluate(cond: string | undefined, state: unknown): boolean {
   if (!cond) return true;
+  warnOnce(cond);
   const or = splitOutsideQuotes(cond, '||');
   if (or.length > 1) return or.some((part) => evaluate(part, state));
   const and = splitOutsideQuotes(cond, '&&');
@@ -136,6 +168,15 @@ export function evaluate(cond: string | undefined, state: unknown): boolean {
   }
   if (c.startsWith('!')) return !truthy(getPath(state, c.slice(1).trim()));
   return truthy(getPath(state, c));
+}
+
+// eine Bedingung, die nicht passt, ist still falsch - einmal je Bedingung in der Konsole (wie im Build)
+const checked = new Set<string>();
+function warnOnce(cond: string) {
+  if (checked.has(cond)) return;
+  checked.add(cond);
+  const problem = conditionProblem(cond);
+  if (problem) console.warn(`[pages] sichtbar, wenn «${cond}»: ${problem} - gilt als falsch`);
 }
 
 const PATH = /^[A-Za-z_$][\w$]*(\.[\w$]+)*$/;

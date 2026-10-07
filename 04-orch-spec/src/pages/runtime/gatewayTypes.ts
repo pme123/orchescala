@@ -1,10 +1,12 @@
 // Was eine Seite vom Gateway braucht - ohne die Anmeldung (der Designer von orch-spec hat keine).
 
-/** Ein Aufruf des Gateways, der nicht geklappt hat – die Seite zeigt ihren Text zum Status. */
+/** Ein Aufruf des Gateways, der nicht geklappt hat – die Seite zeigt ihren Text zum Status.
+  * `login`: die Anmeldung selbst geht nicht (IdP weg, config.json fehlt) - die Seite zeigt die Meldung. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly kind: 'gateway' | 'login' = 'gateway',
   ) {
     super(message);
   }

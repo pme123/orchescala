@@ -1,7 +1,7 @@
 import { Check, Loader2, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, type Gateway } from './gatewayTypes';
-import { actionInput, errorText, evaluate, format, getPath, groupBy, interpolate, isEmail, resolve, setPath, type State } from './expr';
+import { actionInput, errorText, evaluate, format, getPath, groupBy, interpolate, isEmail, resolveValue, sameValue, setPath, type State } from './expr';
 import type { Action, App, Component, Field, Page } from './spec';
 import { cls } from './ui';
 
@@ -68,7 +68,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     switch (a.do) {
       case 'set':
         // Vorlagen auch in Objekten und Listen - null bleibt null (ein Wert löschen)
-        update((st) => setPath(st, a.path, a.value === null ? null : resolve(a.value, st, labels)));
+        update((st) => setPath(st, a.path, a.value === null ? null : resolveValue(a.value, st, labels)));
         return;
       case 'call':
         store(a.result, await gateway.call(a.service, input(a.input, a.public), !!a.public));
@@ -104,7 +104,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         const status = e instanceof ApiError ? e.status : 0;
         if (!(e instanceof ApiError)) console.error(e);
         // eine Anmeldung, die nicht geht (IdP weg, config.json fehlt), sagt das selbst - nicht «neu anmelden»
-        const login = e instanceof ApiError && status === 401 && /Anmeldung/.test(e.message) ? e.message : null;
+        const login = e instanceof ApiError && e.kind === 'login' ? e.message : null;
         setErrors((er) => ({ ...er, [key]: login ?? errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
         if (a.do === 'call' && a.onError) await run(a.onError, `${key}.onError`);
         return false;
@@ -198,7 +198,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
             {comp.label && <Label text={text(comp.label)} missing={missing.has(comp.bind)} isDark={isDark} />}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {comp.options.map((o, i) => {
-                const selected = JSON.stringify(o.value) === JSON.stringify(value);
+                const selected = sameValue(o.value, value);
                 return (
                   <button key={i} type="button" disabled={busy !== null}
                     onClick={() => {
@@ -218,7 +218,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
       }
       case 'pick': {
         const items = getPath(state, comp.items);
-        const value = JSON.stringify(getPath(state, comp.bind));
+        const value = getPath(state, comp.bind);
         const list = Array.isArray(items) ? items : [];
         const groups = comp.groupBy
           ? groupBy(list, (i) => format(getPath(i, comp.groupBy!.path), comp.groupBy!.format, labels))
@@ -237,7 +237,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
                     {g.key && <div className={`mb-1 text-[10px] font-bold tracking-widest uppercase ${c.muted}`}>{g.key}</div>}
                     <div className="flex flex-wrap gap-2">
                       {g.items.map((item, i) => {
-                        const selected = JSON.stringify(item) === value;
+                        const selected = sameValue(item, value);
                         return (
                           <button key={i} type="button" disabled={busy !== null} onClick={() => update((s) => setPath(s, comp.bind, item))}
                             className={`rounded-lg border px-3 py-1.5 text-left text-xs transition-colors ${selected ? c.selected : `${c.border2} ${c.hover}`}`}>

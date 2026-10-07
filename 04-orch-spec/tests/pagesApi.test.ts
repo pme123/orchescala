@@ -63,6 +63,13 @@ test('no renewal possible - straight to the login, not sent again', async () => 
   assert.deepEqual(calls, { renew: 1, login: 1 });
 });
 
+test('a success without JSON - the text, not an error (a second click would start again)', async () => {
+  gatewayAnswers(new Response('4f1c-instance-id', { status: 200, headers: { 'Content-Type': 'text/plain' } }));
+  assert.equal(await postWith(tokens('new').source, '/process/x/async', {}, false), '4f1c-instance-id');
+  gatewayAnswers(new Response('', { status: 200 }));
+  assert.equal(await postWith(tokens('new').source, '/process/x/async', {}, false), null);
+});
+
 test('an error - the status and the errorMsg of the gateway; 204 is null', async () => {
   gatewayAnswers(json({ errorMsg: 'vergeben' }, 409));
   await assert.rejects(postWith(tokens('new').source, '/worker/x', {}, false), (e: ApiError) => e.status === 409 && e.message === 'vergeben');

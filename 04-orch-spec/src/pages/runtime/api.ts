@@ -44,7 +44,14 @@ export async function postWith(
   }
   if (response.status === 204) return null;
   const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  if (!text) return null;
+  // geklappt ist es auch mit einer Antwort, die kein JSON ist (z.B. eine ID als Text) - kein Fehler
+  // daraus machen: ein zweiter Klick startete den Prozess sonst noch einmal
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 const q = (businessKey?: string) => (businessKey ? `?businessKey=${encodeURIComponent(businessKey)}` : '');

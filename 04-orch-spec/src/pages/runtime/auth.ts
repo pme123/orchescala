@@ -23,7 +23,9 @@ function userManager(): Promise<UserManager> {
         post_logout_redirect_uri: appUrl,
         response_type: 'code', // Authorization Code + PKCE
         scope: 'openid profile email',
-        automaticSilentRenew: true,
+        // erneuert wird nur bei Bedarf (abgelaufen, 401) - eine zweite, eigene Erneuerung der Bibliothek
+        // liefe sonst gleichzeitig, und ein rotierendes Refresh-Token gilt nur einmal
+        automaticSilentRenew: false,
         userStore: new WebStorageStateStore({ store: window.sessionStorage }),
       });
     })
@@ -49,10 +51,20 @@ export async function completeLogin(): Promise<boolean> {
     }
   });
   if (!pending) return false;
-  const user = await (await userManager()).signinRedirectCallback();
-  const returnTo = typeof user.state === 'string' ? user.state : import.meta.env.BASE_URL;
-  window.history.replaceState({}, '', returnTo);
-  return true;
+  try {
+    const user = await (await userManager()).signinRedirectCallback();
+    const returnTo = typeof user.state === 'string' ? user.state : import.meta.env.BASE_URL;
+    window.history.replaceState({}, '', returnTo);
+    return true;
+  } catch (e) {
+    // falscher state, abgelaufener Code, ein Fehler des IdP: code/state aus der URL, sonst
+    // scheitert jedes Neuladen gleich - die Seite fragt dann neu nach der Anmeldung
+    console.error('[pages] Rückkehr von der Anmeldung:', e);
+    const url = new URL(window.location.href);
+    for (const p of ['code', 'state', 'session_state', 'iss']) url.searchParams.delete(p);
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    return false;
+  }
 }
 
 export async function currentUser(): Promise<User | null> {
@@ -70,27 +82,17 @@ export async function logout(): Promise<void> {
   await (await userManager()).signoutRedirect();
 }
 
-// gleichzeitige Aufrufe mit abgelaufenem Token: eine Erneuerung, eine Anmeldung - nicht je Aufruf
-let renewing: Promise<string> | null = null;
-
 export async function accessToken(): Promise<string> {
-  const um = await userManager();
-  const user = await um.getUser();
+  const user = await (await userManager()).getUser();
   if (user && !user.expired) return user.access_token;
-  renewing ??= (async () => {
-    // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung
-    if (user) {
-      const renewed = await um.signinSilent().catch(() => null);
-      if (renewed && !renewed.expired) return renewed.access_token;
-    }
-    return reauthenticate();
-  })().finally(() => {
-    renewing = null;
-  });
-  return renewing;
+  // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung - dieselbe Erneuerung
+  // wie bei einem 401 (renewToken), nicht eine zweite daneben
+  const renewed = user ? await renewToken() : null;
+  return renewed ?? reauthenticate();
 }
 
-// mehrere Aufrufe mit 401 gleichzeitig: eine stille Erneuerung, nicht je Aufruf
+// gleichzeitige Aufrufe mit abgelaufenem Token oder 401: eine stille Erneuerung, nicht je Aufruf -
+// ein rotierendes Refresh-Token gilt nur einmal
 let renewingSilently: Promise<string | null> | null = null;
 
 /** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
@@ -137,9 +139,14 @@ export async function sessionExpired(): Promise<never> {
     await login();
   } catch (e) {
     // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
-    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
+    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
   }
-  // die Seite geht zum IdP - bleibt sie (Weiterleitung blockiert), nach 5 s ein Fehler statt warten
+  // die Seite geht zum IdP: das Warten endet mit ihr. Bleibt sie (Weiterleitung blockiert), nach 5 s ein
+  // Fehler - aber nicht, wenn sie schon am Gehen ist (langsame Weiterleitung)
+  let leaving = false;
+  window.addEventListener('pagehide', () => { leaving = true; }, { once: true });
+  window.addEventListener('beforeunload', () => { leaving = true; }, { once: true });
   await new Promise((r) => setTimeout(r, 5000));
-  throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.');
+  if (leaving || document.visibilityState === 'hidden') return new Promise<never>(() => {});
+  throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login');
 }

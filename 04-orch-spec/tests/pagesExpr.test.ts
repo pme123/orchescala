@@ -1,7 +1,7 @@
 // The expressions of the page specs (pages/*.json) - paths, templates, conditions.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { actionInput, conditionProblem, errorText, evaluate, format, getPath, groupBy, interpolate, resolve, setPath } from '../src/pages/runtime/expr';
+import { actionInput, conditionProblem, errorText, evaluate, format, getPath, groupBy, interpolate, resolve, resolveValue, sameValue, setPath } from '../src/pages/runtime/expr';
 
 const state = {
   step: 'choose',
@@ -73,10 +73,31 @@ test('evaluate - operators in quotes, numbers and their text', () => {
   assert.equal(evaluate("n != '2'", st), true);
 });
 
-test('resolve - empty values fall away in lists as well (also of a single expression)', () => {
+test('resolve - in lists every entry keeps its place, only empty fields of objects fall away', () => {
   const st = { list: ['a', '', null, { v: '', w: 1 }], x: '' };
-  assert.deepEqual(resolve('{{list}}', st), ['a', { w: 1 }]);
-  assert.deepEqual(resolve(['{{x}}', 'b'], st), ['b']);
+  assert.deepEqual(resolve('{{list}}', st), ['a', '', null, { w: 1 }]);
+  assert.deepEqual(resolve(['{{x}}', 'b', '{{nothing}}'], st), ['', 'b', null]);
+  assert.deepEqual(resolve([{ a: '{{x}}', b: 1 }], st), [{ b: 1 }]);
+});
+
+test('resolveValue - a text stays a text, also empty (to clear a field)', () => {
+  const st = { x: '', slot: { start: '2026-10-09T09:00' } };
+  assert.equal(resolveValue('', st), '');
+  assert.equal(resolveValue('{{x}}', st), '');
+  assert.equal(resolveValue('Termin {{slot.start|time}}', st), 'Termin 09:00');
+  assert.deepEqual(resolveValue('{{slot}}', st), st.slot);
+  assert.deepEqual(resolveValue({ a: '{{x}}', b: 2 }, st), { b: 2 });
+});
+
+test('sameValue - deep, the order of the fields does not matter', () => {
+  assert.ok(sameValue({ start: 'a', advisor: { id: 1, name: 'M' } }, { advisor: { name: 'M', id: 1 }, start: 'a' }));
+  assert.ok(sameValue(['a', { x: 1 }], ['a', { x: 1 }]));
+  assert.ok(sameValue('mortgage', 'mortgage'));
+  assert.ok(!sameValue({ a: 1 }, { a: 1, b: 2 }));
+  assert.ok(!sameValue(['a', 'b'], ['b', 'a']));
+  assert.ok(!sameValue({ a: undefined }, { b: undefined }));
+  assert.ok(!sameValue(null, {}));
+  assert.ok(!sameValue([], {}));
 });
 
 test('getPath reads own fields only - setPath keeps lists lists', () => {
