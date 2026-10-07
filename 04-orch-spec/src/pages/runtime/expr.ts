@@ -132,6 +132,31 @@ export function evaluate(cond: string | undefined, state: unknown): boolean {
   return truthy(getPath(state, c));
 }
 
+const PATH = /^[A-Za-z_$][\w$]*(\.[\w$]+)*$/;
+
+/** Was an einer Bedingung nicht stimmt - null, wenn sie passt. Für die Befunde im Designer: eine
+  * Bedingung, die nicht passt, ist sonst einfach falsch und versteckt den Baustein still. */
+export function conditionProblem(cond: string | undefined): string | null {
+  if (!cond?.trim()) return null;
+  for (const or of splitOutsideQuotes(cond, '||')) {
+    for (const raw of splitOutsideQuotes(or, '&&')) {
+      const part = raw.trim();
+      if (!part) return 'ein leerer Teil zwischen && / ||';
+      const op = operatorOutsideQuotes(part);
+      if (op) {
+        const left = part.slice(0, op.at).trim();
+        const right = part.slice(op.at + 2).trim();
+        if (!PATH.test(left)) return `«${left}» ist kein Pfad`;
+        if (!/^('.*'|".*"|true|false|null|-?\d+(\.\d+)?)$/.test(right)) return `«${right}» – ein Text braucht Anführungszeichen ('${right}')`;
+      } else {
+        const path = part.startsWith('!') ? part.slice(1).trim() : part;
+        if (!PATH.test(path)) return `«${part}» ist weder ein Pfad noch ein Vergleich`;
+      }
+    }
+  }
+  return null;
+}
+
 /** Das erste `==` / `!=` ausserhalb von Anführungszeichen. */
 function operatorOutsideQuotes(text: string): { op: '==' | '!='; at: number } | null {
   let quote: string | null = null;

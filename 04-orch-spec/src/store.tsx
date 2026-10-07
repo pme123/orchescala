@@ -29,6 +29,8 @@ import type { App as PagesApp, Page } from './pages/runtime/spec';
 const DIR = 'processes';
 /** Die Seiten der App (E15) - eine Datei pro Seite, dazu `app.json` */
 const PAGES_DIR = 'pages';
+/** Der Name einer Seiten-Datei - klein, ohne Pfad */
+const PAGE_SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const APP_FILE = 'app.json';
 /** Stammdaten — in `config/`, damit dort nur Admins schreiben können */
 export const MODEL_PATH = 'config/model.json';
@@ -392,20 +394,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Die Seiten: wenige kleine Dateien - nacheinander gelesen
   const refreshPagesIn = useCallback(async (be: StorageBackend) => {
     const items: PageListItem[] = [];
-    let app: { data: PagesApp; version: string } | null = null;
+    let app = null as { data: PagesApp; version: string } | null;
     let brokenApp = false;
     try {
-      for (const f of (await be.list(PAGES_DIR)).filter(f => f.name.endsWith('.json'))) {
+      // gleichzeitig lesen - bei SharePoint ist jede Datei ein eigener Aufruf
+      await Promise.all((await be.list(PAGES_DIR)).filter(f => f.name.endsWith('.json')).map(async f => {
         try {
           const read = await be.read(`${PAGES_DIR}/${f.name}`);
-          if (!read) continue;
+          if (!read) return;
           if (f.name === APP_FILE) app = { data: JSON.parse(read.text) as PagesApp, version: read.version };
           else items.push({ slug: f.name.replace(/\.json$/, ''), data: JSON.parse(read.text) as Page, version: read.version });
-        } catch {
+        } catch (e) {
           // eine unlesbare Seite fehlt in der Liste - anlegen geht nur neu (createOnly), sie bleibt liegen
+          console.error(`[orch-spec] ${PAGES_DIR}/${f.name} ist nicht lesbar:`, e);
           if (f.name === APP_FILE) brokenApp = true;
         }
-      }
+      }));
     } catch (e) {
       console.error('[orch-spec] refreshPages:', e);
       brokenApp = true; // die Liste ist nicht lesbar - auch app.json nicht überschreiben
@@ -825,7 +829,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Seiten ────────────────────────────────────────────────────────────────
-  const writeJson = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult> => {
+  const writeJson = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult & { exists?: true }> => {
     const be = backendRef.current;
     if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
     try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
@@ -833,13 +837,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const w = await be.write(path, JSON.stringify(data, null, 2) + '\n', expectedVersion != null ? { ifMatch: expectedVersion } : { createOnly: true });
     if (!w.ok) {
       if (w.reason === 'conflict') return { status: 'conflict', currentVersion: w.currentVersion ?? '' };
-      if (w.reason === 'exists') return { status: 'error', message: 'Die Datei gibt es schon – Seite neu laden.' };
+      if (w.reason === 'exists') return { status: 'error', message: 'Die Datei gibt es schon – Seite neu laden.', exists: true };
       return { status: 'error', message: w.reason === 'forbidden' ? w.message : 'Schreiben fehlgeschlagen — die Datei wurde NICHT gespeichert.' };
     }
     return { status: 'saved', version: w.version };
   }, []);
 
   const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null): Promise<SaveResult> => {
+    if (!PAGE_SLUG.test(slug)) return { status: 'error', message: `«${slug}» ist kein Name für eine Seite.` };
     const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
     if (r.status === 'saved')
       setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }].sort(byPath));
@@ -847,10 +852,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [writeJson]);
 
   const createPage = useCallback(async (slug: string, data: Page) => {
+    // ein Dateiname, kein Pfad - und nicht die Einstellungen der App
+    if (!PAGE_SLUG.test(slug)) return { ok: false as const, message: `«${slug}» ist kein Name für eine Seite (a-z, 0-9, -).` };
     if (slug === APP_FILE.replace(/\.json$/, '')) return { ok: false as const, message: '«app» ist für die Einstellungen der App reserviert.' };
     // ohne Version: nur neu anlegen (createOnly)
     const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, null);
-    if (r.status !== 'saved') return { ok: false as const, message: r.status === 'error' && r.message.includes('gibt es schon') ? 'Eine Seite mit diesem Namen gibt es schon.' : r.status === 'error' ? r.message : 'Konflikt.' };
+    if (r.status !== 'saved')
+      return { ok: false as const, message: 'exists' in r && r.exists ? 'Eine Seite mit diesem Namen gibt es schon (vielleicht unlesbar - siehe Konsole).' : r.status === 'error' ? r.message : 'Konflikt.' };
     setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
     return { ok: true as const };
   }, [writeJson]);

@@ -64,16 +64,24 @@ export async function logout(): Promise<void> {
   await (await userManager()).signoutRedirect();
 }
 
+// gleichzeitige Aufrufe mit abgelaufenem Token: eine Erneuerung, eine Anmeldung - nicht je Aufruf
+let renewing: Promise<string> | null = null;
+
 export async function accessToken(): Promise<string> {
   const um = await userManager();
   const user = await um.getUser();
   if (user && !user.expired) return user.access_token;
-  // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung
-  if (user) {
-    const renewed = await um.signinSilent().catch(() => null);
-    if (renewed && !renewed.expired) return renewed.access_token;
-  }
-  return sessionExpired();
+  renewing ??= (async () => {
+    // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung
+    if (user) {
+      const renewed = await um.signinSilent().catch(() => null);
+      if (renewed && !renewed.expired) return renewed.access_token;
+    }
+    return sessionExpired();
+  })().finally(() => {
+    renewing = null;
+  });
+  return renewing;
 }
 
 /** Die Rollen im Access Token (Keycloak: realm_access.roles). */

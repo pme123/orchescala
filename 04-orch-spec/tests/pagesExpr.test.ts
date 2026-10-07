@@ -1,7 +1,7 @@
 // The expressions of the page specs (pages/*.json) - paths, templates, conditions.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { errorText, evaluate, format, getPath, groupBy, interpolate, resolve, setPath } from '../src/pages/runtime/expr';
+import { conditionProblem, errorText, evaluate, format, getPath, groupBy, interpolate, resolve, setPath } from '../src/pages/runtime/expr';
 
 const state = {
   step: 'choose',
@@ -85,6 +85,15 @@ test('getPath reads own fields only - setPath keeps lists lists', () => {
   const next = setPath({ items: [{ name: 'a' }, { name: 'b' }] }, 'items.1.name', 'c') as { items: { name: string }[] };
   assert.ok(Array.isArray(next.items));
   assert.deepEqual(next.items, [{ name: 'a' }, { name: 'c' }]);
+});
+
+test('conditionProblem - what does not parse', () => {
+  for (const ok of [undefined, '', "step == 'sent'", '!task', 'task.taskId && accepted == false', "a != 'x||y'", 'n == 1', 'flag == true'])
+    assert.equal(conditionProblem(ok), null, String(ok));
+  assert.match(conditionProblem('step == sent')!, /Anführungszeichen/);
+  assert.match(conditionProblem("!a == 'x'")!, /kein Pfad/);
+  assert.match(conditionProblem('a && ')!, /leerer Teil/);
+  assert.match(conditionProblem('a b')!, /weder/);
 });
 
 test('groupBy keeps the order', () => {

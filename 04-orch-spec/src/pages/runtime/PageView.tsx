@@ -102,7 +102,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         if (!mounted.current) return false;
         const status = e instanceof ApiError ? e.status : 0;
         if (!(e instanceof ApiError)) console.error(e);
-        setErrors((er) => ({ ...er, [key]: errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
+        // eine Anmeldung, die nicht geht (IdP weg, config.json fehlt), sagt das selbst - nicht «neu anmelden»
+        const login = e instanceof ApiError && status === 401 && /Anmeldung/.test(e.message) ? e.message : null;
+        setErrors((er) => ({ ...er, [key]: login ?? errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
         if (a.do === 'call' && a.onError) await run(a.onError, `${key}.onError`);
         return false;
       }

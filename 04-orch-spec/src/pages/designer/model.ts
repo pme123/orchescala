@@ -1,6 +1,7 @@
 // The designer of the pages (E15) - what a page can call, sample data for the preview, the block
 // tree and the checks. No React here, so it is tested like the rest (tests/pagesDesigner.test.ts).
 import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from '../../types';
+import { conditionProblem } from '../runtime/expr';
 import type { Action, Component, Page } from '../runtime/spec';
 
 // ---------------------------------------------------------------- fields
@@ -411,6 +412,16 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
   const isKnown = (path: string) =>
     known.some((k) => k === path || path.startsWith(`${k}.`) || k.startsWith(`${path}.`)) || path.startsWith('query.');
   for (const { key, block } of flatten(page.body)) {
+    // die Bedingungen - eine, die nicht passt, versteckt sonst still
+    const conditions = [
+      block.visible,
+      ...(block.type === 'fields' ? block.fields.map((f) => f.visible) : []),
+      ...(block.type === 'summary' ? block.items.map((i) => i.visible) : []),
+    ];
+    for (const cond of conditions) {
+      const problem = conditionProblem(cond);
+      if (problem) findings.push({ level: 'warning', key, message: `Sichtbar, wenn «${cond}»: ${problem}.` });
+    }
     if (block.type === 'pick' && !isKnown(block.items))
       findings.push({ level: 'warning', key, message: `Die Liste «${block.items}» kommt von keiner Aktion der Seite.` });
     for (const path of templatePaths(block)) {

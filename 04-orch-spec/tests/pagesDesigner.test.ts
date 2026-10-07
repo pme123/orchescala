@@ -153,7 +153,7 @@ test('pageFindings - what does not fit', () => {
     title: '',
     load: [{ do: 'call', service: 'acme-shop-unknown', result: 'x' }],
     body: [
-      { type: 'pick', bind: 'slot', items: 'nothing.here', itemLabel: '{{start}}' },
+      { type: 'pick', bind: 'slot', items: 'nothing.here', itemLabel: '{{start}}', visible: 'step == sent' },
       { type: 'text', text: '{{missing.value}}' },
       { type: 'button', label: 'OK', actions: [
         { do: 'message', name: 'acme-shop-other', businessKey: '{{query.token}}' },
@@ -171,6 +171,7 @@ test('pageFindings - what does not fit', () => {
   has('die Message «acme-shop-other»');
   has('den Benutzer-Task «NoTask»');
   has('error: Button «OK»: einen Task abschliessen geht nur mit Login');
+  has("warning: Sichtbar, wenn «step == sent»: «sent» – ein Text braucht Anführungszeichen");
 });
 
 test('slugOf', () => {
