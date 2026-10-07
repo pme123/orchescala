@@ -165,7 +165,8 @@ object WorkerError:
       * gives a plain `CustomError` (a 500) - a refusal is always the caller's fault.
       */
     def refused(status: Int, errorMsg: String): CustomError =
-      if RefusedRequest.isRefusal(status) then CustomError(errorMsg, causeError = Some(RefusedRequest(status, errorMsg)))
+      if RefusedRequest.isRefusal(status) then
+        CustomError(errorMsg, causeError = Some(RefusedRequest(status, errorMsg)))
       else CustomError(errorMsg)
   end CustomError
 
@@ -177,7 +178,7 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
 
   object RefusedRequest:
-    def isRefusal(status: Int): Boolean = status >= 400 && status < 500
+    private[worker] def isRefusal(status: Int): Boolean = status >= 400 && status < 500
 
   case class UnexpectedRunError(
       errorMsg: String
@@ -241,7 +242,8 @@ object WorkerError:
         case ServiceRequestError(code, msg) => ServiceRequestError(code, msg)
         case ServiceUnexpectedError(msg)    => ServiceRequestError(500, msg)
         // a refusal of a custom worker (CustomError.refused) keeps its 4xx
-        case CustomError(msg, _, Some(RefusedRequest(status, _))) => ServiceRequestError(status, msg)
+        case CustomError(msg, _, Some(RefusedRequest(status, _)))
+            if RefusedRequest.isRefusal(status) => ServiceRequestError(status, msg)
         case err                            => ServiceRequestError(500, err.errorMsg)
     end apply
   end ServiceRequestError

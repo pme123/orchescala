@@ -31,40 +31,60 @@ object CustomErrorRefusedSpec extends ZIOSpecDefault:
   class ReserveWorker extends CustomWorkerDsl[ReserveTask.In, ReserveTask.Out]:
     lazy val customTask = ReserveTask.example
     override def runWork(in: ReserveTask.In): Either[CustomError, ReserveTask.Out] =
-      if in.status == 0 then Left(CustomError("boom")) else Left(CustomError.refused(in.status, "The slot is taken"))
+      if in.status == 0 then Left(CustomError("boom"))
+      else Left(CustomError.refused(in.status, "The slot is taken"))
 
-  /** POST /worker/test-refused-reserve - the status of the answer. */
+  /** POST /worker/test-refused-reserve - the status and the error code in the body. */
   private def call(status: Int) =
     val routes  = WorkerRoutes(
       DefaultEngineContext.example.copy(workerConfig = DefaultWorkerConfig(DefaultEngineConfig()))
     ).routes(Set(ReserveWorker()))
     val request = Request
-      .post(URL.decode("/worker/test-refused-reserve").toOption.get, Body.fromString(s"""{"status":$status}"""))
+      .post(
+        URL.decode("/worker/test-refused-reserve").toOption.get,
+        Body.fromString(s"""{"status":$status}""")
+      )
       .addHeader(Header.Authorization.Bearer("a-token"))
-    ZIO.scoped(routes.runZIO(request)).map(_.status.code)
+    ZIO.scoped:
+      for
+        response <- routes.runZIO(request)
+        body     <- response.body.asString
+        code      = io.circe.parser.parse(body).toOption.flatMap(_.hcursor.get[Int]("errorCode").toOption)
+      yield response.status.code -> code
+
+  private def codeOf(error: CustomError) = ServiceRequestError(error).errorCode
 
   def spec = suite("CustomError.refused")(
     test("through /worker/{topic}: the 4xx of the refusal, a 500 for any other CustomError"):
       for
-        taken  <- call(409)
-        gone   <- call(404)
-        failed <- call(0)
-        other  <- call(422)
-      yield assertTrue(taken == 409, gone == 404, failed == 500, other == 422)
+        taken      <- call(409)
+        gone       <- call(404)
+        invalid    <- call(422) // a 4xx without a variant of its own
+        failed     <- call(0)
+        notRefusal <- call(503) // refused with a status that is no 4xx - a plain CustomError
+      yield assertTrue(
+        taken == (409 -> Some(409)),
+        gone == (404 -> Some(404)),
+        invalid == (422 -> Some(422)),
+        failed == (500 -> Some(500)),
+        notRefusal == (500 -> Some(500))
+      )
     ,
-    test("over HTTP: the status of the refusal"):
+    test("the HTTP status of /worker: 4xx / 5xx as they are, any other code 400 as before"):
       assertTrue(
-        ServiceRequestError(CustomError.refused(409, "The slot is taken")) == ServiceRequestError(409, "The slot is taken"),
-        ServiceRequestError(CustomError.refused(404, "No such link")).errorCode == 404
+        WorkerEndpoints.httpStatus(ServiceRequestError(409, "x")).code == 409,
+        WorkerEndpoints.httpStatus(ServiceRequestError(502, "x")).code == 502,
+        WorkerEndpoints.httpStatus(ServiceRequestError(0, "x")).code == 400,
+        WorkerEndpoints.httpStatus(ServiceRequestError(302, "x")).code == 400
       )
     ,
     test("any other CustomError stays a 500 - also with a 4xx cause not made by refused"):
       assertTrue(
         ServiceRequestError(CustomError("boom")).errorCode == 500,
-        ServiceRequestError(CustomError("boom", causeError = Some(ServiceRequestError(502, "upstream")))).errorCode == 500,
+        codeOf(CustomError("boom", causeError = Some(ServiceRequestError(502, "upstream")))) == 500,
         // e.g. a failed call to another service - its 401 / 404 is not the caller's refusal
-        ServiceRequestError(CustomError("upstream", causeError = Some(ServiceRequestError(401, "no token")))).errorCode == 500,
-        ServiceRequestError(CustomError("upstream", causeError = Some(ServiceRequestError(404, "not found")))).errorCode == 500
+        codeOf(CustomError("upstream", causeError = Some(ServiceRequestError(401, "no token")))) == 500,
+        codeOf(CustomError("upstream", causeError = Some(ServiceRequestError(404, "not found")))) == 500
       )
     ,
     test("a status that is no 4xx - a plain CustomError (500), no exception"):
