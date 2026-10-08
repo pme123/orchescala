@@ -83,6 +83,8 @@ The following steps are executed:
   the credentials work: a `HEAD` on the pom of each module, before anything is built or uploaded.
   - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
     of the existing release overwritten). Remove the half-finished version there, or release the next.
+  - The poms are those of the generated build: `<project>-<module>` (the company's with the Scala
+    suffix) under the company. A module with a `name` of its own is not covered by the check.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
     token may not read - so the project of a project registry is asked first. A group registry can
     not be checked: the release goes on only when you confirm. The job token of a pipeline is GitLab's

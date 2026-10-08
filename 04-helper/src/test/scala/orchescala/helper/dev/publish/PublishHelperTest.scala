@@ -244,6 +244,21 @@ class PublishHelperRetryTest extends FunSuite:
     restore(PublishHelper.ReleaseStep.Build) // a third call: done already
     assertEquals(runs, 1)
 
+  test("a failing restore is tried again by the next caller (the hook)"):
+    val dir   = repo()
+    var calls = 0
+    val restore = PublishHelper.restoreForRetry(
+      isSnapshot = false,
+      dir,
+      restore = _ =>
+        calls += 1
+        if calls == 1 then throw IllegalStateException("index.lock")
+    )
+    intercept[IllegalStateException](restore(PublishHelper.ReleaseStep.Build))
+    restore(PublishHelper.ReleaseStep.Build) // the hook: tries again
+    restore(PublishHelper.ReleaseStep.Build) // done now
+    assertEquals(calls, 2)
+
   test("a failing rewrite before the release restores too"):
     val dir     = repo()
     val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir)
@@ -324,20 +339,37 @@ class PublishHelperRetryTest extends FunSuite:
     assert((System.nanoTime() - started) / 1e6 > 500, "waited for the child")
     sleeper.join()
 
-  test("the sbt child is killed when the thread running it is interrupted"):
+  test("the sbt child and what it started are killed when the thread running it is interrupted"):
     @volatile var interrupted = false
+    // a shell with a child of its own - like the sbt launcher and its JVM
     val runner = Thread: () =>
-      try PublishHelper.SbtChild.run(Seq("sleep", "30"))
+      try PublishHelper.SbtChild.run(Seq("sh", "-c", "sleep 31.7; echo done"))
       catch case _: InterruptedException => interrupted = true
     runner.start()
-    Thread.sleep(300)
+    Thread.sleep(500)
+    assertEquals(os.proc("pgrep", "-f", "^sleep 31.7$").call(check = false).exitCode, 0, "the grandchild runs")
     runner.interrupt()
-    runner.join(5000)
+    runner.join(10000)
     assert(!runner.isAlive, "the run ended with the interrupt")
     assert(interrupted)
+    // gone within a few seconds (a killed process stays a zombie until it is reaped)
+    def gone = os.proc("pgrep", "-fl", "^sleep 31.7$").call(check = false)
+    val deadline = System.nanoTime() + 3_000_000_000L
+    while gone.exitCode == 0 && System.nanoTime() < deadline do Thread.sleep(100)
+    assertEquals(gone.exitCode, 1, s"the grandchild is gone: ${gone.out.text()}")
     val started = System.nanoTime()
     PublishHelper.SbtChild.awaitExit() // nothing running any more
     assert((System.nanoTime() - started) / 1e6 < 1000)
+
+  test("awaitExit gives up after its timeout"):
+    val sleeper = Thread(() => PublishHelper.SbtChild.run(Seq("sleep", "2")))
+    sleeper.start()
+    Thread.sleep(200)
+    val started = System.nanoTime()
+    PublishHelper.SbtChild.awaitExit(timeout = scala.concurrent.duration.Duration(300, "millis"))
+    val waited = (System.nanoTime() - started) / 1e6
+    assert(waited >= 250 && waited < 1500, s"waited $waited ms")
+    sleeper.join()
 
   test("a failing restore does not hide the failure of the release"):
     val runs = PublishHelper.sbtRuns(None)
@@ -502,6 +534,13 @@ class PublishHelperVersionFreeTest extends FunSuite:
       val wrong = intercept[IllegalStateException]:
         PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("GITLAB_TOKEN" -> "wrong").get)
       assert(wrong.getMessage.contains("GitLab refuses the credentials"), wrong.getMessage)
+      // no credentials at all: the check would run anonymously - it asks, and stops without a yes
+      val anonymous = devConfig.withSbtConfig(SbtConfig(reposConfig = ReposConfig(
+        repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/projects/42/packages/maven"))
+      )))
+      val stopped   = intercept[IllegalStateException]:
+        PublishHelper.verifyVersionFree("1.2.3", anonymous, "", _ => None, confirm = _ => false)
+      assert(stopped.getMessage.contains("anonymously"), stopped.getMessage)
       // a pipeline: the job token is GitLab's own - the project is not probed
       val before = requests().size
       PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("CI_JOB_TOKEN" -> "secret").get)
@@ -540,7 +579,7 @@ class PublishHelperVersionFreeTest extends FunSuite:
       assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
       // missing environment variables stop it before any request
       val before  = requests().size
-      intercept[IllegalArgumentException](PublishHelper.verifyVersionFree("1.2.3", devConfig, "", _ => None))
+      intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", devConfig, "", _ => None))
       assertEquals(requests().size, before)
       // a taken module
       val taken = intercept[IllegalStateException]:

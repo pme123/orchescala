@@ -155,8 +155,8 @@ object PublishHelper extends Helpers:
               s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}"
             )
           else
+            restore(repo) // fails it, `done` stays false - the hook (or a next caller) tries again
             done = true
-            restore(repo)
   end restoreForRetry
 
   private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
@@ -305,14 +305,13 @@ object PublishHelper extends Helpers:
   ): Unit =
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
-      val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalArgumentException(msg), identity)
+      val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalStateException(msg), identity)
       val status = curlStatus(config)
       repo match
         case _: RepoConfig.Gitlab if config.isEmpty                    =>
-          println(
-            "WARNING: no credentials for the GitLab repository - the check runs anonymously, " +
-              "a private package reads as free."
-          )
+          val problem =
+            s"no credentials for ${repo.repoUrl} - the check runs anonymously, a private package reads as free"
+          if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
         // the job token of a pipeline is GitLab's own - nothing to probe (and the project
         // endpoint is not meant for it); a token of a developer is probed
         case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
@@ -539,10 +538,19 @@ object PublishHelper extends Helpers:
         if child.exitCode() != 0 then
           throw IllegalStateException(s"`${cmd.mkString(" ")}` failed with exit code ${child.exitCode()}")
       catch
-        // the thread was interrupted - the child must not go on writing while the tree is restored
+        // the thread was interrupted - the child (the sbt launcher) and what it started (the
+        // sbt JVM, docker) must not go on writing while the tree is restored
         case e: InterruptedException =>
+          val handle = child.wrapped.toHandle
+          val started = handle.descendants().toList
+          println(s"Interrupted - ending `${cmd.mkString(" ")}` (pid ${handle.pid}) and the ${started.size} processes it started")
+          started.forEach(_.destroy())
           child.destroy()
-          child.waitFor(5000)
+          if !child.waitFor(5000) then
+            println(s"`${cmd.mkString(" ")}` did not end - killed.")
+            handle.descendants().forEach(_.destroyForcibly())
+            child.destroyForcibly()
+            child.waitFor(5000)
           throw e
       finally synchronized { running = None }
     end run
