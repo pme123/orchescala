@@ -121,7 +121,6 @@ class ProjectRepoTest extends FunSuite:
     assert(out.toString.contains(s"fetching the tags of ${shop.repo} failed"), out.toString)
 
   test("fetchTagsOnce - once per repo within FetchValidMs, a failed fetch only FailedFetchValidMs"):
-    ProjectRepo.forgetFetches()
     val repo = singleRepoGitTemp() / "orchescala-acme"
     Console.withOut(java.io.ByteArrayOutputStream()):
       assert(ProjectRepo.fetchTagsOnce(repo, now = 1000)) // no remote: git fetch succeeds
@@ -134,7 +133,6 @@ class ProjectRepoTest extends FunSuite:
       assert(ProjectRepo.fetchTagsOnce(gone, now = 1000 + ProjectRepo.FailedFetchValidMs))
 
   test("resolveTag - projects of one repo in parallel: the second waits for the fetch of the first"):
-    ProjectRepo.forgetFetches()
     val origin = singleRepoGitTemp() / "orchescala-acme"
     val gitTemp = os.temp.dir(prefix = "git-temp")
     os.proc("git", "clone", "-q", origin.toString, (gitTemp / "orchescala-acme").toString)
@@ -151,6 +149,24 @@ class ProjectRepoTest extends FunSuite:
       1.minute
     )
     assertEquals(found, Seq("acme-shop", "acme-cards", "acme-shop", "acme-cards").map(p => Some(s"$p-v1.1.0")))
+
+  test("fetchTagsOnce - parallel callers of one repo: one fetch, the others wait for it"):
+    val repo    = singleRepoGitTemp() / "orchescala-acme" // a fresh path: no fetch of it yet
+    val fetches = java.util.concurrent.atomic.AtomicInteger()
+    val done    = java.util.concurrent.atomic.AtomicBoolean()
+    def slowFetch(r: os.Path) =
+      fetches.incrementAndGet()
+      Thread.sleep(300)
+      done.set(true)
+      true
+    import scala.concurrent.*, scala.concurrent.duration.*, ExecutionContext.Implicits.global
+    // each caller returns only after the fetch is done - fetched by itself or waited for
+    val after = Await.result(
+      Future.sequence((1 to 4).map(_ => Future { ProjectRepo.fetchTagsOnce(repo, fetch = slowFetch); done.get })),
+      1.minute
+    )
+    assertEquals(fetches.get, 1)
+    assertEquals(after, IndexedSeq.fill(4)(true))
 
   test("resolveTag - in one repo a bare v<version> of another project is not this project's"):
     val gitTemp = singleRepoGitTemp()

@@ -179,7 +179,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** When the project's worker app is not there - no docs URL for it (404) or not reachable (503, see
     * forwardDocsRequest; e.g. a project of another team, not running here) - the released version the
     * docs site holds (`site/<company>/<project>/…`, written by the helper's SiteAssembler at the tag of
-    * VERSIONS.conf), with a warning and the header `X-Orchescala-Docs-Source: released` (not live).
+    * VERSIONS.conf), logged and with the header `X-Orchescala-Docs-Source: released` (not live). A 404
+    * is only forwardDocsRequest's own (no docs URL): a worker app's 404 comes back as 502.
     * A worker app that answers - also with an error of its own (502) - or a wrong docs URL (500) is
     * passed on: the live one, not hidden behind an older file.
     *
@@ -195,7 +196,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     else
       serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).flatMap: fromSite =>
         if fromSite.status.isSuccess then
-          ZIO.logWarning(
+          // per file (the yml, each diagram) - info, the header marks the answer
+          ZIO.logInfo(
             s"Docs of '$projectName' (${forwarded.status.code}): the released $file of the site instead"
           ).as(fromSite.addHeader(DocsSourceHeader, "released"))
         else ZIO.succeed(forwarded)

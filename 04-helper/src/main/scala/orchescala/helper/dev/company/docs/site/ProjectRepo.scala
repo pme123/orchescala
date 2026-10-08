@@ -94,21 +94,23 @@ object ProjectRepo:
   private case class FetchState(var validUntil: Long = Long.MinValue)
   private val fetches = java.util.concurrent.ConcurrentHashMap[os.Path, FetchState]()
 
-  /** Forget all fetches - for tests. */
-  private[site] def forgetFetches(): Unit = fetches.clear()
-
   /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
     * the helper), no `--prune` (it would drop tags made in this clone only), a minute at most; a
     * failure is logged.
+    * @param fetch the fetch itself - true if it worked (replaceable for tests)
     * @return true if it fetched now (false: a recent fetch counts)
     */
-  private[site] def fetchTagsOnce(repo: os.Path, now: => Long = System.currentTimeMillis()): Boolean =
+  private[site] def fetchTagsOnce(
+      repo: os.Path,
+      now: => Long = System.currentTimeMillis(),
+      fetch: os.Path => Boolean = fetchTags
+  ): Boolean =
     val state = fetches.computeIfAbsent(repo, _ => FetchState())
     state.synchronized:
       val start = now
       if start < state.validUntil then false
       else
-        val ok = fetchTags(repo)
+        val ok = fetch(repo)
         state.validUntil = start + (if ok then FetchValidMs else FailedFetchValidMs)
         true
 
