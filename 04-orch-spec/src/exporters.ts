@@ -247,12 +247,11 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       ['Engine', engineLabel(spec.engine)],
       ['Stand', spec.updatedAt],
       ...(spec.timeToLive ? [['Time to Live', `${spec.timeToLive} Tage`]] : []),
-      ...(spec.sourceUrl ? [['Quelle', spec.sourceUrl]] : []),
       ...(epicsOf(spec, model).length ? [['Epics', epicsOf(spec, model).map(e => e.name).join(', ')]] : []),
       ...(spec.patterns?.length ? [['Pattern', patternText(spec.patterns, pn, true)]] : []),
     ], ['Feld', 'Wert']),
   ];
-  if (spec.description) out.push('## Ausgangslage', '', spec.description, '');
+  if (spec.description) out.push('## Beschrieb / Ausgangslage / Ziel', '', spec.description, '');
 
   if (spec.variables?.length) {
     out.push('## Prozessvariablen', '');

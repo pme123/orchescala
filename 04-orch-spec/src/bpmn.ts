@@ -1195,7 +1195,6 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: Proce
     slug: previous.slug,
     title: previous.title || fresh.title,
     description: previous.description ?? '',
-    sourceUrl: previous.sourceUrl,
     epics: previous.epics,
     variables: previous.variables ?? [],
     ...(fresh.initOutputs?.length ? { initOutputs: fresh.initOutputs } : {}),

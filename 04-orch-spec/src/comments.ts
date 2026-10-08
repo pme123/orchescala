@@ -246,7 +246,7 @@ export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[]): Comment
   const P = 'Prozess';
   const titel = spec.title || spec.name || 'Prozess';
   out.push({ key: processTarget, label: titel, group: P, element: titel });
-  out.push({ key: sub(processTarget, 'description'), label: 'Ausgangslage / Ziel', group: P, element: titel, part: 'Ausgangslage / Ziel' });
+  out.push({ key: sub(processTarget, 'description'), label: 'Beschrieb / Ausgangslage / Ziel', group: P, element: titel, part: 'Beschrieb / Ausgangslage / Ziel' });
   for (const v of spec.variables ?? []) {
     if (v.name) out.push({ key: sub(processTarget, `var:${v.name}`), label: `Variable ${v.name}`, group: P, element: titel, part: `Variable ${v.name}` });
   }

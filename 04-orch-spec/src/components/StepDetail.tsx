@@ -108,7 +108,7 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           prefixes={projectPrefixes ?? []} onRename={onRenameProject} />
       )}
       <EpicPicker spec={spec} model={model} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
-      <Field label="Ausgangslage / Ziel (Markdown)" isDark={isDark} comment={sub(processTarget, 'description')}>
+      <Field label="Beschrieb / Ausgangslage / Ziel (Markdown)" isDark={isDark} comment={sub(processTarget, 'description')}>
         <MarkdownField value={spec.description ?? ''} disabled={!canEdit} isDark={isDark}
           onChange={v => onSpecChange({ ...spec, description: v })}
           rows={6} placeholder="Worum geht es fachlich?"
@@ -118,12 +118,6 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
         <input value={spec.timeToLive ?? ''} disabled={!canEdit}
           onChange={e => onSpecChange({ ...spec, timeToLive: e.target.value || undefined })}
           placeholder="z. B. 60 — wie lange die Historie aufbewahrt wird"
-          className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
-      </Field>
-      <Field label="Quelle (z. B. Confluence-Seite)" isDark={isDark}>
-        <input value={spec.sourceUrl ?? ''} disabled={!canEdit}
-          onChange={e => onSpecChange({ ...spec, sourceUrl: e.target.value })}
-          placeholder="https://confluence…"
           className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
       </Field>
       <PatternSection target={null} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
