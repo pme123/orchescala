@@ -6,8 +6,14 @@ import munit.FunSuite
 class RepoCheckTest extends FunSuite:
 
 
-  // what the generated builds publish under: ProjectDef.org = the company, no suffix (crossPaths off)
-  private val names = RepoCheck.BuildNames("democompany", "")
+  // what the generated project build publishes: ProjectDef.org = the company, its name, the
+  // modules of build.sbt, no suffix (crossPaths off)
+  private val names = RepoCheck.BuildNames(
+    "democompany",
+    "democompany-customer",
+    Seq("domain", "api", "dmn", "simulation", "worker"),
+    ""
+  )
 
   private val urls = RepoCheck.releaseArtifactUrls(
     "https://repo.example.com/artifactory/libs-release",
@@ -56,15 +62,32 @@ class RepoCheckTest extends FunSuite:
     val error = intercept[IllegalStateException](RepoCheck.organization("object ProjectDef {}"))
     assert(error.getMessage.contains("val org"), error.getMessage)
 
-  test("the names of a build come from its project/ files - the check looks where publish uploads"):
+  test("the names of a build come from its own files - the check looks where publish uploads"):
     val dir = os.temp.dir(prefix = "build-names-")
     try
-      os.write(dir / "project" / "ProjectDef.scala", """object ProjectDef { val org = "ch.foo.bar" }""", createFolders = true)
+      os.write(dir / "project" / "ProjectDef.scala", """object ProjectDef { val org = "ch.foo.bar"; val name = "foo-customer" }""", createFolders = true)
       os.write(dir / "project" / "Settings.scala", """object Settings { val scalaV = "3.7.4" }""")
-      assertEquals(RepoCheck.BuildNames.from(dir), RepoCheck.BuildNames("ch.foo.bar", "_3"))
+      os.write(dir / "build.sbt", Seq(
+        """lazy val root = project.settings(projectSettings(), publicationSettings)""",
+        """lazy val domain = project.settings(projectSettings(Some("domain")), publicationSettings)""",
+        """lazy val domainBase = project.settings(projectSettings(Some("domain-base"), Some("domain")))""",
+        """lazy val domainCards = project.settings(projectSettings(Some("domain-cards"), Some("domain")))""",
+        """// lazy val old = project.settings(projectSettings(Some("old")))""",
+        """lazy val worker = project.settings(projectSettings(Some("worker")))"""
+      ).mkString("\n"))
+      val names = RepoCheck.BuildNames.from(dir)
+      assertEquals(names, RepoCheck.BuildNames("ch.foo.bar", "foo-customer", Seq("domain", "domain-base", "domain-cards", "worker"), "_3"))
+      assertEquals(
+        RepoCheck.releaseArtifacts(names),
+        Seq("foo-customer-domain_3", "foo-customer-domain-base_3", "foo-customer-domain-cards_3", "foo-customer-worker_3")
+      )
       val urls = RepoCheck.releaseArtifactUrls("https://repo", "ch.foo.bar", Seq("foo-customer-domain_3"), "1.2.3")
       assertEquals(urls, Seq("https://repo/ch/foo/bar/foo-customer-domain_3/1.2.3/foo-customer-domain_3-1.2.3.pom"))
     finally os.remove.all(dir)
+
+  test("a build without a module, or without a name, is not guessed"):
+    intercept[IllegalStateException](RepoCheck.BuildNames.modules("lazy val root = project"))
+    intercept[IllegalStateException](RepoCheck.projectName("""object ProjectDef { val org = "x" }"""))
 
   test("the artifact suffix comes from the build's Settings.scala"):
     val project = Seq("""  val scalaV = "3.7.4"""", "    crossPaths := false").mkString("\n")
@@ -111,29 +134,25 @@ class RepoCheckTest extends FunSuite:
       "// gone",
       """val crossPaths = "kept" """
     ).mkString("\n")
-    val stripped = RepoCheck.withoutComments(code)
+    val stripped = ScalaSource.withoutComments(code)
     assert(!stripped.contains("a char literal") && !stripped.contains("another") && !stripped.contains("gone"), stripped)
     assert(stripped.contains("a // not a comment /* nor this */"), stripped) // the triple-quoted string as it is
     assert(stripped.contains("""val crossPaths = "kept""""), stripped)
     // nested block comments, as Scala has them
-    assertEquals(RepoCheck.withoutComments("a /* one /* two */ still one */ b").trim, "a  b".trim)
+    assertEquals(ScalaSource.withoutComments("a /* one /* two */ still one */ b").trim, "a  b".trim)
+    // an interpolation with a comment marker in it, a unicode char literal, an unterminated block
+    assertEquals(ScalaSource.withoutComments("""s"a${"//"}b" // c"""), """s"a${"//"}b" """)
+    assertEquals(ScalaSource.withoutComments("""'\u0022' // c"""), """'\u0022' """)
+    assertEquals(ScalaSource.withoutComments("a /* never closed\nb"), "a ")
     assertEquals(
       RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "/* outer /* crossPaths := false */ */").mkString("\n")),
       "_3"
     )
 
-  test("the sub projects of the domain are published too - and looked for"):
-    import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
-    import orchescala.helper.util.DevConfig
-    val devConfig = DevConfig(
-      ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq("cards", "loans"), Seq.empty, Seq.empty, ModuleType.projectModules)
-    )
-    val artifacts = RepoCheck.releaseArtifacts(devConfig, names)
-    assert(artifacts.contains("democompany-customer-domain"), artifacts)
-    assert(artifacts.contains("democompany-customer-domain-base"), artifacts)
-    assert(artifacts.contains("democompany-customer-domain-cards"), artifacts)
-    assert(artifacts.contains("democompany-customer-domain-loans"), artifacts)
-    assert(!artifacts.contains("democompany-customer-worker-base"), artifacts) // only the domain has sub projects
+  test("crossPaths set both ways is no suffix - said, not guessed"):
+    val error = intercept[IllegalStateException]:
+      RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "crossPaths := false", "crossPaths := true").mkString("\n"))
+    assert(error.getMessage.contains("both ways"), error.getMessage)
 
   test("a transient failure: once more after a pause - then as it is"):
     var calls  = 0
@@ -231,6 +250,7 @@ class RepoCheckTest extends FunSuite:
       Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret") ||
         Option(e.getRequestHeaders.getFirst("Job-Token")).contains("secret")
     ): (base, requests) =>
+      val names     = this.names.copy(modules = Seq("domain")) // one pom, the test is about the probe
       val devConfig = DevConfig(
         ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, Seq(ModuleType.domain))
       ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(
@@ -324,6 +344,13 @@ class RepoCheckTest extends FunSuite:
     val error = intercept[IllegalStateException]:
       DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 1)
     assert(error.getMessage.contains("brew install docker-buildx"), error.getMessage)
+    // the builder must keep the image in the daemon - the `docker` driver
+    DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 0, _ => "Name: default\nDriver: docker\n")
+    val container = intercept[IllegalStateException]:
+      DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 0, _ => "Name: mybuilder\nDriver: docker-container\n")
+    assert(container.getMessage.contains("docker buildx use default"), container.getMessage)
+    assertEquals(DockerCheck.builderDriver("Name: x\n Driver:   docker\nLast Activity: now"), Some("docker"))
+    assertEquals(DockerCheck.builderDriver(""), None)
     // no platform asked for: nothing to check
     DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"))
     DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"))

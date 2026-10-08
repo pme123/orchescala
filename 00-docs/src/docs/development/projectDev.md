@@ -83,9 +83,10 @@ The following steps are executed:
   the credentials work: a `HEAD` on the pom of each module, before anything is built or uploaded.
   - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
     of the existing release overwritten). Remove the half-finished version there, or release the next.
-  - The poms are those of the generated build: `<project>-<module>` (the company's with the Scala
-    suffix) under the `organization` - both read from the build's `project/` files. A module with a
-    `name` of its own is not covered by the check.
+  - The poms are those of the generated build: `<name>-<module>` for every module of `build.sbt` (the
+    sub projects of the domain too; the company's with the Scala suffix) under the `organization` - all
+    read from the build's own files (`project/ProjectDef.scala`, `build.sbt`, `project/Settings.scala`).
+    A module with a `name` of its own is not covered by the check.
   - Where the check can not tell (a GitLab group registry, a token that may not read the project, no
     credentials), it asks. Without a terminal (a pipeline) the answer is no and the release stops - a
     GitLab pipeline with its job token is not asked.

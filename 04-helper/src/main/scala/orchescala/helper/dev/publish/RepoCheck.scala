@@ -9,26 +9,52 @@ import orchescala.helper.util.DevConfig
   */
 object RepoCheck:
 
-  /** What the build publishes under: the `organization` (`ProjectDef.org`) and the suffix of
-    * the artifacts - both read from the build's own files in `project/`, so the check looks
-    * where `publish` uploads. Fails when either is missing: a guess made the check pass as
-    * "free" on the wrong URL.
+  /** What the build publishes: the `organization` and the `name` (`ProjectDef.org`/`.name`),
+    * the modules of `build.sbt` and the suffix of the artifacts - all read from the build's own
+    * files in `project/` and `build.sbt`, so the check looks where `publish` uploads. Fails
+    * when any is missing: a guess made the check pass as "free" on the wrong URL.
     */
-  final case class BuildNames(organization: String, artifactSuffix: String)
+  final case class BuildNames(
+      organization: String,
+      name: String,
+      modules: Seq[String],
+      artifactSuffix: String
+  )
 
   object BuildNames:
     def from(projectDir: os.Path): BuildNames =
+      val projectDef = os.read(projectDir / "project" / "ProjectDef.scala")
       BuildNames(
-        organization(projectDir / "project" / "ProjectDef.scala"),
+        organization(projectDef, "project/ProjectDef.scala"),
+        projectName(projectDef, "project/ProjectDef.scala"),
+        modules(os.read(projectDir / "build.sbt"), "build.sbt"),
         artifactSuffix(projectDir / "project" / "Settings.scala")
       )
+
+    /** The modules of the generated `build.sbt` - every `projectSettings(Some("<module>")...)`
+      * (a project, the sub projects as `domain-base`, `domain-<sub>`) or
+      * `generalSettings(Some("<module>"))` (the company); the root has none.
+      */
+    def modules(buildSbt: String, name: String = "build.sbt"): Seq[String] =
+      val Module  = """(?:projectSettings|generalSettings)\(Some\("([^"]+)"\)""".r
+      val modules = Module.findAllMatchIn(ScalaSource.withoutComments(buildSbt)).map(_.group(1)).toSeq.distinct
+      if modules.isEmpty then
+        throw IllegalStateException(s"No module (`projectSettings(Some(\"...\"))`) in $name - the artifacts are unknown.")
+      modules
+  end BuildNames
+
+  /** The `val name = "..."` of `project/ProjectDef.scala` - the first part of every artifact. */
+  def projectName(projectDef: String, name: String = "project/ProjectDef.scala"): String =
+    val Name = """val name\s*=\s*"([^"]+)"""".r
+    Name.findFirstMatchIn(ScalaSource.withoutComments(projectDef)).map(_.group(1))
+      .getOrElse(throw IllegalStateException(s"No `val name = \"...\"` in $name - the artifacts are unknown."))
 
   /** The `val org = "..."` of `project/ProjectDef.scala` - sbt's `organization`. */
   def organization(projectDef: os.Path): String = organization(os.read(projectDef), projectDef.toString)
 
   def organization(projectDef: String, name: String = "project/ProjectDef.scala"): String =
     val Org = """val org\s*=\s*"([^"]+)"""".r
-    Org.findFirstMatchIn(withoutComments(projectDef)).map(_.group(1))
+    Org.findFirstMatchIn(ScalaSource.withoutComments(projectDef)).map(_.group(1))
       .getOrElse(throw IllegalStateException(s"No `val org = \"...\"` in $name - the organization is unknown."))
 
   /** The suffix of the artifacts of a build - from its `project/Settings.scala`: none with
@@ -40,8 +66,11 @@ object RepoCheck:
 
   def artifactSuffix(settings: String, name: String = "project/Settings.scala"): String =
     val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
-    val code          = withoutComments(settings) // a commented-out `scalaV` or `crossPaths` is none
+    val code          = ScalaSource.withoutComments(settings) // a commented-out `scalaV` or `crossPaths` is none
     val crossPathsOff = CrossPathsOff.findFirstIn(code).isDefined
+    // the generated build sets it once, for every module - set both ways it is not one suffix
+    if crossPathsOff && """\bcrossPaths\s*:=\s*true\b""".r.findFirstIn(code).isDefined then
+      throw IllegalStateException(s"`crossPaths` is set both ways in $name - the artifact suffix is not one.")
     val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
     if crossPathsOff then ""
     else
@@ -49,61 +78,6 @@ object RepoCheck:
         .getOrElse(throw IllegalStateException(s"No `val scalaV = \"...\"` in $name - the artifact suffix is unknown."))
   end artifactSuffix
 
-  /** `scala` without its comments - the line comments (two slashes to the end of the line) and
-    * the block comments (nested, as Scala has them); a comment marker inside a string or char
-    * literal is no comment.
-    */
-  def withoutComments(scala: String): String =
-    val out     = StringBuilder()
-    var i       = 0
-    var inStr   = false
-    var inTri   = false // a triple-quoted string
-    var inBlock = 0 // the depth - Scala nests block comments
-    def at(j: Int): Char   = if j < scala.length then scala(j) else ' '
-    def starts(t: String)  = scala.startsWith(t, i)
-    while i < scala.length do
-      val c = scala(i)
-      if inBlock > 0 then
-        if starts("*/") then
-          inBlock -= 1
-          i += 1
-        else if starts("/*") then
-          inBlock += 1
-          i += 1
-      else if inTri then
-        out += c
-        if starts("\"\"\"") && !starts("\"\"\"\"") then
-          out ++= "\"\""
-          i += 2
-          inTri = false
-      else if inStr then
-        out += c
-        if c == '\\' then
-          out += at(i + 1)
-          i += 1
-        else if c == '"' then inStr = false
-      else if starts("\"\"\"") then
-        inTri = true
-        out ++= "\"\"\""
-        i += 2
-      else if c == '"' then
-        inStr = true
-        out += c
-      else if c == '\'' && (at(i + 2) == '\'' || (at(i + 1) == '\\' && at(i + 3) == '\'')) then
-        // a char literal - `'"'`, `'/'`, `'\''` are no string, no comment
-        val len = if at(i + 1) == '\\' then 4 else 3
-        out ++= scala.substring(i, i + len)
-        i += len - 1
-      else if starts("//") then
-        while i < scala.length && scala(i) != '\n' do i += 1
-        i -= 1
-      else if starts("/*") then
-        inBlock = 1
-        i += 1
-      else out += c
-      i += 1
-    out.toString
-  end withoutComments
 
   /** The pom of each module in the release repo - what `publish` uploads: `publishMavenStyle`,
     * the `organization` (ProjectDef.org) as path, the module's `name` plus `artifactSuffix`
@@ -178,30 +152,21 @@ object RepoCheck:
           )
         case _                                                         => ()
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyUrlsFree(version, releaseUrls(devConfig, version, names, repo), retryingOnce(status))
+      verifyUrlsFree(version, releaseUrls(version, names, repo), retryingOnce(status))
   end verifyVersionFree
 
   /** The poms `publish` uploads for `version` - every module of the project (a module that
     * is never published is simply not there), named `<project>-<module><suffix>` under the
     * `organization` of the build.
     */
-  def releaseUrls(devConfig: DevConfig, version: String, names: BuildNames, repo: RepoConfig)
-      : Seq[String] =
-    releaseArtifactUrls(repo.repoUrl, names.organization, releaseArtifacts(devConfig, names), version)
+  def releaseUrls(version: String, names: BuildNames, repo: RepoConfig): Seq[String] =
+    releaseArtifactUrls(repo.repoUrl, names.organization, releaseArtifacts(names), version)
 
-  /** The artifacts the generated build publishes: `<project>-<module>` for every module - and
-    * for a module with sub projects (the domain) `<project>-<module>-base` and
-    * `<project>-<module>-<sub project>` as well.
+  /** The artifacts the build publishes: `<name>-<module><suffix>` for every module of its
+    * `build.sbt` (a module that is never published is simply not there).
     */
-  def releaseArtifacts(devConfig: DevConfig, names: BuildNames): Seq[String] =
-    devConfig.apiProjectConfig.modules.flatMap: m =>
-      val module = s"${devConfig.projectName}-$m"
-      val subs   =
-        if devConfig.subProjects.nonEmpty &&
-          devConfig.modules.exists(c => c.moduleType == m && c.generateSubModule)
-        then s"$module-base" +: devConfig.subProjects.map(sp => s"$module-$sp")
-        else Seq.empty
-      (module +: subs).map(_ + names.artifactSuffix)
+  def releaseArtifacts(names: BuildNames): Seq[String] =
+    names.modules.map(m => s"${names.name}-$m${names.artifactSuffix}")
 
   /** After a failed upload: which poms of `version` are in the release repo now - so the
     * console names what went out. Never fails (it runs in a failure handler).
@@ -218,7 +183,7 @@ object RepoCheck:
         val config = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
         // best effort, in a failure handler: 5 seconds per pom, and no more once the repo is unreachable
         val status = curlStatus(config, timeoutSeconds = 5)
-        val codes  = releaseUrls(devConfig, version, names, repo).iterator
+        val codes  = releaseUrls(version, names, repo).iterator
           .map(url => url -> status(url))
           .span((_, code) => code != 0) match
           case (reachable, rest) => reachable.toSeq ++ rest.take(1).toSeq

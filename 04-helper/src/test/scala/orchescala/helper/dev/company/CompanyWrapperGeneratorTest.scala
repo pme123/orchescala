@@ -84,9 +84,9 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       val modules = Modules.findAllMatchIn(os.read(projectDir / "build.sbt")).map(_.group(1)).toSeq
       val repo    = orchescala.engine.config.RepoConfig.Gitlab("release", "https://repo")
       val names = RepoCheck.BuildNames.from(projectDir)
-      assertEquals(names, RepoCheck.BuildNames(org, "_3"))
+      assertEquals(names, RepoCheck.BuildNames(org, name, modules, "_3"))
       assertEquals( // the same poms - build.sbt and the ModuleType order differ
-        RepoCheck.releaseUrls(summon[DevConfig], "1.2.3", names, repo).sorted,
+        RepoCheck.releaseUrls("1.2.3", names, repo).sorted,
         RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-${m}_3"), "1.2.3").sorted
       )
 
