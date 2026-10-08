@@ -144,7 +144,7 @@ class ProjectRepoTest extends FunSuite:
     val found = Await.result(
       Future.sequence(
         Seq("acme-shop", "acme-cards", "acme-shop", "acme-cards").map: p =>
-          Future(ProjectRepo.locate(gitTemp, p).get.resolveTag("1.1.0"))
+          Future(blocking(ProjectRepo.locate(gitTemp, p).get.resolveTag("1.1.0"))) // git: blocking
       ),
       1.minute
     )
@@ -162,7 +162,7 @@ class ProjectRepoTest extends FunSuite:
     import scala.concurrent.*, scala.concurrent.duration.*, ExecutionContext.Implicits.global
     // each caller returns only after the fetch is done - fetched by itself or waited for
     val after = Await.result(
-      Future.sequence((1 to 4).map(_ => Future { ProjectRepo.fetchTagsOnce(repo, fetch = slowFetch); done.get })),
+      Future.sequence((1 to 4).map(_ => Future(blocking { ProjectRepo.fetchTagsOnce(repo, fetch = slowFetch); done.get }))),
       1.minute
     )
     assertEquals(fetches.get, 1)

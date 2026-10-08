@@ -167,10 +167,12 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         noWorkerApps.routes.runZIO(Request.get(URL.decode(path).toOption.get)).flatMap(r => r.body.asString.map(r.status -> _))
       for
         yml     <- get("/site/acme/acme-shop/OpenApi.yml")
+        page    <- get("/site/acme/acme-shop/OpenApi.html")
         diagram <- get("/site/acme/acme-shop/diagrams/shop.bpmn")
         none    <- get("/site/acme/acme-cards/OpenApi.yml")
       yield assertTrue(
         yml._1 == Status.Ok, yml._2.contains("acme-shop (released)"),
+        page._1 == Status.Ok, page._2.contains("acme-shop API (released)"),
         diagram._1 == Status.Ok, diagram._2.contains("<bpmn"),
         none._1 == Status.ServiceUnavailable
       )

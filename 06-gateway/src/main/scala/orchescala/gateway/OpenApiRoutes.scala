@@ -173,6 +173,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** Why a docs request did not reach the worker app - the status the gateway answers with. */
   private case class DocsFailure(status: Status, message: String)
 
+  /** How long a worker app may take for its docs - after that, the released file of the site. */
+  private val DocsForwardTimeout = 10.seconds
+
   /** Marks a docs answer that is not the worker app's (live) one. */
   private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
 
@@ -209,7 +212,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
     * slashes) is accepted - the path goes into the URL as encoded segments.
     *
-    * No docs URL: 404; the worker app not reachable: 503; its error answer: 502; a wrong URL: 500.
+    * No docs URL: 404; the worker app not reachable or no answer within DocsForwardTimeout: 503; its
+    * error answer: 502; a wrong URL: 500.
     */
   private def forwardDocsRequest(
       projectName: String,
@@ -230,6 +234,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                         request.send(backend)
                           .mapError(err => DocsFailure(Status.ServiceUnavailable, err.getMessage))
+                          // a worker app that is not there should not hold the page for the client's
+                          // default timeout - the released file is the answer then
+                          .timeoutFail(
+                            DocsFailure(Status.ServiceUnavailable, s"no answer within $DocsForwardTimeout")
+                          )(DocsForwardTimeout)
           result   <- response.body match
                         case Right(body) =>
                           ZIO.succeed(
@@ -246,7 +255,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
           .catchAll: failure =>
             val DocsFailure(status, err) = failure match
               case f: DocsFailure => f
-              case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage) // the client
+              // HttpClientProvider.live could not be built - no request was sent
+              case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage)
             ZIO.logError(
               s"Error forwarding docs request for '$projectName': $err"
             ).as(Response.status(status))

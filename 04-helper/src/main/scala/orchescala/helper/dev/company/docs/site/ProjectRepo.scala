@@ -29,6 +29,9 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
   /** The tag of a release of `version` - local first, then after fetching the tags from origin (once
     * per repo, see fetchTagsOnce). In one repo a tag of the candidates may be another project's
     * release (`v1.0.0`) - only a tag at which the project is there counts.
+    *
+    * A local tag is trusted: release tags are not moved. (`git fetch --tags` would not move a local one
+    * anyway - it refuses to clobber an existing tag without `--force`.)
     */
   def resolveTag(version: String): Option[String] =
     val candidates = tagCandidates(version)
@@ -88,8 +91,9 @@ object ProjectRepo:
   private[site] val FailedFetchValidMs = 30 * 1000L
 
   /** Per repo: until when its last fetch counts. The lock serializes check and fetch - a project of
-    * the same repo (DocCreator runs them in parallel) waits for a running fetch instead of reading the
-    * tags before it.
+    * the same repo (DocCreator runs them in parallel, on blocking threads) waits for a running fetch,
+    * at most its timeout, instead of reading the tags before it. One small entry per clone of git-temp,
+    * for the run of the helper.
     */
   private case class FetchState(var validUntil: Long = Long.MinValue)
   private val fetches = java.util.concurrent.ConcurrentHashMap[os.Path, FetchState]()

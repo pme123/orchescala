@@ -111,12 +111,13 @@ end SiteAssembler
 
 object SiteAssembler:
 
-  /** The release tag of `version` in the project's repo (its own tags first in a single repo). */
+  /** The release tag of `version` in the project's repo (its own tags first in a single repo) - the
+    * same rule as ProjectRepo.resolveTag, but no fetch: the site is built from what git-temp has.
+    * `existsAt` is both checks - the tag is there, and the project at it (in one repo `v1.0.0` may be
+    * another project's release).
+    */
   def releaseRef(projectRepo: ProjectRepo, version: String): Option[String] =
-    projectRepo.tagCandidates(version)
-      .filter(t => gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", s"$t^{commit}").isDefined)
-      // in one repo `v1.0.0` may be another project's release - without this project: not its tag
-      .find(projectRepo.existsAt)
+    projectRepo.tagCandidates(version).find(projectRepo.existsAt)
 
   /** The API of a project at `ref` into `target`: OpenApi.yml (with the CURRENT API page from the jar,
     * not what the project shipped at that tag), the company gateway's Postman variant if there is
@@ -136,7 +137,7 @@ object SiteAssembler:
         os.write.over(target / "PostmanOpenApi.yml", postman)
         os.write.over(target / "PostmanOpenApi.html", apiPage)
       Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path).foreach: dia =>
-        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_)).toSeq
+        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
           .flatMap(_.linesIterator.map(_.trim))
           .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
           .foreach: f =>
