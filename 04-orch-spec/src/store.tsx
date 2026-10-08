@@ -162,7 +162,7 @@ const feelParams = (s: ServiceDef): ServiceDef => {
 };
 
 /** Angaben des Domain-Scans, die ältere Kataloge noch nicht haben */
-const NEWER_SCAN = ['routing', 'topicName'] as const satisfies ReadonlyArray<keyof DomainType>;
+const NEWER_SCAN = ['routing', 'topicName', 'ownerDescr', 'ownerDescrExpr'] as const satisfies ReadonlyArray<keyof DomainType>;
 
 function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
   // ProcessStatus & Co. aus orchescala.domain gibt es immer — als «generiert», also nie in der model.json
@@ -171,7 +171,7 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
   const genServices = (gen.services ?? []).map(s => ({ ...feelParams(s), generated: true }));
   // was ein neuerer Scan als die Tools des Katalogs erkennt, ergänzt den Eintrag —
   // der Katalog kommt erst mit dem nächsten Release dazu (Weichen des Decoders,
-  // `final val topicName`); was der Katalog selbst hat, gilt
+  // `final val topicName`, `override def descr`); was der Katalog selbst hat, gilt
   const ownTypes = new Map((user.domainTypes ?? []).map(t => [t.id, t]));
   const genTypes = (gen.domainTypes ?? []).map(t => {
     const own = ownTypes.get(t.id);
@@ -203,8 +203,9 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
 
 /**
  * «Offene Frage» (`open`) und «Technische Notiz» (`notes`) am Schritt gibt es
- * nicht mehr — dafür sind die Kommentare da. Alte Einträge fallen beim Laden
- * weg und verschwinden mit dem nächsten Speichern aus der Datei.
+ * nicht mehr — dafür sind die Kommentare da —, ebenso die «Quelle» (`sourceUrl`)
+ * am Prozess. Alte Einträge fallen beim Laden weg und verschwinden mit dem
+ * nächsten Speichern aus der Datei.
  */
 function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
   // `= execution.x` aus einem älteren Import: FEEL, wo es geht, sonst wieder JUEL
@@ -219,7 +220,8 @@ function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
     if (s.errors) next.errors = s.errors.map(e => (e.steps ? { ...e, steps: clean(e.steps) } : e));
     return next;
   });
-  return { ...spec, steps: clean(spec.steps) ?? [] };
+  const { sourceUrl: _s, ...rest } = spec as ProcessSpec & { sourceUrl?: unknown };
+  return { ...rest, steps: clean(spec.steps) ?? [] };
 }
 
 /** ohne die generierten Einträge — nur das gehört in die model.json */
@@ -651,7 +653,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!read) return null;
       const raw = JSON.parse(read.text) as ProcessSpec;
       const data = withoutRetiredFields(raw);
-      const dropped = makeEntry(raw, data, { source: 'load', note: 'Ausgemusterte Felder entfernt (Offene Frage, Technische Notiz — dafür gibt es Kommentare)' }, authorOf());
+      const dropped = makeEntry(raw, data, { source: 'load', note: 'Ausgemusterte Felder entfernt (Offene Frage, Technische Notiz — dafür gibt es Kommentare; Quelle)' }, authorOf());
       return { data, version: read.version, audit: dropped ? [dropped] : [] };
     } catch {
       return null;

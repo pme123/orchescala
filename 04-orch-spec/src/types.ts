@@ -606,10 +606,8 @@ export interface ProcessSpec {
    */
   legacyProcessId?: boolean;
   status: Status;
-  /** Ausgangslage / Ziel (Markdown) */
+  /** Beschrieb / Ausgangslage / Ziel (Markdown) — `descr` des Prozess-Objekts */
   description?: string;
-  /** Link auf die Confluence-Seite, aus der die Spez. stammt */
-  sourceUrl?: string;
   /** wie lange die Historie aufbewahrt wird (`camunda:historyTimeToLive`, Tage) */
   timeToLive?: string;
   createdAt: string;

@@ -31,10 +31,10 @@ const DSL = /extends\s+\w*Bpmn(Process|UserTask|CustomTask|SignalEvent|MessageEv
 /** `type AddressType = Int :| …` auf oberster Ebene — ein Alias mit Ziel */
 const TYPE_TOP = /^type\s+(\w+)\s*=\s*(.+)$/;
 /**
- * `val descr = "…"` bzw. `val descr: String = "…"` eines Objekts — auch
+ * `val descr = "…"` bzw. `val descr: String = "…"` eines Objekts — auch `override def descr =`,
  * `"""…""".stripMargin`, `s"…"` und mit dem Wert erst auf der nächsten Zeile
  */
-const DESCR = /^\s+(?:val|lazy val|def)\s+descr(?:\s*:\s*String)?\s*=\s*(.*)$/;
+const DESCR = /^\s+(?:override\s+)?(?:val|lazy val|def)\s+descr(?:\s*:\s*String)?\s*=\s*(.*)$/;
 const CASE_CLASS = /^(\s*)(?:final\s+)?case\s+class\s+(\w+)\s*(?:\[[^\]]*\])?\s*\(/;
 const ENUM = /^(\s*)enum\s+(\w+)\b/;
 // Fälle heissen auch mal `QI-Deklaration` — mit Backticks, wie in Scala nötig

@@ -188,7 +188,9 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
 
   // die Bezeichnung je Sprache gehört der Domain
   const processLabels = fresh.processLabels ?? previous.processLabels;
-  return { spec: { ...previous, types, interactions, ...(processLabels ? { processLabels } : {}) }, report };
+  // die Ausgangslage gehört der Spezifikation — nur eine leere kommt aus der Domain (`descr`)
+  const description = previous.description?.trim() ? previous.description : fresh.description?.trim() ? fresh.description : previous.description;
+  return { spec: { ...previous, types, interactions, ...(processLabels ? { processLabels } : {}), ...(description ? { description } : {}) }, report };
 }
 
 /** Typverweise in Feldern (und Fällen) auf die bisherigen IDs umbiegen. */
