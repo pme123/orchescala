@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { C7_LABEL, C8_LABEL, conversionNote, engineLabel } from '../src/engineLabels';
 import { ENGINES } from '../src/template';
 import { regexIssue, scriptWarning } from '../src/findings';
@@ -69,7 +70,9 @@ test('the audit note of a conversion - written once, it stays', () => {
 test('no text in src names «Camunda 7» alone - only comments, the labels come from engineLabels', () => {
   const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
     .flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
-  const offenders = files('src').filter((f) => !f.endsWith('engineLabels.ts')).flatMap((f) =>
+  // from the test itself (dist-tests/…), not from the cwd
+  const src = fileURLToPath(new URL('../src', import.meta.url));
+  const offenders = files(src).filter((f) => !f.endsWith('engineLabels.ts')).flatMap((f) =>
     readFileSync(f, 'utf-8').split('\n').map((line, i) => ({ f, i: i + 1, line: line.trim() }))
       .filter(({ line }) => /Camunda 7(?! \/ Operaton)/.test(line) && !/^(\/\/|\*|\/\*|\{\/\*)/.test(line)));
   assert.deepEqual(offenders.map(({ f, i, line }) => `${f}:${i} ${line}`), []);

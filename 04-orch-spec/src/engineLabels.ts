@@ -13,8 +13,10 @@ const LABELS: Record<EngineId, string> = { c7: C7_LABEL, c8: C8_LABEL };
 
 /** Die Bezeichnung einer Engine - ohne Angabe (auch `null` aus einer Datei) die Vorgabe c7; ein
   * unbekannter Wert (eine Datei von Hand) bleibt sichtbar, statt als c7 zu erscheinen. */
-export const engineLabel = (id: EngineId | undefined): string =>
-  Object.hasOwn(LABELS, id ?? DEFAULT_ENGINE) ? LABELS[id ?? DEFAULT_ENGINE] : String(id);
+export function engineLabel(id: EngineId | undefined): string {
+  const key = id ?? DEFAULT_ENGINE;
+  return Object.hasOwn(LABELS, key) ? LABELS[key] : String(key);
+}
 
 /** Der Vermerk einer Umwandlung im Änderungsprotokoll - er bleibt dort stehen. */
 export const conversionNote = (target: EngineId): string => `In ${engineLabel(target)} umgewandelt`;
