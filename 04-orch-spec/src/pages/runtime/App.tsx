@@ -49,9 +49,14 @@ export default function App() {
         return r.json();
       });
       const loggedIn = await completeLogin().catch(() => false); // Rückkehr vom IdP
-      // zur Startseite - mit den Parametern des Links (z.B. ?token=…)
-      if (pagePath() === '' && pages.app.home)
-        window.history.replaceState({}, '', `${base}${pages.app.home}${window.location.search}`);
+      // zur Startseite - mit den Parametern des Links (z.B. ?token=…). An der Wurzel kommt nur der IdP zurück:
+      // code/state, die nicht übernommen wurden (z.B. mit «Zurück» auf die alte Rückkehr), nicht mitnehmen
+      if (pagePath() === '' && pages.app.home) {
+        const params = new URLSearchParams(window.location.search);
+        if (!loggedIn) for (const p of ['code', 'state', 'session_state', 'iss']) params.delete(p);
+        const rest = params.toString();
+        window.history.replaceState({}, '', `${base}${pages.app.home}${rest ? `?${rest}` : ''}`);
+      }
       const page = pages.pages.find((p) => p.path === pagePath());
       // ein IdP nur für Seiten mit Login - eine öffentliche Seite kommt ohne aus
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
