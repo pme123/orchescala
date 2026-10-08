@@ -137,22 +137,24 @@ object RepoCheck:
       devConfig: DevConfig,
       names: BuildNames,
       env: String => Option[String] = sys.env.get,
-      confirm: String => Boolean = PublishHelper.askToContinue(_)
+      confirm: String => Boolean = PublishHelper.askToContinue
   ): Unit =
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
       val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalStateException(msg), identity)
       val status = curlStatus(config)
+      // the GitLab questions (and only these) a pipeline answers with ORCHESCALA_PUBLISH_YES=true
+      val gitlabConfirm = pipelineYes(env).getOrElse(confirm)
       repo match
         case _: RepoConfig.Gitlab if config.isEmpty                    =>
           val problem =
             s"no credentials for ${repo.repoUrl} - the check runs anonymously, a private package " +
               "reads as free"
-          if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
+          if !gitlabConfirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
         // the job token of a pipeline is GitLab's own - nothing to probe (and the project
         // endpoint is not meant for it); a token of a developer is probed
         case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
-          verifyGitlabCredentials(gitlab.repoUrl, status, confirm)
+          verifyGitlabCredentials(gitlab.repoUrl, status, gitlabConfirm)
         case _: RepoConfig.Gitlab                                       =>
           println(
             "NOTE: the job token is not probed - a package it may not read looks free here and fails at the upload."
@@ -200,17 +202,31 @@ object RepoCheck:
           .span((_, code) => code != 0) match
           case (reachable, rest) => reachable.toSeq ++ rest.take(1).toSeq
         val uploaded = codes.collect { case (url, 200) => url }
-        if codes.exists(_._2 == 0) then println(s"${repo.repoUrl} is not reachable - what was uploaded is unknown.")
-        else if codes.size < urls.size then
-          println(s"Not every pom could be asked in ${budgetMillis / 1000} s - what was uploaded is known in part.")
-        if uploaded.isEmpty then println(s"Nothing of $version is known to be in ${repo.repoUrl}.")
-        else println(s"Uploaded already - remove them there before the next try:\n - ${uploaded.mkString("\n - ")}")
+        val cutShort = codes.exists(_._2 == 0) || codes.size < urls.size
+        if codes.exists(_._2 == 0) then println(s"${repo.repoUrl} is not reachable.")
+        else if codes.size < urls.size then println(s"Not every pom could be asked in ${budgetMillis / 1000} s.")
+        if uploaded.nonEmpty then
+          println(
+            s"Uploaded already${if cutShort then " (and maybe more)" else ""} - remove the version there " +
+              s"before the next try:\n - ${uploaded.mkString("\n - ")}"
+          )
+        else if cutShort then println(s"What of $version was uploaded is unknown.")
+        else println(s"Nothing of $version is in ${repo.repoUrl}.")
         uploaded
     catch
       case scala.util.control.NonFatal(e) =>
         println(s"Could not look up what was uploaded: ${e.getMessage}")
         Seq.empty
   end reportUploaded
+
+  /** A pipeline has no terminal to answer the GitLab questions (a deploy token that may not
+    * read the project, a group registry, no credentials) - `ORCHESCALA_PUBLISH_YES=true` says
+    * yes to these, and to nothing else (the version check, the next version stay).
+    */
+  def pipelineYes(env: String => Option[String]): Option[String => Boolean] =
+    Option.when(env("ORCHESCALA_PUBLISH_YES").exists(_.trim.equalsIgnoreCase("true"))): problem =>
+      println(s"$problem\nYes - ORCHESCALA_PUBLISH_YES is set.")
+      true
 
   /** The project of a GitLab maven registry (`.../api/v4/projects/<id>/packages/maven`) - the
     * endpoint that tells whether the token may read it. None for another registry (a group's).
@@ -230,7 +246,7 @@ object RepoCheck:
   def verifyGitlabCredentials(
       repoUrl: String,
       status: String => Int,
-      confirm: String => Boolean = PublishHelper.askToContinue(_)
+      confirm: String => Boolean = PublishHelper.askToContinue
   ): Unit =
     gitlabProjectUrl(repoUrl) match
       case Some(project) =>
@@ -285,7 +301,7 @@ object RepoCheck:
       val answer = result.out.text().trim
       // DNS, TLS, a proxy, a timeout: curl says why (status 000) - said here, the status stays 0
       if result.exitCode != 0 then
-        println(s"  `$curl` failed (exit ${result.exitCode}) for $url: ${result.err.text().trim}")
+        println(s"  `$curl` failed (exit ${result.exitCode}) for ${withoutUserInfo(url)}: ${withoutUserInfo(result.err.text().trim)}")
       val (code, redirect) = answer.split(" ", 2) match
         case Array(c, r) => (c, r.trim)
         case Array(c)    => (c, "")
@@ -300,6 +316,9 @@ object RepoCheck:
     end head
     url => head(url, 3)
   end curlStatus
+
+  /** `text` with the user info of its URLs (`user:secret@host`) taken out - for the console. */
+  def withoutUserInfo(text: String): String = text.replaceAll("://[^@/\\s]+@", "://")
 
   private def sameHost(url: String, other: String): Boolean =
     other.nonEmpty && scala.util.Try {

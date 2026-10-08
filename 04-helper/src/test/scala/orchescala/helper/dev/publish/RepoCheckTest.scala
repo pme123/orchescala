@@ -197,6 +197,7 @@ class RepoCheckTest extends FunSuite:
             302
           else if !authorized(exchange) then 401
           else if path.contains("taken") || path.matches(".*/api/v4/projects/[^/]+") then 200 // a GitLab project
+          else if path.contains("partial") && path.contains("-domain") then 200 // a half-finished upload
           else 404
         exchange.sendResponseHeaders(status, -1)
         exchange.close()
@@ -338,6 +339,9 @@ class RepoCheckTest extends FunSuite:
       assertEquals(uploaded.size, ModuleType.projectModules.size)
       assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, names, env.get), Seq.empty)
       assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, names, _ => None), Seq.empty) // never fails
+      // a half-finished upload (Docker pushed, `publish` failed after the domain): only the domain is named
+      val partial = RepoCheck.reportUploaded("1.2.3-partial", devConfig, names, env.get)
+      assertEquals(partial.map(_.split('/').last), Seq("democompany-customer-domain-1.2.3-partial.pom"))
       // bounded in all: out of time, no pom is asked
       val before2 = requests().size
       assertEquals(RepoCheck.reportUploaded("1.2.3-taken", devConfig, names, env.get, budgetMillis = 0), Seq.empty)
@@ -354,6 +358,42 @@ class RepoCheckTest extends FunSuite:
       assertEquals(RepoCheck.reportUploaded("1.2.3", down, names, _ => None), Seq.empty)
       assert((System.nanoTime() - started) / 1e6 < 3000, "gave up after the first unreachable pom")
 
+
+  test("a pipeline says yes with ORCHESCALA_PUBLISH_YES - to the GitLab questions only"):
+    assert(RepoCheck.pipelineYes(Map("ORCHESCALA_PUBLISH_YES" -> " TRUE ").get).exists(_("a deploy token")))
+    assertEquals(RepoCheck.pipelineYes(_ => None), None)
+    withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("t")): (base, _) =>
+      import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
+      import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig}
+      import orchescala.helper.util.{DevConfig, SbtConfig}
+      val devConfig = DevConfig(
+        ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, Seq(ModuleType.domain))
+      ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(
+        credentials = Seq(RepoCredentials.PrivateToken("gitlab", "127.0.0.1", "GITLAB_TOKEN")),
+        repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/groups/7/-/packages/maven"))
+      )))
+      // a group registry: asked - the pipeline's yes answers, the terminal's confirm is not used
+      RepoCheck.verifyVersionFree(
+        "1.2.3", devConfig, names.copy(modules = Seq("domain")),
+        Map("GITLAB_TOKEN" -> "t", "ORCHESCALA_PUBLISH_YES" -> "true").get, confirm = _ => fail("the pipeline answered")
+      )
+    // the next-version question is not answered by it
+    val dir = os.temp.dir(prefix = "yes-")
+    try
+      def git(args: String*) = os.proc("git" +: args).call(cwd = dir)
+      git("init", "-q")
+      git("config", "user.email", "test@example.com")
+      git("config", "user.name", "test")
+      os.write(dir / "a.txt", "a")
+      git("add", ".")
+      git("commit", "-q", "-m", "init")
+      git("tag", "--no-sign", "v1.9.19")
+      intercept[IllegalArgumentException](PublishHelper.verifyNextVersion("1.19.20", dir, _ => false))
+    finally os.remove.all(dir)
+
+  test("the console never shows a user info of a URL"):
+    assertEquals(RepoCheck.withoutUserInfo("curl: (7) http://me:secret@repo.example.com/x failed"), "curl: (7) http://repo.example.com/x failed")
+    assertEquals(RepoCheck.withoutUserInfo("https://repo.example.com/x"), "https://repo.example.com/x")
 
   test("buildx is checked before the first sbt run when the images are built for a platform"):
     var asked = Seq.empty[Seq[String]]

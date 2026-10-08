@@ -61,10 +61,6 @@ class PublishHelperTest extends FunSuite:
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("could not fetch the tags"), warnings.head)
 
-  test("a pipeline says yes with ORCHESCALA_PUBLISH_YES"):
-    assert(PublishHelper.askToContinue("a deploy token", Map("ORCHESCALA_PUBLISH_YES" -> "true").get))
-    assert(PublishHelper.askToContinue("a deploy token", Map("ORCHESCALA_PUBLISH_YES" -> " TRUE ").get))
-
   test("against the tags of the repository - stops without a yes"):
     val dir = repo()
     os.proc("git", "tag", "--no-sign", "v1.9.19").call(cwd = dir)

@@ -66,20 +66,30 @@ class WorkingTreeTest extends FunSuite:
   test("the restore runs once - a concurrent second call waits for it"):
     val dir     = repo()
     var runs    = 0
+    val inside  = java.util.concurrent.CountDownLatch(1) // the first restore is running
+    val release = java.util.concurrent.CountDownLatch(1) // ... and may end
     val restore = WorkingTree.restoreForRetry(
       isSnapshot = false,
       dir,
       restore = _ =>
         runs += 1
-        Thread.sleep(300)
+        inside.countDown()
+        release.await()
     )
     val first   = Thread(() => restore(ReleaseStep.Build))
     first.start()
-    Thread.sleep(50)
-    val started = System.nanoTime()
-    restore(ReleaseStep.Build) // the hook - waits for the first, then nothing to do
-    assert((System.nanoTime() - started) / 1e6 > 200, "waited for the running restore")
+    inside.await()
+    @volatile var secondDone = false
+    val second  = Thread: () =>
+      restore(ReleaseStep.Build) // the hook - waits for the first, then nothing to do
+      secondDone = true
+    second.start()
+    Thread.sleep(100)
+    assert(!secondDone, "the second waits while the first runs")
+    release.countDown()
     first.join()
+    second.join()
+    assert(secondDone)
     assertEquals(runs, 1)
     restore(ReleaseStep.Build) // a third call: done already
     assertEquals(runs, 1)

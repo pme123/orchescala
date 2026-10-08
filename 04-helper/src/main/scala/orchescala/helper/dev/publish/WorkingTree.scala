@@ -98,7 +98,9 @@ object WorkingTree extends Helpers:
           if done then ()
           else if changesBefore.nonEmpty then
             println(
-              s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}"
+              s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}\n" +
+                "The next try stops at the clean-tree check: `git status` shows the files, " +
+                "`git checkout HEAD -- <files>` restores the ones of the release."
             )
             done = true // nothing to do, ever
           else

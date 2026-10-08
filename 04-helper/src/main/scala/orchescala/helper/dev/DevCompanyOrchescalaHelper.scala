@@ -119,7 +119,8 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
       onFailure = restore,
-      afterFailedUpload = () => reportUploaded(newVersion, devConfig, names)
+      afterFailedUpload = () => reportUploaded(newVersion, devConfig, names),
+      isSnapshot = isSnapshot
     ).run(ReleaseRun.steps(isSnapshot, hasDocs = false))
   end publish
 

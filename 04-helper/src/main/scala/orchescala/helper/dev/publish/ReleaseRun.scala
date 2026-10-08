@@ -64,14 +64,21 @@ final class ReleaseRun(
     awaitChild: () => Unit = () => SbtChild.awaitExit(),
     // the JVM's shutdown hooks - replaced in the tests
     addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
-    removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_)
+    removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_),
+    // a snapshot is overwritable: no check of the version ran, nothing to report after a failed upload
+    isSnapshot: Boolean = false
 ):
   // on Ctrl-C the failing sbt run AND the shutdown hook handle the same step - the restore is
-  // once only by itself, the report (curl for every pom) is made so here
-  private val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+  // once only by itself, the report (curl for every pom) is made so here: the second caller
+  // waits for the first (the JVM ends with the hook) and finds it done
+  private val reportLock = Object()
+  private var reported   = false
 
   private def reportOnce(): Unit =
-    if reported.compareAndSet(false, true) then afterFailedUpload()
+    reportLock.synchronized:
+      if !reported then
+        reported = true
+        afterFailedUpload()
 
   /** Ctrl-C ends the JVM, no exception reaches the release - this hook restores the running
     * step's changes (registered while the step runs), once the sbt child ended.
@@ -82,7 +89,7 @@ final class ReleaseRun(
       try
         awaitChild()
         onFailure(step) // first - the report is best effort and may take a while
-        if step == ReleaseStep.Upload then reportOnce()
+        if step == ReleaseStep.Upload && !isSnapshot then reportOnce()
       catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
 
   def run(steps: Seq[ReleaseStep]): Unit =
@@ -108,12 +115,14 @@ final class ReleaseRun(
   private def onFailureOf(step: ReleaseStep, e: Throwable): Unit =
     suppressedBy(e)(onFailure(step))
     if step == ReleaseStep.Upload then
-      println(
-        "The upload failed: the docker image (if any) is pushed already, and the modules `publish` " +
-          "uploaded before it failed are in the repository. The next try fails the check of the version " +
-          "until you remove the version there - then it overwrites the image's tag."
-      )
-      suppressedBy(e)(reportOnce())
+      if isSnapshot then println("The upload of the snapshot failed - a snapshot is overwritable, run it again.")
+      else
+        println(
+          "The upload failed: the docker image (if any) is pushed already, and the modules `publish` " +
+            "uploaded before it failed are in the repository. The next try fails the check of the version " +
+            "until you remove the version there - then it overwrites the image's tag."
+        )
+        suppressedBy(e)(reportOnce())
 
   private def run(step: ReleaseStep): Unit =
     step match

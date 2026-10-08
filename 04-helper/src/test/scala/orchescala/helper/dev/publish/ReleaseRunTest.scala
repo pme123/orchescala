@@ -80,6 +80,43 @@ class ReleaseRunTest extends FunSuite:
     rel.abortedAt(ReleaseStep.Upload).run()
     assertEquals(log().count(_ == "reported"), 1)
 
+  test("a failing snapshot upload: nothing to report, no check of the version ran"):
+    val log  = collection.mutable.ListBuffer.empty[String]
+    val runs = SbtRuns.of(Some("worker"))
+    val rel  = ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      exec = cmd => if cmd == runs.publish then throw IllegalStateException("upload failed"),
+      onFailure = step => log += s"failed $step",
+      afterFailedUpload = () => log += "reported",
+      isSnapshot = true
+    )
+    intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false)))
+    assertEquals(log.toSeq, Seq("failed Upload"))
+    rel.abortedAt(ReleaseStep.Upload).run()
+    assertEquals(log.toSeq, Seq("failed Upload", "failed Upload"))
+
+  /** The one case that is not retryable: `Docker / publish` went through and `publish` failed
+    * after some modules - the restore runs, the report names what is there.
+    */
+  test("the upload fails after the image and some modules went out: restored, and what is out is named"):
+    val log  = collection.mutable.ListBuffer.empty[String]
+    val runs = SbtRuns.of(Some("worker"))
+    var out  = Seq.empty[String]
+    val rel  = ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      exec = cmd => if cmd == runs.publish then throw IllegalStateException("publish: 409 for the api module"),
+      onFailure = step => log += s"restored $step",
+      afterFailedUpload = () => out = Seq("worker:1.2.3 (image)", "customer-domain-1.2.3.pom")
+    )
+    val error = intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = false)))
+    assert(error.getMessage.contains("409"))
+    assertEquals(log.toSeq, Seq("restored Upload"))
+    assertEquals(out, Seq("worker:1.2.3 (image)", "customer-domain-1.2.3.pom"))
+
   test("the runs of a project and of the company project"):
     assertEquals(
       SbtRuns.project(hasWorkerApp = true).build,
