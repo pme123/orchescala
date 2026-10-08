@@ -74,8 +74,10 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     // Der Modeler (bpmn-js) ist gross, wird aber nur geladen, wenn jemand das
-    // Diagramm aufklappt — die Warnung dazu ist hier kein Signal.
-    chunkSizeWarningLimit: 700,
+    // Diagramm aufklappt — die Warnung dazu ist hier kein Signal. Der Haupt-Chunk
+    // lag schon knapp unter 700 kB; die Seiten (Designer, Renderer) sind ein eigener
+    // Chunk, im Haupt-Chunk bleibt nur ihre Ablage im Store.
+    chunkSizeWarningLimit: 720,
     // Die Bibliotheken bekommen eigene Chunks: sie ändern sich nur mit einem
     // Update und bleiben so über Releases der App im Browser-Cache.
     rollupOptions: {

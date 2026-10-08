@@ -6,3 +6,4 @@ dist/
 /public/catalog.generated.json
 /.env.local
 /dist-tests/
+/dist-pages/

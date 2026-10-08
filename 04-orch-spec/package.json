@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --log-level=warning && node --test \"dist-tests/*.test.mjs\"",
-    "build:tools": "esbuild tools/openapi2catalog.ts tools/domain2catalog.ts tools/site2catalog.ts --bundle --platform=node --format=esm --outdir=dist-tools --log-level=warning"
+    "build:tools": "esbuild tools/openapi2catalog.ts tools/domain2catalog.ts tools/site2catalog.ts --bundle --platform=node --format=esm --outdir=dist-tools --log-level=warning",
+    "dev:pages": "vite -c vite.pages.config.ts --port=3013",
+    "build:pages": "vite build -c vite.pages.config.ts"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.19.0",
@@ -21,6 +23,7 @@
     "fflate": "^0.8.3",
     "lucide-react": "^0.546.0",
     "marked": "^18.0.9",
+    "oidc-client-ts": "^3.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

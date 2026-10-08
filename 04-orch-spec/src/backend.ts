@@ -13,7 +13,7 @@ export type WriteResult =
   | { ok: false; reason: 'conflict' | 'exists' | 'forbidden' | 'error'; message: string; currentVersion?: string };
 export type DeleteResult =
   | { ok: true }
-  | { ok: false; reason: 'forbidden' | 'error'; message: string };
+  | { ok: false; reason: 'forbidden' | 'error' | 'conflict'; message: string };
 
 export interface StorageBackend {
   kind: 'local' | 'sharepoint';
@@ -24,8 +24,9 @@ export interface StorageBackend {
   /** nur Dateien; leer, wenn der Ordner fehlt */
   list(dir: string): Promise<FileInfo[]>;
   ensureDir(dir: string): Promise<void>;
-  /** Datei entfernen; eine fehlende Datei gilt als entfernt */
-  delete(path: string): Promise<DeleteResult>;
+  /** Datei entfernen; eine fehlende Datei gilt als entfernt. Mit `ifMatch` nur diese Version
+   *  (sonst `conflict`) - in SharePoint atomar, lokal unmittelbar vor dem Entfernen geprüft */
+  delete(path: string, opts?: { ifMatch?: string }): Promise<DeleteResult>;
 }
 
 // ── Lokaler Ordner ───────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ export class LocalBackend implements StorageBackend {
     for (const p of dir.split('/').filter(Boolean)) d = await d.getDirectoryHandle(p, { create: true });
   }
 
-  async delete(path: string): Promise<DeleteResult> {
+  async delete(path: string, opts: { ifMatch?: string } = {}): Promise<DeleteResult> {
     let dir: FileSystemDirectoryHandle, file: string;
     try {
       ({ dir, file } = await this.dirOf(path, false));
@@ -108,6 +109,11 @@ export class LocalBackend implements StorageBackend {
       return { ok: true }; // Ordner fehlt → Datei gibt es nicht
     }
     try {
+      if (opts.ifMatch !== undefined) {
+        const f = await (await dir.getFileHandle(file)).getFile();
+        if (String(f.lastModified) !== opts.ifMatch)
+          return { ok: false, reason: 'conflict', message: 'Die Datei wurde inzwischen geändert.' };
+      }
       await dir.removeEntry(file);
       return { ok: true };
     } catch (e) {

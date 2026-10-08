@@ -1,0 +1,164 @@
+import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
+import { safeReturnTo, singleFlight, watchLeaving } from './authRules';
+import { ApiError } from './gatewayTypes';
+
+// Nur Seiten mit Login brauchen das – die öffentlichen laden nie einen IdP. Die Verbindung kommt
+// zur Laufzeit aus config.json (neben index.html), so läuft dasselbe Bundle gegen jeden IdP.
+type AuthConfig = { authority: string; clientId: string };
+
+let manager: Promise<UserManager> | null = null;
+
+// der Zustand einer begonnenen Anmeldung - ausdrücklich, completeLogin sucht ihn unter diesem Präfix.
+// Je Tab (sessionStorage, wie der Benutzer): ein zweiter Tab sieht und verbraucht ihn nicht
+const STATE_PREFIX = 'oidc.';
+const stateStorage = () => window.sessionStorage;
+
+function userManager(): Promise<UserManager> {
+  manager ??= fetch(`${import.meta.env.BASE_URL}config.json`, { cache: 'no-cache' })
+    .then((r) => {
+      // ein Server, der für Unbekanntes index.html liefert (SPA-Fallback), antwortet auch mit 200
+      if (!r.ok || !r.headers.get('content-type')?.includes('json')) throw new Error('config.json fehlt – ohne IdP keine Anmeldung');
+      return r.json() as Promise<AuthConfig>;
+    })
+    .then((config) => {
+      const appUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
+      const um = new UserManager({
+        authority: config.authority,
+        client_id: config.clientId,
+        redirect_uri: appUrl,
+        post_logout_redirect_uri: appUrl,
+        response_type: 'code', // Authorization Code + PKCE
+        scope: 'openid profile email',
+        // erneuert wird nur bei Bedarf (abgelaufen, 401) - eine zweite, eigene Erneuerung der Bibliothek
+        // liefe sonst gleichzeitig, und ein rotierendes Refresh-Token gilt nur einmal
+        automaticSilentRenew: false,
+        userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+        stateStore: new WebStorageStateStore({ store: stateStorage(), prefix: STATE_PREFIX }),
+        // eine abgebrochene Anmeldung (anderer Tab, zurück) gilt nach 15 Minuten nicht mehr als begonnen
+        staleStateAgeInSeconds: 15 * 60,
+      });
+      // ... und ihr Zustand bleibt nicht für immer liegen
+      void um.clearStaleState().catch(() => {});
+      return um;
+    })
+    .catch((e) => {
+      // nicht für immer: der nächste Aufruf versucht es wieder (z.B. nach einem Netzfehler)
+      manager = null;
+      throw e;
+    });
+  return manager;
+}
+
+/** Die Rückkehr vom IdP (code/state in der URL) – danach zurück auf die Seite vor der Anmeldung. */
+// einmal je Laden der Seite - StrictMode ruft Effekte zweimal, der erste verbraucht den Zustand
+let completing: Promise<boolean> | null = null;
+export function completeLogin(): Promise<boolean> {
+  completing ??= completeLoginOnce();
+  return completing;
+}
+
+async function completeLoginOnce(): Promise<boolean> {
+  const params = new URLSearchParams(window.location.search);
+  const state = params.get('state');
+  if (!(params.has('code') && state)) return false;
+  // nur, wenn diese App eine Anmeldung begonnen hat - eine Seite darf eigene code/state-Parameter haben
+  const pending = (() => {
+    try {
+      return stateStorage().getItem(`${STATE_PREFIX}${state}`) !== null;
+    } catch {
+      return false;
+    }
+  })();
+  if (!pending) {
+    // kein Fehler (eine Seite darf eigene Parameter haben) - aber sichtbar, falls es doch eine Rückkehr war
+    console.warn('[pages] code/state in der URL, aber keine begonnene Anmeldung in diesem Tab - nicht übernommen');
+    return false;
+  }
+  try {
+    const user = await (await userManager()).signinRedirectCallback();
+    window.history.replaceState({}, '', safeReturnTo(user.state, import.meta.env.BASE_URL));
+    return true;
+  } catch (e) {
+    // falscher state, abgelaufener Code, ein Fehler des IdP: code/state aus der URL, sonst
+    // scheitert jedes Neuladen gleich - die Seite fragt dann neu nach der Anmeldung
+    console.error('[pages] Rückkehr von der Anmeldung:', e);
+    const url = new URL(window.location.href);
+    for (const p of ['code', 'state', 'session_state', 'iss']) url.searchParams.delete(p);
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    return false;
+  }
+}
+
+export async function currentUser(): Promise<User | null> {
+  const user = await (await userManager()).getUser();
+  return user && !user.expired ? user : null;
+}
+
+/** Zur Anmeldung – und danach zurück auf diese Seite (mit ihren Parametern). */
+export async function login(): Promise<void> {
+  const here = window.location.pathname + window.location.search;
+  await (await userManager()).signinRedirect({ state: here });
+}
+
+export async function logout(): Promise<void> {
+  await (await userManager()).signoutRedirect();
+}
+
+export async function accessToken(): Promise<string> {
+  // ohne IdP (config.json fehlt, Netz weg) ist das ein Anmeldefehler, kein Fehler des Gateways
+  const um = await userManager().catch((e) => {
+    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
+  });
+  const user = await um.getUser();
+  if (user && !user.expired) return user.access_token;
+  // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung - dieselbe Erneuerung
+  // wie bei einem 401 (renewToken), nicht eine zweite daneben
+  const renewed = user ? await renewToken() : null;
+  return renewed ?? reauthenticate();
+}
+
+/** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). Gleichzeitige
+  * Aufrufe (abgelaufenes Token, 401) teilen sich eine Erneuerung. */
+export const renewToken: () => Promise<string | null> = singleFlight(async () => {
+  // Netz, invalid_grant, kein Refresh-Token, kein IdP - alles endet in der Anmeldung (die selbst sagt,
+  // wenn sie nicht geht), der Grund in der Konsole
+  const renewed = await userManager().then((um) => um.signinSilent()).catch((e) => {
+    console.warn('[pages] stilles Erneuern des Tokens fehlgeschlagen:', e);
+    return null;
+  });
+  return renewed && !renewed.expired ? renewed.access_token : null;
+});
+
+/** Neu anmelden - einmal, auch wenn mehrere Aufrufe es wollen. */
+export const reauthenticate: () => Promise<never> = singleFlight(() => sessionExpired());
+
+/** Die Rollen im Access Token. */
+export function rolesOf(user: User): string[] {
+  try {
+    const b64 = user.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    // UTF-8 - Namen mit Umlauten im Token
+    const json = new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+    const payload = JSON.parse(json);
+    // Keycloak: realm_access.roles; Entra und andere: roles
+    return [...(payload?.realm_access?.roles ?? []), ...(Array.isArray(payload?.roles) ? payload.roles : [])];
+  } catch (e) {
+    console.error('[pages] die Rollen im Token sind nicht lesbar:', e);
+    return [];
+  }
+}
+
+/** Die Anmeldung gilt nicht mehr: die Sitzung im Browser verwerfen und neu anmelden. */
+export async function sessionExpired(): Promise<never> {
+  const leaving = watchLeaving(window, 8000,
+    () => new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login'));
+  try {
+    await (await userManager()).removeUser();
+    await login();
+  } catch (e) {
+    leaving.cancel();
+    // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
+    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
+  }
+  leaving.started();
+  return leaving.wait;
+}
