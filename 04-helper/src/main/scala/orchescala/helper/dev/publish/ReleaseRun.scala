@@ -1,6 +1,6 @@
 package orchescala.helper.dev.publish
 
-/** The steps of a release, in their order - see [[releaseSteps]]. */
+/** The steps of a release, in their order - see [[ReleaseRun.steps]]. */
 enum ReleaseStep:
   case Build, UploadDocs, Upload, Git
 
@@ -51,8 +51,8 @@ end SbtRuns
 /** Runs the steps of a release - a failing step throws and stops the release there. The
   * sbt processes (`exec`) are replaced in the tests.
   */
-case class ReleaseRun(
-    runs: SbtRuns,
+final class ReleaseRun(
+    val runs: SbtRuns,
     uploadDocs: () => Unit,
     git: () => Unit,
     exec: Seq[String] => Unit = SbtChild.run,

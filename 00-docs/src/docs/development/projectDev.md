@@ -126,11 +126,13 @@ The following steps are executed:
 - Before the first sbt run of a release with a Docker image, `docker buildx version` must work when the
   images are built for a platform (the default) - otherwise the release stops right there, with the
   way to get `buildx`.
+- A snapshot (`x.y.z-SNAPSHOT`) is overwritable in the repository: it skips the check of the version and
+  keeps its rewritten version in the tree, as before - the retry with the same version is for releases.
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
   and untracked files stay as they are - also when you abort it (Ctrl-C: sbt gets it too, the restore
-  waits up to 30 seconds for it to end). Should that fail, `git status` shows the files,
-  `git checkout HEAD -- <files>` restores them.
+  waits up to 30 seconds for it to end, then ends it). A second Ctrl-C in that time, or a kill, skips the
+  restore. Should it fail, `git status` shows the files, `git checkout HEAD -- <files>` restores them.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.
 - Increase the version to the next minor _SNAPSHOT_ version.

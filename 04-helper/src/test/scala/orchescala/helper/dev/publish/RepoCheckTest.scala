@@ -50,7 +50,7 @@ class RepoCheckTest extends FunSuite:
     val refused  = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 401))
     assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
     val redirect = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 302))
-    assert(redirect.getMessage.contains("redirects"), redirect.getMessage)
+    assert(redirect.getMessage.contains("redirects to another host"), redirect.getMessage)
     val down     = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 0))
     assert(down.getMessage.contains("not reachable"), down.getMessage)
     val odd      = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 500))
@@ -180,8 +180,11 @@ class RepoCheckTest extends FunSuite:
         val path   = exchange.getRequestURI.getPath
         requests += path
         val status =
-          if path.endsWith("/redirect") then
+          if path.endsWith("/redirect") then // on this host: followed
             exchange.getResponseHeaders.add("Location", "/repo/missing")
+            302
+          else if path.endsWith("/away") then // to another host: not followed
+            exchange.getResponseHeaders.add("Location", "http://other.invalid:1/repo/taken")
             302
           else if !authorized(exchange) then 401
           else if path.contains("taken") || path.matches(".*/api/v4/projects/[^/]+") then 200 // a GitLab project
@@ -194,12 +197,14 @@ class RepoCheckTest extends FunSuite:
     finally server.stop(0)
   end withRepo
 
-  test("curlStatus: status codes, no redirect followed, the credentials of the config, unreachable"):
-    withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret")): (base, _) =>
+  test("curlStatus: status codes, a redirect followed on the host only, the credentials of the config, unreachable"):
+    withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret")): (base, requests) =>
       val config = Seq("""header = "Private-Token: secret"""")
       assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/taken"), 200)
       assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/missing"), 404)
-      assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/redirect"), 302)
+      assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/redirect"), 404) // followed - with the token
+      assert(requests().takeRight(2) == Seq("/repo/redirect", "/repo/missing"), requests())
+      assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/away"), 302)     // another host: not followed
       assertEquals(RepoCheck.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(RepoCheck.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
@@ -351,6 +356,10 @@ class RepoCheckTest extends FunSuite:
     assert(container.getMessage.contains("docker buildx use default"), container.getMessage)
     assertEquals(DockerCheck.builderDriver("Name: x\n Driver:   docker\nLast Activity: now"), Some("docker"))
     assertEquals(DockerCheck.builderDriver(""), None)
+    // `--platform=...` is a platform too
+    var askedEq = false
+    DockerCheck.verifyBuildx(Seq("--platform=linux/amd64"), _ => { askedEq = true; 0 }, _ => "Driver: docker")
+    assert(askedEq)
     // no platform asked for: nothing to check
     DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"))
     DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"))

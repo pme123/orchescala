@@ -148,8 +148,52 @@ class ReleaseRunTest extends FunSuite:
     assertEquals(log.toSeq, Seq("waited for sbt", "restored Build"))
     // aborted while uploading: what went out is reported, then restored
     log.clear()
-    rel.copy(afterFailedUpload = () => log += "reported").abortedAt(ReleaseStep.Upload).run()
+    ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      onFailure = step => log += s"restored $step",
+      afterFailedUpload = () => log += "reported",
+      awaitChild = () => log += "waited for sbt"
+    ).abortedAt(ReleaseStep.Upload).run()
     assertEquals(log.toSeq, Seq("waited for sbt", "restored Upload", "reported")) // the restore first
+
+  /** The real thing, end to end: a live sbt child (a shell that sleeps), the hook of Ctrl-C run
+    * while it runs - the hook waits, ends the child, restores; the failing run restores too -
+    * once, with a real restore of a repository.
+    */
+  test("Ctrl-C with a live child: the hook ends it and the tree is restored once"):
+    assume(!scala.util.Properties.isWin, "sh and sleep")
+    val dir = os.temp.dir(prefix = "release-live-")
+    def git(args: String*) = os.proc("git" +: args).call(cwd = dir)
+    git("init", "-q")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "test")
+    os.write(dir / "ProjectDef.scala", "version = \"1.0.0\"")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    var restores = 0
+    val restore  = WorkingTree.restoreForRetry(isSnapshot = false, dir, restore = _ => restores += 1)
+    val runs     = SbtRuns(build = Seq("sh", "-c", "sleep 30; echo built"), publish = Seq("true"))
+    val rel      = ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      onFailure = restore,
+      awaitChild = () => SbtChild.awaitExit(timeout = scala.concurrent.duration.Duration(300, "millis"))
+    )
+    @volatile var failure: Option[Throwable] = None
+    val release = Thread: () =>
+      try rel.run(Seq(ReleaseStep.Build))
+      catch case e: Throwable => failure = Some(e)
+    release.start()
+    Thread.sleep(500)
+    rel.abortedAt(ReleaseStep.Build).run() // as the JVM would on Ctrl-C
+    release.join(10000)
+    assert(!release.isAlive, "the run ended")
+    assert(failure.exists(_.getMessage.contains("exit code")), failure.toString) // the child was ended
+    assertEquals(restores, 1)
+    os.remove.all(dir)
 
 
   test("the sbt child: a failing process throws, a running one is waited for"):

@@ -9,6 +9,15 @@ import orchescala.helper.util.DevConfig
   */
 object RepoCheck:
 
+  // what is read from the generated build files and the registry's address
+  private val Org           = """val org\s*=\s*"([^"]+)"""".r
+  private val Name          = """val name\s*=\s*"([^"]+)"""".r
+  private val Module        = """(?:projectSettings|generalSettings)\(Some\("([^"]+)"\)""".r
+  private val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
+  private val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
+  private val CrossPathsOn  = """\bcrossPaths\s*:=\s*true\b""".r
+  private val Project       = """^(.*/api/v4/projects/[^/]+)/packages/maven/?$""".r
+
   /** What the build publishes: the `organization` and the `name` (`ProjectDef.org`/`.name`),
     * the modules of `build.sbt` and the suffix of the artifacts - all read from the build's own
     * files in `project/` and `build.sbt`, so the check looks where `publish` uploads. Fails
@@ -28,7 +37,7 @@ object RepoCheck:
         organization(projectDef, "project/ProjectDef.scala"),
         projectName(projectDef, "project/ProjectDef.scala"),
         modules(os.read(projectDir / "build.sbt"), "build.sbt"),
-        artifactSuffix(projectDir / "project" / "Settings.scala")
+        artifactSuffixOf(projectDir / "project" / "Settings.scala")
       )
 
     /** The modules of the generated `build.sbt` - every `projectSettings(Some("<module>")...)`
@@ -36,7 +45,6 @@ object RepoCheck:
       * `generalSettings(Some("<module>"))` (the company); the root has none.
       */
     def modules(buildSbt: String, name: String = "build.sbt"): Seq[String] =
-      val Module  = """(?:projectSettings|generalSettings)\(Some\("([^"]+)"\)""".r
       val modules = Module.findAllMatchIn(ScalaSource.withoutComments(buildSbt)).map(_.group(1)).toSeq.distinct
       if modules.isEmpty then
         throw IllegalStateException(s"No module (`projectSettings(Some(\"...\"))`) in $name - the artifacts are unknown.")
@@ -45,15 +53,11 @@ object RepoCheck:
 
   /** The `val name = "..."` of `project/ProjectDef.scala` - the first part of every artifact. */
   def projectName(projectDef: String, name: String = "project/ProjectDef.scala"): String =
-    val Name = """val name\s*=\s*"([^"]+)"""".r
     Name.findFirstMatchIn(ScalaSource.withoutComments(projectDef)).map(_.group(1))
       .getOrElse(throw IllegalStateException(s"No `val name = \"...\"` in $name - the artifacts are unknown."))
 
   /** The `val org = "..."` of `project/ProjectDef.scala` - sbt's `organization`. */
-  def organization(projectDef: os.Path): String = organization(os.read(projectDef), projectDef.toString)
-
   def organization(projectDef: String, name: String = "project/ProjectDef.scala"): String =
-    val Org = """val org\s*=\s*"([^"]+)"""".r
     Org.findFirstMatchIn(ScalaSource.withoutComments(projectDef)).map(_.group(1))
       .getOrElse(throw IllegalStateException(s"No `val org = \"...\"` in $name - the organization is unknown."))
 
@@ -62,16 +66,14 @@ object RepoCheck:
     * project: `_3`). Fails without the `scalaV` - a guessed suffix made the check pass as
     * "free" on the wrong URL.
     */
-  def artifactSuffix(settings: os.Path): String = artifactSuffix(os.read(settings), settings.toString)
+  def artifactSuffixOf(settings: os.Path): String = artifactSuffix(os.read(settings), settings.toString)
 
   def artifactSuffix(settings: String, name: String = "project/Settings.scala"): String =
-    val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
     val code          = ScalaSource.withoutComments(settings) // a commented-out `scalaV` or `crossPaths` is none
     val crossPathsOff = CrossPathsOff.findFirstIn(code).isDefined
     // the generated build sets it once, for every module - set both ways it is not one suffix
-    if crossPathsOff && """\bcrossPaths\s*:=\s*true\b""".r.findFirstIn(code).isDefined then
+    if crossPathsOff && CrossPathsOn.findFirstIn(code).isDefined then
       throw IllegalStateException(s"`crossPaths` is set both ways in $name - the artifact suffix is not one.")
-    val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
     if crossPathsOff then ""
     else
       ScalaV.findFirstMatchIn(code).map(m => s"_${m.group(1)}")
@@ -113,7 +115,8 @@ object RepoCheck:
           )
         case 301 | 302 | 307 | 308   =>
           throw IllegalStateException(
-            s"The repository redirects ($code): $url - configure the final address of the repository."
+            s"The repository redirects to another host ($code): $url - the credentials must not go " +
+              "there; configure the final address of the repository."
           )
         case 0                       =>
           throw IllegalStateException(s"The repository is not reachable: $url")
@@ -202,7 +205,6 @@ object RepoCheck:
     * endpoint that tells whether the token may read it. None for another registry (a group's).
     */
   def gitlabProjectUrl(repoUrl: String): Option[String] =
-    val Project = """^(.*/api/v4/projects/[^/]+)/packages/maven/?$""".r
     repoUrl match
       case Project(project) => Some(project)
       case _                => None
@@ -250,28 +252,49 @@ object RepoCheck:
       status(url)
 
   /** The HTTP status of a HEAD request for a URL - 0 if the server is not reachable (or not
-    * within `timeoutSeconds`). No redirect is followed: curl keeps a custom header (the GitLab token) on a
-    * redirect to another host. `config` are the lines of a curl config (the credentials).
-    * Fails with a clear message without `curl`.
+    * within `timeoutSeconds`). A redirect is followed when it stays on the host (an Artifactory
+    * virtual repo, a CDN) - up to 3 hops; to another host it is not (curl would send the
+    * credentials, a custom header like the GitLab token, there) and stays the status. `config`
+    * are the lines of a curl config (the credentials). Fails with a clear message without
+    * `curl`.
     */
-  def curlStatus(config: Seq[String], curl: String = "curl", timeoutSeconds: Int = 30): String => Int = url =>
-    val devNull = if scala.util.Properties.isWin then "NUL" else "/dev/null"
-    val result  =
-      try
-        os.proc(
-          curl, "--silent", "--show-error", "--head", "--connect-timeout", (timeoutSeconds min 10).toString,
-          "--max-time", timeoutSeconds.toString,
-          "--output", devNull, "--write-out", "%{http_code}", "--config", "-", url
-        ).call(check = false, stdin = config.mkString("", "\n", "\n"), stderr = os.Pipe)
-      catch
-        case e: java.io.IOException =>
-          throw IllegalStateException(s"`$curl` is needed to check the repository - not found: ${e.getMessage}", e)
-    val answer = result.out.text().trim
-    // DNS, TLS, a proxy, a timeout: curl says why (status 000) - said here, the status stays 0
-    if result.exitCode != 0 then
-      println(s"  `$curl` failed (exit ${result.exitCode}) for $url: ${result.err.text().trim}")
-    if answer.isEmpty then 0 // failed before any status
-    else answer.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
+  def curlStatus(config: Seq[String], curl: String = "curl", timeoutSeconds: Int = 30): String => Int =
+    def head(url: String, hops: Int): Int =
+      val devNull = if scala.util.Properties.isWin then "NUL" else "/dev/null"
+      val result  =
+        try
+          os.proc(
+            curl, "--silent", "--show-error", "--head", "--connect-timeout", (timeoutSeconds min 10).toString,
+            "--max-time", timeoutSeconds.toString,
+            "--output", devNull, "--write-out", "%{http_code} %{redirect_url}", "--config", "-", url
+          ).call(check = false, stdin = config.mkString("", "\n", "\n"), stderr = os.Pipe)
+        catch
+          case e: java.io.IOException =>
+            throw IllegalStateException(s"`$curl` is needed to check the repository - not found: ${e.getMessage}", e)
+      val answer = result.out.text().trim
+      // DNS, TLS, a proxy, a timeout: curl says why (status 000) - said here, the status stays 0
+      if result.exitCode != 0 then
+        println(s"  `$curl` failed (exit ${result.exitCode}) for $url: ${result.err.text().trim}")
+      val (code, redirect) = answer.split(" ", 2) match
+        case Array(c, r) => (c, r.trim)
+        case Array(c)    => (c, "")
+        case _           => ("", "")
+      if code.isEmpty then 0 // failed before any status
+      else
+        val status = code.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
+        if Set(301, 302, 307, 308).contains(status) && hops > 0 && sameHost(url, redirect) then
+          println(s"  $status $url -> $redirect")
+          head(redirect, hops - 1)
+        else status
+    end head
+    url => head(url, 3)
   end curlStatus
+
+  private def sameHost(url: String, other: String): Boolean =
+    other.nonEmpty && scala.util.Try {
+      val a = java.net.URI(url)
+      val b = java.net.URI(other)
+      a.getHost == b.getHost && a.getPort == b.getPort && a.getScheme == b.getScheme
+    }.getOrElse(false)
 
 end RepoCheck

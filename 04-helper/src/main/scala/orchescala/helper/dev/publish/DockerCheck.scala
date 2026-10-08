@@ -15,7 +15,7 @@ object DockerCheck:
       exitCode: Seq[String] => Int = run,
       output: Seq[String] => String = out
   ): Unit =
-    if dockerBuildOptions.contains("--platform") then
+    if dockerBuildOptions.exists(_.startsWith("--platform")) then // `--platform x` and `--platform=x`
       val code = exitCode(Seq("docker", "buildx", "version"))
       if code != 0 then
         throw IllegalStateException(
@@ -39,8 +39,9 @@ object DockerCheck:
 
   /** The `Driver:` of `docker buildx inspect` - None when there is none in the output. */
   def builderDriver(inspect: String): Option[String] =
-    val Driver = """(?m)^\s*Driver:\s*(\S+)""".r
     Driver.findFirstMatchIn(inspect).map(_.group(1))
+
+  private val Driver = """(?m)^\s*Driver:\s*(\S+)""".r
 
   private def out(cmd: Seq[String]): String =
     try os.proc(cmd).call(check = false, stdout = os.Pipe, stderr = os.Pipe).out.text()
