@@ -53,6 +53,14 @@ class PublishHelperTest extends FunSuite:
     assertEquals(PublishHelper.nextVersionProblem("0.1.0", Seq.empty), None)
     assertEquals(PublishHelper.nextVersionProblem("1.19.20-SNAPSHOT", tags), None)
 
+  test("a failed fetch of the tags is said - the local tags may be behind"):
+    val dir      = repo()
+    os.proc("git", "remote", "add", "origin", "/no/such/repo.git").call(cwd = dir) // unreachable
+    val warnings = collection.mutable.ListBuffer.empty[String]
+    PublishHelper.verifyNextVersion("1.0.0", dir, _ => true, warn = warnings += _)
+    assertEquals(warnings.size, 1)
+    assert(warnings.head.contains("could not fetch the tags"), warnings.head)
+
   test("against the tags of the repository - stops without a yes"):
     val dir = repo()
     os.proc("git", "tag", "--no-sign", "v1.9.19").call(cwd = dir)
@@ -299,6 +307,10 @@ class PublishHelperRetryTest extends FunSuite:
     assert(hooks.isEmpty)        // gone afterwards
     during.head.run()            // as the JVM would on Ctrl-C
     assertEquals(log.toSeq, Seq("waited for sbt", "restored Build"))
+    // aborted while uploading: what went out is reported, then restored
+    log.clear()
+    rel.copy(afterFailedUpload = () => log += "reported").abortedAt(PublishHelper.ReleaseStep.Upload).run()
+    assertEquals(log.toSeq, Seq("waited for sbt", "reported", "restored Upload"))
 
   test("the sbt child: a failing process throws, a running one is waited for"):
     intercept[IllegalStateException](PublishHelper.SbtChild.run(Seq("false")))
@@ -311,6 +323,21 @@ class PublishHelperRetryTest extends FunSuite:
     PublishHelper.SbtChild.awaitExit()
     assert((System.nanoTime() - started) / 1e6 > 500, "waited for the child")
     sleeper.join()
+
+  test("the sbt child is killed when the thread running it is interrupted"):
+    @volatile var interrupted = false
+    val runner = Thread: () =>
+      try PublishHelper.SbtChild.run(Seq("sleep", "30"))
+      catch case _: InterruptedException => interrupted = true
+    runner.start()
+    Thread.sleep(300)
+    runner.interrupt()
+    runner.join(5000)
+    assert(!runner.isAlive, "the run ended with the interrupt")
+    assert(interrupted)
+    val started = System.nanoTime()
+    PublishHelper.SbtChild.awaitExit() // nothing running any more
+    assert((System.nanoTime() - started) / 1e6 < 1000)
 
   test("a failing restore does not hide the failure of the release"):
     val runs = PublishHelper.sbtRuns(None)
@@ -443,8 +470,12 @@ class PublishHelperVersionFreeTest extends FunSuite:
     PublishHelper.verifyGitlabCredentials(registry, _ => 200)
     val refused = intercept[IllegalStateException](PublishHelper.verifyGitlabCredentials(registry, _ => 404))
     assert(refused.getMessage.contains("GitLab refuses the credentials (404)"), refused.getMessage)
-    // a group registry: a warning only
-    PublishHelper.verifyGitlabCredentials("https://gitlab.example.com/api/v4/groups/7/-/packages/maven", _ => 404)
+    // a group registry can not be checked: goes on when confirmed, else stops
+    val group = "https://gitlab.example.com/api/v4/groups/7/-/packages/maven"
+    PublishHelper.verifyGitlabCredentials(group, _ => fail("nothing to ask"), confirm = _ => true)
+    val stopped = intercept[IllegalStateException]:
+      PublishHelper.verifyGitlabCredentials(group, _ => fail("nothing to ask"), confirm = _ => false)
+    assert(stopped.getMessage.contains("release stopped"), stopped.getMessage)
 
   test("verifyVersionFree for a GitLab DevConfig - the project first, then the poms"):
     import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
@@ -520,5 +551,16 @@ class PublishHelperVersionFreeTest extends FunSuite:
       assertEquals(uploaded.size, ModuleType.projectModules.size)
       assertEquals(PublishHelper.reportUploaded("1.2.3", devConfig, "", env.get), Seq.empty)
       assertEquals(PublishHelper.reportUploaded("1.2.3", devConfig, "", _ => None), Seq.empty) // never fails
+    // an unreachable repository: one request, then it gives up
+    locally:
+      import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
+      import orchescala.engine.config.{RepoConfig, ReposConfig}
+      import orchescala.helper.util.{DevConfig, SbtConfig}
+      val down    = DevConfig(
+        ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, ModuleType.projectModules)
+      ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(repos = Seq(RepoConfig.Gitlab("release", "http://127.0.0.1:1/repo")))))
+      val started = System.nanoTime()
+      assertEquals(PublishHelper.reportUploaded("1.2.3", down, "", _ => None), Seq.empty)
+      assert((System.nanoTime() - started) / 1e6 < 3000, "gave up after the first unreachable pom")
 
 end PublishHelperVersionFreeTest

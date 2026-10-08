@@ -192,9 +192,13 @@ object PublishHelper extends Helpers:
   def verifyNextVersion(
       newVersion: String,
       repo: os.Path = workDir,
-      confirm: String => Boolean = askToContinue
+      confirm: String => Boolean = askToContinue,
+      warn: String => Unit = println
   ): Unit =
-    scala.util.Try(os.proc("git", "fetch", "--tags", "--quiet").call(cwd = repo))
+    // offline, or without access: the local tags may be behind the releases
+    scala.util.Try(os.proc("git", "fetch", "--tags", "--quiet").call(cwd = repo, stderr = os.Pipe))
+      .failed.foreach: e =>
+        warn(s"WARNING: could not fetch the tags - the version is checked against the local tags only: ${e.getMessage.linesIterator.next()}")
     val tags = os.proc("git", "tag", "--list").call(cwd = repo).out.lines()
     nextVersionProblem(newVersion, tags).foreach: problem =>
       if !confirm(problem) then
@@ -296,7 +300,8 @@ object PublishHelper extends Helpers:
       version: String,
       devConfig: DevConfig,
       artifactSuffix: String,
-      env: String => Option[String] = sys.env.get
+      env: String => Option[String] = sys.env.get,
+      confirm: String => Boolean = askToContinue
   ): Unit =
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
@@ -311,7 +316,7 @@ object PublishHelper extends Helpers:
         // the job token of a pipeline is GitLab's own - nothing to probe (and the project
         // endpoint is not meant for it); a token of a developer is probed
         case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
-          verifyGitlabCredentials(gitlab.repoUrl, status)
+          verifyGitlabCredentials(gitlab.repoUrl, status, confirm)
         case _                                                         => ()
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
       verifyVersionFree(version, releaseUrls(devConfig, version, artifactSuffix, repo), status)
@@ -342,9 +347,16 @@ object PublishHelper extends Helpers:
     val repos = devConfig.sbtConfig.reposConfig
     try
       repos.releaseRepo.toSeq.flatMap: repo =>
-        val config   = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
-        val uploaded = releaseUrls(devConfig, version, artifactSuffix, repo).filter(curlStatus(config)(_) == 200)
-        if uploaded.isEmpty then println(s"Nothing of $version is in ${repo.repoUrl}.")
+        val config = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
+        // best effort, in a failure handler: 5 seconds per pom, and no more once the repo is unreachable
+        val status = curlStatus(config, timeoutSeconds = 5)
+        val codes  = releaseUrls(devConfig, version, artifactSuffix, repo).iterator
+          .map(url => url -> status(url))
+          .span((_, code) => code != 0) match
+          case (reachable, rest) => reachable.toSeq ++ rest.take(1).toSeq
+        val uploaded = codes.collect { case (url, 200) => url }
+        if codes.exists(_._2 == 0) then println(s"${repo.repoUrl} is not reachable - what was uploaded is unknown.")
+        else if uploaded.isEmpty then println(s"Nothing of $version is in ${repo.repoUrl}.")
         else println(s"Uploaded already - remove them there before the next try:\n - ${uploaded.mkString("\n - ")}")
         uploaded
     catch
@@ -364,9 +376,14 @@ object PublishHelper extends Helpers:
 
   /** GitLab answers 404 for a package the token may not read - so a wrong token looked like a
     * free version. The project itself answers 200 with a token that reads it - checked first.
-    * A registry that is not a project's gets a warning only.
+    * A registry that is not a project's (a group's) can not be checked: the release goes on
+    * only when confirmed - a wrong token fails at the upload, after the docs and the image.
     */
-  def verifyGitlabCredentials(repoUrl: String, status: String => Int): Unit =
+  def verifyGitlabCredentials(
+      repoUrl: String,
+      status: String => Int,
+      confirm: String => Boolean = askToContinue
+  ): Unit =
     gitlabProjectUrl(repoUrl) match
       case Some(project) =>
         val code = status(project)
@@ -376,9 +393,9 @@ object PublishHelper extends Helpers:
             s"GitLab refuses the credentials ($code): $project - check the token of the repository."
           )
       case None          =>
-        println(
-          s"WARNING: $repoUrl is no project registry - the credentials are not checked, a wrong token fails at the upload."
-        )
+        val problem =
+          s"$repoUrl is no project registry - the credentials can not be checked, a wrong token fails at the upload (after the docs and the docker image)"
+        if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
   end verifyGitlabCredentials
 
   /** The HTTP status of a HEAD request - 0 if the server is not reachable (or not within 30
@@ -386,12 +403,13 @@ object PublishHelper extends Helpers:
     * redirect to another host. `config` are the lines of a curl config (the credentials).
     * Fails with a clear message without `curl`.
     */
-  def curlStatus(config: Seq[String], curl: String = "curl")(url: String): Int =
+  def curlStatus(config: Seq[String], curl: String = "curl", timeoutSeconds: Int = 30)(url: String): Int =
     val devNull = if scala.util.Properties.isWin then "NUL" else "/dev/null"
     val result  =
       try
         os.proc(
-          curl, "--silent", "--head", "--connect-timeout", "10", "--max-time", "30",
+          curl, "--silent", "--head", "--connect-timeout", (timeoutSeconds min 10).toString,
+          "--max-time", timeoutSeconds.toString,
           "--output", devNull, "--write-out", "%{http_code}", "--config", "-", url
         ).call(check = false, stdin = config.mkString("", "\n", "\n"))
       catch
@@ -461,6 +479,7 @@ object PublishHelper extends Helpers:
         println(s"Aborted at $step")
         try
           awaitChild()
+          if step == ReleaseStep.Upload then afterFailedUpload()
           onFailure(step)
         catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
 
@@ -519,6 +538,12 @@ object PublishHelper extends Helpers:
         child.waitFor()
         if child.exitCode() != 0 then
           throw IllegalStateException(s"`${cmd.mkString(" ")}` failed with exit code ${child.exitCode()}")
+      catch
+        // the thread was interrupted - the child must not go on writing while the tree is restored
+        case e: InterruptedException =>
+          child.destroy()
+          child.waitFor(5000)
+          throw e
       finally synchronized { running = None }
     end run
 

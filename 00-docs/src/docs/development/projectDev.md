@@ -84,8 +84,9 @@ The following steps are executed:
   - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
     of the existing release overwritten). Remove the half-finished version there, or release the next.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
-    token may not read - so the project of a project registry is asked first (a group registry gets a
-    warning). The job token of a pipeline is GitLab's own, it is not probed.
+    token may not read - so the project of a project registry is asked first. A group registry can
+    not be checked: the release goes on only when you confirm. The job token of a pipeline is GitLab's
+    own, it is not probed.
 - Push the `develop` branch.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
 - Build everything locally (`sbt package packageSrc makePom` - what `publish` packages, without
