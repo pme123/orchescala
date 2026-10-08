@@ -226,3 +226,13 @@ test('parseThemeFile - a plain object is a theme only with theme keys alone', ()
   assert.ok('error' in parseThemeFile('{"primary": "#004b87", "port": 1}'));
   assert.ok('theme' in parseThemeFile('{"primary": "#004b87", "mode": "light"}'));
 });
+
+test('draftAfterSave - the Admin form keeps an edit made while saving', async () => {
+  const { draftAfterSave } = await import('../src/pages/designer/ThemeEditor');
+  const saved = { primary: '#004b87' };
+  assert.equal(draftAfterSave({ theme: { primary: '#004b87' } }, saved), null); // what was saved: done
+  const newer = { theme: { primary: '#004b87', radius: 'lg' as const } };
+  assert.equal(draftAfterSave(newer, saved), newer); // changed meanwhile: stays a draft
+  assert.equal(draftAfterSave(null, saved), null);
+  assert.equal(draftAfterSave({ theme: undefined }, undefined), null); // «Vorgabe» saved
+});

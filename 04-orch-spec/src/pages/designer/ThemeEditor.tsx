@@ -12,6 +12,12 @@ import { SelectField, TextField } from './fields';
 
 const MAX_THEME_FILE_BYTES = 1024 * 1024;
 
+/** Der Entwurf nach dem Speichern von `saved`: weg, wenn er noch dasselbe ist - eine Änderung, die während
+  * des Speicherns kam, bleibt ein Entwurf. */
+export function draftAfterSave<T>(draft: { theme: T } | null, saved: T): { theme: T } | null {
+  return draft && JSON.stringify(draft.theme ?? null) === JSON.stringify(saved ?? null) ? null : draft;
+}
+
 /** Eine Farbe - getippt bleibt sie hier, bis sie eine ist (ein halbes `#0b5` kommt nicht ins Theme). */
 function ColorField({ isDark, label, value, onChange, disabled }: {
   isDark: boolean; label: string; value: string | undefined; onChange: (v: string | undefined) => void; disabled?: boolean;

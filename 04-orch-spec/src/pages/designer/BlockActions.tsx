@@ -26,14 +26,29 @@ export function BlockActions({ isDark, block, ops, compact }: {
   isDark: boolean; block: Component; ops: BlockOps; compact?: boolean;
 }) {
   const c = cls(isDark);
-  const [menu, setMenu] = useState<null | 'type' | Place>(null);
+  const [menu, setMenuState] = useState<null | 'type' | Place>(null);
+  // nach oben, wenn darunter kein Platz ist (die letzten Zeilen der Gliederung, unten in der Vorschau)
+  const [up, setUp] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  // ein Klick daneben schliesst das Menü
+  const setMenu = (next: null | 'type' | Place) => {
+    if (next && !menu) setUp((box.current?.getBoundingClientRect().bottom ?? 0) > window.innerHeight - 280);
+    setMenuState(next);
+  };
+  // ein Klick daneben schliesst das Menü; Esc auch - vor dem Designer (der sonst den Baustein abwählte)
   useEffect(() => {
     if (!menu) return;
-    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(null); };
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setMenuState(null); };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      setMenuState(null);
+    };
     document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    document.addEventListener('keydown', esc, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc, true);
+    };
   }, [menu]);
   const btn = (title: string, icon: React.ReactNode, onClick: () => void, label?: string) => (
     <button type="button" title={title}
@@ -45,7 +60,9 @@ export function BlockActions({ isDark, block, ops, compact }: {
   const size = compact ? 11 : 12;
   const lost = lostOnConvert(block);
   return (
-    <div ref={box} className="relative flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+    <div ref={box} className="relative flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}
+      // in der Gliederung erscheinen die Knöpfe nur beim Darüberfahren - ihr Menü geht mit ihnen
+      onMouseLeave={() => compact && setMenuState(null)}>
       {btn(`nach oben (⌥↑)`, <ArrowUp size={size} />, () => ops.move(-1))}
       {btn(`nach unten (⌥↓)`, <ArrowDown size={size} />, () => ops.move(1))}
       {btn(`verdoppeln (${MOD}D)`, <Copy size={size} />, ops.duplicate, compact ? undefined : 'Kopie')}
@@ -62,7 +79,7 @@ export function BlockActions({ isDark, block, ops, compact }: {
         : btn('in einen Abschnitt packen', <FolderInput size={size} />, ops.wrap)}
       {btn('löschen (Entf) - rückgängig mit ' + MOD + 'Z', <Trash2 size={size} />, ops.remove)}
       {menu && (
-        <div className={`absolute right-0 top-full z-30 mt-1 w-56 rounded border shadow-lg ${c.border2} ${c.panelStrong}`}>
+        <div className={`absolute right-0 z-30 w-56 max-h-72 overflow-y-auto rounded border shadow-lg ${up ? 'bottom-full mb-1' : 'top-full mt-1'} ${c.border2} ${c.panelStrong}`}>
           {menu === 'type' ? (
             <>
               <div className={`px-3 pt-2 pb-1 text-[9px] uppercase tracking-widest ${c.muted}`}>Typ wechseln - Text und Bedingung bleiben</div>

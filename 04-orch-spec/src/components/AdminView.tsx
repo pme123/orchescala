@@ -25,13 +25,12 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
-import { GUID_RE, setupLink } from '../auth';
+import { GUID_RE, setupLink, usePermissions } from '../auth';
 import type { CatalogFile } from '../catalogImport';
 import BrandingForm from './BrandingForm';
 import { appProblem } from '../pages/runtime/validate';
-import { ThemeEditor } from '../pages/designer/ThemeEditor';
+import { draftAfterSave, ThemeEditor } from '../pages/designer/ThemeEditor';
 import type { Theme } from '../pages/runtime/spec';
-import { usePermissions } from '../auth';
 import CatalogBuild from './CatalogBuild';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
@@ -420,7 +419,7 @@ function AppThemeForm({ isDark }: { isDark: boolean }) {
   const changed = draft !== null && JSON.stringify(draft.theme ?? null) !== JSON.stringify(pagesApp?.data.theme ?? null);
   return (
     <div className="space-y-3">
-      <ThemeEditor isDark={isDark} theme={theme} onChange={(t) => setDraft({ theme: t })} canEdit={canEdit} />
+      <ThemeEditor isDark={isDark} theme={theme} onChange={(t) => { setDraft({ theme: t }); setMsg(null); }} canEdit={canEdit} />
       {canEdit && (
         <div className="flex items-center gap-2">
           <button type="button" disabled={!changed}
@@ -431,7 +430,9 @@ function AppThemeForm({ isDark }: { isDark: boolean }) {
               if (problem) return setMsg(`So nicht speicherbar: ${problem}`);
               const r = await savePagesApp(app, pagesApp?.version ?? null);
               // gespeichert ist, was beim Klick galt - eine Änderung seither bleibt ein Entwurf
-              if (r.status === 'saved') setDraft((d) => (d && JSON.stringify(d.theme ?? null) === JSON.stringify(theme ?? null) ? null : d));
+              // ohne geladenes pages/app.json (version null) legt das Speichern sie nur neu an - eine, die es
+              // gibt, überschreibt es nicht («Die Datei gibt es schon»)
+              if (r.status === 'saved') setDraft((d) => draftAfterSave(d, theme));
               setMsg(r.status === 'saved' ? 'gespeichert' : r.status === 'conflict' ? 'pages/app.json wurde inzwischen geändert - neu laden.' : r.message);
             }}
             className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>

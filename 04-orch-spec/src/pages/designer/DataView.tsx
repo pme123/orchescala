@@ -2,7 +2,7 @@
 // und die Services, die eine Seite aufrufen kann, mit ihrem In und Out. Ein Klick auf einen Pfad kopiert
 // ihn als {{pfad}} - für Texte, Listen und Bedingungen.
 import { ChevronRight, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { DataNode, PField, Targets } from './model';
 
@@ -12,37 +12,61 @@ function typeText(f: Pick<PField, 'type' | 'collection' | 'optional'>): string {
   return f.optional ? `Option[${base}]` : base;
 }
 
-export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
-  isDark: boolean; nodes: DataNode[]; targets: Targets; usedServices: string[]; onSelect: (key: string) => void;
-}) {
-  const c = cls(isDark);
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = (path: string) => {
-    void navigator.clipboard?.writeText(`{{${path}}}`).catch(() => {});
-    setCopied(path);
-    setTimeout(() => setCopied((p) => (p === path ? null : p)), 1200);
-  };
+type CopyCtx = { c: ReturnType<typeof cls>; copied: string | null; copy: (path: string) => void };
 
-  /** Ein Pfad zum Kopieren - in einer Liste mit `.0` für den ersten Eintrag; in einer Liste sind die Felder
-    * eines Eintrags direkt erreichbar ({{start}} im Eintrag einer «Auswahl aus Liste»). */
-  const Path = ({ path, label }: { path: string; label: string }) => (
-    <button type="button" onClick={() => copy(path)} title={`{{${path}}} kopieren`}
-      className={`group inline-flex items-center gap-1 font-mono text-[10.5px] ${c.text} hover:text-sky-500`}>
+/** Text in die Zwischenablage - auch ohne `navigator.clipboard` (auf http, wie in einem Intranet: dort gibt
+  * es sie nicht): über ein verstecktes Textfeld. true, wenn es geklappt hat. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // verweigert - der Weg über das Textfeld
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+  }
+}
+
+/** Ein Pfad zum Kopieren - in einer Liste mit `.0` für den ersten Eintrag; in einer Liste sind die Felder
+  * eines Eintrags direkt erreichbar ({{start}} im Eintrag einer «Auswahl aus Liste»). */
+function PathButton({ path, label, ctx }: { path: string; label: string; ctx: CopyCtx }) {
+  return (
+    <button type="button" onClick={() => ctx.copy(path)} title={`{{${path}}} kopieren`}
+      className={`group inline-flex items-center gap-1 font-mono text-[10.5px] ${ctx.c.text} hover:text-sky-500`}>
       {label}
       <Copy size={9} className="opacity-0 group-hover:opacity-60" />
-      {copied === path && <span className="text-[9px] text-emerald-500 font-sans">kopiert</span>}
+      {ctx.copied === path && <span className="text-[9px] text-emerald-500 font-sans">kopiert</span>}
     </button>
   );
+}
 
-  // die Felder - im Zustand zum Kopieren, bei einem Service nur zum Lesen (dort gibt es keinen Pfad)
-  const Fields = ({ prefix, fields, depth, copyable = true }: { prefix: string; fields: PField[]; depth: number; copyable?: boolean }) => (
+/** Die Felder - im Zustand zum Kopieren, bei einem Service nur zum Lesen (dort gibt es keinen Pfad). */
+function FieldList({ prefix, fields, depth, copyable = true, ctx }: {
+  prefix: string; fields: PField[]; depth: number; copyable?: boolean; ctx: CopyCtx;
+}) {
+  const { c } = ctx;
+  return (
     <div className={`border-l pl-2 ml-1 space-y-0.5 ${c.border}`}>
       {fields.map((f) => {
-        const path = `${prefix}.${f.name}`;
+        const path = prefix ? `${prefix}.${f.name}` : f.name;
         return (
           <div key={f.name}>
             <div className="flex items-baseline gap-1.5">
-              {copyable ? <Path path={path} label={f.name} /> : <span className={`font-mono text-[10.5px] ${c.text}`}>{f.name}</span>}
+              {copyable ? <PathButton path={path} label={f.name} ctx={ctx} /> : <span className={`font-mono text-[10.5px] ${c.text}`}>{f.name}</span>}
               <span className={`text-[9.5px] font-mono ${c.muted}`} title={f.values?.join(', ')}>
                 {typeText(f)}{f.values?.length ? ` (${f.values.slice(0, 4).join(' | ')}${f.values.length > 4 ? ' …' : ''})` : ''}
               </span>
@@ -50,7 +74,7 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
             {f.fields && depth < 3 && (
               <>
                 {f.collection && <div className={`text-[9px] ${c.muted}`}>je Eintrag:</div>}
-                <Fields prefix={f.collection ? `${path}.0` : path} fields={f.fields} depth={depth + 1} copyable={copyable} />
+                <FieldList prefix={f.collection ? `${path}.0` : path} fields={f.fields} depth={depth + 1} copyable={copyable} ctx={ctx} />
               </>
             )}
           </div>
@@ -58,6 +82,25 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
       })}
     </div>
   );
+}
+
+export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
+  isDark: boolean; nodes: DataNode[]; targets: Targets; usedServices: string[]; onSelect: (key: string) => void;
+}) {
+  const c = cls(isDark);
+  const [copied, setCopied] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  // «kopiert» erst, wenn es in der Zwischenablage ist
+  const copy = (path: string) => {
+    void copyText(`{{${path}}}`).then((ok) => {
+      if (!ok) return;
+      setCopied(path);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(null), 1200);
+    });
+  };
+  const ctx: CopyCtx = { c, copied, copy };
 
   return (
     <div className="px-3 py-2 space-y-4">
@@ -69,7 +112,7 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
         {nodes.map((n) => (
           <div key={n.path} className={`rounded border px-2 py-1.5 space-y-1 ${c.border2}`}>
             <div className="flex items-baseline gap-1.5">
-              <Path path={n.path} label={n.path} />
+              <PathButton path={n.path} label={n.path} ctx={ctx} />
               {n.type && <span className={`text-[9.5px] font-mono ${c.muted}`}>{n.type}</span>}
             </div>
             <div className="flex flex-wrap gap-1">
@@ -81,7 +124,7 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
               ))}
             </div>
             {n.values && <div className={`text-[9.5px] font-mono ${c.muted}`}>Werte: {n.values.join(' | ')}</div>}
-            {n.fields && n.fields.length > 0 && <Fields prefix={n.collection ? `${n.path}.0` : n.path} fields={n.fields} depth={0} />}
+            {n.fields && n.fields.length > 0 && <FieldList prefix={n.collection ? `${n.path}.0` : n.path} fields={n.fields} depth={0} ctx={ctx} />}
           </div>
         ))}
       </section>
@@ -103,11 +146,11 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
               {s.descr && <p className={`text-[9.5px] ${c.muted}`}>{s.descr}</p>}
               <div>
                 <div className={`text-[9px] uppercase tracking-widest ${c.muted}`}>In</div>
-                {s.in.length ? <Fields prefix="" fields={s.in} depth={0} copyable={false} /> : <div className={`text-[9.5px] ${c.muted}`}>keine Felder</div>}
+                {s.in.length ? <FieldList prefix="" fields={s.in} depth={0} copyable={false} ctx={ctx} /> : <div className={`text-[9.5px] ${c.muted}`}>keine Felder</div>}
               </div>
               <div>
                 <div className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Out</div>
-                {s.out.length ? <Fields prefix="" fields={s.out} depth={0} copyable={false} /> : <div className={`text-[9.5px] ${c.muted}`}>keine Felder</div>}
+                {s.out.length ? <FieldList prefix="" fields={s.out} depth={0} copyable={false} ctx={ctx} /> : <div className={`text-[9.5px] ${c.muted}`}>keine Felder</div>}
               </div>
             </div>
           </details>

@@ -150,6 +150,18 @@ class Problems(unittest.TestCase):
         self.assertIn('href="#ok"', out)
         self.assertIn('rect', out)
 
+    def test_svg_not_in_utf8_is_refused(self):
+        bomb = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg/>'.encode('utf-16')
+        with self.assertRaises(SystemExit):
+            parse_svg(bomb)
+        with self.assertRaises(SystemExit):
+            parse_svg(b'<?xml version="1.0" encoding="ISO-8859-1"?><svg xmlns="http://www.w3.org/2000/svg"/>')
+        self.assertIsNotNone(parse_svg('\ufeff<svg xmlns="http://www.w3.org/2000/svg"/>'.encode('utf-8')))  # UTF-8 BOM
+
+    def test_rgb_numbers_are_clamped(self):
+        self.assertEqual(to_hex('rgb(300, 0, 0)'), '#ff0000')
+        self.assertEqual(to_hex('rgb(300 0 0)'), '#ff0000')
+
     def test_svg_with_entities_is_refused(self):
         bomb = b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>'
         with self.assertRaises(SystemExit):

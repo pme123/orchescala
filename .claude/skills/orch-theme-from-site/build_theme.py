@@ -154,10 +154,17 @@ def parse_svg(data):
     import xml.etree.ElementTree as ET
     ET.register_namespace('', SVG_NS)
     ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
-    if re.search(rb'<!(DOCTYPE|ENTITY)', data, re.I):
-        sys.exit('Das SVG hat eine DOCTYPE- oder ENTITY-Angabe - so wird es nicht gelesen.')
+    # UTF-8 only: in UTF-16 (or another encoding) the DOCTYPE check below would not see the declaration
     try:
-        root = ET.fromstring(data)
+        text = data.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        sys.exit('Das SVG ist nicht in UTF-8 - so wird es nicht gelesen.')
+    if re.search(r'<!(DOCTYPE|ENTITY)', text, re.I):
+        sys.exit('Das SVG hat eine DOCTYPE- oder ENTITY-Angabe - so wird es nicht gelesen.')
+    if re.search(r'<\?xml[^>]*encoding\s*=\s*["\'](?!utf-?8)', text[:200], re.I):
+        sys.exit('Das SVG erklärt eine andere Kodierung als UTF-8 - so wird es nicht gelesen.')
+    try:
+        root = ET.fromstring(text.encode('utf-8'))
     except ET.ParseError as e:
         sys.exit(f'Das Logo ist kein SVG: {e}.')
     dangerous = {f'{{{SVG_NS}}}{t}' for t in ('script', 'foreignObject', 'style')} | {'script', 'foreignObject', 'style'}
