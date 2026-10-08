@@ -49,15 +49,16 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   const missing = new Set(checked ? missingIn(page.body, state) : []);
   // ein verstecktes Feld - nur Bots füllen es aus (der Gateway lehnt sie dann ab)
   const [honeypot, setHoneypot] = useState('');
+  const honeypotRef = useRef(''); // beim Aufruf der Stand von jetzt, nicht der beim Start der Aktionen
   const isPublic = page.access === 'public';
   // der Fehler einer Aktion - und, falls auch das scheiterte, der ihres onError
   const errorOf = (key: string) => [errors[key], errors[`${key}.onError`]].filter(Boolean).join(' – ');
 
   // je Aktion der Zustand von jetzt - mit dem, was die Aktionen davor abgelegt haben (latest, nicht
-  // der des Renderns). labels und honeypot ändern sich während der Aktionen nicht (Eingaben gesperrt)
+  // der des Renderns), der Honeypot ebenso aus seinem Ref. labels kommen aus der Seite (fest)
   async function runOne(a: Action): Promise<void> {
     const s = latest.current;
-    const input = (raw: unknown, pub?: boolean) => actionInput(raw, s, labels, !!pub, honeypot);
+    const input = (raw: unknown, pub?: boolean) => actionInput(raw, s, labels, !!pub, honeypotRef.current);
     const store = (path: string | undefined, value: unknown) => path && update((st) => setPath(st, path, value));
     // ein Business Key aus einer Vorlage, die leer bleibt: die Aktion schlägt fehl - eine Message
     // ohne Key fände ihre Instanz nicht, ein Start bekäme keinen
@@ -334,7 +335,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         // kein Name, den Browser oder Passwort-Manager ausfüllen (website, url, …) - sonst lehnt der Gateway echte Benutzer ab
         <input type="text" name="hp_x7q" tabIndex={-1} autoComplete="off" aria-hidden="true" data-lpignore="true" data-1p-ignore="true"
           data-bwignore="true" data-form-type="other" value={honeypot}
-          onChange={(e) => setHoneypot(e.target.value)}
+          onChange={(e) => { honeypotRef.current = e.target.value; setHoneypot(e.target.value); }}
           className="pointer-events-none absolute -left-[9999px] h-px w-px opacity-0" />
       )}
       {errorOf('load') && <Alert text={errorOf('load')} isDark={isDark} />}

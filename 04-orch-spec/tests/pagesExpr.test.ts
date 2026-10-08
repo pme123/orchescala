@@ -105,6 +105,14 @@ test('sameValue - deep, the order of the fields does not matter', () => {
   assert.ok(!sameValue([], {}));
 });
 
+test('format - a point in time with a zone in the time of the browser, a local one as it is', () => {
+  const instant = '2026-10-20T07:00:00Z';
+  const local = new Date(instant);
+  assert.equal(format(instant, 'time'), `${String(local.getHours()).padStart(2, '0')}:${String(local.getMinutes()).padStart(2, '0')}`);
+  assert.equal(format('2026-10-20T09:00', 'time'), '09:00');
+  assert.equal(format('2026-10-20T09:00:00+02:00', 'date'), format(new Date('2026-10-20T07:00:00Z').toISOString(), 'date'));
+});
+
 test('setPath on a list - at most one entry after the last, no huge sparse list', () => {
   assert.deepEqual(setPath({ items: ['a'] }, 'items.1', 'b'), { items: ['a', 'b'] });
   assert.deepEqual(setPath({ items: ['a'] }, 'items.4294967294', 'x'), { items: ['a'] });

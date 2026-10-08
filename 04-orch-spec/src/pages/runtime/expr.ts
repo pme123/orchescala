@@ -43,6 +43,11 @@ const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 /** Ein LocalDateTime (`2026-10-20T09:00`) – als lokale Zeit, ohne Zeitzone. */
 function asDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  // ein Zeitpunkt mit Zone (Instant, OffsetDateTime): in der Zeit des Browsers - nicht die Uhrzeit von UTC
+  if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(value)) {
+    const instant = new Date(value);
+    return Number.isNaN(instant.getTime()) ? null : instant;
+  }
   const [d, t = '00:00'] = value.split('T');
   const [y, m, day] = d.split('-').map(Number);
   const [h, min] = t.split(':').map(Number);

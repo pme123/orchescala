@@ -399,7 +399,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [refreshSpecsIn]);
 
   // Die Seiten: wenige kleine Dateien - eine, die nicht passt, gilt als unlesbar
-  const refreshPagesIn = useCallback(async function refresh(be: StorageBackend): Promise<void> {
+  const refreshPagesIn = useCallback(async function refresh(be: StorageBackend, attempt = 1): Promise<void> {
     const seq = ++pagesRefreshSeq.current;
     const writes = pagesWriteSeq.current;
     const items: PageListItem[] = [];
@@ -433,7 +433,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     // ein spätes Lesen eines anderen Ordners (Ordner gewechselt) oder ein überholtes überschreibt nichts
     if (backendRef.current !== be || pagesRefreshSeq.current !== seq) return;
-    if (pagesWriteSeq.current !== writes) return refresh(be); // inzwischen geschrieben - noch einmal
+    // inzwischen geschrieben - noch einmal, höchstens dreimal (der Designer speichert laufend; bei
+    // SharePoint ist jede Datei ein Aufruf). Danach bleibt die Liste, wie die Schreibenden sie gesetzt haben
+    if (pagesWriteSeq.current !== writes) return attempt < 3 ? refresh(be, attempt + 1) : undefined;
     pagesAppBroken.current = brokenApp;
     setPages(items.sort(byPath));
     setPagesApp(app);
