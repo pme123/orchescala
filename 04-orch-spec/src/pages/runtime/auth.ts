@@ -1,4 +1,5 @@
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
+import { safeReturnTo, singleFlight } from './authRules';
 import { ApiError } from './gatewayTypes';
 
 // Nur Seiten mit Login brauchen das – die öffentlichen laden nie einen IdP. Die Verbindung kommt
@@ -58,9 +59,7 @@ export async function completeLogin(): Promise<boolean> {
   if (!pending) return false;
   try {
     const user = await (await userManager()).signinRedirectCallback();
-    // nur ein Pfad dieser Seite (ein /, nicht //host) - der state kommt mit der URL zurück
-    const returnTo = typeof user.state === 'string' && /^\/(?![/\\])/.test(user.state) ? user.state : import.meta.env.BASE_URL;
-    window.history.replaceState({}, '', returnTo);
+    window.history.replaceState({}, '', safeReturnTo(user.state, import.meta.env.BASE_URL));
     return true;
   } catch (e) {
     // falscher state, abgelaufener Code, ein Fehler des IdP: code/state aus der URL, sonst
@@ -101,36 +100,20 @@ export async function accessToken(): Promise<string> {
   return renewed ?? reauthenticate();
 }
 
-// gleichzeitige Aufrufe mit abgelaufenem Token oder 401: eine stille Erneuerung, nicht je Aufruf -
-// ein rotierendes Refresh-Token gilt nur einmal
-let renewingSilently: Promise<string | null> | null = null;
-
-/** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
-export function renewToken(): Promise<string | null> {
-  renewingSilently ??= (async () => {
-    // Netz, invalid_grant, kein Refresh-Token, kein IdP - alles endet in der Anmeldung (die selbst sagt,
-    // wenn sie nicht geht), der Grund in der Konsole
-    const renewed = await userManager().then((um) => um.signinSilent()).catch((e) => {
-      console.warn('[pages] stilles Erneuern des Tokens fehlgeschlagen:', e);
-      return null;
-    });
-    return renewed && !renewed.expired ? renewed.access_token : null;
-  })().finally(() => {
-    renewingSilently = null;
+/** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). Gleichzeitige
+  * Aufrufe (abgelaufenes Token, 401) teilen sich eine Erneuerung. */
+export const renewToken: () => Promise<string | null> = singleFlight(async () => {
+  // Netz, invalid_grant, kein Refresh-Token, kein IdP - alles endet in der Anmeldung (die selbst sagt,
+  // wenn sie nicht geht), der Grund in der Konsole
+  const renewed = await userManager().then((um) => um.signinSilent()).catch((e) => {
+    console.warn('[pages] stilles Erneuern des Tokens fehlgeschlagen:', e);
+    return null;
   });
-  return renewingSilently;
-}
-
-// mehrere Aufrufe mit 401 gleichzeitig: eine Anmeldung, nicht je Aufruf
-let signingIn: Promise<never> | null = null;
+  return renewed && !renewed.expired ? renewed.access_token : null;
+});
 
 /** Neu anmelden - einmal, auch wenn mehrere Aufrufe es wollen. */
-export function reauthenticate(): Promise<never> {
-  signingIn ??= sessionExpired().finally(() => {
-    signingIn = null;
-  });
-  return signingIn;
-}
+export const reauthenticate: () => Promise<never> = singleFlight(() => sessionExpired());
 
 /** Die Rollen im Access Token. */
 export function rolesOf(user: User): string[] {

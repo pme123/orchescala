@@ -292,6 +292,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // vorher - es liest noch einmal; ein neueres Lesen gewinnt über ein älteres
   const pagesRefreshSeq = useRef(0);
   const pagesWriteSeq = useRef(0);
+  const pagesLoaded = useRef(false); // die Liste dieses Ordners wurde schon einmal gelesen
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
@@ -446,13 +447,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPagesUnreadable(unreadable.sort((a, b) => a.file.localeCompare(b.file)));
     // inzwischen geschrieben - noch einmal, höchstens dreimal (der Designer speichert laufend; bei
     // SharePoint ist jede Datei ein Aufruf). Danach bleibt die Liste, wie die Schreibenden sie gesetzt
-    // haben - nur eine leere (das erste Lesen) bekommt den gelesenen Stand
+    // haben - nur das erste Lesen des Ordners bekommt den gelesenen Stand (sonst brächte es eine eben
+    // gelöschte Seite zurück)
     if (pagesWriteSeq.current !== writes) {
       if (attempt < 3) return refresh(be, attempt + 1);
-      setPages(prev => (prev.length ? prev : items.sort(byPath)));
-      setPagesApp(prev => prev ?? app);
-      return;
+      if (pagesLoaded.current) return;
     }
+    pagesLoaded.current = true;
     setPages(items.sort(byPath));
     setPagesApp(app);
   }, []);
@@ -460,6 +461,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const resetPages = useCallback(() => {
     pagesRefreshSeq.current++; // ein Lesen, das noch läuft, gehört zum Ordner davor
     pagesAppBroken.current = false;
+    pagesLoaded.current = false;
     setPages([]); setPagesApp(null); setPagesUnreadable([]);
   }, []);
 

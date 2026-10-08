@@ -109,7 +109,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         if (!(e instanceof ApiError)) console.error(e);
         // eine Anmeldung, die nicht geht (IdP weg, config.json fehlt), sagt das selbst - nicht «neu anmelden»
         const login = e instanceof ApiError && e.kind === 'login' ? e.message : null;
-        setErrors((er) => ({ ...er, [key]: login ?? errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
+        // kein Fehler des Gateways, sondern der Seite (z.B. eine Vorlage) - im Designer mit dem Grund
+        const own = !(e instanceof ApiError) && designer ? `Fehler in der Aktion «${a.do}»: ${e instanceof Error ? e.message : String(e)}` : null;
+        setErrors((er) => ({ ...er, [key]: login ?? own ?? errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
         if ('onError' in a && a.onError) await run(a.onError, `${key}.onError`);
         return false;
       }

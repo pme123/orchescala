@@ -427,8 +427,9 @@ object PublicAccessSpec extends ZIOSpecDefault:
                       .repeatUntil(_.status == Status.Ok)
                       .timeout(10.seconds)
                       .timed
-        // free by the timeout of the call (200 ms) - not seconds later (a wide margin for a slow CI machine)
-        yield assertTrue(second._2.exists(_.status == Status.Ok), second._1 < 5.seconds)
+        // freed by the timeout of the call - not only much later or never (the bound is wide for a slow
+        // CI machine; the status is in the message when it fails)
+        yield assertTrue(second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds)
       @@ TestAspect.withLiveClock,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =
