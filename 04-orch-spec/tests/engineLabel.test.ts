@@ -8,6 +8,8 @@ import { ENGINES } from '../src/template';
 import { regexIssue, scriptWarning } from '../src/findings';
 import { juelToFeel } from '../src/juelFeel';
 import { convertBpmn } from '../src/engineConvert';
+import { exportSpec } from '../src/exporters';
+import type { EngineId, ProcessSpec } from '../src/types';
 
 // the converter works on the DOM of the browser
 const g = globalThis as unknown as Record<string, unknown>;
@@ -19,6 +21,7 @@ test('the engines take their labels from engineLabels', () => {
   assert.equal(engineLabel('c8'), C8_LABEL);
   assert.deepEqual(ENGINES.map((e) => e.label), [C7_LABEL, C8_LABEL]);
   assert.equal(engineLabel(undefined), C7_LABEL); // without an engine: the default c7
+  assert.equal(engineLabel('c9' as EngineId), 'c9'); // an unknown value stays visible
   // the words themselves - the other checks only compare with the constants
   assert.equal(C7_LABEL, 'Camunda 7 / Operaton');
   assert.equal(C8_LABEL, 'Camunda 8');
@@ -39,4 +42,11 @@ test('converting to c7 names the label in its notes', () => {
 </bpmn:definitions>`;
   const r = convertBpmn(c8, 'c7');
   assert.ok(r.issues.some((i) => i.text === `${C7_LABEL} verlangt historyTimeToLive — in der Spezifikation setzen.`), JSON.stringify(r.issues));
+});
+
+test('the Orchescala export names the engine of the spec', () => {
+  const spec = { version: 1, slug: 'acme-shop-bookv1', name: 'bookV1', title: 'Buchen', processId: 'acme-shop-bookV1',
+    updatedAt: '2026-10-08T09:00:00Z', steps: [], types: [], interactions: [] } as unknown as ProcessSpec;
+  assert.match(exportSpec({ ...spec, engine: 'c7' }, 'orchescala', null), /\| Engine \| Camunda 7 \/ Operaton \|/);
+  assert.match(exportSpec({ ...spec, engine: 'c8' }, 'orchescala', null), /\| Engine \| Camunda 8 \|/);
 });
