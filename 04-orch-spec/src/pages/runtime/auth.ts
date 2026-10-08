@@ -50,7 +50,14 @@ function userManager(): Promise<UserManager> {
 }
 
 /** Die Rückkehr vom IdP (code/state in der URL) – danach zurück auf die Seite vor der Anmeldung. */
-export async function completeLogin(): Promise<boolean> {
+// einmal je Laden der Seite - StrictMode ruft Effekte zweimal, der erste verbraucht den Zustand
+let completing: Promise<boolean> | null = null;
+export function completeLogin(): Promise<boolean> {
+  completing ??= completeLoginOnce();
+  return completing;
+}
+
+async function completeLoginOnce(): Promise<boolean> {
   const params = new URLSearchParams(window.location.search);
   const state = params.get('state');
   if (!(params.has('code') && state)) return false;
@@ -62,7 +69,11 @@ export async function completeLogin(): Promise<boolean> {
       return false;
     }
   })();
-  if (!pending) return false;
+  if (!pending) {
+    // kein Fehler (eine Seite darf eigene Parameter haben) - aber sichtbar, falls es doch eine Rückkehr war
+    console.warn('[pages] code/state in der URL, aber keine begonnene Anmeldung in diesem Tab - nicht übernommen');
+    return false;
+  }
   try {
     const user = await (await userManager()).signinRedirectCallback();
     window.history.replaceState({}, '', safeReturnTo(user.state, import.meta.env.BASE_URL));

@@ -37,6 +37,7 @@ export default function App() {
   const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
+    let current = true; // StrictMode: nur der Lauf, der noch gilt, setzt den Zustand
     (async () => {
       const pages: Pages = await fetch(`${base}pages.json`, { cache: 'no-cache' }).then(async (r) => {
         if (!r.ok) {
@@ -52,9 +53,13 @@ export default function App() {
       const page = pages.pages.find((p) => p.path === pagePath());
       // ein IdP nur für Seiten mit Login - eine öffentliche Seite kommt ohne aus
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
+      if (!current) return;
       setLoaded({ pages, page, user });
       document.title = [page?.title, pages.app.title].filter(Boolean).join(' · ');
-    })().catch((e) => setFailure(e instanceof Error ? e.message : String(e)));
+    })().catch((e) => current && setFailure(e instanceof Error ? e.message : String(e)));
+    return () => {
+      current = false;
+    };
   }, []);
 
   const app = loaded?.pages.app;
