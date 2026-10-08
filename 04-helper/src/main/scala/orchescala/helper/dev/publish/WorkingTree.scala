@@ -73,7 +73,10 @@ object WorkingTree extends Helpers:
       restore: os.Path => Unit = restoreWorkingTree(_)
   ): RestoreForRetry = RestoreForRetry(isSnapshot, repo, restore)
 
-  /** The restore of one release - armed with the changes of the tree at its creation. Once
+  /** The restore of one release - armed with the changes of the tree at its creation (right
+    * before the versions are rewritten; nothing else of the release changes tracked files -
+    * the CHANGELOG is yours, edited for the release, and stays: the next try checks it again,
+    * as it was checked this time). Once
     * only: on Ctrl-C the failing sbt run AND the shutdown hook ask for it - the second waits
     * for the first (the JVM ends with the hook) and finds it done. Fails the restore, it is
     * not done - the next caller tries again.

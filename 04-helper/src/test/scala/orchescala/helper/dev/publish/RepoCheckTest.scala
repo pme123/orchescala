@@ -115,6 +115,33 @@ class RepoCheckTest extends FunSuite:
     assert(!stripped.contains("a char literal") && !stripped.contains("another") && !stripped.contains("gone"), stripped)
     assert(stripped.contains("a // not a comment /* nor this */"), stripped) // the triple-quoted string as it is
     assert(stripped.contains("""val crossPaths = "kept""""), stripped)
+    // nested block comments, as Scala has them
+    assertEquals(RepoCheck.withoutComments("a /* one /* two */ still one */ b").trim, "a  b".trim)
+    assertEquals(
+      RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "/* outer /* crossPaths := false */ */").mkString("\n")),
+      "_3"
+    )
+
+  test("the sub projects of the domain are published too - and looked for"):
+    import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
+    import orchescala.helper.util.DevConfig
+    val devConfig = DevConfig(
+      ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq("cards", "loans"), Seq.empty, Seq.empty, ModuleType.projectModules)
+    )
+    val artifacts = RepoCheck.releaseArtifacts(devConfig, names)
+    assert(artifacts.contains("democompany-customer-domain"), artifacts)
+    assert(artifacts.contains("democompany-customer-domain-base"), artifacts)
+    assert(artifacts.contains("democompany-customer-domain-cards"), artifacts)
+    assert(artifacts.contains("democompany-customer-domain-loans"), artifacts)
+    assert(!artifacts.contains("democompany-customer-worker-base"), artifacts) // only the domain has sub projects
+
+  test("a transient failure: once more after a pause - then as it is"):
+    var calls  = 0
+    val flaky  = (_: String) => { calls += 1; if calls == 1 then 0 else 404 }
+    assertEquals(RepoCheck.retryingOnce(flaky, pause = 10)("u"), 404)
+    assertEquals(calls, 2)
+    assertEquals(RepoCheck.retryingOnce(_ => 0, pause = 10)("u"), 0)
+    assertEquals(RepoCheck.retryingOnce(_ => 200, pause = 10)("u"), 200)
 
 
   /** A small HTTP server playing the repository: `taken` paths exist, the rest is missing, a
@@ -157,6 +184,15 @@ class RepoCheckTest extends FunSuite:
       assertEquals(RepoCheck.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(RepoCheck.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
+
+  test("curlStatus: a server that does not answer in time is 0"):
+    import com.sun.net.httpserver.HttpServer
+    import java.net.InetSocketAddress
+    val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/", exchange => { Thread.sleep(3000); exchange.sendResponseHeaders(200, -1); exchange.close() })
+    server.start()
+    try assertEquals(RepoCheck.curlStatus(Seq.empty, timeoutSeconds = 1)(s"http://127.0.0.1:${server.getAddress.getPort}/slow"), 0)
+    finally server.stop(0)
 
   test("curl that fails before any status: 0, not an error - the report's unreachable branch"):
     assertEquals(RepoCheck.curlStatus(Seq.empty, curl = "true")("http://127.0.0.1:1/repo"), 0)

@@ -50,21 +50,25 @@ object RepoCheck:
   end artifactSuffix
 
   /** `scala` without its comments - the line comments (two slashes to the end of the line) and
-    * the block comments; a comment marker inside a string literal is no comment.
+    * the block comments (nested, as Scala has them); a comment marker inside a string or char
+    * literal is no comment.
     */
   def withoutComments(scala: String): String =
     val out     = StringBuilder()
     var i       = 0
     var inStr   = false
     var inTri   = false // a triple-quoted string
-    var inBlock = false
+    var inBlock = 0 // the depth - Scala nests block comments
     def at(j: Int): Char   = if j < scala.length then scala(j) else ' '
     def starts(t: String)  = scala.startsWith(t, i)
     while i < scala.length do
       val c = scala(i)
-      if inBlock then
+      if inBlock > 0 then
         if starts("*/") then
-          inBlock = false
+          inBlock -= 1
+          i += 1
+        else if starts("/*") then
+          inBlock += 1
           i += 1
       else if inTri then
         out += c
@@ -94,7 +98,7 @@ object RepoCheck:
         while i < scala.length && scala(i) != '\n' do i += 1
         i -= 1
       else if starts("/*") then
-        inBlock = true
+        inBlock = 1
         i += 1
       else out += c
       i += 1
@@ -174,7 +178,7 @@ object RepoCheck:
           )
         case _                                                         => ()
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyUrlsFree(version, releaseUrls(devConfig, version, names, repo), status)
+      verifyUrlsFree(version, releaseUrls(devConfig, version, names, repo), retryingOnce(status))
   end verifyVersionFree
 
   /** The poms `publish` uploads for `version` - every module of the project (a module that
@@ -183,12 +187,21 @@ object RepoCheck:
     */
   def releaseUrls(devConfig: DevConfig, version: String, names: BuildNames, repo: RepoConfig)
       : Seq[String] =
-    releaseArtifactUrls(
-      repo.repoUrl,
-      names.organization,
-      devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m${names.artifactSuffix}"),
-      version
-    )
+    releaseArtifactUrls(repo.repoUrl, names.organization, releaseArtifacts(devConfig, names), version)
+
+  /** The artifacts the generated build publishes: `<project>-<module>` for every module - and
+    * for a module with sub projects (the domain) `<project>-<module>-base` and
+    * `<project>-<module>-<sub project>` as well.
+    */
+  def releaseArtifacts(devConfig: DevConfig, names: BuildNames): Seq[String] =
+    devConfig.apiProjectConfig.modules.flatMap: m =>
+      val module = s"${devConfig.projectName}-$m"
+      val subs   =
+        if devConfig.subProjects.nonEmpty &&
+          devConfig.modules.exists(c => c.moduleType == m && c.generateSubModule)
+        then s"$module-base" +: devConfig.subProjects.map(sp => s"$module-$sp")
+        else Seq.empty
+      (module +: subs).map(_ + names.artifactSuffix)
 
   /** After a failed upload: which poms of `version` are in the release repo now - so the
     * console names what went out. Never fails (it runs in a failure handler).
@@ -259,6 +272,17 @@ object RepoCheck:
             "fails at the upload (after the docs and the docker image)"
         if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
   end verifyGitlabCredentials
+
+  /** `status` tried once more after a pause when the repository was not reachable (0) - a
+    * transient failure (DNS, TLS, a proxy) must not stop a release.
+    */
+  def retryingOnce(status: String => Int, pause: Long = 3000): String => Int = url =>
+    val first = status(url)
+    if first != 0 then first
+    else
+      println(s"  not reachable - once more in ${pause / 1000} s ...")
+      Thread.sleep(pause)
+      status(url)
 
   /** The HTTP status of a HEAD request for a URL - 0 if the server is not reachable (or not
     * within `timeoutSeconds`). No redirect is followed: curl keeps a custom header (the GitLab token) on a

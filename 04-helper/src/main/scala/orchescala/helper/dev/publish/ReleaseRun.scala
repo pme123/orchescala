@@ -178,25 +178,26 @@ object SbtChild:
     * after 5 seconds.
     */
   private def terminate(child: os.SubProcess, what: String): Unit =
+    import scala.jdk.CollectionConverters.*
     val handle  = child.wrapped.toHandle
     // the snapshot stays valid once the child is gone and they are reparented - one started
     // in between is missed, and one that ignores the signals may go on (said below)
-    val started = handle.descendants().toList
+    val started = handle.descendants().toList.asScala.toSeq
     println(s"Ending $what - pid ${handle.pid} and the ${started.size} processes it started")
     child.destroy()
-    started.forEach(_.destroy())
+    started.foreach(_.destroy())
     if !child.waitFor(5000) then
       child.destroyForcibly()
       child.waitFor(5000)
-    val alive = started.stream().filter(_.isAlive).toList
-    if !alive.isEmpty then
-      alive.forEach(_.destroyForcibly())
-      Thread.sleep(500)
-    val stillAlive = started.stream().filter(_.isAlive).toList
-    if child.isAlive() || !stillAlive.isEmpty then
+    started.filter(_.isAlive).foreach(_.destroyForcibly())
+    // a killed process takes a moment to go - up to 5 seconds
+    val deadline = System.currentTimeMillis() + 5000
+    while (child.isAlive() || started.exists(_.isAlive)) && System.currentTimeMillis() < deadline do
+      Thread.sleep(100)
+    val stillAlive = Option.when(child.isAlive())(handle.pid).toSeq ++ started.filter(_.isAlive).map(_.pid)
+    if stillAlive.nonEmpty then
       println(
-        s"WARNING: $what did not end (pids ${(Option.when(child.isAlive())(handle.pid).toList ++
-            stillAlive.stream().map(_.pid).toList.toArray.toSeq).mkString(", ")}) - it may still write " +
+        s"WARNING: $what did not end (pids ${stillAlive.mkString(", ")}) - it may still write " +
           "while the working tree is restored."
       )
     else println(s"$what ended.")
