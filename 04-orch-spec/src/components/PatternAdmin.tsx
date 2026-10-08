@@ -19,9 +19,9 @@ import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from 
 import { useConfirm } from './Confirm';
 import { MarkdownField } from './MarkdownField';
 
+import { ENGINES, engineLabel } from '../template';
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
-const ENGINES: Array<{ id: EngineId; label: string }> = [{ id: 'c7', label: 'Camunda 7 / Operaton' }, { id: 'c8', label: 'Camunda 8' }];
 
 type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 
@@ -296,7 +296,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
             )}
             {xml && (
               <button onClick={async () => {
-                if (!await confirm({ title: `BPMN für ${engine === 'c8' ? 'Camunda 8' : 'Camunda 7 / Operaton'} entfernen?`, text: 'Erst «Speichern» übernimmt es — in Spezifikationen dieser Engine wird das Pattern danach nicht mehr angeboten.' })) return;
+                if (!await confirm({ title: `BPMN für ${engineLabel(engine)} entfernen?`, text: 'Erst «Speichern» übernimmt es — in Spezifikationen dieser Engine wird das Pattern danach nicht mehr angeboten.' })) return;
                 setBpmn(engine, undefined); setEditing(false);
               }} title={`BPMN für ${engine.toUpperCase()} entfernen`}
                 className={`p-1 rounded border ${c.btn}`}><Trash2 size={11} /></button>
@@ -315,7 +315,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
         )}
         {editorError && editing && <p className={`px-2 py-1 text-[10px] ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>{editorError}</p>}
         <div className="px-2 py-1.5 text-[10px] space-y-0.5">
-          {!xml && <p className={c.muted}>Kein BPMN für {engine === 'c8' ? 'Camunda 8' : 'Camunda 7 / Operaton'} — in Spezifikationen dieser Engine wird das Pattern nicht angeboten.</p>}
+          {!xml && <p className={c.muted}>Kein BPMN für {engineLabel(engine)} — in Spezifikationen dieser Engine wird das Pattern nicht angeboten.</p>}
           {frag && 'error' in frag && <p className={`flex items-start gap-1 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}><AlertTriangle size={10} className="mt-0.5" />{frag.error}</p>}
           {frag && !('error' in frag) && (
             <>

@@ -22,6 +22,8 @@
 //   postfix  := primary ( '.' name ( '(' args ')' )? | '[' expr ']' )*
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
+import { C7_LABEL } from './template';
+
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 
 class Unsupported extends Error {}
@@ -192,7 +194,7 @@ const EXECUTION: Record<string, string> = {
 };
 function executionProperty(name: string): string {
   const feel = EXECUTION[name];
-  if (!feel) throw new Unsupported(`«execution.${name}» gibt es nur in Camunda 7 / Operaton — kein FEEL-Gegenstück`);
+  if (!feel) throw new Unsupported(`«execution.${name}» gibt es nur in ${C7_LABEL} — kein FEEL-Gegenstück`);
   return feel;
 }
 

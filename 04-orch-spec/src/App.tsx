@@ -14,6 +14,7 @@ const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
+import { C7_LABEL } from './template';
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' }
   | { kind: 'pages' } | { kind: 'page'; slug: string };
 
@@ -208,7 +209,7 @@ export default function App() {
         <div className="ml-auto flex items-center gap-2">
           {/* Navigation: FEEL-Spickzettel, Doku, Admin */}
           <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
-            title="FEEL-Spickzettel — Syntax, Funktionen, Camunda 7 / Operaton → Camunda 8" onClick={() => setFeelOpen(true)} />
+            title={`FEEL-Spickzettel — Syntax, Funktionen, ${C7_LABEL} → Camunda 8`} onClick={() => setFeelOpen(true)} />
           {docHref && (
             <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
           )}

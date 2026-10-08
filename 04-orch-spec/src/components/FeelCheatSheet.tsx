@@ -8,6 +8,7 @@ import { FEEL_DOCS } from '../feelDocs';
 import { tokenizeFeel, type FeelTokenKind } from '../feel';
 import { cls } from '../ui';
 
+import { C7_LABEL } from '../template';
 /** `code` und **fett** in einem Hinweistext */
 function Rich({ text }: { text: string }) {
   return (
@@ -99,7 +100,7 @@ export default function FeelCheatSheet({ isDark, onClose }: { isDark: boolean; o
 
           {!!juel.length && (
             <section>
-              <h4 className={th}>Camunda 7 / Operaton (JUEL) → Camunda 8 (FEEL)</h4>
+              <h4 className={th}>{C7_LABEL} (JUEL) → Camunda 8 (FEEL)</h4>
               {juel.map(([a, b]) => (
                 <div key={a} className={rowCls}>
                   <span className="font-mono text-[10px]">{a}</span>

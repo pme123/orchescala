@@ -28,6 +28,7 @@ import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 import type { WriteIssue, WriteResult } from './bpmnWrite';
 import { errorListSource, parseErrorList } from './errorCodes';
 
+import { C7_LABEL } from './template';
 /** `_handledErrors` / `_regexHandledErrors`: Liste in Camunda 8, Text mit Kommas in Camunda 7 */
 const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
 
@@ -317,7 +318,7 @@ function toC8(defs: Element, ctx: Ctx) {
       const result = cattr(el, 'resultVariable');
       if (!result) issue('Entscheidung', 'Camunda 8 braucht eine resultVariable — ergänzen.');
       add.push(zeebe('calledDecision', { decisionId: decision, resultVariable: result || undefined }));
-      issue('Entscheidung', 'Ergebnisform prüfen: Camunda 8 liefert je nach Hit Policy einen Wert, einen Context oder eine Liste (Camunda 7 / Operaton immer eine Liste).');
+      issue('Entscheidung', `Ergebnisform prüfen: Camunda 8 liefert je nach Hit Policy einen Wert, einen Context oder eine Liste (${C7_LABEL} immer eine Liste).`);
     }
 
     // ── Benutzeraufgabe
@@ -529,7 +530,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     if (dec) {
       setC(el, 'decisionRef', dec.getAttribute('decisionId') ?? '');
       setC(el, 'resultVariable', dec.getAttribute('resultVariable') ?? '');
-      issue('Entscheidung', 'Ergebnisform prüfen: Camunda 7 / Operaton liefert per Vorgabe eine Liste (mapDecisionResult).');
+      issue('Entscheidung', `Ergebnisform prüfen: ${C7_LABEL} liefert per Vorgabe eine Liste (mapDecisionResult).`);
     }
 
     // ── Benutzeraufgabe
@@ -548,7 +549,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     if (form) {
       const key = form.getAttribute('externalReference') ?? form.getAttribute('formKey') ?? form.getAttribute('formId');
       if (key) setC(el, 'formKey', key);
-      issue('Formular', `Formular «${key ?? ''}» — in Camunda 7 / Operaton als formKey prüfen.`);
+      issue('Formular', `Formular «${key ?? ''}» — in ${C7_LABEL} als formKey prüfen.`);
     }
 
     // ── Mehrfachausführung
@@ -558,7 +559,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         const coll = lc.getAttribute('inputCollection');
         if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? toJuel(coll, 'Sammlung', issue) : coll);
         setC(el, 'elementVariable', lc.getAttribute('inputElement') ?? '');
-        if (lc.getAttribute('outputCollection')) issue('Mehrfachausführung', 'outputCollection/outputElement gibt es in Camunda 7 / Operaton nicht — Ergebnisse von Hand sammeln.');
+        if (lc.getAttribute('outputCollection')) issue('Mehrfachausführung', `outputCollection/outputElement gibt es in ${C7_LABEL} nicht — Ergebnisse von Hand sammeln.`);
       }
       const cc = firstNamed(el, 'completionCondition');
       if (cc) cc.textContent = toJuel(cc.textContent ?? '', 'Abschlussbedingung', issue);
@@ -579,7 +580,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       if (tag) setC(el, 'versionTag', tag.getAttribute('value') ?? '');
       if (!el.getAttributeNS(CAMUNDA_NS, 'historyTimeToLive')) {
         if (opts.timeToLive) setC(el, 'historyTimeToLive', opts.timeToLive);
-        else issue('Prozess', 'Camunda 7 / Operaton verlangt historyTimeToLive — in der Spezifikation setzen.');
+        else issue('Prozess', `${C7_LABEL} verlangt historyTimeToLive — in der Spezifikation setzen.`);
       }
     }
 
@@ -599,8 +600,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         const n = local(k);
         if (!handled.includes(n)) {
           issue(n.endsWith('Listeners') ? 'Listener' : 'Erweiterung', n.endsWith('Listeners')
-            ? `zeebe:${n} entfernt — in Camunda 7 / Operaton als camunda:${n.replace(/s$/, '')} umsetzen.`
-            : `zeebe:${n} entfernt — hat in Camunda 7 / Operaton kein Gegenstück.`);
+            ? `zeebe:${n} entfernt — in ${C7_LABEL} als camunda:${n.replace(/s$/, '')} umsetzen.`
+            : `zeebe:${n} entfernt — hat in ${C7_LABEL} kein Gegenstück.`);
         }
         removeEl(k);
       }

@@ -36,6 +36,9 @@ export const DEFAULT_ENGINE: EngineId = 'c7';
 export const engineLabel = (id: EngineId | undefined) =>
   ENGINES.find(e => e.id === id)?.label ?? String(id ?? DEFAULT_ENGINE);
 
+/** Das BPMN von Camunda 7 - Operaton führt es unverändert aus. Für Texte, die nur c7 betreffen. */
+export const C7_LABEL = engineLabel('c7');
+
 /** Der Platzhalter in den Vorlagen — siehe `applyTemplate`. */
 export const PLACEHOLDER = 'COMPANY-PROJECT-PROCESSVERSION';
 
