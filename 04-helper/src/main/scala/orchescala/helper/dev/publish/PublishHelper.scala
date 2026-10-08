@@ -266,8 +266,11 @@ object PublishHelper extends Helpers:
       val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalArgumentException(msg), identity)
       val status = curlStatus(config)
       repo match
-        case gitlab: RepoConfig.Gitlab => verifyGitlabCredentials(gitlab.repoUrl, status)
-        case _                         => ()
+        // the job token of a pipeline is GitLab's own - nothing to probe (and the project
+        // endpoint is not meant for it); a token of a developer is probed
+        case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
+          verifyGitlabCredentials(gitlab.repoUrl, status)
+        case _                                                         => ()
       val urls   = releaseArtifactUrls(
         repo.repoUrl,
         devConfig.companyName,
@@ -312,11 +315,12 @@ object PublishHelper extends Helpers:
     * Fails with a clear message without `curl`.
     */
   def curlStatus(config: Seq[String], curl: String = "curl")(url: String): Int =
-    val result =
+    val devNull = if scala.util.Properties.isWin then "NUL" else "/dev/null"
+    val result  =
       try
         os.proc(
           curl, "--silent", "--head", "--connect-timeout", "10", "--max-time", "30",
-          "--output", "/dev/null", "--write-out", "%{http_code}", "--config", "-", url
+          "--output", devNull, "--write-out", "%{http_code}", "--config", "-", url
         ).call(check = false, stdin = config.mkString("", "\n", "\n"))
       catch
         case e: java.io.IOException =>
@@ -367,13 +371,27 @@ object PublishHelper extends Helpers:
       git: () => Unit,
       exec: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole(),
       // called with the failed step before the failure is rethrown - see restoreForRetry
-      onFailure: ReleaseStep => Unit = _ => ()
+      onFailure: ReleaseStep => Unit = _ => (),
+      // the JVM's shutdown hooks - replaced in the tests
+      addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
+      removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_)
   ):
+    /** Ctrl-C ends the JVM, no exception reaches the release - this hook restores the running
+      * step's changes (registered while the step runs).
+      */
+    def abortedAt(step: ReleaseStep): Thread =
+      Thread: () =>
+        println(s"Aborted at $step")
+        try onFailure(step)
+        catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
+
     def run(steps: Seq[ReleaseStep]): Unit =
       steps.foreach: step =>
+        val aborted = abortedAt(step)
+        addShutdownHook(aborted)
         try run(step)
         catch
-          // an interrupt (Ctrl-C) or a fatal error goes through without a restore
+          // a fatal error goes through without a restore
           case scala.util.control.NonFatal(e) =>
             if step == ReleaseStep.Upload then
               println(
@@ -383,8 +401,11 @@ object PublishHelper extends Helpers:
               )
             // the failure of the release stays the error - a failing restore is added to it
             try onFailure(step)
-            catch case restore: Throwable => e.addSuppressed(restore)
+            catch case scala.util.control.NonFatal(restore) => e.addSuppressed(restore)
             throw e
+        finally
+          // fails while the JVM shuts down - then the hook runs anyway
+          scala.util.Try(removeShutdownHook(aborted))
 
     private def run(step: ReleaseStep): Unit =
       step match

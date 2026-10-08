@@ -165,6 +165,7 @@ class PublishHelperRetryTest extends FunSuite:
     git("init", "-q")
     git("config", "user.email", "test@example.com")
     git("config", "user.name", "test")
+    os.write(dir / "build.sbt", "version := \"1.0.0\"")
     os.write(dir / "ProjectDef.scala", "version = \"1.0.0\"")
     os.write(dir / "CHANGELOG.md", "# Changelog")
     git("add", ".")
@@ -184,6 +185,7 @@ class PublishHelperRetryTest extends FunSuite:
     // as publish does: armed with the clean tree, then the release rewrites the files
     val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir)
     os.write.over(dir / "docs" / "Prozess Ü (1).md", "# v2 generated")
+    os.remove(dir / "build.sbt") // a generator removed a file
     PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
     os.proc("git", "add", "ProjectDef.scala").call(cwd = dir) // staged or not
     intercept[IllegalStateException](PublishHelper.verifyCleanWorkingTree(dir))
@@ -201,6 +203,7 @@ class PublishHelperRetryTest extends FunSuite:
     PublishHelper.verifyCleanWorkingTree(dir) // the next try starts clean
     assertEquals(os.read(dir / "ProjectDef.scala"), "version = \"1.0.0\"")
     assertEquals(os.read(dir / "docs" / "Prozess Ü (1).md"), "# v1")
+    assertEquals(os.read(dir / "build.sbt"), "version := \"1.0.0\"")
     assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
     assert(os.exists(dir / "notes.txt"))
 
@@ -232,6 +235,30 @@ class PublishHelperRetryTest extends FunSuite:
     restore(PublishHelper.ReleaseStep.Build)
     // nothing discarded - neither the rewritten version nor the unfinished work
     assertEquals(os.read(dir / "ProjectDef.scala").trim, "version = \"1.1.0\" // my unfinished work")
+
+  /** Ctrl-C ends the JVM: the shutdown hook of the running step restores - it is registered
+    * while the step runs and gone afterwards (a hook of a finished step would restore the
+    * next try's work).
+    */
+  test("the shutdown hook of the running step restores it - and is gone once the step is done"):
+    val hooks   = collection.mutable.Set.empty[Thread]
+    val log     = collection.mutable.ListBuffer.empty[String]
+    val runs    = PublishHelper.sbtRuns(None)
+    var during  = Seq.empty[Thread]
+    val rel     = PublishHelper.ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      exec = cmd => if cmd == runs.build then during = hooks.toSeq,
+      onFailure = step => log += s"restored $step",
+      addShutdownHook = hooks += _,
+      removeShutdownHook = hooks -= _
+    )
+    rel.run(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = false))
+    assertEquals(during.size, 1) // the hook of Build, while it ran
+    assert(hooks.isEmpty)        // gone afterwards
+    during.head.run()            // as the JVM would on Ctrl-C
+    assertEquals(log.toSeq, Seq("restored Build"))
 
   test("a failing restore does not hide the failure of the release"):
     val runs = PublishHelper.sbtRuns(None)
@@ -366,7 +393,10 @@ class PublishHelperVersionFreeTest extends FunSuite:
     import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
     import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig}
     import orchescala.helper.util.{DevConfig, SbtConfig}
-    withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret")): (base, requests) =>
+    withRepo(e =>
+      Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret") ||
+        Option(e.getRequestHeaders.getFirst("Job-Token")).contains("secret")
+    ): (base, requests) =>
       val devConfig = DevConfig(
         ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, Seq(ModuleType.domain))
       ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(
@@ -384,6 +414,11 @@ class PublishHelperVersionFreeTest extends FunSuite:
       val wrong = intercept[IllegalStateException]:
         PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("GITLAB_TOKEN" -> "wrong").get)
       assert(wrong.getMessage.contains("GitLab refuses the credentials"), wrong.getMessage)
+      // a pipeline: the job token is GitLab's own - the project is not probed
+      val before = requests().size
+      PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("CI_JOB_TOKEN" -> "secret").get)
+      assertEquals(requests().drop(before).size, 1)
+      assert(requests().last.endsWith("-1.2.3.pom"), requests().last)
 
   /** The whole check for a project: the Artifactory repo of its DevConfig, the user/password
     * from the environment (as basic auth), the poms of its modules (the company as groupId,
