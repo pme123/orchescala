@@ -7,6 +7,7 @@
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
+import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
@@ -301,7 +302,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
           const j = body != null && feelSyntaxOk(body) ? feelToJuel(body) : null;
           // eine Liste bzw. ein Kontext geht als JSON-Skript (Groovy) — nur nicht als `camunda:in`
           const json = body != null && step.kind !== 'call' && feelToGroovy(body).ok;
-          if (j && !j.ok && !json) warnings.push(`«${m.name}»: für Camunda 7 nicht nach JUEL übersetzbar (${j.reason}).`);
+          if (j && !j.ok && !json) warnings.push(`«${m.name}»: für ${C7_LABEL} nicht nach JUEL übersetzbar (${j.reason}).`);
         }
       } else if (isScriptValue(m.expression)) {
         warnings.push(`«${m.name}»: ${scriptWarning(spec.engine)}`);
@@ -345,7 +346,7 @@ export function regexIssue(pattern: string | undefined, engine?: EngineId, varia
   try { new RegExp(pattern); }
   catch (e) { return { level: 'error', text: `Regulärer Ausdruck «${pattern}» ungültig: ${(e as Error).message.replace(/^Invalid regular expression: /, '').replace(/^\/.*\/[a-z]*: /, '')}` }; }
   // in Camunda 7 ist es ein Text mit Kommas — ein Komma im Ausdruck trennt dort die Einträge
-  if (engine !== 'c8' && pattern.includes(',')) return { level: 'warn', text: `«${pattern}»: In Camunda 7 trennt das Komma die Einträge — den Ausdruck ohne Komma schreiben (z. B. {1,2} als {1}|{2}).` };
+  if (engine !== 'c8' && pattern.includes(',')) return { level: 'warn', text: `«${pattern}»: In ${C7_LABEL} trennt das Komma die Einträge — den Ausdruck ohne Komma schreiben (z. B. {1,2} als {1}|{2}).` };
   return null;
 }
 
@@ -361,8 +362,8 @@ export const isScriptValue = (expression: string): boolean => expression.trimSta
  * Skripte in Mappings — dort gehört es als FEEL neu geschrieben.
  */
 export const scriptWarning = (engine: EngineId | undefined): string => (engine === 'c8'
-  ? 'Skript aus dem BPMN — Camunda 8 kennt keine Skripte in Mappings: als «= …» (FEEL) neu schreiben.'
-  : 'Skript aus dem BPMN — beim Export für Camunda 7 bleibt es unverändert im Diagramm; für Camunda 8 müsste es als «= …» (FEEL) neu geschrieben werden.');
+  ? `Skript aus dem BPMN — ${C8_LABEL} kennt keine Skripte in Mappings: als «= …» (FEEL) neu schreiben.`
+  : `Skript aus dem BPMN — beim Export für ${C7_LABEL} bleibt es unverändert im Diagramm; für ${C8_LABEL} müsste es als «= …» (FEEL) neu geschrieben werden.`);
 
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';
@@ -405,9 +406,9 @@ function feelEntryIssue(entry: string, label: string, { variables, engine, alone
   if (first) return { level: first.level, text: `${label}: ${first.text}` };
   if (engine !== 'c8') {
     const j = feelToJuel(feelBody(entry) ?? '');
-    if (!j.ok) return { level: 'warn', text: `${label}: für Camunda 7 nicht nach JUEL übersetzbar (${j.reason}) — beim Export bleibt das FEEL stehen.` };
+    if (!j.ok) return { level: 'warn', text: `${label}: für ${C7_LABEL} nicht nach JUEL übersetzbar (${j.reason}) — beim Export bleibt das FEEL stehen.` };
     // in Camunda 7 ist es ein Text mit Kommas — eine Liste bleibt nur als einziger Eintrag eine Liste
-    if (r.result === 'list' && alone === false) return { level: 'warn', text: `${label}: liefert eine Liste — in Camunda 7 geht das nur als einziger Eintrag, sonst wird sie zu Text.` };
+    if (r.result === 'list' && alone === false) return { level: 'warn', text: `${label}: liefert eine Liste — in ${C7_LABEL} geht das nur als einziger Eintrag, sonst wird sie zu Text.` };
   }
   return null;
 }
