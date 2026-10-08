@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Component } from '../runtime/spec';
 import { cls } from '../../ui';
 import { BLOCK_LABELS } from './BlockProps';
-import type { Place } from './model';
+import { lostOnConvert, type Place } from './model';
 
 export type BlockOps = {
   move: (by: -1 | 1) => void;
@@ -43,6 +43,7 @@ export function BlockActions({ isDark, block, ops, compact }: {
     </button>
   );
   const size = compact ? 11 : 12;
+  const lost = lostOnConvert(block);
   return (
     <div ref={box} className="relative flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
       {btn(`nach oben (⌥↑)`, <ArrowUp size={size} />, () => ops.move(-1))}
@@ -65,6 +66,11 @@ export function BlockActions({ isDark, block, ops, compact }: {
           {menu === 'type' ? (
             <>
               <div className={`px-3 pt-2 pb-1 text-[9px] uppercase tracking-widest ${c.muted}`}>Typ wechseln - Text und Bedingung bleiben</div>
+              {lost && (
+                <div className="px-3 pb-1.5 text-[10px] text-amber-600">
+                  Geht verloren: {lost} - rückgängig mit {MOD}Z
+                </div>
+              )}
               {TYPES.map((t) => (
                 <button key={t} type="button" disabled={t === block.type}
                   onClick={() => { ops.convert(t); setMenu(null); }}

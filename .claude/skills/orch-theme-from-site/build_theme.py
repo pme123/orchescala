@@ -147,9 +147,10 @@ SVG_NS = 'http://www.w3.org/2000/svg'
 
 def parse_svg(data):
     """An SVG from the bank's site (untrusted) as a tree - no DOCTYPE or entities (they could expand to
-    gigabytes in the parser), and without what an SVG could run or load: <script>, <foreignObject>,
-    on* handlers, links that are not #fragments. The app shows the logo only as <img> (which runs
-    nothing) - this keeps the data URI harmless also elsewhere."""
+    gigabytes in the parser), and without what an SVG could run or load from outside: <script>,
+    <foreignObject>, <style> (it could @import or url(http…)), on* handlers, links and style
+    attributes pointing elsewhere than a #fragment. The app shows the logo only as <img> (which runs
+    and loads nothing) - this keeps the data URI so also where someone uses it inline."""
     import xml.etree.ElementTree as ET
     ET.register_namespace('', SVG_NS)
     ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
@@ -159,7 +160,8 @@ def parse_svg(data):
         root = ET.fromstring(data)
     except ET.ParseError as e:
         sys.exit(f'Das Logo ist kein SVG: {e}.')
-    dangerous = {f'{{{SVG_NS}}}script', f'{{{SVG_NS}}}foreignObject', 'script', 'foreignObject'}
+    dangerous = {f'{{{SVG_NS}}}{t}' for t in ('script', 'foreignObject', 'style')} | {'script', 'foreignObject', 'style'}
+    outside = re.compile(r'url\(\s*[\'"]?(?!#)|@import|expression\(', re.I)
     for parent in list(root.iter()):
         for child in list(parent):
             if child.tag in dangerous:
@@ -167,7 +169,8 @@ def parse_svg(data):
     for el in root.iter():
         for name in list(el.attrib):
             local = name.split('}')[-1].lower()
-            if local.startswith('on') or (local == 'href' and not el.attrib[name].startswith('#')):
+            value = el.attrib[name]
+            if local.startswith('on') or (local == 'href' and not value.startswith('#')) or outside.search(value):
                 del el.attrib[name]
     return root
 

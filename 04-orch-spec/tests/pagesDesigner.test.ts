@@ -1,11 +1,11 @@
 // The designer of the pages: what a page can call, sample data, the block tree and the checks.
 import assert from 'node:assert/strict';
-import { COALESCE_MS, coalesceKey, diffPath, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
+import { COALESCE_MAX_MS, COALESCE_MS, coalesceKey, diffPath, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
 import { designerKey, type KeyLike } from '../src/pages/designer/keys';
 import { test } from 'node:test';
 import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
-  dataOf, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
+  dataOf, lostOnConvert, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
 } from '../src/pages/designer/model';
 import type { Model, ProcessSpec } from '../src/types';
 import type { Component, Page } from '../src/pages/runtime/spec';
@@ -381,7 +381,7 @@ test('history - a step per change, typing in one field is one step, redo is gone
   assert.equal(long.past[0], 20); // the oldest are gone
 });
 
-test('history - typing without a 1 s pause stays one step, however long; a pause starts the next', () => {
+test('history - typing without a 1 s pause stays one step (up to COALESCE_MAX_MS); a pause starts the next', () => {
   let h = emptyHistory<string>();
   // a keystroke every 400 ms for 10 s - each refreshes the time, so all of it is one step
   for (let i = 0; i < 25; i++) h = record(h, `v${i}`, 'props:0', i * 400);
@@ -488,6 +488,19 @@ test('relocateBlock - onto the page (\'\'): at its end, whatever the place', () 
     assert.equal(r.key, '1');
     assert.deepEqual(r.body.map((x) => (x as { text: string }).text), ['b', 'a']);
   }
+});
+
+test('history - a step of continuous typing ends after COALESCE_MAX_MS', () => {
+  let h = emptyHistory<number>();
+  for (let t = 0; t <= COALESCE_MAX_MS + 2000; t += 500) h = record(h, t, 'props:0:text', t);
+  assert.deepEqual(h.past, [0, COALESCE_MAX_MS]); // the second step starts once the first is 10 s long
+});
+
+test('lostOnConvert - what a type change would drop, for the warning', () => {
+  assert.equal(lostOnConvert({ type: 'fields', fields: [{ bind: 'a', label: 'A' }, { bind: 'b', label: 'B' }] }), '2 Eingabefelder');
+  assert.equal(lostOnConvert({ type: 'summary', items: [{ label: 'x', value: 'y' }] }), '1 Zeile');
+  assert.equal(lostOnConvert({ type: 'button', label: 'Go', actions: [] }), null);
+  assert.equal(lostOnConvert({ type: 'heading', text: 'T' }), null); // the text is kept
 });
 
 test('relocateBlock - out of its own section, and into a later section after the shift', () => {

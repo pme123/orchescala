@@ -338,6 +338,20 @@ function titleOf(b: Component): string | undefined {
   }
 }
 
+/** Was ein Typwechsel des Bausteins verliert - für die Warnung im Menü; null, wenn nichts Eigenes da ist.
+  * (Ein Abschnitt mit Bausteinen wechselt den Typ gar nicht - erst auflösen.) */
+export function lostOnConvert(b: Component): string | null {
+  const n = (count: number, one: string, many: string) => (count === 1 ? `1 ${one}` : `${count} ${many}`);
+  switch (b.type) {
+    case 'section': return b.body.length ? n(b.body.length, 'Baustein', 'Bausteine') : null;
+    case 'fields': return b.fields.length ? n(b.fields.length, 'Eingabefeld', 'Eingabefelder') : null;
+    case 'summary': return b.items.length ? n(b.items.length, 'Zeile', 'Zeilen') : null;
+    case 'button': return b.actions.length ? n(b.actions.length, 'Aktion', 'Aktionen') : null;
+    case 'choice': return b.options.length ? n(b.options.length, 'Option', 'Optionen') : null;
+    default: return null;
+  }
+}
+
 /** Ein Baustein in einem anderen Typ: was passt, bleibt - der Text (als Überschrift, Text, Bezeichnung),
   * die Bindung einer Auswahl, die Bedingung; der Rest kommt vom neuen Typ. */
 export function convertBlock(b: Component, type: Component['type']): Component {

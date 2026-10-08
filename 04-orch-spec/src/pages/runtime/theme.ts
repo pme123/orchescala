@@ -42,7 +42,7 @@ export const isThemeColor = (v: string): boolean => COLOR.test(v);
 
 /** Rot, Grün, Blau (0…1) einer Theme-Farbe, wie sie auf `over` aussieht (eine halb durchsichtige Farbe
   * gemischt - wie to_hex des Skills; ohne Angabe auf Weiss) - null, wenn es keine ist. */
-export function rgbOf(color: string, over: [number, number, number] = [1, 1, 1]): [number, number, number] | null {
+function parseColor(color: string): { rgb: number[]; alpha: number } | null {
   if (!COLOR.test(color)) return null;
   const c = color.trim().toLowerCase();
   let rgb: number[];
@@ -65,8 +65,16 @@ export function rgbOf(color: string, over: [number, number, number] = [1, 1, 1])
       rgb = [f(0), f(8), f(4)];
     }
   }
-  return rgb.map((v, i) => alpha * v + (1 - alpha) * over[i]) as [number, number, number];
+  return { rgb, alpha };
 }
+
+export function rgbOf(color: string, over: [number, number, number] = [1, 1, 1]): [number, number, number] | null {
+  const c = parseColor(color);
+  return c && (c.rgb.map((v, i) => c.alpha * v + (1 - c.alpha) * over[i]) as [number, number, number]);
+}
+
+/** Die Deckkraft einer Theme-Farbe (0…1) - null, wenn es keine ist. */
+export const alphaOf = (color: string): number | null => parseColor(color)?.alpha ?? null;
 
 /** Die relative Leuchtdichte nach WCAG - wie build_theme.py des Skills. */
 function luminance([r, g, b]: [number, number, number]): number {
@@ -122,7 +130,7 @@ export function themeProblem(raw: unknown): string | null {
     if (t[k] !== undefined && (typeof t[k] !== 'string' || !COLOR.test(t[k] as string))) return `«theme.${k}» ist keine Farbe (#rrggbb, rgb(…), hsl(…))`;
   if (t.font !== undefined && (typeof t.font !== 'string' || !FONT_ALLOWED.test(t.font))) return '«theme.font» ist kein Schrift-Stapel';
   // der Hintergrund der Seite ist deckend - auf ihm misst die App den Kontrast der Buttons
-  if (typeof t.background === 'string' && (rgbOf(t.background, [0, 0, 0])?.join() !== rgbOf(t.background)?.join()))
+  if (typeof t.background === 'string' && (alphaOf(t.background) ?? 1) < 1)
     return '«theme.background» ist halb durchsichtig - der Hintergrund der Seite muss deckend sein';
   // nur eigene Schlüssel - `toString` oder `__proto__` sind keine Ecken
   if (t.radius !== undefined && !(typeof t.radius === 'string' && Object.hasOwn(RADIUS, t.radius))) return '«theme.radius» ist nicht none, sm, md, lg oder xl';
@@ -162,6 +170,9 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
   return { ...v, fontFamily: v['--orch-font'], color: v['--orch-text'] } as CSSProperties;
 }
 
+/** Die Schlüssel eines Themes (spec.ts `Theme`). */
+const THEME_KEYS = ['primary', 'onPrimary', 'background', 'surface', 'text', 'font', 'radius', 'logo', 'mode'];
+
 /** Eine Theme-Datei: das Theme selbst oder `{ kind: 'orch-theme', name, source, theme }` (vom Skill). */
 export function parseThemeFile(text: string): { theme: Theme; name?: string; source?: string } | { error: string } {
   let raw: unknown;
@@ -176,6 +187,13 @@ export function parseThemeFile(text: string): { theme: Theme; name?: string; sou
   const theme = (wrapped ? r.theme : r) as Theme;
   // eine Theme-Datei ohne Theme ist kein leeres Theme - sie würde das aktuelle löschen
   if (wrapped && (typeof theme !== 'object' || theme === null || Array.isArray(theme))) return { error: 'Die Datei enthält kein Theme («theme» fehlt).' };
+  // ein Theme ohne Hülle: nur seine Schlüssel - ein anderes JSON (z.B. eine Konfiguration, {}) ist keins
+  if (!wrapped) {
+    const keys = Object.keys(r);
+    const unknown = keys.filter((k) => !THEME_KEYS.includes(k));
+    if (keys.length === 0) return { error: 'Die Datei ist ein leeres Objekt - kein Theme.' };
+    if (unknown.length) return { error: `Die Datei ist kein Theme (unbekannt: ${unknown.slice(0, 3).join(', ')}).` };
+  }
   const problem = themeProblem(theme);
   if (problem) return { error: problem };
   return { theme, name: typeof r.name === 'string' ? r.name : undefined, source: typeof r.source === 'string' ? r.source : undefined };

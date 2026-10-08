@@ -106,6 +106,25 @@ class Problems(unittest.TestCase):
         with self.assertRaises(SystemExit):
             svg_symbol(sprite, 'missing')
 
+    def test_shared_colour_cases(self):
+        # the same table as 04-orch-spec/tests/pagesTheme.test.ts
+        with open(os.path.join(HERE, 'colour-cases.json')) as f:
+            cases = json.load(f)
+        for c in cases['valid']:
+            self.assertIsNotNone(to_hex(c), c)
+        for c in cases['invalid']:
+            self.assertIsNone(to_hex(c), c)
+
+    def test_svg_style_cannot_load_from_outside(self):
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/a.css);</style>'
+               b'<rect style="fill:url(https://evil.example/p.svg#g)" width="1"/>'
+               b'<rect style="fill:url(#local)" width="2"/></svg>')
+        import xml.etree.ElementTree as ET
+        out = ET.tostring(parse_svg(svg)).decode()
+        self.assertNotIn('evil.example', out)
+        self.assertNotIn('style>', out)
+        self.assertIn('url(#local)', out)
+
     def test_colour_rules_as_theme_ts(self):
         self.assertEqual(to_hex('#f008'), to_hex('rgba(255, 0, 0, 0.533)'))  # #rgba read
         self.assertEqual(to_hex('#ff000080'), '#ff7f7f')  # #rrggbbaa: half red on white

@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
-import { contrast, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
+import colourCases from '../../.claude/skills/orch-theme-from-site/colour-cases.json';
+import { alphaOf, contrast, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 import { appModeKey, isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -205,4 +206,23 @@ test('themeProblem - a font is names only (allowlist); the page background is op
   assert.match(themeProblem({ background: '#ffffff80' }) ?? '', /theme.background/);
   assert.equal(themeProblem({ background: 'rgba(0,0,0,1)' }), null);
   assert.equal(themeProblem({ surface: 'rgba(0,0,0,0.05)' }), null); // a surface may be faint
+});
+
+test('isThemeColor - the shared colour table (the same as test_build_theme.py)', () => {
+  for (const c of colourCases.valid) assert.ok(isThemeColor(c), c);
+  for (const c of colourCases.invalid) assert.ok(!isThemeColor(c), c);
+});
+
+test('alphaOf - the opacity itself; the page background check uses it', () => {
+  assert.equal(alphaOf('#fff'), 1);
+  assert.equal(alphaOf('rgba(0,0,0,0.25)'), 0.25);
+  assert.equal(alphaOf('rgb(0 0 0 / 50%)'), 0.5);
+  assert.equal(alphaOf('blau'), null);
+});
+
+test('parseThemeFile - a plain object is a theme only with theme keys alone', () => {
+  assert.ok('error' in parseThemeFile('{}'));
+  assert.ok('error' in parseThemeFile('{"gatewayPort": 8888, "debug": true}'));
+  assert.ok('error' in parseThemeFile('{"primary": "#004b87", "port": 1}'));
+  assert.ok('theme' in parseThemeFile('{"primary": "#004b87", "mode": "light"}'));
 });
