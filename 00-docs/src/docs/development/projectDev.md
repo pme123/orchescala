@@ -89,7 +89,8 @@ The following steps are executed:
     A module with a `name` of its own is not covered by the check.
   - Where the check can not tell (a GitLab group registry, a token that may not read the project, no
     credentials), it asks. Without a terminal (a pipeline) the answer is no and the release stops - a
-    GitLab pipeline with its job token is not asked.
+    GitLab pipeline with its job token is not asked; a pipeline with a deploy token says yes with
+    `ORCHESCALA_PUBLISH_YES=true`.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
     token may not read - so the project of a project registry is asked first. Does it not show the
     project (a wrong token - or a deploy token, which may not read it), or is the registry a group's,

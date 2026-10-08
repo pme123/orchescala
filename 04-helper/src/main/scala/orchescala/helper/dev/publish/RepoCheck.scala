@@ -53,13 +53,19 @@ object RepoCheck:
 
   /** The `val name = "..."` of `project/ProjectDef.scala` - the first part of every artifact. */
   def projectName(projectDef: String, name: String = "project/ProjectDef.scala"): String =
-    Name.findFirstMatchIn(ScalaSource.withoutComments(projectDef)).map(_.group(1))
-      .getOrElse(throw IllegalStateException(s"No `val name = \"...\"` in $name - the artifacts are unknown."))
+    theOne(Name, ScalaSource.withoutComments(projectDef), "val name", name, "the artifacts are unknown")
+
+  /** The one value `pattern` finds in `code` - none, or more than one, is said, not guessed. */
+  private def theOne(pattern: scala.util.matching.Regex, code: String, what: String, name: String, consequence: String): String =
+    pattern.findAllMatchIn(code).map(_.group(1)).toSeq.distinct match
+      case Seq(one) => one
+      case Seq()    => throw IllegalStateException(s"No `$what = \"...\"` in $name - $consequence.")
+      case many     =>
+        throw IllegalStateException(s"`$what` is set more than once in $name (${many.mkString(", ")}) - $consequence.")
 
   /** The `val org = "..."` of `project/ProjectDef.scala` - sbt's `organization`. */
   def organization(projectDef: String, name: String = "project/ProjectDef.scala"): String =
-    Org.findFirstMatchIn(ScalaSource.withoutComments(projectDef)).map(_.group(1))
-      .getOrElse(throw IllegalStateException(s"No `val org = \"...\"` in $name - the organization is unknown."))
+    theOne(Org, ScalaSource.withoutComments(projectDef), "val org", name, "the organization is unknown")
 
   /** The suffix of the artifacts of a build - from its `project/Settings.scala`: none with
     * `crossPaths := false` (a project), else `_<Scala major>` of its `scalaV` (the company
@@ -75,9 +81,7 @@ object RepoCheck:
     if crossPathsOff && CrossPathsOn.findFirstIn(code).isDefined then
       throw IllegalStateException(s"`crossPaths` is set both ways in $name - the artifact suffix is not one.")
     if crossPathsOff then ""
-    else
-      ScalaV.findFirstMatchIn(code).map(m => s"_${m.group(1)}")
-        .getOrElse(throw IllegalStateException(s"No `val scalaV = \"...\"` in $name - the artifact suffix is unknown."))
+    else s"_${theOne(ScalaV, code, "val scalaV", name, "the artifact suffix is unknown")}"
   end artifactSuffix
 
 
@@ -133,7 +137,7 @@ object RepoCheck:
       devConfig: DevConfig,
       names: BuildNames,
       env: String => Option[String] = sys.env.get,
-      confirm: String => Boolean = PublishHelper.askToContinue
+      confirm: String => Boolean = PublishHelper.askToContinue(_)
   ): Unit =
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
@@ -178,21 +182,28 @@ object RepoCheck:
       version: String,
       devConfig: DevConfig,
       names: BuildNames,
-      env: String => Option[String] = sys.env.get
+      env: String => Option[String] = sys.env.get,
+      budgetMillis: Long = 30_000
   ): Seq[String] =
-    val repos = devConfig.sbtConfig.reposConfig
+    val repos    = devConfig.sbtConfig.reposConfig
+    val deadline = System.currentTimeMillis() + budgetMillis
     try
       repos.releaseRepo.toSeq.flatMap: repo =>
         val config = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
-        // best effort, in a failure handler: 5 seconds per pom, and no more once the repo is unreachable
+        // best effort, in a failure handler: 5 seconds per pom, half a minute in all, and no
+        // more once the repo is unreachable
         val status = curlStatus(config, timeoutSeconds = 5)
-        val codes  = releaseUrls(version, names, repo).iterator
+        val urls   = releaseUrls(version, names, repo)
+        val codes  = urls.iterator
+          .takeWhile(_ => System.currentTimeMillis() < deadline)
           .map(url => url -> status(url))
           .span((_, code) => code != 0) match
           case (reachable, rest) => reachable.toSeq ++ rest.take(1).toSeq
         val uploaded = codes.collect { case (url, 200) => url }
         if codes.exists(_._2 == 0) then println(s"${repo.repoUrl} is not reachable - what was uploaded is unknown.")
-        else if uploaded.isEmpty then println(s"Nothing of $version is in ${repo.repoUrl}.")
+        else if codes.size < urls.size then
+          println(s"Not every pom could be asked in ${budgetMillis / 1000} s - what was uploaded is known in part.")
+        if uploaded.isEmpty then println(s"Nothing of $version is known to be in ${repo.repoUrl}.")
         else println(s"Uploaded already - remove them there before the next try:\n - ${uploaded.mkString("\n - ")}")
         uploaded
     catch
@@ -219,7 +230,7 @@ object RepoCheck:
   def verifyGitlabCredentials(
       repoUrl: String,
       status: String => Int,
-      confirm: String => Boolean = PublishHelper.askToContinue
+      confirm: String => Boolean = PublishHelper.askToContinue(_)
   ): Unit =
     gitlabProjectUrl(repoUrl) match
       case Some(project) =>

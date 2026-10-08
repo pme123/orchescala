@@ -89,6 +89,15 @@ class RepoCheckTest extends FunSuite:
     intercept[IllegalStateException](RepoCheck.BuildNames.modules("lazy val root = project"))
     intercept[IllegalStateException](RepoCheck.projectName("""object ProjectDef { val org = "x" }"""))
 
+  test("a value set more than once is not guessed either - the first could be the wrong one"):
+    val twice = intercept[IllegalStateException]:
+      RepoCheck.projectName("""object ProjectDef { val name = "a"; object Nested { val name = "b" } }""")
+    assert(twice.getMessage.contains("more than once") && twice.getMessage.contains("a, b"), twice.getMessage)
+    intercept[IllegalStateException](RepoCheck.organization("""val org = "a"\nval org = "b""""))
+    intercept[IllegalStateException](RepoCheck.artifactSuffix("""val scalaV = "3.7.4"\nval scalaV = "2.13.16""""))
+    // the same value twice is one value
+    assertEquals(RepoCheck.organization("""val org = "a"\nval org = "a""""), "a")
+
   test("the artifact suffix comes from the build's Settings.scala"):
     val project = Seq("""  val scalaV = "3.7.4"""", "    crossPaths := false").mkString("\n")
     val company = Seq("""  val scalaV = "3.7.4"""", "    // crossPaths := false,").mkString("\n")
@@ -329,6 +338,10 @@ class RepoCheckTest extends FunSuite:
       assertEquals(uploaded.size, ModuleType.projectModules.size)
       assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, names, env.get), Seq.empty)
       assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, names, _ => None), Seq.empty) // never fails
+      // bounded in all: out of time, no pom is asked
+      val before2 = requests().size
+      assertEquals(RepoCheck.reportUploaded("1.2.3-taken", devConfig, names, env.get, budgetMillis = 0), Seq.empty)
+      assertEquals(requests().size, before2)
     // an unreachable repository: one request, then it gives up
     locally:
       import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}

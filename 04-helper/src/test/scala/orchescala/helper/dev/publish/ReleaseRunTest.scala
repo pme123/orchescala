@@ -115,7 +115,8 @@ class ReleaseRunTest extends FunSuite:
       // munit's intercept lets a fatal error through (and interrupts the thread) - caught by hand
       try rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false))
       catch case e: Throwable => assertEquals(e, error)
-      Thread.interrupted() // clears the flag, should one have been set
+      // an interrupt survives the restore (the flag is set again) - cleared here
+      assertEquals(Thread.interrupted(), error.isInstanceOf[InterruptedException])
       log.toSeq
     assertEquals(interrupted(InterruptedException("Ctrl-C")), Seq("failed Build"))
     assertEquals(interrupted(OutOfMemoryError("sbt")), Seq("failed Build"))

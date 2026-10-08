@@ -95,6 +95,7 @@ final class ReleaseRun(
         // a failing restore or report is added to it
         case e: Throwable => // intentional: the restore for a fatal error too, then it goes on
           onFailureOf(step, e)
+          if e.isInstanceOf[InterruptedException] then Thread.currentThread().interrupt() // the flag survives
           throw e
       finally
         // refused while the JVM shuts down - then the hook runs anyway

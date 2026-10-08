@@ -109,7 +109,7 @@ object PublishHelper extends Helpers:
   def verifyNextVersion(
       newVersion: String,
       repo: os.Path = workDir,
-      confirm: String => Boolean = askToContinue,
+      confirm: String => Boolean = askToContinue(_),
       warn: String => Unit = println
   ): Unit =
     // offline, or without access: the local tags may be behind the releases. No prompt for
@@ -127,12 +127,18 @@ object PublishHelper extends Helpers:
         throw IllegalArgumentException(s"$problem - release stopped.")
   end verifyNextVersion
 
-  /** Without a terminal (a pipeline) there is no one to ask - a no. */
-  def askToContinue(problem: String): Boolean =
+  /** Without a terminal (a pipeline) there is no one to ask - a no, unless the pipeline says
+    * yes with `ORCHESCALA_PUBLISH_YES=true` (a deploy token that may not read the project).
+    */
+  def askToContinue(problem: String, env: String => Option[String] = sys.env.get): Boolean =
     println(s"$problem\nContinue anyway? [y/N]")
-    val answer = Option(scala.io.StdIn.readLine())
-    if answer.isEmpty then println("No terminal to answer - taken as no.")
-    answer.exists(_.trim.equalsIgnoreCase("y"))
+    if env("ORCHESCALA_PUBLISH_YES").exists(_.trim.equalsIgnoreCase("true")) then
+      println("Yes - ORCHESCALA_PUBLISH_YES is set.")
+      true
+    else
+      val answer = Option(scala.io.StdIn.readLine())
+      if answer.isEmpty then println("No terminal to answer - taken as no (ORCHESCALA_PUBLISH_YES=true says yes).")
+      answer.exists(_.trim.equalsIgnoreCase("y"))
 
   /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
     * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).

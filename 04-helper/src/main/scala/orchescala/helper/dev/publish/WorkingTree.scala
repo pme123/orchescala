@@ -58,6 +58,7 @@ object WorkingTree extends Helpers:
     catch
       case e: Throwable => // a fatal error too - best effort then
         suppressedBy(e)(restore.now())
+        if e.isInstanceOf[InterruptedException] then Thread.currentThread().interrupt() // the flag survives
         throw e
 
   /** [[restoreWorkingTree]] when a release fails before its git step - after it, the version is
