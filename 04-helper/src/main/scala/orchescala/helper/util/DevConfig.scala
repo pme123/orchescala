@@ -221,7 +221,8 @@ object ModuleConfig:
     ModuleType.worker,
     level = 3,
     testType = TestType.ZIO,
-    sbtSettings = Seq("dockerSettings"),
+    // the build options after the company's settings - so they stay with a `dockerBuildOptions :=`
+    sbtSettings = Seq("dockerSettings", "dockerBuildSettings"),
     sbtPlugins = Seq("DockerPlugin", "JavaAppPackaging"),
     sbtDependencies = Seq(
       """"ch.qos.logback" % "logback-classic" % logbackVersion % Runtime""",
@@ -237,7 +238,8 @@ object ModuleConfig:
     ModuleType.gateway,
     level = 4,
     testType = TestType.ZIO,
-    sbtSettings = Seq("dockerSettings"),
+    // the build options after the company's settings - so they stay with a `dockerBuildOptions :=`
+    sbtSettings = Seq("dockerSettings", "dockerBuildSettings"),
     sbtPlugins = Seq("DockerPlugin", "JavaAppPackaging"),
     sbtDependencies = Seq(
       """"ch.qos.logback" % "logback-classic" % logbackVersion % Runtime""",

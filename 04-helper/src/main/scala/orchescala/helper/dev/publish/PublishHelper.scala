@@ -9,44 +9,45 @@ case class PublishHelper()(using
 ) extends Helpers:
 
   import PublishHelper.*
+  import RepoCheck.{BuildNames, reportUploaded}
+  import WorkingTree.*
 
   def publish(version: String): Unit =
     println(s"Publishing ${apiConfig.companyName} Package: $version")
-    if !version.contains("-") then
+    val isSnapshot = version.contains("-")
+    if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(version)
     verify(version)
+    if !isSnapshot then RepoCheck.verifyVersionFree(version, devConfig, buildNames, lastRelease = lastRelease())
+    // the one outward step before the build: the docs (`api/run`) take the references from the
+    // remote - it pushes committed work only (a clean tree), a next try pushes nothing
     pushDevelop()
-    setApiVersion(version)
-    replaceVersion(version)
-
-    lazy val sbtProcs               = Seq(
-      "sbt",
-      "publish"
-    )
-    lazy val sbtCreateDocs          = "api/run"
     lazy val workerAppFile: os.Path =
       workDir / "03-worker" / "src" / "main" / "scala" /
         devConfig.projectPath / "worker" / "WorkerApp.scala"
-    lazy val sbtDockerProcs         =
-      if os.exists(workerAppFile) then
-        Seq(
-          "worker / Docker / publish"
-        )
-      else
-        Seq.empty
-
     println(s"workerAppFile ${os.exists(workerAppFile)}: $workerAppFile")
-    println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
-    os.proc(sbtProcs ++ sbtDockerProcs :+ sbtCreateDocs).callOnConsole()
-
-    val isSnapshot = version.contains("-")
-    if !isSnapshot then
-      publishToWebserver()
-      git(version, replaceVersion)
-
-    end if
+    // every check before the versions are rewritten - a failing one leaves the tree as it is
+    if os.exists(workerAppFile) then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
+    // armed now, with the clean tree - right before the versions are rewritten
+    val restore    = restoreForRetry(isSnapshot)
+    restoring(restore):
+      setApiVersion(version)
+      replaceVersion(version)
+    ReleaseRun(
+      SbtRuns.project(hasWorkerApp = os.exists(workerAppFile), devConfig.sbtConfig.publishSbtOptions),
+      uploadDocs = () => publishToWebserver(),
+      git = () => git(version, replaceVersion),
+      hooks = ReleaseRun.Hooks(
+        onFailure = restore,
+        afterFailedUpload = () => reportUploaded(version, devConfig, buildNames)
+      ),
+      isSnapshot = isSnapshot
+    ).run(ReleaseRun.steps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
+
+  // what the build publishes under - from its own `project/` files
+  private lazy val buildNames: BuildNames = BuildNames.from(workDir)
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
@@ -78,23 +79,16 @@ end PublishHelper
 object PublishHelper extends Helpers:
   val projectFile: os.Path = workDir / "project" / "ProjectDef.scala"
 
-  /** A release commits all changes (`git commit -a`): its own (versions, generated docs) - and any
-    * other change of the working tree, e.g. unfinished work. So it must be clean before - only the
-    * CHANGELOG may be edited (untracked files are not committed).
-    */
-  def verifyCleanWorkingTree(repo: os.Path = workDir): Unit =
-    val changed = os.proc("git", "status", "--porcelain").call(cwd = repo).out.lines()
-      .filterNot(_.startsWith("??"))
-      .map(_.drop(3).trim)
-      .filter(_.nonEmpty)
-      .filterNot(_ == "CHANGELOG.md")
-    if changed.nonEmpty then
-      throw IllegalStateException(
-        s"Uncommitted changes - commit or stash them before a release:\n - ${changed.mkString("\n - ")}"
-      )
-  end verifyCleanWorkingTree
-
   private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
+
+  /** The highest release among the `tags` (`v1.9.19` -> `1.9.19`) - None before the first. */
+  def lastRelease(tags: Seq[String]): Option[String] =
+    tags.collect { case Release(ma, mi, pa) => (ma.toInt, mi.toInt, pa.toInt) }.maxOption
+      .map(v => s"${v._1}.${v._2}.${v._3}")
+
+  /** The last release of this repository - its tags, as [[verifyNextVersion]] fetched them. */
+  def lastRelease(repo: os.Path = workDir): Option[String] =
+    lastRelease(os.proc("git", "tag", "--list").call(cwd = repo).out.lines())
 
   /** Why `newVersion` does not follow the releases (`tags`, e.g. `v1.9.19`) - None if it does: the
     * next patch of its `Major.Minor` line, else the next minor (`.0`) or major (`.0.0`) after the
@@ -127,18 +121,30 @@ object PublishHelper extends Helpers:
   def verifyNextVersion(
       newVersion: String,
       repo: os.Path = workDir,
-      confirm: String => Boolean = askToContinue
+      confirm: String => Boolean = askToContinue,
+      warn: String => Unit = println
   ): Unit =
-    scala.util.Try(os.proc("git", "fetch", "--tags", "--quiet").call(cwd = repo))
+    // offline, or without access: the local tags may be behind the releases. No prompt for
+    // credentials and at most a minute - a hung network must not hold the release
+    scala.util.Try(
+      os.proc("git", "fetch", "--tags", "--quiet")
+        .call(cwd = repo, stderr = os.Pipe, env = Map("GIT_TERMINAL_PROMPT" -> "0"), timeout = 60_000)
+    )
+      .failed.foreach: e =>
+        val reason = Option(e.getMessage).flatMap(_.linesIterator.nextOption()).getOrElse(e.toString)
+        warn(s"WARNING: could not fetch the tags - the version is checked against the local tags only: $reason")
     val tags = os.proc("git", "tag", "--list").call(cwd = repo).out.lines()
     nextVersionProblem(newVersion, tags).foreach: problem =>
       if !confirm(problem) then
         throw IllegalArgumentException(s"$problem - release stopped.")
   end verifyNextVersion
 
-  private def askToContinue(problem: String): Boolean =
+  /** Without a terminal (a pipeline) there is no one to ask - a no. */
+  def askToContinue(problem: String): Boolean =
     println(s"$problem\nContinue anyway? [y/N]")
-    Option(scala.io.StdIn.readLine()).exists(_.trim.equalsIgnoreCase("y"))
+    val answer = Option(scala.io.StdIn.readLine())
+    if answer.isEmpty then println("No terminal to answer - taken as no.")
+    answer.exists(_.trim.equalsIgnoreCase("y"))
 
   /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
     * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).
