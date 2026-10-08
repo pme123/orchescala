@@ -8,7 +8,7 @@ import orchescala.api.{
   ProjectGroup,
   catalogFileName
 }
-import orchescala.helper.dev.company.docs.site.{LocalSiteServer, SiteAssembler}
+import orchescala.helper.dev.company.docs.site.{LocalSiteServer, ProjectRepo, SiteAssembler}
 import orchescala.helper.dev.publish.SiteWebDAV
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
@@ -239,22 +239,27 @@ trait DocCreator extends DependencyCreator, Helpers:
       _           =
         if !os.exists(projectPath) then
           apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
-
-      // ensure all tags are present locally
-      _ = os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
-
-      // resolve correct tag name (handles 'v' and non-'v')
-      tagRef = resolveTagRef(projectPath, version)
-      _      = println(s"Checkout $project to 'tags/$tagRef'")
-
-      // try checkout; if local changes block it, force the checkout
-      _ = 
-        try
-          os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
-        catch
-          case _: Throwable =>
-            println("Checkout failed, retrying with '-f' due to local changes")
-            os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
+      _           = ProjectRepo.locate(gitBasePath, project) match
+        // all projects in one repo: the project's folder at its tag (`<project>-v<version>`)
+        case Some(repo) if repo.singleRepo =>
+          val tag = repo.resolveTag(version).getOrElse(
+            throw new Exception(s"Tag not found in ${repo.repo}: ${repo.tagCandidates(version).mkString(" or ")}")
+          )
+          println(s"Export $project at '$tag' from ${repo.repo}")
+          repo.exportTo(tag, projectPath)
+        case _ =>
+          // ensure all tags are present locally
+          os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
+          // resolve correct tag name (handles 'v' and non-'v')
+          val tagRef = resolveTagRef(projectPath, version)
+          println(s"Checkout $project to 'tags/$tagRef'")
+          // try checkout; if local changes block it, force the checkout
+          try
+            os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
+          catch
+            case _: Throwable =>
+              println("Checkout failed, retrying with '-f' due to local changes")
+              os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
     yield DocProjectConfig(
       apiProjectConfig(projectPath / apiConfig.projectsConfig.projectConfPath),
       os.read.lines(projectPath / "CHANGELOG.md"),

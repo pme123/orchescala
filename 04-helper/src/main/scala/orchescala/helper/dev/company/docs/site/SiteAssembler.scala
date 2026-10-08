@@ -52,21 +52,25 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
         val apiDocUrl     = p.hcursor.get[String]("apiDocUrl").getOrElse("")
         val version       = p.hcursor.get[String]("version").toOption
         val workerVersion = p.hcursor.get[String]("workerVersion").toOption
-        val repo          = gitTemp / name
         val targetCo      = """^\.\./([\w-]+)/""".r.findFirstMatchIn(apiDocUrl).map(_.group(1)).getOrElse(co)
         val target        = out / targetCo / name
-        if !os.exists(repo) then
+        // its own clone - or the company's single repo with the project under projects/<name>
+        ProjectRepo.locate(gitTemp, name) match
+        case None =>
           println(s"  ✗ $name: no checkout in $gitTemp - API skipped")
           apiMissing += 1
-        else
+        case Some(projectRepo) =>
+          val repo   = projectRepo.repo
           // bpmn and worker are released separately - the API doc is the NEWEST of the two
           val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
-          var ref    = newest.map("v" + _).getOrElse("HEAD")
-          if ref != "HEAD" && git(repo, "rev-parse", "-q", "--verify", s"$ref^{commit}").isEmpty then
-            println(s"  ! $name: tag $ref not found - using HEAD")
-            ref = "HEAD"
+          val tag    = newest.flatMap(v =>
+            projectRepo.tagCandidates(v).find(t => git(repo, "rev-parse", "-q", "--verify", s"$t^{commit}").isDefined)
+          )
+          val ref    = tag.getOrElse("HEAD")
+          if tag.isEmpty && newest.isDefined then
+            println(s"  ! $name: tag ${newest.map(projectRepo.tagCandidates(_).head).getOrElse("")} not found - using HEAD")
           // old-style projects (pre 03-api) keep openApi.yml in the repo root
-          val ymlPath = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml")
+          val ymlPath = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
             .find(f => git(repo, "cat-file", "-e", s"$ref:$f").isDefined)
           ymlPath.flatMap(f => git(repo, "show", s"$ref:$f")) match
             case None      =>
@@ -80,10 +84,10 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
               // the API page: always the CURRENT one from the jar, not what the project shipped at that tag
               os.write.over(target / "OpenApi.html", apiPage)
               // the company gateway's Postman variant (only projects generated with that config have it)
-              git(repo, "show", s"$ref:03-api/PostmanOpenApi.yml").foreach: postman =>
+              git(repo, "show", s"$ref:${projectRepo.path("03-api/PostmanOpenApi.yml")}").foreach: postman =>
                 os.write.over(target / "PostmanOpenApi.yml", postman)
                 os.write.over(target / "PostmanOpenApi.html", apiPage)
-              Seq("src/main/resources/camunda", "src/main/resources/camunda8").foreach: dia =>
+              Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path).foreach: dia =>
                 git(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_).trim).filter(_.nonEmpty)
                   .foreach: ls =>
                     ls.split("\n").filter(_.matches(".*\\.(bpmn|dmn)$")).foreach: f =>
