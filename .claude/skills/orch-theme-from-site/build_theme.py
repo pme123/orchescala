@@ -6,8 +6,8 @@
 extracted.json is the object extract.js returned. The choices (primary colour, font, corners) are
 taken from it; --primary / --background / --text / --font / --radius override them. The output is
 { kind: 'orch-theme', version: 1, name, source, theme }. Before it is written, problems() checks it
-the way orch-spec's themeProblem (04-orch-spec/src/pages/runtime/theme.ts) does for what this script
-writes: colours as #rrggbb, a known radius and mode, a font without CSS syntax, the logo as an image
+like orch-spec's themeProblem (04-orch-spec/src/pages/runtime/theme.ts) - a stricter subset, for what
+this script writes: colours as #rrggbb, a known radius and mode, a font without CSS syntax, the logo as an image
 data: URI up to 200 KB.
 """
 import argparse
@@ -22,8 +22,13 @@ MAX_LOGO = 200 * 1024
 GENERIC = {'serif', 'sans-serif', 'monospace', 'system-ui', 'cursive', 'fantasy', 'ui-sans-serif', 'ui-serif', 'ui-monospace'}
 
 
-def to_hex(color):
-    """rgb(…)/rgba(…)/#rgb/#rrggbb -> #rrggbb, None for transparent or unknown."""
+UNPARSED = []  # colours of the site to_hex could not read - main() warns about them
+
+
+def to_hex(color, over='#ffffff'):
+    """#rgb/#rrggbb, rgb(…)/rgba(…), hsl(…)/hsla(…) -> #rrggbb; a semi-transparent colour as it looks on
+    `over` (the page, white by default). None for transparent - and for what it cannot read (e.g.
+    color(…), a name), which is noted in UNPARSED."""
     if not color:
         return None
     c = color.strip().lower()
@@ -31,13 +36,28 @@ def to_hex(color):
     if m:
         h = m.group(1)
         return '#' + (''.join(ch * 2 for ch in h) if len(h) == 3 else h)
-    m = re.fullmatch(r'rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+%?))?\s*\)', c)
-    if not m:
+    if c == 'transparent':
         return None
+    sep = r'(?:\s*,\s*|\s+)'
+    alpha_part = r'(?:\s*[,/]\s*([\d.]+%?))?'
+    m = re.fullmatch(rf'rgba?\(\s*([\d.]+%?){sep}([\d.]+%?){sep}([\d.]+%?){alpha_part}\s*\)', c)
+    if m:
+        rgb = [min(255.0, float(v[:-1]) * 2.55 if v.endswith('%') else float(v)) for v in m.groups()[:3]]
+    else:
+        m = re.fullmatch(rf'hsla?\(\s*(-?[\d.]+)(?:deg)?{sep}([\d.]+)%{sep}([\d.]+)%{alpha_part}\s*\)', c)
+        if not m:
+            UNPARSED.append(color)
+            return None
+        hue, sat, light = float(m.group(1)) % 360, min(1.0, float(m.group(2)) / 100), min(1.0, float(m.group(3)) / 100)
+        k = lambda n: (n + hue / 30) % 12
+        f = lambda n: light - sat * min(light, 1 - light) * max(-1, min(k(n) - 3, 9 - k(n), 1))
+        rgb = [f(0) * 255, f(8) * 255, f(4) * 255]
     alpha = m.group(4)
-    if alpha is not None and float(alpha.rstrip('%')) == 0:
+    a = 1.0 if alpha is None else min(1.0, float(alpha[:-1]) / 100 if alpha.endswith('%') else float(alpha))
+    if a == 0:
         return None
-    return '#' + ''.join(f'{min(255, round(float(v))):02x}' for v in m.groups()[:3])
+    base = [int(over[i:i + 2], 16) for i in (1, 3, 5)]
+    return '#' + ''.join(f'{round(a * v + (1 - a) * b):02x}' for v, b in zip(rgb, base))
 
 
 def luminance(hex_color):
@@ -121,7 +141,8 @@ def data_uri_bytes(uri):
 
 
 def problems(theme):
-    """What orch-spec's themeProblem would reject in a theme this script writes - an empty list if none."""
+    """What orch-spec's themeProblem would reject in a theme this script writes - an empty list if none.
+    A stricter subset: the script writes colours only as #rrggbb (themeProblem also takes rgb()/hsl())."""
     found = []
     for k in ('primary', 'onPrimary', 'background', 'surface', 'text'):
         if k in theme and not re.fullmatch(r'#[0-9a-f]{6}', theme[k]):
@@ -196,6 +217,8 @@ def main():
         warnings.append('Keine farbige Primärfarbe gefunden - mit --primary setzen.')
     if contrast(background, text) < 4.5:
         warnings.append(f'Text auf dem Hintergrund hat nur Kontrast {contrast(background, text):.1f}:1.')
+    if UNPARSED:
+        warnings.append('Farben der Seite nicht gelesen (übergangen): ' + ', '.join(sorted(set(UNPARSED))[:5]))
     if a.logo:
         theme['logo'] = logo_uri(a.logo)
     theme = {k: v for k, v in theme.items() if v}

@@ -9,6 +9,14 @@ export const FONTS: Record<string, string> = {
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
 };
 
+/** Ein Kürzel der Schriften (sans, serif, mono) - nur eigene Schlüssel, `toString` ist keins. */
+export const isFontPreset = (font: string): boolean => Object.hasOwn(FONTS, font);
+
+/** Was ein Farbfeld nach einem neuen Wert zeigt: das Getippte, solange es diesen Wert schon meint (z.B.
+  * « #abc» oder «#abc» auf dem Weg zu «#abcdef») - sonst den neuen Wert (Farbwähler, Import, Vorgabe). */
+export const syncedText = (typed: string, value: string | undefined): string =>
+  typed.trim() === (value ?? '') ? typed : value ?? '';
+
 const RADIUS: Record<NonNullable<Theme['radius']>, string> = { none: '0px', sm: '4px', md: '8px', lg: '12px', xl: '18px' };
 
 // genau die Formen, die CSS nimmt: #rgb, #rgba, #rrggbb, #rrggbbaa; rgb()/rgba() und hsl()/hsla() mit
@@ -93,7 +101,8 @@ export function themeProblem(raw: unknown): string | null {
   return null;
 }
 
-/** Die CSS-Variablen eines Themes - die Farben gelten im hellen Modus, Primärfarbe, Schrift und Ecken in beiden. */
+/** Die CSS-Variablen eines Themes. Hintergrund, Flächen und Text gelten im Modus des Themes (`mode`, ohne:
+  * hell) - schaltet der Benutzer um, gilt dort der z9nai-Stil; Primärfarbe, Schrift und Ecken in beiden. */
 export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProperties {
   if (!theme) return {};
   const v: Record<string, string> = {};
@@ -101,12 +110,12 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
     v['--orch-primary'] = theme.primary;
     v['--orch-on-primary'] = theme.onPrimary ?? textOn(theme.primary);
   }
-  if (!isDark) {
+  if ((theme.mode === 'dark') === isDark) {
     if (theme.background) v['--orch-bg'] = theme.background;
     if (theme.surface) v['--orch-surface'] = theme.surface;
     if (theme.text) v['--orch-text'] = theme.text;
   }
-  if (theme.font) v['--orch-font'] = FONTS[theme.font] ?? theme.font;
+  if (theme.font) v['--orch-font'] = isFontPreset(theme.font) ? FONTS[theme.font] : theme.font;
   if (theme.radius && Object.hasOwn(RADIUS, theme.radius)) v['--orch-radius'] = RADIUS[theme.radius];
   return { ...v, fontFamily: v['--orch-font'] } as CSSProperties;
 }
@@ -121,7 +130,10 @@ export function parseThemeFile(text: string): { theme: Theme; name?: string; sou
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { error: 'Die Datei ist kein Theme.' };
   const r = raw as Record<string, unknown>;
-  const theme = (r.kind === 'orch-theme' || 'theme' in r ? r.theme : r) as Theme;
+  const wrapped = r.kind === 'orch-theme' || 'theme' in r;
+  const theme = (wrapped ? r.theme : r) as Theme;
+  // eine Theme-Datei ohne Theme ist kein leeres Theme - sie würde das aktuelle löschen
+  if (wrapped && (typeof theme !== 'object' || theme === null || Array.isArray(theme))) return { error: 'Die Datei enthält kein Theme («theme» fehlt).' };
   const problem = themeProblem(theme);
   if (problem) return { error: problem };
   return { theme, name: typeof r.name === 'string' ? r.name : undefined, source: typeof r.source === 'string' ? r.source : undefined };

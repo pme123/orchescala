@@ -19,7 +19,7 @@ body {
 [style*="--orch-radius"] .rounded-2xl { border-radius: var(--orch-radius); }
 
 .dark body {
-  background: #0e0f11;
+  background: var(--orch-bg, #0e0f11);
   color: #e8e8e8;
 }
 

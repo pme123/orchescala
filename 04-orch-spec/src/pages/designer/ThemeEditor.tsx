@@ -4,7 +4,7 @@ import { FileUp, ImagePlus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { Theme } from '../runtime/spec';
-import { FONTS, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, themeProblem, themeStyle } from '../runtime/theme';
+import { isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, syncedText, themeProblem, themeStyle } from '../runtime/theme';
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
 
@@ -15,9 +15,8 @@ function ColorField({ isDark, label, value, onChange, disabled }: {
 }) {
   const c = cls(isDark);
   const [text, setText] = useState(value ?? '');
-  // von aussen geändert (Farbwähler, Import, Vorgabe) - die Anzeige folgt; was man gerade tippt (und schon
-  // gilt, z.B. «#abc» auf dem Weg zu «#abcdef»), bleibt stehen
-  useEffect(() => setText((t) => (t.trim() === (value ?? '') ? t : value ?? '')), [value]);
+  // von aussen geändert (Farbwähler, Import, Vorgabe) - die Anzeige folgt; was man gerade tippt, bleibt
+  useEffect(() => setText((t) => syncedText(t, value)), [value]);
   const valid = text === '' || isThemeColor(text.trim());
   return (
     <label className="block space-y-1">
@@ -50,11 +49,14 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     const next = Object.fromEntries(Object.entries({ ...t, ...patch }).filter(([, v]) => v !== undefined && v !== '')) as Theme;
     onChange(Object.keys(next).length ? next : undefined);
   };
-  const preset = t.font && t.font in FONTS ? t.font : t.font ? 'custom' : '';
+  // «eigener Stapel» bleibt gewählt, auch wenn das Feld leer ist oder genau «sans» darin steht
+  const [custom, setCustom] = useState(() => !!t.font && !isFontPreset(t.font));
+  const preset = custom ? 'custom' : t.font && isFontPreset(t.font) ? t.font : '';
 
   const importFile = async (file: File) => {
     const r = parseThemeFile(await file.text());
     if ('error' in r) return setNote({ tone: 'error', text: r.error });
+    setCustom(!!r.theme.font && !isFontPreset(r.theme.font));
     onChange(r.theme);
     setNote({ tone: 'ok', text: `Übernommen${r.name ? `: ${r.name}` : ''}${r.source ? ` (aus ${r.source})` : ''} - noch speichern.` });
   };
@@ -72,8 +74,9 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     reader.readAsDataURL(file);
   };
 
-  // die Probe: dieselben Klassen wie der Renderer, mit den Variablen des Themes
-  const p = pageCls(false);
+  // die Probe: dieselben Klassen wie der Renderer, mit den Variablen des Themes - in seinem Modus
+  const sampleDark = t.mode === 'dark';
+  const p = pageCls(sampleDark);
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -86,7 +89,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
             <input ref={importRef} type="file" accept="application/json,.json" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f); }} />
             {theme && (
-              <button type="button" onClick={() => { onChange(undefined); setNote({ tone: 'ok', text: 'Zurück zum z9nai-Stil - noch speichern.' }); }}
+              <button type="button" onClick={() => { setCustom(false); onChange(undefined); setNote({ tone: 'ok', text: 'Zurück zum z9nai-Stil - noch speichern.' }); }}
                 className={`flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
                 <X size={12} /> Vorgabe
               </button>
@@ -105,7 +108,10 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
         <SelectField isDark={isDark} label="Ecken" value={t.radius ?? ''} onChange={(radius) => set({ radius: (radius || undefined) as Theme['radius'] })}
           options={[{ value: '', label: 'Vorgabe' }, { value: 'none', label: 'eckig' }, { value: 'sm', label: 'klein' }, { value: 'md', label: 'mittel' }, { value: 'lg', label: 'gross' }, { value: 'xl', label: 'sehr rund' }]} />
         <SelectField isDark={isDark} label="Schrift" value={preset}
-          onChange={(v) => set({ font: v === 'custom' ? (t.font && !(t.font in FONTS) ? t.font : 'Arial, sans-serif') : v || undefined })}
+          onChange={(v) => {
+            setCustom(v === 'custom');
+            set({ font: v === 'custom' ? (t.font && !isFontPreset(t.font) ? t.font : 'Arial, sans-serif') : v || undefined });
+          }}
           options={[{ value: '', label: 'Vorgabe (mono)' }, { value: 'sans', label: 'serifenlos' }, { value: 'serif', label: 'mit Serifen' }, { value: 'mono', label: 'mono' }, { value: 'custom', label: 'eigener Stapel …' }]} />
         <SelectField isDark={isDark} label="Modus" value={t.mode ?? ''} onChange={(mode) => set({ mode: (mode || undefined) as Theme['mode'] })}
           options={[{ value: '', label: 'Wahl des Benutzers' }, { value: 'light', label: 'hell' }, { value: 'dark', label: 'dunkel' }]} />
@@ -131,7 +137,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
         )}
       </div>
 
-      <div className={`rounded border p-3 space-y-2 ${p.bg} ${p.text}`} style={themeStyle(theme, false)}>
+      <div className={`rounded border p-3 space-y-2 ${p.bg} ${p.text}`} style={themeStyle(theme, sampleDark)}>
         <div className="flex items-center gap-2">
           {t.logo && <img src={t.logo} alt="" className="h-5 max-w-24 object-contain" />}
           <span className="text-sm font-bold">So sieht es aus</span>

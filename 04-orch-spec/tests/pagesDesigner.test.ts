@@ -301,6 +301,25 @@ test('relocateBlock - into a later sibling\'s child, inside its old parent, to t
   assert.deepEqual((blockAt(top.body, '1.1') as Extract<Component, { type: 'section' }>).body, []);
 });
 
+test('relocateBlock - the index shifts: into a later sibling section, out to a later place, onto an ancestor', () => {
+  const t = (text: string): Component => ({ type: 'text', text });
+  const body: Component[] = [t('a'), { type: 'section', label: 'S', body: [t('s0'), t('s1')] }, t('b')];
+  // a (0) into the later section (1) - after the removal it is at 0
+  const into = relocateBlock(body, '0', '1', 'inside');
+  assert.equal(into.key, '0.2');
+  assert.deepEqual((into.body[0] as Extract<Component, { type: 'section' }>).body.map((b) => (b as { text: string }).text), ['s0', 's1', 'a']);
+  // s0 out of the section, after b (2) - other parent: no shift
+  const out = relocateBlock(body, '1.0', '2', 'after');
+  assert.equal(out.key, '3');
+  assert.deepEqual(out.body.map((b) => (b.type === 'text' ? b.text : b.type)), ['a', 'section', 'b', 's0']);
+  // s1 onto its own section (an ancestor) before it - out in front of the section
+  const anc = relocateBlock(body, '1.1', '1', 'before');
+  assert.equal(anc.key, '1');
+  assert.deepEqual(anc.body.map((b) => (b.type === 'text' ? b.text : b.type)), ['a', 's1', 'section', 'b']);
+  // a section onto its own child: nothing changes
+  assert.equal(relocateBlock(body, '1', '1.0', 'before').body, body);
+});
+
 test('unwrapSection - a nested section: its blocks in its place, in the parent section', () => {
   const t = (text: string): Component => ({ type: 'text', text });
   const body: Component[] = [{ type: 'section', label: 'S', body: [t('s0'), { type: 'section', label: 'Inner', body: [t('i0'), t('i1')] }, t('s2')] }];
@@ -354,6 +373,15 @@ test('history - a step per change, typing in one field is one step, redo is gone
   for (let i = 0; i < HISTORY_LIMIT + 20; i++) long = record(long, i, undefined, i * 2000);
   assert.equal(long.past.length, HISTORY_LIMIT);
   assert.equal(long.past[0], 20); // the oldest are gone
+});
+
+test('history - typing without a 1 s pause stays one step, however long; a pause starts the next', () => {
+  let h = emptyHistory<string>();
+  // a keystroke every 400 ms for 10 s - each refreshes the time, so all of it is one step
+  for (let i = 0; i < 25; i++) h = record(h, `v${i}`, 'props:0', i * 400);
+  assert.deepEqual(h.past, ['v0']);
+  h = record(h, 'v25', 'props:0', 24 * 400 + COALESCE_MS); // the pause: a new step
+  assert.deepEqual(h.past, ['v0', 'v25']);
 });
 
 test('relocateBlock - out of its own section, and into a later section after the shift', () => {

@@ -69,7 +69,8 @@ load anything from outside - and the font is a stack of system fonts, not a web 
 
 - Only the visual identity is taken: colours, font name, corner size, logo. No texts, images or
   layout of the site.
-- The theme applies to the light mode; the primary colour, font and corners also to the dark mode.
-  `mode` only sets the default - each user can still switch.
+- Background, surfaces and text apply in the theme's own mode (`mode`: `light` from a light site,
+  `dark` from a dark one); primary colour, font and corners in both. `mode` is also the default - a
+  user who switches gets the z9nai colours of the other mode, with the bank's primary colour.
 - Keep the file next to the project (e.g. `spec/pages/` of the project or the customer's folder) so
   it can be imported again.

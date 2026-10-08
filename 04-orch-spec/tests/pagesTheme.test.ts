@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
-import { dataUriBytes, FONTS, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
+import { dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 import { isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -114,4 +114,39 @@ test('themeProblem - the logo size is the decoded size (200 KB)', () => {
   assert.equal(themeProblem({ logo: uri(150 * 1024) }), null); // was rejected by the length estimate
   assert.equal(themeProblem({ logo: uri(MAX_LOGO_BYTES) }), null);
   assert.match(themeProblem({ logo: uri(MAX_LOGO_BYTES + 1) }) ?? '', /200 KB/);
+});
+
+test('parseThemeFile - a theme file without a theme is an error, not an empty theme', () => {
+  assert.ok('error' in parseThemeFile('{"kind": "orch-theme", "name": "Acme"}'));
+  assert.ok('error' in parseThemeFile('{"theme": null}'));
+  assert.ok('error' in parseThemeFile('{"theme": ["#fff"]}'));
+  const plain = parseThemeFile('{"primary": "#004b87"}');
+  assert.ok('theme' in plain && plain.theme.primary === '#004b87');
+});
+
+test('themeStyle - a dark theme brings its colours in dark mode; the other mode keeps the z9nai ones', () => {
+  const darkTheme = { primary: '#ffd200', background: '#101820', surface: '#1b2733', text: '#e6edf3', mode: 'dark' as const };
+  const inDark = themeStyle(darkTheme, true) as Record<string, string>;
+  assert.equal(inDark['--orch-bg'], '#101820');
+  assert.equal(inDark['--orch-surface'], '#1b2733');
+  assert.equal(inDark['--orch-text'], '#e6edf3');
+  const inLight = themeStyle(darkTheme, false) as Record<string, string>; // the user switched to light
+  assert.equal(inLight['--orch-bg'], undefined);
+  assert.equal(inLight['--orch-primary'], '#ffd200');
+  const lightTheme = themeStyle({ background: '#ffffff', mode: 'light' }, true) as Record<string, string>;
+  assert.equal(lightTheme['--orch-bg'], undefined);
+});
+
+test('isFontPreset - own keys only', () => {
+  assert.ok(isFontPreset('sans') && isFontPreset('mono'));
+  assert.ok(!isFontPreset('toString') && !isFontPreset('constructor') && !isFontPreset('Arial'));
+  assert.equal((themeStyle({ font: 'constructor' }, false) as Record<string, string>)['--orch-font'], 'constructor');
+});
+
+test('syncedText - the colour field keeps what is typed while it means the value', () => {
+  assert.equal(syncedText('#abc', '#abc'), '#abc'); // typed, valid, committed: stays (on the way to #abcdef)
+  assert.equal(syncedText(' #abc ', '#abc'), ' #abc '); // trimmed for the value - the typing stays
+  assert.equal(syncedText('#abc', '#7252ac'), '#7252ac'); // the colour picker / an import: follows
+  assert.equal(syncedText('#ab', undefined), ''); // reset to the default
+  assert.equal(syncedText('', undefined), '');
 });

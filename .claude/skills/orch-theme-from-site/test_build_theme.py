@@ -8,7 +8,7 @@ import unittest
 
 import base64
 
-from build_theme import MAX_LOGO, contrast, data_uri_bytes, font_stack, problems, radius, to_hex
+from build_theme import MAX_LOGO, UNPARSED, contrast, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -18,13 +18,26 @@ class ToHex(unittest.TestCase):
         self.assertEqual(to_hex('#ABC'), '#aabbcc')
         self.assertEqual(to_hex('#7252ac'), '#7252ac')
         self.assertEqual(to_hex('rgb(114, 82, 172)'), '#7252ac')
-        self.assertEqual(to_hex('rgba(114,82,172,0.5)'), '#7252ac')
-        self.assertEqual(to_hex('rgb(114 82 172 / 50%)'), '#7252ac')
+        self.assertEqual(to_hex('rgba(114,82,172,0.5)'), '#b8a8d6')  # half on white
+        self.assertEqual(to_hex('rgb(114 82 172 / 50%)'), '#b8a8d6')
         self.assertEqual(to_hex('rgb(300, 0, 0)'), '#ff0000')  # clamped
+        self.assertEqual(to_hex('rgb(100%, 0%, 0%)'), '#ff0000')
+
+    def test_semi_transparent_as_on_the_page(self):
+        self.assertEqual(to_hex('rgba(0, 0, 0, 0.5)'), '#808080')  # on white
+        self.assertEqual(to_hex('rgb(0 0 0 / 50%)', over='#000000'), '#000000')
+        self.assertEqual(to_hex('rgba(114, 82, 172, 1)'), '#7252ac')
+
+    def test_hsl(self):
+        self.assertEqual(to_hex('hsl(0, 100%, 50%)'), '#ff0000')
+        self.assertEqual(to_hex('hsl(120deg 100% 25%)'), '#008000')
+        self.assertEqual(to_hex('hsla(240, 100%, 50%, 0)'), None)
 
     def test_none(self):
-        for v in (None, '', 'transparent', 'rgba(0, 0, 0, 0)', 'rgb(0 0 0 / 0%)', '#abcd', 'red', 'hsl(0, 0%, 0%)'):
+        del UNPARSED[:]
+        for v in (None, '', 'transparent', 'rgba(0, 0, 0, 0)', 'rgb(0 0 0 / 0%)', '#abcd', 'red', 'color(srgb 1 0 0)'):
             self.assertIsNone(to_hex(v), v)
+        self.assertEqual(UNPARSED, ['#abcd', 'red', 'color(srgb 1 0 0)'])  # noted - main() warns
 
 
 class FontStack(unittest.TestCase):
@@ -94,6 +107,12 @@ class Cli(unittest.TestCase):
         self.assertEqual(theme['onPrimary'], '#ffffff')
         self.assertEqual(theme['radius'], 'lg')
         self.assertEqual(theme['mode'], 'light')
+
+    def test_unread_colours_are_named(self):
+        p, theme = self.run_script({'background': '#ffffff', 'ctaBackgrounds': [['color(display-p3 1 0 0)', 3], ['#004b87', 1]]})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(theme['primary'], '#004b87')
+        self.assertIn('WARN Farben der Seite nicht gelesen', p.stdout)
 
     def test_invalid_override_is_named(self):
         p, theme = self.run_script({'background': '#ffffff'}, '--primary', 'blau')

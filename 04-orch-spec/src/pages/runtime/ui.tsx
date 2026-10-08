@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react';
 
 export const cls = (isDark: boolean) => ({
-  // die hellen Farben aus dem Theme der App (theme.ts), sonst der z9nai-Stil
-  bg: isDark ? 'bg-[#0e0f11]' : 'bg-[var(--orch-bg,#f5f4f0)]',
-  panel: isDark ? 'bg-white/2' : 'bg-[var(--orch-surface,rgba(0,0,0,0.02))]',
-  panelStrong: isDark ? 'bg-[#16171a]' : 'bg-[var(--orch-surface,#ffffff)]',
+  // die Farben aus dem Theme der App (theme.ts - nur im Modus des Themes gesetzt), sonst der z9nai-Stil
+  bg: isDark ? 'bg-[var(--orch-bg,#0e0f11)]' : 'bg-[var(--orch-bg,#f5f4f0)]',
+  panel: isDark ? 'bg-[var(--orch-surface,rgba(255,255,255,0.02))]' : 'bg-[var(--orch-surface,rgba(0,0,0,0.02))]',
+  panelStrong: isDark ? 'bg-[var(--orch-surface,#16171a)]' : 'bg-[var(--orch-surface,#ffffff)]',
   top: isDark ? 'bg-[#0c0d0f]' : 'bg-[#eae9e5]',
   border: isDark ? 'border-white/8' : 'border-black/8',
   border2: isDark ? 'border-white/15' : 'border-black/15',
-  text: isDark ? 'text-white' : 'text-[var(--orch-text,#000000)]',
+  text: isDark ? 'text-[var(--orch-text,#ffffff)]' : 'text-[var(--orch-text,#000000)]',
   title: isDark ? 'text-white/70' : 'text-black/70',
   muted: isDark ? 'text-white/40' : 'text-black/40',
   muted2: isDark ? 'text-white/60' : 'text-black/60',
