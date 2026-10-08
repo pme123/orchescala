@@ -47,9 +47,10 @@ load anything from outside - and the font is a stack of system fonts, not a web 
      `apple-touch-icon`) - do not try to recompress it.
    - If none fits, leave the logo out and say so.
 
-5. **Build the file**:
+5. **Build the file** with `build_theme.py` from the folder of this skill - `.claude/skills/orch-theme-from-site/`
+   in the Orchescala repo, or `~/.claude/skills/orch-theme-from-site/` when installed personally:
    ```bash
-   python3 .claude/skills/orch-theme-from-site/build_theme.py extracted.json --name "<Name>" --logo logo.svg -o <slug>-theme.json
+   python3 <skill folder>/build_theme.py extracted.json --name "<Name>" --logo logo.svg -o <slug>-theme.json
    ```
    It picks the primary colour (the most frequent coloured button, else link colour), maps the font to
    a system stack and the corners to `none/sm/md/lg/xl`, chooses the text on the primary colour by
