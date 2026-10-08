@@ -9,7 +9,8 @@ import { regexIssue, scriptWarning } from '../src/findings';
 import { juelToFeel } from '../src/juelFeel';
 import { convertBpmn } from '../src/engineConvert';
 import { exportSpec } from '../src/exporters';
-import type { EngineId, ProcessSpec } from '../src/types';
+import { applyPattern } from '../src/patterns';
+import type { EngineId, PatternDef, ProcessSpec } from '../src/types';
 
 // the converter works on the DOM of the browser
 const g = globalThis as unknown as Record<string, unknown>;
@@ -49,4 +50,11 @@ test('the Orchescala export names the engine of the spec', () => {
     updatedAt: '2026-10-08T09:00:00Z', steps: [], types: [], interactions: [] } as unknown as ProcessSpec;
   assert.match(exportSpec({ ...spec, engine: 'c7' }, 'orchescala', null), /\| Engine \| Camunda 7 \/ Operaton \|/);
   assert.match(exportSpec({ ...spec, engine: 'c8' }, 'orchescala', null), /\| Engine \| Camunda 8 \|/);
+  assert.match(exportSpec(spec, 'orchescala', null), /\| Engine \| Camunda 7 \/ Operaton \|/); // no engine: the default c7
+});
+
+test('a pattern without BPMN for the engine says which one', () => {
+  const def = { id: 'p1', name: 'Erinnerung', bpmn: {} } as unknown as PatternDef;
+  assert.deepEqual(applyPattern('<x/>', def, 'c7', null).issues, ['«Erinnerung» hat kein BPMN für Camunda 7 / Operaton.']);
+  assert.deepEqual(applyPattern('<x/>', def, 'c8', null).issues, ['«Erinnerung» hat kein BPMN für Camunda 8.']);
 });
