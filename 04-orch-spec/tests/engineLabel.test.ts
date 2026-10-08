@@ -3,7 +3,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { C7_LABEL, C8_LABEL, engineLabel } from '../src/engineLabels';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { C7_LABEL, C8_LABEL, conversionNote, engineLabel } from '../src/engineLabels';
 import { ENGINES } from '../src/template';
 import { regexIssue, scriptWarning } from '../src/findings';
 import { juelToFeel } from '../src/juelFeel';
@@ -57,4 +59,18 @@ test('a pattern without BPMN for the engine says which one', () => {
   const def = { id: 'p1', name: 'Erinnerung', bpmn: {} } as unknown as PatternDef;
   assert.deepEqual(applyPattern('<x/>', def, 'c7', null).issues, ['«Erinnerung» hat kein BPMN für Camunda 7 / Operaton.']);
   assert.deepEqual(applyPattern('<x/>', def, 'c8', null).issues, ['«Erinnerung» hat kein BPMN für Camunda 8.']);
+});
+
+test('the audit note of a conversion - written once, it stays', () => {
+  assert.equal(conversionNote('c7'), 'In Camunda 7 / Operaton umgewandelt');
+  assert.equal(conversionNote('c8'), 'In Camunda 8 umgewandelt');
+});
+
+test('no text in src names «Camunda 7» alone - only comments, the labels come from engineLabels', () => {
+  const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
+    .flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
+  const offenders = files('src').filter((f) => !f.endsWith('engineLabels.ts')).flatMap((f) =>
+    readFileSync(f, 'utf-8').split('\n').map((line, i) => ({ f, i: i + 1, line: line.trim() }))
+      .filter(({ line }) => /Camunda 7(?! \/ Operaton)/.test(line) && !/^(\/\/|\*|\/\*|\{\/\*)/.test(line)));
+  assert.deepEqual(offenders.map(({ f, i, line }) => `${f}:${i} ${line}`), []);
 });

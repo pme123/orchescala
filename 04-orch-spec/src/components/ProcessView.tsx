@@ -25,7 +25,7 @@ import { interactionBelow, overallStatus, statusParts, stepStatuses } from '../s
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
-import { engineLabel } from '../engineLabels';
+import { conversionNote, engineLabel } from '../engineLabels';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
@@ -837,10 +837,10 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const convertEngine = useCallback(async (next: string | null, target: EngineId) => {
     const cur = specRef.current;
     if (!cur) return;
-    const origin: AuditOrigin = { source: 'conversion', note: `In ${engineLabel(target)} umgewandelt` };
+    const origin: AuditOrigin = { source: 'conversion', note: conversionNote(target) };
     if (next) await applyXml(next, engineLabel(target), 'silent', origin);
     else update({ ...cur, engine: target }, origin);
-    setNotice({ tone: 'info', message: `In ${engineLabel(target)} umgewandelt.` });
+    setNotice({ tone: 'info', message: `${conversionNote(target)}.` });
   }, [applyXml, update]);
 
   // Ein Diagramm von vorher, dessen Prozess noch anders heisst als sein Pool:

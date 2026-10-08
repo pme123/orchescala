@@ -15,7 +15,7 @@
 // Bliebe sie stehen, hiessen alle Prozesse gleich, und daran hängt mehr, als
 // es aussieht: Topics, die Zuordnung zur Domain und der Dateiname.
 
-import { C7_LABEL, C8_LABEL, DEFAULT_ENGINE } from './engineLabels.ts';
+import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 import type { EngineId } from './types.ts';
 
 export interface EngineDef {
@@ -32,7 +32,6 @@ export const ENGINES: EngineDef[] = [
   { id: 'c8', label: C8_LABEL, hint: 'zeebe:taskDefinition', file: 'c8.bpmn' },
 ];
 
-export { DEFAULT_ENGINE };
 
 
 /** Der Platzhalter in den Vorlagen — siehe `applyTemplate`. */
