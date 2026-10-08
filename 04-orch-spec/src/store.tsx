@@ -14,6 +14,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { DirectoryUser, DomainType, Model, ProcessSpec, ServiceDef, ServiceParam, Step, UsersFile } from './types';
 import { feelIfPossible, healExecution } from './juelFeel';
+import { withoutWiringInteractions } from './interactions';
 import { withOrchescalaTypes } from './orchescalaTypes';
 import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
@@ -204,8 +205,8 @@ function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
 /**
  * «Offene Frage» (`open`) und «Technische Notiz» (`notes`) am Schritt gibt es
  * nicht mehr — dafür sind die Kommentare da —, ebenso die «Quelle» (`sourceUrl`)
- * am Prozess. Alte Einträge fallen beim Laden weg und verschwinden mit dem
- * nächsten Speichern aus der Datei.
+ * am Prozess, und vorbereitete Interaktionen an Pattern-Schritten. Alte Einträge
+ * fallen beim Laden weg und verschwinden mit dem nächsten Speichern aus der Datei.
  */
 function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
   // `= execution.x` aus einem älteren Import: FEEL, wo es geht, sonst wieder JUEL
@@ -221,7 +222,8 @@ function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
     return next;
   });
   const { sourceUrl: _s, ...rest } = spec as ProcessSpec & { sourceUrl?: unknown };
-  return { ...rest, steps: clean(spec.steps) ?? [] };
+  // eine früher vorbereitete Interaktion an einem Pattern-Schritt (siehe wiringSteps)
+  return withoutWiringInteractions({ ...rest, steps: clean(spec.steps) ?? [] });
 }
 
 /** ohne die generierten Einträge — nur das gehört in die model.json */

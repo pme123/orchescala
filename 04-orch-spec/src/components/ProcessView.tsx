@@ -21,8 +21,8 @@ import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
-import { overallStatus } from '../status';
-import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, statusCounts, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
+import { interactionBelow, overallStatus, statusParts, stepStatuses } from '../status';
+import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { engineLabel } from '../template';
@@ -448,7 +448,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const byId = useMemo(() => new Map(allSteps(spec?.steps).map(s => [s.id, s])), [spec]);
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
-  const counts = useMemo(() => (spec ? statusCounts(spec) : null), [spec]);
+  // je Status die Schritte (samt Interaktion und deren Klassen) und die Klassen ohne Schritt —
+  // so findet jeder Gesamtstatus seinen Filter
+  const counts = useMemo(() => (spec ? statusParts(spec) : null), [spec]);
   const containers = useMemo(() => (spec ? [...containerIds(spec.steps), ...foldIds(spec.steps)] : []), [spec]);
   const ancestors = useMemo(() => (spec ? ancestorsOf(spec.steps) : new Map<string, string[]>()), [spec]);
   const ancestorsRef = useRef(ancestors);
@@ -630,9 +632,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const svc = catalogEntry(s, model);
     const haystack = `${s.name} ${s.description ?? ''} ${s.serviceId ?? ''} ${s.topic ?? ''} ${ia?.name ?? ''} ${svc?.name ?? ''} ${s.calledProcess ?? ''}`.toLowerCase();
     return (!q || haystack.includes(q))
-      && (!statusFilter || s.status === statusFilter)
+      && (!statusFilter || (spec ? stepStatuses(s, spec) : [s.status]).includes(statusFilter))
       && (!findingsOnly || findings.has(s.id));
-  }, [query, statusFilter, findingsOnly, findings, spec?.interactions, model]);
+  }, [query, statusFilter, findingsOnly, findings, spec, model]);
   const matches = useCallback((s: Step): boolean => {
     if (matchesSelf(s)) return true;
     const sub = [...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])];
@@ -1089,6 +1091,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   onStatus={canEdit ? (id, s) => patchStep(id, { status: s }) : undefined}
                   findings={findings}
                   interactionOf={id => (spec.interactions ?? []).find(i => i.stepId === id) ?? null}
+                  interactionBelowOf={(s, ia) => interactionBelow(s, ia, spec)}
                   serviceOf={s => catalogEntry(s, model)}
                   processId={spec.processId ?? ''}
                   hasCatalog={!!model?.services?.length}
@@ -1169,12 +1172,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
                 {counts && (
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                    {STATUSES.filter(s => counts[s] > 0).map(s => (
+                    {STATUSES.filter(s => counts[s].steps > 0 || counts[s].model.length > 0).map(s => (
                       <button key={s} onClick={() => setStatusFilter(statusFilter === s ? null : s)}
-                        title={`Nur «${STATUS_META[s].label}» zeigen`}
+                        title={`Nur «${STATUS_META[s].label}» zeigen — Schritte mit diesem Status, auch über ihre Interaktion${
+                          counts[s].model.length ? `; im Datenmodell ohne Schritt: ${counts[s].model.join(', ')}` : ''}`}
                         className={`text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${isDark ? STATUS_META[s].dark : STATUS_META[s].light} ${
                           statusFilter && statusFilter !== s ? 'opacity-30' : ''}`}>
-                        {STATUS_META[s].label} {counts[s]}
+                        {STATUS_META[s].label} {counts[s].steps}{counts[s].model.length ? ` · ${counts[s].model.length} Datenmodell` : ''}
                       </button>
                     ))}
                     {/* Befunde: nur die Schritte mit Dreieck — rot, wenn Fehler dabei sind */}
@@ -1296,6 +1300,8 @@ interface ListProps {
   findings: Map<string, Finding>;
   /** die Interaktion eines Schritts — eigener Vertrag, im Baum hervorgehoben */
   interactionOf: (id: string) => Interaction | null;
+  /** der Status der Interaktion (samt Klassen), wenn er tiefer steht als der des Schritts */
+  interactionBelowOf: (step: Step, ia: Interaction | null) => Status | null;
   /** Katalog-Eintrag eines fremden Services — teal; fehlt er, rot */
   serviceOf: (step: Step) => ServiceDef | null;
   /** springt ins Datenmodell zur Interaktion */
@@ -1416,6 +1422,8 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   }
 
   const ia = p.interactionOf(step.id);
+  // die Interaktion (samt Klassen) steht tiefer als der Schritt — ihr Status am Chip
+  const iaBelow = p.interactionBelowOf(step, ia);
   const finding = p.findings.get(step.id) ?? null;
   // fremder Service: Katalog-Kennung oder Topic — nicht der eigene Worker, nicht der Init-Worker
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== p.processId ? (step.serviceId ?? step.topic ?? '') : '';
@@ -1437,10 +1445,11 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
         {/* Eigener Vertrag: das Objekt als Chip, klickbar ins Datenmodell */}
         {ia && (
           <button onClick={e => { e.stopPropagation(); p.onOpenInteraction(ia); }}
-            title={`${INTERACTION_META[ia.kind].label} «${ia.name}» — zum Datenmodell`}
+            title={`${INTERACTION_META[ia.kind].label} «${ia.name}»${iaBelow ? ` — im Datenmodell erst «${STATUS_META[iaBelow].label}»` : ''} — zum Datenmodell`}
             className={`hidden md:inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${
               p.isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
-            {ia.name}
+            <span className="truncate">{ia.name}</span>
+            {iaBelow && <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[iaBelow].dark : STATUS_META[iaBelow].light}`}>{STATUS_META[iaBelow].label}</span>}
           </button>
         )}
         {/* Pattern am Schritt */}

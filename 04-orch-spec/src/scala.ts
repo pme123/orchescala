@@ -969,8 +969,11 @@ function descrLine(ia: Interaction): string {
   return [`  val descr: String =`, `    ${tripleOpen(text)}${tripleText(first, text)}`, ...rest.map(l => `      |${tripleText(l, text)}`), '      |""".stripMargin'].join('\n');
 }
 
-function firstLine(text: string): string {
-  return text.trim().split('\n')[0];
+/** Die Beschreibung des Prozesses für den Helper: `// descr: erste Zeile`, dann `// descr| …` je Zeile. */
+export function descrComment(text: string | undefined): string[] {
+  const lines = (text ?? '').trim().split('\n').map(l => escape(l.trimEnd()));
+  if (!lines[0]) return [];
+  return [`// descr: ${lines[0]}`, ...lines.slice(1).map(l => (l ? `// descr| ${l}` : '// descr|'))];
 }
 
 // ── Dateien ──────────────────────────────────────────────────────────────────
@@ -1185,7 +1188,9 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
           ? ['// im InitWorker (customInit):', ...customInit.split('\n').map(l => `// ${l}`), '']
           : []),
         // für ein neues Prozess-Objekt — ein bestehendes behält sein `descr`
-        ...(spec.description?.trim() ? [`// descr: ${escape(firstLine(spec.description))}`] : []),
+        // die ganze Beschreibung: die erste Zeile `// descr: …`, jede weitere `// descr| …`
+        // (ein älterer Helper liest nur die erste)
+        ...descrComment(spec.description),
         ...(labels ? [`// processLabels: ${escape(labels.de)} | ${escape(labels.fr)}`] : []),
         ...(spec.description?.trim() || labels ? [''] : []),
         `// in object ${objectName} einfügen`,

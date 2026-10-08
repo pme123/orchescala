@@ -114,15 +114,51 @@ export interface Suggestion {
 }
 
 /** Alle Schritte, die eine Interaktion brauchen und noch keine haben. */
+/**
+ * Schritte ohne eigenes Objekt: was zu einem Pattern gehört — auch alles in einem
+ * Pattern-Block (Ereignis-Subprozess «Einmalige Ausführung») — und eine Nachricht mit
+ * dem Namen des Prozesses selbst: sie bringt sein `In` (ein zweiter Start mit demselben
+ * businessKey, solange der Prozess läuft).
+ */
+export function wiringSteps(spec: Pick<ProcessSpec, 'steps' | 'processId'>): Set<string> {
+  const out = new Set<string>();
+  const processId = spec.processId ?? '';
+  const visit = (steps: Step[], inPattern: boolean) => {
+    for (const s of steps) {
+      const here = inPattern || !!s.pattern;
+      if (here || (!!processId && s.messageName === processId)) out.add(s.id);
+      visit([...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])], here);
+    }
+  };
+  visit(spec.steps ?? [], false);
+  return out;
+}
+
+/**
+ * Eine vorbereitete Interaktion (Entwurf) an einem solchen Schritt fällt weg — samt
+ * ihren Klassen. Ältere Importe legten sie an (`CompensateIfProcessME`).
+ */
+export function withoutWiringInteractions<T extends Pick<ProcessSpec, 'steps' | 'processId' | 'interactions' | 'types'>>(spec: T): T {
+  const wiring = wiringSteps(spec);
+  const gone = new Set((spec.interactions ?? []).filter(i => i.status === 'draft' && wiring.has(i.stepId)).map(i => i.id));
+  if (!gone.size) return spec;
+  return {
+    ...spec,
+    interactions: (spec.interactions ?? []).filter(i => !gone.has(i.id)),
+    types: (spec.types ?? []).filter(t => !(t.interactionId && gone.has(t.interactionId))),
+  };
+}
+
 export function missingInteractions(spec: ProcessSpec, model: Model | null = null): Suggestion[] {
   const processId = spec.processId ?? '';
   const known = new Set((spec.interactions ?? []).map(i => i.stepId));
   // Der Start des Prozesses ist keine eigene Nachricht — das ist sein `In`.
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
+  const wiring = wiringSteps(spec);
   const out: Suggestion[] = [];
   for (const step of allSteps(spec.steps)) {
     // ein Schritt, der zu einem Pattern gehört, ist Verdrahtung — kein eigenes Objekt
-    if (step.kind === 'goto' || known.has(step.id) || step.id === startId || step.pattern) continue;
+    if (step.kind === 'goto' || known.has(step.id) || step.id === startId || wiring.has(step.id)) continue;
     const kind = interactionKind(step, processId);
     if (!kind) continue;
     out.push({ step, kind, name: suggestName(step, kind, processId, model), key: keyOf(step, kind) });
