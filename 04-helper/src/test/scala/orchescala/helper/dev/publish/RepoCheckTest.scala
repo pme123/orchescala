@@ -103,7 +103,9 @@ class RepoCheckTest extends FunSuite:
     val company = Seq("""  val scalaV = "3.7.4"""", "    // crossPaths := false,").mkString("\n")
     assertEquals(RepoCheck.artifactSuffix(project), "")
     assertEquals(RepoCheck.artifactSuffix(company), "_3")
-    assertEquals(RepoCheck.artifactSuffix("""val scalaV = "2.13.16""""), "_2")
+    assertEquals(RepoCheck.artifactSuffix("""val scalaV = "2.13.16""""), "_2.13") // the binary version of Scala 2
+    val odd = intercept[IllegalStateException](RepoCheck.artifactSuffix("""val scalaV = "4.0.1""""))
+    assert(odd.getMessage.contains("Scala 4.0"), odd.getMessage)
     // spelled without spaces, inside a larger line - and only in code, not in a comment
     assertEquals(RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "crossPaths:=false").mkString("\n")), "")
     // after a string with a slash in it; in a block comment; in a string (no comment)
@@ -153,6 +155,10 @@ class RepoCheckTest extends FunSuite:
     assertEquals(ScalaSource.withoutComments("""s"a${"//"}b" // c"""), """s"a${"//"}b" """)
     assertEquals(ScalaSource.withoutComments("""'\u0022' // c"""), """'\u0022' """)
     assertEquals(ScalaSource.withoutComments("a /* never closed\nb"), "a ")
+    // a string with a brace inside an interpolation; a prime of an identifier is no char literal
+    assertEquals(ScalaSource.withoutComments("""s"${"}"}x" // c"""), """s"${"}"}x" """)
+    assertEquals(ScalaSource.withoutComments("""val x' = y' // c"""), """val x' = y' """)
+    assertEquals(ScalaSource.withoutComments("""val q = '"' // c"""), """val q = '"' """)
     assertEquals(
       RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "/* outer /* crossPaths := false */ */").mkString("\n")),
       "_3"
@@ -384,6 +390,14 @@ class RepoCheckTest extends FunSuite:
         credentials = Seq(RepoCredentials.PrivateToken("gitlab", "127.0.0.1", "GITLAB_TOKEN")),
         repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/groups/7/-/packages/maven"))
       )))
+      // no credentials at all: the pipeline's yes does not answer that - a terminal's confirm would
+      val anonymous = devConfig.withSbtConfig(SbtConfig(reposConfig = ReposConfig(
+        repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/groups/7/-/packages/maven"))
+      )))
+      val stopped   = intercept[IllegalStateException]:
+        RepoCheck.verifyVersionFree("1.2.3", anonymous, names.copy(modules = Seq("domain")),
+          Map("ORCHESCALA_PUBLISH_YES" -> "true").get, confirm = _ => false)
+      assert(stopped.getMessage.contains("anonymously"), stopped.getMessage)
       // a group registry: asked - the pipeline's yes answers, the terminal's confirm is not used
       RepoCheck.verifyVersionFree(
         "1.2.3", devConfig, names.copy(modules = Seq("domain")),

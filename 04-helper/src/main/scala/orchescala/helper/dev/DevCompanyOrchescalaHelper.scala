@@ -101,18 +101,18 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     verifyChangelog(newVersion)
     lazy val names = BuildNames.from(workDir) // what the build publishes under
     if !isSnapshot then verifyVersionFree(newVersion, devConfig, names)
+    lazy val gatewayAppFile: os.Path =
+      workDir / "04-gateway" / "src" / "main" / "scala" /
+        devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
+    val hasGateway = os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty
+    // every check before the version is rewritten - a failing one leaves the tree as it is
+    if hasGateway then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
     // armed now, with the clean tree - right before the version is rewritten
     val restore    = restoreForRetry(isSnapshot)
     restoring(restore):
       replaceVersion(newVersion, projectFile)
     println("Versions replaced")
     println(s"isSnapshot: $isSnapshot")
-
-    lazy val gatewayAppFile: os.Path =
-      workDir / "04-gateway" / "src" / "main" / "scala" /
-        devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
-    val hasGateway = os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty
-    if hasGateway then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
     // the company project has no docs to upload - its site is `publishDocs`
     ReleaseRun(
       SbtRuns.company(hasGateway, devConfig.sbtConfig.publishSbtOptions),

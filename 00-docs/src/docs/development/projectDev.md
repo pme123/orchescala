@@ -90,8 +90,8 @@ The following steps are executed:
   - Where the check can not tell (a GitLab group registry, a token that may not read the project, no
     credentials), it asks. Without a terminal (a pipeline) the answer is no and the release stops - a
     GitLab pipeline with its job token is not asked; a pipeline with a deploy token says yes with
-    `ORCHESCALA_PUBLISH_YES=true` - to these GitLab questions only, the check of the version and of the
-    next version stay.
+    `ORCHESCALA_PUBLISH_YES=true` - to the GitLab token questions only: no credentials at all, the check of
+    the version and of the next version stay.
   - A repository that answers HEAD with 405/501 is asked with a GET of the first byte. A redirect is
     followed on the same host only (an upgrade to https too) - the credentials go nowhere else.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
@@ -135,8 +135,8 @@ The following steps are executed:
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
   and untracked files stay as they are - also when you abort it (Ctrl-C: sbt gets it too, the restore
-  waits up to 10 seconds for it to end, then ends it). A second Ctrl-C in that time, or a kill, skips the
-  restore. Should it fail, `git status` shows the files, `git checkout HEAD -- <files>` restores them.
+  waits up to 10 seconds for it to end, then ends it - about 10 seconds more at most). A second Ctrl-C in
+  that time, or a kill, skips the restore. Should it fail, `git status` shows the files, `git checkout HEAD -- <files>` restores them.
 - Fails the git step at the end (a push refused), the version is released - the console says what is
   left to do by hand; nothing is restored then.
 - Merge the branch (`develop`) into `master`.

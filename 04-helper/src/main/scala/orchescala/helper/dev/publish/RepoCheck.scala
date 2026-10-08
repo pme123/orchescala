@@ -13,7 +13,7 @@ object RepoCheck:
   private val Org           = """val org\s*=\s*"([^"]+)"""".r
   private val Name          = """val name\s*=\s*"([^"]+)"""".r
   private val Module        = """(?:projectSettings|generalSettings)\(Some\("([^"]+)"\)""".r
-  private val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
+  private val ScalaV        = """val scalaV\s*=\s*"(\d+\.\d+)\.[^"]*"""".r
   private val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
   private val CrossPathsOn  = """\bcrossPaths\s*:=\s*true\b""".r
   private val Project       = """^(.*/api/v4/projects/[^/]+)/packages/maven/?$""".r
@@ -68,9 +68,9 @@ object RepoCheck:
     theOne(Org, ScalaSource.withoutComments(projectDef), "val org", name, "the organization is unknown")
 
   /** The suffix of the artifacts of a build - from its `project/Settings.scala`: none with
-    * `crossPaths := false` (a project), else `_<Scala major>` of its `scalaV` (the company
-    * project: `_3`). Fails without the `scalaV` - a guessed suffix made the check pass as
-    * "free" on the wrong URL.
+    * `crossPaths := false` (a project), else the binary version of its `scalaV` (the company
+    * project: `_3`; a Scala 2 build: `_2.13`). Fails without the `scalaV` - a guessed suffix
+    * made the check pass as "free" on the wrong URL.
     */
   def artifactSuffixOf(settings: os.Path): String = artifactSuffix(os.read(settings), settings.toString)
 
@@ -81,7 +81,12 @@ object RepoCheck:
     if crossPathsOff && CrossPathsOn.findFirstIn(code).isDefined then
       throw IllegalStateException(s"`crossPaths` is set both ways in $name - the artifact suffix is not one.")
     if crossPathsOff then ""
-    else s"_${theOne(ScalaV, code, "val scalaV", name, "the artifact suffix is unknown")}"
+    else
+      // the binary version: `3` for Scala 3, `2.13` for Scala 2 - sbt's `scalaBinaryVersion`
+      theOne(ScalaV, code, "val scalaV", name, "the artifact suffix is unknown") match
+        case v if v.startsWith("3.") => "_3"
+        case v if v.startsWith("2.") => s"_$v"
+        case v                       => throw IllegalStateException(s"Scala $v in $name - the artifact suffix is unknown.")
   end artifactSuffix
 
 
@@ -143,14 +148,15 @@ object RepoCheck:
     repos.releaseRepo.foreach: repo =>
       val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalStateException(msg), identity)
       val status = curlStatus(config)
-      // the GitLab questions (and only these) a pipeline answers with ORCHESCALA_PUBLISH_YES=true
+      // the GitLab token questions (and only these) a pipeline answers with ORCHESCALA_PUBLISH_YES=true
       val gitlabConfirm = pipelineYes(env).getOrElse(confirm)
       repo match
+        // no credentials: a terminal may say yes, a pipeline not - its upload needs them anyway
         case _: RepoConfig.Gitlab if config.isEmpty                    =>
           val problem =
             s"no credentials for ${repo.repoUrl} - the check runs anonymously, a private package " +
               "reads as free"
-          if !gitlabConfirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
+          if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
         // the job token of a pipeline is GitLab's own - nothing to probe (and the project
         // endpoint is not meant for it); a token of a developer is probed
         case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
@@ -219,9 +225,10 @@ object RepoCheck:
         Seq.empty
   end reportUploaded
 
-  /** A pipeline has no terminal to answer the GitLab questions (a deploy token that may not
-    * read the project, a group registry, no credentials) - `ORCHESCALA_PUBLISH_YES=true` says
-    * yes to these, and to nothing else (the version check, the next version stay).
+  /** A pipeline has no terminal to answer the GitLab token questions (a deploy token that may
+    * not read the project, a group registry) - `ORCHESCALA_PUBLISH_YES=true` says yes to
+    * these, and to nothing else (no credentials at all, the version check, the next version
+    * stay).
     */
   def pipelineYes(env: String => Option[String]): Option[String => Boolean] =
     Option.when(env("ORCHESCALA_PUBLISH_YES").exists(_.trim.equalsIgnoreCase("true"))): problem =>

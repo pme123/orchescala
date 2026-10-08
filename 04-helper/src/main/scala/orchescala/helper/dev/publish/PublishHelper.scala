@@ -23,17 +23,17 @@ case class PublishHelper()(using
     // the one outward step before the build: the docs (`api/run`) take the references from the
     // remote - it pushes committed work only (a clean tree), a next try pushes nothing
     pushDevelop()
+    lazy val workerAppFile: os.Path =
+      workDir / "03-worker" / "src" / "main" / "scala" /
+        devConfig.projectPath / "worker" / "WorkerApp.scala"
+    println(s"workerAppFile ${os.exists(workerAppFile)}: $workerAppFile")
+    // every check before the versions are rewritten - a failing one leaves the tree as it is
+    if os.exists(workerAppFile) then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
     // armed now, with the clean tree - right before the versions are rewritten
     val restore    = restoreForRetry(isSnapshot)
     restoring(restore):
       setApiVersion(version)
       replaceVersion(version)
-
-    lazy val workerAppFile: os.Path =
-      workDir / "03-worker" / "src" / "main" / "scala" /
-        devConfig.projectPath / "worker" / "WorkerApp.scala"
-    println(s"workerAppFile ${os.exists(workerAppFile)}: $workerAppFile")
-    if os.exists(workerAppFile) then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
     ReleaseRun(
       SbtRuns.project(hasWorkerApp = os.exists(workerAppFile), devConfig.sbtConfig.publishSbtOptions),
       uploadDocs = () => publishToWebserver(),

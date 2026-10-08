@@ -39,14 +39,26 @@ object ScalaSource:
           out += at(i + 1)
           i += 1
         else if c == '$' && at(i + 1) == '{' then
-          // an interpolation - copied up to its closing brace, whatever is in it
+          // an interpolation - copied up to its closing brace, whatever is in it; a string in
+          // it (with braces of its own) is skipped as a string
           out += '{'
           i += 2
           var depth = 1
           while i < scala.length && depth > 0 do
-            if scala(i) == '{' then depth += 1
-            else if scala(i) == '}' then depth -= 1
-            out += scala(i)
+            if scala(i) == '"' then
+              out += '"'
+              i += 1
+              while i < scala.length && scala(i) != '"' do
+                out += scala(i)
+                if scala(i) == '\\' && i + 1 < scala.length then
+                  out += scala(i + 1)
+                  i += 1
+                i += 1
+              if i < scala.length then out += '"'
+            else
+              if scala(i) == '{' then depth += 1
+              else if scala(i) == '}' then depth -= 1
+              out += scala(i)
             i += 1
           i -= 1 // the loop below steps on
         else if c == '"' then inStr = false
@@ -57,9 +69,10 @@ object ScalaSource:
       else if c == '"' then
         inStr = true
         out += c
-      else if c == '\'' && (at(i + 2) == '\'' || (at(i + 1) == '\\' && at(i + 3) == '\'') ||
-          (at(i + 1) == '\\' && at(i + 2) == 'u' && at(i + 7) == '\''))
-      then
+      else if c == '\'' && !(i > 0 && (scala(i - 1).isLetterOrDigit || scala(i - 1) == '_')) &&
+          (at(i + 2) == '\'' || (at(i + 1) == '\\' && at(i + 3) == '\'') ||
+            (at(i + 1) == '\\' && at(i + 2) == 'u' && at(i + 7) == '\''))
+      then // (a prime of an identifier - `x'` - is none)
         // a char literal - `'"'`, `'/'`, `'\''`, `'\u0022'` are no string, no comment
         val len = if at(i + 1) == '\\' then (if at(i + 2) == 'u' then 8 else 4) else 3
         out ++= scala.substring(i, i + len)

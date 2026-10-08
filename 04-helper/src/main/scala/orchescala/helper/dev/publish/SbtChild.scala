@@ -43,8 +43,9 @@ object SbtChild:
       if !child.waitFor(timeout.toMillis) then terminate(child, s"sbt (not ended within $timeout)")
 
   /** Ends the child (the sbt launcher) and what it started (the sbt JVM, docker) - forcibly
-    * after 3 seconds; at most about 10 seconds in all - in a shutdown hook, the restore must
-    * still come before a second Ctrl-C.
+    * after 3 seconds; about 10 seconds at most, on top of the wait of [[awaitExit]] (so about
+    * 20 seconds in all before the restore of a shutdown hook - it must still come before a
+    * second Ctrl-C).
     */
   private def terminate(child: os.SubProcess, what: String): Unit =
     import scala.jdk.CollectionConverters.*
