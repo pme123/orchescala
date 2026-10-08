@@ -76,6 +76,9 @@ class ReleaseRunTest extends FunSuite:
     intercept[IllegalStateException]:
       rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = true))
     assertEquals(log(), Seq("build", "docs", "upload", "failed Upload", "reported")) // the restore first
+    // the hook of the same step (Ctrl-C) does not report again
+    rel.abortedAt(ReleaseStep.Upload).run()
+    assertEquals(log().count(_ == "reported"), 1)
 
   test("the runs of a project and of the company project"):
     assertEquals(
@@ -94,6 +97,9 @@ class ReleaseRunTest extends FunSuite:
       SbtRuns.company(hasGateway = false).build,
       Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom")
     )
+    // the options come from the company's SbtConfig - a runner with less memory
+    assertEquals(SbtRuns.project(hasWorkerApp = false, Seq("-J-Xmx1G")).publish, Seq("sbt", "-J-Xmx1G", "publish"))
+    assertEquals(SbtRuns.company(hasGateway = false, Seq.empty).publish, Seq("sbt", "publish"))
 
   test("an interrupt or a fatal error restores too - best effort - and goes through"):
     def interrupted(error: Throwable): Seq[String] =

@@ -33,8 +33,9 @@ case class PublishHelper()(using
       workDir / "03-worker" / "src" / "main" / "scala" /
         devConfig.projectPath / "worker" / "WorkerApp.scala"
     println(s"workerAppFile ${os.exists(workerAppFile)}: $workerAppFile")
+    if os.exists(workerAppFile) then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
     ReleaseRun(
-      SbtRuns.project(hasWorkerApp = os.exists(workerAppFile)),
+      SbtRuns.project(hasWorkerApp = os.exists(workerAppFile), devConfig.sbtConfig.publishSbtOptions),
       uploadDocs = () => publishToWebserver(),
       git = () => git(version, replaceVersion),
       onFailure = restore,

@@ -120,6 +120,11 @@ The following steps are executed:
     without its artifacts - the next try overwrites it.
   - `develop` is pushed before the build (the documentation needs the remote) - a release that fails
     afterwards leaves it pushed. It is committed work only, the next try pushes nothing.
+  - The Docker image is built again for the push (sbt-native-packager rebuilds it for `Docker / publish`):
+    a Docker failure there - a base image that can not be pulled, the registry - comes after the docs.
+- Before the first sbt run of a release with a Docker image, `docker buildx version` must work when the
+  images are built for a platform (the default) - otherwise the release stops right there, with the
+  way to get `buildx`.
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
   and untracked files stay as they are - also when you abort it (Ctrl-C: sbt gets it too, the restore

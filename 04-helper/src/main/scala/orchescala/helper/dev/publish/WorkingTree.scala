@@ -99,6 +99,7 @@ object WorkingTree extends Helpers:
             println(
               s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}"
             )
+            done = true // nothing to do, ever
           else
             restore(repo)
             done = true

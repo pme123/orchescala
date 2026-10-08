@@ -65,8 +65,17 @@ class ReposConfigTest extends FunSuite:
       Right(Seq("""header = "Private-Token: t""""))
     )
     assertEquals(
-      repos.releaseRepoCurlConfig(Map("GITLAB_TOKEN" -> "t", "CI_JOB_TOKEN" -> "j").get),
+      repos.releaseRepoCurlConfig(Map("GITLAB_TOKEN" -> "t", "CI_JOB_TOKEN" -> "j", "CI_SERVER_HOST" -> "gitlab.example.com").get),
       Right(Seq("""header = "Job-Token: j""""))
+    )
+    // a pipeline of another GitLab: its job token is not for this host - the private token
+    assertEquals(
+      repos.releaseRepoCurlConfig(Map("GITLAB_TOKEN" -> "t", "CI_JOB_TOKEN" -> "j", "CI_SERVER_HOST" -> "gitlab.other.com").get),
+      Right(Seq("""header = "Private-Token: t""""))
+    )
+    assertEquals(
+      repos.releaseRepoCurlConfig(Map("GITLAB_TOKEN" -> "t", "CI_JOB_TOKEN" -> "j").get),
+      Right(Seq("""header = "Private-Token: t""""))
     )
     assert(repos.releaseRepoCurlConfig(_ => None).isLeft)
 

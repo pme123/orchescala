@@ -257,7 +257,7 @@ class RepoCheckTest extends FunSuite:
       assert(stopped.getMessage.contains("anonymously"), stopped.getMessage)
       // a pipeline: the job token is GitLab's own - the project is not probed
       val before = requests().size
-      RepoCheck.verifyVersionFree("1.2.3", devConfig, names, Map("CI_JOB_TOKEN" -> "secret").get)
+      RepoCheck.verifyVersionFree("1.2.3", devConfig, names, Map("CI_JOB_TOKEN" -> "secret", "CI_SERVER_HOST" -> "127.0.0.1").get)
       assertEquals(requests().drop(before).size, 1)
       assert(requests().last.endsWith("-1.2.3.pom"), requests().last)
 
@@ -315,5 +315,17 @@ class RepoCheckTest extends FunSuite:
       val started = System.nanoTime()
       assertEquals(RepoCheck.reportUploaded("1.2.3", down, names, _ => None), Seq.empty)
       assert((System.nanoTime() - started) / 1e6 < 3000, "gave up after the first unreachable pom")
+
+
+  test("buildx is checked before the first sbt run when the images are built for a platform"):
+    var asked = Seq.empty[Seq[String]]
+    DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), cmd => { asked :+= cmd; 0 })
+    assertEquals(asked, Seq(Seq("docker", "buildx", "version")))
+    val error = intercept[IllegalStateException]:
+      DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 1)
+    assert(error.getMessage.contains("brew install docker-buildx"), error.getMessage)
+    // no platform asked for: nothing to check
+    DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"))
+    DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"))
 
 end RepoCheckTest

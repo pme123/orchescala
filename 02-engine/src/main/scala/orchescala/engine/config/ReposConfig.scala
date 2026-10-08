@@ -29,8 +29,8 @@ case class ReposConfig(
   /** The lines of a curl config (`curl -K -`, fed through stdin - so the secret is not in
     * `ps`) that authenticate at the release repo, as the sbt build does: an Artifactory repo
     * with its user/password, another repo with the credentials of its host (the job token on
-    * a pipeline). Left with the missing environment variables, or without credentials for the
-    * host.
+    * a pipeline of that GitLab - `CI_SERVER_HOST`). Left with the missing environment
+    * variables, or without credentials for the host.
     */
   def releaseRepoCurlConfig(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
     // a line break in a secret (read from a file) would start another config line - an option
@@ -51,7 +51,9 @@ case class ReposConfig(
         val host = scala.util.Try(java.net.URI(repo.repoUrl).getHost).toOption.getOrElse("")
         credentials.find(_.repoHost == host) match
           case Some(t: RepoCredentials.PrivateToken) =>
-            env("CI_JOB_TOKEN").map(token => line("header", s"Job-Token: $token", "CI_JOB_TOKEN"))
+            // the job token is the pipeline's GitLab's (CI_SERVER_HOST) - not for another host
+            val jobToken = env("CI_JOB_TOKEN").filter(_ => env("CI_SERVER_HOST").contains(host))
+            jobToken.map(token => line("header", s"Job-Token: $token", "CI_JOB_TOKEN"))
               .orElse(env(t.tokenEnv).map(token => line("header", s"Private-Token: $token", t.tokenEnv)))
               .getOrElse(Left(s"System Environment Variable ${t.tokenEnv} is not set."))
           case Some(u: RepoCredentials.UserPassword) => userPassword(u.usernameEnv, u.passwordEnv)

@@ -12,7 +12,10 @@ case class SbtConfig(
     // `dockerBuildSettings` in `project/Settings.scala`. OpenShift runs amd64 images only,
     // while an Apple Silicon machine builds arm64 by default - so the platform is fixed.
     // Seq.empty builds for the platform of the machine.
-    dockerBuildOptions: Seq[String] = SbtConfig.amd64
+    dockerBuildOptions: Seq[String] = SbtConfig.amd64,
+    // the options of the sbt runs of `./helper.scala publish` (e.g. the heap) - a runner with
+    // less memory sets its own
+    publishSbtOptions: Seq[String] = Seq("-J-Xmx3G")
 )
 
 object SbtConfig:

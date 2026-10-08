@@ -90,7 +90,9 @@ private lazy val companySbtConfig = SbtConfig(
   // the options of `docker build` - generated as `dockerBuildSettings`.
   // OpenShift runs amd64 images only, while Apple Silicon (e.g. Colima) builds arm64 by default -
   // so the platform is fixed (the default). `Seq.empty` builds for the platform of the machine.
-  dockerBuildOptions = Seq("--platform", "linux/amd64")
+  dockerBuildOptions = Seq("--platform", "linux/amd64"),
+  // the options of the sbt runs of `./helper.scala publish` - a runner with less memory sets its own
+  publishSbtOptions = Seq("-J-Xmx3G")
 )
 ```
 @:callout(warning)

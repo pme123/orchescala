@@ -35,12 +35,17 @@ object SbtRuns:
   end of
 
   /** The sbt runs of a project - the docs (`api/run`) come with the build. */
-  def project(hasWorkerApp: Boolean): SbtRuns =
-    of(Option.when(hasWorkerApp)("worker"), build = Seq("api/run"), sbtOptions = Seq("-J-Xmx3G"))
+  def project(hasWorkerApp: Boolean, sbtOptions: Seq[String] = SbtRuns.defaultSbtOptions): SbtRuns =
+    of(Option.when(hasWorkerApp)("worker"), build = Seq("api/run"), sbtOptions = sbtOptions)
 
   /** The sbt runs of the company project - the gateway is its docker image. */
-  def company(hasGateway: Boolean): SbtRuns =
-    of(Option.when(hasGateway)("gateway"), sbtOptions = Seq("-J-Xmx3G"))
+  def company(hasGateway: Boolean, sbtOptions: Seq[String] = SbtRuns.defaultSbtOptions): SbtRuns =
+    of(Option.when(hasGateway)("gateway"), sbtOptions = sbtOptions)
+
+  /** The options of the sbt runs of a release (`SbtConfig.publishSbtOptions`) - the heap the
+    * company project always had; a runner with less memory sets its own.
+    */
+  val defaultSbtOptions: Seq[String] = Seq("-J-Xmx3G")
 end SbtRuns
 
 /** Runs the steps of a release - a failing step throws and stops the release there. The
@@ -61,6 +66,13 @@ case class ReleaseRun(
     addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
     removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_)
 ):
+  // on Ctrl-C the failing sbt run AND the shutdown hook handle the same step - the restore is
+  // once only by itself, the report (curl for every pom) is made so here
+  private val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+
+  private def reportOnce(): Unit =
+    if reported.compareAndSet(false, true) then afterFailedUpload()
+
   /** Ctrl-C ends the JVM, no exception reaches the release - this hook restores the running
     * step's changes (registered while the step runs), once the sbt child ended.
     */
@@ -70,7 +82,7 @@ case class ReleaseRun(
       try
         awaitChild()
         onFailure(step) // first - the report is best effort and may take a while
-        if step == ReleaseStep.Upload then afterFailedUpload()
+        if step == ReleaseStep.Upload then reportOnce()
       catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
 
   def run(steps: Seq[ReleaseStep]): Unit =
@@ -100,7 +112,7 @@ case class ReleaseRun(
           "uploaded before it failed are in the repository. The next try fails the check of the version " +
           "until you remove the version there - then it overwrites the image's tag."
       )
-      suppressedBy(e)(afterFailedUpload())
+      suppressedBy(e)(reportOnce())
 
   private def run(step: ReleaseStep): Unit =
     step match
