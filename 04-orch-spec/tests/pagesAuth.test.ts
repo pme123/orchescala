@@ -1,7 +1,7 @@
 // The rules of the login without browser and IdP: one renewal for many callers, where to go back.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { safeReturnTo, singleFlight } from '../src/pages/runtime/authRules';
+import { safeReturnTo, singleFlight, watchLeaving } from '../src/pages/runtime/authRules';
 
 test('singleFlight - concurrent callers share one run, the next starts anew', async () => {
   let runs = 0;
@@ -33,4 +33,35 @@ test('safeReturnTo - only a path of this page', () => {
   assert.equal(safeReturnTo('/app/democompany-customer/appointments/confirm?token=abc', base), '/app/democompany-customer/appointments/confirm?token=abc');
   for (const bad of ['//evil.example/x', '/\\evil.example', 'https://evil.example/', 'javascript:alert(1)', '', undefined, 42, { path: '/' }])
     assert.equal(safeReturnTo(bad, base), base, String(bad));
+});
+
+test('watchLeaving - the page leaves: the wait stays open, no error', async () => {
+  const page = new EventTarget();
+  const { wait } = watchLeaving(page, 30, () => new Error('nicht gestartet'));
+  let settled = false;
+  wait.then(() => { settled = true; }, () => { settled = true; });
+  page.dispatchEvent(new Event('pagehide'));
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(settled, false);
+});
+
+test('watchLeaving - the page stays, or comes back: the error', async () => {
+  const stays = new EventTarget();
+  await assert.rejects(watchLeaving(stays, 20, () => new Error('nicht gestartet')).wait, /nicht gestartet/);
+  const back = new EventTarget();
+  const w = watchLeaving(back, 10_000, () => new Error('zurück'));
+  back.dispatchEvent(new Event('pagehide'));
+  back.dispatchEvent(new Event('pageshow'));
+  await assert.rejects(w.wait, /zurück/);
+});
+
+test('watchLeaving - cancelled (the redirect did not start): no error, no listener left', async () => {
+  const page = new EventTarget();
+  const w = watchLeaving(page, 20, () => new Error('nicht gestartet'));
+  let rejected = false;
+  w.wait.catch(() => { rejected = true; });
+  w.cancel();
+  page.dispatchEvent(new Event('pageshow'));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(rejected, false);
 });

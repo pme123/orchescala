@@ -314,6 +314,9 @@ export function errorText(status: number, errors: Record<string, string> | undef
       ? 'Bitte neu anmelden.'
       : status === 429
       ? 'Zu viele Anfragen – bitte in einer Minute noch einmal versuchen.'
+      : status === 504
+      // keine Antwort: vielleicht ist es trotzdem geschehen - nicht gleich noch einmal senden
+      ? 'Keine Antwort erhalten – ob es geklappt hat, ist offen. Bitte nicht gleich noch einmal senden, sondern etwas später prüfen.'
       : status >= 500
         ? 'Das geht im Moment leider nicht – bitte später noch einmal versuchen.'
         : 'Die Anfrage wurde abgelehnt.')

@@ -1,5 +1,5 @@
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
-import { safeReturnTo, singleFlight } from './authRules';
+import { safeReturnTo, singleFlight, watchLeaving } from './authRules';
 import { ApiError } from './gatewayTypes';
 
 // Nur Seiten mit Login brauchen das – die öffentlichen laden nie einen IdP. Die Verbindung kommt
@@ -8,9 +8,10 @@ type AuthConfig = { authority: string; clientId: string };
 
 let manager: Promise<UserManager> | null = null;
 
-// der Zustand einer begonnenen Anmeldung - ausdrücklich, completeLogin sucht ihn unter diesem Präfix
+// der Zustand einer begonnenen Anmeldung - ausdrücklich, completeLogin sucht ihn unter diesem Präfix.
+// Je Tab (sessionStorage, wie der Benutzer): ein zweiter Tab sieht und verbraucht ihn nicht
 const STATE_PREFIX = 'oidc.';
-const stateStorage = () => window.localStorage;
+const stateStorage = () => window.sessionStorage;
 
 function userManager(): Promise<UserManager> {
   manager ??= fetch(`${import.meta.env.BASE_URL}config.json`, { cache: 'no-cache' })
@@ -137,27 +138,15 @@ export function rolesOf(user: User): string[] {
 
 /** Die Anmeldung gilt nicht mehr: die Sitzung im Browser verwerfen und neu anmelden. */
 export async function sessionExpired(): Promise<never> {
-  // die Seite geht zum IdP: das Warten endet mit ihr. Bleibt sie (Weiterleitung blockiert), nach 5 s ein
-  // Fehler - aber nicht, wenn sie schon am Gehen ist (langsame Weiterleitung). Die Listener vor login():
-  // die Weiterleitung kann schon darin beginnen
-  let leaving = false;
-  const leave = () => { leaving = true; };
-  window.addEventListener('pagehide', leave);
-  window.addEventListener('beforeunload', leave);
+  const leaving = watchLeaving(window, 8000,
+    () => new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login'));
   try {
-    try {
-      await (await userManager()).removeUser();
-      await login();
-    } catch (e) {
-      // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
-      throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
-    }
-    await new Promise((r) => setTimeout(r, 5000));
-  } finally {
-    window.removeEventListener('pagehide', leave);
-    window.removeEventListener('beforeunload', leave);
+    await (await userManager()).removeUser();
+    await login();
+  } catch (e) {
+    leaving.cancel();
+    // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
+    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
   }
-  // am Gehen: noch kurz warten - wurde das Gehen abgebrochen, doch der Fehler statt ewig «busy»
-  if (leaving || document.visibilityState === 'hidden') await new Promise((r) => setTimeout(r, 5000));
-  throw new ApiError(401, 'Die Anmeldung wurde nicht gestartet - bitte die Seite neu laden.', 'login');
+  return leaving.wait;
 }

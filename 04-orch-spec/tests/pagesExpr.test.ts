@@ -121,6 +121,11 @@ test('setPath on a list - at most one entry after the last, no huge sparse list'
   assert.deepEqual(setPath({ items: ['a'] }, 'items.4294967294', 'x'), { items: ['a'] });
 });
 
+test('errorText - no answer (504): the outcome is open, not «try again»', () => {
+  assert.match(errorText(504, undefined), /ob es geklappt hat, ist offen/);
+  assert.equal(errorText(504, { '504': 'Bitte die E-Mail abwarten.' }), 'Bitte die E-Mail abwarten.');
+});
+
 test('getPath reads own fields only - setPath keeps lists lists', () => {
   assert.equal(getPath({ a: {} }, 'a.constructor'), undefined);
   assert.equal(getPath({}, '__proto__'), undefined);
