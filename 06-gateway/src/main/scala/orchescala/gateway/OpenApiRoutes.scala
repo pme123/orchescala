@@ -180,18 +180,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * and an error answer (502) are never remembered.
     */
   private[gateway] val DocsDownFor = 30.seconds
-  /** Per project (its worker app - the docs URL depends on the project only) until when it is not asked.
-    * At most DocsDownMax entries: expired ones are dropped first; beyond that a project is not
-    * remembered - the request path decides the name, the map must not grow with it.
-    */
-  private val docsDownUntil        = java.util.concurrent.ConcurrentHashMap[String, java.lang.Long]()
-  private[gateway] val DocsDownMax = 1000
-
-  private def rememberDown(projectName: String): Unit =
-    val now = java.lang.System.currentTimeMillis
-    if docsDownUntil.size >= DocsDownMax then docsDownUntil.values.removeIf(_ <= now)
-    if docsDownUntil.size < DocsDownMax || docsDownUntil.containsKey(projectName) then
-      docsDownUntil.put(projectName, now + DocsDownFor.toMillis)
+  private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
 
   /** Marks a docs answer that is not the worker app's (live) one. */
   private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
@@ -255,7 +244,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         ZIO.logWarning(
           s"No docs URL for project: $projectName"
         ).as(Response.status(Status.NotFound))
-      case Some(_) if Option(docsDownUntil.get(projectName)).exists(_ > java.lang.System.currentTimeMillis) =>
+      case Some(_) if docsDown.isDown(projectName, java.lang.System.currentTimeMillis) =>
         ZIO.logDebug(s"Docs of '$projectName': its worker app did not answer just now - not asked")
           .as(Response.status(Status.ServiceUnavailable))
       case Some(baseUrl) =>
@@ -294,9 +283,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
               s"Error forwarding docs request for '$projectName': $err"
             ).as(Response.status(status))
           .tap: response =>
-            ZIO.succeed:
-              if response.status == Status.ServiceUnavailable then rememberDown(projectName)
-              else docsDownUntil.remove(projectName)
+            ZIO.succeed(docsDown.answered(projectName, response.status, java.lang.System.currentTimeMillis))
 
   // ---------------------------------------------------------------------------
   // OAuth 2.0 Authorization Code Grant helpers
@@ -837,3 +824,26 @@ class OpenApiRoutes()(using config: GatewayConfig):
       .getOrElse("http")
 
 end OpenApiRoutes
+
+object OpenApiRoutes:
+
+  /** The worker apps that did not answer (503) - for `downForMs` not asked again. At most `max`
+    * projects (the request path names them): when full, expired entries go first, beyond that a project
+    * is not remembered. Synchronized - check and change are one step.
+    */
+  final class DownList(downForMs: Long, max: Int):
+    private val until = scala.collection.mutable.HashMap.empty[String, Long]
+
+    def isDown(project: String, now: Long): Boolean = synchronized(until.get(project).exists(_ > now))
+
+    /** The answer for a project: 503 remembers it as down, any other forgets it. */
+    def answered(project: String, status: Status, now: Long): Unit = synchronized:
+      if status != Status.ServiceUnavailable then until.remove(project)
+      else
+        if until.size >= max then until.filterInPlace((_, t) => t > now)
+        if until.size < max || until.contains(project) then until.update(project, now + downForMs)
+
+    def size: Int = synchronized(until.size)
+  end DownList
+end OpenApiRoutes
+

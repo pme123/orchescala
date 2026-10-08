@@ -194,16 +194,15 @@ trait DocCreator extends DependencyCreator, Helpers:
     // the BPMN and the worker version of a project share its folder (`-worker` stripped): one after the
     // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version;
     // the projects in parallel
-    val byProject = versions.toSeq.groupBy((projectName, _) => projectName.stripSuffix("-worker")).toSeq
-    val configs   = Unsafe.unsafe { implicit unsafe =>
+    val configs = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
-        ZIO.foreachPar(byProject) { case (project, projectVersions) =>
-          ZIO.foreach(projectVersions) { case (projectName, version) =>
+        ZIO.foreachPar(DocCreator.byProject(versions)) { case (project, projectVersions) =>
+          ZIO.foreach(projectVersions) { v =>
             // git and tar processes - not on the threads of the ZIO scheduler
             ZIO.attemptBlocking {
               val previousVersion =
-                previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
-              fetchConf(project, version, previousVersion, projectName.endsWith("-worker"))
+                previousVersions.get(v.name).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
+              fetchConf(project, v.version, previousVersion, v.isWorker)
             }
           }
         }.withParallelism(apiConfig.engineConfig.parallelism)
@@ -269,7 +268,7 @@ trait DocCreator extends DependencyCreator, Helpers:
   /** `git fetch --all --tags --prune` in a project's own clone - without a credential prompt, at most
     * two minutes. A failure is logged: a tag that is there locally still counts (resolveTagRef).
     */
-  private def fetchAllTags(projectPath: os.Path): Unit =
+  private def fetchAllTags(projectPath: os.Path): Boolean =
     val cmd    = Seq("git", "fetch", "--all", "--tags", "--prune")
     println(cmd.mkString(" "))
     val result = scala.util.Try(
@@ -281,8 +280,9 @@ trait DocCreator extends DependencyCreator, Helpers:
         timeout = 120000
       )
     )
-    if !result.toOption.exists(_.exitCode == 0) then
-      println(s"  ! fetching the tags of $projectPath failed - the local tags are used")
+    val ok     = result.toOption.exists(_.exitCode == 0)
+    if !ok then println(s"  ! fetching the tags of $projectPath failed - the local tags are used")
+    ok
 
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
   private def resolveTagRef(projectPath: os.Path, version: String): String =
@@ -295,8 +295,11 @@ trait DocCreator extends DependencyCreator, Helpers:
         .out.text().linesIterator.map(_.trim).toSet
 
     candidates.find(localTags.contains).getOrElse {
-      // fetch all tags and re-check against remote
-      fetchAllTags(projectPath)
+      // fetch all tags and re-check against remote - origin not reachable: say so, not «not found»
+      if !fetchAllTags(projectPath) then
+        throw new Exception(
+          s"Tag not found in $projectPath: ${candidates.mkString(" or ")} - fetching the tags failed, not checked on origin"
+        )
 
       val remoteTags =
         os.proc("git", "ls-remote", "--tags", "origin")
@@ -553,4 +556,19 @@ trait DocCreator extends DependencyCreator, Helpers:
       ticket: Option[String] = None
   )
 
+end DocCreator
+
+object DocCreator:
+
+  /** A version of VERSIONS.conf: `democompany-customer-worker` → the worker of `democompany-customer`. */
+  case class ProjectVersion(name: String, version: String):
+    def isWorker: Boolean = name.endsWith("-worker")
+    def project: String   = name.stripSuffix("-worker")
+
+  /** The versions per project - its BPMN and its worker version share the project's folder: one after
+    * the other (setupConfigs runs the projects in parallel, the versions of one in this order).
+    */
+  def byProject(versions: Map[String, String]): Seq[(String, Seq[ProjectVersion])] =
+    versions.toSeq.map(ProjectVersion(_, _)).groupBy(_.project).toSeq.sortBy(_._1)
+      .map((project, vs) => project -> vs.sortBy(_.isWorker))
 end DocCreator

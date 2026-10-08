@@ -1,5 +1,7 @@
 package orchescala.helper.dev.company.docs.site
 
+import scala.util.control.NonFatal
+
 /** Where the git history of a project lies in git-temp - its own clone (`<git-temp>/<project>/.git`),
   * or, when all projects of a company live in one repo (`ProjectsPerGitRepoConfig.singleRepo`), that
   * clone with the project under `projects/<project>/`. In one repo the tags carry the project's name
@@ -45,10 +47,13 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * per repo, see fetchTagsOnce). In one repo a tag of the candidates may be another project's
     * release (`v1.0.0`) - only a tag at which the project is there counts.
     *
+    * Blocks (git, maybe a fetch of up to a minute) - for DocCreator's blocking threads, hence
+    * `private[docs]`.
+    *
     * A local tag is trusted: release tags are not moved. (`git fetch --tags` would not move a local one
     * anyway - it refuses to clobber an existing tag without `--force`.)
     */
-  def resolveTag(version: String): Option[String] =
+  private[docs] def resolveTag(version: String): Option[String] =
     val candidates = tagCandidates(version)
     def found(known: Set[String]) = candidates.filter(known.contains).find(existsAt)
     found(tags()).orElse:
@@ -78,16 +83,16 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = marker)
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
-    var archive: os.SubProcess = null
+    var archive = Option.empty[os.SubProcess]
     try
-      archive = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder)
-        .spawn(stderr = errors)
+      val git = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder).spawn(stderr = errors)
+      archive = Some(git)
       val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, s"--strip-components=$depth")
-        .call(stdin = archive.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
+        .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
       // tar gone early: git may block on the closed pipe - not for ever
-      if !archive.waitFor(ProjectRepo.ExportTimeoutMs) then archive.destroy()
+      if !git.waitFor(ProjectRepo.ExportTimeoutMs) then git.destroy()
       // git's failure is the cause - tar then only sees a cut stream
-      if archive.exitCode() != 0 then
+      if git.exitCode() != 0 then
         throw new Exception(s"git archive $ref of $project failed: ${os.read(errors).trim}")
       if tar.exitCode != 0 then
         throw new Exception(s"tar of $project at $ref failed: ${tar.err.text().trim}")
@@ -97,12 +102,14 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       if os.exists(dest) then os.move(dest, old)
       try os.move(fresh, dest)
       catch
-        case e: Throwable =>
-          if os.exists(old) && !os.exists(dest) then os.move(old, dest)
+        case NonFatal(e) =>
+          // the original error counts - a failing way back is only added to it
+          scala.util.Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed
+            .foreach(e.addSuppressed)
           throw e
       os.remove.all(old)
     finally
-      if archive != null && archive.isAlive() then archive.destroy()
+      archive.filter(_.isAlive()).foreach(_.destroy())
       os.remove.all(fresh)
       os.remove(errors, checkExists = false)
 
@@ -192,7 +199,7 @@ object ProjectRepo:
     * that is not released yet. (The site's API page, SiteAssembler, shows HEAD instead, with a warning.)
     * @throws Exception if there is no tag for `version` or the project is not there at the tag
     */
-  def exportRelease(
+  private[docs] def exportRelease(
       gitTemp: os.Path,
       project: String,
       version: String,

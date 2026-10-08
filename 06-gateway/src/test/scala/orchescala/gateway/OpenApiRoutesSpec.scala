@@ -215,6 +215,26 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         held.size == 1 // the worker app did not answer just now: not asked again
       )).ensuring(ZIO.succeed { stuck.close(); held.forEach(_.close()) })
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
+    test("DownList - 503 down for the window, a good answer clears it, at most max projects") {
+      val down = OpenApiRoutes.DownList(downForMs = 30000, max = 2)
+      down.answered("shop", Status.ServiceUnavailable, now = 0)
+      val inWindow  = down.isDown("shop", now = 29999)
+      val after     = down.isDown("shop", now = 30000)
+      down.answered("shop", Status.Ok, now = 1000) // it answered: asked again at once
+      val cleared   = !down.isDown("shop", now = 1001)
+      // only 503: a 500 or 502 is not «down»
+      down.answered("cards", Status.InternalServerError, now = 0)
+      down.answered("cards", Status.BadGateway, now = 0)
+      val notDown   = !down.isDown("cards", now = 1)
+      // full: expired ones go first, else a new project is not remembered
+      down.answered("a", Status.ServiceUnavailable, now = 0)
+      down.answered("b", Status.ServiceUnavailable, now = 0)
+      down.answered("c", Status.ServiceUnavailable, now = 10)
+      val capped    = down.size == 2 && !down.isDown("c", now = 11)
+      down.answered("d", Status.ServiceUnavailable, now = 40000) // a and b have expired
+      val refreshed = down.isDown("d", now = 40001) && down.size == 1
+      assertTrue(inWindow, !after, cleared, notDown, capped, refreshed)
+    },
     test("isValidSiteFolder - a company folder may have _ (no fallback is skipped for it)") {
       assertTrue(
         openApiRoutes.isValidSiteFolder("acme_corp"),
