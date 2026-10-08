@@ -63,6 +63,7 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
             // bpmn and worker are released separately - the API doc is the NEWEST of the two
             val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
             val tag    = newest.flatMap(SiteAssembler.releaseRef(projectRepo, _))
+            tag.flatMap(projectRepo.plainTagWarning).foreach(println)
             val ref    = tag.getOrElse("HEAD")
             newest.filter(_ => tag.isEmpty).foreach: v =>
               println(s"  ! $name: no tag for $v (${projectRepo.tagCandidates(v).mkString(" / ")}) - using HEAD, which may be unreleased")
@@ -124,24 +125,32 @@ object SiteAssembler:
     * one, and the BPMN/DMN diagrams - in a single repo all under the project's folder.
     * @return the OpenApi.yml - None if the project has none at `ref`
     */
-  def writeApi(projectRepo: ProjectRepo, ref: String, target: os.Path, apiPage: String): Option[Array[Byte]] =
-    val repo    = projectRepo.repo
+  def writeApi(
+      projectRepo: ProjectRepo,
+      ref: String,
+      target: os.Path,
+      apiPage: String
+  ): Option[Array[Byte]] =
+    val repo     = projectRepo.repo
+    def at(file: String) = s"$ref:$file"
     // old-style projects (pre 03-api) keep openApi.yml in the repo root
-    val ymlPath = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
-      .find(f => gitOut(repo, "cat-file", "-e", s"$ref:$f").isDefined)
-    ymlPath.flatMap(f => gitOut(repo, "show", s"$ref:$f")).map: yml =>
+    val ymlPath  = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
+      .find(f => gitOut(repo, "cat-file", "-e", at(f)).isDefined)
+    ymlPath.flatMap(f => gitOut(repo, "show", at(f))).map: yml =>
       os.makeDir.all(target / "diagrams")
       os.write.over(target / "OpenApi.yml", yml)
       os.write.over(target / "OpenApi.html", apiPage)
-      gitOut(repo, "show", s"$ref:${projectRepo.path("03-api/PostmanOpenApi.yml")}").foreach: postman =>
+      gitOut(repo, "show", at(projectRepo.path("03-api/PostmanOpenApi.yml"))).foreach: postman =>
         os.write.over(target / "PostmanOpenApi.yml", postman)
         os.write.over(target / "PostmanOpenApi.html", apiPage)
-      Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path).foreach: dia =>
-        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
+      val diagramDirs = Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path)
+      diagramDirs.foreach: dir =>
+        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dir)
+          .map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
           .flatMap(_.linesIterator.map(_.trim))
           .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
           .foreach: f =>
-            gitOut(repo, "show", s"$ref:$f").foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
+            gitOut(repo, "show", at(f)).foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
       yml
 
   private def gitOut(repo: os.Path, args: String*): Option[Array[Byte]] =

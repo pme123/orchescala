@@ -173,11 +173,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** Why a docs request did not reach the worker app - the status the gateway answers with. */
   private case class DocsFailure(status: Status, message: String)
 
-  /** How long a worker app may take for its docs - after that, the released file of the site. On
-    * purpose: a page that waits longer is worse than the released docs, marked as such; long enough
-    * for a worker app that starts cold.
+  /** A worker app that did not answer (503) is not asked again for this long - the next files of the
+    * same page (the yml, each diagram) come from the site at once, not after another timeout each.
     */
-  private val DocsForwardTimeout = 20.seconds
+  private[gateway] val DocsDownFor = 30.seconds
+  private val docsDownUntil        = java.util.concurrent.ConcurrentHashMap[String, java.lang.Long]()
 
   /** Marks a docs answer that is not the worker app's (live) one. */
   private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
@@ -208,7 +208,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
         .as(forwarded)
     else
       // the same headers as the live answer (forwardDocsRequest) - .bpmn/.dmn have no type of their own
-      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file"), Some(contentType)).flatMap: fromSite =>
+      val resource = siteResourcePath(s"$companyName/$projectName/$file")
+      serveClasspathFile(resource, Some(contentType)).flatMap: fromSite =>
         if fromSite.status.isSuccess then
           // per file (the yml, each diagram) - info, the header marks the answer
           ZIO.logInfo(
@@ -227,8 +228,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
     * slashes) is accepted - the path goes into the URL as encoded segments.
     *
-    * No docs URL: 404; the worker app not reachable or no answer within DocsForwardTimeout: 503; its
-    * error answer: 502; a wrong URL: 500.
+    * No docs URL: 404; the worker app not reachable or no answer within `docsForwardTimeout`: 503
+    * (and for DocsDownFor not asked again); its error answer: 502; a wrong URL: 500.
     */
   private def forwardDocsRequest(
       projectName: String,
@@ -240,6 +241,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
         ZIO.logWarning(
           s"No docs URL for project: $projectName"
         ).as(Response.status(Status.NotFound))
+      case Some(_) if Option(docsDownUntil.get(projectName)).exists(_ > java.lang.System.currentTimeMillis) =>
+        ZIO.logDebug(s"Docs of '$projectName': its worker app did not answer just now - not asked")
+          .as(Response.status(Status.ServiceUnavailable))
       case Some(baseUrl) =>
         (for
           uri      <- ZIO.fromEither(Uri.parse(baseUrl).map(_.addPath(path)))
@@ -252,8 +256,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
                           // a worker app that is not there should not hold the page for the client's
                           // default timeout - the released file is the answer then
                           .timeoutFail(
-                            DocsFailure(Status.ServiceUnavailable, s"no answer within $DocsForwardTimeout")
-                          )(DocsForwardTimeout)
+                            DocsFailure(Status.ServiceUnavailable, s"no answer within ${config.docsForwardTimeout}")
+                          )(config.docsForwardTimeout)
           result   <- response.body match
                         case Right(body) =>
                           ZIO.succeed(
@@ -275,6 +279,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
             ZIO.logError(
               s"Error forwarding docs request for '$projectName': $err"
             ).as(Response.status(status))
+          .tap: response =>
+            ZIO.succeed:
+              if response.status == Status.ServiceUnavailable then
+                docsDownUntil.put(projectName, java.lang.System.currentTimeMillis + DocsDownFor.toMillis)
+              else docsDownUntil.remove(projectName)
 
   // ---------------------------------------------------------------------------
   // OAuth 2.0 Authorization Code Grant helpers
@@ -773,7 +782,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
       resourcePath: String,
       contentType: Option[MediaType] = None
   ): ZIO[Any, Nothing, Response] =
-    ZIO.attempt {
+    // reading a file of the jar - not on the compute pool (the fallback of every diagram comes here)
+    ZIO.attemptBlocking {
       val ext       = resourcePath.split('.').lastOption.getOrElse("").toLowerCase
       val mediaType = contentType
         .orElse(MediaType.forFileExtension(ext))

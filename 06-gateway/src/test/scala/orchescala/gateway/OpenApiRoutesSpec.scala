@@ -186,6 +186,33 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         ymlHead == (Some(MediaType.text.yaml), Some("nosniff"))
       )
     } @@ TestAspect.timeout(20.seconds), // a sandbox that drops packets instead of refusing: fail, not hang
+    test("a worker app that does not answer: the released file after docsForwardTimeout, then at once") {
+      // accepts connections, never answers - like a host that is up but stuck (or a proxy that drops)
+      val stuck = java.net.ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress)
+      val port  = stuck.getLocalPort
+      val held  = java.util.concurrent.ConcurrentLinkedQueue[java.net.Socket]()
+      val accept = Thread(() => try while true do held.add(stuck.accept()) catch case _: java.io.IOException => ())
+      accept.setDaemon(true)
+      accept.start()
+      val slowConfig = new DefaultGatewayConfig(
+        engineConfig = DefaultEngineConfig(),
+        workerConfig = DefaultWorkerConfig(DefaultEngineConfig()),
+        docsAppUrl = _ => Some(s"http://127.0.0.1:$port")
+      ):
+        override def docsForwardTimeout: zio.Duration = 1.second
+      val routes = OpenApiRoutes()(using slowConfig).routes
+      def get(path: String) = routes.runZIO(Request.get(URL.decode(path).toOption.get))
+      (for
+        first  <- get("/site/acme/acme-shop/OpenApi.yml").timed
+        second <- get("/site/acme/acme-shop/diagrams/shop.bpmn").timed
+      yield assertTrue(
+        first._2.status == Status.Ok,
+        first._2.rawHeader(openApiRoutes.DocsSourceHeader).contains("released"),
+        first._1.toMillis >= 900, // waited for the timeout
+        second._2.status == Status.Ok,
+        second._1.toMillis < 900 // the worker app did not answer just now: not asked again
+      )).ensuring(ZIO.succeed { stuck.close(); held.forEach(_.close()) })
+    } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("isValidSiteFolder - a company folder may have _ (no fallback is skipped for it)") {
       assertTrue(
         openApiRoutes.isValidSiteFolder("acme_corp"),

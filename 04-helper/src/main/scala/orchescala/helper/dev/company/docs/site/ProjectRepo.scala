@@ -21,6 +21,18 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
   /** The leading folders `git archive` puts before the project's files. */
   private def depth: Int = if singleRepo then folder.split('/').count(_.nonEmpty) else 0
 
+  /** Is it the project's own tag (`<project>-v<version>`) - not a plain `v<version>`, which in one
+    * repo may be any project's release (the folder of every project is there at nearly every tag).
+    */
+  def isOwnTag(tag: String): Boolean = !singleRepo || tag.startsWith(s"$project-")
+
+  /** A warning when a release is taken from a plain tag in one repo - None for the project's own. */
+  def plainTagWarning(tag: String): Option[String] =
+    Option.when(!isOwnTag(tag))(
+      s"  ! $project: no tag of its own ($project-v…) - using the plain '$tag', " +
+        "which may be another project's release"
+    )
+
   /** The tags a release of `version` may have - the project's own first. */
   def tagCandidates(version: String): Seq[String] =
     if singleRepo then Seq(s"$project-v$version", s"$project-$version", s"v$version", version)
@@ -56,6 +68,8 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     require(existsAt(ref), s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
     os.makeDir.all(dest / os.up)
+    // left by a run that was killed midway
+    os.list(dest / os.up).filter(_.last.startsWith(s".${dest.last}-")).foreach(os.remove.all)
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = s".${dest.last}-")
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
@@ -95,7 +109,10 @@ object ProjectRepo:
     * at most its timeout, instead of reading the tags before it. One small entry per clone of git-temp,
     * for the run of the helper.
     */
-  private case class FetchState(var validUntil: Long = Long.MinValue)
+  private final class FetchState:
+    var validUntil: Long              = Long.MinValue
+    /** why the last fetch failed - for the error of a tag that is then not found */
+    var failure: Option[String]       = None
   private val fetches = java.util.concurrent.ConcurrentHashMap[os.Path, FetchState]()
 
   /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
@@ -119,7 +136,12 @@ object ProjectRepo:
       else
         val ok = fetch(repo)
         state.validUntil = start + (if ok then FetchValidMs else FailedFetchValidMs)
+        state.failure = Option.when(!ok)(s"fetching the tags of $repo failed (see above)")
         true
+
+  /** Why the last fetch of the repo failed - None if it worked or did not run. */
+  private[site] def fetchFailure(repo: os.Path): Option[String] =
+    Option(fetches.get(repo)).flatMap(s => s.synchronized(s.failure))
 
   private def fetchTags(repo: os.Path): Boolean =
     val fetch = scala.util.Try(
@@ -159,7 +181,10 @@ object ProjectRepo:
     locate(gitTemp, project).filter(_.singleRepo).map: repo =>
       val tag = repo.resolveTag(version).getOrElse:
         val tried = repo.tagCandidates(version).mkString(" or ")
-        throw new Exception(s"Tag not found in ${repo.repo}: $tried - is $project $version released?")
+        // not «unreleased», if origin could not be asked - say so
+        val why   = fetchFailure(repo.repo).fold(s"is $project $version released?")(f => s"$f - not checked on origin")
+        throw new Exception(s"Tag not found in ${repo.repo}: $tried - $why")
+      repo.plainTagWarning(tag).foreach(println)
       repo.exportTo(tag, dest)
       tag
 

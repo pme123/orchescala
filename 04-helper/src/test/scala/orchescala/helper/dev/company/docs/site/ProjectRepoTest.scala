@@ -202,6 +202,32 @@ class ProjectRepoTest extends FunSuite:
     val first = os.proc("git", "-C", origin.toString, "rev-list", "--max-parents=0", "HEAD").call().out.text().trim
     assertEquals(local, first)
 
+  test("exportRelease - a plain v<version> in one repo: taken, with a warning"):
+    val gitTemp = singleRepoGitTemp()
+    git(gitTemp / "orchescala-acme", "tag", "v3.0.0") // the company's tag - no acme-shop-v3.0.0
+    val out     = java.io.ByteArrayOutputStream()
+    val tag     = Console.withOut(out)(ProjectRepo.exportRelease(gitTemp, "acme-shop", "3.0.0", gitTemp / "acme-shop"))
+    assertEquals(tag, Some("v3.0.0"))
+    assert(out.toString.contains("no tag of its own"), out.toString)
+    val own     = java.io.ByteArrayOutputStream()
+    Console.withOut(own)(ProjectRepo.exportRelease(gitTemp, "acme-shop", "1.0.0", gitTemp / "acme-shop"))
+    assert(!own.toString.contains("no tag of its own"), own.toString)
+
+  test("exportRelease - origin not reachable: the error says so, not «unreleased»"):
+    val gitTemp = singleRepoGitTemp()
+    git(gitTemp / "orchescala-acme", "remote", "add", "origin", (gitTemp / "gone.git").toString)
+    val err = Console.withOut(java.io.ByteArrayOutputStream()):
+      intercept[Exception](ProjectRepo.exportRelease(gitTemp, "acme-shop", "7.0.0", gitTemp / "acme-shop"))
+    assert(err.getMessage.contains("not checked on origin"), err.getMessage)
+    assert(!err.getMessage.contains("released?"), err.getMessage)
+
+  test("exportTo - leftovers of a killed run next to dest are removed"):
+    val gitTemp = singleRepoGitTemp()
+    os.makeDir.all(gitTemp / ".acme-shop-123")
+    os.write(gitTemp / ".acme-shop-123.git-archive.err", "old")
+    ProjectRepo.locate(gitTemp, "acme-shop").get.exportTo("acme-shop-v1.0.0", gitTemp / "acme-shop")
+    assertEquals(os.list(gitTemp).map(_.last).filter(_.startsWith(".")), IndexedSeq.empty)
+
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()
     val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")
