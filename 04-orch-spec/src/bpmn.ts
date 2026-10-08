@@ -1079,10 +1079,23 @@ const norm = (k: string, v: unknown): unknown =>
 const same = (k: string, a: unknown, b: unknown): boolean =>
   JSON.stringify(norm(k, a) ?? null) === JSON.stringify(norm(k, b) ?? null);
 
+/**
+ * Was davon im Diagramm steht: abgewählte Zeilen und Ausgaben des Services
+ * (`fromService`, ein Eintrag in `_outputVariables`) kennt es nicht.
+ */
+const inDiagram = (k: string, v: unknown): unknown =>
+  (k === 'inputs' || k === 'outputs') && Array.isArray(v)
+    ? (v as Mapping[]).filter(m => !m.disabled && m.name.trim() && !m.fromService)
+    : v;
+
 function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
   for (const k of SPEC_OWNED) {
-    // ohne voriges BPMN: nur nicht verlieren, was das Diagramm nicht kennt
-    const diagramUnchanged = base ? same(k, s[k], base[k]) : s[k] == null || same(k, s[k], []);
+    // ohne voriges BPMN: nur nicht verlieren, was das Diagramm nicht kennt —
+    // und steht im Diagramm genau, was die Spezifikation hineinschreibt, hat es
+    // nichts geändert, auch wenn der Bezug fehlt oder veraltet ist (sonst gingen
+    // die abgewählten Zeilen verloren und der Schritt sprünge auf «Angepasst»)
+    const diagramUnchanged = (base ? same(k, s[k], base[k]) : s[k] == null || same(k, s[k], []))
+      || (prev[k] != null && same(k, s[k], inDiagram(k, prev[k])));
     if (!diagramUnchanged) continue;
     if (prev[k] === undefined) delete s[k];
     else (s as Record<string, unknown>)[k] = prev[k];

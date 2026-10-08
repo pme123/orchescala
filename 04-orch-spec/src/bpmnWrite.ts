@@ -20,7 +20,7 @@
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
-import { juelOptions, referencedVariables, resultVariables } from './feel';
+import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel';
 import { catalogEntry } from './interactions';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
@@ -122,16 +122,30 @@ let juelOpts: JuelOptions = {};
  * bestimmen, wie ein Spin-Pfad endet, nicht die Prozessvariablen allein.
  */
 let outputOpts: (stepId: string) => JuelOptions = () => juelOpts;
+/**
+ * Für Eingaben, Bedingungen und Zuständigkeit eines Schritts: die Prozessvariablen —
+ * in einer Mehrfachausführung samt Element (`newDebitMastercard`), sonst endete
+ * dessen Pfad ohne `boolValue()` & Co. (wie in den Befunden, siehe withMultiInstance)
+ */
+let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
   const steps = new Map(allSteps(spec.steps).map(s => [s.id, s]));
+  const scopes = multiInstanceScopes(spec.steps);
+  const inCache = new Map<string, JuelOptions>();
+  inputOpts = stepId => {
+    if (!scopes.get(stepId)?.length) return juelOpts;
+    let o = inCache.get(stepId);
+    if (!o) inCache.set(stepId, o = { ...juelOpts, vars: withMultiInstance([...(juelOpts.vars ?? [])], scopes.get(stepId)) });
+    return o;
+  };
   const cache = new Map<string, JuelOptions>();
   outputOpts = stepId => {
     const step = steps.get(stepId);
     if (!step) return juelOpts;
     let o = cache.get(stepId);
-    if (!o) cache.set(stepId, o = { ...juelOpts, vars: resultVariables(step, spec, model, catalogEntry(step, model)) });
+    if (!o) cache.set(stepId, o = { ...juelOpts, vars: withMultiInstance(resultVariables(step, spec, model, catalogEntry(step, model)), scopes.get(stepId)) });
     return o;
   };
   try {
@@ -139,6 +153,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
   } finally {
     juelOpts = {};
     outputOpts = () => juelOpts;
+    inputOpts = () => juelOpts;
   }
 }
 
@@ -325,7 +340,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
       let translated = true;
       if (engine === 'c8') text = `=${nullSafeCondition(body)}`;
       else {
-        const r = feelToJuel(body, juelOpts);
+        const r = feelToJuel(body, inputOpts(step.id));
         if (r.ok) text = `\${${r.juel}}`;
         else { text = b.condition; translated = false; }
       }
@@ -334,9 +349,9 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
         // sich nur darin, welche Variable fehlen darf (`execution.getVariable`):
         // das folgt dem heutigen Datenmodell
         const bare = (t: string) => t.replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1').replace(/\s+/g, '');
-        if (engine === 'c8' || !translated || old.trim() === text || (bare(old) !== bare(text) && !bareJsonPath(old) && !lacksEnding(old, b.condition))) continue;
+        if (engine === 'c8' || !translated || old.trim() === text || (bare(old) !== bare(text) && !bareJsonPath(old) && !lacksEnding(old, b.condition, inputOpts(step.id)))) continue;
       } else if (!translated) {
-        issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${(feelToJuel(body, juelOpts) as { reason: string }).reason}` });
+        issues.push({ stepId: step.id, where: `Zweig «${b.label}»`, text: `nicht nach JUEL übersetzbar: ${(feelToJuel(body, inputOpts(step.id)) as { reason: string }).reason}` });
       }
       let cond = firstNamed(flow, 'conditionExpression');
       if (!cond) {
@@ -548,7 +563,7 @@ function writeImplementation(
       const holder = engine === 'c8' ? zeebe('assignmentDefinition') : el;
       const old = holder ? attr(holder, key) : undefined;
       if (old != null && importExpression(old).trim() === value && !bareJsonPath(old)) continue;
-      const r = engineExpression(value, engine, juelOpts);
+      const r = engineExpression(value, engine, inputOpts(step.id));
       if (r.issue) issues.push({ stepId: step.id, where: 'Zuständigkeit', text: `${key} nicht nach JUEL übersetzbar: ${r.issue}` });
       if (engine === 'c8') zeebeOrNew('assignmentDefinition').setAttribute(key, r.text);
       else el.setAttributeNS(CAMUNDA_NS, `camunda:${key}`, r.text);
@@ -798,7 +813,7 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (TECHNICAL.has(name)) continue;
     const tag = local(p) === 'inputParameter' ? 'in' : 'out';
     const row = (tag === 'in' ? ins : outs).find(m => m.name.trim() === name);
-    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, tag === 'in' ? juelOpts : outputOpts(stepId)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
+    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, tag === 'in' ? inputOpts(stepId) : outputOpts(stepId)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
       keep.add(`${tag}:${name}`);
       continue;
     }
@@ -813,7 +828,7 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (keep.has(`in:${m.name.trim()}`) || scriptGone(m, `Eingabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
     p.setAttribute('name', m.name.trim());
-    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true));
+    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true, inputOpts(stepId)));
     appendEl(io, p);
   }
   for (const m of outs) {
@@ -842,14 +857,14 @@ function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Ma
     if (n !== 'in' && n !== 'out') continue;
     if (attr(p, 'businessKey') || attr(p, 'variables')) continue;
     if (TECHNICAL.has(attr(p, 'target') ?? '') || TECHNICAL.has(attr(p, 'source') ?? '')) continue;
-    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, n === 'in' ? juelOpts : outputOpts(stepId)));
+    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, n === 'in' ? inputOpts(stepId) : outputOpts(stepId)));
     if (row) { kept.add(row); continue; }
     removeEl(p);
   }
   const put = (tag: 'in' | 'out', m: Mapping, where: string) => {
     if (kept.has(m)) return;
     const name = m.name.trim();
-    const opts = tag === 'in' ? juelOpts : outputOpts(stepId);
+    const opts = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
     const existing = ioParam(tag, name);
     // eine lokale Variable im `inputOutput`: unverändert bleibt sie, ein
     // Skript sowieso; ein geänderter Text wird dort ersetzt — es sei denn,
