@@ -1563,7 +1563,8 @@ Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 
 «Camunda 7» meint das BPMN von Camunda 7 (`camunda:`-Erweiterungen, JUEL) – Operaton führt es
 unverändert aus; orch-spec nennt diese Engine deshalb «Camunda 7 / Operaton» (`c7`), auch für ein
-Projekt, das nur auf Camunda 7 läuft. Die Spezifikation kennt nur das BPMN; auf welcher Engine ein
+Projekt, das nur auf Camunda 7 läuft – in der Oberfläche, im Orchescala-Export und im Änderungsprotokoll
+einer Umwandlung. Die Spezifikation kennt nur das BPMN; auf welcher Engine ein
 Projekt läuft, steht in Orchescala (`engineType` in `PROJECT.conf`).
 
 Ein Klick auf die Engine im Kopf («· Camunda 7 / Operaton») wandelt das Diagramm in die

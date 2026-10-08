@@ -2,6 +2,9 @@
 // Parser). c7 ist das BPMN von Camunda 7: Operaton führt es unverändert aus.
 import type { EngineId } from './types';
 
+/** Die Engine einer Spezifikation ohne Angabe. */
+export const DEFAULT_ENGINE: EngineId = 'c7';
+
 export const C7_LABEL = 'Camunda 7 / Operaton';
 export const C8_LABEL = 'Camunda 8';
 
@@ -11,4 +14,4 @@ const LABELS: Record<EngineId, string> = { c7: C7_LABEL, c8: C8_LABEL };
 /** Die Bezeichnung einer Engine - ohne Angabe die Vorgabe c7; ein unbekannter Wert (eine Datei von Hand)
   * bleibt sichtbar, statt als c7 zu erscheinen. */
 export const engineLabel = (id: EngineId | undefined): string =>
-  id === undefined ? C7_LABEL : Object.hasOwn(LABELS, id) ? LABELS[id] : String(id);
+  Object.hasOwn(LABELS, id ?? DEFAULT_ENGINE) ? LABELS[id ?? DEFAULT_ENGINE] : String(id);
