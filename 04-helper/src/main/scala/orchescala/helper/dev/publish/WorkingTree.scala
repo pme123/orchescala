@@ -50,12 +50,13 @@ object WorkingTree extends Helpers:
   end restoreWorkingTree
 
   /** `body` with the restore of a failed release - for the changes made before the
-    * [[ReleaseRun]] (the versions). A fatal error goes through without a restore.
+    * [[ReleaseRun]] (the versions). Whatever fails `body`, the tree is restored (best effort
+    * for a fatal error) - then it is rethrown.
     */
   def restoring[T](restore: RestoreForRetry)(body: => T): T =
     try body
     catch
-      case scala.util.control.NonFatal(e) =>
+      case e: Throwable => // a fatal error too - best effort then
         suppressedBy(e)(restore.now())
         throw e
 

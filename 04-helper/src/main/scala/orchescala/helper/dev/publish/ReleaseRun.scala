@@ -76,22 +76,28 @@ case class ReleaseRun(
       addShutdownHook(aborted)
       try run(step)
       catch
-        // a fatal error goes through without a restore
-        case scala.util.control.NonFatal(e) =>
-          // the failure of the release stays the error - a failing restore or report is added to it
-          suppressedBy(e)(onFailure(step)) // first - the report is best effort and may take a while
-          if step == ReleaseStep.Upload then
-            println(
-              "The upload failed: the docker image (if any) is pushed already, and the modules `publish` " +
-                "uploaded before it failed are in the repository. The next try fails the check of the version " +
-                "until you remove the version there - then it overwrites the image's tag."
-            )
-            suppressedBy(e)(afterFailedUpload())
+        // whatever ended the step - a fatal error too (best effort then): it stays the error,
+        // a failing restore or report is added to it
+        case e: Throwable =>
+          onFailureOf(step, e)
           throw e
       finally
         // refused while the JVM shuts down - then the hook runs anyway
         try removeShutdownHook(aborted)
         catch case _: IllegalStateException => ()
+
+  /** The step failed with `e`: the restore first, then (an upload) what went out - the report
+    * is best effort and may take a while.
+    */
+  private def onFailureOf(step: ReleaseStep, e: Throwable): Unit =
+    suppressedBy(e)(onFailure(step))
+    if step == ReleaseStep.Upload then
+      println(
+        "The upload failed: the docker image (if any) is pushed already, and the modules `publish` " +
+          "uploaded before it failed are in the repository. The next try fails the check of the version " +
+          "until you remove the version there - then it overwrites the image's tag."
+      )
+      suppressedBy(e)(afterFailedUpload())
 
   private def run(step: ReleaseStep): Unit =
     step match
@@ -167,19 +173,31 @@ object SbtChild:
     */
   private def end(child: os.SubProcess, what: String): Unit =
     val handle  = child.wrapped.toHandle
+    // the snapshot stays valid once the child is gone and they are reparented - one started
+    // in between is missed, and one that ignores the signals may go on (said below)
     val started = handle.descendants().toList
     println(s"Ending $what - pid ${handle.pid} and the ${started.size} processes it started")
-    started.forEach(_.destroy())
     child.destroy()
+    started.forEach(_.destroy())
     if !child.waitFor(5000) then
-      println(s"$what did not end - killed.")
-      handle.descendants().forEach(_.destroyForcibly())
       child.destroyForcibly()
       child.waitFor(5000)
+    val alive = started.stream().filter(_.isAlive).toList
+    if !alive.isEmpty then
+      alive.forEach(_.destroyForcibly())
+      Thread.sleep(500)
+    val stillAlive = started.stream().filter(_.isAlive).toList
+    if child.isAlive() || !stillAlive.isEmpty then
+      println(
+        s"WARNING: $what did not end (pids ${(Option.when(child.isAlive())(handle.pid).toList ++
+            stillAlive.stream().map(_.pid).toList.toArray.toSeq).mkString(", ")}) - it may still write " +
+          "while the working tree is restored."
+      )
+    else println(s"$what ended.")
   end end
 end SbtChild
 
 /** `body` after a failure `e` - fails it too, that is added to `e` (which stays the error). */
 private[publish] def suppressedBy(e: Throwable)(body: => Unit): Unit =
   try body
-  catch case scala.util.control.NonFatal(r) => e.addSuppressed(r)
+  catch case r: Throwable => e.addSuppressed(r)

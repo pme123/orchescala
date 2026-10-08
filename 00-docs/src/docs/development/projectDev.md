@@ -90,7 +90,8 @@ The following steps are executed:
     project (a wrong token - or a deploy token, which may not read it), or is the registry a group's,
     the release goes on only when you confirm. The job token of a pipeline is GitLab's
     own, it is not probed.
-- Push the `develop` branch.
+- Push the `develop` branch - the one outward step before the build: the documentation takes the
+  references from the remote. It pushes committed work only (the tree is clean), a next try pushes nothing.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
 - Build everything locally (`sbt package packageSrc makePom` - what `publish` packages, without
   `publishLocal`'s copy in `~/.ivy2/local` that would shadow the repository; the Docker image of the

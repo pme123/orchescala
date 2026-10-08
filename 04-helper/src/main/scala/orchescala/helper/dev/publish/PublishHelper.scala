@@ -9,7 +9,7 @@ case class PublishHelper()(using
 ) extends Helpers:
 
   import PublishHelper.*
-  import RepoCheck.{artifactSuffix as settingsSuffix, reportUploaded, verifyVersionFree as versionFree}
+  import RepoCheck.reportUploaded
   import WorkingTree.*
 
   def publish(version: String): Unit =
@@ -19,7 +19,9 @@ case class PublishHelper()(using
       verifyCleanWorkingTree()
       verifyNextVersion(version)
     verify(version)
-    if !isSnapshot then verifyVersionFree(version)
+    if !isSnapshot then RepoCheck.verifyVersionFree(version, devConfig, artifactSuffix)
+    // the one outward step before the build: the docs (`api/run`) take the references from the
+    // remote - it pushes committed work only (a clean tree), a next try pushes nothing
     pushDevelop()
     // armed now, with the clean tree - right before the versions are rewritten
     val restore    = restoreForRetry(isSnapshot)
@@ -41,11 +43,7 @@ case class PublishHelper()(using
   end publish
 
   private lazy val artifactSuffix: String =
-    settingsSuffix(workDir / "project" / "Settings.scala")
-
-  /** [[RepoCheck.verifyVersionFree]] for the modules of this project. */
-  private def verifyVersionFree(version: String): Unit =
-    versionFree(version, devConfig, artifactSuffix)
+    RepoCheck.artifactSuffix(workDir / "project" / "Settings.scala")
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"

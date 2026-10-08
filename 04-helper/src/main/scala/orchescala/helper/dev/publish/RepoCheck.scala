@@ -18,18 +18,48 @@ object RepoCheck:
 
   def artifactSuffix(settings: String, name: String = "project/Settings.scala"): String =
     val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
-    // in code, not in a comment (a whole line, or the end of one)
-    val crossPathsOff = settings.linesIterator
-      .map(_.trim)
-      .filterNot(_.startsWith("//"))
-      .map(_.takeWhile(_ != '/'))
-      .exists(CrossPathsOff.findFirstIn(_).isDefined)
+    val crossPathsOff = CrossPathsOff.findFirstIn(withoutComments(settings)).isDefined
     val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
     if crossPathsOff then ""
     else
       ScalaV.findFirstMatchIn(settings).map(m => s"_${m.group(1)}")
         .getOrElse(throw IllegalStateException(s"No `val scalaV = \"...\"` in $name - the artifact suffix is unknown."))
   end artifactSuffix
+
+  /** `scala` without its comments - the line comments (two slashes to the end of the line) and
+    * the block comments; a comment marker inside a string literal is no comment.
+    */
+  def withoutComments(scala: String): String =
+    val out     = StringBuilder()
+    var i       = 0
+    var inStr   = false
+    var inBlock = false
+    while i < scala.length do
+      val c    = scala(i)
+      val next = if i + 1 < scala.length then scala(i + 1) else ' '
+      if inBlock then
+        if c == '*' && next == '/' then
+          inBlock = false
+          i += 1
+      else if inStr then
+        out += c
+        if c == '\\' then
+          out += next
+          i += 1
+        else if c == '"' then inStr = false
+      else if c == '"' then
+        inStr = true
+        out += c
+      else if c == '/' && next == '/' then
+        while i < scala.length && scala(i) != '\n' do i += 1
+        i -= 1
+      else if c == '/' && next == '*' then
+        inBlock = true
+        i += 1
+      else out += c
+      i += 1
+    out.toString
+  end withoutComments
 
   /** The pom of each module in the release repo - what `publish` uploads: `publishMavenStyle`,
     * the `organization` (ProjectDef.org) as path, the module's `name` plus `artifactSuffix`
@@ -47,7 +77,7 @@ object RepoCheck:
     * the token may not read, so a wrong token passes here and fails at the upload, as
     * before), a redirect is not followed (the token would go to the other host).
     */
-  def verifyVersionFree(version: String, urls: Seq[String], status: String => Int): Unit =
+  def verifyUrlsFree(version: String, urls: Seq[String], status: String => Int): Unit =
     urls.foreach: url =>
       val code = status(url)
       println(s"  $code $url")
@@ -71,9 +101,9 @@ object RepoCheck:
           throw IllegalStateException(s"The repository is not reachable: $url")
         case other                   =>
           throw IllegalStateException(s"The repository answered an unexpected status ($other): $url")
-  end verifyVersionFree
+  end verifyUrlsFree
 
-  /** [[verifyVersionFree]] against the release repo of `devConfig` for every module of the
+  /** [[verifyUrlsFree]] against the release repo of `devConfig` for every module of the
     * project (a module that is never published is simply not there). Nothing to check with
     * the dummy repo.
     */
@@ -104,7 +134,7 @@ object RepoCheck:
           )
         case _                                                         => ()
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyVersionFree(version, releaseUrls(devConfig, version, artifactSuffix, repo), status)
+      verifyUrlsFree(version, releaseUrls(devConfig, version, artifactSuffix, repo), status)
   end verifyVersionFree
 
   /** The poms `publish` uploads for `version` - every module of the project (a module that
