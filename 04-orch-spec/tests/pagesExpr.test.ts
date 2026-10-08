@@ -33,6 +33,8 @@ test('getPath / setPath', () => {
 test('format and interpolate', () => {
   assert.equal(format('2026-10-20T09:00', 'date'), 'Di 20.10.2026');
   assert.equal(format('2026-10-20T09:00', 'time'), '09:00');
+  assert.equal(format('2026-10-20', 'time'), ''); // only a day - no 00:00
+  assert.equal(format('2026-10-20', 'datetime'), format('2026-10-20', 'date'));
   assert.equal(format('2026-10-20T09:00', 'datetime'), 'Di 20.10.2026, 09:00');
   assert.equal(format('mortgage', 'label:topic', labels), 'Hypothek');
   assert.equal(format('pension', 'label:topic', labels), 'pension');

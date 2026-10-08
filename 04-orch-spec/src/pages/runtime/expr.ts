@@ -8,7 +8,8 @@ export function getPath(state: unknown, path: string): unknown {
   return path
     .split('.')
     .filter(Boolean)
-    // nur eigene Felder - `constructor`, `__proto__` & Co. gibt es im Zustand nicht
+    // nur eigene Felder - `constructor`, `__proto__` & Co. gibt es im Zustand nicht (bei einer Liste
+    // auch `length`: `slots.length == 0` ist gewollt)
     .reduce<unknown>((o, k) => (o != null && typeof o === 'object' && Object.hasOwn(o, k) ? (o as Record<string, unknown>)[k] : undefined), state);
 }
 
@@ -66,6 +67,9 @@ export function format(value: unknown, fmt: string | undefined, labels: Labels =
     return labels[fmt.slice(6)]?.[key] ?? key;
   }
   const date = fmt ? asDate(value) : null;
+  // nur ein Tag (2026-10-20) hat keine Uhrzeit - nicht 00:00 erfinden
+  if (date && (fmt === 'time' || fmt === 'datetime') && typeof value === 'string' && !value.includes('T'))
+    return fmt === 'time' ? '' : format(value, 'date', labels);
   if (date) {
     const day = `${WEEKDAYS[date.getDay()]} ${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
     const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -236,7 +240,6 @@ function operatorOutsideQuotes(text: string): { op: '==' | '!='; at: number } | 
   return null;
 }
 
-/** `a || 'x||y'` → `a`, `'x||y'` - nur ausserhalb von Anführungszeichen. */
 /** Bleibt am Ende ein Anführungszeichen offen? (wie splitOutsideQuotes zählt) */
 function openQuote(text: string): boolean {
   let quote: string | null = null;
@@ -248,6 +251,7 @@ function openQuote(text: string): boolean {
   return quote !== null;
 }
 
+/** `a || 'x||y'` → `a`, `'x||y'` - nur ausserhalb von Anführungszeichen. */
 function splitOutsideQuotes(text: string, op: string): string[] {
   const parts: string[] = [];
   let quote: string | null = null;

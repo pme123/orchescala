@@ -89,7 +89,11 @@ export async function logout(): Promise<void> {
 }
 
 export async function accessToken(): Promise<string> {
-  const user = await (await userManager()).getUser();
+  // ohne IdP (config.json fehlt, Netz weg) ist das ein Anmeldefehler, kein Fehler des Gateways
+  const um = await userManager().catch((e) => {
+    throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
+  });
+  const user = await um.getUser();
   if (user && !user.expired) return user.access_token;
   // abgelaufen: zuerst still erneuern (Refresh-Token), erst dann zur Anmeldung - dieselbe Erneuerung
   // wie bei einem 401 (renewToken), nicht eine zweite daneben
@@ -104,8 +108,9 @@ let renewingSilently: Promise<string | null> | null = null;
 /** Das Token still erneuern - null, wenn das nicht geht (dann bleibt nur die Anmeldung). */
 export function renewToken(): Promise<string | null> {
   renewingSilently ??= (async () => {
-    const renewed = await (await userManager()).signinSilent().catch((e) => {
-      // Netz, invalid_grant, kein Refresh-Token - alles endet in der Anmeldung, der Grund in der Konsole
+    // Netz, invalid_grant, kein Refresh-Token, kein IdP - alles endet in der Anmeldung (die selbst sagt,
+    // wenn sie nicht geht), der Grund in der Konsole
+    const renewed = await userManager().then((um) => um.signinSilent()).catch((e) => {
       console.warn('[pages] stilles Erneuern des Tokens fehlgeschlagen:', e);
       return null;
     });

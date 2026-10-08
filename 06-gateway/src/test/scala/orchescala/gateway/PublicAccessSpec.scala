@@ -407,8 +407,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           wasStopped  <- interrupted.isDone.repeatUntil(identity).timeout(1.second)
           // not interruptible - still running (until released), the next call finds no slot
           hold        <- Promise.make[Nothing, Unit]
-          busy        <- calls(hold.await.uninterruptible)
-          _           <- hold.succeed(())
+          busy        <- calls(hold.await.uninterruptible).ensuring(hold.succeed(())) // released also on a failure
         yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
       @@ TestAspect.withLiveClock,
       test("the caller is gone - the call still stops at its timeout and frees its slot"):

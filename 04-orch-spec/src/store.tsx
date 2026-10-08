@@ -406,12 +406,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const unreadable: { file: string; problem: string }[] = [];
     let app = null as { data: PagesApp; version: string } | null;
     let brokenApp = false;
+    let ioFailed = false;
     try {
       // gleichzeitig lesen - bei SharePoint ist jede Datei ein eigener Aufruf
       await Promise.all((await be.list(PAGES_DIR)).filter(f => f.name.endsWith('.json')).map(async f => {
+        let read;
         try {
-          const read = await be.read(`${PAGES_DIR}/${f.name}`);
-          if (!read) return;
+          read = await be.read(`${PAGES_DIR}/${f.name}`);
+        } catch (e) {
+          // nicht erreichbar (z.B. SharePoint kurz weg) ist nicht kaputt - der Stand von vorher bleibt
+          console.error(`[orch-spec] ${PAGES_DIR}/${f.name} ist gerade nicht erreichbar:`, e);
+          ioFailed = true;
+          return;
+        }
+        if (!read) return;
+        try {
           const data: unknown = JSON.parse(read.text);
           // der Renderer verlässt sich auf die Form (body als Liste, bekannte Bausteine)
           const problem = f.name === APP_FILE ? appProblem(data) : pageProblem(data);
@@ -432,14 +441,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     // ein spätes Lesen eines anderen Ordners (Ordner gewechselt) oder ein überholtes überschreibt nichts
-    if (backendRef.current !== be || pagesRefreshSeq.current !== seq) return;
-    // inzwischen geschrieben - noch einmal, höchstens dreimal (der Designer speichert laufend; bei
-    // SharePoint ist jede Datei ein Aufruf). Danach bleibt die Liste, wie die Schreibenden sie gesetzt haben
-    if (pagesWriteSeq.current !== writes) return attempt < 3 ? refresh(be, attempt + 1) : undefined;
+    if (backendRef.current !== be || pagesRefreshSeq.current !== seq || ioFailed) return;
     pagesAppBroken.current = brokenApp;
+    setPagesUnreadable(unreadable.sort((a, b) => a.file.localeCompare(b.file)));
+    // inzwischen geschrieben - noch einmal, höchstens dreimal (der Designer speichert laufend; bei
+    // SharePoint ist jede Datei ein Aufruf). Danach bleibt die Liste, wie die Schreibenden sie gesetzt
+    // haben - nur eine leere (das erste Lesen) bekommt den gelesenen Stand
+    if (pagesWriteSeq.current !== writes) {
+      if (attempt < 3) return refresh(be, attempt + 1);
+      setPages(prev => (prev.length ? prev : items.sort(byPath)));
+      setPagesApp(prev => prev ?? app);
+      return;
+    }
     setPages(items.sort(byPath));
     setPagesApp(app);
-    setPagesUnreadable(unreadable.sort((a, b) => a.file.localeCompare(b.file)));
   }, []);
 
   const resetPages = useCallback(() => {
