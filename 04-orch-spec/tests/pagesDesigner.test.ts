@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
-  removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
+  dataOf, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
 } from '../src/pages/designer/model';
 import type { Model, ProcessSpec } from '../src/types';
 import type { Component, Page } from '../src/pages/runtime/spec';
@@ -251,4 +251,22 @@ test('convertBlock - the text, the binding and the condition stay', () => {
   assert.equal((pick as { label: string }).label, 'Thema');
   assert.equal((pick as { required: boolean }).required, true);
   assert.equal(convertBlock(page.body[0], 'heading'), page.body[0]); // the same type: unchanged
+});
+
+test('dataOf - what is in the state of a page and where it comes from', () => {
+  const nodes = dataOf(page, targets);
+  const at = (path: string) => nodes.find((n) => n.path === path);
+  // the result of the load action: the Out of the service, with its list of slots
+  const slots = at('slots')!;
+  assert.deepEqual(slots.sources, ['Laden: acme-shop-freeSlots']);
+  assert.equal(slots.type, 'FreeSlots.Out');
+  assert.equal(slots.fields?.[0].name, 'slots');
+  assert.equal(slots.fields?.[0].collection, true);
+  assert.deepEqual(slots.fields?.[0].fields?.map((f) => f.name), ['start', 'end', 'advisorName', 'topic']);
+  // the initial state and a binding on the same path: one entry, both sources
+  assert.deepEqual(at('topic')?.sources, ['Anfangszustand']);
+  assert.deepEqual(at('slot')?.sources, ['Auswahl aus Liste «slot»']);
+  assert.equal(at('slot')?.type, 'ein Eintrag aus slots.slots');
+  assert.ok(at('query.token'));
+  assert.ok(at('user'));
 });

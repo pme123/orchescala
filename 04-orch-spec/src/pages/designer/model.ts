@@ -441,6 +441,59 @@ export function statePaths(page: Page, targets: Targets): string[] {
   return [...paths].sort();
 }
 
+/** Ein Eintrag im Zustand einer Seite - woher er kommt und was drin steht (für «Daten» im Designer). */
+export type DataNode = {
+  path: string;
+  /** woher: Anfangszustand, eine Aktion (mit Service), eine Eingabe, die URL, der Benutzer */
+  sources: string[];
+  /** der Typ - aus der Domain (z.B. `Slot`, `LocalDateTime`) oder ein einfacher (Text, Zahl, Liste) */
+  type?: string;
+  collection?: boolean;
+  /** die Felder - das Out eines Service oder die Felder einer Case Class */
+  fields?: PField[];
+  /** feste Werte (einer Auswahl) oder die eines Enums */
+  values?: string[];
+  /** der Baustein, der ihn setzt - für einen Klick dorthin */
+  key?: BlockKey;
+};
+
+const jsType = (v: unknown): string =>
+  v === null ? 'leer' : Array.isArray(v) ? 'Liste' : typeof v === 'object' ? 'Objekt' : typeof v === 'number' ? 'Zahl'
+    : typeof v === 'boolean' ? 'Ja/Nein' : 'Text';
+
+/** Was im Zustand einer Seite steht: der Anfangszustand, die Ergebnisse ihrer Aktionen (mit dem Out des
+  * Service), die Eingaben ihrer Bausteine, die Parameter der URL und der Benutzer. Ein Pfad, den mehrere
+  * setzen (Anfangszustand und Auswahl), steht einmal - mit allen Quellen. */
+export function dataOf(page: Page, targets: Targets): DataNode[] {
+  const nodes = new Map<string, DataNode>();
+  const put = (path: string, source: string, rest: Omit<DataNode, 'path' | 'sources'> = {}) => {
+    const node = nodes.get(path);
+    if (node) {
+      if (!node.sources.includes(source)) node.sources.push(source);
+      for (const [k, v] of Object.entries(rest)) if (v !== undefined && (node as Record<string, unknown>)[k] === undefined) (node as Record<string, unknown>)[k] = v;
+    } else nodes.set(path, { path, sources: [source], ...rest });
+  };
+  for (const [k, v] of Object.entries(page.state ?? {})) put(k, 'Anfangszustand', { type: jsType(v) });
+  for (const { where, key, action } of actionsOf(page)) {
+    if (action.do === 'call' && action.result) {
+      const svc = targets.services.find((s) => s.topic === action.service);
+      put(action.result, `${where}: ${action.service}`, { type: svc ? `${svc.name}.Out` : 'unbekannter Service', fields: svc?.out, key });
+    } else if (action.do === 'start' && action.result) put(action.result, `${where}: Start ${action.process}`, { type: 'Prozess-Start', key });
+    else if (action.do === 'message' && action.result) put(action.result, `${where}: Message ${action.name}`, { type: 'Message', key });
+    else if (action.do === 'set') put(action.path.split('.')[0], `${where}: Wert setzen`, { key });
+  }
+  for (const { key, block } of flatten(page.body)) {
+    if (block.type === 'choice')
+      put(block.bind, `Auswahl «${block.label ?? block.bind}»`, { type: 'ein Wert der Auswahl', values: block.options.map((o) => String(o.value)), key });
+    if (block.type === 'pick') put(block.bind, `Auswahl aus Liste «${block.label ?? block.bind}»`, { type: `ein Eintrag aus ${block.items}`, key });
+    if (block.type === 'fields') for (const f of block.fields) put(f.bind.split('.')[0], `Eingabefeld «${f.label}»`, { type: f.bind.includes('.') ? 'Objekt' : 'Text', key });
+  }
+  // die Parameter der URL, die die Seite liest
+  for (const m of JSON.stringify(page).matchAll(/\{\{\s*query\.([\w$]+)/g)) put(`query.${m[1]}`, 'URL-Parameter', { type: 'Text' });
+  put('user', 'Benutzer (mit Login)', { type: 'name, email, roles' });
+  return [...nodes.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
 // ---------------------------------------------------------------- die Befunde
 
 export type PageFinding = { level: 'error' | 'warning' | 'info'; message: string; key?: BlockKey };

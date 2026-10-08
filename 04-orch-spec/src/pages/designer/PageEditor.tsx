@@ -13,9 +13,10 @@ import type { Gateway } from '../runtime/gatewayTypes';
 import type { Component, Page } from '../runtime/spec';
 import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
+import { DataView } from './DataView';
 import { IconButton } from './fields';
 import {
-  blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
+  actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
 
@@ -81,6 +82,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [query, setQuery] = useState('token=0b1c9a4e-7a43-4f0e-9d39-3a3f6c2d8e11');
   const [run, setRun] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [left, setLeft] = useState<'outline' | 'data'>('outline');
   const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
   // die Tastatur liest immer die Aktionen dieses Renderns (sie hängen an Seite und Auswahl)
   const keys = useRef<{ undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void }>(null!);
@@ -169,6 +171,11 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     [page, targets, pages, slug],
   );
   const queryParams = useMemo(() => Object.fromEntries(new URLSearchParams(query)), [query]);
+  const data = useMemo(() => (page ? dataOf(page, targets) : []), [page, targets]);
+  const usedServices = useMemo(
+    () => (page ? actionsOf(page).flatMap(({ action }) => (action.do === 'call' ? [action.service] : [])) : []),
+    [page],
+  );
 
   // ---- Tastatur: ⌘Z / ⇧⌘Z, Entf, ⌘D, ⌥↑/⌥↓, Esc - nicht beim Tippen in einem Feld
   useEffect(() => {
@@ -264,8 +271,20 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
 
       <div className="flex-1 flex min-h-0">
         {/* Gliederung */}
-        <div className={`w-64 flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
-          <div className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-widest ${c.muted2}`}>Aufbau</div>
+        <div className={`${left === 'data' ? 'w-80' : 'w-64'} flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
+          <div className={`sticky top-0 z-10 flex border-b ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
+            {(['outline', 'data'] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setLeft(t)}
+                className={`flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-widest border-b-2 ${
+                  left === t ? 'border-sky-500 ' + c.text : 'border-transparent ' + c.muted2}`}>
+                {t === 'outline' ? 'Aufbau' : 'Daten'}
+              </button>
+            ))}
+          </div>
+          {left === 'data' ? (
+            <DataView isDark={isDark} nodes={data} targets={targets} usedServices={usedServices}
+              onSelect={(key) => { setSelected(key); setLeft('outline'); }} />
+          ) : (<>
           <button onClick={() => setSelected(null)}
             className={`w-full text-left px-3 py-1.5 text-[11px] ${selected === null ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
             Seite · {page.title}
@@ -327,6 +346,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
               </div>
             </div>
           )}
+          </>)}
           {findings.length > 0 && (
             <div className={`border-t px-3 py-2 space-y-1.5 ${c.border}`}>
               <div className={`text-[10px] font-semibold uppercase tracking-widest ${c.muted2}`}>Befunde</div>
