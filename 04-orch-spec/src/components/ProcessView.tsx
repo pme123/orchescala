@@ -28,7 +28,7 @@ import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, 
 import { engineLabel } from '../template';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
-import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, STEP_ICON, StatusChip, cls, patternTone } from '../ui';
+import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
 import EngineDialog from './EngineDialog';
@@ -1409,7 +1409,7 @@ function nextStatus(s: Status): Status {
 
 function StepRow({ step, ...p }: ListProps & { step: Step }) {
   const c = cls(p.isDark);
-  const Icon = STEP_ICON[step.kind];
+  const Icon = stepIcon(step);
   const isOpen = !p.collapsed.has(step.id);
   const hasChildren = !!(step.branches?.length || step.children?.length || step.errors?.some(e => e.steps?.length));
   // beim Filtern: ein Pfad bleibt, wenn darin etwas passt — oder der Schritt selbst passt

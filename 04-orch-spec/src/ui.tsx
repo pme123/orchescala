@@ -2,7 +2,7 @@
 // die Symbole je Schritt-Art. Bewusst klein gehalten — die Views bleiben lesbar.
 import {
   GripVertical,
-  Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand,
+  Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand, SquarePlus, SquareDashed,
   CornerDownRight, Zap, Repeat, ShieldCheck, Split, Merge, Unlink, Puzzle, Flag,
 } from 'lucide-react';
 import { useRef } from 'react';
@@ -30,9 +30,14 @@ export const cls = (isDark: boolean) => ({
 
 export const STEP_ICON: Record<StepKind, typeof Cog> = {
   start: Play, end: Square, service: Cog, user: User, call: Boxes, send: Send, receive: Inbox,
-  rule: Table2, script: Code2, manual: Hand, subprocess: Boxes, gateway: GitBranch,
+  // Teilprozess (Call Activity) ≠ eingebetteter Subprozess: der trägt im BPMN das [+]
+  rule: Table2, script: Code2, manual: Hand, subprocess: SquarePlus, gateway: GitBranch,
   event: Zap, goto: CornerDownRight,
 };
+
+/** Das Symbol eines Schritts — ein Ereignis-Subprozess gestrichelt, wie im BPMN */
+export const stepIcon = (step: Pick<Step, 'kind' | 'eventSubprocess'>): typeof Cog =>
+  step.kind === 'subprocess' && step.eventSubprocess ? SquareDashed : STEP_ICON[step.kind];
 
 export const KIND_LABEL: Record<StepKind, string> = {
   start: 'Start', end: 'Ende', service: 'Service', user: 'Benutzeraufgabe', call: 'Teilprozess',
