@@ -803,9 +803,29 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       val m = mergeObject.merge(withVal)
       assertEquals(m.linesIterator.count(_.contains("processLabels: ProcessLabels")), 1, m)
 
+  test("new process object - a descr of several lines is a stripMargin text"):
+    val block = mergeObject.block.replace(
+      "// descr: Neue Karte\n",
+      "// descr: Neue Karte\n// descr|\n// descr| - mit \\\"Limite\\\"\n"
+    )
+    val content = mergeObject.copy(block = block).content
+    assert(
+      content.contains(
+        "  lazy val descr: String =\n    \"\"\"Neue Karte\n      |\n      |- mit \"Limite\"\n      |\"\"\".stripMargin\n"
+      ),
+      content
+    )
+
+  test("merge - processLabels go after an override def descr of several lines"):
+    val existing = existingProc
+      .replace("  val descr: String = \"Neubestellung\"\n", "  override def descr =\n    \"\"\"Neubestellung\n      |\n      |- Karte\n      |\"\"\".stripMargin\n")
+      .replace("  override def processLabels: ProcessLabels =\n    ProcessLabels(\"Neubestellung\", \"Nouvelle commande\")\n\n", "")
+    val m = mergeObject.merge(existing)
+    assert(m.contains("      |\"\"\".stripMargin\n\n  override lazy val processLabels: ProcessLabels =\n"), m)
+
   test("new process object - In, InitIn, InConfig, Out and the descr of the export"):
     val content = mergeObject.content
-    assert(content.contains("""  val descr: String = "Neue Karte""""), content)
+    assert(content.contains("""  lazy val descr: String = "Neue Karte""""), content)
     assert(content.contains("  override lazy val processLabels: ProcessLabels =\n    ProcessLabels(\"Neue Karte\", \"Nouvelle carte\")\n"), content)
     val order   = Seq("  case class In(", "  case class InitIn(", "  case class InConfig(", "  case class Out(", "  enum CustomStatus:")
       .map(content.indexOf)

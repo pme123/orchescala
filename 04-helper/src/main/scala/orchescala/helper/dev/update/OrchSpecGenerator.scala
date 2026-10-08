@@ -652,10 +652,26 @@ case class OrchSpecProcessObject(
           case Seq(de, fr) => Some(de.trim -> fr.trim)
           case _           => None
 
-  /** `val descr` of the process - the export gives it as `// descr: …` (already escaped). */
+  /** `descr` of the process - the export gives it as `// descr: …` (already escaped), each further
+    * line as `// descr| …`.
+    */
   lazy val descr: String =
-    blockLines.collectFirst { case l if l.startsWith("// descr: ") => l.stripPrefix("// descr: ").trim }
-      .getOrElse("")
+    val start = blockLines.indexWhere(_.startsWith("// descr: "))
+    if start < 0 then ""
+    else
+      val more = blockLines.drop(start + 1).takeWhile(_.startsWith("// descr|"))
+        .map(_.stripPrefix("// descr|").stripPrefix(" ").stripTrailing)
+      (blockLines(start).stripPrefix("// descr: ").trim +: more).mkString("\n").trim
+
+  /** `lazy val descr` - one line as a String, more lines as `"""…""".stripMargin`. */
+  private lazy val descrLines: Seq[String] =
+    val lines = descr.linesIterator.toSeq
+    if lines.size <= 1 then Seq(s"""  lazy val descr: String = "$descr"""")
+    else
+      // the export escapes for "…" - in """…""" a quote and a backslash stand as they are
+      val raw = lines.map(_.replace("\\\"", "\"").replace("\\\\", "\\"))
+      Seq("  lazy val descr: String =", s"""    \"\"\"${raw.head}""") ++
+        raw.tail.map(l => s"      |$l") :+ "      |\"\"\".stripMargin"
 
   /** What differs in an existing process object - only what comes from Orch Spec: the types of
     * the export (`In`, `InitIn`, `InConfig`, `Out` and the other types of the block) and the
@@ -689,13 +705,25 @@ case class OrchSpecProcessObject(
   private def missingLabels(lines: Seq[String]): Boolean =
     processLabels.isDefined && !lines.exists(_.trim.matches("""override\s+(?:def|val|lazy\s+val)\s+processLabels\b.*"""))
 
-  // after `val descr` - otherwise after `val processName`
+  // after `descr` (`val`, `lazy val`, `override def` - to its end, it can span lines) - otherwise
+  // after `val processName`
   private def withLabels(lines: Seq[String]): Seq[String] =
     processLabels.filter(_ => missingLabels(lines)).fold(lines): (de, fr) =>
-      val descr = lines.indexWhere(_.trim.startsWith("val descr"))
-      val at    = if descr >= 0 then descr else lines.indexWhere(_.trim.startsWith("val processName"))
+      val descr = lines.indexWhere(_.trim.matches("""(?:override\s+)?(?:def|val|lazy\s+val)\s+descr\b.*"""))
+      val at    = if descr >= 0 then descrEnd(lines, descr) else lines.indexWhere(_.trim.startsWith("val processName"))
       if at < 0 then lines
       else lines.patch(at + 1, Seq("", "  override lazy val processLabels: ProcessLabels =", s"""    ProcessLabels("$de", "$fr")"""), 0)
+
+  // the last line of the `descr` starting at `start`: the value on the next line (`=` at the end),
+  // a `"""` text up to its closing `"""`
+  private def descrEnd(lines: Seq[String], start: Int): Int =
+    val quotes = (i: Int) => "\"\"\"".r.findAllIn(lines(i)).size
+    var i      = start
+    if lines(i).trim.endsWith("=") && i + 1 < lines.size then i += 1
+    if quotes(i) % 2 == 1 then
+      i += 1
+      while i < lines.size && quotes(i) == 0 do i += 1
+    math.min(i, lines.size - 1)
 
   /** One type of the export into the lines of the process object:
     *   - missing: inserted after the type that comes before it (`typeOrder`),
@@ -793,10 +821,8 @@ case class OrchSpecProcessObject(
       Seq(
         s"object $objectName extends CompanyBpmnProcessDsl:",
         "",
-        s"""  val processName = "$processId"""",
-        s"""  val descr: String = "$descr"""",
-        ""
-      ),
+        s"""  val processName = "$processId""""
+      ) ++ descrLines :+ "",
       processLabels.toSeq.flatMap: (de, fr) =>
         Seq(
           "  override lazy val processLabels: ProcessLabels =",

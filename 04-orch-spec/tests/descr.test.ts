@@ -39,3 +39,11 @@ test('domain sync: an empty Ausgangslage gets the descr of the domain, a written
   assert.equal(mergeDomain(spec(), spec('aus der Domain'), { status }).spec.description, 'aus der Domain');
   assert.equal(mergeDomain(spec('eigene'), spec('aus der Domain'), { status }).spec.description, 'eigene');
 });
+
+test('export: the whole descr for the helper - // descr: first line, // descr| each further one', async () => {
+  const { descrComment } = await import('../src/scala');
+  assert.deepEqual(descrComment('01 Basisset eröffnen\n\n- Privatkonto "Young"\n'), [
+    '// descr: 01 Basisset eröffnen', '// descr|', '// descr| - Privatkonto \\"Young\\"',
+  ]);
+  assert.deepEqual(descrComment('  '), []);
+});

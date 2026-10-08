@@ -26,3 +26,22 @@ test('without parts with status: what was stored, else draft', () => {
   assert.equal(overallStatus({ steps: [], status: 'review' } as unknown as ProcessSpec), 'review');
   assert.equal(overallStatus({ steps: [] } as unknown as ProcessSpec), 'draft');
 });
+
+test('a step carries the status of its interaction and its classes - the overall status finds its filter', async () => {
+  const { statusParts, stepStatuses } = await import('../src/status');
+  const spec = {
+    steps: [step('a', 'accepted'), step('msg', 'accepted', { kind: 'event' })],
+    types: [
+      { id: 't-in', name: 'In', kind: 'case', status: 'draft', interactionId: 'ia' },
+      { id: 't-schema', name: 'Address', kind: 'case', status: 'review' },
+    ],
+    interactions: [{ id: 'ia', name: 'CompensateME', kind: 'message', stepId: 'msg', inTypeId: 't-in', status: 'draft' }],
+  } as unknown as ProcessSpec;
+  assert.equal(overallStatus(spec), 'draft');
+  assert.deepEqual(stepStatuses(spec.steps[1], spec).sort(), ['accepted', 'draft']);
+  const parts = statusParts(spec);
+  assert.deepEqual(parts.draft, { steps: 1, model: [] });
+  assert.deepEqual(parts.accepted, { steps: 2, model: [] });
+  // eine Klasse ohne Schritt zählt fürs Datenmodell
+  assert.deepEqual(parts.review, { steps: 0, model: ['Address'] });
+});

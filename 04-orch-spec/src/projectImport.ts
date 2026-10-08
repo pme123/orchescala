@@ -25,7 +25,7 @@ import { SCALA_TYPES } from './types';
 import { isDomainSource, scanFiles } from './domainScan';
 import { allSteps } from './bpmn';
 import { exampleOf, importsForExpression, isFixedCaseDefault, typeShape } from './scalaTypes';
-import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin } from './interactions';
+import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions';
 import { packageOf, referencedClass } from './scala';
 import { INTERACTION_META } from './types';
 import { domainRef } from './serviceTypes';
@@ -439,7 +439,9 @@ export interface Enriched {
  * Klassen mit den Feldern aus dem Katalog, sonst aus den Mappings des
  * Schritts — damit die Domain daraus entstehen kann statt umgekehrt.
  */
-export function prepareInteractions(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; prepared: string[] } {
+export function prepareInteractions(spec0: ProcessSpec, model: Model | null): { spec: ProcessSpec; prepared: string[] } {
+  // eine früher vorbereitete Interaktion an einem Pattern-Schritt fällt weg (siehe wiringSteps)
+  const spec = withoutWiringInteractions(spec0);
   const offen = missingInteractions(spec, model);
   if (!offen.length) return { spec, prepared: [] };
   const types = [...(spec.types ?? [])];
