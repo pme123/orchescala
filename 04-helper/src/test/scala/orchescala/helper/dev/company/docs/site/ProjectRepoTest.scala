@@ -85,7 +85,7 @@ class ProjectRepoTest extends FunSuite:
     val shop = ProjectRepo.locate(gitTemp, "acme-shop").get
     assert(shop.existsAt("acme-shop-v1.0.0"))
     val err = intercept[Exception](shop.exportTo("acme-shop-v1.0.0", dest))
-    assert(err.getMessage.startsWith("git archive acme-shop-v1.0.0 of acme-shop failed"), err.getMessage)
+    assert(err.getMessage.startsWith("git archive of acme-shop at acme-shop-v1.0.0 failed"), err.getMessage)
     assertEquals(os.read(dest / "keep.txt"), "kept")
     assertEquals(os.list(gitTemp).map(_.last).filter(_.startsWith(".")), Seq.empty)
 
@@ -275,6 +275,7 @@ class ProjectRepoTest extends FunSuite:
     val acme    = ProjectRepo.locate(gitTemp, "acme").get
     assert(!acme.isOwnTag("acme-shop-v1.0.0"))
     assert(!acme.isOwnTag("acme-2fa-v1.0.0")) // a project acme-2fa - its name starts with a digit
+    assert(!acme.isOwnTag("acme-2-v1.0.0") && !acme.isOwnTag("acme-2-1.0.0")) // a project acme-2
     assert(!acme.isOwnTag("acme-2fa-1.0.0"))
     assert(acme.isOwnTag("acme-v1.0.0-RC1") && acme.isOwnTag("acme-1.2.3+build.7"))
     assert(acme.isOwnTag("acme-v5.0.0") && acme.isOwnTag("acme-5.0.0"))
@@ -288,6 +289,18 @@ class ProjectRepoTest extends FunSuite:
     os.copy(gitTemp / "orchescala-acme", gitTemp / "acme") // the old place initProject cloned to
     val shop = Console.withOut(java.io.ByteArrayOutputStream())(ProjectRepo.locate(gitTemp, "acme-shop")).get
     assertEquals(shop.repo, gitTemp / "orchescala-acme")
+
+  test("exportFailure - the cause: tar first, git only with a message of its own"):
+    def failure(gitDone: Boolean, gitExit: Int, gitErr: String, tarExit: Int, tarErr: String) =
+      ProjectRepo.exportFailure("acme-shop at v1", gitDone, gitExit, gitErr, tarExit, tarErr)
+    assertEquals(failure(true, 0, "", 0, ""), None)
+    // git on its own (a missing object): git's message, tar's added
+    assertEquals(failure(true, 128, "fatal: bad object", 2, "unexpected EOF"),
+      Some("git archive of acme-shop at v1 failed: fatal: bad object (tar: unexpected EOF)"))
+    // tar first (an unknown option): git died on the closed pipe without a word - tar is the cause
+    assertEquals(failure(true, 141, "", 64, "tar: unknown option"), Some("tar of acme-shop at v1 failed: tar: unknown option"))
+    // git stopped after the timeout, tar fine so far
+    assertEquals(failure(false, 143, "", 0, ""), Some("git archive of acme-shop at v1 did not finish: "))
 
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()

@@ -31,11 +31,11 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     */
   def isOwnTag(tag: String): Boolean = !singleRepo || OwnTag.matches(tag)
 
-  /** `<project>-v1.2.3` or `<project>-1.2.3` (also `-RC1`, `+build`) - not `<project>-shop-v1.0.0` of
-    * a project `<project>-shop`, nor `<project>-2fa-v1.0.0` of a project `<project>-2fa`.
+  /** `<project>-v1.2.3` or `<project>-1.2.3`, also `-RC1` / `+build.7` - a dotted version, so not the tag
+    * of a project `<project>-shop`, `<project>-2fa` or `<project>-2` (`<project>-2-v1.0.0`).
     */
   private lazy val OwnTag =
-    (java.util.regex.Pattern.quote(project) + "-v?\\d+(\\.\\d+)*([-+].*)?").r
+    (java.util.regex.Pattern.quote(project) + "-v?\\d+(\\.\\d+)+([-+](?!v?\\d)[0-9A-Za-z.+-]*)?").r
 
   /** A warning when a release is taken from a plain tag in one repo - None for the project's own. */
   def plainTagWarning(tag: String): Option[String] =
@@ -110,19 +110,9 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       // tar gone early: git may block on the closed pipe - not for ever
       val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
       if !gitDone then git.destroy()
-      val gitErr  = os.read(errors).trim
-      val tarErr  = tar.err.text().trim
-      // who failed: tar first - if tar is fine, a failing git is the cause; if tar failed, git counts only
-      // with a message of its own (git that dies on tar's closed pipe, or was stopped, says nothing) - no
-      // exit codes of signals, which differ by platform
-      val gitOwn  = gitDone && git.exitCode() != 0 && (tar.exitCode == 0 || gitErr.nonEmpty)
-      if gitOwn then
-        val also = if tar.exitCode != 0 then s" (tar: $tarErr)" else ""
-        throw new Exception(s"git archive $ref of $project failed: $gitErr$also")
-      if tar.exitCode != 0 then
-        val also = if gitErr.nonEmpty then s" (git: $gitErr)" else ""
-        throw new Exception(s"tar of $project at $ref failed: $tarErr$also")
-      if git.exitCode() != 0 then throw new Exception(s"git archive $ref of $project did not finish: $gitErr")
+      val what    = s"$project at $ref"
+      ProjectRepo.exportFailure(what, gitDone, git.exitCode(), os.read(errors).trim, tar.exitCode, tar.err.text().trim)
+        .foreach(msg => throw new Exception(msg))
       ProjectRepo.replace(dest, fresh, old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}")
     finally
       archive.filter(_.isAlive()).foreach(_.destroy())
@@ -148,6 +138,25 @@ object ProjectRepo:
         scala.util.Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed.foreach(e.addSuppressed)
         throw e
     os.remove.all(old)
+
+  /** Why an export failed - None if it did not. Tar first: is it fine, a failing git is the cause; did it
+    * fail, git counts only with a message of its own (a git that died on tar's closed pipe, or was
+    * stopped, says nothing). No exit codes of signals - they differ by platform.
+    */
+  private[site] def exportFailure(
+      what: String,
+      gitDone: Boolean,
+      gitExit: Int,
+      gitErr: String,
+      tarExit: Int,
+      tarErr: String
+  ): Option[String] =
+    if gitDone && gitExit != 0 && (tarExit == 0 || gitErr.nonEmpty) then
+      Some(s"git archive of $what failed: $gitErr" + (if tarExit != 0 then s" (tar: $tarErr)" else ""))
+    else if tarExit != 0 then
+      Some(s"tar of $what failed: $tarErr" + (if gitErr.nonEmpty then s" (git: $gitErr)" else ""))
+    else if !gitDone || gitExit != 0 then Some(s"git archive of $what did not finish: $gitErr")
+    else None
 
   /** Is there a tar to unpack `git archive` with? */
   private[site] lazy val hasTar: Boolean =
