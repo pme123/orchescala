@@ -113,7 +113,10 @@ object SiteAssembler:
 
   /** The release tag of `version` in the project's repo (its own tags first in a single repo). */
   def releaseRef(projectRepo: ProjectRepo, version: String): Option[String] =
-    projectRepo.tagCandidates(version).find(t => gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", s"$t^{commit}").isDefined)
+    projectRepo.tagCandidates(version)
+      .filter(t => gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", s"$t^{commit}").isDefined)
+      // in one repo `v1.0.0` may be another project's release - without this project: not its tag
+      .find(projectRepo.existsAt)
 
   /** The API of a project at `ref` into `target`: OpenApi.yml (with the CURRENT API page from the jar,
     * not what the project shipped at that tag), the company gateway's Postman variant if there is

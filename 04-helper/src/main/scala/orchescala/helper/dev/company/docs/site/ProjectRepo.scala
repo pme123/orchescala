@@ -27,14 +27,15 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     else Seq(s"v$version", version)
 
   /** The tag of a release of `version` - local first, then after fetching the tags from origin (once
-    * per repo and run: several unreleased projects of one repo do not fetch it again and again).
+    * per repo, see fetchTagsOnce). In one repo a tag of the candidates may be another project's
+    * release (`v1.0.0`) - only a tag at which the project is there counts.
     */
   def resolveTag(version: String): Option[String] =
     val candidates = tagCandidates(version)
-    candidates.find(tags().contains).orElse:
+    def found(known: Set[String]) = candidates.filter(known.contains).find(existsAt)
+    found(tags()).orElse:
       ProjectRepo.fetchTagsOnce(repo)
-      val known = tags()
-      candidates.find(known.contains)
+      found(tags())
 
   /** Is the project there at `ref`? In one repo a release tag of another project may lack it.
     * (`<ref>:` is the root tree of an own clone - `<ref>:.` is no object name.)
@@ -79,39 +80,54 @@ end ProjectRepo
 
 object ProjectRepo:
 
-  /** A fetch per repo is good for this long - the projects of one docs run share it; a later run (or a
-    * failed fetch) fetches again.
+  /** A fetch per repo is good for this long - the projects of one docs run share it; a later run
+    * fetches again. A failed fetch counts only FailedFetchValidMs: the other projects of the run do
+    * not each wait for the same unreachable origin, a rerun soon after tries again.
     */
-  private[site] val FetchValidMs = 5 * 60 * 1000L
-  private val lastFetch          = java.util.concurrent.ConcurrentHashMap[os.Path, java.lang.Long]()
+  private[site] val FetchValidMs       = 5 * 60 * 1000L
+  private[site] val FailedFetchValidMs = 30 * 1000L
 
-  /** `git fetch --tags` in a clone - at most once per FetchValidMs; no credential prompt (it would hang
+  /** Per repo: until when its last fetch counts. The lock serializes check and fetch - a project of
+    * the same repo (DocCreator runs them in parallel) waits for a running fetch instead of reading the
+    * tags before it.
+    */
+  private case class FetchState(var validUntil: Long = Long.MinValue)
+  private val fetches = java.util.concurrent.ConcurrentHashMap[os.Path, FetchState]()
+
+  /** Forget all fetches - for tests. */
+  private[site] def forgetFetches(): Unit = fetches.clear()
+
+  /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
     * the helper), no `--prune` (it would drop tags made in this clone only), a minute at most; a
     * failure is logged.
     * @return true if it fetched now (false: a recent fetch counts)
     */
-  private[site] def fetchTagsOnce(repo: os.Path, now: Long = System.currentTimeMillis()): Boolean =
-    val due = lastFetch.compute(
-      repo,
-      (_, last) => if last == null || now - last >= FetchValidMs then now else last
-    ) == now
-    if due then
-      val fetch = scala.util.Try(
-        os.proc("git", "-C", repo.toString, "fetch", "--tags")
-          .call(
-            check = false,
-            stdout = os.Pipe,
-            stderr = os.Pipe,
-            env = Map("GIT_TERMINAL_PROMPT" -> "0"),
-            timeout = 60000
-          )
-      )
-      fetch.toOption.filter(_.exitCode == 0) match
-        case Some(_) => ()
-        case None    =>
-          val why = fetch.fold(_.getMessage, _.err.text().trim)
-          println(s"  ! fetching the tags of $repo failed: $why")
-    due
+  private[site] def fetchTagsOnce(repo: os.Path, now: => Long = System.currentTimeMillis()): Boolean =
+    val state = fetches.computeIfAbsent(repo, _ => FetchState())
+    state.synchronized:
+      val start = now
+      if start < state.validUntil then false
+      else
+        val ok = fetchTags(repo)
+        state.validUntil = start + (if ok then FetchValidMs else FailedFetchValidMs)
+        true
+
+  private def fetchTags(repo: os.Path): Boolean =
+    val fetch = scala.util.Try(
+      os.proc("git", "-C", repo.toString, "fetch", "--tags")
+        .call(
+          check = false,
+          stdout = os.Pipe,
+          stderr = os.Pipe,
+          env = Map("GIT_TERMINAL_PROMPT" -> "0"),
+          timeout = 60000
+        )
+    )
+    val ok    = fetch.toOption.exists(_.exitCode == 0)
+    if !ok then
+      val why = fetch.fold(_.getMessage, _.err.text().trim)
+      println(s"  ! fetching the tags of $repo failed: $why")
+    ok
 
   /** A release of a project in a company's single repo into `dest` (its copy in git-temp): the
     * project's folder at its tag. None if the project has its own clone (then it is checked out there).

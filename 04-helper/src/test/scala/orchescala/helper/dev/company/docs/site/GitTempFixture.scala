@@ -17,6 +17,7 @@ object GitTempFixture:
     os.write(repo / "projects" / "acme-shop" / "src" / "main" / "resources" / "camunda" / "shop.bpmn", "<bpmn/>", createFolders = true)
     os.write(repo / "projects" / "acme-cards" / "03-api" / "OpenApi.yml", "cards\n", createFolders = true)
     git(repo, "init", "-q")
+    git(repo, "config", "gc.auto", "0") // objects stay loose - a test removes one
     git(repo, "add", ".")
     git(repo, "commit", "-q", "-m", "release")
     git(repo, "tag", "acme-shop-v1.0.0")

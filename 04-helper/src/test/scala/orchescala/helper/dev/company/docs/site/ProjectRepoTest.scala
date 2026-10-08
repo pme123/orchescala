@@ -120,12 +120,49 @@ class ProjectRepoTest extends FunSuite:
       assertEquals(shop.resolveTag("3.0.0"), None) // not local: fetched - and that failed
     assert(out.toString.contains(s"fetching the tags of ${shop.repo} failed"), out.toString)
 
-  test("fetchTagsOnce - once per repo within FetchValidMs, then again"):
+  test("fetchTagsOnce - once per repo within FetchValidMs, a failed fetch only FailedFetchValidMs"):
+    ProjectRepo.forgetFetches()
     val repo = singleRepoGitTemp() / "orchescala-acme"
     Console.withOut(java.io.ByteArrayOutputStream()):
-      assert(ProjectRepo.fetchTagsOnce(repo, now = 1000))
+      assert(ProjectRepo.fetchTagsOnce(repo, now = 1000)) // no remote: git fetch succeeds
       assert(!ProjectRepo.fetchTagsOnce(repo, now = 1000 + ProjectRepo.FetchValidMs - 1))
       assert(ProjectRepo.fetchTagsOnce(repo, now = 1000 + ProjectRepo.FetchValidMs))
+      val gone = singleRepoGitTemp() / "orchescala-acme"
+      git(gone, "remote", "add", "origin", (gone / os.up / "gone.git").toString)
+      assert(ProjectRepo.fetchTagsOnce(gone, now = 1000)) // fails
+      assert(!ProjectRepo.fetchTagsOnce(gone, now = 1000 + ProjectRepo.FailedFetchValidMs - 1))
+      assert(ProjectRepo.fetchTagsOnce(gone, now = 1000 + ProjectRepo.FailedFetchValidMs))
+
+  test("resolveTag - projects of one repo in parallel: the second waits for the fetch of the first"):
+    ProjectRepo.forgetFetches()
+    val origin = singleRepoGitTemp() / "orchescala-acme"
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    os.proc("git", "clone", "-q", origin.toString, (gitTemp / "orchescala-acme").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    // released after the clone - only on origin
+    git(origin, "tag", "acme-shop-v1.1.0")
+    git(origin, "tag", "acme-cards-v1.1.0")
+    import scala.concurrent.*, scala.concurrent.duration.*, ExecutionContext.Implicits.global
+    val found = Await.result(
+      Future.sequence(
+        Seq("acme-shop", "acme-cards", "acme-shop", "acme-cards").map: p =>
+          Future(ProjectRepo.locate(gitTemp, p).get.resolveTag("1.1.0"))
+      ),
+      1.minute
+    )
+    assertEquals(found, Seq("acme-shop", "acme-cards", "acme-shop", "acme-cards").map(p => Some(s"$p-v1.1.0")))
+
+  test("resolveTag - in one repo a bare v<version> of another project is not this project's"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    git(repo, "tag", "v2.0.0", "acme-shop-v1.0.0") // the commit before acme-new
+    val newOne  = ProjectRepo.locate(gitTemp, "acme-new").get
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      assertEquals(newOne.resolveTag("2.0.0"), None)
+    assertEquals(SiteAssembler.releaseRef(newOne, "2.0.0"), None)
+    val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assertEquals(shop.resolveTag("2.0.0"), Some("v2.0.0")) // acme-shop is there: a plain tag still counts
+    assertEquals(SiteAssembler.releaseRef(shop, "2.0.0"), Some("v2.0.0"))
 
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()

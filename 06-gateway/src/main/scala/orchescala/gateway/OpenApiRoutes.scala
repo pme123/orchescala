@@ -182,6 +182,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * VERSIONS.conf), with a warning and the header `X-Orchescala-Docs-Source: released` (not live).
     * A worker app that answers - also with an error of its own (502) - or a wrong docs URL (500) is
     * passed on: the live one, not hidden behind an older file.
+    *
+    * The site's OpenApi.html is the API page of the orch-doc jar (not the worker app's): it loads
+    * `OpenApi.yml` and `diagrams/<name>` relative to itself - these same routes, with the same fallback.
     */
   private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
       forwarded: Response

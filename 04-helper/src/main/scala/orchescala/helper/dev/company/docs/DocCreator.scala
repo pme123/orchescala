@@ -247,7 +247,7 @@ trait DocCreator extends DependencyCreator, Helpers:
         case Some(tag) => println(s"Exported $project at '$tag'")
         case None =>
           // ensure all tags are present locally
-          os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
+          fetchAllTags(projectPath)
           // resolve correct tag name (handles 'v' and non-'v')
           val tagRef = resolveTagRef(projectPath, version)
           println(s"Checkout $project to 'tags/$tagRef'")
@@ -265,6 +265,19 @@ trait DocCreator extends DependencyCreator, Helpers:
       isWorker
     )
 
+  /** `git fetch --all --tags --prune` in a project's own clone - as before, but without a credential
+    * prompt (it would hang the helper) and at most two minutes.
+    */
+  private def fetchAllTags(projectPath: os.Path): Unit =
+    val cmd = Seq("git", "fetch", "--all", "--tags", "--prune")
+    println(cmd.mkString(" "))
+    os.proc(cmd).call(
+      cwd = projectPath,
+      stdout = os.Inherit,
+      env = Map("GIT_TERMINAL_PROMPT" -> "0"),
+      timeout = 120000
+    )
+
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
   private def resolveTagRef(projectPath: os.Path, version: String): String =
     val candidates = Seq(s"v$version", version)
@@ -277,7 +290,7 @@ trait DocCreator extends DependencyCreator, Helpers:
 
     candidates.find(localTags.contains).getOrElse {
       // fetch all tags and re-check against remote
-      os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
+      fetchAllTags(projectPath)
 
       val remoteTags =
         os.proc("git", "ls-remote", "--tags", "origin")
