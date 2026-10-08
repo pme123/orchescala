@@ -2,6 +2,7 @@
 // Eingabefeld: Variablen blau, Zeichenketten grün, FEEL violett. Die Suche
 // filtert Beispiele und Funktionen; ein Klick auf ein Beispiel kopiert es.
 import { useMemo, useState } from 'react';
+import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { Check, Search, X } from 'lucide-react';
 import { CHEAT_SECTIONS, JUEL_TO_FEEL } from '../feelCheatSheet';
 import { FEEL_DOCS } from '../feelDocs';
@@ -61,7 +62,7 @@ export default function FeelCheatSheet({ isDark, onClose }: { isDark: boolean; o
       <div className={`max-w-4xl w-full max-h-[88vh] flex flex-col rounded-xl border ${c.border2} ${c.panelStrong}`}
         onClick={e => e.stopPropagation()}>
         <div className={`flex items-center gap-3 px-5 pt-4 pb-3 border-b ${c.border2}`}>
-          <h3 className={`text-sm font-semibold flex-shrink-0 ${c.text}`}>FEEL-Spickzettel <span className={`text-[10px] font-normal ${c.muted}`}>Camunda 8</span></h3>
+          <h3 className={`text-sm font-semibold flex-shrink-0 ${c.text}`}>FEEL-Spickzettel <span className={`text-[10px] font-normal ${c.muted}`}>{C8_LABEL}</span></h3>
           <div className={`flex items-center gap-1.5 flex-1 px-2 py-1 rounded border ${c.border2}`}>
             <Search size={12} className={c.muted} />
             <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Suchen: Funktion, Stichwort …"
@@ -99,7 +100,7 @@ export default function FeelCheatSheet({ isDark, onClose }: { isDark: boolean; o
 
           {!!juel.length && (
             <section>
-              <h4 className={th}>Camunda 7 (JUEL) → Camunda 8 (FEEL)</h4>
+              <h4 className={th}>{C7_LABEL} (JUEL) → {C8_LABEL} (FEEL)</h4>
               {juel.map(([a, b]) => (
                 <div key={a} className={rowCls}>
                   <span className="font-mono text-[10px]">{a}</span>

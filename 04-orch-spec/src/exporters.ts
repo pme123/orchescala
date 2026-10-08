@@ -10,7 +10,7 @@ import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, P
 import { STATUS_META } from './types.ts';
 import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
-import { engineLabel } from './template.ts';
+import { C7_LABEL, C8_LABEL, engineLabel } from './engineLabels.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
 import { convertBpmn } from './engineConvert.ts';
@@ -34,7 +34,7 @@ export const EXPORT_META: Record<ExportKind, { label: string; hint: string; ext:
   },
   bpmn: {
     label: 'BPMN',
-    hint: 'Das Diagramm mit den Mappings und Bedingungen aus der Spezifikation — FEEL für Camunda 8 wie es ist, für Camunda 7 nach JUEL übersetzt.',
+    hint: `Das Diagramm mit den Mappings und Bedingungen aus der Spezifikation — FEEL für ${C8_LABEL} wie es ist, für ${C7_LABEL} nach JUEL übersetzt.`,
     ext: 'bpmn',
   },
   scala: {

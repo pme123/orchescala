@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
@@ -208,7 +209,7 @@ export default function App() {
         <div className="ml-auto flex items-center gap-2">
           {/* Navigation: FEEL-Spickzettel, Doku, Admin */}
           <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
-            title="FEEL-Spickzettel — Syntax, Funktionen, Camunda 7 → 8" onClick={() => setFeelOpen(true)} />
+            title={`FEEL-Spickzettel — Syntax, Funktionen, ${C7_LABEL} → ${C8_LABEL}`} onClick={() => setFeelOpen(true)} />
           {docHref && (
             <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
           )}

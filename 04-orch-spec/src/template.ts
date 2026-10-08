@@ -15,6 +15,7 @@
 // Bliebe sie stehen, hiessen alle Prozesse gleich, und daran hängt mehr, als
 // es aussieht: Topics, die Zuordnung zur Domain und der Dateiname.
 
+import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 import type { EngineId } from './types.ts';
 
 export interface EngineDef {
@@ -27,14 +28,11 @@ export interface EngineDef {
 }
 
 export const ENGINES: EngineDef[] = [
-  { id: 'c7', label: 'Camunda 7', hint: 'External Tasks mit Topic, camunda:-Erweiterungen', file: 'c7.bpmn' },
-  { id: 'c8', label: 'Camunda 8', hint: 'zeebe:taskDefinition', file: 'c8.bpmn' },
+  { id: 'c7', label: C7_LABEL, hint: 'External Tasks mit Topic, camunda:-Erweiterungen', file: 'c7.bpmn' },
+  { id: 'c8', label: C8_LABEL, hint: 'zeebe:taskDefinition', file: 'c8.bpmn' },
 ];
 
-export const DEFAULT_ENGINE: EngineId = 'c7';
 
-export const engineLabel = (id: EngineId | undefined) =>
-  ENGINES.find(e => e.id === id)?.label ?? String(id ?? DEFAULT_ENGINE);
 
 /** Der Platzhalter in den Vorlagen — siehe `applyTemplate`. */
 export const PLACEHOLDER = 'COMPANY-PROJECT-PROCESSVERSION';

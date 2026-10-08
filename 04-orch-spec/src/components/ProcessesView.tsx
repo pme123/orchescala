@@ -29,7 +29,8 @@ import { useStore } from '../store';
 import { usePermissions } from '../auth';
 import { allSteps, importBpmn, patternSummary, statusCounts, withStatus } from '../bpmn';
 import { alignPoolIds } from '../poolIds';
-import { DEFAULT_ENGINE, ENGINES, applyTemplate, loadTemplate } from '../template';
+import { ENGINES, applyTemplate, loadTemplate } from '../template';
+import { C7_LABEL, C8_LABEL, DEFAULT_ENGINE } from '../engineLabels';
 import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status } from '../types';
 import { EpicChip, PatternSummary, StatusChip, cls, epicTone } from '../ui';
 import { epicsOf } from '../epics';
@@ -531,7 +532,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                           </div>
                           <span className={`text-[9px] whitespace-nowrap ${c.muted}`}>{sum.total} Schritte · {relativeTime(data.updatedAt)}</span>
                         </div>
-                        <span title={engine === 'C8' ? 'Camunda 8 — FEEL' : 'Camunda 7 — JUEL beim Export'}
+                        <span title={engine === 'C8' ? `${C8_LABEL} — FEEL` : `${C7_LABEL} — JUEL beim Export`}
                           className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
                             engine === 'C8'
                               ? (isDark ? 'border-sky-500/40 text-sky-300' : 'border-sky-300 text-sky-800')
