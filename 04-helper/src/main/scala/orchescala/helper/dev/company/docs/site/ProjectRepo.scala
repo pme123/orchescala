@@ -89,8 +89,16 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
         throw new Exception(s"git archive $ref of $project failed: ${os.read(errors).trim}")
       if tar.exitCode != 0 then
         throw new Exception(s"tar of $project at $ref failed: ${tar.err.text().trim}")
-      os.remove.all(dest)
-      os.move(fresh, dest)
+      // swap: the old one aside, the new one in - if that fails, the old one back (a locked file, a full
+      // disk): dest is never gone
+      val old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}"
+      if os.exists(dest) then os.move(dest, old)
+      try os.move(fresh, dest)
+      catch
+        case e: Throwable =>
+          if os.exists(old) && !os.exists(dest) then os.move(old, dest)
+          throw e
+      os.remove.all(old)
     finally
       os.remove.all(fresh)
       os.remove(errors, checkExists = false)

@@ -192,25 +192,26 @@ trait DocCreator extends DependencyCreator, Helpers:
     import zio.*
 
     // the BPMN and the worker version of a project share its folder (`-worker` stripped): one after the
-    // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version
-    val perProject = java.util.concurrent.ConcurrentHashMap[String, Object]()
-    val configs    = Unsafe.unsafe { implicit unsafe =>
+    // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version;
+    // the projects in parallel
+    val byProject = versions.toSeq.groupBy((projectName, _) => projectName.replace("-worker", "")).toSeq
+    val configs   = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
-        ZIO.foreachPar(versions.toSeq) { case (projectName, version) =>
-          // git and tar processes - not on the threads of the ZIO scheduler
-          ZIO.attemptBlocking {
-            val previousVersion =
-              previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
-            val project         = projectName.replace("-worker", "")
-            perProject.computeIfAbsent(project, _ => Object()).synchronized:
+        ZIO.foreachPar(byProject) { case (project, projectVersions) =>
+          ZIO.foreach(projectVersions) { case (projectName, version) =>
+            // git and tar processes - not on the threads of the ZIO scheduler
+            ZIO.attemptBlocking {
+              val previousVersion =
+                previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
               fetchConf(project, version, previousVersion, projectName.endsWith("worker"))
+            }
           }
         }.withParallelism(apiConfig.engineConfig.parallelism)
       ).getOrThrow()
     }
 
     // Flatten the results and filter out None values
-    configs.flatten
+    configs.flatten.flatten
   end setupConfigs
 
   private def extractVersions(
