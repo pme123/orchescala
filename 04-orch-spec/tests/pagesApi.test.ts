@@ -55,6 +55,14 @@ test('401 again after the renewal - to the login', async () => {
   assert.deepEqual(calls, { renew: 1, login: 1 });
 });
 
+test('401, renewed, then another error - that error, sent twice, no login', async () => {
+  const sent = gatewayAnswers(new Response('', { status: 401 }), json({ errorMsg: 'vergeben' }, 409));
+  const { source, calls } = tokens('new');
+  await assert.rejects(postWith(source, '/process/x/async', {}, false), (e: ApiError) => e.status === 409);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(calls, { renew: 1, login: 0 });
+});
+
 test('no renewal possible - straight to the login, not sent again', async () => {
   const sent = gatewayAnswers(new Response('', { status: 401 }));
   const { source, calls } = tokens(null);

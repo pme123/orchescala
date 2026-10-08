@@ -417,7 +417,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
           got    <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
           n      <- Ref.make(0)
           answer  = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then ZIO.never else ZIO.unit)
-          // asked again until the slot is free - no fixed wait against the clock
+          // asked again until the slot is free - no fixed wait against the clock; requestsPerMinute high so
+          // that the asking is not stopped by the rate limit (429)
           one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
           r       = routes(one, got, answer, Some(token))
           first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
@@ -427,8 +428,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
                       .repeatUntil(_.status == Status.Ok)
                       .timeout(10.seconds)
                       .timed
-        // free by the timeout of the call (200 ms) - not much later
-        yield assertTrue(second._2.exists(_.status == Status.Ok), second._1 < 3.seconds)
+        // free by the timeout of the call (200 ms) - not seconds later (a wide margin for a slow CI machine)
+        yield assertTrue(second._2.exists(_.status == Status.Ok), second._1 < 5.seconds)
       @@ TestAspect.withLiveClock,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =

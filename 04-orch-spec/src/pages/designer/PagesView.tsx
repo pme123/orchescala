@@ -12,7 +12,7 @@ import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
 
 export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, model, specs, pages, pagesApp, createPage, deletePage, savePagesApp } = useStore();
+  const { isDark, model, specs, pages, pagesApp, pagesUnreadable, createPage, deletePage, savePagesApp } = useStore();
   const { canEdit, canDelete } = usePermissions();
   const confirm = useConfirm();
   const c = cls(isDark);
@@ -56,6 +56,17 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         onClose={() => setCreating(false)} />}
 
       {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
+      {/* da, aber nicht lesbar: sonst sähe man sie nicht - und «Neu» mit demselben Namen scheiterte rätselhaft */}
+      {pagesUnreadable.length > 0 && (
+        <div className={`mb-3 rounded border p-2.5 space-y-1 ${isDark ? 'border-rose-500/30 bg-rose-500/10' : 'border-rose-300 bg-rose-50'}`}>
+          {pagesUnreadable.map((u) => (
+            <div key={u.file} className="flex items-start gap-1.5 text-[11px] text-rose-500">
+              <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+              <span><span className="font-mono">pages/{u.file}</span> ist nicht lesbar – {u.problem}. Bitte im Ordner von Hand reparieren.</span>
+            </div>
+          ))}
+        </div>
+      )}
       {pages.length === 0 ? (
         <div className={`rounded border p-6 text-center ${c.border2}`}>
           <LayoutTemplate size={20} className={`mx-auto mb-2 ${c.muted}`} />
