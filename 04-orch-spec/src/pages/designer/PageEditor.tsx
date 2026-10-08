@@ -367,7 +367,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         <div className="flex-1 flex flex-col min-w-0">
           <div className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border-b text-[10px] ${c.border} ${c.muted2}`}>
             <span className="font-semibold uppercase tracking-widest">Vorschau</span>
-            <span className={c.muted}>Beispieldaten aus den Out-Typen der Services</span>
+            <span className={c.muted} title="Services liefern Beispieldaten aus ihrem Out-Typ; Starts, Messages und Tasks gelingen nur zum Schein. Echt bucht die App (/app/… über den Gateway).">
+              Beispieldaten · nichts wird gebucht oder gesendet
+            </span>
             <label className="ml-auto flex items-center gap-1">
               ?<input value={query} onChange={(e) => setQuery(e.target.value)} title="Die Parameter der URL, z.B. token"
                 className={`w-72 font-mono text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
