@@ -143,8 +143,8 @@ test('statePaths - the state, the results with the fields of the service, the bi
 test('pageFindings - a page that fits: only the hints for the gateway', () => {
   const findings = pageFindings(page, targets);
   assert.deepEqual(findings.filter((f) => f.level !== 'info'), []);
-  assert.ok(findings.some((f) => f.message.includes('PUBLIC_WORKERS')));
-  assert.ok(findings.some((f) => f.message.includes('PUBLIC_PROCESSES')));
+  assert.ok(findings.some((f) => f.message.includes('PublicAccess.workers')));
+  assert.ok(findings.some((f) => f.message.includes('PublicAccess.processStarts')));
 });
 
 test('pageFindings - what does not fit', () => {
@@ -173,6 +173,19 @@ test('pageFindings - what does not fit', () => {
   has('error: Button «OK»: einen Task abschliessen geht nur mit Login');
   has("warning: Sichtbar, wenn «step == sent»: «sent» – ein Text braucht Anführungszeichen");
   has('error: Button «OK»: auf einer öffentlichen Seite braucht der Aufruf «ohne Login»');
+});
+
+test('the gateway hints name fields PublicAccess really has', async () => {
+  const { readFileSync } = await import('node:fs');
+  const scala = readFileSync('../06-gateway/src/main/scala/orchescala/gateway/PublicAccess.scala', 'utf-8');
+  for (const field of ['workers', 'processStarts', 'messages']) assert.match(scala, new RegExp(`\\b${field}: Set\\[String\\]`), field);
+  const msg: Page = { ...page, body: [{ type: 'button', label: 'OK', actions: [{ do: 'message', name: 'acme-shop-bookV1-verified', public: true, businessKey: '{{query.token}}' }] }] };
+  assert.ok(pageFindings(msg, targets).some((f) => f.message.includes('PublicAccess.messages')));
+});
+
+test('pageFindings - a message without business key', () => {
+  const msg: Page = { ...page, body: [{ type: 'button', label: 'OK', actions: [{ do: 'message', name: 'acme-shop-bookV1-verified', public: true, businessKey: ' ' }] }] };
+  assert.ok(pageFindings(msg, targets).some((f) => f.level === 'error' && f.message.includes('braucht einen Business Key')));
 });
 
 test('slugOf', () => {

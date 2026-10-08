@@ -372,6 +372,7 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
   const gatewayHint = (name: string, list: string, key?: BlockKey) => {
     if (hinted.has(name)) return;
     hinted.add(name);
+    // das Feld von orchescala.gateway.PublicAccess - wie eine Company es befüllt (z.B. aus der Umgebung), ist ihre Sache
     findings.push({ level: 'info', key, message: `«${name}» muss der Gateway öffentlich freigeben (${list}).` });
   };
   for (const { where, key, action } of actionsOf(page)) {
@@ -386,18 +387,21 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
           findings.push({ level: 'info', key, message: `${where}: «${action.service}» – das Feld «${f.name}» fehlt in der Eingabe (sein Vorgabewert gilt).` });
         if (action.public && page.access !== 'public')
           findings.push({ level: 'info', key, message: `${where}: «${action.service}» ohne Login auf einer Seite mit Login.` });
-        if (action.public) gatewayHint(action.service, 'PUBLIC_WORKERS', key);
+        if (action.public) gatewayHint(action.service, 'PublicAccess.workers', key);
         break;
       }
       case 'start':
         if (!targets.processes.some((p) => p.key === action.process))
           findings.push({ level: 'warning', key, message: `${where}: den Prozess «${action.process}» gibt es in den Spezifikationen nicht.` });
-        if (action.public) gatewayHint(action.process, 'PUBLIC_PROCESSES', key);
+        if (action.public) gatewayHint(action.process, 'PublicAccess.processStarts', key);
         break;
       case 'message':
         if (!targets.messages.some((m) => m.name === action.name))
           findings.push({ level: 'warning', key, message: `${where}: die Message «${action.name}» gibt es in den Spezifikationen nicht.` });
-        if (action.public) gatewayHint(action.name, 'PUBLIC_MESSAGES', key);
+        // ohne Business Key findet die Message ihre Instanz nicht (zur Laufzeit schlägt die Aktion fehl)
+        if (!action.businessKey?.trim())
+          findings.push({ level: 'error', key, message: `${where}: die Message «${action.name}» braucht einen Business Key.` });
+        if (action.public) gatewayHint(action.name, 'PublicAccess.messages', key);
         break;
       case 'completeTask':
         if (!targets.userTasks.some((t) => t.key === action.taskKey))

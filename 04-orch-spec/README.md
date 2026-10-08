@@ -1634,8 +1634,8 @@ Eine Seite öffnet den **Designer**, dreigeteilt:
 
 Die **Befunde** prüfen: unbekannte Services, Prozesse, Messages und Tasks; Pfade in Texten und
 Listen, die im Zustand nicht vorkommen; ein Task-Abschluss auf einer öffentlichen Seite; doppelte
-Pfade; was der Gateway öffentlich freigeben muss (`PUBLIC_WORKERS`, `PUBLIC_PROCESSES`,
-`PUBLIC_MESSAGES`).
+Pfade; was der Gateway öffentlich freigeben muss (`PublicAccess.workers`,
+`processStarts`, `messages` – bei democompany aus `PUBLIC_WORKERS`, `PUBLIC_PROCESSES`, `PUBLIC_MESSAGES`).
 
 **Die App zur Laufzeit:** Der Renderer (`src/pages/runtime/`) ist ein eigenes Bundle – immer
 dasselbe, die Seiten kommen zur Laufzeit aus `pages.json`. Gebaut für ein Projekt:

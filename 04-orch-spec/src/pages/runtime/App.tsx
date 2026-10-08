@@ -78,7 +78,7 @@ export default function App() {
     );
   else
     content = (
-      <PageView page={page} app={app!} isDark={isDark} gateway={gateway}
+      <PageView key={page.path} page={page} app={app!} isDark={isDark} gateway={gateway}
         user={user ? { name: user.profile.name, email: user.profile.email, roles: rolesOf(user) } : undefined} />
     );
 
