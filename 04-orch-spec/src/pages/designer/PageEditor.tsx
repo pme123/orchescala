@@ -111,12 +111,13 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       if (r.status === 'saved') {
         retries.current = 0;
         version.current = r.version;
-        setSaveState({ at: new Date() });
+        if (!closed.current) setSaveState({ at: new Date() }); // der letzte Versuch beim Verlassen: niemand sieht es
         return true;
       }
       // nicht verlieren: bleibt ausstehend, solange nichts Neueres kam
       pending.current ??= data;
-      setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
+      if (!closed.current)
+        setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
       // ein Fehler der Verbindung: von selbst noch einmal, immer seltener (2 s … 30 s) - ein Konflikt nicht,
       // den löst nur, wer die Seite neu lädt
       if (r.status !== 'conflict' && !timer.current && !closed.current) {
@@ -128,6 +129,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     return saving.current;
   }, [slug, savePage]);
   useEffect(() => {
+    // eingehängt (wieder - StrictMode hängt in der Entwicklung aus und ein): Versuche wieder erlaubt
+    closed.current = false;
     // beim Verlassen der Seite oder des Tabs - React räumt beim Schliessen nicht auf
     const now = () => void flush();
     const hidden = () => document.visibilityState === 'hidden' && now();
@@ -161,6 +164,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const update = (next: Page, coalesce?: string) => {
     const current = latest.current ?? page;
     if (!canEdit || !current) return;
+    // nichts geändert (ein Ablegen an derselben Stelle, verschieben am Rand): kein Schritt, kein Speichern
+    if (next === current || JSON.stringify(next) === JSON.stringify(current)) return;
     history.current = record(history.current, current, coalesce, Date.now());
     store(next);
     setHistoryTick((t) => t + 1);

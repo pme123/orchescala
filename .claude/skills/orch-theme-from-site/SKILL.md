@@ -21,7 +21,9 @@ The format is defined in `04-orch-spec/src/pages/runtime/spec.ts` (`Theme`) and 
 ```
 
 An SVG logo is cleaned by `build_theme.py` (no DOCTYPE/entities, no `<script>`, `<foreignObject>`,
-`on*` handlers or external links) - it comes from the bank's site, and the theme file may be passed on.
+`on*` handlers, `<image>`, animation or external links) - it comes from the bank's site, and the theme
+file may be passed on. orch-spec cleans an imported or uploaded SVG logo the same way. Still: the logo
+is meant to be shown as `<img>` only (as the app does) - never inlined into a page, a mail or a PDF.
 
 Two rules of the bank zone shape it: the logo is a `data:` URI (at most 200 KB) - the app must not
 load anything from outside - and the font is a stack of system fonts, not a web font.

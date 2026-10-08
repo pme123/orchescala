@@ -217,6 +217,14 @@ class Problems(unittest.TestCase):
         out2 = svg_symbol(bare, 'mark').decode()
         self.assertIn('width="40"', out2)
 
+    def test_svg_image_elements_are_removed(self):
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AAAA"/>'
+               b'<filter id="f"><feImage href="https://evil.example/x.png"/></filter><rect width="1"/></svg>')
+        import xml.etree.ElementTree as ET
+        out = ET.tostring(parse_svg(svg)).decode()
+        self.assertNotIn('image', out.lower())
+        self.assertIn('rect', out)
+
     def test_svg_with_entities_is_refused(self):
         bomb = b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>'
         with self.assertRaises(SystemExit):

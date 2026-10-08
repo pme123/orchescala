@@ -168,7 +168,8 @@ def parse_svg(data):
     except ET.ParseError as e:
         sys.exit(f'Das Logo ist kein SVG: {e}.')
     # also SMIL animation: <set attributeName="href" to="javascript:…"> or <animate> could change links later
-    removed = ('script', 'foreignObject', 'style', 'set', 'animate', 'animateMotion', 'animateTransform', 'discard')
+    removed = ('script', 'foreignObject', 'style', 'set', 'animate', 'animateMotion', 'animateTransform', 'discard',
+               'image', 'feImage')  # the same as theme.ts svgDropsElement (an imported logo is cleaned there)
     dangerous = {f'{{{SVG_NS}}}{t}' for t in removed} | set(removed)
     outside = re.compile(r'url\(\s*[\'"]?(?!#)|@import|expression\(', re.I)
     for parent in list(root.iter()):

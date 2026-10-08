@@ -5,12 +5,38 @@ import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { Theme } from '../runtime/spec';
 import {
-  contrast, isFontPreset, isThemeColor, MAX_LOGO_BYTES, MIN_ON_PRIMARY_CONTRAST, parseThemeFile, syncedText, themeProblem, themeStyle,
+  contrast, isFontPreset, isThemeColor, MAX_LOGO_BYTES, MIN_ON_PRIMARY_CONTRAST, parseThemeFile, svgDropsAttribute, svgDropsElement,
+  syncedText, themeProblem, themeStyle,
 } from '../runtime/theme';
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
 
 const MAX_THEME_FILE_BYTES = 1024 * 1024;
+
+/** Ein SVG-Logo (data:-URI) gesäubert wie vom Skill (svgDropsElement/-Attribute) - andere Bilder, wie sie
+  * sind. Im Browser, mit seinem Parser; ein SVG, das er nicht liest, ist null. */
+export function cleanLogo(uri: string): string | null {
+  if (!uri.startsWith('data:image/svg+xml;base64,')) return uri;
+  let text: string;
+  try {
+    text = new TextDecoder().decode(Uint8Array.from(atob(uri.slice(uri.indexOf(',') + 1)), (ch) => ch.charCodeAt(0)));
+  } catch {
+    return null;
+  }
+  if (/<!(DOCTYPE|ENTITY)/i.test(text)) return null;
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg') return null;
+  for (const el of [...doc.querySelectorAll('*')]) {
+    if (svgDropsElement(el.localName)) { el.remove(); continue; }
+    for (const at of [...el.attributes]) if (svgDropsAttribute(at.name, at.value)) el.removeAttributeNode(at);
+  }
+  for (const at of [...doc.documentElement.attributes])
+    if (svgDropsAttribute(at.name, at.value)) doc.documentElement.removeAttributeNode(at);
+  const clean = new TextEncoder().encode(new XMLSerializer().serializeToString(doc));
+  let bin = '';
+  clean.forEach((b) => { bin += String.fromCharCode(b); });
+  return `data:image/svg+xml;base64,${btoa(bin)}`;
+}
 
 /** Der Entwurf nach dem Speichern von `saved`: weg, wenn er noch dasselbe ist - eine Änderung, die während
   * des Speicherns kam, bleibt ein Entwurf. */
@@ -62,9 +88,14 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   const [custom, setCustom] = useState(() => !!t.font && !isFontPreset(t.font));
   // ein eigener Stapel, der erst nach dem Öffnen kommt (pages/app.json geladen): das Feld zeigen
   useEffect(() => { if (t.font && !isFontPreset(t.font)) setCustom(true); }, [t.font]);
-  // auf dem Hintergrund, auf dem die Buttons liegen (wie themeStyle) - zählt bei halb durchsichtigen Farben
-  const onPrimaryContrast = t.primary && t.onPrimary
-    ? contrast(t.primary, t.onPrimary, t.background ?? (t.mode === 'dark' ? '#0e0f11' : '#f5f4f0'))
+  // auf dem Hintergrund, auf dem die Buttons liegen (wie themeStyle) - in beiden Modi: im Modus des Themes
+  // auf seinem, im anderen auf dem z9nai-Hintergrund; der schlechtere zählt
+  const { primary, onPrimary } = t;
+  const onPrimaryContrast = primary && onPrimary
+    ? Math.min(
+      ...[t.background ?? (t.mode === 'dark' ? '#0e0f11' : '#f5f4f0'), t.mode === 'dark' ? '#f5f4f0' : '#0e0f11']
+        .map((bg) => contrast(primary, onPrimary, bg) ?? 21),
+    )
     : null;
   const preset = custom ? 'custom' : t.font && isFontPreset(t.font) ? t.font : '';
 
@@ -79,15 +110,19 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     }
     const r = parseThemeFile(text);
     if ('error' in r) return setNote({ tone: 'error', text: r.error });
+    // ein SVG-Logo aus der Datei gesäubert wie vom Skill - die Datei kann von irgendwo sein
+    const logo = r.theme.logo && cleanLogo(r.theme.logo);
+    if (r.theme.logo && !logo) return setNote({ tone: 'error', text: 'Das Logo der Datei ist kein lesbares SVG.' });
     setCustom(!!r.theme.font && !isFontPreset(r.theme.font));
-    onChange(r.theme);
+    onChange(logo ? { ...r.theme, logo } : r.theme);
     setNote({ tone: 'ok', text: `Übernommen${r.name ? `: ${r.name}` : ''}${r.source ? ` (aus ${r.source})` : ''} - noch speichern.` });
   };
   const logoFile = (file: File) => {
     if (file.size > MAX_LOGO_BYTES) return setNote({ tone: 'error', text: 'Das Logo ist grösser als 200 KB.' });
     const reader = new FileReader();
     reader.onload = () => {
-      const logo = String(reader.result);
+      const logo = cleanLogo(String(reader.result));
+      if (!logo) return setNote({ tone: 'error', text: 'Das SVG lässt sich nicht lesen.' });
       // dieselbe Prüfung wie beim Lesen und Bauen - Typ und Grösse der data:-URI
       const problem = themeProblem({ logo });
       if (problem) setNote({ tone: 'error', text: problem });

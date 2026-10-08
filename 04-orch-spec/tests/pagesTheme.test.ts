@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
 import colourCases from '../../.claude/skills/orch-theme-from-site/colour-cases.json';
-import { alphaOf, contrast, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
+import { alphaOf, contrast, svgDropsAttribute, svgDropsElement, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 import { appModeKey, isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -241,4 +241,19 @@ test('contrast / textOn - a background that is no colour is not taken for white'
   assert.equal(contrast('#000000', '#ffffff', 'blau'), null);
   assert.equal(textOn('#ffd200', 'blau'), '#ffffff'); // no colour: the default, not a guess on white
   assert.equal(textOn('#ffd200', '#ffffff'), '#000000');
+});
+
+test('svgDrops* - the SVG rules of an imported or uploaded logo (as parse_svg of the skill)', () => {
+  for (const el of ['script', 'foreignObject', 'style', 'set', 'animate', 'animateMotion', 'image', 'feImage', 'SCRIPT'])
+    assert.ok(svgDropsElement(el), el);
+  for (const el of ['svg', 'g', 'path', 'rect', 'use', 'linearGradient', 'defs', 'a']) assert.ok(!svgDropsElement(el), el);
+  assert.ok(svgDropsAttribute('onload', 'x()'));
+  assert.ok(svgDropsAttribute('href', 'https://evil.example/s.svg#a'));
+  assert.ok(svgDropsAttribute('xlink:href', ' JaVaScript:alert(1)'));
+  assert.ok(svgDropsAttribute('style', "fill: URL( 'https://evil.example/g' )"));
+  assert.ok(svgDropsAttribute('to', 'javascript:alert(1)'));
+  assert.ok(svgDropsAttribute('fill', 'data:text/html,x'));
+  assert.ok(!svgDropsAttribute('href', '#logo'));
+  assert.ok(!svgDropsAttribute('fill', 'url(#g)'));
+  assert.ok(!svgDropsAttribute('d', 'M0 0h10v10z'));
 });

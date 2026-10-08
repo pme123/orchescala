@@ -201,3 +201,16 @@ export function parseThemeFile(text: string): { theme: Theme; name?: string; sou
   if (problem) return { error: problem };
   return { theme, name: typeof r.name === 'string' ? r.name : undefined, source: typeof r.source === 'string' ? r.source : undefined };
 }
+
+/** Was aus einem SVG-Logo fällt - die Regeln wie parse_svg des Skills, hier für ein Logo, das importiert
+  * oder hochgeladen wird (sonst ginge es an der Säuberung vorbei). Eine Liste der bekannten Wege; die
+  * Gewähr ist, dass die App das Logo nur als <img> zeigt - das führt nichts aus und lädt nichts. */
+const SVG_DROPPED = new Set(['script', 'foreignobject', 'style', 'set', 'animate', 'animatemotion', 'animatetransform', 'discard', 'image', 'feimage']);
+export const svgDropsElement = (name: string): boolean => SVG_DROPPED.has(name.toLowerCase());
+export function svgDropsAttribute(name: string, value: string): boolean {
+  const local = name.toLowerCase().split(':').pop()!;
+  return local.startsWith('on')
+    || (local === 'href' && !value.startsWith('#'))
+    || /url\(\s*['"]?(?!#)|@import|expression\(/i.test(value)
+    || /^\s*(javascript|data|vbscript):/i.test(value);
+}
