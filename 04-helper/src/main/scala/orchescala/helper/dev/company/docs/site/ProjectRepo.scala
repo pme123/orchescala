@@ -29,7 +29,10 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
   /** Is it the project's own tag (`<project>-v<version>`) - not a plain `v<version>`, which in one
     * repo may be any project's release (the folder of every project is there at nearly every tag).
     */
-  def isOwnTag(tag: String): Boolean = !singleRepo || tag.startsWith(s"$project-")
+  def isOwnTag(tag: String): Boolean = !singleRepo || OwnTag.matches(tag)
+
+  /** `<project>-v1.2.3` or `<project>-1.2.3` - not `<project>-shop-v1.0.0` of a project `<project>-shop`. */
+  private lazy val OwnTag = (java.util.regex.Pattern.quote(project) + "-v?\\d.*").r
 
   /** A warning when a release is taken from a plain tag in one repo - None for the project's own. */
   def plainTagWarning(tag: String): Option[String] =
@@ -49,7 +52,7 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * at which the project is there.
     */
   def releaseTags(version: String, known: Set[String]): Seq[String] =
-    val ownTags = singleRepo && known.exists(_.startsWith(s"$project-"))
+    val ownTags = singleRepo && known.exists(isOwnTag)
     tagCandidates(version).filter(t => known.contains(t) && (!ownTags || isOwnTag(t))).filter(existsAt)
 
   /** The tag of a release of `version` - local first, then after fetching the tags from origin (once
@@ -98,12 +101,20 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, s"--strip-components=$depth")
         .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
       // tar gone early: git may block on the closed pipe - not for ever
-      if !git.waitFor(ProjectRepo.ExportTimeoutMs) then git.destroy()
-      // git's failure is the cause - tar then only sees a cut stream
-      if git.exitCode() != 0 then
-        throw new Exception(s"git archive $ref of $project failed: ${os.read(errors).trim}")
+      val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
+      if !gitDone then git.destroy()
+      val gitErr  = os.read(errors).trim
+      val tarErr  = tar.err.text().trim
+      // who failed first: git on its own (tar then only saw a cut stream), or tar (git then dies on the
+      // closed pipe - SIGPIPE, 141 - or was stopped): the cause is named, the other one added
+      val gitOwn  = gitDone && git.exitCode() != 0 && git.exitCode() != 141
+      if gitOwn then
+        val also = if tar.exitCode != 0 then s" (tar: $tarErr)" else ""
+        throw new Exception(s"git archive $ref of $project failed: $gitErr$also")
       if tar.exitCode != 0 then
-        throw new Exception(s"tar of $project at $ref failed: ${tar.err.text().trim}")
+        val also = if gitErr.nonEmpty then s" (git: $gitErr)" else ""
+        throw new Exception(s"tar of $project at $ref failed: $tarErr$also")
+      if git.exitCode() != 0 then throw new Exception(s"git archive $ref of $project did not finish: $gitErr")
       // swap: the old one aside, the new one in - if that fails, the old one back (a locked file, a full
       // disk): dest is never gone
       val old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}"
@@ -190,7 +201,8 @@ object ProjectRepo:
           check = false,
           stdout = os.Pipe,
           stderr = os.Pipe,
-          env = Map("GIT_TERMINAL_PROMPT" -> "0"),
+          // C: git's messages in English - the moved-tag case is recognised by them
+          env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
           timeout = 60000
         )
     )

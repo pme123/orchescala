@@ -259,8 +259,9 @@ case class ProjectsPerGitRepoConfig(
     if singleRepo then
       ZIO
         .attempt:
-          val gitRepo = s"$cloneBaseUrl/$companyName.git"
-          updateProject(gitDir / companyName, gitRepo)
+          // the same clone as init - the project is copied from it below
+          val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
+          updateProject(gitDir / s"orchescala-$companyName", gitRepo)
         .flatMap: _ =>
           ZIO.attempt:
             val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / projectName

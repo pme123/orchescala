@@ -254,6 +254,21 @@ class ProjectRepoTest extends FunSuite:
     ProjectRepo.locate(gitTemp, "acme-shop").get.exportTo("acme-shop-v1.0.0", gitTemp / "acme")
     assert(os.exists(gitTemp / ".acme-shop.orch-export-789"))
 
+  test("releaseTags - a project whose name starts another's (acme / acme-shop): acme-shop's tags are not acme's"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme" / "README.md", "acme", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "acme")
+    git(repo, "tag", "v5.0.0")
+    val acme    = ProjectRepo.locate(gitTemp, "acme").get
+    assert(!acme.isOwnTag("acme-shop-v1.0.0"))
+    assert(acme.isOwnTag("acme-v5.0.0") && acme.isOwnTag("acme-5.0.0"))
+    // acme has no tag of its own (acme-shop-v1.0.0 is acme-shop's): the plain v5.0.0 counts
+    assertEquals(acme.releaseTags("5.0.0", acme.localTags()), Seq("v5.0.0"))
+    git(repo, "tag", "acme-v5.0.1")
+    assertEquals(acme.releaseTags("5.0.0", acme.localTags()), Seq.empty) // now it has: no plain tags
+
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()
     val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")

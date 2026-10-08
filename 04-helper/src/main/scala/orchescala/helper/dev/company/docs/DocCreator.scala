@@ -246,10 +246,10 @@ trait DocCreator extends DependencyCreator, Helpers:
       _           = ProjectRepo.exportRelease(gitBasePath, project, version, projectPath) match
         case Some(tag) => println(s"Exported $project at '$tag'")
         case None =>
-          // ensure all tags are present locally
-          fetchAllTags(projectPath)
+          // ensure all tags are present locally - once: resolveTagRef only reads what is there now
+          val fetched = fetchAllTags(projectPath)
           // resolve correct tag name (handles 'v' and non-'v')
-          val tagRef = resolveTagRef(projectPath, version)
+          val tagRef  = resolveTagRef(projectPath, version, fetched)
           println(s"Checkout $project to 'tags/$tagRef'")
           // try checkout; if local changes block it, force the checkout
           try
@@ -276,7 +276,7 @@ trait DocCreator extends DependencyCreator, Helpers:
         cwd = projectPath,
         stdout = os.Inherit,
         check = false,
-        env = Map("GIT_TERMINAL_PROMPT" -> "0"),
+        env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
         timeout = 120000
       )
     )
@@ -285,7 +285,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     ok
 
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
-  private def resolveTagRef(projectPath: os.Path, version: String): String =
+  private def resolveTagRef(projectPath: os.Path, version: String, fetched: Boolean): String =
     val candidates = Seq(s"v$version", version)
 
     // check local tags first
@@ -295,8 +295,8 @@ trait DocCreator extends DependencyCreator, Helpers:
         .out.text().linesIterator.map(_.trim).toSet
 
     candidates.find(localTags.contains).getOrElse {
-      // fetch all tags and re-check against remote - origin not reachable: say so, not «not found»
-      if !fetchAllTags(projectPath) then
+      // the tags were just fetched (fetchConf) - re-check against remote; origin not reachable: say so
+      if !fetched then
         throw new Exception(
           s"Tag not found in $projectPath: ${candidates.mkString(" or ")} - fetching the tags failed, not checked on origin"
         )
