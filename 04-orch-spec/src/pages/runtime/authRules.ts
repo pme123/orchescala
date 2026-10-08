@@ -18,23 +18,30 @@ export function safeReturnTo(state: unknown, base: string): string {
   return typeof state === 'string' && /^\/(?![/\\])/.test(state) ? state : base;
 }
 
-/** Nach dem Start der Weiterleitung zum IdP: geht die Seite (`pagehide`), endet das Warten mit ihr -
-  * es bleibt offen. Bleibt sie nach `ms` (Weiterleitung blockiert) oder kommt sie zurück (`pageshow`
-  * aus dem bfcache), ein Fehler statt ewig «busy». Vor dem Start scharf machen - die Weiterleitung kann
-  * schon darin beginnen; `cancel`, wenn sie gar nicht erst startet. */
+/** Die Weiterleitung zum IdP: geht die Seite (`pagehide`), endet das Warten mit ihr - es bleibt offen.
+  * Bleibt sie `ms` nach `started()` (Weiterleitung blockiert) oder kommt sie zurück (`pageshow` aus dem
+  * bfcache), ein Fehler statt ewig «busy». Die Listener vor dem Start - die Weiterleitung kann schon
+  * darin beginnen; die Uhr erst danach (ein langsamer IdP ist kein Fehler); `cancel`, wenn sie gar
+  * nicht erst startet. Vor `started()` lehnt `wait` nie ab - niemand wartet dann schon darauf. */
 export function watchLeaving(target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, ms: number, error: () => Error) {
-  let cleanup = () => {};
+  let left = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let fail = () => {};
+  const hide = () => { left = true; clearTimeout(timer); };
+  const show = () => { left = false; if (timer !== undefined) fail(); };
+  const cleanup = () => {
+    clearTimeout(timer);
+    target.removeEventListener('pagehide', hide);
+    target.removeEventListener('pageshow', show);
+  };
   const wait = new Promise<never>((_, reject) => {
-    const fail = () => { cleanup(); reject(error()); };
-    const timer = setTimeout(fail, ms);
-    const hide = () => clearTimeout(timer);
-    cleanup = () => {
-      clearTimeout(timer);
-      target.removeEventListener('pagehide', hide);
-      target.removeEventListener('pageshow', fail);
-    };
-    target.addEventListener('pagehide', hide);
-    target.addEventListener('pageshow', fail);
+    fail = () => { cleanup(); reject(error()); };
   });
-  return { wait, cancel: () => cleanup() };
+  target.addEventListener('pagehide', hide);
+  target.addEventListener('pageshow', show);
+  return {
+    wait,
+    started: () => { if (!left) timer = setTimeout(fail, ms); },
+    cancel: cleanup,
+  };
 }

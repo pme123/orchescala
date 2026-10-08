@@ -159,5 +159,6 @@ export async function sessionExpired(): Promise<never> {
     // der IdP ist nicht erreichbar (oder config.json fehlt) - als Anmeldefehler, nicht «später»
     throw new ApiError(401, `Anmeldung nicht möglich: ${e instanceof Error ? e.message : String(e)}`, 'login');
   }
+  leaving.started();
   return leaving.wait;
 }

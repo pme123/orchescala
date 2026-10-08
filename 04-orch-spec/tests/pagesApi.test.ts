@@ -110,3 +110,8 @@ test('the connection breaks - a 504 too (the outcome is open), not «try again l
   globalThis.fetch = (async () => { throw new TypeError('Failed to fetch'); }) as typeof fetch;
   await assert.rejects(postWith(tokens('new').source, '/process/x/async', {}, false), (e: ApiError) => e instanceof ApiError && e.status === 504);
 });
+
+test('another TypeError (a bug of the page) is not «no connection»', async () => {
+  globalThis.fetch = (async () => { throw new TypeError('Invalid URL'); }) as typeof fetch;
+  await assert.rejects(postWith(tokens('new').source, '/process/x/async', {}, false), (e: unknown) => e instanceof TypeError && !(e instanceof ApiError));
+});

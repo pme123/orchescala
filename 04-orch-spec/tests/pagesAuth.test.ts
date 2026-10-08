@@ -37,31 +37,37 @@ test('safeReturnTo - only a path of this page', () => {
 
 test('watchLeaving - the page leaves: the wait stays open, no error', async () => {
   const page = new EventTarget();
-  const { wait } = watchLeaving(page, 30, () => new Error('nicht gestartet'));
+  const w = watchLeaving(page, 30, () => new Error('nicht gestartet'));
   let settled = false;
-  wait.then(() => { settled = true; }, () => { settled = true; });
+  w.wait.then(() => { settled = true; }, () => { settled = true; });
+  w.started();
   page.dispatchEvent(new Event('pagehide'));
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(settled, false);
 });
 
-test('watchLeaving - the page stays, or comes back: the error', async () => {
+test('watchLeaving - the page stays after the start, or comes back: the error', async () => {
   const stays = new EventTarget();
-  await assert.rejects(watchLeaving(stays, 20, () => new Error('nicht gestartet')).wait, /nicht gestartet/);
+  const s = watchLeaving(stays, 20, () => new Error('nicht gestartet'));
+  s.started();
+  await assert.rejects(s.wait, /nicht gestartet/);
   const back = new EventTarget();
   const w = watchLeaving(back, 10_000, () => new Error('zurück'));
+  w.started();
   back.dispatchEvent(new Event('pagehide'));
   back.dispatchEvent(new Event('pageshow'));
   await assert.rejects(w.wait, /zurück/);
 });
 
-test('watchLeaving - cancelled (the redirect did not start): no error, no listener left', async () => {
+test('watchLeaving - no clock before started (a slow IdP), no error when cancelled', async () => {
   const page = new EventTarget();
-  const w = watchLeaving(page, 20, () => new Error('nicht gestartet'));
+  const slow = watchLeaving(page, 10, () => new Error('zu früh'));
   let rejected = false;
-  w.wait.catch(() => { rejected = true; });
-  w.cancel();
-  page.dispatchEvent(new Event('pageshow'));
+  slow.wait.catch(() => { rejected = true; });
   await new Promise((r) => setTimeout(r, 40));
+  assert.equal(rejected, false); // not started yet - nothing awaits it, nothing rejects
+  slow.cancel();
+  page.dispatchEvent(new Event('pageshow'));
+  await new Promise((r) => setTimeout(r, 20));
   assert.equal(rejected, false);
 });

@@ -12,6 +12,8 @@ export type TokenSource = {
 
 /** Wie lange ein Aufruf höchstens dauert - länger als der Gateway selbst wartet (callTimeout). */
 const CALL_TIMEOUT_MS = 60_000;
+/** Die Netzfehler von fetch (Chrome, Firefox, Safari) - ein anderer TypeError ist ein Fehler der Seite. */
+const NETWORK_ERROR = /failed to fetch|networkerror|load failed|network connection was lost/i;
 
 /** POST an den Gateway – öffentlich ohne Token, sonst mit dem Token des Benutzers. */
 export function post(path: string, body: unknown, isPublic: boolean): Promise<unknown> {
@@ -30,7 +32,7 @@ export async function postWith(
         if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(504, 'Keine Antwort vom Gateway');
         // die Verbindung brach ab (fetch: TypeError) - vielleicht erst, nachdem der Aufruf ankam: wie
         // keine Antwort, ob es geklappt hat, ist offen (errorText 504) - nicht «später noch einmal»
-        if (e instanceof TypeError) throw new ApiError(504, `Keine Verbindung zum Gateway: ${e.message}`);
+        if (e instanceof TypeError && NETWORK_ERROR.test(e.message)) throw new ApiError(504, `Keine Verbindung zum Gateway: ${e.message}`);
         throw e;
       });
   };

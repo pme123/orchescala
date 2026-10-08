@@ -1647,6 +1647,9 @@ UI_BASE=/app/<projekt>/ UI_PAGES=<spec>/pages UI_CONFIG=<config.json> \
 
 Die Worker-App liefert es aus ihrem Classpath (`ui/`), der Gateway unter `/app/<projekt>/`.
 `config.json` nennt den IdP (`authority`, `clientId`) – nur Seiten mit Login melden sich an.
+Das Token liegt im `sessionStorage` des Tabs (Authorization Code + PKCE, erneuert nur bei Bedarf) –
+lesbar für jedes Skript der Seite. Deshalb setzt der Renderer Texte nur als Text ein (kein HTML), und
+was ein Aufruf darf, prüfen Gateway und Worker, nicht die Seite.
 `npm run dev:pages` zeigt die Seiten eines Ordners mit dem Gateway dahinter (`GATEWAY`).
 
 Das Format einer Seite:
