@@ -116,6 +116,13 @@ test('format - a point in time with a zone in the time of the browser, a local o
   assert.equal(format('2026-10-20T09:00:00+02:00', 'date'), format(new Date('2026-10-20T07:00:00Z').toISOString(), 'date'));
 });
 
+test('setPath - no __proto__, constructor or prototype, also deeper', () => {
+  for (const path of ['__proto__', '__proto__.x', 'a.constructor', 'a.prototype.x']) {
+    const next = setPath({ a: {} }, path, 'x');
+    assert.deepEqual(JSON.parse(JSON.stringify(next)), { a: {} }, path);
+  }
+});
+
 test('setPath on a list - at most one entry after the last, no huge sparse list', () => {
   assert.deepEqual(setPath({ items: ['a'] }, 'items.1', 'b'), { items: ['a', 'b'] });
   assert.deepEqual(setPath({ items: ['a'] }, 'items.4294967294', 'x'), { items: ['a'] });

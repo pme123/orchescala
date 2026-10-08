@@ -17,6 +17,8 @@ export function getPath(state: unknown, path: string): unknown {
 export function setPath(state: State, path: string, value: unknown): State {
   const [head, ...rest] = path.split('.').filter(Boolean);
   if (head === undefined) return state;
+  // wie getPath: keine Felder, die es nur am Prototyp gibt - sie kämen als eigene in die Eingaben
+  if (head === '__proto__' || head === 'constructor' || head === 'prototype') return state;
   const current = (state as Record<string, unknown>)[head];
   const next =
     rest.length === 0

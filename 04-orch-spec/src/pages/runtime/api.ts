@@ -28,6 +28,9 @@ export async function postWith(
     return fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) })
       .catch((e: unknown) => {
         if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(504, 'Keine Antwort vom Gateway');
+        // die Verbindung brach ab (fetch: TypeError) - vielleicht erst, nachdem der Aufruf ankam: wie
+        // keine Antwort, ob es geklappt hat, ist offen (errorText 504) - nicht «später noch einmal»
+        if (e instanceof TypeError) throw new ApiError(504, `Keine Verbindung zum Gateway: ${e.message}`);
         throw e;
       });
   };

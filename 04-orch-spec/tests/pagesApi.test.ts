@@ -105,3 +105,8 @@ test('no answer - a 504 instead of busy forever', async () => {
   }) as typeof fetch;
   await assert.rejects(postWith(tokens('new').source, '/public/worker/x', {}, true), (e: ApiError) => e instanceof ApiError && e.status === 504);
 });
+
+test('the connection breaks - a 504 too (the outcome is open), not «try again later»', async () => {
+  globalThis.fetch = (async () => { throw new TypeError('Failed to fetch'); }) as typeof fetch;
+  await assert.rejects(postWith(tokens('new').source, '/process/x/async', {}, false), (e: ApiError) => e instanceof ApiError && e.status === 504);
+});
