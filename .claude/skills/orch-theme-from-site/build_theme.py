@@ -13,7 +13,6 @@ data: URI up to 200 KB.
 import argparse
 import base64
 import json
-import mimetypes
 import re
 import sys
 from datetime import date
@@ -148,9 +147,10 @@ SVG_NS = 'http://www.w3.org/2000/svg'
 def parse_svg(data):
     """An SVG from the bank's site (untrusted) as a tree - no DOCTYPE or entities (they could expand to
     gigabytes in the parser), and without what an SVG could run or load from outside: <script>,
-    <foreignObject>, <style> (it could @import or url(http…)), on* handlers, links and style
-    attributes pointing elsewhere than a #fragment. The app shows the logo only as <img> (which runs
-    and loads nothing) - this keeps the data URI so also where someone uses it inline."""
+    <foreignObject>, <style> (it could @import or url(http…)), SMIL animation (<set>, <animate…>),
+    on* handlers, javascript:/data: values, links and style attributes pointing elsewhere than a
+    #fragment. A blocklist of the known ways - the guarantee is that the app shows the logo only as
+    <img>, which runs and loads nothing."""
     import xml.etree.ElementTree as ET
     ET.register_namespace('', SVG_NS)
     ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
@@ -167,7 +167,9 @@ def parse_svg(data):
         root = ET.fromstring(text.encode('utf-8'))
     except ET.ParseError as e:
         sys.exit(f'Das Logo ist kein SVG: {e}.')
-    dangerous = {f'{{{SVG_NS}}}{t}' for t in ('script', 'foreignObject', 'style')} | {'script', 'foreignObject', 'style'}
+    # also SMIL animation: <set attributeName="href" to="javascript:…"> or <animate> could change links later
+    removed = ('script', 'foreignObject', 'style', 'set', 'animate', 'animateMotion', 'animateTransform', 'discard')
+    dangerous = {f'{{{SVG_NS}}}{t}' for t in removed} | set(removed)
     outside = re.compile(r'url\(\s*[\'"]?(?!#)|@import|expression\(', re.I)
     for parent in list(root.iter()):
         for child in list(parent):
@@ -177,7 +179,8 @@ def parse_svg(data):
         for name in list(el.attrib):
             local = name.split('}')[-1].lower()
             value = el.attrib[name]
-            if local.startswith('on') or (local == 'href' and not value.startswith('#')) or outside.search(value):
+            if local.startswith('on') or (local == 'href' and not value.startswith('#')) or outside.search(value) \
+                    or re.match(r'\s*(javascript|data|vbscript):', value, re.I):
                 del el.attrib[name]
     return root
 
@@ -203,23 +206,39 @@ def svg_symbol(data, symbol_id):
     return ET.tostring(svg, encoding='utf-8')
 
 
+def sniff_image(data):
+    """The type of an image by its first bytes - None if it is none the app takes (the extension of a
+    downloaded file says little)."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    head = data[:1024].lstrip(b'\xef\xbb\xbf \t\r\n')
+    if head.startswith((b'<svg', b'<?xml', b'<!--')) and b'<svg' in data[:4096]:
+        return 'image/svg+xml'
+    return None
+
+
 def logo_uri(path, symbol_id=None):
     try:
         with open(path, 'rb') as f:
             data = f.read()
     except OSError as e:
         sys.exit(f'Das Logo {path} lässt sich nicht lesen: {e.strerror}.')
-    if symbol_id:
-        data = svg_symbol(data, symbol_id)
-        path = 'logo.svg'
-    elif path.lower().endswith('.svg'):
+    mime = sniff_image(data)
+    if mime is None:
+        sys.exit(f'{path} ist kein Bild, das die App nimmt (PNG, JPEG, GIF, WebP oder SVG - nach seinem Inhalt).')
+    if mime == 'image/svg+xml':
         import xml.etree.ElementTree as ET
-        data = ET.tostring(parse_svg(data), encoding='utf-8')
+        data = svg_symbol(data, symbol_id) if symbol_id else ET.tostring(parse_svg(data), encoding='utf-8')
+    elif symbol_id:
+        sys.exit(f'--logo-id gibt es nur für eine SVG-Sprite-Datei - {path} ist {mime}.')
     if len(data) > MAX_LOGO:
         sys.exit(f'Das Logo hat {len(data) // 1024} KB - bis 200 KB (z.B. als SVG oder kleiner skaliert).')
-    mime = 'image/svg+xml' if path.lower().endswith('.svg') else mimetypes.guess_type(path)[0] or 'image/png'
-    if mime not in LOGO_TYPES:
-        sys.exit(f'{path} ist kein Logo, das die App nimmt ({mime}; PNG, JPEG, GIF, WebP oder SVG).')
     return f'data:{mime};base64,{base64.b64encode(data).decode()}'
 
 

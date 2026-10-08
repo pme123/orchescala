@@ -380,7 +380,8 @@ lazy val orchDocClient = project
         apps.flatMap(d =>
           Seq("index.html", "api.html", "package.json", "package-lock.json", "vite.config.ts", "vite.single.config.ts", "tsconfig.json")
             .map(d / _)
-        )).filter(_.isFile).toSet
+        ) :+ (LocalRootProject / baseDirectory).value / ".claude/skills/orch-theme-from-site/colour-cases.json" // orch-spec's tests read it
+        ).filter(_.isFile).toSet
       def bundled = bundleDir.allPaths.get().filter(_.isFile).toSet
       if (!NpmBuild.hasNpm) {
         NpmBuild.warnMissingNpm("the documentation apps", clientDir, Seq("build:all", "build:single"), log)

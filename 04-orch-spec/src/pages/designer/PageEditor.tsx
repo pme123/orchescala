@@ -88,7 +88,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [left, setLeft] = useState<'outline' | 'data'>('outline');
   const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
   // die Tastatur liest immer die Aktionen dieses Renderns (sie hängen an Seite und Auswahl)
-  const keys = useRef<{ undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean }>(null!);
+  const keys = useRef<{
+    undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean; can: { undo: boolean; redo: boolean };
+  }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
   // ---- speichern: eine Sekunde nach der letzten Änderung und beim Verlassen - ein Schreiben nach dem
@@ -96,6 +98,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const pending = useRef<Page | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
+  const retries = useRef(0);
+  const closed = useRef(false); // nach dem Verlassen: der letzte Versuch beim Aufräumen, keine weiteren
   const flush = useCallback((): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -105,6 +109,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       pending.current = null;
       const r = await savePage(slug, data, version.current);
       if (r.status === 'saved') {
+        retries.current = 0;
         version.current = r.version;
         setSaveState({ at: new Date() });
         return true;
@@ -112,6 +117,12 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       // nicht verlieren: bleibt ausstehend, solange nichts Neueres kam
       pending.current ??= data;
       setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
+      // ein Fehler der Verbindung: von selbst noch einmal, immer seltener (2 s … 30 s) - ein Konflikt nicht,
+      // den löst nur, wer die Seite neu lädt
+      if (r.status !== 'conflict' && !timer.current && !closed.current) {
+        const wait = Math.min(30000, 2000 * 2 ** retries.current++);
+        timer.current = setTimeout(() => void flush(), wait);
+      }
       return false;
     });
     return saving.current;
@@ -125,6 +136,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     return () => {
       window.removeEventListener('pagehide', now);
       document.removeEventListener('visibilitychange', hidden);
+      closed.current = true;
       now();
     };
   }, [flush]);
@@ -188,7 +200,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       if (!k) return;
       const t = e.target as HTMLElement | null;
       const inField = !!t?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]');
-      const hit = designerKey(e, inField, k.canEdit, !!k.ops);
+      const hit = designerKey(e, inField, k.canEdit, !!k.ops, k.can);
       if (!hit) return;
       if (hit.action !== 'deselect') e.preventDefault();
       if (!hit.run) return;
@@ -236,7 +248,11 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     unwrap: () => apply(unwrapSection(body(), key)),
   });
   const ops = selected !== null && block ? opsFor(selected) : null;
-  keys.current = { undo, redo, ops, deselect: () => setSelected(null), canEdit };
+  keys.current = {
+    undo, redo, ops, deselect: () => setSelected(null), canEdit,
+    // beim Drücken gelesen - zwei ⌘Z vor dem nächsten Rendern sehen je den Stand des vorigen
+    get can() { return { undo: history.current.past.length > 0, redo: history.current.future.length > 0 }; },
+  };
 
   // ---- Drag & Drop in der Gliederung: oben/unten an einer Zeile davor/danach, mitten in einem Abschnitt hinein
   const placeAt = (e: React.DragEvent, isSection: boolean): Place => {

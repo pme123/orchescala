@@ -44,7 +44,8 @@ jobs:
         run: sbt orchDocClient/bundleDocClient
       - name: Test the theme skill
         # .claude/skills/orch-theme-from-site/build_theme.py - plain Python 3, no packages; its colour
-        # rules share colour-cases.json with orch-spec's tests (which run in the step above)
+        # rules share colour-cases.json with orch-spec's tests, which bundleDocClient runs (above) - the
+        # file is one of its inputs, so a change to it runs them again
         working-directory: .claude/skills/orch-theme-from-site
         run: python3 -m unittest -v test_build_theme
       - name: Compile

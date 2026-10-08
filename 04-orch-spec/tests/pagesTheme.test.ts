@@ -236,3 +236,9 @@ test('draftAfterSave - the Admin form keeps an edit made while saving', async ()
   assert.equal(draftAfterSave(null, saved), null);
   assert.equal(draftAfterSave({ theme: undefined }, undefined), null); // «Vorgabe» saved
 });
+
+test('contrast / textOn - a background that is no colour is not taken for white', () => {
+  assert.equal(contrast('#000000', '#ffffff', 'blau'), null);
+  assert.equal(textOn('#ffd200', 'blau'), '#ffffff'); // no colour: the default, not a guess on white
+  assert.equal(textOn('#ffd200', '#ffffff'), '#000000');
+});

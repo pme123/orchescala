@@ -8,7 +8,7 @@ import unittest
 
 import base64
 
-from build_theme import MAX_LOGO, contrast, parse_svg, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
+from build_theme import MAX_LOGO, contrast, logo_uri, parse_svg, sniff_image, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -161,6 +161,31 @@ class Problems(unittest.TestCase):
     def test_rgb_numbers_are_clamped(self):
         self.assertEqual(to_hex('rgb(300, 0, 0)'), '#ff0000')
         self.assertEqual(to_hex('rgb(300 0 0)'), '#ff0000')
+
+    def test_logo_type_by_its_content(self):
+        self.assertEqual(sniff_image(b'\x89PNG\r\n\x1a\n....'), 'image/png')
+        self.assertEqual(sniff_image(b'\xff\xd8\xff\xe0'), 'image/jpeg')
+        self.assertEqual(sniff_image(b'GIF89a...'), 'image/gif')
+        self.assertEqual(sniff_image(b'RIFF\x00\x00\x00\x00WEBPVP8 '), 'image/webp')
+        self.assertEqual(sniff_image(b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"/>'), 'image/svg+xml')
+        self.assertIsNone(sniff_image(b'<html><body>not found</body></html>'))  # an error page saved as logo.png
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, 'logo.png')
+            with open(fake, 'wb') as f:
+                f.write(b'<html>404</html>')
+            with self.assertRaises(SystemExit):
+                logo_uri(fake)
+
+    def test_svg_animation_is_removed(self):
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg"><a href="#x"><set attributeName="href" to="javascript:alert(1)"/>'
+               b'<animate attributeName="href" values="javascript:alert(2)"/><rect width="1"/></a>'
+               b'<rect fill="javascript:x" width="2"/></svg>')
+        import xml.etree.ElementTree as ET
+        out = ET.tostring(parse_svg(svg)).decode()
+        self.assertNotIn('javascript', out)
+        self.assertNotIn('animate', out)
+        self.assertNotIn('set ', out)
+        self.assertIn('rect', out)
 
     def test_svg_with_entities_is_refused(self):
         bomb = b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>'

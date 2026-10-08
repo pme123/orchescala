@@ -461,6 +461,10 @@ test('designerKey - what a key does, and when it is the browser\'s', () => {
   // in a field or dialog, or already handled: not the designer's
   assert.equal(designerKey(k('z', { metaKey: true }), true, true, true), null);
   assert.equal(designerKey(k('Delete', { defaultPrevented: true }), false, true, true), null);
+  // nothing to undo / redo: ⌘Z stays the browser's
+  assert.equal(designerKey(k('z', { metaKey: true }), false, true, true, { undo: false, redo: true }), null);
+  assert.deepEqual(designerKey(k('z', { metaKey: true, shiftKey: true }), false, true, true, { undo: false, redo: true }), { action: 'redo', run: true });
+  assert.equal(designerKey(k('y', { ctrlKey: true }), false, true, true, { undo: true, redo: false }), null);
 });
 
 test('coalesceKey - a change of several places at once merges with nothing', () => {

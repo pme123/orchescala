@@ -85,7 +85,9 @@ function luminance([r, g, b]: [number, number, number]): number {
 /** Der Kontrast zweier Theme-Farben nach WCAG (1…21): `a` auf dem Hintergrund `over` (ohne: Weiss), `b`
   * darauf - null, wenn eine keine ist. */
 export function contrast(a: string, b: string, over?: string): number | null {
-  const x = rgbOf(a, (over && rgbOf(over)) || undefined);
+  const base = over === undefined ? undefined : rgbOf(over);
+  if (base === null) return null; // ein Hintergrund, der keine Farbe ist - nicht still Weiss
+  const x = rgbOf(a, base);
   const y = x && rgbOf(b, x);
   if (!x || !y) return null;
   const [hi, lo] = [luminance(x), luminance(y)].sort((p, q) => q - p);
@@ -98,7 +100,8 @@ export const MIN_ON_PRIMARY_CONTRAST = 3;
 
 /** Der Text auf einer Farbe: Schwarz oder Weiss, was den grösseren Kontrast hat (WCAG, wie der Skill). */
 export function textOn(color: string, over?: string): '#000000' | '#ffffff' {
-  const rgb = rgbOf(color, (over && rgbOf(over)) || undefined);
+  const base = over === undefined ? undefined : rgbOf(over);
+  const rgb = base === null ? null : rgbOf(color, base);
   if (!rgb) return '#ffffff';
   const l = luminance(rgb);
   return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#000000' : '#ffffff';
