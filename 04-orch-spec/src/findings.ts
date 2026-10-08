@@ -7,7 +7,7 @@
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
-import { C7_LABEL } from './engineLabels';
+import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
@@ -357,8 +357,8 @@ export const isScriptValue = (expression: string): boolean => expression.trimSta
  * Skripte in Mappings — dort gehört es als FEEL neu geschrieben.
  */
 export const scriptWarning = (engine: EngineId | undefined): string => (engine === 'c8'
-  ? 'Skript aus dem BPMN — Camunda 8 kennt keine Skripte in Mappings: als «= …» (FEEL) neu schreiben.'
-  : `Skript aus dem BPMN — beim Export für ${C7_LABEL} bleibt es unverändert im Diagramm; für Camunda 8 müsste es als «= …» (FEEL) neu geschrieben werden.`);
+  ? `Skript aus dem BPMN — ${C8_LABEL} kennt keine Skripte in Mappings: als «= …» (FEEL) neu schreiben.`
+  : `Skript aus dem BPMN — beim Export für ${C7_LABEL} bleibt es unverändert im Diagramm; für ${C8_LABEL} müsste es als «= …» (FEEL) neu geschrieben werden.`);
 
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';

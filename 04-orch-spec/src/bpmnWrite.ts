@@ -19,6 +19,7 @@
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
+import { C8_LABEL } from './engineLabels';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
 import { juelOptions, referencedVariables, resultVariables } from './feel';
 import { catalogEntry } from './interactions';
@@ -712,7 +713,7 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
   const source = (m: Mapping, where: string): string => {
     const e = engineExpression(m.expression, 'c8');
     if (feelBody(m.expression) == null && /^[$#]\{/.test(m.expression.trim())) {
-      issues.push({ stepId, where, text: `«${m.expression}» ist kein FEEL — Camunda 8 nimmt es als festen Text. Als «= …» schreiben.` });
+      issues.push({ stepId, where, text: `«${m.expression}» ist kein FEEL — ${C8_LABEL} nimmt es als festen Text. Als «= …» schreiben.` });
     }
     return e.text;
   };

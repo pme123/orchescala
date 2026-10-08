@@ -25,6 +25,7 @@ test('the engines take their labels from engineLabels', () => {
   assert.equal(engineLabel('c8'), C8_LABEL);
   assert.deepEqual(ENGINES.map((e) => e.label), [C7_LABEL, C8_LABEL]);
   assert.equal(engineLabel(undefined), C7_LABEL); // without an engine: the default c7
+  assert.equal(engineLabel(null), C7_LABEL); // null from a file: the default too
   assert.equal(engineLabel('c9' as EngineId), 'c9'); // an unknown value stays visible
   // the words themselves - the other checks only compare with the constants
   assert.equal(C7_LABEL, 'Camunda 7 / Operaton');
@@ -67,7 +68,7 @@ test('the audit note of a conversion - written once, it stays', () => {
   assert.equal(conversionNote('c8'), 'In Camunda 8 umgewandelt');
 });
 
-test('no text in src names «Camunda 7» alone - only comments, the labels come from engineLabels', () => {
+test('no text in src names an engine by hand - only comments, the labels come from engineLabels', () => {
   const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
     .flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
   // from the test itself (dist-tests/…), not from the cwd
@@ -76,6 +77,6 @@ test('no text in src names «Camunda 7» alone - only comments, the labels come 
   assert.ok(sources.length > 50, `src not found at ${src}`); // the scan must not pass for want of files
   const offenders = sources.filter((f) => !f.endsWith('engineLabels.ts')).flatMap((f) =>
     readFileSync(f, 'utf-8').split('\n').map((line, i) => ({ f, i: i + 1, line: line.trim() }))
-      .filter(({ line }) => /Camunda 7(?! \/ Operaton)/.test(line) && !/^(\/\/|\*|\/\*|\{\/\*)/.test(line)));
+      .filter(({ line }) => /Camunda [78]/.test(line) && !/^(\/\/|\*|\/\*|\{\/\*)/.test(line)));
   assert.deepEqual(offenders.map(({ f, i, line }) => `${f}:${i} ${line}`), []);
 });

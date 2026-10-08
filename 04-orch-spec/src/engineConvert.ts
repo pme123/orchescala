@@ -22,7 +22,7 @@
 // übersetzbare Ausdrücke. Lieber sichtbar offen als still falsch.
 
 import type { EngineId } from './types';
-import { C7_LABEL } from './engineLabels';
+import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { feelBody, feelToJuel } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
@@ -242,7 +242,7 @@ function toC8(defs: Element, ctx: Ctx) {
       else { const e = extOf(ctx, holder); prependEl(e, zeebe('taskDefinition', { type: topic })); touched.push(holder); }
     }
     for (const a of ['class', 'delegateExpression', 'expression']) {
-      if (cattr(el, a)) issue('Implementierung', `camunda:${a}="${cattr(el, a)}" — in Camunda 8 als Job-Worker (zeebe:taskDefinition) umsetzen.`);
+      if (cattr(el, a)) issue('Implementierung', `camunda:${a}="${cattr(el, a)}" — in ${C8_LABEL} als Job-Worker (zeebe:taskDefinition) umsetzen.`);
     }
 
     // ── Teilprozess: calledElement + in/out
@@ -296,7 +296,7 @@ function toC8(defs: Element, ctx: Ctx) {
         const complex = kids(p).find(k => ['script', 'list', 'map'].includes(local(k)));
         if (complex) {
           issue(where, local(complex) === 'script'
-            ? 'ist ein Skript — in Camunda 8 als FEEL-Ausdruck neu schreiben.'
+            ? `ist ein Skript — in ${C8_LABEL} als FEEL-Ausdruck neu schreiben.`
             : `ist eine ${local(complex) === 'list' ? 'Liste' : 'Map'} — als FEEL-Ausdruck neu schreiben.`);
           continue;
         }
@@ -316,9 +316,9 @@ function toC8(defs: Element, ctx: Ctx) {
     const decision = cattr(el, 'decisionRef');
     if (decision) {
       const result = cattr(el, 'resultVariable');
-      if (!result) issue('Entscheidung', 'Camunda 8 braucht eine resultVariable — ergänzen.');
+      if (!result) issue('Entscheidung', `${C8_LABEL} braucht eine resultVariable — ergänzen.`);
       add.push(zeebe('calledDecision', { decisionId: decision, resultVariable: result || undefined }));
-      issue('Entscheidung', `Ergebnisform prüfen: Camunda 8 liefert je nach Hit Policy einen Wert, einen Context oder eine Liste (${C7_LABEL} immer eine Liste).`);
+      issue('Entscheidung', `Ergebnisform prüfen: ${C8_LABEL} liefert je nach Hit Policy einen Wert, einen Context oder eine Liste (${C7_LABEL} immer eine Liste).`);
     }
 
     // ── Benutzeraufgabe
@@ -343,7 +343,7 @@ function toC8(defs: Element, ctx: Ctx) {
     const formKey = cattr(el, 'formKey');
     if (formKey) {
       if (name === 'userTask') add.push(zeebe('formDefinition', { externalReference: formKey }));
-      issue('Formular', `formKey «${formKey}» — in Camunda 8 als Formular (externe Referenz) prüfen.`);
+      issue('Formular', `formKey «${formKey}» — in ${C8_LABEL} als Formular (externe Referenz) prüfen.`);
     }
 
     // ── Mehrfachausführung
@@ -356,7 +356,7 @@ function toC8(defs: Element, ctx: Ctx) {
         });
         add.push(lc);
       }
-      if (firstNamed(el, 'loopCardinality')) issue('Mehrfachausführung', 'loopCardinality gibt es in Camunda 8 nicht — über eine Sammlung lösen.');
+      if (firstNamed(el, 'loopCardinality')) issue('Mehrfachausführung', `loopCardinality gibt es in ${C8_LABEL} nicht — über eine Sammlung lösen.`);
       const cc = firstNamed(el, 'completionCondition');
       if (cc) cc.textContent = toFeel(cc.textContent ?? '', 'Abschlussbedingung', issue);
     }
@@ -420,8 +420,8 @@ function toC8(defs: Element, ctx: Ctx) {
         if (!['in', 'out', 'inputOutput', 'properties'].includes(n)) {
           issue(n === 'executionListener' || n === 'taskListener' ? 'Listener' : 'Erweiterung',
             n === 'executionListener' || n === 'taskListener'
-              ? `camunda:${n} entfernt — in Camunda 8 als Job-Worker-Listener oder Output-Mapping umsetzen.`
-              : `camunda:${n} entfernt — hat in Camunda 8 kein Gegenstück.`);
+              ? `camunda:${n} entfernt — in ${C8_LABEL} als Job-Worker-Listener oder Output-Mapping umsetzen.`
+              : `camunda:${n} entfernt — hat in ${C8_LABEL} kein Gegenstück.`);
         }
         removeEl(k);
       }
@@ -432,10 +432,10 @@ function toC8(defs: Element, ctx: Ctx) {
       const handled = ['type', 'topic', 'class', 'delegateExpression', 'expression', 'decisionRef', 'resultVariable',
         'assignee', 'candidateGroups', 'candidateUsers', 'dueDate', 'followUpDate', 'formKey', 'collection',
         'elementVariable', 'versionTag', ...TEMPLATE_ATTRS];
-      if (!handled.includes(n) && !C7_ONLY.has(n)) issue('Erweiterung', `camunda:${n}="${a.value}" entfernt — hat in Camunda 8 kein Gegenstück.`);
+      if (!handled.includes(n) && !C7_ONLY.has(n)) issue('Erweiterung', `camunda:${n}="${a.value}" entfernt — hat in ${C8_LABEL} kein Gegenstück.`);
       el.removeAttributeNode(a);
     }
-    if (name === 'scriptTask') issue('Skript', 'Skript-Aufgabe — in Camunda 8 als FEEL (zeebe:script) oder Job-Worker umsetzen.');
+    if (name === 'scriptTask') issue('Skript', `Skript-Aufgabe — in ${C8_LABEL} als FEEL (zeebe:script) oder Job-Worker umsetzen.`);
 
     if (add.length) {
       const ext = extOf(ctx, el);

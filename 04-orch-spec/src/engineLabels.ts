@@ -13,7 +13,7 @@ const LABELS: Record<EngineId, string> = { c7: C7_LABEL, c8: C8_LABEL };
 
 /** Die Bezeichnung einer Engine - ohne Angabe (auch `null` aus einer Datei) die Vorgabe c7; ein
   * unbekannter Wert (eine Datei von Hand) bleibt sichtbar, statt als c7 zu erscheinen. */
-export function engineLabel(id: EngineId | undefined): string {
+export function engineLabel(id: EngineId | null | undefined): string {
   const key = id ?? DEFAULT_ENGINE;
   return Object.hasOwn(LABELS, key) ? LABELS[key] : String(key);
 }
