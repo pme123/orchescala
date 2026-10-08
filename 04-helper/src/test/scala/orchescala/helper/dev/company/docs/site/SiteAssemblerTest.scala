@@ -117,4 +117,24 @@ class SiteAssemblerTest extends FunSuite:
     val cards = ProjectRepo.locate(gitTemp, "acme-new").get
     assertEquals(SiteAssembler.writeApi(cards, "acme-new-v0.1.0", os.temp.dir() / "x", "<html/>"), None) // no OpenApi.yml
 
+  test("writeApi - a diagram with a non-ASCII name (git quotes it without -z)"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme-shop" / "src" / "main" / "resources" / "camunda" / "Prüfung.bpmn", "<bpmn ü/>")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "umlaut")
+    git(repo, "tag", "acme-shop-v1.2.0")
+    val target = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.2.0", target, "<html/>")
+    assertEquals(os.read(target / "diagrams" / "Prüfung.bpmn"), "<bpmn ü/>")
+
+  test("newestRef - an own clone at a tag: its default branch, not the checked-out tag"):
+    val origin = singleRepoGitTemp() / "orchescala-acme"
+    val clone  = os.temp.dir(prefix = "git-temp") / "orchescala-acme"
+    os.proc("git", "clone", "-q", origin.toString, clone.toString).call(stdout = os.Pipe, stderr = os.Pipe)
+    os.proc("git", "-C", clone.toString, "checkout", "-q", "acme-shop-v1.0.0").call(stdout = os.Pipe, stderr = os.Pipe)
+    assertEquals(SiteAssembler.newestRef(ProjectRepo(clone, "", "orchescala-acme")), "origin/HEAD")
+    // without a remote (a clone of its own making): HEAD
+    assertEquals(SiteAssembler.newestRef(ProjectRepo(origin, "", "orchescala-acme")), "HEAD")
+
 end SiteAssemblerTest

@@ -194,7 +194,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     // the BPMN and the worker version of a project share its folder (`-worker` stripped): one after the
     // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version;
     // the projects in parallel
-    val byProject = versions.toSeq.groupBy((projectName, _) => projectName.replace("-worker", "")).toSeq
+    val byProject = versions.toSeq.groupBy((projectName, _) => projectName.stripSuffix("-worker")).toSeq
     val configs   = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
         ZIO.foreachPar(byProject) { case (project, projectVersions) =>
@@ -203,7 +203,7 @@ trait DocCreator extends DependencyCreator, Helpers:
             ZIO.attemptBlocking {
               val previousVersion =
                 previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
-              fetchConf(project, version, previousVersion, projectName.endsWith("worker"))
+              fetchConf(project, version, previousVersion, projectName.endsWith("-worker"))
             }
           }
         }.withParallelism(apiConfig.engineConfig.parallelism)
@@ -266,18 +266,23 @@ trait DocCreator extends DependencyCreator, Helpers:
       isWorker
     )
 
-  /** `git fetch --all --tags --prune` in a project's own clone - as before, but without a credential
-    * prompt (it would hang the helper) and at most two minutes.
+  /** `git fetch --all --tags --prune` in a project's own clone - without a credential prompt, at most
+    * two minutes. A failure is logged: a tag that is there locally still counts (resolveTagRef).
     */
   private def fetchAllTags(projectPath: os.Path): Unit =
-    val cmd = Seq("git", "fetch", "--all", "--tags", "--prune")
+    val cmd    = Seq("git", "fetch", "--all", "--tags", "--prune")
     println(cmd.mkString(" "))
-    os.proc(cmd).call(
-      cwd = projectPath,
-      stdout = os.Inherit,
-      env = Map("GIT_TERMINAL_PROMPT" -> "0"),
-      timeout = 120000
+    val result = scala.util.Try(
+      os.proc(cmd).call(
+        cwd = projectPath,
+        stdout = os.Inherit,
+        check = false,
+        env = Map("GIT_TERMINAL_PROMPT" -> "0"),
+        timeout = 120000
+      )
     )
+    if !result.toOption.exists(_.exitCode == 0) then
+      println(s"  ! fetching the tags of $projectPath failed - the local tags are used")
 
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
   private def resolveTagRef(projectPath: os.Path, version: String): String =

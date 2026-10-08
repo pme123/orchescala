@@ -6,8 +6,8 @@ package orchescala.helper.dev.company.docs.site
   * (`<project>-v<version>`), as the projects are released one by one; a plain `v<version>` is taken
   * too.
   *
-  * Needs `git` and `tar` on the PATH (tar with `--strip-components` and `--no-same-owner`: GNU tar,
-  * bsdtar - also the one of Windows 10+).
+  * Needs `git` and `tar` on the PATH (tar with `--strip-components` and `--no-same-owner`: GNU tar or
+  * bsdtar; tested on Linux and macOS).
   *
   * @param prefix the project's folder in the repo - empty for its own clone
   */
@@ -78,12 +78,14 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = marker)
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
+    var archive: os.SubProcess = null
     try
-      val archive = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder)
+      archive = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder)
         .spawn(stderr = errors)
       val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, s"--strip-components=$depth")
-        .call(stdin = archive.stdout, check = false, stderr = os.Pipe)
-      archive.waitFor()
+        .call(stdin = archive.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
+      // tar gone early: git may block on the closed pipe - not for ever
+      if !archive.waitFor(ProjectRepo.ExportTimeoutMs) then archive.destroy()
       // git's failure is the cause - tar then only sees a cut stream
       if archive.exitCode() != 0 then
         throw new Exception(s"git archive $ref of $project failed: ${os.read(errors).trim}")
@@ -100,6 +102,7 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
           throw e
       os.remove.all(old)
     finally
+      if archive != null && archive.isAlive() then archive.destroy()
       os.remove.all(fresh)
       os.remove(errors, checkExists = false)
 
@@ -109,6 +112,9 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
 end ProjectRepo
 
 object ProjectRepo:
+
+  /** How long an export (git archive into tar) may take. */
+  private[site] val ExportTimeoutMs = 10 * 60 * 1000L
 
   /** A fetch per repo is good for this long - the projects of one docs run share it; a later run
     * fetches again. A failed fetch counts only FailedFetchValidMs: the other projects of the run do

@@ -205,6 +205,8 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       (for
         first  <- get("/site/acme/acme-shop/OpenApi.yml").timed
         second <- get("/site/acme/acme-shop/diagrams/shop.bpmn")
+        // the accept thread has seen the first connection (it waited a second on it) - give it a moment
+        _      <- ZIO.succeed(held.size).repeatUntil(_ >= 1).timeout(2.seconds)
       yield assertTrue(
         first._2.status == Status.Ok,
         first._2.rawHeader(openApiRoutes.DocsSourceHeader).contains("released"),

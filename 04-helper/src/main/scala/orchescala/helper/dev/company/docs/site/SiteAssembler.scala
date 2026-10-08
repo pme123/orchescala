@@ -64,9 +64,12 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
             val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
             val tag    = newest.flatMap(SiteAssembler.releaseRef(projectRepo, _))
             tag.flatMap(projectRepo.plainTagWarning).foreach(println)
-            val ref    = tag.getOrElse("HEAD")
+            // no tag: the newest the clone has - its default branch (an own clone stands at the tag
+            // DocCreator checked out last, which may be the older of BPMN and worker)
+            val ref    = tag.getOrElse(SiteAssembler.newestRef(projectRepo))
             newest.filter(_ => tag.isEmpty).foreach: v =>
-              println(s"  ! $name: no tag for $v (${projectRepo.tagCandidates(v).mkString(" / ")}) - using HEAD, which may be unreleased")
+              val tried = projectRepo.tagCandidates(v).mkString(" / ")
+              println(s"  ! $name: no tag for $v ($tried) - using $ref, which may be unreleased")
             SiteAssembler.writeApi(projectRepo, ref, target, apiPage) match
               case None      =>
                 println(s"  ✗ $name: no OpenApi.yml at $ref")
@@ -75,7 +78,7 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
                 SiteAssembler.searchEntries(targetCo, name, new String(yml, java.nio.charset.StandardCharsets.UTF_8))
                   .foreach(e => searchEntries.getOrElseUpdate(s"$targetCo/$name/${e.hcursor.get[String]("id").getOrElse("")}", e))
                 println(s"  ✓ $name @ $ref")
-                if ref == "HEAD" && newest.isDefined then apiHead += 1 else apiOk += 1
+                if tag.isEmpty && newest.isDefined then apiHead += 1 else apiOk += 1
     searchEntries.values.groupBy(_.hcursor.get[String]("company").getOrElse("")).foreach: (co, entries) =>
       os.write.over(out / co / "search.json", io.circe.Json.arr(entries.toSeq*).spaces2, createFolders = true)
       println(s"  ✓ search index $co: ${entries.size} operations")
@@ -136,7 +139,7 @@ object SiteAssembler:
     // old-style projects (pre 03-api) keep openApi.yml in the repo root
     val ymlPath  = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
       .find(f => gitOut(repo, "cat-file", "-e", at(f)).isDefined)
-    ymlPath.flatMap(f => gitOut(repo, "show", at(f))).map: yml =>
+    ymlPath.flatMap(f => gitShow(repo, at(f))).map: yml =>
       os.makeDir.all(target / "diagrams")
       os.write.over(target / "OpenApi.yml", yml)
       os.write.over(target / "OpenApi.html", apiPage)
@@ -145,17 +148,32 @@ object SiteAssembler:
         os.write.over(target / "PostmanOpenApi.html", apiPage)
       val diagramDirs = Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path)
       diagramDirs.foreach: dir =>
-        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dir)
+        // -z: the names as they are (without it git quotes non-ASCII names, and git show finds none)
+        gitOut(repo, "ls-tree", "-r", "-z", "--name-only", ref, "--", dir)
           .map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
-          .flatMap(_.linesIterator.map(_.trim))
+          .flatMap(_.split('\u0000').toSeq.filter(_.nonEmpty))
           .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
           .foreach: f =>
-            gitOut(repo, "show", at(f)).foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
+            gitShow(repo, at(f)).foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
       yml
 
+  /** The default branch of the clone (`origin/HEAD`), else `HEAD`. */
+  def newestRef(projectRepo: ProjectRepo): String =
+    gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", "origin/HEAD^{commit}").fold("HEAD")(_ => "origin/HEAD")
+
+  /** A git command's output - None if it fails (a probe like `cat-file -e`); a minute at most. */
   private def gitOut(repo: os.Path, args: String*): Option[Array[Byte]] =
-    val r = os.proc("git", "-C", repo.toString, args).call(check = false, stderr = os.Pipe)
-    Option.when(r.exitCode == 0)(r.out.bytes)
+    scala.util.Try(os.proc("git", "-C", repo.toString, args).call(check = false, stderr = os.Pipe, timeout = 60000))
+      .toOption.filter(_.exitCode == 0).map(_.out.bytes)
+
+  /** `git show <ref>:<file>` of a file that is there - a failure is said, not taken for «no such file». */
+  private def gitShow(repo: os.Path, refFile: String): Option[Array[Byte]] =
+    val r = scala.util.Try(os.proc("git", "-C", repo.toString, "show", refFile)
+      .call(check = false, stderr = os.Pipe, timeout = 60000))
+    r.toOption.filter(_.exitCode == 0).map(_.out.bytes).orElse:
+      val why = r.fold(_.getMessage, _.err.text().trim)
+      println(s"  ! git show $refFile in $repo failed: $why")
+      None
 
   /** The documentation app incl. orch-spec (`orch-doc-site/` in the orchescala-orch-doc jar) into
     * `out` - by the index `files.txt` the build writes, since a jar cannot be listed.
