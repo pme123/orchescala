@@ -25,9 +25,12 @@ const N = String.raw`\d{1,3}(?:\.\d+)?%?`;
 const A = String.raw`(?:\d*\.)?\d+%?`;
 const H = String.raw`-?\d{1,3}(?:\.\d+)?(?:deg)?`;
 const P = String.raw`\d{1,3}(?:\.\d+)?%`;
+const D = String.raw`\d{1,3}(?:\.\d+)?`;
 const COLOR = new RegExp(
   '^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})' +
-    `|rgba?\\(\\s*${N}\\s*,\\s*${N}\\s*,\\s*${N}\\s*(?:,\\s*${A}\\s*)?\\)` +
+    // mit Kommas (die alte Form): alle drei Zahlen oder alle drei Prozent - gemischt nimmt CSS es nicht
+    `|rgba?\\(\\s*${D}\\s*,\\s*${D}\\s*,\\s*${D}\\s*(?:,\\s*${A}\\s*)?\\)` +
+    `|rgba?\\(\\s*${P}\\s*,\\s*${P}\\s*,\\s*${P}\\s*(?:,\\s*${A}\\s*)?\\)` +
     `|rgba?\\(\\s*${N}\\s+${N}\\s+${N}\\s*(?:/\\s*${A}\\s*)?\\)` +
     `|hsla?\\(\\s*${H}\\s*,\\s*${P}\\s*,\\s*${P}\\s*(?:,\\s*${A}\\s*)?\\)` +
     `|hsla?\\(\\s*${H}\\s+${P}\\s+${P}\\s*(?:/\\s*${A}\\s*)?\\))$`,
@@ -37,9 +40,9 @@ const COLOR = new RegExp(
 /** Eine Farbe, wie das Theme sie nimmt (#rrggbb, rgb(…), hsl(…)). */
 export const isThemeColor = (v: string): boolean => COLOR.test(v);
 
-/** Rot, Grün, Blau (0…1) einer Theme-Farbe, wie sie auf Weiss aussieht (eine halb durchsichtige Farbe
-  * gemischt - wie to_hex des Skills) - null, wenn es keine ist. */
-export function rgbOf(color: string): [number, number, number] | null {
+/** Rot, Grün, Blau (0…1) einer Theme-Farbe, wie sie auf `over` aussieht (eine halb durchsichtige Farbe
+  * gemischt - wie to_hex des Skills; ohne Angabe auf Weiss) - null, wenn es keine ist. */
+export function rgbOf(color: string, over: [number, number, number] = [1, 1, 1]): [number, number, number] | null {
   if (!COLOR.test(color)) return null;
   const c = color.trim().toLowerCase();
   let rgb: number[];
@@ -62,7 +65,7 @@ export function rgbOf(color: string): [number, number, number] | null {
       rgb = [f(0), f(8), f(4)];
     }
   }
-  return rgb.map((v) => alpha * v + (1 - alpha)) as [number, number, number];
+  return rgb.map((v, i) => alpha * v + (1 - alpha) * over[i]) as [number, number, number];
 }
 
 /** Die relative Leuchtdichte nach WCAG - wie build_theme.py des Skills. */
@@ -71,9 +74,11 @@ function luminance([r, g, b]: [number, number, number]): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
-/** Der Kontrast zweier Theme-Farben nach WCAG (1…21) - null, wenn eine keine ist. */
-export function contrast(a: string, b: string): number | null {
-  const [x, y] = [rgbOf(a), rgbOf(b)];
+/** Der Kontrast zweier Theme-Farben nach WCAG (1…21): `a` auf dem Hintergrund `over` (ohne: Weiss), `b`
+  * darauf - null, wenn eine keine ist. */
+export function contrast(a: string, b: string, over?: string): number | null {
+  const x = rgbOf(a, (over && rgbOf(over)) || undefined);
+  const y = x && rgbOf(b, x);
   if (!x || !y) return null;
   const [hi, lo] = [luminance(x), luminance(y)].sort((p, q) => q - p);
   return (hi + 0.05) / (lo + 0.05);
@@ -84,8 +89,8 @@ export function contrast(a: string, b: string): number | null {
 export const MIN_ON_PRIMARY_CONTRAST = 3;
 
 /** Der Text auf einer Farbe: Schwarz oder Weiss, was den grösseren Kontrast hat (WCAG, wie der Skill). */
-export function textOn(color: string): '#000000' | '#ffffff' {
-  const rgb = rgbOf(color);
+export function textOn(color: string, over?: string): '#000000' | '#ffffff' {
+  const rgb = rgbOf(color, (over && rgbOf(over)) || undefined);
   if (!rgb) return '#ffffff';
   const l = luminance(rgb);
   return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#000000' : '#ffffff';
@@ -134,9 +139,11 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
   const v: Record<string, string> = {};
   if (theme.primary) {
     v['--orch-primary'] = theme.primary;
-    // ein eigener Text auf der Primärfarbe - nur, wenn man ihn lesen kann
-    const own = theme.onPrimary && (contrast(theme.primary, theme.onPrimary) ?? 0) >= MIN_ON_PRIMARY_CONTRAST;
-    v['--orch-on-primary'] = own ? theme.onPrimary! : textOn(theme.primary);
+    // ein eigener Text auf der Primärfarbe - nur, wenn man ihn lesen kann; eine halb durchsichtige
+    // Primärfarbe so, wie sie auf dem Hintergrund der Seite aussieht (dem des Themes, sonst dem z9nai-Stil)
+    const page = ((theme.mode === 'dark') === isDark && theme.background) || (isDark ? '#0e0f11' : '#f5f4f0');
+    const own = theme.onPrimary && (contrast(theme.primary, theme.onPrimary, page) ?? 0) >= MIN_ON_PRIMARY_CONTRAST;
+    v['--orch-on-primary'] = own ? theme.onPrimary! : textOn(theme.primary, page);
   }
   if ((theme.mode === 'dark') === isDark) {
     if (theme.background) v['--orch-bg'] = theme.background;

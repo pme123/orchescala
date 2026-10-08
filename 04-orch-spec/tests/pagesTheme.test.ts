@@ -180,3 +180,18 @@ test('themeStyle - the text colour also as a property (inherited in the designer
   assert.equal((themeStyle({ text: '#663399' }, false) as Record<string, string>).color, '#663399');
   assert.equal((themeStyle({ text: '#663399' }, true) as Record<string, string>).color, undefined);
 });
+
+test('isThemeColor - commas: all numbers or all percent (CSS takes no mix); spaces may mix', () => {
+  assert.ok(isThemeColor('rgb(255, 0, 0)') && isThemeColor('rgb(100%, 0%, 0%)'));
+  assert.ok(!isThemeColor('rgb(100%, 0, 0)') && !isThemeColor('rgba(255, 0%, 0, 0.5)'));
+  assert.ok(isThemeColor('rgb(100% 0 0)')); // the modern form mixes
+});
+
+test('themeStyle - a semi-transparent primary as it looks on the page of the theme (dark too)', () => {
+  const dark = { mode: 'dark' as const, background: '#000000', primary: 'rgba(255,255,255,0.1)' };
+  const on = (t: object, isDark: boolean) => (themeStyle(t, isDark) as Record<string, string>)['--orch-on-primary'];
+  assert.equal(on(dark, true), '#ffffff'); // nearly black on black: white text (on white it was black)
+  assert.equal(on({ ...dark, onPrimary: '#ffffff' }, true), '#ffffff'); // the own white is kept
+  assert.equal(on({ primary: 'rgba(0,0,0,0.1)' }, false), '#000000'); // faint grey on the light page
+  assert.ok(contrast('rgba(255,255,255,0.1)', '#ffffff', '#000000')! > 10);
+});

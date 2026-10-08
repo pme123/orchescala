@@ -422,6 +422,8 @@ test('dataOf - nested paths: the field of an object binding, the fields of an in
   assert.deepEqual(at('address').fields?.map((f) => f.name), ['street', 'city']);
   assert.deepEqual(at('address').fields?.[1].fields?.map((f) => f.name), ['zip', 'name']);
   assert.equal(at('items').fields?.[0].name, 'id');
+  assert.equal(at('items').collection, true); // the Daten tab copies {{items.0.id}}
+  assert.equal(at('address').collection, undefined);
   assert.equal(at('items').fields?.[0].type, 'Zahl');
 });
 

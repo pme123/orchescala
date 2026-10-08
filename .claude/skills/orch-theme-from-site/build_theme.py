@@ -135,12 +135,44 @@ def radius(px_values):
 LOGO_TYPES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'}
 
 
-def logo_uri(path):
+SVG_NS = 'http://www.w3.org/2000/svg'
+
+
+def svg_symbol(data, symbol_id):
+    """One <symbol> (or element) of an SVG sprite as an SVG of its own - with the sprite's <defs> it may
+    reference (gradients, clip paths). A sprite of symbols alone draws nothing: as a logo it is blank."""
+    import xml.etree.ElementTree as ET
+    ET.register_namespace('', SVG_NS)
+    ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as e:
+        sys.exit(f'Die Sprite-Datei ist kein SVG: {e}.')
+    found = next((el for el in root.iter() if el.get('id') == symbol_id), None)
+    if found is None:
+        sys.exit(f'Kein Element mit id «{symbol_id}» in der Sprite-Datei.')
+    svg = ET.Element(f'{{{SVG_NS}}}svg')
+    if found.get('viewBox'):
+        svg.set('viewBox', found.get('viewBox'))
+    for defs in root.iter(f'{{{SVG_NS}}}defs'):
+        svg.append(defs)
+    if found.tag == f'{{{SVG_NS}}}symbol':
+        for child in list(found):
+            svg.append(child)
+    else:
+        svg.append(found)
+    return ET.tostring(svg, encoding='utf-8')
+
+
+def logo_uri(path, symbol_id=None):
     try:
         with open(path, 'rb') as f:
             data = f.read()
     except OSError as e:
         sys.exit(f'Das Logo {path} lässt sich nicht lesen: {e.strerror}.')
+    if symbol_id:
+        data = svg_symbol(data, symbol_id)
+        path = 'logo.svg'
     if len(data) > MAX_LOGO:
         sys.exit(f'Das Logo hat {len(data) // 1024} KB - bis 200 KB (z.B. als SVG oder kleiner skaliert).')
     mime = 'image/svg+xml' if path.lower().endswith('.svg') else mimetypes.guess_type(path)[0] or 'image/png'
@@ -195,6 +227,7 @@ def main():
     ap.add_argument('extracted')
     ap.add_argument('--name', required=True)
     ap.add_argument('--logo')
+    ap.add_argument('--logo-id', help='the symbol in an SVG sprite file (logoSpriteId of extract.js)')
     ap.add_argument('--primary')
     ap.add_argument('--background')
     ap.add_argument('--text')
@@ -238,7 +271,7 @@ def main():
     if unread:
         warnings.append('Farben der Seite nicht gelesen (übergangen): ' + ', '.join(unread[:5]))
     if a.logo:
-        theme['logo'] = logo_uri(a.logo)
+        theme['logo'] = logo_uri(a.logo, a.logo_id)
     theme = {k: v for k, v in theme.items() if v}
     found = problems(theme)
     if found:

@@ -56,7 +56,10 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   const [custom, setCustom] = useState(() => !!t.font && !isFontPreset(t.font));
   // ein eigener Stapel, der erst nach dem Öffnen kommt (pages/app.json geladen): das Feld zeigen
   useEffect(() => { if (t.font && !isFontPreset(t.font)) setCustom(true); }, [t.font]);
-  const onPrimaryContrast = t.primary && t.onPrimary ? contrast(t.primary, t.onPrimary) : null;
+  // auf dem Hintergrund, auf dem die Buttons liegen (wie themeStyle) - zählt bei halb durchsichtigen Farben
+  const onPrimaryContrast = t.primary && t.onPrimary
+    ? contrast(t.primary, t.onPrimary, t.background ?? (t.mode === 'dark' ? '#0e0f11' : '#f5f4f0'))
+    : null;
   const preset = custom ? 'custom' : t.font && isFontPreset(t.font) ? t.font : '';
 
   const importFile = async (file: File) => {

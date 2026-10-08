@@ -8,7 +8,7 @@ import unittest
 
 import base64
 
-from build_theme import MAX_LOGO, contrast, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
+from build_theme import MAX_LOGO, contrast, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -92,6 +92,19 @@ class Problems(unittest.TestCase):
     def test_one_message_per_bad_logo(self):
         big_junk = 'data:image/png;base64,' + '!' * (MAX_LOGO * 2)
         self.assertEqual(problems({'logo': big_junk}), ['theme.logo ist kein gültiges base64'])
+
+    def test_svg_symbol_from_a_sprite(self):
+        sprite = (b'<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs>'
+                  b'<symbol id="bank-logo" viewBox="0 0 100 30"><rect width="100" height="30" fill="url(#g)"/></symbol>'
+                  b'<symbol id="other"><circle r="1"/></symbol></svg>')
+        logo = svg_symbol(sprite, 'bank-logo').decode()
+        self.assertIn('viewBox="0 0 100 30"', logo)
+        self.assertIn('<rect', logo)
+        self.assertIn('linearGradient', logo)  # the defs it references
+        self.assertNotIn('circle', logo)  # not the other symbols
+        self.assertNotIn('<symbol', logo)
+        with self.assertRaises(SystemExit):
+            svg_symbol(sprite, 'missing')
 
     def test_contrast(self):
         self.assertAlmostEqual(contrast('#ffffff', '#000000'), 21, places=1)

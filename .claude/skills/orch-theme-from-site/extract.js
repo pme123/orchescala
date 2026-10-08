@@ -63,6 +63,7 @@
   // the address of the logo (SKILL.md fetches it with curl) - an inline SVG as markup, if it is small
   let logoUrl = null;
   let logoSvg = null;
+  let logoSpriteId = null;
   if (logoEl?.tagName.toLowerCase() === 'svg') {
     const svg = logoEl.cloneNode(true);
     if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -87,7 +88,11 @@
     if (defs.childNodes.length) svg.insertBefore(defs, svg.firstChild);
     const external = [...svg.querySelectorAll('use')].map((u) => u.getAttribute('href') || u.getAttribute('xlink:href'))
       .find((h) => h && !h.startsWith('#'));
-    if (external) logoUrl = new URL(external.split('#')[0], location.href).href; // the sprite file - SKILL.md step 4
+    // the sprite file and the symbol in it - SKILL.md step 4 (build_theme.py --logo-id cuts it out)
+    if (external) {
+      logoUrl = new URL(external.split('#')[0], location.href).href;
+      logoSpriteId = external.split('#')[1] || null;
+    }
     logoSvg = svg.outerHTML.length < 40000 ? svg.outerHTML : `TOO LARGE (${svg.outerHTML.length} chars)`;
   } else {
     logoUrl = (logoEl && (logoEl.currentSrc || logoEl.src || bgUrl(logoEl)))
@@ -112,5 +117,6 @@
     logoUrl,
     logoAlt: logoEl?.getAttribute?.('alt') ?? null,
     logoSvg,
+    logoSpriteId,
   };
 })();

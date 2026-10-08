@@ -81,7 +81,7 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
               ))}
             </div>
             {n.values && <div className={`text-[9.5px] font-mono ${c.muted}`}>Werte: {n.values.join(' | ')}</div>}
-            {n.fields && n.fields.length > 0 && <Fields prefix={n.path} fields={n.fields} depth={0} />}
+            {n.fields && n.fields.length > 0 && <Fields prefix={n.collection ? `${n.path}.0` : n.path} fields={n.fields} depth={0} />}
           </div>
         ))}
       </section>

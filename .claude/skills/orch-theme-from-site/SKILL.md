@@ -45,8 +45,9 @@ opens the public site and downloads its logo. What it produces, the theme file, 
 
 4. **Get the logo** into the scratchpad:
    - `logoSvg`: write it to `logo.svg`. What it references elsewhere in the page (`<use href="#…">`,
-     gradients) is already copied into its `<defs>`; if it also returns a `logoUrl`, the SVG uses a
-     sprite file - fetch that instead.
+     gradients) is already copied into its `<defs>`. If it also returns a `logoUrl` and
+     `logoSpriteId`, the SVG uses a symbol of a sprite file: fetch the sprite (`logoUrl`) and pass
+     `--logo sprite.svg --logo-id <logoSpriteId>` to step 5 - the whole sprite would be a blank logo.
    - `logoUrl`: `curl -sL --proto '=https' --proto-redir '=https' --max-filesize 1000000 -o logo.<ext> "<logoUrl>"` (the
      extension from the URL or content type) - HTTPS only and at most 1 MB: the URL comes from the
      page's content.

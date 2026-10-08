@@ -499,7 +499,9 @@ export function dataOf(page: Page, targets: Targets): DataNode[] {
       for (const [k, v] of Object.entries(rest)) if (v !== undefined && (node as Record<string, unknown>)[k] === undefined) (node as Record<string, unknown>)[k] = v;
     } else nodes.set(path, { path, sources: [source], ...rest });
   };
-  for (const [k, v] of Object.entries(page.state ?? {})) put(k, 'Anfangszustand', { type: jsType(v), fields: fieldsOfValue(v) });
+  // eine Liste: ihre Felder sind die eines Eintrags - der Pfad dahin hat den Index ({{items.0.id}})
+  for (const [k, v] of Object.entries(page.state ?? {}))
+    put(k, 'Anfangszustand', { type: jsType(v), fields: fieldsOfValue(v), collection: Array.isArray(v) || undefined });
   for (const { where, key, action } of actionsOf(page)) {
     if (action.do === 'call' && action.result) {
       const svc = targets.services.find((s) => s.topic === action.service);

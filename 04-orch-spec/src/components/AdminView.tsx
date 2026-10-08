@@ -430,7 +430,8 @@ function AppThemeForm({ isDark }: { isDark: boolean }) {
               const problem = appProblem(app);
               if (problem) return setMsg(`So nicht speicherbar: ${problem}`);
               const r = await savePagesApp(app, pagesApp?.version ?? null);
-              if (r.status === 'saved') setDraft(null);
+              // gespeichert ist, was beim Klick galt - eine Änderung seither bleibt ein Entwurf
+              if (r.status === 'saved') setDraft((d) => (d && JSON.stringify(d.theme ?? null) === JSON.stringify(theme ?? null) ? null : d));
               setMsg(r.status === 'saved' ? 'gespeichert' : r.status === 'conflict' ? 'pages/app.json wurde inzwischen geändert - neu laden.' : r.message);
             }}
             className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
