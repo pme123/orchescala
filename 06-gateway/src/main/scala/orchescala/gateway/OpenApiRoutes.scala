@@ -108,14 +108,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.html" -> handler {
         (companyName: String, projectName: String, _: Request) =>
           forwardDocsRequest(projectName, Seq("docs"), MediaType.text.html)
-            .flatMap(orSiteFile(companyName, projectName, "OpenApi.html"))
+            .flatMap(orSiteFile(companyName, projectName, "OpenApi.html", MediaType.text.html))
       },
 
       // Forward OpenApi.yml for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.yml" -> handler {
         (companyName: String, projectName: String, _: Request) =>
           forwardDocsRequest(projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
-            .flatMap(orSiteFile(companyName, projectName, "OpenApi.yml"))
+            .flatMap(orSiteFile(companyName, projectName, "OpenApi.yml", MediaType.text.yaml))
       },
 
       // Forward BPMN/DMN diagrams for a project worker app
@@ -125,7 +125,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         (companyName: String, projectName: String, diagramName: String, _: Request) =>
           if isValidDiagramName(diagramName) then
             forwardDocsRequest(projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
-              .flatMap(orSiteFile(companyName, projectName, s"diagrams/$diagramName"))
+              .flatMap(orSiteFile(companyName, projectName, s"diagrams/$diagramName", MediaType.application.xml))
           else ZIO.succeed(Response.status(Status.NotFound))
       },
 
@@ -173,8 +173,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** Why a docs request did not reach the worker app - the status the gateway answers with. */
   private case class DocsFailure(status: Status, message: String)
 
-  /** How long a worker app may take for its docs - after that, the released file of the site. */
-  private val DocsForwardTimeout = 10.seconds
+  /** How long a worker app may take for its docs - after that, the released file of the site. On
+    * purpose: a page that waits longer is worse than the released docs, marked as such; long enough
+    * for a worker app that starts cold.
+    */
+  private val DocsForwardTimeout = 20.seconds
 
   /** Marks a docs answer that is not the worker app's (live) one. */
   private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
@@ -190,19 +193,31 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * The site's OpenApi.html is the API page of the orch-doc jar (not the worker app's): it loads
     * `OpenApi.yml` and `diagrams/<name>` relative to itself - these same routes, with the same fallback.
     */
-  private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
+  private[gateway] def orSiteFile(
+      companyName: String,
+      projectName: String,
+      file: String,
+      contentType: MediaType
+  )(
       forwarded: Response
   ): ZIO[Any, Nothing, Response] =
     val unavailable = forwarded.status == Status.NotFound || forwarded.status == Status.ServiceUnavailable
-    if !unavailable || !isValidProjectName(companyName) || !isValidProjectName(projectName) then
-      ZIO.succeed(forwarded)
+    if !unavailable then ZIO.succeed(forwarded)
+    else if !isValidSiteFolder(companyName) || !isValidProjectName(projectName) then
+      ZIO.logInfo(s"Docs of '$companyName/$projectName': no site folder of that name - no fallback")
+        .as(forwarded)
     else
-      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).flatMap: fromSite =>
+      // the same headers as the live answer (forwardDocsRequest) - .bpmn/.dmn have no type of their own
+      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file"), Some(contentType)).flatMap: fromSite =>
         if fromSite.status.isSuccess then
           // per file (the yml, each diagram) - info, the header marks the answer
           ZIO.logInfo(
             s"Docs of '$projectName' (${forwarded.status.code}): the released $file of the site instead"
-          ).as(fromSite.addHeader(DocsSourceHeader, "released"))
+          ).as(
+            fromSite
+              .addHeader("X-Content-Type-Options", "nosniff")
+              .addHeader(DocsSourceHeader, "released")
+          )
         else ZIO.succeed(forwarded)
 
   /** Forwards a docs request to the worker app of the project.
@@ -531,6 +546,10 @@ class OpenApiRoutes()(using config: GatewayConfig):
   private[gateway] def isValidProjectName(projectName: String): Boolean =
     projectName.matches("[A-Za-z0-9]+(-[A-Za-z0-9]+)*")
 
+  /** A company's folder of the site (`site/<company>/`) - a plain name, also with `_`. */
+  private[gateway] def isValidSiteFolder(name: String): Boolean =
+    name.matches("[A-Za-z0-9][A-Za-z0-9_-]*")
+
   private[gateway] def isValidDiagramName(diagramName: String): Boolean =
     diagramName.matches("[A-Za-z0-9_-][A-Za-z0-9._-]*") && !diagramName.contains("..")
 
@@ -750,10 +769,15 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * Used to serve the documentation site (the orch-doc build, see the company's publishDocs)
     * which is placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/globex/...`).
     */
-  private def serveClasspathFile(resourcePath: String): ZIO[Any, Nothing, Response] =
+  private def serveClasspathFile(
+      resourcePath: String,
+      contentType: Option[MediaType] = None
+  ): ZIO[Any, Nothing, Response] =
     ZIO.attempt {
       val ext       = resourcePath.split('.').lastOption.getOrElse("").toLowerCase
-      val mediaType = MediaType.forFileExtension(ext).getOrElse(MediaType.application.`octet-stream`)
+      val mediaType = contentType
+        .orElse(MediaType.forFileExtension(ext))
+        .getOrElse(MediaType.application.`octet-stream`)
       Option(getClass.getClassLoader.getResourceAsStream(resourcePath)) match
         case None         =>
           Response.status(Status.NotFound)

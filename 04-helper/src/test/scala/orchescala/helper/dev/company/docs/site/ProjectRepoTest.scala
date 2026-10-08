@@ -7,6 +7,12 @@ import munit.FunSuite
   */
 class ProjectRepoTest extends FunSuite:
 
+  // a pool of its own for the parallel tests: git blocks, the global pool may be small on CI
+  private lazy val pool = scala.concurrent.ExecutionContext.fromExecutorService(
+    java.util.concurrent.Executors.newFixedThreadPool(8)
+  )
+  override def afterAll(): Unit = pool.shutdown()
+
   import GitTempFixture.*
 
   test("locate - a project in the company's single repo, with its folder as prefix"):
@@ -140,7 +146,8 @@ class ProjectRepoTest extends FunSuite:
     // released after the clone - only on origin
     git(origin, "tag", "acme-shop-v1.1.0")
     git(origin, "tag", "acme-cards-v1.1.0")
-    import scala.concurrent.*, scala.concurrent.duration.*, ExecutionContext.Implicits.global
+    import scala.concurrent.*, scala.concurrent.duration.*
+    given ExecutionContext = pool // git blocks - not on the global pool
     val found = Await.result(
       Future.sequence(
         Seq("acme-shop", "acme-cards", "acme-shop", "acme-cards").map: p =>
@@ -159,7 +166,8 @@ class ProjectRepoTest extends FunSuite:
       Thread.sleep(300)
       done.set(true)
       true
-    import scala.concurrent.*, scala.concurrent.duration.*, ExecutionContext.Implicits.global
+    import scala.concurrent.*, scala.concurrent.duration.*
+    given ExecutionContext = pool // git blocks - not on the global pool
     // each caller returns only after the fetch is done - fetched by itself or waited for
     val after = Await.result(
       Future.sequence((1 to 4).map(_ => Future(blocking { ProjectRepo.fetchTagsOnce(repo, fetch = slowFetch); done.get }))),
@@ -179,6 +187,20 @@ class ProjectRepoTest extends FunSuite:
     val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
     assertEquals(shop.resolveTag("2.0.0"), Some("v2.0.0")) // acme-shop is there: a plain tag still counts
     assertEquals(SiteAssembler.releaseRef(shop, "2.0.0"), Some("v2.0.0"))
+
+  test("fetchTagsOnce - a release tag moved on origin: named, the local one stays"):
+    val origin  = singleRepoGitTemp() / "orchescala-acme"
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    val clone   = gitTemp / "orchescala-acme"
+    os.proc("git", "clone", "-q", origin.toString, clone.toString).call(stdout = os.Pipe, stderr = os.Pipe)
+    git(origin, "tag", "-f", "acme-shop-v1.0.0", "HEAD") // re-tagged after a botched release
+    val out = java.io.ByteArrayOutputStream()
+    Console.withOut(out)(ProjectRepo.fetchTagsOnce(clone))
+    assert(out.toString.contains("differ on origin"), out.toString)
+    assert(out.toString.contains("acme-shop-v1.0.0"), out.toString)
+    val local = os.proc("git", "-C", clone.toString, "rev-parse", "acme-shop-v1.0.0^{commit}").call().out.text().trim
+    val first = os.proc("git", "-C", origin.toString, "rev-list", "--max-parents=0", "HEAD").call().out.text().trim
+    assertEquals(local, first)
 
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()

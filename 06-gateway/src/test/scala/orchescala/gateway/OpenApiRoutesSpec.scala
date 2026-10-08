@@ -137,7 +137,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
     },
     test("a project's API: the worker app's when it answers, else the released one of the site") {
       val unreachable = Response.status(Status.ServiceUnavailable)
-      def shop(forwarded: Response) = openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml")(forwarded)
+      def shop(forwarded: Response) = openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml", MediaType.text.yaml)(forwarded)
       for
         released   <- shop(unreachable)
         body       <- released.body.asString
@@ -147,8 +147,8 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         // the worker app answers with an error, or its URL is wrong: not hidden behind the released file
         workerErr  <- shop(Response.status(Status.BadGateway))
         wrongUrl   <- shop(Response.status(Status.InternalServerError))
-        missing    <- openApiRoutes.orSiteFile("acme", "acme-cards", "OpenApi.yml")(unreachable)
-        traversal  <- openApiRoutes.orSiteFile("..", "acme-shop", "OpenApi.yml")(unreachable)
+        missing    <- openApiRoutes.orSiteFile("acme", "acme-cards", "OpenApi.yml", MediaType.text.yaml)(unreachable)
+        traversal  <- openApiRoutes.orSiteFile("..", "acme-shop", "OpenApi.yml", MediaType.text.yaml)(unreachable)
       yield assertTrue(
         released.status == Status.Ok,
         released.rawHeader(openApiRoutes.DocsSourceHeader).contains("released"),
@@ -164,19 +164,37 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
     },
     test("the routes of a project's API: without its worker app the released files of the site") {
       def get(path: String) =
-        noWorkerApps.routes.runZIO(Request.get(URL.decode(path).toOption.get)).flatMap(r => r.body.asString.map(r.status -> _))
+        noWorkerApps.routes.runZIO(Request.get(URL.decode(path).toOption.get))
+          .flatMap(r => r.body.asString.map(r.status -> _))
+      def headers(path: String) =
+        noWorkerApps.routes.runZIO(Request.get(URL.decode(path).toOption.get)).map: r =>
+          (r.header(Header.ContentType).map(_.mediaType), r.rawHeader("X-Content-Type-Options"))
       for
         yml     <- get("/site/acme/acme-shop/OpenApi.yml")
         page    <- get("/site/acme/acme-shop/OpenApi.html")
         diagram <- get("/site/acme/acme-shop/diagrams/shop.bpmn")
         none    <- get("/site/acme/acme-cards/OpenApi.yml")
+        diaHead <- headers("/site/acme/acme-shop/diagrams/shop.bpmn")
+        ymlHead <- headers("/site/acme/acme-shop/OpenApi.yml")
       yield assertTrue(
         yml._1 == Status.Ok, yml._2.contains("acme-shop (released)"),
         page._1 == Status.Ok, page._2.contains("acme-shop API (released)"),
         diagram._1 == Status.Ok, diagram._2.contains("<bpmn"),
-        none._1 == Status.ServiceUnavailable
+        none._1 == Status.ServiceUnavailable,
+        // the headers of the live answer: a diagram is XML, not sniffed
+        diaHead == (Some(MediaType.application.xml), Some("nosniff")),
+        ymlHead == (Some(MediaType.text.yaml), Some("nosniff"))
       )
     } @@ TestAspect.timeout(20.seconds), // a sandbox that drops packets instead of refusing: fail, not hang
+    test("isValidSiteFolder - a company folder may have _ (no fallback is skipped for it)") {
+      assertTrue(
+        openApiRoutes.isValidSiteFolder("acme_corp"),
+        openApiRoutes.isValidSiteFolder("acme-shop"),
+        !openApiRoutes.isValidSiteFolder(".."),
+        !openApiRoutes.isValidSiteFolder("a/b"),
+        !openApiRoutes.isValidSiteFolder("_x")
+      )
+    },
     test("the favicon is served (its stream closed)") {
       for
         response <- openApiRoutes.routes.runZIO(Request.get(URL.decode("/favicon.ico").toOption.get))

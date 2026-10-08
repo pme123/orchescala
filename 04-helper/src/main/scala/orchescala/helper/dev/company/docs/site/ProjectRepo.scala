@@ -103,6 +103,9 @@ object ProjectRepo:
     * failure is logged.
     * @param fetch the fetch itself - true if it worked (replaceable for tests)
     * @return true if it fetched now (false: a recent fetch counts)
+    * @note blocks - for up to the fetch's timeout, also while waiting for another caller's fetch.
+    *   Call it from a blocking thread (`ZIO.attemptBlocking`, as DocCreator does), never from ZIO's
+    *   compute pool.
     */
   private[site] def fetchTagsOnce(
       repo: os.Path,
@@ -132,7 +135,11 @@ object ProjectRepo:
     val ok    = fetch.toOption.exists(_.exitCode == 0)
     if !ok then
       val why = fetch.fold(_.getMessage, _.err.text().trim)
-      println(s"  ! fetching the tags of $repo failed: $why")
+      // a release tag moved on origin: git keeps the local one - say which, the docs are of that commit
+      val moved = why.linesIterator.filter(_.contains("would clobber existing tag")).toSeq
+      if moved.nonEmpty then
+        println(s"  ! tags of $repo differ on origin - the local ones are used:\n    ${moved.mkString("\n    ")}")
+      else println(s"  ! fetching the tags of $repo failed: $why")
     ok
 
   /** A release of a project in a company's single repo into `dest` (its copy in git-temp): the
