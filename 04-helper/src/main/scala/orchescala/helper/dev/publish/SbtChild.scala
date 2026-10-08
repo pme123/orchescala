@@ -37,13 +37,14 @@ object SbtChild:
     * the signal too and ends on its own, but it must not go on writing while the tree is
     * restored.
     */
-  def awaitExit(timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")): Unit =
+  def awaitExit(timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration(10, "seconds")): Unit =
     synchronized(running).foreach: child =>
       println("Waiting for sbt to end ...")
       if !child.waitFor(timeout.toMillis) then terminate(child, s"sbt (not ended within $timeout)")
 
   /** Ends the child (the sbt launcher) and what it started (the sbt JVM, docker) - forcibly
-    * after 5 seconds.
+    * after 3 seconds; at most about 10 seconds in all - in a shutdown hook, the restore must
+    * still come before a second Ctrl-C.
     */
   private def terminate(child: os.SubProcess, what: String): Unit =
     import scala.jdk.CollectionConverters.*
@@ -54,12 +55,12 @@ object SbtChild:
     println(s"Ending $what - pid ${handle.pid} and the ${started.size} processes it started")
     child.destroy()
     started.foreach(_.destroy())
-    if !child.waitFor(5000) then
+    if !child.waitFor(3000) then
       child.destroyForcibly()
-      child.waitFor(5000)
+      child.waitFor(3000)
     started.filter(_.isAlive).foreach(_.destroyForcibly())
-    // a killed process takes a moment to go - up to 5 seconds
-    val deadline = System.currentTimeMillis() + 5000
+    // a killed process takes a moment to go - up to 3 seconds
+    val deadline = System.currentTimeMillis() + 3000
     while (child.isAlive() || started.exists(_.isAlive)) && System.currentTimeMillis() < deadline do
       Thread.sleep(100)
     val stillAlive = Option.when(child.isAlive())(handle.pid).toSeq ++ started.filter(_.isAlive).map(_.pid)

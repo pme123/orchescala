@@ -113,7 +113,13 @@ final class ReleaseRun(
     * is best effort and may take a while.
     */
   private def onFailureOf(step: ReleaseStep, e: Throwable): Unit =
-    suppressedBy(e)(onFailure(step))
+    suppressedBy(e)(onFailure(step)) // nothing for the git step - see RestoreForRetry
+    if step == ReleaseStep.Git then
+      println(
+        "The git step failed - the version is uploaded and released. Finish by hand what is left: the " +
+          "commit of the release, the tag `v<version>`, the merge into master, the next SNAPSHOT version " +
+          "on develop, the push of both branches and the tag. The working tree is left as it is."
+      )
     if step == ReleaseStep.Upload then
       if isSnapshot then println("The upload of the snapshot failed - a snapshot is overwritable, run it again.")
       else
@@ -155,7 +161,9 @@ object ReleaseRun:
 end ReleaseRun
 
 
-/** `body` after a failure `e` - fails it too, that is added to `e` (which stays the error). */
+/** `body` after a failure `e` - fails it too (whatever the failure: the restore is best effort,
+  * `e` is what to look at), that is added to `e`, which stays the error.
+  */
 private[publish] def suppressedBy(e: Throwable)(body: => Unit): Unit =
   try body
-  catch case scala.util.control.NonFatal(r) => e.addSuppressed(r) // a fatal one goes through
+  catch case r: Throwable => if r ne e then e.addSuppressed(r)

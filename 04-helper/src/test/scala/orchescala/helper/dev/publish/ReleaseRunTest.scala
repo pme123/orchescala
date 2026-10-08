@@ -97,6 +97,29 @@ class ReleaseRunTest extends FunSuite:
     rel.abortedAt(ReleaseStep.Upload).run()
     assertEquals(log.toSeq, Seq("failed Upload", "failed Upload"))
 
+  test("a failing git step: no restore, the hint of what is left - the version is released"):
+    val log = collection.mutable.ListBuffer.empty[String]
+    val rel = ReleaseRun(
+      SbtRuns.of(None),
+      uploadDocs = () => (),
+      git = () => throw IllegalStateException("push refused"),
+      exec = _ => (),
+      onFailure = step => log += s"onFailure $step"
+    )
+    intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = false)))
+    assertEquals(log.toSeq, Seq("onFailure Git")) // RestoreForRetry ignores the git step - tested in WorkingTreeTest
+
+  test("a fatal error of the restore does not replace the failure of the step"):
+    val rel   = ReleaseRun(
+      SbtRuns.of(None),
+      uploadDocs = () => (),
+      git = () => (),
+      exec = _ => throw IllegalStateException("sbt failed"),
+      onFailure = _ => throw OutOfMemoryError("restore")
+    )
+    val error = intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false)))
+    assertEquals(error.getSuppressed.toSeq.map(_.getMessage), Seq("restore"))
+
   /** The one case that is not retryable: `Docker / publish` went through and `publish` failed
     * after some modules - the restore runs, the report names what is there.
     */

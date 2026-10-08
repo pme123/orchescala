@@ -119,8 +119,8 @@ object RepoCheck:
           )
         case 301 | 302 | 307 | 308   =>
           throw IllegalStateException(
-            s"The repository redirects to another host ($code): $url - the credentials must not go " +
-              "there; configure the final address of the repository."
+            s"The repository redirects elsewhere ($code): $url - to another host, or down to http; the " +
+              "credentials must not go there. Configure the final address of the repository."
           )
         case 0                       =>
           throw IllegalStateException(s"The repository is not reachable: $url")
@@ -279,19 +279,21 @@ object RepoCheck:
       status(url)
 
   /** The HTTP status of a HEAD request for a URL - 0 if the server is not reachable (or not
-    * within `timeoutSeconds`). A redirect is followed when it stays on the host (an Artifactory
-    * virtual repo, a CDN) - up to 3 hops; to another host it is not (curl would send the
-    * credentials, a custom header like the GitLab token, there) and stays the status. `config`
-    * are the lines of a curl config (the credentials). Fails with a clear message without
-    * `curl`.
+    * within `timeoutSeconds`), or answers no status. A server without HEAD (405/501: some
+    * proxies, registries) is asked with a GET of the first byte - 206 counts as 200. A redirect
+    * is followed when it stays on the host (an Artifactory virtual repo, a CDN; an upgrade to
+    * https too) - up to 3 hops; elsewhere it is not (curl would send the credentials, a custom
+    * header like the GitLab token, there) and stays the status. `config` are the lines of a
+    * curl config (the credentials). Fails with a clear message without `curl`.
     */
   def curlStatus(config: Seq[String], curl: String = "curl", timeoutSeconds: Int = 30): String => Int =
-    def head(url: String, hops: Int): Int =
+    def ask(url: String, hops: Int, get: Boolean): Int =
       val devNull = if scala.util.Properties.isWin then "NUL" else "/dev/null"
+      val method  = if get then Seq("--range", "0-0") else Seq("--head")
       val result  =
         try
           os.proc(
-            curl, "--silent", "--show-error", "--head", "--connect-timeout", (timeoutSeconds min 10).toString,
+            curl, "--silent", "--show-error", method, "--connect-timeout", (timeoutSeconds min 10).toString,
             "--max-time", timeoutSeconds.toString,
             "--output", devNull, "--write-out", "%{http_code} %{redirect_url}", "--config", "-", url
           ).call(check = false, stdin = config.mkString("", "\n", "\n"), stderr = os.Pipe)
@@ -306,25 +308,34 @@ object RepoCheck:
         case Array(c, r) => (c, r.trim)
         case Array(c)    => (c, "")
         case _           => ("", "")
-      if code.isEmpty then 0 // failed before any status
-      else
-        val status = code.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
-        if Set(301, 302, 307, 308).contains(status) && hops > 0 && sameHost(url, redirect) then
+      code.toIntOption match
+        case None                                                            =>
+          if code.nonEmpty then println(s"  `$curl` answered no HTTP status for ${withoutUserInfo(url)}: $answer")
+          0 // failed before any status, or no status - like any failure of the transport
+        case Some(status) if Set(301, 302, 307, 308).contains(status) && hops > 0 && sameHost(url, redirect) =>
           println(s"  $status $url -> $redirect")
-          head(redirect, hops - 1)
-        else status
-    end head
-    url => head(url, 3)
+          ask(redirect, hops - 1, get)
+        case Some(405 | 501) if !get                                        =>
+          println(s"  no HEAD for $url - asking for the first byte")
+          ask(url, hops, get = true)
+        case Some(206)                                                       => 200 // the first byte: it is there
+        case Some(status)                                                    => status
+    end ask
+    url => ask(url, 3, get = false)
   end curlStatus
 
   /** `text` with the user info of its URLs (`user:secret@host`) taken out - for the console. */
   def withoutUserInfo(text: String): String = text.replaceAll("://[^@/\\s]+@", "://")
 
-  private def sameHost(url: String, other: String): Boolean =
+  /** `other` stays on the host of `url` - the same scheme and port, or an upgrade from http to
+    * https (the credentials stay with the host, and go nowhere less safe).
+    */
+  def sameHost(url: String, other: String): Boolean =
     other.nonEmpty && scala.util.Try {
       val a = java.net.URI(url)
       val b = java.net.URI(other)
-      a.getHost == b.getHost && a.getPort == b.getPort && a.getScheme == b.getScheme
+      a.getHost == b.getHost &&
+      ((a.getScheme == b.getScheme && a.getPort == b.getPort) || (a.getScheme == "http" && b.getScheme == "https"))
     }.getOrElse(false)
 
 end RepoCheck

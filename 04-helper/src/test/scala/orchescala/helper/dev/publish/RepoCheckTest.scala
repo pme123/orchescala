@@ -50,7 +50,7 @@ class RepoCheckTest extends FunSuite:
     val refused  = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 401))
     assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
     val redirect = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 302))
-    assert(redirect.getMessage.contains("redirects to another host"), redirect.getMessage)
+    assert(redirect.getMessage.contains("redirects elsewhere"), redirect.getMessage)
     val down     = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 0))
     assert(down.getMessage.contains("not reachable"), down.getMessage)
     val odd      = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 500))
@@ -189,7 +189,8 @@ class RepoCheckTest extends FunSuite:
         val path   = exchange.getRequestURI.getPath
         requests += path
         val status =
-          if path.endsWith("/redirect") then // on this host: followed
+          if path.contains("/nohead/") && exchange.getRequestMethod == "HEAD" then 405 // no HEAD here - GET answers
+          else if path.endsWith("/redirect") then // on this host: followed
             exchange.getResponseHeaders.add("Location", "/repo/missing")
             302
           else if path.endsWith("/away") then // to another host: not followed
@@ -215,6 +216,10 @@ class RepoCheckTest extends FunSuite:
       assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/redirect"), 404) // followed - with the token
       assert(requests().takeRight(2) == Seq("/repo/redirect", "/repo/missing"), requests())
       assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/away"), 302)     // another host: not followed
+      // no HEAD: the first byte is asked for with a GET - taken is 200, missing 404
+      assertEquals(RepoCheck.curlStatus(config)(s"$base/nohead/taken"), 200)
+      assertEquals(RepoCheck.curlStatus(config)(s"$base/nohead/missing"), 404)
+      assert(requests().takeRight(4) == Seq("/nohead/taken", "/nohead/taken", "/nohead/missing", "/nohead/missing"), requests())
       assertEquals(RepoCheck.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(RepoCheck.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
@@ -231,10 +236,17 @@ class RepoCheckTest extends FunSuite:
   test("curl that fails before any status: 0, not an error - the report's unreachable branch"):
     assertEquals(RepoCheck.curlStatus(Seq.empty, curl = "true")("http://127.0.0.1:1/repo"), 0)
 
-  test("a program that answers no status is an error - not a free version"):
-    val error = intercept[IllegalStateException]:
-      RepoCheck.curlStatus(Seq.empty, curl = "echo")("http://127.0.0.1:1/repo")
-    assert(error.getMessage.contains("answered no HTTP status"), error.getMessage)
+  test("a program that answers no status is 0 - like any failure of the transport (tried once more, then said)"):
+    assertEquals(RepoCheck.curlStatus(Seq.empty, curl = "echo")("http://127.0.0.1:1/repo"), 0)
+
+  test("a redirect stays on the host: the same scheme and port, or up to https - never down, never elsewhere"):
+    assert(RepoCheck.sameHost("http://repo:8080/a", "http://repo:8080/b"))
+    assert(RepoCheck.sameHost("http://repo/a", "https://repo/b"))      // an upgrade
+    assert(!RepoCheck.sameHost("https://repo/a", "http://repo/b"))     // a downgrade
+    assert(!RepoCheck.sameHost("http://repo:8080/a", "http://repo:9090/b"))
+    assert(!RepoCheck.sameHost("https://repo/a", "https://other/b"))
+    assert(!RepoCheck.sameHost("https://repo/a", ""))
+    assert(!RepoCheck.sameHost("https://repo/a", "not a url ::"))
 
   test("without curl: a clear message, no stack trace of a missing program"):
     val error = intercept[IllegalStateException]:
