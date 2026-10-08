@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { C7_LABEL, C8_LABEL } from '../src/engineLabels';
-import { ENGINES, engineLabel } from '../src/template';
+import { C7_LABEL, C8_LABEL, engineLabel } from '../src/engineLabels';
+import { ENGINES } from '../src/template';
 import { regexIssue, scriptWarning } from '../src/findings';
 import { juelToFeel } from '../src/juelFeel';
 import { convertBpmn } from '../src/engineConvert';
@@ -18,7 +18,10 @@ test('the engines take their labels from engineLabels', () => {
   assert.equal(engineLabel('c7'), C7_LABEL);
   assert.equal(engineLabel('c8'), C8_LABEL);
   assert.deepEqual(ENGINES.map((e) => e.label), [C7_LABEL, C8_LABEL]);
-  assert.match(C7_LABEL, /Operaton/);
+  assert.equal(engineLabel(undefined), C7_LABEL); // without an engine: the default c7
+  // the words themselves - the other checks only compare with the constants
+  assert.equal(C7_LABEL, 'Camunda 7 / Operaton');
+  assert.equal(C8_LABEL, 'Camunda 8');
 });
 
 test('the findings and the JUEL import for c7 name the label', () => {

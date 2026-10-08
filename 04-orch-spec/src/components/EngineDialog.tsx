@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { AlertTriangle, ArrowRightLeft, Check, X } from 'lucide-react';
 import { convertBpmn } from '../engineConvert';
-import { engineLabel } from '../template';
+import { engineLabel } from '../engineLabels';
 import type { EngineId, ProcessSpec } from '../types';
 import { cls } from '../ui';
 

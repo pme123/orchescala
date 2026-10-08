@@ -34,10 +34,6 @@ export const ENGINES: EngineDef[] = [
 
 export const DEFAULT_ENGINE: EngineId = 'c7';
 
-export const engineLabel = (id: EngineId | undefined) =>
-  ENGINES.find(e => e.id === id)?.label ?? String(id ?? DEFAULT_ENGINE);
-
-export { C7_LABEL, C8_LABEL };
 
 /** Der Platzhalter in den Vorlagen — siehe `applyTemplate`. */
 export const PLACEHOLDER = 'COMPANY-PROJECT-PROCESSVERSION';

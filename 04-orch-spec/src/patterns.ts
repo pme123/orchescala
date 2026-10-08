@@ -32,7 +32,7 @@ import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 import { uid } from './util';
 import { ORCHESCALA_TYPES } from './orchescalaTypes';
 import { domainRef } from './serviceTypes';
-import { engineLabel } from './template';
+import { engineLabel } from './engineLabels';
 
 export const ANCHOR_ID = 'PatternTarget';
 /** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */

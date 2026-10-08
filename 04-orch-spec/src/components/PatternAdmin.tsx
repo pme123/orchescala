@@ -18,7 +18,8 @@ import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
 import { useConfirm } from './Confirm';
 import { MarkdownField } from './MarkdownField';
-import { ENGINES, engineLabel } from '../template';
+import { engineLabel } from '../engineLabels';
+import { ENGINES } from '../template';
 
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
