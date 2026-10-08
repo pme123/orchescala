@@ -40,11 +40,12 @@ object RepoCheck:
 
   def artifactSuffix(settings: String, name: String = "project/Settings.scala"): String =
     val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
-    val crossPathsOff = CrossPathsOff.findFirstIn(withoutComments(settings)).isDefined
+    val code          = withoutComments(settings) // a commented-out `scalaV` or `crossPaths` is none
+    val crossPathsOff = CrossPathsOff.findFirstIn(code).isDefined
     val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
     if crossPathsOff then ""
     else
-      ScalaV.findFirstMatchIn(settings).map(m => s"_${m.group(1)}")
+      ScalaV.findFirstMatchIn(code).map(m => s"_${m.group(1)}")
         .getOrElse(throw IllegalStateException(s"No `val scalaV = \"...\"` in $name - the artifact suffix is unknown."))
   end artifactSuffix
 
@@ -55,27 +56,44 @@ object RepoCheck:
     val out     = StringBuilder()
     var i       = 0
     var inStr   = false
+    var inTri   = false // a triple-quoted string
     var inBlock = false
+    def at(j: Int): Char   = if j < scala.length then scala(j) else ' '
+    def starts(t: String)  = scala.startsWith(t, i)
     while i < scala.length do
-      val c    = scala(i)
-      val next = if i + 1 < scala.length then scala(i + 1) else ' '
+      val c = scala(i)
       if inBlock then
-        if c == '*' && next == '/' then
+        if starts("*/") then
           inBlock = false
           i += 1
+      else if inTri then
+        out += c
+        if starts("\"\"\"") && !starts("\"\"\"\"") then
+          out ++= "\"\""
+          i += 2
+          inTri = false
       else if inStr then
         out += c
         if c == '\\' then
-          out += next
+          out += at(i + 1)
           i += 1
         else if c == '"' then inStr = false
+      else if starts("\"\"\"") then
+        inTri = true
+        out ++= "\"\"\""
+        i += 2
       else if c == '"' then
         inStr = true
         out += c
-      else if c == '/' && next == '/' then
+      else if c == '\'' && (at(i + 2) == '\'' || (at(i + 1) == '\\' && at(i + 3) == '\'')) then
+        // a char literal - `'"'`, `'/'`, `'\''` are no string, no comment
+        val len = if at(i + 1) == '\\' then 4 else 3
+        out ++= scala.substring(i, i + len)
+        i += len - 1
+      else if starts("//") then
         while i < scala.length && scala(i) != '\n' do i += 1
         i -= 1
-      else if c == '/' && next == '*' then
+      else if starts("/*") then
         inBlock = true
         i += 1
       else out += c

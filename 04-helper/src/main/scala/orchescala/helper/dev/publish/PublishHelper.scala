@@ -111,8 +111,12 @@ object PublishHelper extends Helpers:
       confirm: String => Boolean = askToContinue,
       warn: String => Unit = println
   ): Unit =
-    // offline, or without access: the local tags may be behind the releases
-    scala.util.Try(os.proc("git", "fetch", "--tags", "--quiet").call(cwd = repo, stderr = os.Pipe))
+    // offline, or without access: the local tags may be behind the releases. No prompt for
+    // credentials and at most a minute - a hung network must not hold the release
+    scala.util.Try(
+      os.proc("git", "fetch", "--tags", "--quiet")
+        .call(cwd = repo, stderr = os.Pipe, env = Map("GIT_TERMINAL_PROMPT" -> "0"), timeout = 60_000)
+    )
       .failed.foreach: e =>
         val reason = Option(e.getMessage).flatMap(_.linesIterator.nextOption()).getOrElse(e.toString)
         warn(s"WARNING: could not fetch the tags - the version is checked against the local tags only: $reason")

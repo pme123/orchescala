@@ -12,6 +12,9 @@ enum ReleaseStep:
   * docker image is built (`Docker / publishLocal`), the docs are generated. `publish`
   * repeats the packaging (the compiler and docker reuse their caches) and uploads - what is
   * left to fail there is the upload itself (credentials, network, a taken version). The
+  * docker image is built again for the push (`Docker / publish` depends on `publishLocal` in
+  * sbt-native-packager - the image of the first run can not be pushed as it is); the layers
+  * come from the cache, so it is the same image unless the sources changed in between. The
   * docker image is pushed before the artifacts - its tag can be overwritten, the artifacts
   * can not.
   */
@@ -135,7 +138,9 @@ end ReleaseRun
 object SbtChild:
   // every access under the lock: spawned and registered together (one at a time, a hook never
   // misses a child just spawned); a child gone from here has exited (`waitFor` returned), its
-  // output went to the console directly
+  // output went to the console directly. The child is the sbt JVM itself - the `sbt` script
+  // execs it - and what it started (docker) are its descendants; a descendant that outlives
+  // its parent is not found any more (said by `terminate`).
   private var running: Option[os.SubProcess] = None
 
   /** One at a time - a release runs its sbt steps one after the other. */

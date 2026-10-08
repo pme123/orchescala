@@ -97,6 +97,24 @@ class RepoCheckTest extends FunSuite:
     )
     val error = intercept[IllegalStateException](RepoCheck.artifactSuffix("object Settings {}"))
     assert(error.getMessage.contains("scalaV"), error.getMessage)
+    // a commented-out scalaV above the real one
+    assertEquals(
+      RepoCheck.artifactSuffix(Seq("""  // val scalaV = "2.13.16"""", """  val scalaV = "3.7.4"""").mkString("\n")),
+      "_3"
+    )
+
+  test("withoutComments: char literals and triple-quoted strings are no comments, and end no strings"):
+    val code = Seq(
+      """val quote = '"' // a char literal""",
+      """val slash = '/' /* another */ + "x"""",
+      "val tri = \"\"\"a // not a comment /* nor this */\"\"\"",
+      "// gone",
+      """val crossPaths = "kept" """
+    ).mkString("\n")
+    val stripped = RepoCheck.withoutComments(code)
+    assert(!stripped.contains("a char literal") && !stripped.contains("another") && !stripped.contains("gone"), stripped)
+    assert(stripped.contains("a // not a comment /* nor this */"), stripped) // the triple-quoted string as it is
+    assert(stripped.contains("""val crossPaths = "kept""""), stripped)
 
 
   /** A small HTTP server playing the repository: `taken` paths exist, the rest is missing, a

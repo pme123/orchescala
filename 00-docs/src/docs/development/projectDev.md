@@ -117,6 +117,8 @@ The following steps are executed:
     The console names them (the poms found in the repository).
   - Fails `publish` after the Docker push, the image with the version's tag is in the registry
     without its artifacts - the next try overwrites it.
+  - `develop` is pushed before the build (the documentation needs the remote) - a release that fails
+    afterwards leaves it pushed. It is committed work only, the next try pushes nothing.
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
   and untracked files stay as they are - also when you abort it (Ctrl-C: sbt gets it too, the restore
