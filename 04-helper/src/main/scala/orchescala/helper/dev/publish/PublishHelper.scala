@@ -20,31 +20,26 @@ case class PublishHelper()(using
     setApiVersion(version)
     replaceVersion(version)
 
-    lazy val sbtProcs               = Seq(
-      "sbt",
-      "publish"
-    )
-    lazy val sbtCreateDocs          = "api/run"
     lazy val workerAppFile: os.Path =
       workDir / "03-worker" / "src" / "main" / "scala" /
         devConfig.projectPath / "worker" / "WorkerApp.scala"
-    lazy val sbtDockerProcs         =
-      if os.exists(workerAppFile) then
-        Seq(
-          "worker / Docker / publish"
-        )
-      else
-        Seq.empty
-
     println(s"workerAppFile ${os.exists(workerAppFile)}: $workerAppFile")
-    println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
-    os.proc(sbtProcs ++ sbtDockerProcs :+ sbtCreateDocs).callOnConsole()
+    val runs = sbtRuns(
+      dockerProject = Option.when(os.exists(workerAppFile))("worker"),
+      build = Seq("api/run")
+    )
+    // 1. everything is built and staged locally - the docs, the docker image, the artifacts
+    println(s"SBT build: ${runs.build.mkString(" ")}")
+    os.proc(runs.build).callOnConsole()
 
     val isSnapshot = version.contains("-")
     if !isSnapshot then
       publishToWebserver()
+    // 2. only now the version is uploaded - the repository keeps it forever
+    println(s"SBT publish: ${runs.publish.mkString(" ")}")
+    os.proc(runs.publish).callOnConsole()
+    if !isSnapshot then
       git(version, replaceVersion)
-
     end if
   end publish
 
@@ -148,6 +143,30 @@ object PublishHelper extends Helpers:
     verifyChangelog(newVersion)
     verifyVersion(newVersion)
   end verify
+
+  /** The two sbt runs of a release.
+    *
+    * `build` stages everything locally - `publishLocal` packages every module, the docker
+    * image is built (`Docker / publishLocal`), the docs are generated; `publish` uploads the
+    * built artifacts only. A release version is immutable in the repository (Artifactory):
+    * when the docker build or the docs failed after `publish`, the version was taken and the
+    * next try needed a new one. The docker image is pushed before the artifacts - its tag can
+    * be overwritten, the artifacts can not.
+    */
+  case class SbtRuns(build: Seq[String], publish: Seq[String])
+
+  def sbtRuns(
+      dockerProject: Option[String],
+      build: Seq[String] = Seq.empty,
+      sbtOptions: Seq[String] = Seq.empty
+  ): SbtRuns =
+    val sbt = "sbt" +: sbtOptions
+    SbtRuns(
+      build = sbt ++ Seq("publishLocal") ++
+        dockerProject.map(p => s"$p / Docker / publishLocal") ++ build,
+      publish = sbt ++ dockerProject.map(p => s"$p / Docker / publish") :+ "publish"
+    )
+  end sbtRuns
 
   def verifyVersion(newVersion: String): Unit =
     val releaseVersion = """^(\d+)\.(\d+)\.(\d+)(-.*)?$"""

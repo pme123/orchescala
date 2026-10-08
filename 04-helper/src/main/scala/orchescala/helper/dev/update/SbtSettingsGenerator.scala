@@ -1,6 +1,7 @@
 package orchescala.helper.dev.update
 
 import orchescala.BuildInfo
+import orchescala.helper.util.SbtConfig
 
 case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
 
@@ -160,14 +161,13 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
       }""".stripMargin
 
   lazy val sbtDocker =
-    "  lazy val dockerSettings = " + (
-      if isGateway then
-        config.sbtConfig.dockerGatewaySettings
-          .getOrElse("Seq()")
-      else
-        config.sbtConfig.dockerSettings
-          .getOrElse("Seq()")
-    )
+    val companySettings =
+      (if isGateway then config.sbtConfig.dockerGatewaySettings
+       else config.sbtConfig.dockerSettings)
+        .getOrElse("Seq()")
+    s"""${SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)}
+       |  lazy val dockerSettings = dockerBuildSettings ++ $companySettings""".stripMargin
+  end sbtDocker
 
   lazy val testSettings =
     s"""  lazy val testSettings = Seq(

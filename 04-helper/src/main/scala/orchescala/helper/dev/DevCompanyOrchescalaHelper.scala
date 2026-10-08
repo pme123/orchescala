@@ -100,25 +100,20 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     val isSnapshot = newVersion.contains("-")
     println(s"isSnapshot: $isSnapshot")
 
-    lazy val sbtProcs = Seq(
-      "sbt",
-      "-J-Xmx3G",
-      "publish"
-    )
-
     lazy val gatewayAppFile: os.Path =
       workDir / "04-gateway" / "src" / "main" / "scala" /
         devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
-
-    lazy val sbtDockerProcs =
-      if os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty then
-        Seq(
-          "gateway / Docker / publish"
-        )
-      else
-        Seq.empty
-    println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
-    os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
+    val hasGateway = os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty
+    val runs       = sbtRuns(
+      dockerProject = Option.when(hasGateway)("gateway"),
+      sbtOptions = Seq("-J-Xmx3G")
+    )
+    // 1. everything is built and staged locally - the artifacts, the docker image
+    println(s"SBT build: ${runs.build.mkString(" ")}")
+    os.proc(runs.build).callOnConsole()
+    // 2. only now the version is uploaded - the repository keeps it forever
+    println(s"SBT publish: ${runs.publish.mkString(" ")}")
+    os.proc(runs.publish).callOnConsole()
 
     if !isSnapshot then
       git(newVersion, newVers => replaceVersion(newVers, projectFile))

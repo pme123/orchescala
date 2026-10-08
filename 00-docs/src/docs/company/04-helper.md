@@ -74,6 +74,40 @@ case class DevConfig(
 )
 ```
 
+### SbtConfig
+The `sbtConfig` is generated into `project/Settings.scala` of each project by `./helper.scala update` -
+so configure it here, in `CompanyDevConfig.scala`, where the update does not touch it.
+
+```scala
+private lazy val companySbtConfig = SbtConfig(
+  // the repositories and credentials for publishing
+  reposConfig = companyReposConfig,
+  // sbt settings for the Docker image of the worker (sbt-native-packager)
+  dockerSettings = Some("""Seq(
+    dockerBaseImage := "eclipse-temurin:21-jre",
+    dockerRepository := Some("artifactory.company.ch/docker-local")
+  )"""),
+  // the options of `docker build` - generated as `dockerBuildSettings`.
+  // OpenShift runs amd64 images only, while Apple Silicon (e.g. Colima) builds arm64 by default -
+  // so the platform is fixed (the default). `Seq.empty` builds for the platform of the machine.
+  dockerBuildOptions = Seq("--platform", "linux/amd64")
+)
+```
+
+@:callout(info)
+`--platform` needs BuildKit, i.e. the `buildx` plugin of the Docker CLI - the legacy builder of
+Docker 29 (e.g. Colima) fails with _does not provide the specified platform (linux/amd64)_.
+With Homebrew the plugin is installed but not linked:
+
+```
+brew install docker-buildx
+mkdir -p ~/.docker/cli-plugins
+ln -sfn $(brew --prefix)/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
+docker buildx version
+```
+The `RUN` steps of the image are emulated (Rosetta or QEMU, Colima registers both) - no x86_64 VM is needed.
+@:@
+
 ## CompanyOrchescalaDevHelper
 The `CompanyOrchescalaDevHelper` is a helper dedicated for the `company-orchescala` project.
 

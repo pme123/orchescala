@@ -63,3 +63,21 @@ class PublishHelperTest extends FunSuite:
     assert(error.getMessage.contains("release stopped"), error.getMessage)
 
 end PublishHelperTest
+
+class PublishHelperSbtRunsTest extends FunSuite:
+
+  test("a release builds everything locally first - the upload is the last sbt run"):
+    val runs = PublishHelper.sbtRuns(dockerProject = Some("worker"), build = Seq("api/run"))
+    assertEquals(
+      runs.build,
+      Seq("sbt", "publishLocal", "worker / Docker / publishLocal", "api/run")
+    )
+    // the image first - its tag can be overwritten, the artifacts of a release can not
+    assertEquals(runs.publish, Seq("sbt", "worker / Docker / publish", "publish"))
+
+  test("without a docker image - and with sbt options"):
+    val runs = PublishHelper.sbtRuns(dockerProject = None, sbtOptions = Seq("-J-Xmx3G"))
+    assertEquals(runs.build, Seq("sbt", "-J-Xmx3G", "publishLocal"))
+    assertEquals(runs.publish, Seq("sbt", "-J-Xmx3G", "publish"))
+
+end PublishHelperSbtRunsTest

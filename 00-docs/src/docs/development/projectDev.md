@@ -81,9 +81,13 @@ The following steps are executed:
   - Run the command again.
 - Push the `develop` branch.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
-- Run `ApiProjectCreator.scala`.
-- Publish the project to the repository.
+- Build everything locally (`sbt publishLocal`, the Docker image of the worker
+  with `worker / Docker / publishLocal`, the documentation with `ApiProjectCreator.scala`).
+  - Nothing is uploaded yet: a release version is immutable in the repository (e.g. Artifactory).
+    If a step fails here, you fix it and run the command again with the same version.
 - Uploads the documentation to a WebDAV-webserver (optional).
+- Publish the project to the repository (`worker / Docker / publish`, then `publish`).
+  - The Docker image is pushed first - its tag can be overwritten, the artifacts can not.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.
 - Increase the version to the next minor _SNAPSHOT_ version.

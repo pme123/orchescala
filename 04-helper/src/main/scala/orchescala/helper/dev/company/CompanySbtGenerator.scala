@@ -3,6 +3,7 @@ package orchescala.helper.dev.company
 import orchescala.BuildInfo
 import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.update.*
+import orchescala.helper.util.SbtConfig
 
 /** @param supportedEngines
   *   only decides on the Operaton worker (`EngineType.Op`): the Camunda 7 and 8 workers are always
@@ -244,7 +245,12 @@ case class CompanySbtGenerator(
        |  )
        |
        |  // gateway
-       |  lazy val dockerSettings = ${config.sbtConfig.dockerGatewaySettings.getOrElse("preventPublication")}
+       |${SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)}
+       |  lazy val dockerSettings = ${
+        config.sbtConfig.dockerGatewaySettings
+          .map(s => s"dockerBuildSettings ++ $s")
+          .getOrElse("preventPublication")
+      }
        |}
        |""".stripMargin
 
