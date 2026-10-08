@@ -27,7 +27,7 @@ export function travel<T>(h: History<T>, current: T, dir: 'undo' | 'redo'): { hi
   if (from.length === 0) return null;
   const value = from[from.length - 1];
   const rest = from.slice(0, -1);
-  const to = [...(dir === 'undo' ? h.future : h.past), current];
+  const to = [...(dir === 'undo' ? h.future : h.past), current].slice(-HISTORY_LIMIT);
   return {
     value,
     history: dir === 'undo' ? { past: rest, future: to, last: null } : { past: to, future: rest, last: null },
@@ -47,4 +47,11 @@ export function diffPath(a: unknown, b: unknown, path = ''): string {
   if (differing.length !== 1) return path;
   const [k] = differing;
   return diffPath(a[k], b[k], path ? `${path}.${k}` : k);
+}
+
+/** Der Schlüssel des Zusammenfassens für eine Änderung von `before` zu `after` - undefined, wenn sie
+  * mehrere Stellen auf einmal ändert (ein Import, ein Typwechsel): die fällt mit nichts zusammen. */
+export function coalesceKey(scope: string, before: unknown, after: unknown): string | undefined {
+  const path = diffPath(before, after);
+  return path ? `${scope}:${path}` : undefined;
 }

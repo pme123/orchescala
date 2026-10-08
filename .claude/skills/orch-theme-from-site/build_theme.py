@@ -26,20 +26,24 @@ def _rgba(color):
     """#rgb/#rrggbb, rgb(…)/rgba(…), hsl(…)/hsla(…) -> ([r, g, b] 0…255, alpha 0…1); None for what it
     cannot read (e.g. color(…), a name); 'transparent' is alpha 0."""
     c = color.strip().lower()
-    m = re.fullmatch(r'#([0-9a-f]{3}|[0-9a-f]{6})', c)
+    m = re.fullmatch(r'#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})', c)
     if m:
         h = m.group(1)
-        h = ''.join(ch * 2 for ch in h) if len(h) == 3 else h
-        return [int(h[i:i + 2], 16) for i in (0, 2, 4)], 1.0
+        h = ''.join(ch * 2 for ch in h) if len(h) <= 4 else h
+        return [int(h[i:i + 2], 16) for i in (0, 2, 4)], int(h[6:8], 16) / 255 if len(h) == 8 else 1.0
     if c == 'transparent':
         return [0, 0, 0], 0.0
     sep = r'(?:\s*,\s*|\s+)'
-    alpha_part = r'(?:\s*[,/]\s*([\d.]+%?))?'
-    m = re.fullmatch(rf'rgba?\(\s*([\d.]+%?){sep}([\d.]+%?){sep}([\d.]+%?){alpha_part}\s*\)', c)
+    num = r'\d+(?:\.\d+)?|\.\d+'
+    alpha_part = rf'(?:\s*[,/]\s*((?:{num})%?))?'
+    m = re.fullmatch(rf'rgba?\(\s*((?:{num})%?){sep}((?:{num})%?){sep}((?:{num})%?){alpha_part}\s*\)', c)
+    # with commas: all numbers or all percent - CSS takes no mix (as theme.ts)
+    if m and ',' in c and len({v.endswith('%') for v in m.groups()[:3]}) > 1:
+        return None
     if m:
         rgb = [min(255.0, float(v[:-1]) * 2.55 if v.endswith('%') else float(v)) for v in m.groups()[:3]]
     else:
-        m = re.fullmatch(rf'hsla?\(\s*(-?[\d.]+)(?:deg)?{sep}([\d.]+)%{sep}([\d.]+)%{alpha_part}\s*\)', c)
+        m = re.fullmatch(rf'hsla?\(\s*(-?(?:{num}))(?:deg)?{sep}({num})%{sep}({num})%{alpha_part}\s*\)', c)
         if not m:
             return None
         hue, sat, light = float(m.group(1)) % 360, min(1.0, float(m.group(2)) / 100), min(1.0, float(m.group(3)) / 100)
@@ -56,7 +60,10 @@ def to_hex(color, over='#ffffff'):
     None for transparent and for what it cannot read (see unread_colours)."""
     if not color:
         return None
-    parsed = _rgba(color)
+    try:
+        parsed = _rgba(color)
+    except ValueError:  # a number the pattern let through but float() does not take
+        parsed = None
     if parsed is None or parsed[1] == 0:
         return None
     rgb, a = parsed
@@ -138,16 +145,38 @@ LOGO_TYPES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+x
 SVG_NS = 'http://www.w3.org/2000/svg'
 
 
+def parse_svg(data):
+    """An SVG from the bank's site (untrusted) as a tree - no DOCTYPE or entities (they could expand to
+    gigabytes in the parser), and without what an SVG could run or load: <script>, <foreignObject>,
+    on* handlers, links that are not #fragments. The app shows the logo only as <img> (which runs
+    nothing) - this keeps the data URI harmless also elsewhere."""
+    import xml.etree.ElementTree as ET
+    ET.register_namespace('', SVG_NS)
+    ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
+    if re.search(rb'<!(DOCTYPE|ENTITY)', data, re.I):
+        sys.exit('Das SVG hat eine DOCTYPE- oder ENTITY-Angabe - so wird es nicht gelesen.')
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as e:
+        sys.exit(f'Das Logo ist kein SVG: {e}.')
+    dangerous = {f'{{{SVG_NS}}}script', f'{{{SVG_NS}}}foreignObject', 'script', 'foreignObject'}
+    for parent in list(root.iter()):
+        for child in list(parent):
+            if child.tag in dangerous:
+                parent.remove(child)
+    for el in root.iter():
+        for name in list(el.attrib):
+            local = name.split('}')[-1].lower()
+            if local.startswith('on') or (local == 'href' and not el.attrib[name].startswith('#')):
+                del el.attrib[name]
+    return root
+
+
 def svg_symbol(data, symbol_id):
     """One <symbol> (or element) of an SVG sprite as an SVG of its own - with the sprite's <defs> it may
     reference (gradients, clip paths). A sprite of symbols alone draws nothing: as a logo it is blank."""
     import xml.etree.ElementTree as ET
-    ET.register_namespace('', SVG_NS)
-    ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as e:
-        sys.exit(f'Die Sprite-Datei ist kein SVG: {e}.')
+    root = parse_svg(data)
     found = next((el for el in root.iter() if el.get('id') == symbol_id), None)
     if found is None:
         sys.exit(f'Kein Element mit id «{symbol_id}» in der Sprite-Datei.')
@@ -173,6 +202,9 @@ def logo_uri(path, symbol_id=None):
     if symbol_id:
         data = svg_symbol(data, symbol_id)
         path = 'logo.svg'
+    elif path.lower().endswith('.svg'):
+        import xml.etree.ElementTree as ET
+        data = ET.tostring(parse_svg(data), encoding='utf-8')
     if len(data) > MAX_LOGO:
         sys.exit(f'Das Logo hat {len(data) // 1024} KB - bis 200 KB (z.B. als SVG oder kleiner skaliert).')
     mime = 'image/svg+xml' if path.lower().endswith('.svg') else mimetypes.guess_type(path)[0] or 'image/png'
@@ -194,8 +226,8 @@ def problems(theme):
     for k in ('primary', 'onPrimary', 'background', 'surface', 'text'):
         if k in theme and not re.fullmatch(r'#[0-9a-f]{6}', theme[k]):
             found.append(f'theme.{k} ist keine Farbe #rrggbb: {theme[k]!r}')
-    # font names only: nothing that loads from outside (url(…), @import) or escapes CSS (backslash)
-    if 'font' in theme and re.search(r'[;{}<>\\@]|url\s*\(', theme['font'], re.I):
+    # font names only (as theme.ts FONT_ALLOWED): nothing loads from outside, nothing escapes CSS
+    if 'font' in theme and not re.fullmatch(r'[\w\s,"\'.-]+', theme['font']):
         found.append(f'theme.font ist kein Schrift-Stapel: {theme["font"]!r}')
     if 'radius' in theme and theme['radius'] not in ('none', 'sm', 'md', 'lg', 'xl'):
         found.append(f'theme.radius ist nicht none, sm, md, lg oder xl: {theme["radius"]!r}')

@@ -20,6 +20,9 @@ The format is defined in `04-orch-spec/src/pages/runtime/spec.ts` (`Theme`) and 
              "logo": "data:image/svg+xml;base64,…", "mode": "light" } }
 ```
 
+An SVG logo is cleaned by `build_theme.py` (no DOCTYPE/entities, no `<script>`, `<foreignObject>`,
+`on*` handlers or external links) - it comes from the bank's site, and the theme file may be passed on.
+
 Two rules of the bank zone shape it: the logo is a `data:` URI (at most 200 KB) - the app must not
 load anything from outside - and the font is a stack of system fonts, not a web font.
 

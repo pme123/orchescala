@@ -8,7 +8,7 @@ import unittest
 
 import base64
 
-from build_theme import MAX_LOGO, contrast, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
+from build_theme import MAX_LOGO, contrast, parse_svg, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -34,7 +34,7 @@ class ToHex(unittest.TestCase):
         self.assertEqual(to_hex('hsla(240, 100%, 50%, 0)'), None)
 
     def test_none(self):
-        for v in (None, '', 'transparent', 'rgba(0, 0, 0, 0)', 'rgb(0 0 0 / 0%)', '#abcd', 'red', 'color(srgb 1 0 0)'):
+        for v in (None, '', 'transparent', 'rgba(0, 0, 0, 0)', 'rgb(0 0 0 / 0%)', '#abcde', 'red', 'color(srgb 1 0 0)'):
             self.assertIsNone(to_hex(v), v)
 
     def test_unread_colours(self):
@@ -105,6 +105,36 @@ class Problems(unittest.TestCase):
         self.assertNotIn('<symbol', logo)
         with self.assertRaises(SystemExit):
             svg_symbol(sprite, 'missing')
+
+    def test_colour_rules_as_theme_ts(self):
+        self.assertEqual(to_hex('#f008'), to_hex('rgba(255, 0, 0, 0.533)'))  # #rgba read
+        self.assertEqual(to_hex('#ff000080'), '#ff7f7f')  # #rrggbbaa: half red on white
+        self.assertIsNone(to_hex('rgb(10%, 20, 30)'))  # commas: no mix
+        self.assertEqual(to_hex('rgb(100% 0 0)'), '#ff0000')  # spaces may mix
+        self.assertIsNone(to_hex('rgb(1.2.3, 0, 0)'))  # read as nothing - no crash
+        self.assertEqual(unread_colours({'text': 'rgb(1.2.3, 0, 0)'}), ['rgb(1.2.3, 0, 0)'])
+
+    def test_font_allowlist(self):
+        self.assertEqual(problems({'font': '"Frutiger LT", Arial, sans-serif'}), [])
+        self.assertEqual(problems({'font': 'Société Générale, -apple-system'}), [])
+        for font in ('a(b)', 'x/y', 'a: b', 'a!important'):
+            self.assertTrue(problems({'font': font}), font)
+
+    def test_svg_from_the_site_is_cleaned(self):
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script>'
+               b'<foreignObject><div/></foreignObject><use href="https://evil.example/x.svg#a"/>'
+               b'<use href="#ok"/><rect onclick="x()" width="1"/></svg>')
+        import xml.etree.ElementTree as ET
+        out = ET.tostring(parse_svg(svg)).decode()
+        for bad in ('alert', 'script', 'foreignObject', 'evil.example', 'onclick', 'onload'):
+            self.assertNotIn(bad, out)
+        self.assertIn('href="#ok"', out)
+        self.assertIn('rect', out)
+
+    def test_svg_with_entities_is_refused(self):
+        bomb = b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>'
+        with self.assertRaises(SystemExit):
+            parse_svg(bomb)
 
     def test_contrast(self):
         self.assertAlmostEqual(contrast('#ffffff', '#000000'), 21, places=1)

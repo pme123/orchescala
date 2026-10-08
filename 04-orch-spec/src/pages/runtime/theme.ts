@@ -96,7 +96,9 @@ export function textOn(color: string, over?: string): '#000000' | '#ffffff' {
   return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#000000' : '#ffffff';
 }
 
-const FONT_FORBIDDEN = /[;{}<>\\@]|url\s*\(/i;
+// nur, was in Namen von Schriften vorkommt: Buchstaben, Ziffern, Leerzeichen, Komma, Anführungszeichen,
+// Punkt, Bindestrich, Unterstrich - nichts lädt von aussen (url(…), @import), nichts maskiert CSS
+const FONT_ALLOWED = /^[\p{L}\p{N}\s,"'._-]+$/u;
 
 /** Das Logo höchstens so gross (wie eine Datei im Logo-Feld). */
 export const MAX_LOGO_BYTES = 200 * 1024;
@@ -118,8 +120,10 @@ export function themeProblem(raw: unknown): string | null {
   const t = raw as Record<string, unknown>;
   for (const k of ['primary', 'onPrimary', 'background', 'surface', 'text'])
     if (t[k] !== undefined && (typeof t[k] !== 'string' || !COLOR.test(t[k] as string))) return `«theme.${k}» ist keine Farbe (#rrggbb, rgb(…), hsl(…))`;
-  // nur Namen von Schriften: nichts, was etwas von aussen lädt (url(…), @import) oder CSS maskiert (Backslash)
-  if (t.font !== undefined && (typeof t.font !== 'string' || FONT_FORBIDDEN.test(t.font))) return '«theme.font» ist kein Schrift-Stapel';
+  if (t.font !== undefined && (typeof t.font !== 'string' || !FONT_ALLOWED.test(t.font))) return '«theme.font» ist kein Schrift-Stapel';
+  // der Hintergrund der Seite ist deckend - auf ihm misst die App den Kontrast der Buttons
+  if (typeof t.background === 'string' && (rgbOf(t.background, [0, 0, 0])?.join() !== rgbOf(t.background)?.join()))
+    return '«theme.background» ist halb durchsichtig - der Hintergrund der Seite muss deckend sein';
   // nur eigene Schlüssel - `toString` oder `__proto__` sind keine Ecken
   if (t.radius !== undefined && !(typeof t.radius === 'string' && Object.hasOwn(RADIUS, t.radius))) return '«theme.radius» ist nicht none, sm, md, lg oder xl';
   if (t.mode !== undefined && t.mode !== 'light' && t.mode !== 'dark') return '«theme.mode» ist nicht light oder dark';
@@ -142,8 +146,9 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
     // ein eigener Text auf der Primärfarbe - nur, wenn man ihn lesen kann; eine halb durchsichtige
     // Primärfarbe so, wie sie auf dem Hintergrund der Seite aussieht (dem des Themes, sonst dem z9nai-Stil)
     const page = ((theme.mode === 'dark') === isDark && theme.background) || (isDark ? '#0e0f11' : '#f5f4f0');
-    const own = theme.onPrimary && (contrast(theme.primary, theme.onPrimary, page) ?? 0) >= MIN_ON_PRIMARY_CONTRAST;
-    v['--orch-on-primary'] = own ? theme.onPrimary! : textOn(theme.primary, page);
+    const on = theme.onPrimary;
+    const readable = on !== undefined && (contrast(theme.primary, on, page) ?? 0) >= MIN_ON_PRIMARY_CONTRAST;
+    v['--orch-on-primary'] = readable ? on : textOn(theme.primary, page);
   }
   if ((theme.mode === 'dark') === isDark) {
     if (theme.background) v['--orch-bg'] = theme.background;

@@ -1,6 +1,7 @@
 // The designer of the pages: what a page can call, sample data, the block tree and the checks.
 import assert from 'node:assert/strict';
-import { COALESCE_MS, diffPath, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
+import { COALESCE_MS, coalesceKey, diffPath, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
+import { designerKey, type KeyLike } from '../src/pages/designer/keys';
 import { test } from 'node:test';
 import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
@@ -438,6 +439,55 @@ test('history - type, undo, type again within 1 s: the undo ends the step, the n
   assert.deepEqual(h.future, []); // and redo is gone
   const again = travel(h, 'ax', 'undo')!;
   assert.equal(again.value, 'a');
+});
+
+test('designerKey - what a key does, and when it is the browser\'s', () => {
+  const k = (key: string, more: Partial<KeyLike> = {}): KeyLike =>
+    ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, repeat: false, defaultPrevented: false, ...more });
+  assert.deepEqual(designerKey(k('z', { metaKey: true }), false, true, false), { action: 'undo', run: true });
+  assert.deepEqual(designerKey(k('Z', { metaKey: true, shiftKey: true }), false, true, false), { action: 'redo', run: true });
+  assert.deepEqual(designerKey(k('z', { ctrlKey: true, repeat: true }), false, true, false), { action: 'undo', run: true }); // held: repeats
+  assert.deepEqual(designerKey(k('Delete'), false, true, true), { action: 'remove', run: true });
+  assert.deepEqual(designerKey(k('Delete', { repeat: true }), false, true, true), { action: 'remove', run: false }); // held: once
+  assert.deepEqual(designerKey(k('ArrowDown', { altKey: true, repeat: true }), false, true, true), { action: 'down', run: false });
+  assert.deepEqual(designerKey(k('d', { metaKey: true }), false, true, true), { action: 'duplicate', run: true });
+  assert.equal(designerKey(k('Delete'), false, true, false), null); // no block selected
+  assert.equal(designerKey(k('Backspace'), false, true, true), null); // only Delete deletes
+  assert.equal(designerKey(k('ArrowDown'), false, true, true), null); // plain arrows scroll
+  // read-only: the browser keeps ⌘Z and ⌘D (bookmark) - only Esc
+  assert.equal(designerKey(k('z', { metaKey: true }), false, false, true), null);
+  assert.equal(designerKey(k('d', { metaKey: true }), false, false, true), null);
+  assert.deepEqual(designerKey(k('Escape'), false, false, true), { action: 'deselect', run: true });
+  // in a field or dialog, or already handled: not the designer's
+  assert.equal(designerKey(k('z', { metaKey: true }), true, true, true), null);
+  assert.equal(designerKey(k('Delete', { defaultPrevented: true }), false, true, true), null);
+});
+
+test('coalesceKey - a change of several places at once merges with nothing', () => {
+  const b: Component = { type: 'button', label: 'A', action: [] } as unknown as Component;
+  assert.equal(coalesceKey('props:0', b, { ...b, label: 'AB' }), 'props:0:label');
+  assert.equal(coalesceKey('props:0', b, { type: 'text', text: 'A' }), undefined); // a type change
+  let h = emptyHistory<string>();
+  h = record(h, 'v0', coalesceKey('page', { a: 1, b: 1 }, { a: 2, b: 2 }), 0);
+  h = record(h, 'v1', coalesceKey('page', { a: 2, b: 2 }, { a: 3, b: 3 }), 100);
+  assert.deepEqual(h.past, ['v0', 'v1']); // two steps, not one
+});
+
+test('history - travel keeps both stacks within HISTORY_LIMIT', () => {
+  let h = emptyHistory<number>();
+  for (let i = 0; i < HISTORY_LIMIT; i++) h = record(h, i, undefined, i * 2000);
+  const back = travel(h, HISTORY_LIMIT, 'undo')!;
+  const forth = travel({ ...back.history, past: [...back.history.past, -1] }, 99, 'redo')!;
+  assert.ok(forth.history.past.length <= HISTORY_LIMIT);
+});
+
+test('relocateBlock - onto the page (\'\'): at its end, whatever the place', () => {
+  const body: Component[] = [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }];
+  for (const place of ['before', 'after', 'inside'] as const) {
+    const r = relocateBlock(body, '0', '', place);
+    assert.equal(r.key, '1');
+    assert.deepEqual(r.body.map((x) => (x as { text: string }).text), ['b', 'a']);
+  }
 });
 
 test('relocateBlock - out of its own section, and into a later section after the shift', () => {

@@ -195,3 +195,14 @@ test('themeStyle - a semi-transparent primary as it looks on the page of the the
   assert.equal(on({ primary: 'rgba(0,0,0,0.1)' }, false), '#000000'); // faint grey on the light page
   assert.ok(contrast('rgba(255,255,255,0.1)', '#ffffff', '#000000')! > 10);
 });
+
+test('themeProblem - a font is names only (allowlist); the page background is opaque', () => {
+  assert.equal(themeProblem({ font: '"Frutiger LT", Arial, sans-serif' }), null);
+  assert.equal(themeProblem({ font: 'Société Générale, -apple-system, system_ui' }), null);
+  for (const font of ['a(b)', 'x/y', 'a: b', 'a!important', 'x*y'])
+    assert.match(themeProblem({ font }) ?? '', /theme.font/, font);
+  assert.match(themeProblem({ background: 'rgba(0,0,0,0.5)' }) ?? '', /theme.background/);
+  assert.match(themeProblem({ background: '#ffffff80' }) ?? '', /theme.background/);
+  assert.equal(themeProblem({ background: 'rgba(0,0,0,1)' }), null);
+  assert.equal(themeProblem({ surface: 'rgba(0,0,0,0.05)' }), null); // a surface may be faint
+});

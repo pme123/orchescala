@@ -16,7 +16,8 @@ import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
 import { DataView } from './DataView';
 import { IconButton } from './fields';
-import { diffPath, emptyHistory, record, travel, type History } from './history';
+import { coalesceKey, emptyHistory, record, travel, type History } from './history';
+import { designerKey, type DesignerKey } from './keys';
 import {
   actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
@@ -87,7 +88,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [left, setLeft] = useState<'outline' | 'data'>('outline');
   const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
   // die Tastatur liest immer die Aktionen dieses Renderns (sie hängen an Seite und Auswahl)
-  const keys = useRef<{ undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void }>(null!);
+  const keys = useRef<{ undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
   // ---- speichern: eine Sekunde nach der letzten Änderung und beim Verlassen - ein Schreiben nach dem
@@ -183,28 +184,20 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   // ---- Tastatur: ⌘Z / ⇧⌘Z, Entf, ⌘D, ⌥↑/⌥↓, Esc - nicht beim Tippen in einem Feld
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      // schon behandelt, beim Tippen in einem Feld, in einem Dialog darüber: nicht für den Designer
-      if (e.defaultPrevented) return;
-      if (t && (t.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]'))) return;
       const k = keys.current;
       if (!k) return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) k.redo(); else k.undo(); return; }
-      if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); k.redo(); return; }
-      if (e.key === 'Escape') { k.deselect(); return; }
-      if (!k.ops) return;
-      // nur Entf - Backspace auf einem Knopf oder der Seite löschte sonst ungewollt
-      const op = e.key === 'Delete' ? k.ops.remove
-        : mod && e.key.toLowerCase() === 'd' ? k.ops.duplicate
-        : e.altKey && e.key === 'ArrowUp' ? () => k.ops!.move(-1)
-        : e.altKey && e.key === 'ArrowDown' ? () => k.ops!.move(1)
-        : null;
-      if (!op) return;
-      e.preventDefault();
-      // gedrückt gehalten: ein Schritt je Druck - die Aktionen kennen den Baustein, der beim letzten Rendern
-      // gewählt war; nach einem Verschieben ist er woanders (nur ⌘Z wiederholt sich)
-      if (!e.repeat) op();
+      const t = e.target as HTMLElement | null;
+      const inField = !!t?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]');
+      const hit = designerKey(e, inField, k.canEdit, !!k.ops);
+      if (!hit) return;
+      if (hit.action !== 'deselect') e.preventDefault();
+      if (!hit.run) return;
+      const run: Record<DesignerKey, () => void> = {
+        undo: k.undo, redo: k.redo, deselect: k.deselect,
+        remove: () => k.ops?.remove(), duplicate: () => k.ops?.duplicate(),
+        up: () => k.ops?.move(-1), down: () => k.ops?.move(1),
+      };
+      run[hit.action]();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -243,7 +236,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     unwrap: () => apply(unwrapSection(body(), key)),
   });
   const ops = selected !== null && block ? opsFor(selected) : null;
-  keys.current = { undo, redo, ops, deselect: () => setSelected(null) };
+  keys.current = { undo, redo, ops, deselect: () => setSelected(null), canEdit };
 
   // ---- Drag & Drop in der Gliederung: oben/unten an einer Zeile davor/danach, mitten in einem Abschnitt hinein
   const placeAt = (e: React.DragEvent, isSection: boolean): Place => {
@@ -319,7 +312,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
                   if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
                   if (drag?.over === key) setDrag({ from: drag.from });
                 }}
-                onDrop={(e) => { e.preventDefault(); if (drag?.over && drag.place) apply(relocateBlock(page.body, drag.from, drag.over, drag.place)); setDrag(null); }}
+                onDrop={(e) => { e.preventDefault(); if (drag?.over && drag.place) apply(relocateBlock(body(), drag.from, drag.over, drag.place)); setDrag(null); }}
                 onDragEnd={() => setDrag(null)}
                 onClick={() => setSelected(key)}
                 style={{ paddingLeft: `${4 + depth * 14}px` }}
@@ -426,10 +419,10 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
                 </div>
               )}
               <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
-                onChange={(b) => setBody(updateBlock(page.body, selected, () => b), `props:${selected}:${diffPath(blockAt(page.body, selected), b)}`)} />
+                onChange={(b) => setBody(updateBlock(body(), selected, () => b), coalesceKey(`props:${selected}`, blockAt(body(), selected), b))} />
             </>
           ) : (
-            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, `page:${diffPath(page, p)}`)} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))} />
           )}
         </div>
       </div>
