@@ -56,8 +56,7 @@ object WorkingTree extends Helpers:
     try body
     catch
       case scala.util.control.NonFatal(e) =>
-        try restore.now()
-        catch case scala.util.control.NonFatal(r) => e.addSuppressed(r)
+        suppressedBy(e)(restore.now())
         throw e
 
   /** [[restoreWorkingTree]] when a release fails before its git step - after it, the version is

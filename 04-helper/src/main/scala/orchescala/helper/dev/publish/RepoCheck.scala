@@ -17,7 +17,13 @@ object RepoCheck:
   def artifactSuffix(settings: os.Path): String = artifactSuffix(os.read(settings), settings.toString)
 
   def artifactSuffix(settings: String, name: String = "project/Settings.scala"): String =
-    val crossPathsOff = settings.linesIterator.map(_.trim).exists(_.startsWith("crossPaths := false"))
+    val CrossPathsOff = """\bcrossPaths\s*:=\s*false\b""".r
+    // in code, not in a comment (a whole line, or the end of one)
+    val crossPathsOff = settings.linesIterator
+      .map(_.trim)
+      .filterNot(_.startsWith("//"))
+      .map(_.takeWhile(_ != '/'))
+      .exists(CrossPathsOff.findFirstIn(_).isDefined)
     val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
     if crossPathsOff then ""
     else
@@ -49,18 +55,22 @@ object RepoCheck:
         case 404                     => ()
         case 200                     =>
           throw IllegalStateException(
-            s"Version $version is in the repository already: $url - remove it there, or release the next version."
+            s"Version $version is in the repository already: $url - remove it there, or release " +
+              "the next version."
           )
         case 401 | 403               =>
           throw IllegalStateException(
-            s"The repository refuses the credentials ($code): $url - check the environment variables of the repository."
+            s"The repository refuses the credentials ($code): $url - check the environment " +
+              "variables of the repository."
           )
         case 301 | 302 | 307 | 308   =>
           throw IllegalStateException(
             s"The repository redirects ($code): $url - configure the final address of the repository."
           )
+        case 0                       =>
+          throw IllegalStateException(s"The repository is not reachable: $url")
         case other                   =>
-          throw IllegalStateException(s"The repository is not reachable ($other): $url")
+          throw IllegalStateException(s"The repository answered an unexpected status ($other): $url")
   end verifyVersionFree
 
   /** [[verifyVersionFree]] against the release repo of `devConfig` for every module of the
@@ -81,7 +91,8 @@ object RepoCheck:
       repo match
         case _: RepoConfig.Gitlab if config.isEmpty                    =>
           val problem =
-            s"no credentials for ${repo.repoUrl} - the check runs anonymously, a private package reads as free"
+            s"no credentials for ${repo.repoUrl} - the check runs anonymously, a private package " +
+              "reads as free"
           if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
         // the job token of a pipeline is GitLab's own - nothing to probe (and the project
         // endpoint is not meant for it); a token of a developer is probed
@@ -168,20 +179,23 @@ object RepoCheck:
         // token, a token with the registry scope only): asked
         if code != 200 then
           val problem =
-            s"GitLab does not show $project to this token ($code) - a wrong token, or one that may not read the project (a deploy token); a wrong token fails at the upload (after the docs and the docker image)"
+            s"GitLab does not show $project to this token ($code) - a wrong token, or one that may " +
+              "not read the project (a deploy token); a wrong token fails at the upload (after the " +
+              "docs and the docker image)"
           if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
       case None          =>
         val problem =
-          s"$repoUrl is no project registry - the credentials can not be checked, a wrong token fails at the upload (after the docs and the docker image)"
+          s"$repoUrl is no project registry - the credentials can not be checked, a wrong token " +
+            "fails at the upload (after the docs and the docker image)"
         if !confirm(problem) then throw IllegalStateException(s"$problem - release stopped.")
   end verifyGitlabCredentials
 
-  /** The HTTP status of a HEAD request - 0 if the server is not reachable (or not within 30
-    * seconds). No redirect is followed: curl keeps a custom header (the GitLab token) on a
+  /** The HTTP status of a HEAD request for a URL - 0 if the server is not reachable (or not
+    * within `timeoutSeconds`). No redirect is followed: curl keeps a custom header (the GitLab token) on a
     * redirect to another host. `config` are the lines of a curl config (the credentials).
     * Fails with a clear message without `curl`.
     */
-  def curlStatus(config: Seq[String], curl: String = "curl", timeoutSeconds: Int = 30)(url: String): Int =
+  def curlStatus(config: Seq[String], curl: String = "curl", timeoutSeconds: Int = 30): String => Int = url =>
     val devNull = if scala.util.Properties.isWin then "NUL" else "/dev/null"
     val result  =
       try
@@ -197,7 +211,8 @@ object RepoCheck:
     // DNS, TLS, a proxy, a timeout: curl says why (status 000) - said here, the status stays 0
     if result.exitCode != 0 then
       println(s"  `$curl` failed (exit ${result.exitCode}) for $url: ${result.err.text().trim}")
-    answer.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
+    if answer.isEmpty then 0 // failed before any status
+    else answer.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
   end curlStatus
 
 end RepoCheck

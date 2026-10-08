@@ -78,17 +78,15 @@ case class ReleaseRun(
       catch
         // a fatal error goes through without a restore
         case scala.util.control.NonFatal(e) =>
+          // the failure of the release stays the error - a failing restore or report is added to it
+          suppressedBy(e)(onFailure(step)) // first - the report is best effort and may take a while
           if step == ReleaseStep.Upload then
             println(
               "The upload failed: the docker image (if any) is pushed already, and the modules `publish` " +
                 "uploaded before it failed are in the repository. The next try fails the check of the version " +
                 "until you remove the version there - then it overwrites the image's tag."
             )
-            try afterFailedUpload()
-            catch case scala.util.control.NonFatal(report) => e.addSuppressed(report)
-          // the failure of the release stays the error - a failing restore is added to it
-          try onFailure(step)
-          catch case scala.util.control.NonFatal(restore) => e.addSuppressed(restore)
+            suppressedBy(e)(afterFailedUpload())
           throw e
       finally
         // refused while the JVM shuts down - then the hook runs anyway
@@ -131,16 +129,16 @@ end ReleaseRun
 object SbtChild:
   // spawned and registered under the lock - a hook never misses a child just spawned; a
   // child gone from here has exited (`waitFor` returned), its output went to the console directly
-  private var running: Option[os.SubProcess] = None
+  private val running = java.util.concurrent.atomic.AtomicReference[Option[os.SubProcess]](None)
 
   /** One at a time - a release runs its sbt steps one after the other. */
   def run(cmd: Seq[String]): Unit =
     println(cmd.mkString(" "))
     val child = synchronized:
-      if running.nonEmpty then
+      if running.get.nonEmpty then
         throw IllegalStateException(s"An sbt run is going on already - `${cmd.mkString(" ")}` can not start.")
       val c = os.proc(cmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
-      running = Some(c)
+      running.set(Some(c))
       c
     try
       child.waitFor()
@@ -152,7 +150,7 @@ object SbtChild:
       case e: InterruptedException =>
         end(child, s"`${cmd.mkString(" ")}` (interrupted)")
         throw e
-    finally synchronized { running = None }
+    finally running.set(None)
   end run
 
   /** Waits for the running child - at most `timeout`; then it is ended: on Ctrl-C it got
@@ -160,7 +158,7 @@ object SbtChild:
     * restored.
     */
   def awaitExit(timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")): Unit =
-    synchronized(running).foreach: child =>
+    running.get.foreach: child =>
       println("Waiting for sbt to end ...")
       if !child.waitFor(timeout.toMillis) then end(child, s"sbt (not ended within $timeout)")
 
@@ -180,3 +178,8 @@ object SbtChild:
       child.waitFor(5000)
   end end
 end SbtChild
+
+/** `body` after a failure `e` - fails it too, that is added to `e` (which stays the error). */
+private[publish] def suppressedBy(e: Throwable)(body: => Unit): Unit =
+  try body
+  catch case scala.util.control.NonFatal(r) => e.addSuppressed(r)

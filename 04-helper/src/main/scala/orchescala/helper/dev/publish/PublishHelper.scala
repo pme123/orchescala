@@ -116,7 +116,8 @@ object PublishHelper extends Helpers:
     // offline, or without access: the local tags may be behind the releases
     scala.util.Try(os.proc("git", "fetch", "--tags", "--quiet").call(cwd = repo, stderr = os.Pipe))
       .failed.foreach: e =>
-        warn(s"WARNING: could not fetch the tags - the version is checked against the local tags only: ${e.getMessage.linesIterator.next()}")
+        val reason = Option(e.getMessage).flatMap(_.linesIterator.nextOption()).getOrElse(e.toString)
+        warn(s"WARNING: could not fetch the tags - the version is checked against the local tags only: $reason")
     val tags = os.proc("git", "tag", "--list").call(cwd = repo).out.lines()
     nextVersionProblem(newVersion, tags).foreach: problem =>
       if !confirm(problem) then

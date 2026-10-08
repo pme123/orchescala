@@ -143,7 +143,7 @@ class PublishHelperSbtRunsTest extends FunSuite:
     val (rel, log) = release(failing = Set("upload"))
     intercept[IllegalStateException]:
       rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = true))
-    assertEquals(log(), Seq("build", "docs", "upload", "reported", "failed Upload"))
+    assertEquals(log(), Seq("build", "docs", "upload", "failed Upload", "reported")) // the restore first
 
   test("the runs of a project and of the company project"):
     assertEquals(
@@ -364,6 +364,11 @@ class PublishHelperRetryTest extends FunSuite:
     SbtChild.awaitExit() // nothing running any more
     assert((System.nanoTime() - started) / 1e6 < 1000)
 
+  test("the exit code of a failed sbt run is in the message"):
+    assume(!scala.util.Properties.isWin, "sh")
+    val error = intercept[IllegalStateException](SbtChild.run(Seq("sh", "-c", "exit 3")))
+    assert(error.getMessage.contains("exit code 3"), error.getMessage)
+
   test("one sbt run at a time"):
     assume(!scala.util.Properties.isWin, "sleep")
     val sleeper = Thread(() => SbtChild.run(Seq("sleep", "1")))
@@ -455,6 +460,8 @@ class PublishHelperVersionFreeTest extends FunSuite:
     assert(redirect.getMessage.contains("redirects"), redirect.getMessage)
     val down     = intercept[IllegalStateException](RepoCheck.verifyVersionFree("1.2.3", urls, _ => 0))
     assert(down.getMessage.contains("not reachable"), down.getMessage)
+    val odd      = intercept[IllegalStateException](RepoCheck.verifyVersionFree("1.2.3", urls, _ => 500))
+    assert(odd.getMessage.contains("unexpected status (500)"), odd.getMessage)
 
   test("the artifact suffix comes from the build's Settings.scala"):
     val project = Seq("""  val scalaV = "3.7.4"""", "    crossPaths := false").mkString("\n")
@@ -462,6 +469,16 @@ class PublishHelperVersionFreeTest extends FunSuite:
     assertEquals(RepoCheck.artifactSuffix(project), "")
     assertEquals(RepoCheck.artifactSuffix(company), "_3")
     assertEquals(RepoCheck.artifactSuffix("""val scalaV = "2.13.16""""), "_2")
+    // spelled without spaces, inside a larger line - and only in code, not in a comment
+    assertEquals(RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "crossPaths:=false").mkString("\n")), "")
+    assertEquals(
+      RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "  Seq(publishMavenStyle := true, crossPaths := false)").mkString("\n")),
+      ""
+    )
+    assertEquals(
+      RepoCheck.artifactSuffix(Seq("""val scalaV = "3.7.4"""", "  publishMavenStyle := true, // crossPaths := false").mkString("\n")),
+      "_3"
+    )
     val error = intercept[IllegalStateException](RepoCheck.artifactSuffix("object Settings {}"))
     assert(error.getMessage.contains("scalaV"), error.getMessage)
 
@@ -506,6 +523,9 @@ class PublishHelperVersionFreeTest extends FunSuite:
       assertEquals(RepoCheck.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(RepoCheck.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
+
+  test("curl that fails before any status: 0, not an error - the report's unreachable branch"):
+    assertEquals(RepoCheck.curlStatus(Seq.empty, curl = "true")("http://127.0.0.1:1/repo"), 0)
 
   test("a program that answers no status is an error - not a free version"):
     val error = intercept[IllegalStateException]:
