@@ -66,8 +66,8 @@ case class ReleaseRun(
       println(s"Aborted at $step")
       try
         awaitChild()
+        onFailure(step) // first - the report is best effort and may take a while
         if step == ReleaseStep.Upload then afterFailedUpload()
-        onFailure(step)
       catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
 
   def run(steps: Seq[ReleaseStep]): Unit =
@@ -133,9 +133,12 @@ object SbtChild:
   // child gone from here has exited (`waitFor` returned), its output went to the console directly
   private var running: Option[os.SubProcess] = None
 
+  /** One at a time - a release runs its sbt steps one after the other. */
   def run(cmd: Seq[String]): Unit =
     println(cmd.mkString(" "))
     val child = synchronized:
+      if running.nonEmpty then
+        throw IllegalStateException(s"An sbt run is going on already - `${cmd.mkString(" ")}` can not start.")
       val c = os.proc(cmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
       running = Some(c)
       c

@@ -87,6 +87,10 @@ object RepoCheck:
         // endpoint is not meant for it); a token of a developer is probed
         case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
           verifyGitlabCredentials(gitlab.repoUrl, status, confirm)
+        case _: RepoConfig.Gitlab                                       =>
+          println(
+            "NOTE: the job token is not probed - a package it may not read looks free here and fails at the upload."
+          )
         case _                                                         => ()
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
       verifyVersionFree(version, releaseUrls(devConfig, version, artifactSuffix, repo), status)
@@ -182,14 +186,17 @@ object RepoCheck:
     val result  =
       try
         os.proc(
-          curl, "--silent", "--head", "--connect-timeout", (timeoutSeconds min 10).toString,
+          curl, "--silent", "--show-error", "--head", "--connect-timeout", (timeoutSeconds min 10).toString,
           "--max-time", timeoutSeconds.toString,
           "--output", devNull, "--write-out", "%{http_code}", "--config", "-", url
-        ).call(check = false, stdin = config.mkString("", "\n", "\n"))
+        ).call(check = false, stdin = config.mkString("", "\n", "\n"), stderr = os.Pipe)
       catch
         case e: java.io.IOException =>
           throw IllegalStateException(s"`$curl` is needed to check the repository - not found: ${e.getMessage}", e)
     val answer = result.out.text().trim
+    // DNS, TLS, a proxy, a timeout: curl says why (status 000) - said here, the status stays 0
+    if result.exitCode != 0 then
+      println(s"  `$curl` failed (exit ${result.exitCode}) for $url: ${result.err.text().trim}")
     answer.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
   end curlStatus
 

@@ -52,11 +52,11 @@ object WorkingTree extends Helpers:
   /** `body` with the restore of a failed release - for the changes made before the
     * [[ReleaseRun]] (the versions). A fatal error goes through without a restore.
     */
-  def restoring[T](restore: ReleaseStep => Unit)(body: => T): T =
+  def restoring[T](restore: RestoreForRetry)(body: => T): T =
     try body
     catch
       case scala.util.control.NonFatal(e) =>
-        try restore(ReleaseStep.Build)
+        try restore.now()
         catch case scala.util.control.NonFatal(r) => e.addSuppressed(r)
         throw e
 
@@ -83,8 +83,13 @@ object WorkingTree extends Helpers:
     private val changesBefore = if isSnapshot then Seq.empty else changedTrackedFiles(repo)
     private var done          = false
 
+    /** The step failed - after the git step the version is uploaded and committed, nothing to retry. */
     def apply(step: ReleaseStep): Unit =
-      if !isSnapshot && step != ReleaseStep.Git then
+      if step != ReleaseStep.Git then now()
+
+    /** Something before the release failed (the versions). */
+    def now(): Unit =
+      if !isSnapshot then
         synchronized:
           if done then ()
           else if changesBefore.nonEmpty then

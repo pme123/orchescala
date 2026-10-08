@@ -325,9 +325,10 @@ class PublishHelperRetryTest extends FunSuite:
     // aborted while uploading: what went out is reported, then restored
     log.clear()
     rel.copy(afterFailedUpload = () => log += "reported").abortedAt(ReleaseStep.Upload).run()
-    assertEquals(log.toSeq, Seq("waited for sbt", "reported", "restored Upload"))
+    assertEquals(log.toSeq, Seq("waited for sbt", "restored Upload", "reported")) // the restore first
 
   test("the sbt child: a failing process throws, a running one is waited for"):
+    assume(!scala.util.Properties.isWin, "sh, sleep and pgrep")
     intercept[IllegalStateException](SbtChild.run(Seq("false")))
     SbtChild.run(Seq("true"))
     SbtChild.awaitExit() // nothing running - returns at once
@@ -339,7 +340,9 @@ class PublishHelperRetryTest extends FunSuite:
     assert((System.nanoTime() - started) / 1e6 > 500, "waited for the child")
     sleeper.join()
 
+  // the long sleeps are never waited for - they are killed; the odd durations are what pgrep looks for
   test("the sbt child and what it started are killed when the thread running it is interrupted"):
+    assume(!scala.util.Properties.isWin, "sh, sleep and pgrep")
     @volatile var interrupted = false
     // a shell with a child of its own - like the sbt launcher and its JVM
     val runner = Thread: () =>
@@ -361,7 +364,17 @@ class PublishHelperRetryTest extends FunSuite:
     SbtChild.awaitExit() // nothing running any more
     assert((System.nanoTime() - started) / 1e6 < 1000)
 
+  test("one sbt run at a time"):
+    assume(!scala.util.Properties.isWin, "sleep")
+    val sleeper = Thread(() => SbtChild.run(Seq("sleep", "1")))
+    sleeper.start()
+    Thread.sleep(200)
+    val error = intercept[IllegalStateException](SbtChild.run(Seq("true")))
+    assert(error.getMessage.contains("going on already"), error.getMessage)
+    sleeper.join()
+
   test("awaitExit ends sbt and what it started after its timeout - Ctrl-C, sbt still writing"):
+    assume(!scala.util.Properties.isWin, "sh, sleep and pgrep")
     @volatile var failed = false
     val sleeper = Thread: () =>
       try SbtChild.run(Seq("sh", "-c", "sleep 33.1; echo done"))
