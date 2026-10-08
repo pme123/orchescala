@@ -676,6 +676,14 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 
 const JOIN_NAME = '\u0000join';
 
+/**
+ * Ein Schritt ohne Label im BPMN heisst wie seine ID (`Activity_04tlno2`) — ausser
+ * Start, Ende und Gateways, die einen eigenen Ersatznamen bekommen (siehe defaultName).
+ * Ein Name, den die Spezifikation setzt, bleibt beim Abgleich und geht beim Export ins BPMN.
+ */
+export const unnamed = (step: Pick<Step, 'id' | 'kind' | 'name'>): boolean =>
+  step.kind !== 'goto' && (!step.name?.trim() || step.name === step.id);
+
 function defaultName(tag: string, id: string): string {
   // Namenlose Gateways sind fast immer Zusammenführungen — sie tragen keine
   // Information und werden nach dem Aufbau entfernt (siehe pruneJoins).
@@ -1146,6 +1154,8 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
         }
       }
       keepEmptyErrors(s, prev);
+      // ohne Label im BPMN gilt der Name aus der Spezifikation (der Export schreibt ihn hinein)
+      if (unnamed(s) && !unnamed(prev)) s.name = prev.name;
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
       // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation —
       // mit `mappingsFromBpmn` gilt die Abwahl nicht: was im BPMN steht, ist an

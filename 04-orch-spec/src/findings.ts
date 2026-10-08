@@ -13,7 +13,7 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
+import { GENERAL_VARIABLES, isInitWorker, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
@@ -190,6 +190,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const types = spec.types ?? [];
   const processId = spec.processId ?? '';
   const ia: Interaction | null = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
+  // ohne Label im BPMN heisst der Schritt wie seine ID — der Name hier geht beim Export hinein
+  // (in einem Pattern-Block benennt das Pattern)
+  if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
