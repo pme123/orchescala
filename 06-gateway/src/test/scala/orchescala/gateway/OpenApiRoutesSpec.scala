@@ -15,8 +15,8 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
 
   private val openApiRoutes = OpenApiRoutes()(using testConfig)
 
-  // the worker apps of the projects: none - a closed port on this machine (the default docsAppUrl could
-  // reach a real worker app of the developer, e.g. on localhost:5555)
+  // the worker apps of the projects: none - a closed port on this machine, refused at once (the default
+  // docsAppUrl could reach a real worker app of the developer, e.g. on localhost:5555)
   private val noWorkerApps = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some("http://127.0.0.1:9")))
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("OpenApiRoutes")(
@@ -136,20 +136,28 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       )
     },
     test("a project's API: the worker app's when it answers, else the released one of the site") {
-      val failed = Response.status(Status.InternalServerError)
+      val unreachable = Response.status(Status.ServiceUnavailable)
+      def shop(forwarded: Response) = openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml")(forwarded)
       for
-        released   <- openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml")(failed)
+        released   <- shop(unreachable)
         body       <- released.body.asString
-        live       <- openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml")(Response.text("live"))
+        noUrl      <- shop(Response.status(Status.NotFound))
+        live       <- shop(Response.text("live"))
         liveBody   <- live.body.asString
-        missing    <- openApiRoutes.orSiteFile("acme", "acme-cards", "OpenApi.yml")(failed)
-        traversal  <- openApiRoutes.orSiteFile("..", "acme-shop", "OpenApi.yml")(failed)
+        // the worker app answers with an error, or its URL is wrong: not hidden behind the released file
+        workerErr  <- shop(Response.status(Status.BadGateway))
+        wrongUrl   <- shop(Response.status(Status.InternalServerError))
+        missing    <- openApiRoutes.orSiteFile("acme", "acme-cards", "OpenApi.yml")(unreachable)
+        traversal  <- openApiRoutes.orSiteFile("..", "acme-shop", "OpenApi.yml")(unreachable)
       yield assertTrue(
         released.status == Status.Ok,
         body.contains("acme-shop (released)"),
+        noUrl.status == Status.Ok,
         liveBody == "live",
-        missing.status == Status.InternalServerError,
-        traversal.status == Status.InternalServerError
+        workerErr.status == Status.BadGateway,
+        wrongUrl.status == Status.InternalServerError,
+        missing.status == Status.ServiceUnavailable,
+        traversal.status == Status.ServiceUnavailable
       )
     },
     test("the routes of a project's API: without its worker app the released files of the site") {
@@ -162,7 +170,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       yield assertTrue(
         yml._1 == Status.Ok, yml._2.contains("acme-shop (released)"),
         diagram._1 == Status.Ok, diagram._2.contains("<bpmn"),
-        none._1 != Status.Ok
+        none._1 == Status.ServiceUnavailable
       )
     },
     test("the favicon is served (its stream closed)") {

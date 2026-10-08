@@ -1,5 +1,7 @@
 package orchescala.helper.dev.company.docs
 
+import scala.util.control.NonFatal
+
 import orchescala.api.{
   ApiProjectConfig,
   DocProjectConfig,
@@ -252,7 +254,7 @@ trait DocCreator extends DependencyCreator, Helpers:
           try
             os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
           catch
-            case _: Throwable =>
+            case NonFatal(_) =>
               println("Checkout failed, retrying with '-f' due to local changes")
               os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
     yield DocProjectConfig(

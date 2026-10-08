@@ -170,20 +170,23 @@ class OpenApiRoutes()(using config: GatewayConfig):
         // which avoids OAuth2 query params (code, state, …) ever landing on the main /docs page.
         (protectedRoutes @@ oauth2AuthMiddleware(auth)) ++ oauth2CallbackRoute(auth) ++ faviconRoute
 
-  /** When the project's worker app cannot give its docs - no docs URL for it (404) or it does not
-    * answer / fails (5xx; e.g. a project of another team, not running here) - the released version
-    * the docs site holds (`site/<company>/<project>/…`, written by the helper's SiteAssembler at the
-    * tag of VERSIONS.conf). Otherwise the worker app's answer - the live one, also a 4xx of its own.
+  /** When the project's worker app is not there - no docs URL for it (404) or not reachable (503, see
+    * forwardDocsRequest; e.g. a project of another team, not running here) - the released version the
+    * docs site holds (`site/<company>/<project>/…`, written by the helper's SiteAssembler at the tag of
+    * VERSIONS.conf), with a warning. A worker app that answers - also with an error of its own (502) -
+    * or a wrong docs URL (500) is passed on: the live one, not hidden behind an older file.
     */
   private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
       forwarded: Response
   ): ZIO[Any, Nothing, Response] =
-    val unavailable = forwarded.status == Status.NotFound || forwarded.status.isServerError
+    val unavailable = forwarded.status == Status.NotFound || forwarded.status == Status.ServiceUnavailable
     if !unavailable || !isValidProjectName(companyName) || !isValidProjectName(projectName) then
       ZIO.succeed(forwarded)
     else
-      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).map: fromSite =>
-        if fromSite.status.isSuccess then fromSite else forwarded
+      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).flatMap: fromSite =>
+        if fromSite.status.isSuccess then
+          ZIO.logWarning(s"Docs of '$projectName' (${forwarded.status.code}): the released $file of the site instead").as(fromSite)
+        else ZIO.succeed(forwarded)
 
   /** Forwards a docs request to the worker app of the project.
     *
@@ -191,6 +194,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * host: `/site/x/attacker.example/OpenApi.html` made the gateway fetch any host and serve the
     * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
     * slashes) is accepted - the path goes into the URL as encoded segments.
+    *
+    * No docs URL: 404; the worker app not reachable: 503; its error answer: 502; a wrong URL: 500.
     */
   private def forwardDocsRequest(
       projectName: String,
@@ -205,11 +210,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
       case Some(baseUrl) =>
         (for
           uri      <- ZIO.fromEither(Uri.parse(baseUrl).map(_.addPath(path)))
-                        .mapError(err => s"Invalid docs URL: $err")
+                        .mapError(err => Status.InternalServerError -> s"Invalid docs URL: $err")
           _        <- ZIO.logInfo(s"Forwarding docs request to: $uri")
           request   = basicRequest.get(uri)
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
-                        request.send(backend).mapError(_.getMessage)
+                        request.send(backend).mapError(err => Status.ServiceUnavailable -> err.getMessage)
           result   <- response.body match
                         case Right(body) =>
                           ZIO.succeed(
@@ -223,10 +228,13 @@ class OpenApiRoutes()(using config: GatewayConfig):
                           ).as(Response.status(Status.BadGateway))
         yield result)
           .provideLayer(HttpClientProvider.live)
-          .catchAll: err =>
+          .catchAll: failure =>
+            val (status, err) = failure match
+              case (status: Status, err) => status                     -> err
+              case err                   => Status.InternalServerError -> err // the HTTP client
             ZIO.logError(
               s"Error forwarding docs request for '$projectName': $err"
-            ).as(Response.status(Status.InternalServerError))
+            ).as(Response.status(status))
 
   // ---------------------------------------------------------------------------
   // OAuth 2.0 Authorization Code Grant helpers

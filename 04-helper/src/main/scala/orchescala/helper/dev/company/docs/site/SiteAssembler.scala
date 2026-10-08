@@ -56,25 +56,25 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
         val target        = out / targetCo / name
         // its own clone - or the company's single repo with the project under projects/<name>
         ProjectRepo.locate(gitTemp, name) match
-        case None =>
-          println(s"  ✗ $name: no checkout in $gitTemp - API skipped")
-          apiMissing += 1
-        case Some(projectRepo) =>
-          // bpmn and worker are released separately - the API doc is the NEWEST of the two
-          val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
-          val tag    = newest.flatMap(SiteAssembler.releaseRef(projectRepo, _))
-          val ref    = tag.getOrElse("HEAD")
-          newest.filter(_ => tag.isEmpty).foreach: v =>
-            println(s"  ! $name: no tag for $v (${projectRepo.tagCandidates(v).mkString(" / ")}) - using HEAD, which may be unreleased")
-          SiteAssembler.writeApi(projectRepo, ref, target, apiPage) match
-            case None      =>
-              println(s"  ✗ $name: no OpenApi.yml at $ref")
-              apiMissing += 1
-            case Some(yml) =>
-              SiteAssembler.searchEntries(targetCo, name, new String(yml, java.nio.charset.StandardCharsets.UTF_8))
-                .foreach(e => searchEntries.getOrElseUpdate(s"$targetCo/$name/${e.hcursor.get[String]("id").getOrElse("")}", e))
-              println(s"  ✓ $name @ $ref")
-              if ref == "HEAD" && newest.isDefined then apiHead += 1 else apiOk += 1
+          case None =>
+            println(s"  ✗ $name: no checkout in $gitTemp - API skipped")
+            apiMissing += 1
+          case Some(projectRepo) =>
+            // bpmn and worker are released separately - the API doc is the NEWEST of the two
+            val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
+            val tag    = newest.flatMap(SiteAssembler.releaseRef(projectRepo, _))
+            val ref    = tag.getOrElse("HEAD")
+            newest.filter(_ => tag.isEmpty).foreach: v =>
+              println(s"  ! $name: no tag for $v (${projectRepo.tagCandidates(v).mkString(" / ")}) - using HEAD, which may be unreleased")
+            SiteAssembler.writeApi(projectRepo, ref, target, apiPage) match
+              case None      =>
+                println(s"  ✗ $name: no OpenApi.yml at $ref")
+                apiMissing += 1
+              case Some(yml) =>
+                SiteAssembler.searchEntries(targetCo, name, new String(yml, java.nio.charset.StandardCharsets.UTF_8))
+                  .foreach(e => searchEntries.getOrElseUpdate(s"$targetCo/$name/${e.hcursor.get[String]("id").getOrElse("")}", e))
+                println(s"  ✓ $name @ $ref")
+                if ref == "HEAD" && newest.isDefined then apiHead += 1 else apiOk += 1
     searchEntries.values.groupBy(_.hcursor.get[String]("company").getOrElse("")).foreach: (co, entries) =>
       os.write.over(out / co / "search.json", io.circe.Json.arr(entries.toSeq*).spaces2, createFolders = true)
       println(s"  ✓ search index $co: ${entries.size} operations")
@@ -133,10 +133,11 @@ object SiteAssembler:
         os.write.over(target / "PostmanOpenApi.yml", postman)
         os.write.over(target / "PostmanOpenApi.html", apiPage)
       Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path).foreach: dia =>
-        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_).trim).filter(_.nonEmpty)
-          .foreach: ls =>
-            ls.split("\n").filter(_.matches(".*\\.(bpmn|dmn)$")).foreach: f =>
-              gitOut(repo, "show", s"$ref:$f").foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
+        gitOut(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_)).toSeq
+          .flatMap(_.linesIterator.map(_.trim))
+          .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
+          .foreach: f =>
+            gitOut(repo, "show", s"$ref:$f").foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
       yml
 
   private def gitOut(repo: os.Path, args: String*): Option[Array[Byte]] =

@@ -88,6 +88,48 @@ class ProjectRepoTest extends FunSuite:
     intercept[IllegalArgumentException](shop.exportTo("acme-shop-v1.0.0", shop.repo))
     assert(os.exists(shop.repo / ".git"))
 
+  test("exportTo - git archive fails (a file of the tree is gone): git's error, dest kept, no leftovers"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    val dest    = gitTemp / "acme-shop"
+    os.write(dest / "keep.txt", "kept", createFolders = true)
+    // the folder is there at the tag (existsAt), but a blob of it is missing - git archive fails midway
+    val blob = os.proc("git", "rev-parse", "acme-shop-v1.0.0:projects/acme-shop/03-api/OpenApi.yml")
+      .call(cwd = repo).out.text().trim
+    os.remove(repo / ".git" / "objects" / blob.take(2) / blob.drop(2))
+    val shop = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assert(shop.existsAt("acme-shop-v1.0.0"))
+    val err = intercept[Exception](shop.exportTo("acme-shop-v1.0.0", dest))
+    assert(err.getMessage.startsWith("git archive acme-shop-v1.0.0 of acme-shop failed"), err.getMessage)
+    assertEquals(os.read(dest / "keep.txt"), "kept")
+    assertEquals(os.list(gitTemp).map(_.last).filter(_.startsWith(".")), Seq.empty)
+
+  test("existsAt - the project's folder in one repo, the root of an own clone"):
+    val gitTemp = singleRepoGitTemp()
+    val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assert(shop.existsAt("acme-shop-v1.0.0"))
+    assert(!ProjectRepo.locate(gitTemp, "acme-new").get.existsAt("acme-shop-v1.0.0"))
+    val own = os.temp.dir(prefix = "git-temp")
+    os.write(own / "acme-own" / "README.md", "own", createFolders = true)
+    git(own / "acme-own", "init", "-q")
+    git(own / "acme-own", "add", ".")
+    git(own / "acme-own", "commit", "-q", "-m", "first")
+    git(own / "acme-own", "tag", "v1.0.0")
+    val ownRepo = ProjectRepo.locate(own, "acme-own").get
+    assert(ownRepo.existsAt("v1.0.0"))
+    assert(!ownRepo.existsAt("v9.9.9"))
+    ownRepo.exportTo("v1.0.0", own / "export" / "acme-own")
+    assertEquals(os.read(own / "export" / "acme-own" / "README.md"), "own")
+
+  test("locate - in several clones: the first by name, with a warning"):
+    val gitTemp = singleRepoGitTemp()
+    val copy    = gitTemp / "orchescala-acme-copy"
+    os.copy(gitTemp / "orchescala-acme", copy)
+    val out = java.io.ByteArrayOutputStream()
+    val shop = Console.withOut(out)(ProjectRepo.locate(gitTemp, "acme-shop")).get
+    assertEquals(shop.repo, gitTemp / "orchescala-acme")
+    assert(out.toString.contains("several clones"), out.toString)
+
   test("resolveTag - no origin to fetch from: the local tags still count, no exception"):
     val shop = ProjectRepo.locate(singleRepoGitTemp(), "acme-shop").get
     assertEquals(shop.resolveTag("1.0.0"), Some("acme-shop-v1.0.0"))
