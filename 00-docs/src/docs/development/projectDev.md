@@ -92,6 +92,8 @@ The following steps are executed:
     GitLab pipeline with its job token is not asked; a pipeline with a deploy token says yes with
     `ORCHESCALA_PUBLISH_YES=true` - to the GitLab token questions only: no credentials at all, the check of
     the version and of the next version stay.
+  - First the last release (the highest tag) must be found there - else the URLs of the check are wrong
+    and every version would read as free; before the first release there is nothing to control.
   - A repository that answers HEAD with 405/501 is asked with a GET of the first byte. A redirect is
     followed on the same host only (an upgrade to https too) - the credentials go nowhere else.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
@@ -134,7 +136,9 @@ The following steps are executed:
   keeps its rewritten version in the tree, as before - the retry with the same version is for releases.
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
-  and untracked files stay as they are - also when you abort it (Ctrl-C: sbt gets it too, the restore
+  and untracked files stay as they are. The scope is every tracked file changed since the release
+  started - what the release's own commit would take: so no edits of tracked files while a release runs.
+  Also when you abort it (Ctrl-C: sbt gets it too, the restore
   waits up to 10 seconds for it to end, then ends it - about 10 seconds more at most). A second Ctrl-C in
   that time, or a kill, skips the restore. Should it fail, `git status` shows the files, `git checkout HEAD -- <files>` restores them.
 - Fails the git step at the end (a push refused), the version is released - the console says what is

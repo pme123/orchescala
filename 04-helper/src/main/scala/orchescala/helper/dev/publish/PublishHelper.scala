@@ -19,7 +19,7 @@ case class PublishHelper()(using
       verifyCleanWorkingTree()
       verifyNextVersion(version)
     verify(version)
-    if !isSnapshot then RepoCheck.verifyVersionFree(version, devConfig, buildNames)
+    if !isSnapshot then RepoCheck.verifyVersionFree(version, devConfig, buildNames, lastRelease = lastRelease())
     // the one outward step before the build: the docs (`api/run`) take the references from the
     // remote - it pushes committed work only (a clean tree), a next try pushes nothing
     pushDevelop()
@@ -38,8 +38,10 @@ case class PublishHelper()(using
       SbtRuns.project(hasWorkerApp = os.exists(workerAppFile), devConfig.sbtConfig.publishSbtOptions),
       uploadDocs = () => publishToWebserver(),
       git = () => git(version, replaceVersion),
-      onFailure = restore,
-      afterFailedUpload = () => reportUploaded(version, devConfig, buildNames),
+      hooks = ReleaseRun.Hooks(
+        onFailure = restore,
+        afterFailedUpload = () => reportUploaded(version, devConfig, buildNames)
+      ),
       isSnapshot = isSnapshot
     ).run(ReleaseRun.steps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
@@ -83,6 +85,15 @@ object PublishHelper extends Helpers:
     * next patch of its `Major.Minor` line, else the next minor (`.0`) or major (`.0.0`) after the
     * highest release. A typo (1.19.20 for 1.9.20) was released, its docker image deployed as missing.
     */
+  /** The highest release among the `tags` (`v1.9.19` -> `1.9.19`) - None before the first. */
+  def lastRelease(tags: Seq[String]): Option[String] =
+    tags.collect { case Release(ma, mi, pa) => (ma.toInt, mi.toInt, pa.toInt) }.maxOption
+      .map(v => s"${v._1}.${v._2}.${v._3}")
+
+  /** The last release of this repository - its tags, as [[verifyNextVersion]] fetched them. */
+  def lastRelease(repo: os.Path = workDir): Option[String] =
+    lastRelease(os.proc("git", "tag", "--list").call(cwd = repo).out.lines())
+
   def nextVersionProblem(newVersion: String, tags: Seq[String]): Option[String] =
     val releases = tags.collect { case Release(ma, mi, pa) => (ma.toInt, mi.toInt, pa.toInt) }
     val show     = (v: (Int, Int, Int)) => s"${v._1}.${v._2}.${v._3}"

@@ -55,19 +55,12 @@ final class ReleaseRun(
     val runs: SbtRuns,
     uploadDocs: () => Unit,
     git: () => Unit,
-    exec: Seq[String] => Unit = SbtChild.run,
-    // called with the failed step before the failure is rethrown - see restoreForRetry
-    onFailure: ReleaseStep => Unit = _ => (),
-    // after a failed upload, before the restore - names what went out
-    afterFailedUpload: () => Unit = () => (),
-    // Ctrl-C: the sbt child gets it too and may still write - waited for before the restore
-    awaitChild: () => Unit = () => SbtChild.awaitExit(),
-    // the JVM's shutdown hooks - replaced in the tests
-    addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
-    removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_),
+    hooks: ReleaseRun.Hooks = ReleaseRun.Hooks(),
     // a snapshot is overwritable: no check of the version ran, nothing to report after a failed upload
     isSnapshot: Boolean = false
 ):
+  import hooks.*
+
   // on Ctrl-C the failing sbt run AND the shutdown hook handle the same step - the restore is
   // once only by itself, the report (curl for every pom) is made so here: the second caller
   // waits for the first (the JVM ends with the hook) and finds it done
@@ -143,6 +136,23 @@ final class ReleaseRun(
 end ReleaseRun
 
 object ReleaseRun:
+
+  /** What a release run calls besides its steps - the processes and the handling of a failure;
+    * replaced in the tests.
+    */
+  final case class Hooks(
+      exec: Seq[String] => Unit = SbtChild.run,
+      // called with the failed step before the failure is rethrown - see restoreForRetry
+      onFailure: ReleaseStep => Unit = _ => (),
+      // after a failed upload, after the restore - names what went out
+      afterFailedUpload: () => Unit = () => (),
+      // Ctrl-C: the sbt child gets it too and may still write - waited for before the restore
+      awaitChild: () => Unit = () => SbtChild.awaitExit(),
+      // the JVM's shutdown hooks
+      addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
+      removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_)
+  )
+
   /** A release version is immutable in the repository (Artifactory): when the docker build or
     * the docs failed after `sbt publish`, the version was taken and the next try needed a new
     * one. So everything that can fail at build time runs first ([[SbtRuns]]), the upload

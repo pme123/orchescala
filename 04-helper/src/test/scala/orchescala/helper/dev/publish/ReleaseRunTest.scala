@@ -45,9 +45,11 @@ class ReleaseRunTest extends FunSuite:
       runs,
       uploadDocs = () => step("docs"),
       git = () => step("git"),
-      exec = cmd => step(if cmd == runs.build then "build" else "upload"),
-      onFailure = failed => log += s"failed $failed",
-      afterFailedUpload = () => log += "reported"
+      hooks = ReleaseRun.Hooks(
+        exec = cmd => step(if cmd == runs.build then "build" else "upload"),
+        onFailure = failed => log += s"failed $failed",
+        afterFailedUpload = () => log += "reported"
+      )
     )
     (rel, () => log.toSeq)
 
@@ -87,9 +89,11 @@ class ReleaseRunTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      exec = cmd => if cmd == runs.publish then throw IllegalStateException("upload failed"),
-      onFailure = step => log += s"failed $step",
-      afterFailedUpload = () => log += "reported",
+      hooks = ReleaseRun.Hooks(
+        exec = cmd => if cmd == runs.publish then throw IllegalStateException("upload failed"),
+        onFailure = step => log += s"failed $step",
+        afterFailedUpload = () => log += "reported"
+      ),
       isSnapshot = true
     )
     intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false)))
@@ -103,8 +107,10 @@ class ReleaseRunTest extends FunSuite:
       SbtRuns.of(None),
       uploadDocs = () => (),
       git = () => throw IllegalStateException("push refused"),
-      exec = _ => (),
-      onFailure = step => log += s"onFailure $step"
+      hooks = ReleaseRun.Hooks(
+        exec = _ => (),
+        onFailure = step => log += s"onFailure $step"
+      )
     )
     intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = false)))
     assertEquals(log.toSeq, Seq("onFailure Git")) // RestoreForRetry ignores the git step - tested in WorkingTreeTest
@@ -114,8 +120,10 @@ class ReleaseRunTest extends FunSuite:
       SbtRuns.of(None),
       uploadDocs = () => (),
       git = () => (),
-      exec = _ => throw IllegalStateException("sbt failed"),
-      onFailure = _ => throw OutOfMemoryError("restore")
+      hooks = ReleaseRun.Hooks(
+        exec = _ => throw IllegalStateException("sbt failed"),
+        onFailure = _ => throw OutOfMemoryError("restore")
+      )
     )
     val error = intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false)))
     assertEquals(error.getSuppressed.toSeq.map(_.getMessage), Seq("restore"))
@@ -131,9 +139,11 @@ class ReleaseRunTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      exec = cmd => if cmd == runs.publish then throw IllegalStateException("publish: 409 for the api module"),
-      onFailure = step => log += s"restored $step",
-      afterFailedUpload = () => out = Seq("worker:1.2.3 (image)", "customer-domain-1.2.3.pom")
+      hooks = ReleaseRun.Hooks(
+        exec = cmd => if cmd == runs.publish then throw IllegalStateException("publish: 409 for the api module"),
+        onFailure = step => log += s"restored $step",
+        afterFailedUpload = () => out = Seq("worker:1.2.3 (image)", "customer-domain-1.2.3.pom")
+      )
     )
     val error = intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = false)))
     assert(error.getMessage.contains("409"))
@@ -169,8 +179,10 @@ class ReleaseRunTest extends FunSuite:
         runs,
         uploadDocs = () => (),
         git = () => (),
-        exec = _ => throw error,
-        onFailure = step => log += s"failed $step"
+        hooks = ReleaseRun.Hooks(
+          exec = _ => throw error,
+          onFailure = step => log += s"failed $step"
+        )
       )
       // munit's intercept lets a fatal error through (and interrupts the thread) - caught by hand
       try rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false))
@@ -196,11 +208,13 @@ class ReleaseRunTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      exec = cmd => if cmd == runs.build then during = hooks.toSeq,
-      onFailure = step => log += s"restored $step",
-      awaitChild = () => log += "waited for sbt",
-      addShutdownHook = hooks += _,
-      removeShutdownHook = hooks -= _
+      hooks = ReleaseRun.Hooks(
+        exec = cmd => if cmd == runs.build then during = hooks.toSeq,
+        onFailure = step => log += s"restored $step",
+        awaitChild = () => log += "waited for sbt",
+        addShutdownHook = hooks += _,
+        removeShutdownHook = hooks -= _
+      )
     )
     rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false))
     assertEquals(during.size, 1) // the hook of Build, while it ran
@@ -213,9 +227,11 @@ class ReleaseRunTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      onFailure = step => log += s"restored $step",
-      afterFailedUpload = () => log += "reported",
-      awaitChild = () => log += "waited for sbt"
+      hooks = ReleaseRun.Hooks(
+        onFailure = step => log += s"restored $step",
+        afterFailedUpload = () => log += "reported",
+        awaitChild = () => log += "waited for sbt"
+      )
     ).abortedAt(ReleaseStep.Upload).run()
     assertEquals(log.toSeq, Seq("waited for sbt", "restored Upload", "reported")) // the restore first
 
@@ -240,8 +256,10 @@ class ReleaseRunTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      onFailure = restore,
-      awaitChild = () => SbtChild.awaitExit(timeout = scala.concurrent.duration.Duration(300, "millis"))
+      hooks = ReleaseRun.Hooks(
+        onFailure = restore,
+        awaitChild = () => SbtChild.awaitExit(timeout = scala.concurrent.duration.Duration(300, "millis"))
+      )
     )
     @volatile var failure: Option[Throwable] = None
     val release = Thread: () =>

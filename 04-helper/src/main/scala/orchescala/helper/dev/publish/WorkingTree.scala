@@ -36,6 +36,11 @@ object WorkingTree extends Helpers:
     * the next try with the same version stopped at [[verifyCleanWorkingTree]]. So they are
     * restored from HEAD (the index too); a file added to the index only (not in HEAD) is
     * unstaged and stays as untracked; the CHANGELOG and untracked files stay as they are.
+    *
+    * The scope is every tracked file that changed since the release started - the scope of
+    * the release's own `git commit -a`: a tracked file you edit while the release runs would
+    * be committed by a release that goes through, and is restored by one that fails (the
+    * files are listed). So: no edits of tracked files while a release runs.
     */
   def restoreWorkingTree(repo: os.Path = workDir): Unit =
     val changed = changedTrackedFiles(repo)
@@ -56,7 +61,7 @@ object WorkingTree extends Helpers:
   def restoring[T](restore: RestoreForRetry)(body: => T): T =
     try body
     catch
-      case e: Throwable => // a fatal error too - best effort then
+      case e: Throwable => // intentional: the restore for a fatal error too (best effort), then it goes on
         suppressedBy(e)(restore.now())
         if e.isInstanceOf[InterruptedException] then Thread.currentThread().interrupt() // the flag survives
         throw e
@@ -72,7 +77,8 @@ object WorkingTree extends Helpers:
       isSnapshot: Boolean,
       repo: os.Path = workDir,
       restore: os.Path => Unit = restoreWorkingTree(_)
-  ): RestoreForRetry = RestoreForRetry(isSnapshot, repo, restore)
+  ): RestoreForRetry =
+    RestoreForRetry(isSnapshot, repo, if isSnapshot then Seq.empty else changedTrackedFiles(repo), restore)
 
   /** The restore of one release - armed with the changes of the tree at its creation (right
     * before the versions are rewritten; nothing else of the release changes tracked files -
@@ -82,10 +88,14 @@ object WorkingTree extends Helpers:
     * for the first (the JVM ends with the hook) and finds it done. Fails the restore, it is
     * not done - the next caller tries again.
     */
-  final class RestoreForRetry(isSnapshot: Boolean, repo: os.Path, restore: os.Path => Unit)
-      extends (ReleaseStep => Unit):
-    private val changesBefore = if isSnapshot then Seq.empty else changedTrackedFiles(repo)
-    private var done          = false
+  final class RestoreForRetry(
+      isSnapshot: Boolean,
+      repo: os.Path,
+      // the tracked files changed when it was armed - with any, it restores nothing
+      changesBefore: Seq[String],
+      restore: os.Path => Unit
+  ) extends (ReleaseStep => Unit):
+    private var done = false
 
     /** The step failed - after the git step the version is uploaded and committed, nothing to retry. */
     def apply(step: ReleaseStep): Unit =

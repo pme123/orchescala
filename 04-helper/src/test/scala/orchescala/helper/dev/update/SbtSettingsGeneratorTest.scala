@@ -69,6 +69,9 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(projectDef.contains("""val org = "democompany""""), projectDef)
       assert(projectDef.contains("""val name = "democompany-customer""""), projectDef)
       assert(settings.contains("organization := ProjectDef.org"), settings)
+      // the check uses the first repo of the config - the one the generated build publishes to
+      val first = summon[DevConfig].sbtConfig.reposConfig.repos.head.name
+      assert(settings.contains(s"publishTo := Some(${first}Repo)"), settings)
       assert(settings.contains("""name := s"${ProjectDef.name}${module.map(p => s"-$p").getOrElse("")}""""), settings)
       assertEquals(orchescala.helper.dev.publish.RepoCheck.artifactSuffix(settings), "")
       // the poms the check looks for, derived from the generated build: ProjectDef.org/name and

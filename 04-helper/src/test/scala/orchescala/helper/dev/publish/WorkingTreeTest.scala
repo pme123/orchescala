@@ -45,8 +45,10 @@ class WorkingTreeTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      exec = _ => throw IllegalStateException("sbt failed"),
-      onFailure = restore
+      hooks = ReleaseRun.Hooks(
+        exec = _ => throw IllegalStateException("sbt failed"),
+        onFailure = restore
+      )
     )
     intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = false, hasDocs = true)))
 
@@ -138,8 +140,10 @@ class WorkingTreeTest extends FunSuite:
       runs,
       uploadDocs = () => (),
       git = () => (),
-      exec = _ => throw IllegalStateException("sbt failed"),
-      onFailure = _ => throw IllegalArgumentException("restore failed")
+      hooks = ReleaseRun.Hooks(
+        exec = _ => throw IllegalStateException("sbt failed"),
+        onFailure = _ => throw IllegalArgumentException("restore failed")
+      )
     )
     val error = intercept[IllegalStateException](rel.run(ReleaseRun.steps(isSnapshot = true, hasDocs = false)))
     assertEquals(error.getSuppressed.toSeq.map(_.getMessage), Seq("restore failed"))

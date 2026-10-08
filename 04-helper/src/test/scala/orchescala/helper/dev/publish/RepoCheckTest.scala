@@ -214,7 +214,38 @@ class RepoCheckTest extends FunSuite:
     finally server.stop(0)
   end withRepo
 
+  private def assumeCurl(): Unit =
+    assume(scala.util.Try(os.proc("curl", "--version").call(check = false).exitCode == 0).getOrElse(false), "curl")
+
+  test("the last release is the positive control of the check - found, or the URLs are wrong"):
+    withRepo(_ => true): (base, requests) =>
+      import orchescala.engine.config.RepoConfig
+      val repo   = RepoConfig.Gitlab("release", s"$base/repo")
+      val status = RepoCheck.curlStatus(Seq.empty)
+      RepoCheck.verifyLastRelease(None, names, repo, status) // before the first release: nothing to control
+      RepoCheck.verifyLastRelease(Some("1.0.0-taken"), names, repo, status) // found
+      assert(requests().last.endsWith("/democompany-customer-domain/1.0.0-taken/democompany-customer-domain-1.0.0-taken.pom"), requests().last)
+      val wrong = intercept[IllegalStateException](RepoCheck.verifyLastRelease(Some("1.0.0"), names, repo, status))
+      assert(wrong.getMessage.contains("not found where the check looks"), wrong.getMessage)
+      // through the check itself
+      import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
+      import orchescala.engine.config.ReposConfig
+      import orchescala.helper.util.{DevConfig, SbtConfig}
+      val devConfig = DevConfig(
+        ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, ModuleType.projectModules)
+      ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(repos = Seq(repo))))
+      // (no credentials: the anonymous question is answered with yes here - the test is about the control)
+      RepoCheck.verifyVersionFree("1.2.3", devConfig, names, _ => None, confirm = _ => true, lastRelease = Some("1.0.0-taken"))
+      val notFound = intercept[IllegalStateException]:
+        RepoCheck.verifyVersionFree("1.2.3", devConfig, names, _ => None, confirm = _ => true, lastRelease = Some("1.0.0"))
+      assert(notFound.getMessage.contains("not found where the check looks"), notFound.getMessage)
+
+  test("the last release among the tags"):
+    assertEquals(PublishHelper.lastRelease(Seq("v1.9.18", "v1.10.0", "v1.9.19", "not-a-release")), Some("1.10.0"))
+    assertEquals(PublishHelper.lastRelease(Seq.empty), None)
+
   test("curlStatus: status codes, a redirect followed on the host only, the credentials of the config, unreachable"):
+    assumeCurl()
     withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret")): (base, requests) =>
       val config = Seq("""header = "Private-Token: secret"""")
       assertEquals(RepoCheck.curlStatus(config)(s"$base/repo/taken"), 200)
@@ -231,18 +262,22 @@ class RepoCheckTest extends FunSuite:
     assertEquals(RepoCheck.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
 
   test("curlStatus: a server that does not answer in time is 0"):
+    assumeCurl()
     import com.sun.net.httpserver.HttpServer
     import java.net.InetSocketAddress
     val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-    server.createContext("/", exchange => { Thread.sleep(3000); exchange.sendResponseHeaders(200, -1); exchange.close() })
+    // the handler is slower than curl's patience (the thread outlives the test - the server is stopped)
+    server.createContext("/", exchange => { Thread.sleep(2000); exchange.sendResponseHeaders(200, -1); exchange.close() })
     server.start()
     try assertEquals(RepoCheck.curlStatus(Seq.empty, timeoutSeconds = 1)(s"http://127.0.0.1:${server.getAddress.getPort}/slow"), 0)
     finally server.stop(0)
 
   test("curl that fails before any status: 0, not an error - the report's unreachable branch"):
+    assumeCurl()
     assertEquals(RepoCheck.curlStatus(Seq.empty, curl = "true")("http://127.0.0.1:1/repo"), 0)
 
   test("a program that answers no status is 0 - like any failure of the transport (tried once more, then said)"):
+    assume(!scala.util.Properties.isWin, "true, echo")
     assertEquals(RepoCheck.curlStatus(Seq.empty, curl = "echo")("http://127.0.0.1:1/repo"), 0)
 
   test("a redirect stays on the host: the same scheme and port, or up to https - never down, never elsewhere"):

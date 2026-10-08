@@ -100,7 +100,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     verifySnapshots()
     verifyChangelog(newVersion)
     lazy val names = BuildNames.from(workDir) // what the build publishes under
-    if !isSnapshot then verifyVersionFree(newVersion, devConfig, names)
+    if !isSnapshot then verifyVersionFree(newVersion, devConfig, names, lastRelease = lastRelease())
     lazy val gatewayAppFile: os.Path =
       workDir / "04-gateway" / "src" / "main" / "scala" /
         devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
@@ -118,8 +118,10 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       SbtRuns.company(hasGateway, devConfig.sbtConfig.publishSbtOptions),
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
-      onFailure = restore,
-      afterFailedUpload = () => reportUploaded(newVersion, devConfig, names),
+      hooks = ReleaseRun.Hooks(
+        onFailure = restore,
+        afterFailedUpload = () => reportUploaded(newVersion, devConfig, names)
+      ),
       isSnapshot = isSnapshot
     ).run(ReleaseRun.steps(isSnapshot, hasDocs = false))
   end publish
