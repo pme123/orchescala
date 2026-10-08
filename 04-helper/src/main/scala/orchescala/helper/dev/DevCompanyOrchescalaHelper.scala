@@ -93,13 +93,13 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(newVersion)
-    // armed now, with the clean tree - before the version is rewritten
-    val restore    = restoreForRetry(isSnapshot)
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)
     lazy val suffix = artifactSuffix(workDir / "project" / "Settings.scala")
     if !isSnapshot then verifyVersionFree(newVersion, devConfig, suffix)
+    // armed now, with the clean tree - right before the version is rewritten
+    val restore    = restoreForRetry(isSnapshot)
     restoring(restore):
       replaceVersion(newVersion, projectFile)
     println("Versions replaced")

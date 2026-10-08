@@ -185,9 +185,10 @@ class PublishHelperRetryTest extends FunSuite:
     PublishHelper.verifyCleanWorkingTree(dir)
     // as publish does: armed with the clean tree, then the release rewrites the files
     val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir)
-    os.write.over(dir / "docs" / "Prozess Ü (1).md", "# v2 generated")
     os.remove(dir / "build.sbt") // a generator removed a file
     os.write(dir / "new.md", "added during the release")
+    os.proc("git", "mv", "docs/Prozess Ü (1).md", "docs/renamed.md").call(cwd = dir) // a rename, staged
+    os.write.over(dir / "docs" / "renamed.md", "# v2 generated")
     PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
     os.proc("git", "add", "ProjectDef.scala", "new.md").call(cwd = dir) // staged or not, even a new file
     intercept[IllegalStateException](PublishHelper.verifyCleanWorkingTree(dir))
@@ -207,8 +208,33 @@ class PublishHelperRetryTest extends FunSuite:
     assertEquals(os.read(dir / "docs" / "Prozess Ü (1).md"), "# v1")
     assertEquals(os.read(dir / "build.sbt"), "version := \"1.0.0\"")
     assert(os.exists(dir / "new.md")) // unstaged, kept as untracked
+    assert(os.exists(dir / "docs" / "renamed.md")) // the rename's target: unstaged, kept as untracked
     assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
     assert(os.exists(dir / "notes.txt"))
+
+  /** Ctrl-C: the failing sbt run and the shutdown hook both ask for the restore - it runs once,
+    * the second caller waits for it (the JVM ends with the hook).
+    */
+  test("the restore runs once - a concurrent second call waits for it"):
+    val dir     = repo()
+    var runs    = 0
+    val restore = PublishHelper.restoreForRetry(
+      isSnapshot = false,
+      dir,
+      restore = _ =>
+        runs += 1
+        Thread.sleep(300)
+    )
+    val first   = Thread(() => restore(PublishHelper.ReleaseStep.Build))
+    first.start()
+    Thread.sleep(50)
+    val started = System.nanoTime()
+    restore(PublishHelper.ReleaseStep.Build) // the hook - waits for the first, then nothing to do
+    assert((System.nanoTime() - started) / 1e6 > 200, "waited for the running restore")
+    first.join()
+    assertEquals(runs, 1)
+    restore(PublishHelper.ReleaseStep.Build) // a third call: done already
+    assertEquals(runs, 1)
 
   test("a failing rewrite before the release restores too"):
     val dir     = repo()
@@ -399,6 +425,11 @@ class PublishHelperVersionFreeTest extends FunSuite:
       assertEquals(PublishHelper.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(PublishHelper.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
+
+  test("a program that answers no status is an error - not a free version"):
+    val error = intercept[IllegalStateException]:
+      PublishHelper.curlStatus(Seq.empty, curl = "echo")("http://127.0.0.1:1/repo")
+    assert(error.getMessage.contains("answered no HTTP status"), error.getMessage)
 
   test("without curl: a clear message, no stack trace of a missing program"):
     val error = intercept[IllegalStateException]:

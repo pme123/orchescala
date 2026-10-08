@@ -17,11 +17,11 @@ case class PublishHelper()(using
     if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(version)
-    // armed now, with the clean tree - before the versions are rewritten
-    val restore    = restoreForRetry(isSnapshot)
     verify(version)
     if !isSnapshot then verifyVersionFree(version)
     pushDevelop()
+    // armed now, with the clean tree - right before the versions are rewritten
+    val restore    = restoreForRetry(isSnapshot)
     restoring(restore):
       setApiVersion(version)
       replaceVersion(version)
@@ -136,15 +136,27 @@ object PublishHelper extends Helpers:
     * [[verifyCleanWorkingTree]] guarantees for a release): with changes of yours in the tree,
     * nothing is restored, whatever the caller checked.
     */
-  def restoreForRetry(isSnapshot: Boolean, repo: os.Path = workDir): ReleaseStep => Unit =
+  def restoreForRetry(
+      isSnapshot: Boolean,
+      repo: os.Path = workDir,
+      restore: os.Path => Unit = restoreWorkingTree(_)
+  ): ReleaseStep => Unit =
     val changesBefore = if isSnapshot then Seq.empty else changedTrackedFiles(repo)
+    // once only: on Ctrl-C the failing sbt run AND the shutdown hook ask for it - the second
+    // waits for the first (the JVM ends with the hook) and finds it done
+    val lock          = Object()
+    var done          = false
     step =>
       if !isSnapshot && step != ReleaseStep.Git then
-        if changesBefore.isEmpty then restoreWorkingTree(repo)
-        else
-          println(
-            s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}"
-          )
+        lock.synchronized:
+          if done then ()
+          else if changesBefore.nonEmpty then
+            println(
+              s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}"
+            )
+          else
+            done = true
+            restore(repo)
   end restoreForRetry
 
   private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
@@ -328,15 +340,17 @@ object PublishHelper extends Helpers:
       env: String => Option[String] = sys.env.get
   ): Seq[String] =
     val repos = devConfig.sbtConfig.reposConfig
-    scala.util.Try:
+    try
       repos.releaseRepo.toSeq.flatMap: repo =>
         val config   = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
         val uploaded = releaseUrls(devConfig, version, artifactSuffix, repo).filter(curlStatus(config)(_) == 200)
         if uploaded.isEmpty then println(s"Nothing of $version is in ${repo.repoUrl}.")
         else println(s"Uploaded already - remove them there before the next try:\n - ${uploaded.mkString("\n - ")}")
         uploaded
-    .recover { case scala.util.control.NonFatal(e) => println(s"Could not look up what was uploaded: ${e.getMessage}"); Seq.empty }
-    .get
+    catch
+      case scala.util.control.NonFatal(e) =>
+        println(s"Could not look up what was uploaded: ${e.getMessage}")
+        Seq.empty
   end reportUploaded
 
   /** The project of a GitLab maven registry (`.../api/v4/projects/<id>/packages/maven`) - the
@@ -383,7 +397,8 @@ object PublishHelper extends Helpers:
       catch
         case e: java.io.IOException =>
           throw IllegalStateException(s"`$curl` is needed to check the repository - not found: ${e.getMessage}", e)
-    result.out.text().trim.toIntOption.getOrElse(0)
+    val answer = result.out.text().trim
+    answer.toIntOption.getOrElse(throw IllegalStateException(s"`$curl` answered no HTTP status for $url: $answer"))
   end curlStatus
 
   /** The sbt runs of a project - the docs (`api/run`) come with the build. */
@@ -490,22 +505,26 @@ object PublishHelper extends Helpers:
     * before it restores the working tree (the child got the Ctrl-C too and may still write).
     */
   object SbtChild:
-    @volatile private var running: Option[os.SubProcess] = None
+    // spawned and registered under the lock - a hook never misses a child just spawned; a
+    // child gone from here has exited (`waitFor` returned), its output went to the console directly
+    private var running: Option[os.SubProcess] = None
 
     def run(cmd: Seq[String]): Unit =
       println(cmd.mkString(" "))
-      val child = os.proc(cmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
-      running = Some(child)
+      val child = synchronized:
+        val c = os.proc(cmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
+        running = Some(c)
+        c
       try
         child.waitFor()
         if child.exitCode() != 0 then
           throw IllegalStateException(s"`${cmd.mkString(" ")}` failed with exit code ${child.exitCode()}")
-      finally running = None
+      finally synchronized { running = None }
     end run
 
     /** Waits for the running child - at most `timeout`. */
     def awaitExit(timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")): Unit =
-      running.foreach: child =>
+      synchronized(running).foreach: child =>
         println("Waiting for sbt to end ...")
         if !child.waitFor(timeout.toMillis) then println(s"sbt did not end within $timeout - restoring anyway.")
   end SbtChild
