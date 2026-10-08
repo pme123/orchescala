@@ -72,7 +72,9 @@ test('no text in src names «Camunda 7» alone - only comments, the labels come 
     .flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
   // from the test itself (dist-tests/…), not from the cwd
   const src = fileURLToPath(new URL('../src', import.meta.url));
-  const offenders = files(src).filter((f) => !f.endsWith('engineLabels.ts')).flatMap((f) =>
+  const sources = files(src);
+  assert.ok(sources.length > 50, `src not found at ${src}`); // the scan must not pass for want of files
+  const offenders = sources.filter((f) => !f.endsWith('engineLabels.ts')).flatMap((f) =>
     readFileSync(f, 'utf-8').split('\n').map((line, i) => ({ f, i: i + 1, line: line.trim() }))
       .filter(({ line }) => /Camunda 7(?! \/ Operaton)/.test(line) && !/^(\/\/|\*|\/\*|\{\/\*)/.test(line)));
   assert.deepEqual(offenders.map(({ f, i, line }) => `${f}:${i} ${line}`), []);
