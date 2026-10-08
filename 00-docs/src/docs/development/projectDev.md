@@ -79,6 +79,10 @@ The following steps are executed:
   - Check and adjust manually `CHANGELOG.md`.
   - Remove `//---DRAFT start` / `//---DRAFT end`.
   - Run the command again.
+- Check that the version is free in the release repository (the first of `reposConfig`) - and that
+  the credentials work: a `HEAD` on the pom of each module, before anything is built or uploaded.
+  - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
+    of the existing release overwritten). Remove the half-finished version there, or release the next.
 - Push the `develop` branch.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
 - Build everything locally (`sbt package packageSrc makePom` - what `publish` packages, without
@@ -89,8 +93,8 @@ The following steps are executed:
 - Uploads the documentation to a WebDAV-webserver (optional).
   - On purpose before the repository: the webserver takes a version again, the repository does not.
     A release that fails at the upload is repeated with the same version - its docs are uploaded again.
-  - Known side effect: fails the upload, the docs of a version that was never released are on the
-    webserver until the release is repeated.
+  - Known side effect: if the upload fails afterwards, the docs of a version that was never released
+    stay on the webserver until the release is repeated.
 - Publish the project to the repository (`worker / Docker / publish`, then `publish`).
   - This sbt run repeats the packaging (compiler and Docker reuse their caches) and uploads -
     what is left to fail here is the upload itself (credentials, network, a taken version).

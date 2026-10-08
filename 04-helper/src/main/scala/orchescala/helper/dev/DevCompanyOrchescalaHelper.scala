@@ -95,22 +95,19 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)
+    val isSnapshot = newVersion.contains("-")
+    if !isSnapshot then verifyVersionFree(newVersion, devConfig)
     replaceVersion(newVersion, projectFile)
     println("Versions replaced")
-    val isSnapshot = newVersion.contains("-")
     println(s"isSnapshot: $isSnapshot")
 
     lazy val gatewayAppFile: os.Path =
       workDir / "04-gateway" / "src" / "main" / "scala" /
         devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
     val hasGateway = os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty
-    val runs       = sbtRuns(
-      dockerProject = Option.when(hasGateway)("gateway"),
-      sbtOptions = Seq("-J-Xmx3G")
-    )
     // the company project has no docs to upload - its site is `publishDocs`
     ReleaseRun(
-      runs,
+      companyRuns(hasGateway),
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile))
     ).run(releaseSteps(isSnapshot, hasDocs = false))

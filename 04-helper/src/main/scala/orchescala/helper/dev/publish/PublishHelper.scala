@@ -12,10 +12,12 @@ case class PublishHelper()(using
 
   def publish(version: String): Unit =
     println(s"Publishing ${apiConfig.companyName} Package: $version")
-    if !version.contains("-") then
+    val isSnapshot = version.contains("-")
+    if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(version)
     verify(version)
+    if !isSnapshot then verifyVersionFree(version)
     pushDevelop()
     setApiVersion(version)
     replaceVersion(version)
@@ -24,16 +26,16 @@ case class PublishHelper()(using
       workDir / "03-worker" / "src" / "main" / "scala" /
         devConfig.projectPath / "worker" / "WorkerApp.scala"
     println(s"workerAppFile ${os.exists(workerAppFile)}: $workerAppFile")
-    val runs = sbtRuns(
-      dockerProject = Option.when(os.exists(workerAppFile))("worker"),
-      build = Seq("api/run")
-    )
     ReleaseRun(
-      runs,
+      projectRuns(hasWorkerApp = os.exists(workerAppFile)),
       uploadDocs = () => publishToWebserver(),
       git = () => git(version, replaceVersion)
-    ).run(releaseSteps(isSnapshot = version.contains("-"), hasDocs = devConfig.publishConfig.nonEmpty))
+    ).run(releaseSteps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
+
+  /** [[PublishHelper.verifyVersionFree]] for the modules of this project. */
+  private def verifyVersionFree(version: String): Unit =
+    PublishHelper.verifyVersionFree(version, devConfig)
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
@@ -156,6 +158,66 @@ object PublishHelper extends Helpers:
     else Seq(Build) ++ Option.when(hasDocs)(UploadDocs) ++ Seq(Upload, Git)
   end releaseSteps
 
+  /** The pom of each module of the project in the release repo - `publish` uploads them. */
+  def releaseArtifactUrls(repoUrl: String, org: String, artifacts: Seq[String], version: String)
+      : Seq[String] =
+    artifacts.map(a => s"$repoUrl/${org.replace('.', '/')}/$a/$version/$a-$version.pom")
+
+  /** Before anything is built or uploaded: is `version` free in the release repo - and are the
+    * credentials right? A taken release version fails at the upload, after the docs and the
+    * docker image went out (the image tag of the existing release overwritten); wrong
+    * credentials failed there too. `status` is the HTTP status of a HEAD request - 404 is
+    * free, 200 taken, 401/403 the credentials.
+    */
+  def verifyVersionFree(version: String, urls: Seq[String], status: String => Int): Unit =
+    urls.foreach: url =>
+      status(url) match
+        case 404       => ()
+        case 200       =>
+          throw IllegalStateException(
+            s"Version $version is in the repository already: $url - remove it there, or release the next version."
+          )
+        case 401 | 403 =>
+          throw IllegalStateException(
+            s"The repository refuses the credentials (${status(url)}): $url - check the environment variables of the repository."
+          )
+        case other     =>
+          throw IllegalStateException(s"The repository is not reachable ($other): $url")
+  end verifyVersionFree
+
+  /** [[verifyVersionFree]] against the release repo of `devConfig` for every module of the
+    * project (a module that is never published is simply not there). Nothing to check with
+    * the dummy repo.
+    */
+  def verifyVersionFree(version: String, devConfig: DevConfig): Unit =
+    val repos = devConfig.sbtConfig.reposConfig
+    repos.releaseRepo.foreach: repo =>
+      val auth = repos.releaseRepoCurlAuth().fold(msg => throw IllegalArgumentException(msg), identity)
+      val urls = releaseArtifactUrls(
+        repo.repoUrl,
+        devConfig.companyName,
+        devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m"),
+        version
+      )
+      println(s"Checking that $version is free in ${repo.repoUrl} ...")
+      verifyVersionFree(version, urls, curlStatus(auth))
+  end verifyVersionFree
+
+  /** The HTTP status of a HEAD request - 0 if the server is not reachable. */
+  private def curlStatus(auth: Seq[String])(url: String): Int =
+    os.proc(
+      Seq("curl", "--silent", "--head", "--output", "/dev/null", "--write-out", "%{http_code}") ++
+        auth :+ url
+    ).call(check = false).out.text().trim.toIntOption.getOrElse(0)
+
+  /** The sbt runs of a project - the docs (`api/run`) come with the build. */
+  def projectRuns(hasWorkerApp: Boolean): SbtRuns =
+    sbtRuns(Option.when(hasWorkerApp)("worker"), build = Seq("api/run"), sbtOptions = Seq("-J-Xmx3G"))
+
+  /** The sbt runs of the company project - the gateway is its docker image. */
+  def companyRuns(hasGateway: Boolean): SbtRuns =
+    sbtRuns(Option.when(hasGateway)("gateway"), sbtOptions = Seq("-J-Xmx3G"))
+
   /** The two sbt runs of a release.
     *
     * `build` is where the build may fail: every module is compiled and packaged as `publish`
@@ -183,23 +245,23 @@ object PublishHelper extends Helpers:
   end sbtRuns
 
   /** Runs the steps of a release - a failing step throws and stops the release there. The
-    * processes (`run`) are replaced in the tests.
+    * sbt processes (`exec`) are replaced in the tests.
     */
   case class ReleaseRun(
       runs: SbtRuns,
       uploadDocs: () => Unit,
       git: () => Unit,
-      run: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole()
+      exec: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole()
   ):
     def run(steps: Seq[ReleaseStep]): Unit =
       steps.foreach:
         case ReleaseStep.Build      =>
           println(s"SBT build: ${runs.build.mkString(" ")}")
-          run(runs.build)
+          exec(runs.build)
         case ReleaseStep.UploadDocs => uploadDocs()
         case ReleaseStep.Upload     =>
           println(s"SBT publish: ${runs.publish.mkString(" ")}")
-          run(runs.publish)
+          exec(runs.publish)
         case ReleaseStep.Git        => git()
   end ReleaseRun
 

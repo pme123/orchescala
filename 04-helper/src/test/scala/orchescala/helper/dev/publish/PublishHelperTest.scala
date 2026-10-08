@@ -103,7 +103,7 @@ class PublishHelperSbtRunsTest extends FunSuite:
       runs,
       uploadDocs = () => step("docs"),
       git = () => step("git"),
-      run = cmd => step(if cmd == runs.build then "build" else "upload")
+      exec = cmd => step(if cmd == runs.build then "build" else "upload")
     )
     (rel, () => log.toSeq)
 
@@ -121,10 +121,69 @@ class PublishHelperSbtRunsTest extends FunSuite:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
     assertEquals(log(), Seq("build"))
 
-  test("a failing upload stops before git - the docs are on the webserver already"):
+  test("failing docs stop the release - nothing is uploaded"):
+    val (rel, log) = release(failing = Set("docs"))
+    intercept[IllegalStateException]:
+      rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
+    assertEquals(log(), Seq("build", "docs"))
+
+  test("a failing upload: the docs are on the webserver already, git does not run"):
     val (rel, log) = release(failing = Set("upload"))
     intercept[IllegalStateException]:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
     assertEquals(log(), Seq("build", "docs", "upload"))
 
+  test("the runs of a project and of the company project"):
+    assertEquals(
+      PublishHelper.projectRuns(hasWorkerApp = true).build,
+      Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom", "worker / Docker / publishLocal", "api/run")
+    )
+    assertEquals(
+      PublishHelper.projectRuns(hasWorkerApp = false).publish,
+      Seq("sbt", "-J-Xmx3G", "publish")
+    )
+    assertEquals(
+      PublishHelper.companyRuns(hasGateway = true).publish,
+      Seq("sbt", "-J-Xmx3G", "gateway / Docker / publish", "publish")
+    )
+    assertEquals(
+      PublishHelper.companyRuns(hasGateway = false).build,
+      Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom")
+    )
+
 end PublishHelperSbtRunsTest
+
+class PublishHelperVersionFreeTest extends FunSuite:
+
+  private val urls = PublishHelper.releaseArtifactUrls(
+    "https://repo.example.com/artifactory/libs-release",
+    "com.example",
+    Seq("example-customer-domain", "example-customer-worker"),
+    "1.2.3"
+  )
+
+  test("the poms of the modules in the release repo"):
+    assertEquals(
+      urls,
+      Seq(
+        "https://repo.example.com/artifactory/libs-release/com/example/example-customer-domain/1.2.3/example-customer-domain-1.2.3.pom",
+        "https://repo.example.com/artifactory/libs-release/com/example/example-customer-worker/1.2.3/example-customer-worker-1.2.3.pom"
+      )
+    )
+
+  test("a free version: every module is missing"):
+    PublishHelper.verifyVersionFree("1.2.3", urls, _ => 404)
+
+  test("a taken version - also when only one module of a half-finished release is there"):
+    val error = intercept[IllegalStateException]:
+      PublishHelper.verifyVersionFree("1.2.3", urls, url => if url.contains("worker") then 200 else 404)
+    assert(error.getMessage.contains("is in the repository already"), error.getMessage)
+    assert(error.getMessage.contains("example-customer-worker"), error.getMessage)
+
+  test("wrong credentials and an unreachable repository stop the release"):
+    val refused = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 401))
+    assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
+    val down    = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 0))
+    assert(down.getMessage.contains("not reachable"), down.getMessage)
+
+end PublishHelperVersionFreeTest

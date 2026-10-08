@@ -22,6 +22,33 @@ case class ReposConfig(
   def deploymentArtifactPattern: String =
     "<repo>/<company>/<project>/<version>/<project>-<version>.jar"
 
+  /** The release repo (the first one) - None for the dummy (`???`). */
+  def releaseRepo: Option[RepoConfig] =
+    repos.headOption.filterNot(_.repoUrl == "???")
+
+  /** The curl arguments that authenticate at the release repo - as the sbt build does: an
+    * Artifactory repo with its user/password, a GitLab repo with the first credentials (the
+    * job token on a pipeline). Left with the missing environment variables.
+    */
+  def releaseRepoCurlAuth(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
+    def userPassword(usernameEnv: String, passwordEnv: String) =
+      (for
+        user <- env(usernameEnv)
+        pwd  <- env(passwordEnv)
+      yield Seq("-u", s"$user:$pwd"))
+        .toRight(s"System Environment Variables $usernameEnv and/ or $passwordEnv are not set.")
+    releaseRepo match
+      case Some(a: RepoConfig.Artifactory) => userPassword(a.usernameEnv, a.passwordEnv)
+      case _                               =>
+        credentials.headOption match
+          case Some(t: RepoCredentials.PrivateToken) =>
+            env("CI_JOB_TOKEN").map(token => Seq("--header", s"Job-Token: $token"))
+              .orElse(env(t.tokenEnv).map(token => Seq("--header", s"Private-Token: $token")))
+              .toRight(s"System Environment Variable ${t.tokenEnv} is not set.")
+          case Some(u: RepoCredentials.UserPassword) => userPassword(u.usernameEnv, u.passwordEnv)
+          case None                                  => Right(Seq.empty)
+  end releaseRepoCurlAuth
+
 end ReposConfig
 object ReposConfig:
   lazy val dummyRepos = ReposConfig(
