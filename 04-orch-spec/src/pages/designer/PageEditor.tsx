@@ -195,11 +195,16 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       if (e.key === 'Escape') { k.deselect(); return; }
       if (!k.ops) return;
       // nur Entf - Backspace auf einem Knopf oder der Seite löschte sonst ungewollt
-      // gedrückt gehalten: einmal löschen / verdoppeln, nicht ein Baustein je Wiederholung (⌘Z und ⌥↑↓ dürfen)
-      if (e.key === 'Delete') { e.preventDefault(); if (!e.repeat) k.ops.remove(); }
-      else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); if (!e.repeat) k.ops.duplicate(); }
-      else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); k.ops.move(-1); }
-      else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); k.ops.move(1); }
+      const op = e.key === 'Delete' ? k.ops.remove
+        : mod && e.key.toLowerCase() === 'd' ? k.ops.duplicate
+        : e.altKey && e.key === 'ArrowUp' ? () => k.ops!.move(-1)
+        : e.altKey && e.key === 'ArrowDown' ? () => k.ops!.move(1)
+        : null;
+      if (!op) return;
+      e.preventDefault();
+      // gedrückt gehalten: ein Schritt je Druck - die Aktionen kennen den Baustein, der beim letzten Rendern
+      // gewählt war; nach einem Verschieben ist er woanders (nur ⌘Z wiederholt sich)
+      if (!e.repeat) op();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -216,24 +221,26 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
 
   const outline = flatten(page.body);
   const block = selected ? blockAt(page.body, selected) : undefined;
-  const setBody = (body: Component[], coalesce?: string) => update({ ...page, body }, coalesce);
+  // der neueste Stand, nicht der des Renderns - zwei Aktionen vor dem nächsten Rendern bauen aufeinander auf
+  const body = () => (latest.current ?? page).body;
+  const setBody = (next: Component[], coalesce?: string) => update({ ...(latest.current ?? page), body: next }, coalesce);
   const apply = (r: { body: Component[]; key: BlockKey }) => {
     setBody(r.body);
     setSelected(blockAt(r.body, r.key) ? r.key : null);
   };
   const add = (type: Component['type']) => {
-    apply(insertBlock(page.body, newBlock(type), selected ?? undefined, block?.type === 'section'));
+    apply(insertBlock(body(), newBlock(type), selected ?? undefined, block?.type === 'section'));
     setAdding(false);
   };
   /** Die Aktionen für einen Baustein - in der Vorschau, im Kopf der Eigenschaften, in der Gliederung. */
   const opsFor = (key: BlockKey): BlockOps => ({
-    move: (by) => apply(moveBlock(page.body, key, by)),
-    duplicate: () => { const b = blockAt(page.body, key); if (b) apply(placeBlock(page.body, structuredClone(b), key, 'after')); },
-    remove: () => { setBody(removeBlock(page.body, key)); setSelected(null); },
-    convert: (type) => { setBody(updateBlock(page.body, key, (b) => convertBlock(b, type))); setSelected(key); },
-    insert: (type, place: Place) => apply(placeBlock(page.body, newBlock(type), key, place)),
-    wrap: () => apply(wrapInSection(page.body, key)),
-    unwrap: () => apply(unwrapSection(page.body, key)),
+    move: (by) => apply(moveBlock(body(), key, by)),
+    duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), structuredClone(b), key, 'after')); },
+    remove: () => { setBody(removeBlock(body(), key)); setSelected(null); },
+    convert: (type) => { setBody(updateBlock(body(), key, (b) => convertBlock(b, type))); setSelected(key); },
+    insert: (type, place: Place) => apply(placeBlock(body(), newBlock(type), key, place)),
+    wrap: () => apply(wrapInSection(body(), key)),
+    unwrap: () => apply(unwrapSection(body(), key)),
   });
   const ops = selected !== null && block ? opsFor(selected) : null;
   keys.current = { undo, redo, ops, deselect: () => setSelected(null) };
@@ -392,7 +399,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             selected === null ? 'outline-2 -outline-offset-4 outline-sky-500/50' : ''}`}
             style={themeStyle(pagesApp?.data.theme, isDark)}
             onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-designer-block]')) setSelected(null); }}>
-            <PageView key={`${run}:${query}:${JSON.stringify(page)}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
+            {/* neu gestartet, wenn sich ändert, was die Seite beim Start liest (Zustand, Laden, Zugang) - nicht bei
+                jedem Tastendruck in einem Text: den zeigt sie ohnehin */}
+            <PageView key={`${run}:${query}:${JSON.stringify([page.state, page.load, page.access])}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}
               user={page.access === 'public' ? undefined : { name: 'Vorschau', roles: page.access.roles }}
               designer={{

@@ -425,6 +425,19 @@ test('dataOf - nested paths: the field of an object binding, the fields of an in
   assert.equal(at('items').fields?.[0].type, 'Zahl');
 });
 
+test('history - type, undo, type again within 1 s: the undo ends the step, the new typing is its own', () => {
+  let h = emptyHistory<string>();
+  h = record(h, 'a', 'props:0:label', 0); // a -> ab
+  h = record(h, 'ab', 'props:0:label', 100); // ab -> abc (the same step)
+  const back = travel(h, 'abc', 'undo')!; // back to a
+  assert.equal(back.value, 'a');
+  h = record(back.history, 'a', 'props:0:label', 300); // typing again 200 ms later: a new step
+  assert.deepEqual(h.past, ['a']);
+  assert.deepEqual(h.future, []); // and redo is gone
+  const again = travel(h, 'ax', 'undo')!;
+  assert.equal(again.value, 'a');
+});
+
 test('relocateBlock - out of its own section, and into a later section after the shift', () => {
   // 0 heading, 1 section [1.0 pick, 1.1 text], 2 button
   const out = relocateBlock(page.body, '1.0', '1', 'before'); // a child before its own section

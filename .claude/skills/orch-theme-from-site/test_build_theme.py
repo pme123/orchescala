@@ -8,7 +8,7 @@ import unittest
 
 import base64
 
-from build_theme import MAX_LOGO, UNPARSED, contrast, data_uri_bytes, font_stack, problems, radius, to_hex
+from build_theme import MAX_LOGO, contrast, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -34,10 +34,14 @@ class ToHex(unittest.TestCase):
         self.assertEqual(to_hex('hsla(240, 100%, 50%, 0)'), None)
 
     def test_none(self):
-        del UNPARSED[:]
         for v in (None, '', 'transparent', 'rgba(0, 0, 0, 0)', 'rgb(0 0 0 / 0%)', '#abcd', 'red', 'color(srgb 1 0 0)'):
             self.assertIsNone(to_hex(v), v)
-        self.assertEqual(UNPARSED, ['#abcd', 'red', 'color(srgb 1 0 0)'])  # noted - main() warns
+
+    def test_unread_colours(self):
+        ex = {'background': 'transparent', 'text': 'red', 'ctaBackgrounds': [['color(srgb 1 0 0)', 2], ['#004b87', 1]],
+              'links': [['rgba(0, 0, 0, 0)', 3]], 'surfaces': []}
+        self.assertEqual(unread_colours(ex), ['color(srgb 1 0 0)', 'red'])  # transparent is read (as nothing)
+        self.assertEqual(unread_colours({}), [])
 
 
 class FontStack(unittest.TestCase):
@@ -85,6 +89,10 @@ class Problems(unittest.TestCase):
         self.assertEqual(problems({'logo': 'data:image/png;base64,ab!d'}), ['theme.logo ist kein gültiges base64'])
         self.assertEqual(problems({'logo': 'data:image/png;base64,abc'}), ['theme.logo ist kein gültiges base64'])
 
+    def test_one_message_per_bad_logo(self):
+        big_junk = 'data:image/png;base64,' + '!' * (MAX_LOGO * 2)
+        self.assertEqual(problems({'logo': big_junk}), ['theme.logo ist kein gültiges base64'])
+
     def test_contrast(self):
         self.assertAlmostEqual(contrast('#ffffff', '#000000'), 21, places=1)
 
@@ -117,6 +125,12 @@ class Cli(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(theme['primary'], '#004b87')
         self.assertIn('WARN Farben der Seite nicht gelesen', p.stdout)
+
+    def test_missing_logo_file_is_a_message(self):
+        p, theme = self.run_script({'background': '#ffffff'}, '--logo', '/nonexistent/logo.svg')
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn('lässt sich nicht lesen', p.stderr)
+        self.assertNotIn('Traceback', p.stderr)
 
     def test_invalid_override_is_named(self):
         p, theme = self.run_script({'background': '#ffffff'}, '--primary', 'blau')

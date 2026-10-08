@@ -7,11 +7,10 @@ import type { Theme } from '../runtime/spec';
 import {
   contrast, isFontPreset, isThemeColor, MAX_LOGO_BYTES, MIN_ON_PRIMARY_CONTRAST, parseThemeFile, syncedText, themeProblem, themeStyle,
 } from '../runtime/theme';
-
-const MAX_THEME_FILE_BYTES = 1024 * 1024;
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
 
+const MAX_THEME_FILE_BYTES = 1024 * 1024;
 
 /** Eine Farbe - getippt bleibt sie hier, bis sie eine ist (ein halbes `#0b5` kommt nicht ins Theme). */
 function ColorField({ isDark, label, value, onChange, disabled }: {

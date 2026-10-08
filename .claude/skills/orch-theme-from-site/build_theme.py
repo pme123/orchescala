@@ -22,22 +22,17 @@ MAX_LOGO = 200 * 1024
 GENERIC = {'serif', 'sans-serif', 'monospace', 'system-ui', 'cursive', 'fantasy', 'ui-sans-serif', 'ui-serif', 'ui-monospace'}
 
 
-UNPARSED = []  # colours of the site to_hex could not read - main() warns about them
-
-
-def to_hex(color, over='#ffffff'):
-    """#rgb/#rrggbb, rgb(…)/rgba(…), hsl(…)/hsla(…) -> #rrggbb; a semi-transparent colour as it looks on
-    `over` (the page, white by default). None for transparent - and for what it cannot read (e.g.
-    color(…), a name), which is noted in UNPARSED."""
-    if not color:
-        return None
+def _rgba(color):
+    """#rgb/#rrggbb, rgb(…)/rgba(…), hsl(…)/hsla(…) -> ([r, g, b] 0…255, alpha 0…1); None for what it
+    cannot read (e.g. color(…), a name); 'transparent' is alpha 0."""
     c = color.strip().lower()
     m = re.fullmatch(r'#([0-9a-f]{3}|[0-9a-f]{6})', c)
     if m:
         h = m.group(1)
-        return '#' + (''.join(ch * 2 for ch in h) if len(h) == 3 else h)
+        h = ''.join(ch * 2 for ch in h) if len(h) == 3 else h
+        return [int(h[i:i + 2], 16) for i in (0, 2, 4)], 1.0
     if c == 'transparent':
-        return None
+        return [0, 0, 0], 0.0
     sep = r'(?:\s*,\s*|\s+)'
     alpha_part = r'(?:\s*[,/]\s*([\d.]+%?))?'
     m = re.fullmatch(rf'rgba?\(\s*([\d.]+%?){sep}([\d.]+%?){sep}([\d.]+%?){alpha_part}\s*\)', c)
@@ -46,7 +41,6 @@ def to_hex(color, over='#ffffff'):
     else:
         m = re.fullmatch(rf'hsla?\(\s*(-?[\d.]+)(?:deg)?{sep}([\d.]+)%{sep}([\d.]+)%{alpha_part}\s*\)', c)
         if not m:
-            UNPARSED.append(color)
             return None
         hue, sat, light = float(m.group(1)) % 360, min(1.0, float(m.group(2)) / 100), min(1.0, float(m.group(3)) / 100)
         k = lambda n: (n + hue / 30) % 12
@@ -54,10 +48,28 @@ def to_hex(color, over='#ffffff'):
         rgb = [f(0) * 255, f(8) * 255, f(4) * 255]
     alpha = m.group(4)
     a = 1.0 if alpha is None else min(1.0, float(alpha[:-1]) / 100 if alpha.endswith('%') else float(alpha))
-    if a == 0:
+    return rgb, a
+
+
+def to_hex(color, over='#ffffff'):
+    """A colour -> #rrggbb; a semi-transparent one as it looks on `over` (the page, white by default).
+    None for transparent and for what it cannot read (see unread_colours)."""
+    if not color:
         return None
+    parsed = _rgba(color)
+    if parsed is None or parsed[1] == 0:
+        return None
+    rgb, a = parsed
     base = [int(over[i:i + 2], 16) for i in (1, 3, 5)]
     return '#' + ''.join(f'{round(a * v + (1 - a) * b):02x}' for v, b in zip(rgb, base))
+
+
+def unread_colours(ex):
+    """The colours in extracted.json to_hex cannot read - main() warns about them."""
+    values = [ex.get(k) for k in ('background', 'text', 'headerBackground')]
+    for key in ('ctaBackgrounds', 'ctaTexts', 'links', 'surfaces'):
+        values += [v for v, _ in ex.get(key) or []]
+    return sorted({v for v in values if isinstance(v, str) and v.strip() and _rgba(v) is None})
 
 
 def luminance(hex_color):
@@ -124,8 +136,11 @@ LOGO_TYPES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+x
 
 
 def logo_uri(path):
-    with open(path, 'rb') as f:
-        data = f.read()
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+    except OSError as e:
+        sys.exit(f'Das Logo {path} lässt sich nicht lesen: {e.strerror}.')
     if len(data) > MAX_LOGO:
         sys.exit(f'Das Logo hat {len(data) // 1024} KB - bis 200 KB (z.B. als SVG oder kleiner skaliert).')
     mime = 'image/svg+xml' if path.lower().endswith('.svg') else mimetypes.guess_type(path)[0] or 'image/png'
@@ -160,7 +175,7 @@ def problems(theme):
             found.append('theme.logo ist keine data:-URI eines Bilds')
         elif len(payload := logo[logo.find(',') + 1:]) % 4 or not re.fullmatch(r'[A-Za-z0-9+/]*={0,2}', payload):
             found.append('theme.logo ist kein gültiges base64')
-        if data_uri_bytes(logo) > MAX_LOGO:
+        elif data_uri_bytes(logo) > MAX_LOGO:
             found.append('theme.logo ist grösser als 200 KB')
     return found
 
@@ -219,8 +234,9 @@ def main():
         warnings.append('Keine farbige Primärfarbe gefunden - mit --primary setzen.')
     if contrast(background, text) < 4.5:
         warnings.append(f'Text auf dem Hintergrund hat nur Kontrast {contrast(background, text):.1f}:1.')
-    if UNPARSED:
-        warnings.append('Farben der Seite nicht gelesen (übergangen): ' + ', '.join(sorted(set(UNPARSED))[:5]))
+    unread = unread_colours(ex)
+    if unread:
+        warnings.append('Farben der Seite nicht gelesen (übergangen): ' + ', '.join(unread[:5]))
     if a.logo:
         theme['logo'] = logo_uri(a.logo)
     theme = {k: v for k, v in theme.items() if v}
