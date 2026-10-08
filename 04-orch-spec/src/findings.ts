@@ -7,6 +7,7 @@
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
+import { C7_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
@@ -17,7 +18,6 @@ import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
-import { C7_LABEL } from './template';
 export interface Finding {
   errors: string[];
   warnings: string[];

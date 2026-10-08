@@ -10,7 +10,8 @@ import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, P
 import { STATUS_META } from './types.ts';
 import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
-import { engineLabel, C7_LABEL } from './template.ts';
+import { engineLabel } from './template.ts';
+import { C7_LABEL } from './engineLabels.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
 import { convertBpmn } from './engineConvert.ts';

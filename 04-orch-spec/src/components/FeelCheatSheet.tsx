@@ -2,13 +2,13 @@
 // Eingabefeld: Variablen blau, Zeichenketten grün, FEEL violett. Die Suche
 // filtert Beispiele und Funktionen; ein Klick auf ein Beispiel kopiert es.
 import { useMemo, useState } from 'react';
+import { C7_LABEL } from '../engineLabels';
 import { Check, Search, X } from 'lucide-react';
 import { CHEAT_SECTIONS, JUEL_TO_FEEL } from '../feelCheatSheet';
 import { FEEL_DOCS } from '../feelDocs';
 import { tokenizeFeel, type FeelTokenKind } from '../feel';
 import { cls } from '../ui';
 
-import { C7_LABEL } from '../template';
 /** `code` und **fett** in einem Hinweistext */
 function Rich({ text }: { text: string }) {
   return (

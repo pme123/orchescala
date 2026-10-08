@@ -18,10 +18,9 @@ import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
 import { useConfirm } from './Confirm';
 import { MarkdownField } from './MarkdownField';
-
 import { ENGINES, engineLabel } from '../template';
-const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
+const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
 type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 
@@ -298,7 +297,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
               <button onClick={async () => {
                 if (!await confirm({ title: `BPMN für ${engineLabel(engine)} entfernen?`, text: 'Erst «Speichern» übernimmt es — in Spezifikationen dieser Engine wird das Pattern danach nicht mehr angeboten.' })) return;
                 setBpmn(engine, undefined); setEditing(false);
-              }} title={`BPMN für ${engine.toUpperCase()} entfernen`}
+              }} title={`BPMN für ${engineLabel(engine)} entfernen`}
                 className={`p-1 rounded border ${c.btn}`}><Trash2 size={11} /></button>
             )}
             <input ref={fileRef} type="file" accept=".bpmn,.xml" className="hidden"

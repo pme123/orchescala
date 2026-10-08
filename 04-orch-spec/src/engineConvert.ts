@@ -22,13 +22,13 @@
 // übersetzbare Ausdrücke. Lieber sichtbar offen als still falsch.
 
 import type { EngineId } from './types';
+import { C7_LABEL } from './engineLabels';
 import { feelBody, feelToJuel } from './feelJuel';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 import type { WriteIssue, WriteResult } from './bpmnWrite';
 import { errorListSource, parseErrorList } from './errorCodes';
 
-import { C7_LABEL } from './template';
 /** `_handledErrors` / `_regexHandledErrors`: Liste in Camunda 8, Text mit Kommas in Camunda 7 */
 const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
 

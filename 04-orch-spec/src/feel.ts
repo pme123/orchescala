@@ -19,6 +19,7 @@
 // bei ihnen bleibt die Prüfung stumm, statt falsch zu warnen.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
+import { C7_LABEL } from './engineLabels';
 import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs';
 import { SCALA_TYPES, isAdt } from './types';
@@ -107,7 +108,6 @@ const MAX_DEPTH = 6;
 export { enumHasCase, splitEnumCase } from './scalaTypes';
 import { enumHasCase, splitEnumCase } from './scalaTypes';
 
-import { C7_LABEL } from './template';
 interface Builder { idx: TypeIndex; model: Model | null }
 
 /** Ein Feld des Klassenbauers als Knoten — mit seinen Unterfeldern. */

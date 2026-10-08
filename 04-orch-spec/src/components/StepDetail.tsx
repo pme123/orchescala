@@ -4,6 +4,7 @@
 // Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
 // des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { C7_LABEL } from '../engineLabels';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
@@ -27,7 +28,6 @@ import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
-import { C7_LABEL } from '../template';
 interface Props {
   step: Step | null;
   spec: ProcessSpec;

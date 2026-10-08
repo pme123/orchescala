@@ -22,7 +22,7 @@
 //   postfix  := primary ( '.' name ( '(' args ')' )? | '[' expr ']' )*
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
-import { C7_LABEL } from './template';
+import { C7_LABEL } from './engineLabels';
 
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 

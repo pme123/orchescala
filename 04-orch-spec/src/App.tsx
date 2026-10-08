@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { C7_LABEL } from './engineLabels';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
@@ -14,7 +15,6 @@ const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
-import { C7_LABEL } from './template';
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' }
   | { kind: 'pages' } | { kind: 'page'; slug: string };
 
