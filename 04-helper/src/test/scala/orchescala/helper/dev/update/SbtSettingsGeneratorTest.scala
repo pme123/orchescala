@@ -81,8 +81,11 @@ class SbtSettingsGeneratorTest extends FunSuite:
       val name    = Name.findFirstMatchIn(projectDef).get.group(1)
       val modules = Modules.findAllMatchIn(os.read(projectDir / "build.sbt")).map(_.group(1)).toSeq
       val repo    = orchescala.engine.config.RepoConfig.Gitlab("release", "https://repo")
+      // the names read from the generated project/ files are the ones the check uses
+      val names = RepoCheck.BuildNames.from(projectDir)
+      assertEquals(names, RepoCheck.BuildNames(org, ""))
       assertEquals(
-        RepoCheck.releaseUrls(summon[DevConfig], "1.2.3", RepoCheck.artifactSuffix(settings), repo).sorted,
+        RepoCheck.releaseUrls(summon[DevConfig], "1.2.3", names, repo).sorted,
         RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-$m"), "1.2.3").sorted
       )
 

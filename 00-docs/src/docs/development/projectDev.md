@@ -84,7 +84,11 @@ The following steps are executed:
   - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
     of the existing release overwritten). Remove the half-finished version there, or release the next.
   - The poms are those of the generated build: `<project>-<module>` (the company's with the Scala
-    suffix) under the company. A module with a `name` of its own is not covered by the check.
+    suffix) under the `organization` - both read from the build's `project/` files. A module with a
+    `name` of its own is not covered by the check.
+  - Where the check can not tell (a GitLab group registry, a token that may not read the project, no
+    credentials), it asks. Without a terminal (a pipeline) the answer is no and the release stops - a
+    GitLab pipeline with its job token is not asked.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
     token may not read - so the project of a project registry is asked first. Does it not show the
     project (a wrong token - or a deploy token, which may not read it), or is the registry a group's,
@@ -97,7 +101,8 @@ The following steps are executed:
   `publishLocal`'s copy in `~/.ivy2/local` that would shadow the repository; the Docker image of the
   worker with `worker / Docker / publishLocal`; the documentation with `ApiProjectCreator.scala`).
   - Nothing is uploaded yet: a release version is immutable in the repository (e.g. Artifactory).
-    If a step fails here, you fix it and run the command again with the same version.
+    If a step fails here, you fix it and run the command again with the same version - that holds for
+    every failure before the upload to the repository (the build, the docs, the WebDAV upload).
 - Uploads the documentation to a WebDAV-webserver (optional).
   - On purpose before the repository: the webserver takes a version again, the repository does not.
     A release that fails at the upload is repeated with the same version - its docs are uploaded again.

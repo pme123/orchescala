@@ -6,6 +6,9 @@ import munit.FunSuite
 class RepoCheckTest extends FunSuite:
 
 
+  // what the generated builds publish under: ProjectDef.org = the company, no suffix (crossPaths off)
+  private val names = RepoCheck.BuildNames("democompany", "")
+
   private val urls = RepoCheck.releaseArtifactUrls(
     "https://repo.example.com/artifactory/libs-release",
     "com.example",
@@ -46,6 +49,22 @@ class RepoCheckTest extends FunSuite:
     assert(down.getMessage.contains("not reachable"), down.getMessage)
     val odd      = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 500))
     assert(odd.getMessage.contains("unexpected status (500)"), odd.getMessage)
+
+  test("the organization comes from the build's ProjectDef.scala - a dotted one as well"):
+    assertEquals(RepoCheck.organization("""  val org = "democompany""""), "democompany")
+    assertEquals(RepoCheck.organization("""  val org = "ch.foo.bar" // the groupId"""), "ch.foo.bar")
+    val error = intercept[IllegalStateException](RepoCheck.organization("object ProjectDef {}"))
+    assert(error.getMessage.contains("val org"), error.getMessage)
+
+  test("the names of a build come from its project/ files - the check looks where publish uploads"):
+    val dir = os.temp.dir(prefix = "build-names-")
+    try
+      os.write(dir / "project" / "ProjectDef.scala", """object ProjectDef { val org = "ch.foo.bar" }""", createFolders = true)
+      os.write(dir / "project" / "Settings.scala", """object Settings { val scalaV = "3.7.4" }""")
+      assertEquals(RepoCheck.BuildNames.from(dir), RepoCheck.BuildNames("ch.foo.bar", "_3"))
+      val urls = RepoCheck.releaseArtifactUrls("https://repo", "ch.foo.bar", Seq("foo-customer-domain_3"), "1.2.3")
+      assertEquals(urls, Seq("https://repo/ch/foo/bar/foo-customer-domain_3/1.2.3/foo-customer-domain_3-1.2.3.pom"))
+    finally os.remove.all(dir)
 
   test("the artifact suffix comes from the build's Settings.scala"):
     val project = Seq("""  val scalaV = "3.7.4"""", "    crossPaths := false").mkString("\n")
@@ -164,7 +183,7 @@ class RepoCheckTest extends FunSuite:
         credentials = Seq(RepoCredentials.PrivateToken("gitlab", "127.0.0.1", "GITLAB_TOKEN")),
         repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/projects/42/packages/maven"))
       )))
-      RepoCheck.verifyVersionFree("1.2.3", devConfig, "", Map("GITLAB_TOKEN" -> "secret").get)
+      RepoCheck.verifyVersionFree("1.2.3", devConfig, names, Map("GITLAB_TOKEN" -> "secret").get)
       assertEquals(
         requests(),
         Seq(
@@ -173,18 +192,18 @@ class RepoCheckTest extends FunSuite:
         )
       )
       val wrong = intercept[IllegalStateException]:
-        RepoCheck.verifyVersionFree("1.2.3", devConfig, "", Map("GITLAB_TOKEN" -> "wrong").get, confirm = _ => false)
+        RepoCheck.verifyVersionFree("1.2.3", devConfig, names, Map("GITLAB_TOKEN" -> "wrong").get, confirm = _ => false)
       assert(wrong.getMessage.contains("does not show"), wrong.getMessage)
       // no credentials at all: the check would run anonymously - it asks, and stops without a yes
       val anonymous = devConfig.withSbtConfig(SbtConfig(reposConfig = ReposConfig(
         repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/projects/42/packages/maven"))
       )))
       val stopped   = intercept[IllegalStateException]:
-        RepoCheck.verifyVersionFree("1.2.3", anonymous, "", _ => None, confirm = _ => false)
+        RepoCheck.verifyVersionFree("1.2.3", anonymous, names, _ => None, confirm = _ => false)
       assert(stopped.getMessage.contains("anonymously"), stopped.getMessage)
       // a pipeline: the job token is GitLab's own - the project is not probed
       val before = requests().size
-      RepoCheck.verifyVersionFree("1.2.3", devConfig, "", Map("CI_JOB_TOKEN" -> "secret").get)
+      RepoCheck.verifyVersionFree("1.2.3", devConfig, names, Map("CI_JOB_TOKEN" -> "secret").get)
       assertEquals(requests().drop(before).size, 1)
       assert(requests().last.endsWith("-1.2.3.pom"), requests().last)
 
@@ -204,7 +223,7 @@ class RepoCheckTest extends FunSuite:
         RepoConfig.Artifactory("release", base, "libs-release", "REPO_USER", "REPO_PWD")
       ))))
       val env       = Map("REPO_USER" -> "me", "REPO_PWD" -> "secret")
-      RepoCheck.verifyVersionFree("1.2.3", devConfig, artifactSuffix = "", env.get)
+      RepoCheck.verifyVersionFree("1.2.3", devConfig, names, env.get)
       assertEquals(
         requests(),
         ModuleType.projectModules.map(m =>
@@ -212,25 +231,25 @@ class RepoCheckTest extends FunSuite:
         )
       )
       // the company's suffix
-      RepoCheck.verifyVersionFree("1.2.3", devConfig, artifactSuffix = "_3", env.get)
+      RepoCheck.verifyVersionFree("1.2.3", devConfig, names.copy(artifactSuffix = "_3"), env.get)
       assert(requests().last.endsWith("/democompany-customer-worker_3/1.2.3/democompany-customer-worker_3-1.2.3.pom"), requests().last)
       // wrong credentials stop it
       val refused = intercept[IllegalStateException]:
-        RepoCheck.verifyVersionFree("1.2.3", devConfig, "", Map("REPO_USER" -> "me", "REPO_PWD" -> "wrong").get)
+        RepoCheck.verifyVersionFree("1.2.3", devConfig, names, Map("REPO_USER" -> "me", "REPO_PWD" -> "wrong").get)
       assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
       // missing environment variables stop it before any request
       val before  = requests().size
-      intercept[IllegalStateException](RepoCheck.verifyVersionFree("1.2.3", devConfig, "", _ => None))
+      intercept[IllegalStateException](RepoCheck.verifyVersionFree("1.2.3", devConfig, names, _ => None))
       assertEquals(requests().size, before)
       // a taken module
       val taken = intercept[IllegalStateException]:
-        RepoCheck.verifyVersionFree("1.2.3-taken", devConfig, "", env.get)
+        RepoCheck.verifyVersionFree("1.2.3-taken", devConfig, names, env.get)
       assert(taken.getMessage.contains("is in the repository already"), taken.getMessage)
       // after a failed upload: what is there
-      val uploaded = RepoCheck.reportUploaded("1.2.3-taken", devConfig, "", env.get)
+      val uploaded = RepoCheck.reportUploaded("1.2.3-taken", devConfig, names, env.get)
       assertEquals(uploaded.size, ModuleType.projectModules.size)
-      assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, "", env.get), Seq.empty)
-      assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, "", _ => None), Seq.empty) // never fails
+      assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, names, env.get), Seq.empty)
+      assertEquals(RepoCheck.reportUploaded("1.2.3", devConfig, names, _ => None), Seq.empty) // never fails
     // an unreachable repository: one request, then it gives up
     locally:
       import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
@@ -240,7 +259,7 @@ class RepoCheckTest extends FunSuite:
         ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, ModuleType.projectModules)
       ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(repos = Seq(RepoConfig.Gitlab("release", "http://127.0.0.1:1/repo")))))
       val started = System.nanoTime()
-      assertEquals(RepoCheck.reportUploaded("1.2.3", down, "", _ => None), Seq.empty)
+      assertEquals(RepoCheck.reportUploaded("1.2.3", down, names, _ => None), Seq.empty)
       assert((System.nanoTime() - started) / 1e6 < 3000, "gave up after the first unreachable pom")
 
 end RepoCheckTest

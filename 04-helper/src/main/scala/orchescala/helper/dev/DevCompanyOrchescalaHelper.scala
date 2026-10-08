@@ -5,7 +5,7 @@ import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
 import orchescala.helper.dev.publish.PublishHelper.*
-import orchescala.helper.dev.publish.RepoCheck.{artifactSuffix, reportUploaded, verifyVersionFree}
+import orchescala.helper.dev.publish.RepoCheck.{BuildNames, reportUploaded, verifyVersionFree}
 import orchescala.helper.dev.publish.WorkingTree.*
 import orchescala.helper.dev.publish.{ReleaseRun, SbtRuns}
 import orchescala.engine.config.RepoConfig
@@ -99,8 +99,8 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)
-    lazy val suffix = artifactSuffix(workDir / "project" / "Settings.scala")
-    if !isSnapshot then verifyVersionFree(newVersion, devConfig, suffix)
+    lazy val names = BuildNames.from(workDir) // what the build publishes under
+    if !isSnapshot then verifyVersionFree(newVersion, devConfig, names)
     // armed now, with the clean tree - right before the version is rewritten
     val restore    = restoreForRetry(isSnapshot)
     restoring(restore):
@@ -118,7 +118,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
       onFailure = restore,
-      afterFailedUpload = () => reportUploaded(newVersion, devConfig, suffix)
+      afterFailedUpload = () => reportUploaded(newVersion, devConfig, names)
     ).run(ReleaseRun.steps(isSnapshot, hasDocs = false))
   end publish
 

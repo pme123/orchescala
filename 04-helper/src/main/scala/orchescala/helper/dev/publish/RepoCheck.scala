@@ -9,6 +9,28 @@ import orchescala.helper.util.DevConfig
   */
 object RepoCheck:
 
+  /** What the build publishes under: the `organization` (`ProjectDef.org`) and the suffix of
+    * the artifacts - both read from the build's own files in `project/`, so the check looks
+    * where `publish` uploads. Fails when either is missing: a guess made the check pass as
+    * "free" on the wrong URL.
+    */
+  final case class BuildNames(organization: String, artifactSuffix: String)
+
+  object BuildNames:
+    def from(projectDir: os.Path): BuildNames =
+      BuildNames(
+        organization(projectDir / "project" / "ProjectDef.scala"),
+        artifactSuffix(projectDir / "project" / "Settings.scala")
+      )
+
+  /** The `val org = "..."` of `project/ProjectDef.scala` - sbt's `organization`. */
+  def organization(projectDef: os.Path): String = organization(os.read(projectDef), projectDef.toString)
+
+  def organization(projectDef: String, name: String = "project/ProjectDef.scala"): String =
+    val Org = """val org\s*=\s*"([^"]+)"""".r
+    Org.findFirstMatchIn(withoutComments(projectDef)).map(_.group(1))
+      .getOrElse(throw IllegalStateException(s"No `val org = \"...\"` in $name - the organization is unknown."))
+
   /** The suffix of the artifacts of a build - from its `project/Settings.scala`: none with
     * `crossPaths := false` (a project), else `_<Scala major>` of its `scalaV` (the company
     * project: `_3`). Fails without the `scalaV` - a guessed suffix made the check pass as
@@ -110,7 +132,7 @@ object RepoCheck:
   def verifyVersionFree(
       version: String,
       devConfig: DevConfig,
-      artifactSuffix: String,
+      names: BuildNames,
       env: String => Option[String] = sys.env.get,
       confirm: String => Boolean = PublishHelper.askToContinue
   ): Unit =
@@ -134,19 +156,19 @@ object RepoCheck:
           )
         case _                                                         => ()
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyUrlsFree(version, releaseUrls(devConfig, version, artifactSuffix, repo), status)
+      verifyUrlsFree(version, releaseUrls(devConfig, version, names, repo), status)
   end verifyVersionFree
 
   /** The poms `publish` uploads for `version` - every module of the project (a module that
     * is never published is simply not there), named `<project>-<module><suffix>` under the
-    * company (the `organization`).
+    * `organization` of the build.
     */
-  def releaseUrls(devConfig: DevConfig, version: String, artifactSuffix: String, repo: RepoConfig)
+  def releaseUrls(devConfig: DevConfig, version: String, names: BuildNames, repo: RepoConfig)
       : Seq[String] =
     releaseArtifactUrls(
       repo.repoUrl,
-      devConfig.companyName,
-      devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m$artifactSuffix"),
+      names.organization,
+      devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m${names.artifactSuffix}"),
       version
     )
 
@@ -156,7 +178,7 @@ object RepoCheck:
   def reportUploaded(
       version: String,
       devConfig: DevConfig,
-      artifactSuffix: String,
+      names: BuildNames,
       env: String => Option[String] = sys.env.get
   ): Seq[String] =
     val repos = devConfig.sbtConfig.reposConfig
@@ -165,7 +187,7 @@ object RepoCheck:
         val config = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
         // best effort, in a failure handler: 5 seconds per pom, and no more once the repo is unreachable
         val status = curlStatus(config, timeoutSeconds = 5)
-        val codes  = releaseUrls(devConfig, version, artifactSuffix, repo).iterator
+        val codes  = releaseUrls(devConfig, version, names, repo).iterator
           .map(url => url -> status(url))
           .span((_, code) => code != 0) match
           case (reachable, rest) => reachable.toSeq ++ rest.take(1).toSeq

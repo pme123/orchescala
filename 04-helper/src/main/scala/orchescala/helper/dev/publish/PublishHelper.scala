@@ -9,7 +9,7 @@ case class PublishHelper()(using
 ) extends Helpers:
 
   import PublishHelper.*
-  import RepoCheck.reportUploaded
+  import RepoCheck.{BuildNames, reportUploaded}
   import WorkingTree.*
 
   def publish(version: String): Unit =
@@ -19,7 +19,7 @@ case class PublishHelper()(using
       verifyCleanWorkingTree()
       verifyNextVersion(version)
     verify(version)
-    if !isSnapshot then RepoCheck.verifyVersionFree(version, devConfig, artifactSuffix)
+    if !isSnapshot then RepoCheck.verifyVersionFree(version, devConfig, buildNames)
     // the one outward step before the build: the docs (`api/run`) take the references from the
     // remote - it pushes committed work only (a clean tree), a next try pushes nothing
     pushDevelop()
@@ -38,12 +38,12 @@ case class PublishHelper()(using
       uploadDocs = () => publishToWebserver(),
       git = () => git(version, replaceVersion),
       onFailure = restore,
-      afterFailedUpload = () => reportUploaded(version, devConfig, artifactSuffix)
+      afterFailedUpload = () => reportUploaded(version, devConfig, buildNames)
     ).run(ReleaseRun.steps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
 
-  private lazy val artifactSuffix: String =
-    RepoCheck.artifactSuffix(workDir / "project" / "Settings.scala")
+  // what the build publishes under - from its own `project/` files
+  private lazy val buildNames: BuildNames = BuildNames.from(workDir)
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
@@ -122,9 +122,12 @@ object PublishHelper extends Helpers:
         throw IllegalArgumentException(s"$problem - release stopped.")
   end verifyNextVersion
 
+  /** Without a terminal (a pipeline) there is no one to ask - a no. */
   def askToContinue(problem: String): Boolean =
     println(s"$problem\nContinue anyway? [y/N]")
-    Option(scala.io.StdIn.readLine()).exists(_.trim.equalsIgnoreCase("y"))
+    val answer = Option(scala.io.StdIn.readLine())
+    if answer.isEmpty then println("No terminal to answer - taken as no.")
+    answer.exists(_.trim.equalsIgnoreCase("y"))
 
   /** All checks that need no configuration - run them BEFORE the `DevConfig`/`ApiConfig` are
     * evaluated, as these look up the dependency versions in the repositories (`cs complete-dep`).

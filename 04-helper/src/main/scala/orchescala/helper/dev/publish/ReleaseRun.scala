@@ -133,18 +133,19 @@ end ReleaseRun
   * before it restores the working tree (the child got the Ctrl-C too and may still write).
   */
 object SbtChild:
-  // spawned and registered under the lock - a hook never misses a child just spawned; a
-  // child gone from here has exited (`waitFor` returned), its output went to the console directly
-  private val running = java.util.concurrent.atomic.AtomicReference[Option[os.SubProcess]](None)
+  // every access under the lock: spawned and registered together (one at a time, a hook never
+  // misses a child just spawned); a child gone from here has exited (`waitFor` returned), its
+  // output went to the console directly
+  private var running: Option[os.SubProcess] = None
 
   /** One at a time - a release runs its sbt steps one after the other. */
   def run(cmd: Seq[String]): Unit =
     println(cmd.mkString(" "))
     val child = synchronized:
-      if running.get.nonEmpty then
+      if running.nonEmpty then
         throw IllegalStateException(s"An sbt run is going on already - `${cmd.mkString(" ")}` can not start.")
       val c = os.proc(cmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
-      running.set(Some(c))
+      running = Some(c)
       c
     try
       child.waitFor()
@@ -154,9 +155,9 @@ object SbtChild:
       // the thread was interrupted (a caller in a thread of its own) - the child must not go
       // on writing while the tree is restored
       case e: InterruptedException =>
-        end(child, s"`${cmd.mkString(" ")}` (interrupted)")
+        terminate(child, s"`${cmd.mkString(" ")}` (interrupted)")
         throw e
-    finally running.set(None)
+    finally synchronized { running = None }
   end run
 
   /** Waits for the running child - at most `timeout`; then it is ended: on Ctrl-C it got
@@ -164,14 +165,14 @@ object SbtChild:
     * restored.
     */
   def awaitExit(timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")): Unit =
-    running.get.foreach: child =>
+    synchronized(running).foreach: child =>
       println("Waiting for sbt to end ...")
-      if !child.waitFor(timeout.toMillis) then end(child, s"sbt (not ended within $timeout)")
+      if !child.waitFor(timeout.toMillis) then terminate(child, s"sbt (not ended within $timeout)")
 
   /** Ends the child (the sbt launcher) and what it started (the sbt JVM, docker) - forcibly
     * after 5 seconds.
     */
-  private def end(child: os.SubProcess, what: String): Unit =
+  private def terminate(child: os.SubProcess, what: String): Unit =
     val handle  = child.wrapped.toHandle
     // the snapshot stays valid once the child is gone and they are reparented - one started
     // in between is missed, and one that ignores the signals may go on (said below)
@@ -194,10 +195,10 @@ object SbtChild:
           "while the working tree is restored."
       )
     else println(s"$what ended.")
-  end end
+  end terminate
 end SbtChild
 
 /** `body` after a failure `e` - fails it too, that is added to `e` (which stays the error). */
 private[publish] def suppressedBy(e: Throwable)(body: => Unit): Unit =
   try body
-  catch case r: Throwable => e.addSuppressed(r)
+  catch case scala.util.control.NonFatal(r) => e.addSuppressed(r) // a fatal one goes through
