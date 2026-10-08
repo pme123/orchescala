@@ -133,14 +133,15 @@ export class GraphBackend implements StorageBackend {
 
   // Löschen in SharePoint ist ein Verschieben in den Papierkorb der Site —
   // dort lässt sich eine Datei bei Bedarf wiederherstellen.
-  async delete(path: string): Promise<DeleteResult> {
+  async delete(path: string, opts: { ifMatch?: string } = {}): Promise<DeleteResult> {
     let res: Response;
     try {
-      res = await this.f(this.itemPath(path), { method: 'DELETE' });
+      res = await this.f(this.itemPath(path), { method: 'DELETE', headers: opts.ifMatch ? { 'If-Match': opts.ifMatch } : undefined });
     } catch (e) {
       return { ok: false, reason: 'error', message: `Netzwerkfehler: ${e instanceof Error ? e.message : String(e)}` };
     }
     if (res.ok || res.status === 404) return { ok: true };
+    if (res.status === 412) return { ok: false, reason: 'conflict', message: 'Die Datei wurde inzwischen von jemand anderem geändert.' };
     if (res.status === 403 || res.status === 401) return { ok: false, reason: 'forbidden', message: 'Keine Berechtigung zum Löschen in SharePoint.' };
     return { ok: false, reason: 'error', message: `Löschen fehlgeschlagen (HTTP ${res.status}).` };
   }

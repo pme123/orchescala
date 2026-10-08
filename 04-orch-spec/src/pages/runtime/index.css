@@ -1,0 +1,21 @@
+@import "tailwindcss" source(".");
+
+/* z9nai: wie arch-review und orch-spec */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+  background: #f5f4f0;
+  color: #1a1a1a;
+}
+
+.dark body {
+  background: #0e0f11;
+  color: #e8e8e8;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
