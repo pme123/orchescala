@@ -16,6 +16,7 @@ const labels = { topic: { mortgage: 'Hypothek' } };
 test('conditionProblem - no escape in texts', () => {
   assert.match(conditionProblem("name == 'it\\'s'") ?? '', /kein \\/);
   assert.equal(conditionProblem(`name == "it's"`), null);
+  assert.match(conditionProblem("a == 'x || b") ?? '', /nicht geschlossen/);
 });
 
 test('getPath / setPath', () => {

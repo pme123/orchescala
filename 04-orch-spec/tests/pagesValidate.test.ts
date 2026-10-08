@@ -38,6 +38,17 @@ test('pageProblem - what the renderer would trip over', () => {
   has({ ...page, load: [{ do: 'call', onError: [{ do: 'launch' }] }] }, 'load\\[0\\]\\.onError\\[0\\]: unbekannte Aktion «launch»');
 });
 
+test('pageProblem - texts the renderer reads as text', () => {
+  const has = (body: unknown[], text: string) => assert.match(pageProblem({ ...page, body }) ?? '', new RegExp(text));
+  has([{ type: 'heading', text: 5 }], 'body\\[0\\]\\.text ist kein Text');
+  has([{ type: 'text', text: 'a', visible: true }], 'visible ist kein Text');
+  has([{ type: 'pick', bind: 'slot', items: ['a'], itemLabel: '{{a}}' }], 'items ist kein Text');
+  has([{ type: 'choice', bind: 'topic', options: [{ value: 1, label: 2 }] }], 'options\\[0\\]\\.label ist kein Text');
+  has([{ type: 'fields', fields: [{ label: 'E-Mail' }] }], 'fields\\[0\\]\\.bind ist kein Text');
+  has([{ type: 'summary', items: [{ label: 'Termin', value: null }] }], 'items\\[0\\]\\.value ist kein Text');
+  assert.equal(pageProblem({ ...page, body: [{ type: 'pick', bind: 'slot', items: 'slots', itemLabel: '{{start}}', groupBy: { path: 'start', format: 'day' } }] }), null);
+});
+
 test('appProblem', () => {
   assert.equal(appProblem({}), null);
   assert.equal(appProblem({ title: 'Kundentermine', home: 'appointments/book', labels: { topic: { advice: 'Beratung' } } }), null);

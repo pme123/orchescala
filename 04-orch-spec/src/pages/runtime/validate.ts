@@ -43,13 +43,32 @@ function bodyProblem(body: unknown, at: string): string | null {
     const here = `${at}[${i}]`;
     if (!isObject(b)) return `${here} ist kein Baustein`;
     if (!TYPES.has(b.type as Component['type'])) return `${here}: unbekannter Baustein «${String(b.type)}»`;
+    // was der Renderer als Text liest (interpolate, evaluate) - eine Zahl dort bräche die ganze Seite
     const problem = (() => {
       switch (b.type) {
-        case 'section': return bodyProblem(b.body, `${here}.body`);
-        case 'choice': return listProblem(b.options, `${here}.options`) ?? actionsProblem(b.onChange, `${here}.onChange`);
-        case 'fields': return listProblem(b.fields, `${here}.fields`);
-        case 'summary': return listProblem(b.items, `${here}.items`);
-        case 'button': return actionsProblem(b.actions, `${here}.actions`, true);
+        case 'heading':
+          return texts(b, here, ['text']);
+        case 'text':
+          return texts(b, here, ['text'], ['tone']);
+        case 'section':
+          return texts(b, here, [], ['label']) ?? bodyProblem(b.body, `${here}.body`);
+        case 'choice':
+          return texts(b, here, ['bind'], ['label'])
+            ?? listProblem(b.options, `${here}.options`, (o, at) => texts(o, at, ['label'], ['hint']))
+            ?? actionsProblem(b.onChange, `${here}.onChange`);
+        case 'pick':
+          return texts(b, here, ['bind', 'items', 'itemLabel'], ['label', 'itemHint', 'empty'])
+            ?? (b.groupBy === undefined || (isObject(b.groupBy) && typeof b.groupBy.path === 'string') ? null : `${here}.groupBy: { path: … } erwartet`);
+        case 'fields':
+          return texts(b, here, [], ['label'])
+            ?? listProblem(b.fields, `${here}.fields`, (f, at) => texts(f, at, ['bind', 'label'], ['input', 'placeholder', 'visible']));
+        case 'summary':
+          return texts(b, here, [], ['label'])
+            ?? listProblem(b.items, `${here}.items`, (it, at) => texts(it, at, ['label', 'value'], ['visible']));
+        case 'button':
+          return texts(b, here, ['label']) ?? actionsProblem(b.actions, `${here}.actions`, true);
+        case 'loading':
+          return texts(b, here, [], ['text']);
         default: return null;
       }
     })();
@@ -58,8 +77,20 @@ function bodyProblem(body: unknown, at: string): string | null {
   return null;
 }
 
-function listProblem(list: unknown, at: string): string | null {
-  return Array.isArray(list) && list.every(isObject) ? null : `«${at}» ist keine Liste von Objekten`;
+function listProblem(list: unknown, at: string, each?: (item: Record<string, unknown>, at: string) => string | null): string | null {
+  if (!(Array.isArray(list) && list.every(isObject))) return `«${at}» ist keine Liste von Objekten`;
+  for (const [i, item] of list.entries()) {
+    const problem = each?.(item, `${at}[${i}]`);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/** Pflicht- und freiwillige Texte eines Objekts - `visible` gilt bei jedem Baustein als freiwillig. */
+function texts(o: Record<string, unknown>, at: string, required: string[], optional: string[] = []): string | null {
+  for (const k of required) if (typeof o[k] !== 'string') return `${at}.${k} ist kein Text`;
+  for (const k of [...optional, 'visible']) if (o[k] !== undefined && typeof o[k] !== 'string') return `${at}.${k} ist kein Text`;
+  return null;
 }
 
 function actionsProblem(actions: unknown, at: string, required = false): string | null {

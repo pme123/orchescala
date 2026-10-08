@@ -200,6 +200,10 @@ const PATH = /^[A-Za-z_$][\w$]*(\.[\w$]+)*$/;
   * Bedingung, die nicht passt, ist sonst einfach falsch und versteckt den Baustein still. */
 export function conditionProblem(cond: string | undefined): string | null {
   if (!cond?.trim()) return null;
+  // kein Escape: ein ' im Text geht nur zwischen " (vor dem offenen Anführungszeichen: \' sähe so aus)
+  if (/\\['"]/.test(cond)) return `kein \\ in Texten: '…"…' oder "…'…" verwenden`;
+  // ein offenes Anführungszeichen verschluckte den Rest - auch ein && oder || darin
+  if (openQuote(cond)) return `ein Anführungszeichen ist nicht geschlossen`;
   for (const or of splitOutsideQuotes(cond, '||')) {
     for (const raw of splitOutsideQuotes(or, '&&')) {
       const part = raw.trim();
@@ -210,8 +214,6 @@ export function conditionProblem(cond: string | undefined): string | null {
         const right = part.slice(op.at + 2).trim();
         if (!PATH.test(left)) return `«${left}» ist kein Pfad`;
         if (!/^('.*'|".*"|true|false|null|-?\d+(\.\d+)?)$/.test(right)) return `«${right}» – ein Text braucht Anführungszeichen ('${right}')`;
-        // kein Escape: ein ' im Text geht nur zwischen "
-        if (/\\['"]/.test(right)) return `«${right}» – kein \\ in Texten: '…"…' oder "…'…" verwenden`;
       } else {
         const path = part.startsWith('!') ? part.slice(1).trim() : part;
         if (!PATH.test(path)) return `«${part}» ist weder ein Pfad noch ein Vergleich`;
@@ -235,6 +237,17 @@ function operatorOutsideQuotes(text: string): { op: '==' | '!='; at: number } | 
 }
 
 /** `a || 'x||y'` → `a`, `'x||y'` - nur ausserhalb von Anführungszeichen. */
+/** Bleibt am Ende ein Anführungszeichen offen? (wie splitOutsideQuotes zählt) */
+function openQuote(text: string): boolean {
+  let quote: string | null = null;
+  for (const ch of text) {
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"') quote = ch;
+  }
+  return quote !== null;
+}
+
 function splitOutsideQuotes(text: string, op: string): string[] {
   const parts: string[] = [];
   let quote: string | null = null;
