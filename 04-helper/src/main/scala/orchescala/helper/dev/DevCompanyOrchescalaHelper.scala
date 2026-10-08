@@ -5,6 +5,9 @@ import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
 import orchescala.helper.dev.publish.PublishHelper.*
+import orchescala.helper.dev.publish.RepoCheck.{artifactSuffix, reportUploaded, verifyVersionFree}
+import orchescala.helper.dev.publish.WorkingTree.*
+import orchescala.helper.dev.publish.{ReleaseRun, SbtRuns}
 import orchescala.engine.config.RepoConfig
 import orchescala.helper.util.{DevConfig, PublishConfig}
 
@@ -111,12 +114,12 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     val hasGateway = os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty
     // the company project has no docs to upload - its site is `publishDocs`
     ReleaseRun(
-      companyRuns(hasGateway),
+      SbtRuns.company(hasGateway),
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
       onFailure = restore,
       afterFailedUpload = () => reportUploaded(newVersion, devConfig, suffix)
-    ).run(releaseSteps(isSnapshot, hasDocs = false))
+    ).run(ReleaseRun.steps(isSnapshot, hasDocs = false))
   end publish
 
 end DevCompanyOrchescalaHelper

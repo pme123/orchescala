@@ -86,8 +86,9 @@ The following steps are executed:
   - The poms are those of the generated build: `<project>-<module>` (the company's with the Scala
     suffix) under the company. A module with a `name` of its own is not covered by the check.
   - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
-    token may not read - so the project of a project registry is asked first. A group registry can
-    not be checked: the release goes on only when you confirm. The job token of a pipeline is GitLab's
+    token may not read - so the project of a project registry is asked first. Does it not show the
+    project (a wrong token - or a deploy token, which may not read it), or is the registry a group's,
+    the release goes on only when you confirm. The job token of a pipeline is GitLab's
     own, it is not probed.
 - Push the `develop` branch.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.

@@ -38,6 +38,23 @@ class ReposConfigTest extends FunSuite:
       Left("System Environment Variable REPO_USER/REPO_PWD contains a line break.")
     )
 
+  test("the credentials of the repo's host - as sbt picks them"):
+    val repos = ReposConfig(
+      credentials = Seq(
+        RepoCredentials.PrivateToken("other", "gitlab.other.com", "OTHER_TOKEN"),
+        RepoCredentials.UserPassword("mine", "gitlab.example.com", "MY_USER", "MY_PWD")
+      ),
+      repos = Seq(RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven"))
+    )
+    val env   = Map("OTHER_TOKEN" -> "t", "MY_USER" -> "me", "MY_PWD" -> "secret")
+    assertEquals(repos.releaseRepoCurlConfig(env.get), Right(Seq("""user = "me:secret"""")))
+    // credentials, but none for the host: the upload would fail the same way
+    val elsewhere = repos.copy(repos = Seq(RepoConfig.Gitlab("release", "https://gitlab.third.com/api/v4/projects/1/packages/maven")))
+    assertEquals(
+      elsewhere.releaseRepoCurlConfig(env.get),
+      Left("No credentials for gitlab.third.com - configured for: gitlab.other.com, gitlab.example.com")
+    )
+
   test("a GitLab repo authenticates with the token - the job token on a pipeline"):
     val repos = ReposConfig(
       credentials = Seq(RepoCredentials.PrivateToken("gitlab", "gitlab.example.com", "GITLAB_TOKEN")),

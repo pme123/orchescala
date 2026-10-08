@@ -72,10 +72,10 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       assert(projectDef.contains("""val org = "democompany""""), projectDef)
       assert(projectDef.contains("""val name = "democompany-orchescala""""), projectDef)
       assert(settings.contains("""name := s"$projectName-$m""""), settings)
-      assertEquals(orchescala.helper.dev.publish.PublishHelper.artifactSuffix(settings), "_3")
+      assertEquals(orchescala.helper.dev.publish.RepoCheck.artifactSuffix(settings), "_3")
       // the poms the check looks for, derived from the generated build: ProjectDef.org/name and
       // the modules of build.sbt (`generalSettings(Some("<module>"))`)
-      import orchescala.helper.dev.publish.PublishHelper
+      import orchescala.helper.dev.publish.RepoCheck
       val Org     = """val org = "([^"]+)"""".r
       val Name    = """val name = "([^"]+)"""".r
       val Modules = """generalSettings\(Some\("([^"]+)"\)\)""".r
@@ -84,8 +84,8 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       val modules = Modules.findAllMatchIn(os.read(projectDir / "build.sbt")).map(_.group(1)).toSeq
       val repo    = orchescala.engine.config.RepoConfig.Gitlab("release", "https://repo")
       assertEquals( // the same poms - build.sbt and the ModuleType order differ
-        PublishHelper.releaseUrls(summon[DevConfig], "1.2.3", "_3", repo).sorted,
-        PublishHelper.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-${m}_3"), "1.2.3").sorted
+        RepoCheck.releaseUrls(summon[DevConfig], "1.2.3", "_3", repo).sorted,
+        RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-${m}_3"), "1.2.3").sorted
       )
 
   test("the gateway is no docker image without the company's settings - no build options either"):

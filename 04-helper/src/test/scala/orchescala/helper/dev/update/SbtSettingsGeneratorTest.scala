@@ -70,10 +70,10 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(projectDef.contains("""val name = "democompany-customer""""), projectDef)
       assert(settings.contains("organization := ProjectDef.org"), settings)
       assert(settings.contains("""name := s"${ProjectDef.name}${module.map(p => s"-$p").getOrElse("")}""""), settings)
-      assertEquals(orchescala.helper.dev.publish.PublishHelper.artifactSuffix(settings), "")
+      assertEquals(orchescala.helper.dev.publish.RepoCheck.artifactSuffix(settings), "")
       // the poms the check looks for, derived from the generated build: ProjectDef.org/name and
       // the modules of build.sbt (`projectSettings(Some("<module>"))`)
-      import orchescala.helper.dev.publish.PublishHelper
+      import orchescala.helper.dev.publish.RepoCheck
       val Org     = """val org = "([^"]+)"""".r
       val Name    = """val name = "([^"]+)"""".r
       val Modules = """projectSettings\(Some\("([^"]+)"\)\)""".r
@@ -82,8 +82,8 @@ class SbtSettingsGeneratorTest extends FunSuite:
       val modules = Modules.findAllMatchIn(os.read(projectDir / "build.sbt")).map(_.group(1)).toSeq
       val repo    = orchescala.engine.config.RepoConfig.Gitlab("release", "https://repo")
       assertEquals(
-        PublishHelper.releaseUrls(summon[DevConfig], "1.2.3", PublishHelper.artifactSuffix(settings), repo).sorted,
-        PublishHelper.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-$m"), "1.2.3").sorted
+        RepoCheck.releaseUrls(summon[DevConfig], "1.2.3", RepoCheck.artifactSuffix(settings), repo).sorted,
+        RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-$m"), "1.2.3").sorted
       )
 
 end SbtSettingsGeneratorTest

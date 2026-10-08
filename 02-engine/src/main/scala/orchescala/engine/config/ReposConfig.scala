@@ -28,8 +28,9 @@ case class ReposConfig(
 
   /** The lines of a curl config (`curl -K -`, fed through stdin - so the secret is not in
     * `ps`) that authenticate at the release repo, as the sbt build does: an Artifactory repo
-    * with its user/password, a GitLab repo with the first credentials (the job token on a
-    * pipeline). Left with the missing environment variables.
+    * with its user/password, another repo with the credentials of its host (the job token on
+    * a pipeline). Left with the missing environment variables, or without credentials for the
+    * host.
     */
   def releaseRepoCurlConfig(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
     // a line break in a secret (read from a file) would start another config line - an option
@@ -45,14 +46,19 @@ case class ReposConfig(
         .getOrElse(Left(s"System Environment Variables $usernameEnv and/ or $passwordEnv are not set."))
     releaseRepo match
       case Some(a: RepoConfig.Artifactory) => userPassword(a.usernameEnv, a.passwordEnv)
-      case _                               =>
-        credentials.headOption match
+      case Some(repo)                      =>
+        // as sbt: the credentials of the repo's host
+        val host = scala.util.Try(java.net.URI(repo.repoUrl).getHost).toOption.getOrElse("")
+        credentials.find(_.repoHost == host) match
           case Some(t: RepoCredentials.PrivateToken) =>
             env("CI_JOB_TOKEN").map(token => line("header", s"Job-Token: $token", "CI_JOB_TOKEN"))
               .orElse(env(t.tokenEnv).map(token => line("header", s"Private-Token: $token", t.tokenEnv)))
               .getOrElse(Left(s"System Environment Variable ${t.tokenEnv} is not set."))
           case Some(u: RepoCredentials.UserPassword) => userPassword(u.usernameEnv, u.passwordEnv)
-          case None                                  => Right(Seq.empty)
+          case None if credentials.isEmpty           => Right(Seq.empty)
+          case None                                  =>
+            Left(s"No credentials for $host - configured for: ${credentials.map(_.repoHost).mkString(", ")}")
+      case None                            => Right(Seq.empty)
   end releaseRepoCurlConfig
 
 end ReposConfig
@@ -138,6 +144,8 @@ end RepoConfig
 
 sealed trait RepoCredentials:
   def name: String
+  // the host these credentials are for - sbt (and the release check) pick them by it
+  def repoHost: String
   def sbtContent: String
 
 object RepoCredentials:
