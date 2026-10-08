@@ -10,13 +10,15 @@ body {
   color: #1a1a1a;
 }
 
-/* die Ecken aus dem Theme der App (theme.ts) - nur, wo es sie setzt; rund (rounded-full) bleibt rund */
-[style*="--orch-radius"] .rounded-sm,
-[style*="--orch-radius"] .rounded,
-[style*="--orch-radius"] .rounded-md,
-[style*="--orch-radius"] .rounded-lg,
-[style*="--orch-radius"] .rounded-xl,
-[style*="--orch-radius"] .rounded-2xl { border-radius: var(--orch-radius); }
+/* die Ecken aus dem Theme der App (theme.ts) - nur, wo es sie setzt; rund (rounded-full) bleibt rund.
+   --orch-radius ist die Ecke der Buttons und Karten (rounded-lg) - die anderen Grössen im Verhältnis dazu,
+   so bleiben kleine Chips kleiner gerundet als grosse Flächen */
+[style*="--orch-radius"] .rounded-sm { border-radius: calc(var(--orch-radius) * 0.33); }
+[style*="--orch-radius"] .rounded { border-radius: calc(var(--orch-radius) * 0.5); }
+[style*="--orch-radius"] .rounded-md { border-radius: calc(var(--orch-radius) * 0.75); }
+[style*="--orch-radius"] .rounded-lg { border-radius: var(--orch-radius); }
+[style*="--orch-radius"] .rounded-xl { border-radius: calc(var(--orch-radius) * 1.33); }
+[style*="--orch-radius"] .rounded-2xl { border-radius: calc(var(--orch-radius) * 2); }
 
 .dark body {
   background: var(--orch-bg, #0e0f11);

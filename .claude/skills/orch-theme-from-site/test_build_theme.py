@@ -53,6 +53,10 @@ class FontStack(unittest.TestCase):
         self.assertEqual(font_stack('-apple-system, Arial, sans-serif', ['Brand Sans, Arial']), '"Brand Sans", Arial, Helvetica, sans-serif')
         self.assertEqual(font_stack('system-ui, sans-serif'), 'sans')
 
+    def test_generic_in_any_case(self):
+        self.assertEqual(font_stack('"Frutiger LT", SERIF'), '"Frutiger LT", Georgia, serif')
+        self.assertEqual(font_stack('Brand, Serif'), 'Brand, Georgia, serif')
+
     def test_generic_only(self):
         self.assertEqual(font_stack('monospace'), 'sans')  # a system body: all generic
         self.assertIsNone(font_stack(''))
@@ -186,6 +190,32 @@ class Problems(unittest.TestCase):
         self.assertNotIn('animate', out)
         self.assertNotIn('set ', out)
         self.assertIn('rect', out)
+
+    def test_svg_links_and_styles_out(self):
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+               b'<use href="http://evil.example/s.svg#a"/><use xlink:href="https://evil.example/s.svg#b"/>'
+               b'<a href=" JaVaScript:alert(1)"><rect width="1"/></a>'
+               b'<rect style="background:url(http://evil.example/p.png)" width="2"/>'
+               b'<rect style="fill: URL( \'https://evil.example/g\' )" width="3"/>'
+               b'<use xlink:href="#ok"/></svg>')
+        import xml.etree.ElementTree as ET
+        out = ET.tostring(parse_svg(svg)).decode()
+        self.assertNotIn('evil.example', out)
+        self.assertNotIn('JaVaScript', out)
+        self.assertIn('#ok', out)
+
+    def test_svg_symbol_keeps_its_sizing_and_is_drawn(self):
+        sprite = (b'<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/>'
+                  b'<symbol id="logo" viewBox="0 0 10 5" preserveAspectRatio="xMinYMid meet"><rect fill="url(#g)"/></symbol>'
+                  b'</defs></svg>')
+        out = svg_symbol(sprite, 'logo').decode()
+        self.assertIn('preserveAspectRatio="xMinYMid meet"', out)
+        self.assertIn('linearGradient', out)
+        self.assertEqual(out.count('<rect'), 1)  # once, outside <defs> - drawn
+        self.assertNotIn('<symbol', out)
+        bare = (b'<svg xmlns="http://www.w3.org/2000/svg"><g id="mark" width="40" height="20"><rect/></g></svg>')
+        out2 = svg_symbol(bare, 'mark').decode()
+        self.assertIn('width="40"', out2)
 
     def test_svg_with_entities_is_refused(self):
         bomb = b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>'

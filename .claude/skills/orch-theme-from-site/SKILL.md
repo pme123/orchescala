@@ -41,7 +41,7 @@ opens the public site and downloads its logo. What it produces, the theme file, 
 3. **Read the styles**: run the contents of `extract.js` (next to this file) with the browser's
    `javascript_exec`. It returns the computed background, text colour, font, the colours of the call-to-
    action buttons and links (with counts), button corners, card surfaces, and the logo as `logoUrl`
-   or small inline `logoSvg`. Save the returned object as `extracted.json` in the scratchpad.
+   or small inline `logoSvg` (a larger one: `logoSvgTooLarge` with its length, `logoSvg` null). Save the returned object as `extracted.json` in the scratchpad.
 
    If the browser is not available, fall back to fetching the HTML and its main CSS and read the same
    values by hand (fewer guarantees; say so).

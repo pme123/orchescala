@@ -56,14 +56,21 @@
     if (el.closest('header, [role=banner]')) s += 2;
     return s + Math.max(0, 3 - r.top / 100);
   };
-  const candidates = [...document.querySelectorAll('img, svg, a *, header *, [class*=logo], [class*=logo] *')]
-    .filter((el) => el.tagName.toLowerCase() === 'img' || el.tagName.toLowerCase() === 'svg' || bgUrl(el))
+  // <img> and <svg> directly; a CSS background image only near the top (header, home link, «logo»), and
+  // at most 400 of them - each needs its computed style, a big site has thousands of elements in links
+  const backgrounds = [...document.querySelectorAll('header *, [role=banner] *, a[href] > *, [class*=logo], [class*=logo] *')]
+    .filter((el) => !['img', 'svg'].includes(el.tagName.toLowerCase()) && !el.closest('svg'))
+    .slice(0, 400)
+    .filter(bgUrl);
+  const candidates = [...document.querySelectorAll('img, svg'), ...backgrounds]
+    .filter((el) => !el.parentElement?.closest('svg')) // an <svg> inside an <svg> is part of it
     .filter(visible);
   const logoEl = [...new Set(candidates)].map((el) => ({ el, s: score(el) })).filter((x) => x.s > 4).sort((a, b) => b.s - a.s)[0]?.el;
   // the address of the logo (SKILL.md fetches it with curl) - an inline SVG as markup, if it is small
   let logoUrl = null;
   let logoSvg = null;
   let logoSpriteId = null;
+  let logoSvgTooLarge = null;
   if (logoEl?.tagName.toLowerCase() === 'svg') {
     const svg = logoEl.cloneNode(true);
     if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -93,7 +100,9 @@
       logoUrl = new URL(external.split('#')[0], location.href).href;
       logoSpriteId = external.split('#')[1] || null;
     }
-    logoSvg = svg.outerHTML.length < 40000 ? svg.outerHTML : `TOO LARGE (${svg.outerHTML.length} chars)`;
+    // markup or null - a too large one is said in its own field, never as text in place of the markup
+    if (svg.outerHTML.length < 40000) logoSvg = svg.outerHTML;
+    else logoSvgTooLarge = svg.outerHTML.length;
   } else {
     logoUrl = (logoEl && (logoEl.currentSrc || logoEl.src || bgUrl(logoEl)))
       || document.querySelector('meta[property="og:image"]')?.content
@@ -118,5 +127,6 @@
     logoAlt: logoEl?.getAttribute?.('alt') ?? null,
     logoSvg,
     logoSpriteId,
+    logoSvgTooLarge,
   };
 })();

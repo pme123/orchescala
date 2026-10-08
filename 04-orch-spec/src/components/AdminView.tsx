@@ -428,7 +428,9 @@ function AppThemeForm({ isDark }: { isDark: boolean }) {
               // dieselbe Prüfung wie beim Laden und Bauen - sonst liesse sich die Datei danach nicht mehr öffnen
               const problem = appProblem(app);
               if (problem) return setMsg(`So nicht speicherbar: ${problem}`);
-              const r = await savePagesApp(app, pagesApp?.version ?? null);
+              // savePagesApp antwortet mit einem Status - fällt es trotzdem (ein Fehler der Ablage), sagen wir es
+              const r = await savePagesApp(app, pagesApp?.version ?? null)
+                .catch((e: unknown) => ({ status: 'error' as const, message: e instanceof Error ? e.message : String(e) }));
               // gespeichert ist, was beim Klick galt - eine Änderung seither bleibt ein Entwurf
               // ohne geladenes pages/app.json (version null) legt das Speichern sie nur neu an - eine, die es
               // gibt, überschreibt es nicht («Die Datei gibt es schon»)

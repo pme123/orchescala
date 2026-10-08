@@ -124,7 +124,7 @@ def font_stack(family, headings=()):
     named = [n for n in names if n.lower() not in GENERIC][:2]
     if not named:
         return {'serif': 'serif', 'monospace': 'mono', 'ui-monospace': 'mono'}.get((generic or '').lower(), 'sans')
-    fallback = ['Georgia', 'serif'] if generic in ('serif', 'ui-serif') else ['Arial', 'Helvetica', 'sans-serif']
+    fallback = ['Georgia', 'serif'] if (generic or '').lower() in ('serif', 'ui-serif') else ['Arial', 'Helvetica', 'sans-serif']
     stack = named + [f for f in fallback if f.lower() not in {n.lower() for n in named}]
     return ', '.join(f'"{n}"' if ' ' in n else n for n in stack)
 
@@ -185,6 +185,17 @@ def parse_svg(data):
     return root
 
 
+def _without(tree, element):
+    """A copy of `tree` without `element` (and what is in it)."""
+    import copy
+    clone = copy.deepcopy(tree)
+    for parent in clone.iter():
+        for child in list(parent):
+            if child.get('id') is not None and child.get('id') == element.get('id'):
+                parent.remove(child)
+    return clone
+
+
 def svg_symbol(data, symbol_id):
     """One <symbol> (or element) of an SVG sprite as an SVG of its own - with the sprite's <defs> it may
     reference (gradients, clip paths). A sprite of symbols alone draws nothing: as a logo it is blank."""
@@ -194,9 +205,16 @@ def svg_symbol(data, symbol_id):
     if found is None:
         sys.exit(f'Kein Element mit id «{symbol_id}» in der Sprite-Datei.')
     svg = ET.Element(f'{{{SVG_NS}}}svg')
-    if found.get('viewBox'):
-        svg.set('viewBox', found.get('viewBox'))
-    for defs in root.iter(f'{{{SVG_NS}}}defs'):
+    # what sizes and fits it: of a <symbol> its viewBox and preserveAspectRatio, of a bare element also
+    # its width and height
+    keep = ('viewBox', 'preserveAspectRatio') + (('width', 'height') if found.tag != f'{{{SVG_NS}}}symbol' else ())
+    for name in keep:
+        if found.get(name):
+            svg.set(name, found.get(name))
+    # the sprite's <defs> - without the logo itself, if it sits in one (it is added below, drawn)
+    for defs in list(root.iter(f'{{{SVG_NS}}}defs')):
+        if found in defs.iter():
+            defs = _without(defs, found)
         svg.append(defs)
     if found.tag == f'{{{SVG_NS}}}symbol':
         for child in list(found):
