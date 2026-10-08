@@ -34,6 +34,8 @@ case class CompanySbtGenerator(
 
   private lazy val projectConf      = config.apiProjectConfig
   private lazy val buildSbtDir      = config.projectDir / "build.sbt"
+  // the gateway is a docker image - only with the company's settings for it
+  private lazy val hasGatewayDocker = config.sbtConfig.dockerGatewaySettings.nonEmpty
   private lazy val companyNameUpper = companyName.toUpperCase()
 
   private lazy val projectDev =
@@ -245,12 +247,11 @@ case class CompanySbtGenerator(
        |  )
        |
        |  // gateway
-       |${SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)}
-       |  lazy val dockerSettings = ${
-        config.sbtConfig.dockerGatewaySettings
-          .map(s => s"dockerBuildSettings ++ $s")
-          .getOrElse("preventPublication")
+       |${
+        if hasGatewayDocker then SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)
+        else ""
       }
+       |  lazy val dockerSettings = ${config.sbtConfig.dockerGatewaySettings.getOrElse("preventPublication")}
        |}
        |""".stripMargin
 
@@ -331,12 +332,12 @@ case class CompanySbtGenerator(
        |  .settings(publicationSettings)
        |  .settings(libraryDependencies ++= gatewayDeps)
        |  .settings(
-       |    dockerSettings,
+       |    ${if hasGatewayDocker then "dockerBuildSettings,\n       |    " else ""}dockerSettings,
        |    unitTestSettings,
        |    zioTestSettings
        |  )
        |  .dependsOn(worker)
-       |  .enablePlugins(${config.sbtConfig.dockerGatewaySettings.map(_ => "DockerPlugin, ").mkString}JavaAppPackaging)
+       |  .enablePlugins(${if hasGatewayDocker then "DockerPlugin, " else ""}JavaAppPackaging)
        |
        |lazy val helper = project
        |  .in(file("./04-helper"))

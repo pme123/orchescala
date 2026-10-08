@@ -19,13 +19,21 @@ object SbtConfig:
   /** `docker build --platform linux/amd64` - the image OpenShift runs, built on any machine. */
   val amd64: Seq[String] = Seq("--platform", "linux/amd64")
 
-  /** The sbt setting that fixes the docker build options - `Settings.scala` adds it to the
-    * `dockerSettings` of the company, so `./helper.scala update` keeps it.
+  /** The sbt setting of the docker build options - its own `dockerBuildSettings` in
+    * `Settings.scala`, next to the `dockerSettings` of the company (which stay as they are).
+    * `build.sbt` adds both to the docker modules, so `./helper.scala update` keeps the options.
     */
   def dockerBuildSettings(options: Seq[String]): String =
     val setting =
       if options.isEmpty then ""
-      else s"\n    dockerBuildOptions ++= Seq(${options.map(o => s"\"$o\"").mkString(", ")})\n  "
+      else s"\n    dockerBuildOptions ++= Seq(${options.map(scalaString).mkString(", ")})\n  "
+    // `Setting[_]`: sbt's build definition is Scala 2.12 - it has no `?`
     s"""  // the options of `docker build` (SbtConfig.dockerBuildOptions in CompanyDevConfig)
        |  lazy val dockerBuildSettings: Seq[Setting[_]] = Seq($setting)""".stripMargin
+  end dockerBuildSettings
+
+  /** A Scala string literal of `value` - quotes and backslashes escaped. */
+  private def scalaString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 end SbtConfig

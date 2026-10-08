@@ -28,19 +28,16 @@ case class PublishHelper()(using
       dockerProject = Option.when(os.exists(workerAppFile))("worker"),
       build = Seq("api/run")
     )
-    // 1. everything is built and staged locally - the docs, the docker image, the artifacts
-    println(s"SBT build: ${runs.build.mkString(" ")}")
-    os.proc(runs.build).callOnConsole()
-
-    val isSnapshot = version.contains("-")
-    if !isSnapshot then
-      publishToWebserver()
-    // 2. only now the version is uploaded - the repository keeps it forever
-    println(s"SBT publish: ${runs.publish.mkString(" ")}")
-    os.proc(runs.publish).callOnConsole()
-    if !isSnapshot then
-      git(version, replaceVersion)
-    end if
+    releaseSteps(isSnapshot = version.contains("-"), hasDocs = devConfig.publishConfig.nonEmpty)
+      .foreach:
+        case ReleaseStep.Build      =>
+          println(s"SBT build: ${runs.build.mkString(" ")}")
+          os.proc(runs.build).callOnConsole()
+        case ReleaseStep.UploadDocs => publishToWebserver()
+        case ReleaseStep.Upload     =>
+          println(s"SBT publish: ${runs.publish.mkString(" ")}")
+          os.proc(runs.publish).callOnConsole()
+        case ReleaseStep.Git        => git(version, replaceVersion)
   end publish
 
   private lazy val apiFile: os.Path =
@@ -144,14 +141,34 @@ object PublishHelper extends Helpers:
     verifyVersion(newVersion)
   end verify
 
+  /** The steps of a release, in their order - see [[releaseSteps]]. */
+  enum ReleaseStep:
+    case Build, UploadDocs, Upload, Git
+
+  /** A release version is immutable in the repository (Artifactory): when the docker build or
+    * the docs failed after `sbt publish`, the version was taken and the next try needed a new
+    * one. So everything that can fail at build time runs first ([[SbtRuns]]), the upload
+    * comes last - a failed release is run again with the same version.
+    *
+    * The docs go to the webserver BEFORE the upload: the webserver takes a version again, the
+    * repository does not. So a release that fails at the upload is repeated with the same
+    * version - its docs are simply uploaded again, while a release that failed at the docs
+    * after the upload could never be repeated.
+    */
+  def releaseSteps(isSnapshot: Boolean, hasDocs: Boolean): Seq[ReleaseStep] =
+    import ReleaseStep.*
+    if isSnapshot then Seq(Build, Upload)
+    else Seq(Build) ++ Option.when(hasDocs)(UploadDocs) ++ Seq(Upload, Git)
+  end releaseSteps
+
   /** The two sbt runs of a release.
     *
-    * `build` stages everything locally - `publishLocal` packages every module, the docker
-    * image is built (`Docker / publishLocal`), the docs are generated; `publish` uploads the
-    * built artifacts only. A release version is immutable in the repository (Artifactory):
-    * when the docker build or the docs failed after `publish`, the version was taken and the
-    * next try needed a new one. The docker image is pushed before the artifacts - its tag can
-    * be overwritten, the artifacts can not.
+    * `build` is where the build may fail: `publishLocal` compiles and packages every module,
+    * the docker image is built (`Docker / publishLocal`), the docs are generated. `publish`
+    * repeats the packaging (the compiler and docker reuse their caches) and uploads - what is
+    * left to fail there is the upload itself (credentials, network, a taken version). The
+    * docker image is pushed before the artifacts - its tag can be overwritten, the artifacts
+    * can not.
     */
   case class SbtRuns(build: Seq[String], publish: Seq[String])
 

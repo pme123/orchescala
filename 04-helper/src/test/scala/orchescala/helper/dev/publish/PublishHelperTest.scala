@@ -80,4 +80,16 @@ class PublishHelperSbtRunsTest extends FunSuite:
     assertEquals(runs.build, Seq("sbt", "-J-Xmx3G", "publishLocal"))
     assertEquals(runs.publish, Seq("sbt", "-J-Xmx3G", "publish"))
 
+  test("the steps of a release: build, the docs, the upload, git - a snapshot only builds and uploads"):
+    import PublishHelper.ReleaseStep.*
+    assertEquals(
+      PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true),
+      Seq(Build, UploadDocs, Upload, Git)
+    )
+    assertEquals(
+      PublishHelper.releaseSteps(isSnapshot = false, hasDocs = false),
+      Seq(Build, Upload, Git)
+    )
+    assertEquals(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = true), Seq(Build, Upload))
+
 end PublishHelperSbtRunsTest

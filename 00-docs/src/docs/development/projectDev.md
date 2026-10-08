@@ -86,7 +86,11 @@ The following steps are executed:
   - Nothing is uploaded yet: a release version is immutable in the repository (e.g. Artifactory).
     If a step fails here, you fix it and run the command again with the same version.
 - Uploads the documentation to a WebDAV-webserver (optional).
+  - On purpose before the repository: the webserver takes a version again, the repository does not.
+    A release that fails at the upload is repeated with the same version - its docs are uploaded again.
 - Publish the project to the repository (`worker / Docker / publish`, then `publish`).
+  - This sbt run repeats the packaging (compiler and Docker reuse their caches) and uploads -
+    what is left to fail here is the upload itself (credentials, network, a taken version).
   - The Docker image is pushed first - its tag can be overwritten, the artifacts can not.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.

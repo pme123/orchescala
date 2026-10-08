@@ -108,16 +108,17 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       dockerProject = Option.when(hasGateway)("gateway"),
       sbtOptions = Seq("-J-Xmx3G")
     )
-    // 1. everything is built and staged locally - the artifacts, the docker image
-    println(s"SBT build: ${runs.build.mkString(" ")}")
-    os.proc(runs.build).callOnConsole()
-    // 2. only now the version is uploaded - the repository keeps it forever
-    println(s"SBT publish: ${runs.publish.mkString(" ")}")
-    os.proc(runs.publish).callOnConsole()
-
-    if !isSnapshot then
-      git(newVersion, newVers => replaceVersion(newVers, projectFile))
-    end if
+    // the company project has no docs to upload - its site is `publishDocs`
+    releaseSteps(isSnapshot, hasDocs = false)
+      .foreach:
+        case ReleaseStep.Build  =>
+          println(s"SBT build: ${runs.build.mkString(" ")}")
+          os.proc(runs.build).callOnConsole()
+        case ReleaseStep.Upload =>
+          println(s"SBT publish: ${runs.publish.mkString(" ")}")
+          os.proc(runs.publish).callOnConsole()
+        case ReleaseStep.Git    => git(newVersion, newVers => replaceVersion(newVers, projectFile))
+        case ReleaseStep.UploadDocs => ()
   end publish
 
 end DevCompanyOrchescalaHelper

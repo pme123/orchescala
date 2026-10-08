@@ -3,7 +3,7 @@ package orchescala.helper.dev.company
 import munit.FunSuite
 import orchescala.engine.domain.EngineType
 import orchescala.engine.domain.EngineType.*
-import orchescala.helper.util.DevConfig
+import orchescala.helper.util.{DevConfig, SbtConfig}
 
 /** The company wrappers for each combination of engines - `sbt companyCheck` compiles only
   * `C7 C8 Op`, the branching on the engines is checked here.
@@ -63,6 +63,35 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       assert(!os.read(settings).contains(workerOpDep))
       CompanySbtGenerator(Seq(C7, C8, Op)).generate
       assert(os.read(settings).contains(workerOpDep))
+
+  test("the gateway is no docker image without the company's settings - no build options either"):
+    inCompany: projectDir =>
+      CompanySbtGenerator(Seq(C7)).generate
+      val settings = os.read(projectDir / "project" / "Settings.scala")
+      val buildSbt = os.read(projectDir / "build.sbt")
+      assert(settings.contains("lazy val dockerSettings = preventPublication"), settings)
+      assert(!settings.contains("dockerBuildSettings"), settings)
+      assert(!buildSbt.contains("dockerBuildSettings"), buildSbt)
+      assert(buildSbt.contains(".enablePlugins(JavaAppPackaging)"), buildSbt)
+
+  test("the gateway docker image is built with the build options"):
+    val dir = os.temp.dir(prefix = "company-wrapper-")
+    try
+      os.dynamicPwd.withValue(dir):
+        given DevConfig = DevConfig.configForCompany("democompany-orchescala")
+          .withSbtConfig(SbtConfig(dockerGatewaySettings = Some("""Seq(dockerBaseImage := "x")""")))
+        CompanySbtGenerator(Seq(C7)).generate
+        val projectDir = dir / "democompany-orchescala"
+        val settings   = os.read(projectDir / "project" / "Settings.scala")
+        val buildSbt   = os.read(projectDir / "build.sbt")
+        assert(
+          settings.contains("""dockerBuildOptions ++= Seq("--platform", "linux/amd64")"""),
+          settings
+        )
+        assert(settings.contains("""lazy val dockerSettings = Seq(dockerBaseImage := "x")"""), settings)
+        assert(buildSbt.contains("dockerBuildSettings,\n    dockerSettings,"), buildSbt)
+        assert(buildSbt.contains(".enablePlugins(DockerPlugin, JavaAppPackaging)"), buildSbt)
+    finally os.remove.all(dir)
 
   test("a company adding Op later: the existing CompanyWorker misses Op"):
     inCompany: _ =>

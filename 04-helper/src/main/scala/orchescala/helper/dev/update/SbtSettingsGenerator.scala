@@ -166,7 +166,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        else config.sbtConfig.dockerSettings)
         .getOrElse("Seq()")
     s"""${SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)}
-       |  lazy val dockerSettings = dockerBuildSettings ++ $companySettings""".stripMargin
+       |  lazy val dockerSettings = $companySettings""".stripMargin
   end sbtDocker
 
   lazy val testSettings =
