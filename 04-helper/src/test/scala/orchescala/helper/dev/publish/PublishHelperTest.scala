@@ -106,7 +106,8 @@ class PublishHelperSbtRunsTest extends FunSuite:
       uploadDocs = () => step("docs"),
       git = () => step("git"),
       exec = cmd => step(if cmd == runs.build then "build" else "upload"),
-      onFailure = failed => log += s"failed $failed"
+      onFailure = failed => log += s"failed $failed",
+      afterFailedUpload = () => log += "reported"
     )
     (rel, () => log.toSeq)
 
@@ -130,11 +131,11 @@ class PublishHelperSbtRunsTest extends FunSuite:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
     assertEquals(log(), Seq("build", "docs", "failed UploadDocs"))
 
-  test("a failing upload: the docs are on the webserver already, git does not run"):
+  test("a failing upload: the docs are on the webserver already, git does not run - what went out is reported"):
     val (rel, log) = release(failing = Set("upload"))
     intercept[IllegalStateException]:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
-    assertEquals(log(), Seq("build", "docs", "upload", "failed Upload"))
+    assertEquals(log(), Seq("build", "docs", "upload", "reported", "failed Upload"))
 
   test("the runs of a project and of the company project"):
     assertEquals(
@@ -186,8 +187,9 @@ class PublishHelperRetryTest extends FunSuite:
     val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir)
     os.write.over(dir / "docs" / "Prozess Ü (1).md", "# v2 generated")
     os.remove(dir / "build.sbt") // a generator removed a file
+    os.write(dir / "new.md", "added during the release")
     PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
-    os.proc("git", "add", "ProjectDef.scala").call(cwd = dir) // staged or not
+    os.proc("git", "add", "ProjectDef.scala", "new.md").call(cwd = dir) // staged or not, even a new file
     intercept[IllegalStateException](PublishHelper.verifyCleanWorkingTree(dir))
 
     val runs = PublishHelper.sbtRuns(None)
@@ -204,8 +206,19 @@ class PublishHelperRetryTest extends FunSuite:
     assertEquals(os.read(dir / "ProjectDef.scala"), "version = \"1.0.0\"")
     assertEquals(os.read(dir / "docs" / "Prozess Ü (1).md"), "# v1")
     assertEquals(os.read(dir / "build.sbt"), "version := \"1.0.0\"")
+    assert(os.exists(dir / "new.md")) // unstaged, kept as untracked
     assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
     assert(os.exists(dir / "notes.txt"))
+
+  test("a failing rewrite before the release restores too"):
+    val dir     = repo()
+    val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir)
+    val error   = intercept[IllegalStateException]:
+      PublishHelper.restoring(restore):
+        PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
+        throw IllegalStateException("the api file is broken")
+    assertEquals(error.getMessage, "the api file is broken")
+    PublishHelper.verifyCleanWorkingTree(dir)
 
   test("an interrupt or a fatal error goes through without a restore"):
     def interrupted(error: Throwable): Seq[String] =
@@ -251,6 +264,7 @@ class PublishHelperRetryTest extends FunSuite:
       git = () => (),
       exec = cmd => if cmd == runs.build then during = hooks.toSeq,
       onFailure = step => log += s"restored $step",
+      awaitChild = () => log += "waited for sbt",
       addShutdownHook = hooks += _,
       removeShutdownHook = hooks -= _
     )
@@ -258,7 +272,19 @@ class PublishHelperRetryTest extends FunSuite:
     assertEquals(during.size, 1) // the hook of Build, while it ran
     assert(hooks.isEmpty)        // gone afterwards
     during.head.run()            // as the JVM would on Ctrl-C
-    assertEquals(log.toSeq, Seq("restored Build"))
+    assertEquals(log.toSeq, Seq("waited for sbt", "restored Build"))
+
+  test("the sbt child: a failing process throws, a running one is waited for"):
+    intercept[IllegalStateException](PublishHelper.SbtChild.run(Seq("false")))
+    PublishHelper.SbtChild.run(Seq("true"))
+    PublishHelper.SbtChild.awaitExit() // nothing running - returns at once
+    val sleeper = Thread(() => PublishHelper.SbtChild.run(Seq("sleep", "1")))
+    sleeper.start()
+    Thread.sleep(200)
+    val started = System.nanoTime()
+    PublishHelper.SbtChild.awaitExit()
+    assert((System.nanoTime() - started) / 1e6 > 500, "waited for the child")
+    sleeper.join()
 
   test("a failing restore does not hide the failure of the release"):
     val runs = PublishHelper.sbtRuns(None)
@@ -458,5 +484,10 @@ class PublishHelperVersionFreeTest extends FunSuite:
       val taken = intercept[IllegalStateException]:
         PublishHelper.verifyVersionFree("1.2.3-taken", devConfig, "", env.get)
       assert(taken.getMessage.contains("is in the repository already"), taken.getMessage)
+      // after a failed upload: what is there
+      val uploaded = PublishHelper.reportUploaded("1.2.3-taken", devConfig, "", env.get)
+      assertEquals(uploaded.size, ModuleType.projectModules.size)
+      assertEquals(PublishHelper.reportUploaded("1.2.3", devConfig, "", env.get), Seq.empty)
+      assertEquals(PublishHelper.reportUploaded("1.2.3", devConfig, "", _ => None), Seq.empty) // never fails
 
 end PublishHelperVersionFreeTest

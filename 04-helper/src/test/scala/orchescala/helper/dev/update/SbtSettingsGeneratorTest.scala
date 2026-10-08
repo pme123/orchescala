@@ -71,5 +71,19 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(settings.contains("organization := ProjectDef.org"), settings)
       assert(settings.contains("""name := s"${ProjectDef.name}${module.map(p => s"-$p").getOrElse("")}""""), settings)
       assertEquals(orchescala.helper.dev.publish.PublishHelper.artifactSuffix(settings), "")
+      // the poms the check looks for, derived from the generated build: ProjectDef.org/name and
+      // the modules of build.sbt (`projectSettings(Some("<module>"))`)
+      import orchescala.helper.dev.publish.PublishHelper
+      val Org     = """val org = "([^"]+)"""".r
+      val Name    = """val name = "([^"]+)"""".r
+      val Modules = """projectSettings\(Some\("([^"]+)"\)\)""".r
+      val org     = Org.findFirstMatchIn(projectDef).get.group(1)
+      val name    = Name.findFirstMatchIn(projectDef).get.group(1)
+      val modules = Modules.findAllMatchIn(os.read(projectDir / "build.sbt")).map(_.group(1)).toSeq
+      val repo    = orchescala.engine.config.RepoConfig.Gitlab("release", "https://repo")
+      assertEquals(
+        PublishHelper.releaseUrls(summon[DevConfig], "1.2.3", PublishHelper.artifactSuffix(settings), repo).sorted,
+        PublishHelper.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-$m"), "1.2.3").sorted
+      )
 
 end SbtSettingsGeneratorTest

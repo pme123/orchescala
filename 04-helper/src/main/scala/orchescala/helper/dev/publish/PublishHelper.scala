@@ -22,8 +22,9 @@ case class PublishHelper()(using
     verify(version)
     if !isSnapshot then verifyVersionFree(version)
     pushDevelop()
-    setApiVersion(version)
-    replaceVersion(version)
+    restoring(restore):
+      setApiVersion(version)
+      replaceVersion(version)
 
     lazy val workerAppFile: os.Path =
       workDir / "03-worker" / "src" / "main" / "scala" /
@@ -33,13 +34,17 @@ case class PublishHelper()(using
       projectRuns(hasWorkerApp = os.exists(workerAppFile)),
       uploadDocs = () => publishToWebserver(),
       git = () => git(version, replaceVersion),
-      onFailure = restore
+      onFailure = restore,
+      afterFailedUpload = () => reportUploaded(version, devConfig, artifactSuffix)
     ).run(releaseSteps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
 
+  private lazy val artifactSuffix: String =
+    PublishHelper.artifactSuffix(workDir / "project" / "Settings.scala")
+
   /** [[PublishHelper.verifyVersionFree]] for the modules of this project. */
   private def verifyVersionFree(version: String): Unit =
-    PublishHelper.verifyVersionFree(version, devConfig, artifactSuffix(workDir / "project" / "Settings.scala"))
+    PublishHelper.verifyVersionFree(version, devConfig, artifactSuffix)
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
@@ -86,23 +91,43 @@ object PublishHelper extends Helpers:
   /** The tracked files that differ from HEAD (staged or not) - without the CHANGELOG, the one
     * file a release edits. NUL-separated, so a path with spaces or special characters comes
     * as it is (`--porcelain` quotes them); no rename detection, so a path is always a path.
+    * `filter`: git's `--diff-filter`, e.g. `A` for the files added to the index only.
     */
-  private def changedTrackedFiles(repo: os.Path): Seq[String] =
-    os.proc("git", "diff", "--name-only", "-z", "--no-renames", "HEAD").call(cwd = repo)
+  private def changedTrackedFiles(repo: os.Path, filter: Option[String] = None): Seq[String] =
+    os.proc(
+      "git", "diff", "--name-only", "-z", "--no-renames", filter.map(f => s"--diff-filter=$f"), "HEAD"
+    ).call(cwd = repo)
       .out.text().split('\u0000').toSeq
       .filter(_.nonEmpty)
       .filterNot(_ == "CHANGELOG.md")
 
   /** A failed release leaves its changes in the tracked files (the versions, generated docs) -
     * the next try with the same version stopped at [[verifyCleanWorkingTree]]. So they are
-    * restored from HEAD (the index too); the CHANGELOG and untracked files stay as they are.
+    * restored from HEAD (the index too); a file added to the index only (not in HEAD) is
+    * unstaged and stays as untracked; the CHANGELOG and untracked files stay as they are.
     */
   def restoreWorkingTree(repo: os.Path = workDir): Unit =
     val changed = changedTrackedFiles(repo)
     if changed.nonEmpty then
       println(s"Restoring the working tree for the next try:\n - ${changed.mkString("\n - ")}")
-      os.proc("git" +: "checkout" +: "HEAD" +: "--" +: changed).call(cwd = repo)
+      val added  = changedTrackedFiles(repo, filter = Some("A"))
+      val inHead = changed.diff(added)
+      if added.nonEmpty then
+        os.proc("git" +: "rm" +: "--quiet" +: "--force" +: "--cached" +: "--" +: added).call(cwd = repo)
+      if inHead.nonEmpty then
+        os.proc("git" +: "checkout" +: "HEAD" +: "--" +: inHead).call(cwd = repo)
   end restoreWorkingTree
+
+  /** `body` with the restore of a failed release - for the changes made before the
+    * [[ReleaseRun]] (the versions). A fatal error goes through without a restore.
+    */
+  def restoring[T](restore: ReleaseStep => Unit)(body: => T): T =
+    try body
+    catch
+      case scala.util.control.NonFatal(e) =>
+        try restore(ReleaseStep.Build)
+        catch case scala.util.control.NonFatal(r) => e.addSuppressed(r)
+        throw e
 
   /** [[restoreWorkingTree]] when a release fails before its git step - after it, the version is
     * uploaded and committed, nothing to retry. A snapshot keeps its changes as before.
@@ -266,20 +291,53 @@ object PublishHelper extends Helpers:
       val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalArgumentException(msg), identity)
       val status = curlStatus(config)
       repo match
+        case _: RepoConfig.Gitlab if config.isEmpty                    =>
+          println(
+            "WARNING: no credentials for the GitLab repository - the check runs anonymously, " +
+              "a private package reads as free."
+          )
         // the job token of a pipeline is GitLab's own - nothing to probe (and the project
         // endpoint is not meant for it); a token of a developer is probed
         case gitlab: RepoConfig.Gitlab if env("CI_JOB_TOKEN").isEmpty =>
           verifyGitlabCredentials(gitlab.repoUrl, status)
         case _                                                         => ()
-      val urls   = releaseArtifactUrls(
-        repo.repoUrl,
-        devConfig.companyName,
-        devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m$artifactSuffix"),
-        version
-      )
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyVersionFree(version, urls, status)
+      verifyVersionFree(version, releaseUrls(devConfig, version, artifactSuffix, repo), status)
   end verifyVersionFree
+
+  /** The poms `publish` uploads for `version` - every module of the project (a module that
+    * is never published is simply not there), named `<project>-<module><suffix>` under the
+    * company (the `organization`).
+    */
+  def releaseUrls(devConfig: DevConfig, version: String, artifactSuffix: String, repo: RepoConfig)
+      : Seq[String] =
+    releaseArtifactUrls(
+      repo.repoUrl,
+      devConfig.companyName,
+      devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m$artifactSuffix"),
+      version
+    )
+
+  /** After a failed upload: which poms of `version` are in the release repo now - so the
+    * console names what went out. Never fails (it runs in a failure handler).
+    */
+  def reportUploaded(
+      version: String,
+      devConfig: DevConfig,
+      artifactSuffix: String,
+      env: String => Option[String] = sys.env.get
+  ): Seq[String] =
+    val repos = devConfig.sbtConfig.reposConfig
+    scala.util.Try:
+      repos.releaseRepo.toSeq.flatMap: repo =>
+        val config   = repos.releaseRepoCurlConfig(env).getOrElse(Seq.empty)
+        val uploaded = releaseUrls(devConfig, version, artifactSuffix, repo).filter(curlStatus(config)(_) == 200)
+        if uploaded.isEmpty then println(s"Nothing of $version is in ${repo.repoUrl}.")
+        else println(s"Uploaded already - remove them there before the next try:\n - ${uploaded.mkString("\n - ")}")
+        uploaded
+    .recover { case scala.util.control.NonFatal(e) => println(s"Could not look up what was uploaded: ${e.getMessage}"); Seq.empty }
+    .get
+  end reportUploaded
 
   /** The project of a GitLab maven registry (`.../api/v4/projects/<id>/packages/maven`) - the
     * endpoint that tells whether the token may read it. None for another registry (a group's).
@@ -369,20 +427,26 @@ object PublishHelper extends Helpers:
       runs: SbtRuns,
       uploadDocs: () => Unit,
       git: () => Unit,
-      exec: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole(),
+      exec: Seq[String] => Unit = SbtChild.run,
       // called with the failed step before the failure is rethrown - see restoreForRetry
       onFailure: ReleaseStep => Unit = _ => (),
+      // after a failed upload, before the restore - names what went out
+      afterFailedUpload: () => Unit = () => (),
+      // Ctrl-C: the sbt child gets it too and may still write - waited for before the restore
+      awaitChild: () => Unit = () => SbtChild.awaitExit(),
       // the JVM's shutdown hooks - replaced in the tests
       addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
       removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_)
   ):
     /** Ctrl-C ends the JVM, no exception reaches the release - this hook restores the running
-      * step's changes (registered while the step runs).
+      * step's changes (registered while the step runs), once the sbt child ended.
       */
     def abortedAt(step: ReleaseStep): Thread =
       Thread: () =>
         println(s"Aborted at $step")
-        try onFailure(step)
+        try
+          awaitChild()
+          onFailure(step)
         catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
 
     def run(steps: Seq[ReleaseStep]): Unit =
@@ -399,13 +463,16 @@ object PublishHelper extends Helpers:
                   "uploaded before it failed are in the repository. The next try fails the check of the version " +
                   "until you remove the version there - then it overwrites the image's tag."
               )
+              try afterFailedUpload()
+              catch case scala.util.control.NonFatal(report) => e.addSuppressed(report)
             // the failure of the release stays the error - a failing restore is added to it
             try onFailure(step)
             catch case scala.util.control.NonFatal(restore) => e.addSuppressed(restore)
             throw e
         finally
-          // fails while the JVM shuts down - then the hook runs anyway
-          scala.util.Try(removeShutdownHook(aborted))
+          // refused while the JVM shuts down - then the hook runs anyway
+          try removeShutdownHook(aborted)
+          catch case _: IllegalStateException => ()
 
     private def run(step: ReleaseStep): Unit =
       step match
@@ -418,6 +485,30 @@ object PublishHelper extends Helpers:
           exec(runs.publish)
         case ReleaseStep.Git        => git()
   end ReleaseRun
+
+  /** The sbt child of a release - run on the console; a shutdown hook waits for it to end
+    * before it restores the working tree (the child got the Ctrl-C too and may still write).
+    */
+  object SbtChild:
+    @volatile private var running: Option[os.SubProcess] = None
+
+    def run(cmd: Seq[String]): Unit =
+      println(cmd.mkString(" "))
+      val child = os.proc(cmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
+      running = Some(child)
+      try
+        child.waitFor()
+        if child.exitCode() != 0 then
+          throw IllegalStateException(s"`${cmd.mkString(" ")}` failed with exit code ${child.exitCode()}")
+      finally running = None
+    end run
+
+    /** Waits for the running child - at most `timeout`. */
+    def awaitExit(timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")): Unit =
+      running.foreach: child =>
+        println("Waiting for sbt to end ...")
+        if !child.waitFor(timeout.toMillis) then println(s"sbt did not end within $timeout - restoring anyway.")
+  end SbtChild
 
   def verifyVersion(newVersion: String): Unit =
     val releaseVersion = """^(\d+)\.(\d+)\.(\d+)(-.*)?$"""

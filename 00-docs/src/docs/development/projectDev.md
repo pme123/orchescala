@@ -104,12 +104,14 @@ The following steps are executed:
   - The Docker image is pushed first - its tag can be overwritten, the artifacts can not.
   - `publish` uploads module by module: fails it midway, the modules uploaded so far are in the
     repository - this is the one case that still needs the version removed there before the next try.
+    The console names them (the poms found in the repository).
   - Fails `publish` after the Docker push, the image with the version's tag is in the registry
     without its artifacts - the next try overwrites it.
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
-  and untracked files stay as they are - also when you abort it (Ctrl-C). Should that fail, `git status`
-  shows the files, `git checkout HEAD -- <files>` restores them.
+  and untracked files stay as they are - also when you abort it (Ctrl-C: sbt gets it too, the restore
+  waits up to 30 seconds for it to end). Should that fail, `git status` shows the files,
+  `git checkout HEAD -- <files>` restores them.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.
 - Increase the version to the next minor _SNAPSHOT_ version.

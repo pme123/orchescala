@@ -98,9 +98,10 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)
-    if !isSnapshot then
-      verifyVersionFree(newVersion, devConfig, artifactSuffix(workDir / "project" / "Settings.scala"))
-    replaceVersion(newVersion, projectFile)
+    lazy val suffix = artifactSuffix(workDir / "project" / "Settings.scala")
+    if !isSnapshot then verifyVersionFree(newVersion, devConfig, suffix)
+    restoring(restore):
+      replaceVersion(newVersion, projectFile)
     println("Versions replaced")
     println(s"isSnapshot: $isSnapshot")
 
@@ -113,7 +114,8 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       companyRuns(hasGateway),
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
-      onFailure = restore
+      onFailure = restore,
+      afterFailedUpload = () => reportUploaded(newVersion, devConfig, suffix)
     ).run(releaseSteps(isSnapshot, hasDocs = false))
   end publish
 
