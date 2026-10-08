@@ -294,7 +294,18 @@ case class OrchSpecRegistration(
       !hidden(i) && lines(i).matches(s"""$leadingComments(private\\s+)?lazy val $name\\s*=.*""")
     )
     if start >= 0 then addEntries(lines, start)
-    else addBlock(lines)
+    else
+      // a worker (`MyProcessWorker()`) registered elsewhere already - a block of another name
+      // (`lilaSetV2Workers` for `lilaSet` v2): a second registration would subscribe the same
+      // topic twice
+      val left = entries.filterNot: e =>
+        val key = e.stripSuffix("()")
+        e.endsWith("()") && lines.indices.exists(i =>
+          !hidden(i) && !lines(i).trim.startsWith("//") && s"""\\b$key\\(""".r.findFirstIn(lines(i)).isDefined
+        )
+      if left.isEmpty then RegistrationResult.Unchanged
+      else copy(entries = left).addBlock(lines)
+    end if
   end register
 
   /** The lines that begin inside a block comment (`/* … */`) or a multi-line string - like the
