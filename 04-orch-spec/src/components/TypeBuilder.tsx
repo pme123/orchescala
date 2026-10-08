@@ -265,8 +265,14 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     onChange(next);
   };
 
+  // ein neuer Status der Interaktion gilt auch für ihr In und Out — wie bei einem Schritt
+  // für alles darunter; sonst bliebe der Chip im Ablauf auf dem Status einer Klasse stehen
   const patchIa = (id: string, patch: Partial<Interaction>) =>
-    onChange({ ...spec, interactions: interactions.map(i => (i.id === id ? { ...i, ...patch } : i)) });
+    onChange({
+      ...spec,
+      interactions: interactions.map(i => (i.id === id ? { ...i, ...patch } : i)),
+      ...(patch.status ? { types: types.map(t => (t.interactionId === id ? { ...t, status: patch.status } : t)) } : {}),
+    });
 
   /** In bzw. Out einer Interaktion — beim ersten Klick angelegt. */
   const openMember = (ia: Interaction, member: 'In' | 'Out') => {
@@ -307,8 +313,12 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
         : i)),
     });
   };
-  const patchType = (id: string, patch: Partial<TypeDef>) =>
+  const patchType = (id: string, patch: Partial<TypeDef>) => {
+    // In und Out einer Interaktion sind mit ihr eine Einheit: ein neuer Status gilt für alle drei
+    const iaId = patch.status ? types.find(t => t.id === id)?.interactionId : undefined;
+    if (iaId && interactions.some(i => i.id === iaId)) { patchIa(iaId, { status: patch.status }); return; }
     setTypes(types.map(t => (t.id === id ? { ...t, ...patch } : t)));
+  };
 
   // Das In ist die Wurzel — es gibt genau eines und es liegt im Prozess-Objekt.
   const addType = (kind: 'case' | 'enum', name = '', root = false): string => {
@@ -716,6 +726,7 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, interactions, m
           </div>
         </div>
         <select value={ia.status ?? 'draft'} disabled={!canEdit}
+          title="Status der Interaktion — gilt auch für ihr In und Out"
           onChange={e => onPatch({ status: e.target.value as Status })}
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
@@ -996,6 +1007,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
         </div>
         <select value={t.status ?? 'draft'} disabled={!canEdit}
+          title={t.interactionId ? 'Status — gilt für die Interaktion samt In und Out' : undefined}
           onChange={e => onPatch({ status: e.target.value as Status })}
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}

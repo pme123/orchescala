@@ -32,3 +32,14 @@ test('a prepared interaction there goes, with its classes', () => {
   const kept = withoutWiringInteractions({ ...spec, interactions: [{ ...spec.interactions![0], status: 'implemented' }] });
   assert.equal(kept.interactions?.length, 1);
 });
+
+test('a wiring step has no «no interaction» warning', async () => {
+  const { collectFindings } = await import('../src/findings');
+  const { allSteps } = await import('../src/bpmn');
+  const bare = { ...spec, interactions: [], types: [] };
+  const findings = collectFindings(bare, null, allSteps(bare.steps));
+  assert.ok(!findings.get('Compensate')?.warnings.some(w => w.startsWith('Noch keine Interaktion')));
+  // eine eigene Nachricht ausserhalb eines Patterns braucht weiterhin ein Objekt
+  const own = { ...bare, steps: [...bare.steps, { id: 'Own', kind: 'event', name: 'own', status: 'accepted', eventKind: 'message', messageName: 'acme-product-lilaSetV2-done' }] } as unknown as ProcessSpec;
+  assert.ok(collectFindings(own, null, allSteps(own.steps)).get('Own')?.warnings.some(w => w.startsWith('Noch keine Interaktion')));
+});
