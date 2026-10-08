@@ -8,8 +8,8 @@ import scala.util.control.NonFatal
   * (`<project>-v<version>`), as the projects are released one by one; a plain `v<version>` is taken
   * too.
   *
-  * Needs `git` and `tar` on the PATH (exportTo says so if tar is missing) (tar with `--strip-components` and `--no-same-owner`: GNU tar or
-  * bsdtar; tested on Linux and macOS).
+  * Needs `git` and `tar` on the PATH - tar with `--strip-components` and `--no-same-owner` (GNU tar or
+  * bsdtar; tested on Linux and macOS). exportTo says so if tar is missing.
   *
   * @param prefix the project's folder in the repo - empty for its own clone
   */
@@ -31,8 +31,11 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     */
   def isOwnTag(tag: String): Boolean = !singleRepo || OwnTag.matches(tag)
 
-  /** `<project>-v1.2.3` or `<project>-1.2.3` - not `<project>-shop-v1.0.0` of a project `<project>-shop`. */
-  private lazy val OwnTag = (java.util.regex.Pattern.quote(project) + "-v?\\d.*").r
+  /** `<project>-v1.2.3` or `<project>-1.2.3` (also `-RC1`, `+build`) - not `<project>-shop-v1.0.0` of
+    * a project `<project>-shop`, nor `<project>-2fa-v1.0.0` of a project `<project>-2fa`.
+    */
+  private lazy val OwnTag =
+    (java.util.regex.Pattern.quote(project) + "-v?\\d+(\\.\\d+)*([-+].*)?").r
 
   /** A warning when a release is taken from a plain tag in one repo - None for the project's own. */
   def plainTagWarning(tag: String): Option[String] =
@@ -96,9 +99,11 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
     var archive = Option.empty[os.SubProcess]
     try
-      val git = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder).spawn(stderr = errors)
+      val git = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder)
+        .spawn(stderr = errors)
       archive = Some(git)
-      val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, s"--strip-components=$depth")
+      val strip   = s"--strip-components=$depth"
+      val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, strip)
         .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
       // tar gone early: git may block on the closed pipe - not for ever
       val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
@@ -179,7 +184,7 @@ object ProjectRepo:
   private[site] def fetchTagsOnce(
       repo: os.Path,
       now: => Long = System.currentTimeMillis(),
-      fetch: os.Path => Boolean = fetchTags
+      fetch: os.Path => Boolean = fetchTags(_)
   ): Boolean =
     val state = fetches.computeIfAbsent(repo, _ => FetchState())
     state.synchronized:
@@ -196,16 +201,20 @@ object ProjectRepo:
   private[site] def fetchFailure(repo: os.Path): Option[String] =
     Option(fetches.get(repo)).flatMap(s => s.synchronized(s.failure))
 
-  private def fetchTags(repo: os.Path): Boolean =
+  /** `git fetch --tags` (and `more`, e.g. `--all`) - no credential prompt, at most `timeoutMs`; a
+    * failure is logged, a release tag moved on origin named. For the single repo and own clones alike.
+    * @return true if it worked
+    */
+  private[docs] def fetchTags(repo: os.Path, more: Seq[String] = Nil, timeoutMs: Long = 60000): Boolean =
     val fetch = scala.util.Try(
-      os.proc("git", "-C", repo.toString, "fetch", "--tags")
+      os.proc("git", "-C", repo.toString, "fetch", "--tags", more)
         .call(
           check = false,
           stdout = os.Pipe,
           stderr = os.Pipe,
           // C: git's messages in English - the moved-tag case is recognised by them
           env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
-          timeout = 60000
+          timeout = timeoutMs
         )
     )
     val ok    = fetch.toOption.exists(_.exitCode == 0)
@@ -214,7 +223,8 @@ object ProjectRepo:
       // a release tag moved on origin: git keeps the local one - say which, the docs are of that commit
       val moved = why.linesIterator.filter(_.contains("would clobber existing tag")).toSeq
       if moved.nonEmpty then
-        println(s"  ! tags of $repo differ on origin - the local ones are used:\n    ${moved.mkString("\n    ")}")
+        val tags = moved.mkString("\n    ")
+        println(s"  ! tags of $repo differ on origin - the local ones are used:\n    $tags")
       else println(s"  ! fetching the tags of $repo failed: $why")
     ok
 

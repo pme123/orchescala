@@ -265,25 +265,12 @@ trait DocCreator extends DependencyCreator, Helpers:
       isWorker
     )
 
-  /** `git fetch --all --tags` in a project's own clone - without a credential prompt, at most two
-    * minutes; no `--prune` (as ProjectRepo.fetchTagsOnce: it would drop tags made in this clone only).
-    * A failure is logged: a tag that is there locally still counts (resolveTagRef).
+  /** `git fetch --all --tags` in a project's own clone - ProjectRepo.fetchTags (no prompt, no prune, the
+    * failure logged), two minutes at most: a tag that is there locally still counts (resolveTagRef).
     */
   private def fetchAllTags(projectPath: os.Path): Boolean =
-    val cmd    = Seq("git", "fetch", "--all", "--tags")
-    println(cmd.mkString(" "))
-    val result = scala.util.Try(
-      os.proc(cmd).call(
-        cwd = projectPath,
-        stdout = os.Inherit,
-        check = false,
-        env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
-        timeout = 120000
-      )
-    )
-    val ok     = result.toOption.exists(_.exitCode == 0)
-    if !ok then println(s"  ! fetching the tags of $projectPath failed - the local tags are used")
-    ok
+    println(s"git fetch --all --tags ($projectPath)")
+    ProjectRepo.fetchTags(projectPath, more = Seq("--all"), timeoutMs = 120000)
 
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
   private def resolveTagRef(projectPath: os.Path, version: String, fetched: Boolean): String =
