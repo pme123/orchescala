@@ -106,23 +106,26 @@ class OpenApiRoutes()(using config: GatewayConfig):
       // Forward docs HTML page for a project worker app
       // Rewrites relative "diagrams/" links so they resolve correctly under /docs/openApis/{projectName}/
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.html" -> handler {
-        (_: String, projectName: String, _: Request) =>
+        (companyName: String, projectName: String, _: Request) =>
           forwardDocsRequest(projectName, Seq("docs"), MediaType.text.html)
+            .flatMap(orSiteFile(companyName, projectName, "OpenApi.html"))
       },
 
       // Forward OpenApi.yml for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.yml" -> handler {
-        (_: String, projectName: String, _: Request) =>
+        (companyName: String, projectName: String, _: Request) =>
           forwardDocsRequest(projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
+            .flatMap(orSiteFile(companyName, projectName, "OpenApi.yml"))
       },
 
       // Forward BPMN/DMN diagrams for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "diagrams" / string(
         "diagramName"
       ) -> handler {
-        (_: String, projectName: String, diagramName: String, _: Request) =>
+        (companyName: String, projectName: String, diagramName: String, _: Request) =>
           if isValidDiagramName(diagramName) then
             forwardDocsRequest(projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
+              .flatMap(orSiteFile(companyName, projectName, s"diagrams/$diagramName"))
           else ZIO.succeed(Response.status(Status.NotFound))
       },
 
@@ -174,6 +177,19 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
     * slashes) is accepted - the path goes into the URL as encoded segments.
     */
+  /** When the project's worker app does not answer (not running here - e.g. a project of another
+    * team), the released version the docs site holds (`site/<company>/<project>/…`, written by the
+    * helper's SiteAssembler at the tag of VERSIONS.conf). Otherwise the worker app's - the live one.
+    */
+  private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
+      forwarded: Response
+  ): ZIO[Any, Nothing, Response] =
+    if forwarded.status.isSuccess || !isValidProjectName(companyName) || !isValidProjectName(projectName) then
+      ZIO.succeed(forwarded)
+    else
+      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).map: fromSite =>
+        if fromSite.status.isSuccess then fromSite else forwarded
+
   private def forwardDocsRequest(
       projectName: String,
       path: Seq[String],

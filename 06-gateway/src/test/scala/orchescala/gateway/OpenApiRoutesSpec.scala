@@ -131,6 +131,23 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         !cookie.isSecure
       )
     },
+    test("a project's API: the worker app's when it answers, else the released one of the site") {
+      val failed = Response.status(Status.InternalServerError)
+      for
+        released   <- openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml")(failed)
+        body       <- released.body.asString
+        live       <- openApiRoutes.orSiteFile("acme", "acme-shop", "OpenApi.yml")(Response.text("live"))
+        liveBody   <- live.body.asString
+        missing    <- openApiRoutes.orSiteFile("acme", "acme-cards", "OpenApi.yml")(failed)
+        traversal  <- openApiRoutes.orSiteFile("..", "acme-shop", "OpenApi.yml")(failed)
+      yield assertTrue(
+        released.status == Status.Ok,
+        body.contains("acme-shop (released)"),
+        liveBody == "live",
+        missing.status == Status.InternalServerError,
+        traversal.status == Status.InternalServerError
+      )
+    },
     test("the favicon is served (its stream closed)") {
       for
         response <- openApiRoutes.routes.runZIO(Request.get(URL.decode("/favicon.ico").toOption.get))
