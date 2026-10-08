@@ -277,13 +277,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
         yield result)
           .provideLayer(HttpClientProvider.live)
           .catchAll: failure =>
-            val DocsFailure(status, err) = failure match
+            val docsFailure = failure match
               case f: DocsFailure => f
               // HttpClientProvider.live could not be built - no request was sent
               case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage)
             ZIO.logError(
-              s"Error forwarding docs request for '$projectName': $err"
-            ).as(Response.status(status))
+              s"Error forwarding docs request for '$projectName': ${docsFailure.message}"
+            ).as(Response.status(docsFailure.status))
+          // the answer of this worker app (not of the cases above, which did not ask it): down or not
           .tap: response =>
             ZIO.succeed(docsDown.answered(projectName, response.status, java.lang.System.currentTimeMillis))
 

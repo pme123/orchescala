@@ -165,10 +165,17 @@ object SiteAssembler:
       .find(r => gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", s"$r^{commit}").isDefined)
       .getOrElse("HEAD")
 
-  /** A git command's output - None if it fails (a probe like `cat-file -e`); a minute at most. */
+  /** A git command's output - None if it fails (a probe like `cat-file -e`: «no»); a minute at most - a
+    * timeout is said, it is no «no».
+    */
   private def gitOut(repo: os.Path, args: String*): Option[Array[Byte]] =
     scala.util.Try(os.proc("git", "-C", repo.toString, args).call(check = false, stderr = os.Pipe, timeout = 60000))
-      .toOption.filter(_.exitCode == 0).map(_.out.bytes)
+      .fold(
+        e =>
+          println(s"  ! git ${args.mkString(" ")} in $repo did not finish: ${e.getMessage}")
+          None,
+        r => Option.when(r.exitCode == 0)(r.out.bytes)
+      )
 
   /** `git show <ref>:<file>` of a file that is there - a failure is said, not taken for «no such file». */
   private def gitShow(repo: os.Path, refFile: String): Option[Array[Byte]] =

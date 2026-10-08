@@ -243,14 +243,25 @@ class ProjectRepoTest extends FunSuite:
 
   test("exportTo - leftovers of a killed run next to dest are removed - only the project's own"):
     val gitTemp = singleRepoGitTemp()
+    // left by a killed run - older than an export may take
+    val old = System.currentTimeMillis - ProjectRepo.ExportTimeoutMs - 60000
     os.makeDir.all(gitTemp / ".acme-shop.orch-export-123")
     os.write(gitTemp / ".acme-shop.orch-export-123.git-archive.err", "old")
+    os.mtime.set(gitTemp / ".acme-shop.orch-export-123", old)
+    os.mtime.set(gitTemp / ".acme-shop.orch-export-123.git-archive.err", old)
+    // a young one of acme-shop: another run, at work right now - stays
+    os.makeDir.all(gitTemp / ".acme-shop.orch-export-999")
     // an export of another project whose name starts the same - running in parallel
     os.makeDir.all(gitTemp / ".acme-shop-plus.orch-export-456")
+    os.mtime.set(gitTemp / ".acme-shop-plus.orch-export-456", old)
     ProjectRepo.locate(gitTemp, "acme-shop").get.exportTo("acme-shop-v1.0.0", gitTemp / "acme-shop")
-    assertEquals(os.list(gitTemp).map(_.last).filter(_.startsWith(".")), IndexedSeq(".acme-shop-plus.orch-export-456"))
+    assertEquals(
+      os.list(gitTemp).map(_.last).filter(_.startsWith(".")).sorted,
+      IndexedSeq(".acme-shop-plus.orch-export-456", ".acme-shop.orch-export-999")
+    )
     // and the other way round: acme's cleanup does not touch acme-shop's
     os.makeDir.all(gitTemp / ".acme-shop.orch-export-789")
+    os.mtime.set(gitTemp / ".acme-shop.orch-export-789", old)
     ProjectRepo.locate(gitTemp, "acme-shop").get.exportTo("acme-shop-v1.0.0", gitTemp / "acme")
     assert(os.exists(gitTemp / ".acme-shop.orch-export-789"))
 

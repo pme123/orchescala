@@ -93,7 +93,9 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     // left by a run that was killed midway - only this project's: `.acme.orch-export-…` is no prefix of
     // `.acme-shop.orch-export-…`, which another export may be writing right now
     val marker = s".${dest.last}.orch-export-"
-    os.list(dest / os.up).filter(_.last.startsWith(marker)).foreach(os.remove.all)
+    // older than an export may take - a younger one may be another run's, at work right now
+    val stale  = System.currentTimeMillis - ProjectRepo.ExportTimeoutMs
+    os.list(dest / os.up).filter(p => p.last.startsWith(marker) && os.mtime(p) < stale).foreach(os.remove.all)
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = marker)
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
@@ -110,9 +112,10 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       if !gitDone then git.destroy()
       val gitErr  = os.read(errors).trim
       val tarErr  = tar.err.text().trim
-      // who failed first: git on its own (tar then only saw a cut stream), or tar (git then dies on the
-      // closed pipe - SIGPIPE, 141 - or was stopped): the cause is named, the other one added
-      val gitOwn  = gitDone && git.exitCode() != 0 && git.exitCode() != 141
+      // who failed: tar first - if tar is fine, a failing git is the cause; if tar failed, git counts only
+      // with a message of its own (git that dies on tar's closed pipe, or was stopped, says nothing) - no
+      // exit codes of signals, which differ by platform
+      val gitOwn  = gitDone && git.exitCode() != 0 && (tar.exitCode == 0 || gitErr.nonEmpty)
       if gitOwn then
         val also = if tar.exitCode != 0 then s" (tar: $tarErr)" else ""
         throw new Exception(s"git archive $ref of $project failed: $gitErr$also")
