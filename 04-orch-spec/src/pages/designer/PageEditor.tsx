@@ -16,7 +16,7 @@ import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
 import { DataView } from './DataView';
 import { IconButton } from './fields';
-import { emptyHistory, record, travel, type History } from './history';
+import { diffPath, emptyHistory, record, travel, type History } from './history';
 import {
   actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
@@ -141,7 +141,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   // nächsten Rendern (⌘Z gedrückt gehalten) sehen so je den Stand des vorigen - `page` wäre noch der alte.
   const history = useRef<History<Page>>(emptyHistory());
   const latest = useRef<Page | null>(null);
-  latest.current ??= page;
+  // beim Rendern der neueste Stand: setPage kommt nur aus store, das latest schon gesetzt hat - so auch
+  // eine Seite, die erst nach dem Einhängen geladen ist
+  latest.current = page;
   const [, setHistoryTick] = useState(0);
   const update = (next: Page, coalesce?: string) => {
     const current = latest.current ?? page;
@@ -305,7 +307,11 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
                   const place = placeAt(e, b.type === 'section');
                   if (drag.over !== key || drag.place !== place) setDrag({ ...drag, over: key, place });
                 }}
-                onDragLeave={() => drag?.over === key && setDrag({ from: drag.from })}
+                // nur beim Verlassen der Zeile - nicht beim Wechsel auf ihr Symbol, ihren Text, ihre Knöpfe
+                onDragLeave={(e) => {
+                  if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                  if (drag?.over === key) setDrag({ from: drag.from });
+                }}
                 onDrop={(e) => { e.preventDefault(); if (drag?.over && drag.place) apply(relocateBlock(page.body, drag.from, drag.over, drag.place)); setDrag(null); }}
                 onDragEnd={() => setDrag(null)}
                 onClick={() => setSelected(key)}
@@ -411,10 +417,10 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
                 </div>
               )}
               <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
-                onChange={(b) => setBody(updateBlock(page.body, selected, () => b), `props:${selected}`)} />
+                onChange={(b) => setBody(updateBlock(page.body, selected, () => b), `props:${selected}:${diffPath(blockAt(page.body, selected), b)}`)} />
             </>
           ) : (
-            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, 'page')} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, `page:${diffPath(page, p)}`)} />
           )}
         </div>
       </div>

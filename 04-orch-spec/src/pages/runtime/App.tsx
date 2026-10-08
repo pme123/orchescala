@@ -7,7 +7,7 @@ import { homeParams } from './homeParams';
 import PageView from './PageView';
 import type { Page, Pages } from './spec';
 import { themeStyle } from './theme';
-import { APP_MODE_KEY, cls, rememberMode, storedMode, useTheme } from './ui';
+import { appModeKey, cls, rememberMode, storedMode, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
 
@@ -33,7 +33,7 @@ type Loaded = { pages: Pages; page?: Page; user: User | null };
 
 export default function App() {
   // die Vorgabe vom letzten Mal, bis pages.json da ist - eine dunkle App blitzt so nicht hell auf
-  const [preferred, setPreferred] = useState<'light' | 'dark' | undefined>(() => storedMode(APP_MODE_KEY) ?? undefined);
+  const [preferred, setPreferred] = useState<'light' | 'dark' | undefined>(() => storedMode(appModeKey(base)) ?? undefined);
   const { isDark, toggleTheme } = useTheme(preferred);
   const c = cls(isDark);
   const embedded = new URLSearchParams(window.location.search).has('embed');
@@ -61,7 +61,7 @@ export default function App() {
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
       if (!current) return;
       setPreferred(pages.app.theme?.mode);
-      rememberMode(APP_MODE_KEY, pages.app.theme?.mode ?? 'light');
+      rememberMode(appModeKey(base), pages.app.theme?.mode ?? 'light');
       setLoaded({ pages, page, user });
       document.title = [page?.title, pages.app.title].filter(Boolean).join(' · ');
     })().catch((e) => current && setFailure(e instanceof Error ? e.message : String(e)));
@@ -79,6 +79,7 @@ export default function App() {
     const root = document.documentElement.style;
     if (bg) root.setProperty('--orch-bg', bg);
     else root.removeProperty('--orch-bg');
+    return () => void root.removeProperty('--orch-bg'); // nicht in einer Seite zurücklassen, die die App einbettet
   }, [bg]);
   const user = loaded?.user;
 

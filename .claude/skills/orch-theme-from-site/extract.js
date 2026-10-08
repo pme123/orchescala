@@ -66,6 +66,28 @@
   if (logoEl?.tagName.toLowerCase() === 'svg') {
     const svg = logoEl.cloneNode(true);
     if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    // what it references elsewhere in the page (<use href="#logo">, fill="url(#grad)") - into its own
+    // <defs>, else the data URI is a blank image; a sprite in another file is left to logoUrl
+    const refs = (el) => [...el.querySelectorAll('*'), el].flatMap((n) => [
+      ...['href', 'xlink:href'].map((a) => n.getAttribute(a)).filter((h) => h?.startsWith('#')).map((h) => h.slice(1)),
+      ...[...n.attributes].flatMap((at) => [...at.value.matchAll(/url\(\s*['"]?#([^)'"\s]+)/g)].map((m) => m[1])),
+    ]);
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const seen = new Set();
+    for (let todo = refs(svg); todo.length; ) {
+      const id = todo.shift();
+      if (seen.has(id) || svg.querySelector(`[id="${CSS.escape(id)}"]`)) continue;
+      seen.add(id);
+      const target = document.getElementById(id);
+      if (!target) continue;
+      const copy = target.cloneNode(true);
+      defs.appendChild(copy);
+      todo.push(...refs(copy));
+    }
+    if (defs.childNodes.length) svg.insertBefore(defs, svg.firstChild);
+    const external = [...svg.querySelectorAll('use')].map((u) => u.getAttribute('href') || u.getAttribute('xlink:href'))
+      .find((h) => h && !h.startsWith('#'));
+    if (external) logoUrl = new URL(external.split('#')[0], location.href).href; // the sprite file - SKILL.md step 4
     logoSvg = svg.outerHTML.length < 40000 ? svg.outerHTML : `TOO LARGE (${svg.outerHTML.length} chars)`;
   } else {
     logoUrl = (logoEl && (logoEl.currentSrc || logoEl.src || bgUrl(logoEl)))

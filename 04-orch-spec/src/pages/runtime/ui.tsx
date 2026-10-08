@@ -58,8 +58,9 @@ export function Chip({ tone, isDark, children, title }: {
 /** Wo der Browser die Wahl des Benutzers (hell/dunkel) für die Seiten merkt - nicht `orch-ui.theme`: das
   * schreibt orch-spec auf demselben Origin bei jedem Laden, es ist also keine Wahl. */
 export const CHOICE_KEY = 'orch-pages.theme';
-/** Der Modus, den die App zuletzt vorgab - damit eine dunkle App nicht hell aufblitzt, bis pages.json da ist. */
-export const APP_MODE_KEY = 'orch-pages.app-mode';
+/** Der Modus, den die App zuletzt vorgab - damit eine dunkle App nicht hell aufblitzt, bis pages.json da ist.
+  * Je App (ihr Pfad `/app/<projekt>/`): auf einem Origin liegen mehrere. */
+export const appModeKey = (base: string): string => `orch-pages.app-mode:${base}`;
 
 type Mode = 'light' | 'dark';
 type Store = Pick<Storage, 'getItem' | 'setItem'>;

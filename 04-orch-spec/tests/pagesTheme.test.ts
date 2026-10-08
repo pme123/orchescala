@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
 import { contrast, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
-import { isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
+import { appModeKey, isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
   const light = themeStyle({ primary: '#0b5cab', background: '#fafafa', font: 'sans', radius: 'md' }, false) as Record<string, string>;
@@ -53,7 +53,7 @@ test('isThemeColor - exactly the forms CSS takes', () => {
 
 test('textOn - black or white by WCAG contrast, for hex, rgb() and hsl()', () => {
   assert.deepEqual(rgbOf('#f00'), [1, 0, 0]);
-  assert.deepEqual(rgbOf('rgb(255 0 0 / 50%)'), [1, 0, 0]);
+  assert.deepEqual(rgbOf('rgb(255 0 0 / 50%)'), [1, 0.5, 0.5]); // half red on white
   assert.deepEqual(rgbOf('hsl(120, 100%, 50%)')?.map((v) => Math.round(v * 255)), [0, 255, 0]);
   assert.equal(rgbOf('blau'), null);
   assert.equal(textOn('#0b5cab'), '#ffffff'); // dark blue
@@ -100,6 +100,8 @@ test('theme mode - the user\'s choice before the app\'s default, stored under it
   assert.equal(storedMode('orch-pages.theme', broken), null);
   rememberMode('orch-pages.theme', 'dark', broken); // no exception
   assert.equal(storedMode('orch-pages.theme', null), null);
+  // the app's last mode: per app - two apps on one origin do not share it
+  assert.notEqual(appModeKey('/app/a/'), appModeKey('/app/b/'));
 });
 
 test('themeProblem - a font loads nothing from outside', () => {
@@ -164,4 +166,17 @@ test('themeProblem - the logo payload must be base64', () => {
   assert.match(themeProblem({ logo: 'data:image/png;base64,ab!d' }) ?? '', /base64/);
   assert.match(themeProblem({ logo: 'data:image/png;base64,abc' }) ?? '', /base64/); // not padded to 4
   assert.equal(themeProblem({ logo: 'data:image/png;base64,YWJj' }), null);
+});
+
+test('rgbOf / textOn - a semi-transparent colour as it looks on white (like the skill)', () => {
+  assert.deepEqual(rgbOf('rgba(0, 0, 0, 0.5)'), [0.5, 0.5, 0.5]);
+  assert.deepEqual(rgbOf('#00000080')?.map((v) => Math.round(v * 100) / 100), [0.5, 0.5, 0.5]);
+  assert.equal(textOn('rgba(0, 75, 135, 1)'), '#ffffff'); // dark blue
+  assert.equal(textOn('rgba(0, 75, 135, 0.2)'), '#000000'); // the same, faint on white: light
+  assert.deepEqual(rgbOf('#00ff00'), [0, 1, 0]); // six digits, not #00f
+});
+
+test('themeStyle - the text colour also as a property (inherited in the designer preview)', () => {
+  assert.equal((themeStyle({ text: '#663399' }, false) as Record<string, string>).color, '#663399');
+  assert.equal((themeStyle({ text: '#663399' }, true) as Record<string, string>).color, undefined);
 });

@@ -33,3 +33,18 @@ export function travel<T>(h: History<T>, current: T, dir: 'undo' | 'redo'): { hi
     history: dir === 'undo' ? { past: rest, future: to, last: null } : { past: to, future: rest, last: null },
   };
 }
+
+/** Wo sich zwei Stände unterscheiden - der Pfad bis dorthin, wo es genau eine Stelle ist ('label',
+  * 'options.0.label'); eine Liste anderer Länge oder mehrere Stellen enden beim gemeinsamen Teil
+  * ('options'). Für den Schlüssel des Zusammenfassens: Tippen in einem Feld ist ein Schritt, ein anderes
+  * Feld (oder eine Option löschen) ein neuer. */
+export function diffPath(a: unknown, b: unknown, path = ''): string {
+  const isTree = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+  if (!isTree(a) || !isTree(b) || Array.isArray(a) !== Array.isArray(b)) return path;
+  if (Array.isArray(a) && a.length !== (b as unknown as unknown[]).length) return path;
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+  const differing = keys.filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  if (differing.length !== 1) return path;
+  const [k] = differing;
+  return diffPath(a[k], b[k], path ? `${path}.${k}` : k);
+}

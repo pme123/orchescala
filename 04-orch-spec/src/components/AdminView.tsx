@@ -28,6 +28,7 @@ import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink } from '../auth';
 import type { CatalogFile } from '../catalogImport';
 import BrandingForm from './BrandingForm';
+import { appProblem } from '../pages/runtime/validate';
 import { ThemeEditor } from '../pages/designer/ThemeEditor';
 import type { Theme } from '../pages/runtime/spec';
 import { usePermissions } from '../auth';
@@ -411,17 +412,25 @@ function AppThemeForm({ isDark }: { isDark: boolean }) {
   const { pagesApp, savePagesApp } = useStore();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
-  const [draft, setDraft] = useState<Theme | undefined>(pagesApp?.data.theme);
+  // erst eine Änderung macht einen Entwurf - bis dahin das Theme, wie es (auch später) geladen ist: ein
+  // pages/app.json, das nach dem Öffnen kommt, wird so nicht beim Speichern durch «kein Theme» ersetzt
+  const [draft, setDraft] = useState<{ theme: Theme | undefined } | null>(null);
+  const theme = draft ? draft.theme : pagesApp?.data.theme;
   const [msg, setMsg] = useState<string | null>(null);
-  const changed = JSON.stringify(draft ?? null) !== JSON.stringify(pagesApp?.data.theme ?? null);
+  const changed = draft !== null && JSON.stringify(draft.theme ?? null) !== JSON.stringify(pagesApp?.data.theme ?? null);
   return (
     <div className="space-y-3">
-      <ThemeEditor isDark={isDark} theme={draft} onChange={setDraft} canEdit={canEdit} />
+      <ThemeEditor isDark={isDark} theme={theme} onChange={(t) => setDraft({ theme: t })} canEdit={canEdit} />
       {canEdit && (
         <div className="flex items-center gap-2">
           <button type="button" disabled={!changed}
             onClick={async () => {
-              const r = await savePagesApp({ ...(pagesApp?.data ?? {}), theme: draft }, pagesApp?.version ?? null);
+              const app = { ...(pagesApp?.data ?? {}), theme };
+              // dieselbe Prüfung wie beim Laden und Bauen - sonst liesse sich die Datei danach nicht mehr öffnen
+              const problem = appProblem(app);
+              if (problem) return setMsg(`So nicht speicherbar: ${problem}`);
+              const r = await savePagesApp(app, pagesApp?.version ?? null);
+              if (r.status === 'saved') setDraft(null);
               setMsg(r.status === 'saved' ? 'gespeichert' : r.status === 'conflict' ? 'pages/app.json wurde inzwischen geändert - neu laden.' : r.message);
             }}
             className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>

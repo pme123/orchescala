@@ -37,23 +37,32 @@ const COLOR = new RegExp(
 /** Eine Farbe, wie das Theme sie nimmt (#rrggbb, rgb(…), hsl(…)). */
 export const isThemeColor = (v: string): boolean => COLOR.test(v);
 
-/** Rot, Grün, Blau (0…1) einer Theme-Farbe - null, wenn es keine ist. */
+/** Rot, Grün, Blau (0…1) einer Theme-Farbe, wie sie auf Weiss aussieht (eine halb durchsichtige Farbe
+  * gemischt - wie to_hex des Skills) - null, wenn es keine ist. */
 export function rgbOf(color: string): [number, number, number] | null {
   if (!COLOR.test(color)) return null;
   const c = color.trim().toLowerCase();
+  let rgb: number[];
+  let alpha = 1;
   if (c.startsWith('#')) {
     const h = c.slice(1);
     const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
-    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255) as [number, number, number];
+    rgb = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
+    if (full.length === 8) alpha = parseInt(full.slice(6, 8), 16) / 255;
+  } else {
+    const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
+    const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
+    if (nums[3] !== undefined) alpha = Math.min(1, part(nums[3], 1));
+    if (c.startsWith('rgb')) rgb = nums.slice(0, 3).map((v) => Math.min(1, part(v, 255)));
+    else {
+      const hue = ((parseFloat(nums[0]) % 360) + 360) % 360;
+      const [s, l] = [part(nums[1], 100), part(nums[2], 100)].map((v) => Math.min(1, v));
+      const k = (n: number) => (n + hue / 30) % 12;
+      const f = (n: number) => l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+      rgb = [f(0), f(8), f(4)];
+    }
   }
-  const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
-  const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
-  if (c.startsWith('rgb')) return nums.slice(0, 3).map((v) => Math.min(1, part(v, 255))) as [number, number, number];
-  const hue = ((parseFloat(nums[0]) % 360) + 360) % 360;
-  const [s, l] = [part(nums[1], 100), part(nums[2], 100)].map((v) => Math.min(1, v));
-  const k = (n: number) => (n + hue / 30) % 12;
-  const f = (n: number) => l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
-  return [f(0), f(8), f(4)];
+  return rgb.map((v) => alpha * v + (1 - alpha)) as [number, number, number];
 }
 
 /** Die relative Leuchtdichte nach WCAG - wie build_theme.py des Skills. */
@@ -136,7 +145,9 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
   }
   if (theme.font) v['--orch-font'] = isFontPreset(theme.font) ? FONTS[theme.font] : theme.font;
   if (theme.radius && Object.hasOwn(RADIUS, theme.radius)) v['--orch-radius'] = RADIUS[theme.radius];
-  return { ...v, fontFamily: v['--orch-font'] } as CSSProperties;
+  // Schrift und Text auch als Eigenschaft: so erben sie Überschriften und Texte auch dort, wo keine Klasse
+  // die Variable liest (die Vorschau im Designer, eingebettet)
+  return { ...v, fontFamily: v['--orch-font'], color: v['--orch-text'] } as CSSProperties;
 }
 
 /** Eine Theme-Datei: das Theme selbst oder `{ kind: 'orch-theme', name, source, theme }` (vom Skill). */

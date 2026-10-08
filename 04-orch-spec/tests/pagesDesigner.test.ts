@@ -1,6 +1,6 @@
 // The designer of the pages: what a page can call, sample data, the block tree and the checks.
 import assert from 'node:assert/strict';
-import { COALESCE_MS, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
+import { COALESCE_MS, diffPath, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
 import { test } from 'node:test';
 import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
@@ -387,6 +387,42 @@ test('history - typing without a 1 s pause stays one step, however long; a pause
   assert.deepEqual(h.past, ['v0']);
   h = record(h, 'v25', 'props:0', 24 * 400 + COALESCE_MS); // the pause: a new step
   assert.deepEqual(h.past, ['v0', 'v25']);
+});
+
+test('diffPath - the coalesce key: one field is one step, another field or deleting an option a new one', () => {
+  const choice: Component = { type: 'choice', label: 'Thema', bind: 'topic', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] };
+  assert.equal(diffPath(choice, { ...choice, label: 'Them' }), 'label');
+  assert.equal(diffPath(choice, { ...choice, bind: 'topi' }), 'bind');
+  const renamed = { ...choice, options: [{ value: 'a', label: 'AA' }, choice.options[1]] };
+  assert.equal(diffPath(choice, renamed), 'options.0.label');
+  assert.equal(diffPath(choice, { ...choice, options: [choice.options[0]] }), 'options'); // deleted
+  assert.equal(diffPath(choice, { ...choice, label: 'X', bind: 'y' }), ''); // several at once
+  assert.equal(diffPath(choice, choice), '');
+  // in the history: label, then bind on the same block within 1 s - two steps; typing the label - one
+  const key = (next: Component) => `props:0:${diffPath(choice, next)}`;
+  let h = emptyHistory<string>();
+  h = record(h, 'v0', key({ ...choice, label: 'T' }), 0);
+  h = record(h, 'v1', key({ ...choice, label: 'Th' }), 200);
+  h = record(h, 'v2', key({ ...choice, bind: 't' }), 400);
+  h = record(h, 'v3', key({ ...choice, options: [choice.options[0]] }), 600);
+  assert.deepEqual(h.past, ['v0', 'v2', 'v3']);
+});
+
+test('dataOf - nested paths: the field of an object binding, the fields of an initial object', () => {
+  const form: Page = {
+    ...page,
+    state: { address: { street: '', city: { zip: '', name: '' } }, items: [{ id: 1 }] },
+    body: [{ type: 'fields', fields: [{ bind: 'contact.email', label: 'E-Mail' }, { bind: 'contact.phone.mobile', label: 'Mobil' }] }],
+  };
+  const nodes = dataOf(form, targets);
+  const at = (path: string) => nodes.find((n) => n.path === path)!;
+  assert.deepEqual(at('contact').fields?.map((f) => f.name), ['email', 'phone']);
+  assert.equal(at('contact').fields?.[0].type, 'Text');
+  assert.deepEqual(at('contact').fields?.[1].fields?.map((f) => f.name), ['mobile']);
+  assert.deepEqual(at('address').fields?.map((f) => f.name), ['street', 'city']);
+  assert.deepEqual(at('address').fields?.[1].fields?.map((f) => f.name), ['zip', 'name']);
+  assert.equal(at('items').fields?.[0].name, 'id');
+  assert.equal(at('items').fields?.[0].type, 'Zahl');
 });
 
 test('relocateBlock - out of its own section, and into a later section after the shift', () => {

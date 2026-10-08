@@ -466,6 +466,27 @@ const jsType = (v: unknown): string =>
   v === null ? 'leer' : Array.isArray(v) ? 'Liste' : typeof v === 'object' ? 'Objekt' : typeof v === 'number' ? 'Zahl'
     : typeof v === 'boolean' ? 'Ja/Nein' : 'Text';
 
+/** Die Felder eines Werts des Anfangszustands (ein Objekt, eine Liste von Objekten) - für die Pfade darin. */
+function fieldsOfValue(v: unknown, depth = 0): PField[] | undefined {
+  const item = Array.isArray(v) ? v[0] : v;
+  if (typeof item !== 'object' || item === null || Array.isArray(item) || depth > 3) return undefined;
+  return Object.entries(item).map(([name, x]) => ({
+    name, type: jsType(Array.isArray(x) ? x[0] : x), optional: false, collection: Array.isArray(x), fields: fieldsOfValue(x, depth + 1),
+  }));
+}
+
+/** Ein Pfad unter einem Knoten (`contact.email` → das Feld `email` von `contact`) - in die Felder gemischt. */
+function withPath(fields: PField[] | undefined, parts: string[], type: string): PField[] {
+  const [name, ...rest] = parts;
+  const list = [...(fields ?? [])];
+  const i = list.findIndex((f) => f.name === name);
+  const old = i >= 0 ? list[i] : { name, type: rest.length ? 'Objekt' : type, optional: false, collection: false };
+  const next = rest.length ? { ...old, fields: withPath(old.fields, rest, type) } : old;
+  if (i >= 0) list[i] = next;
+  else list.push(next);
+  return list;
+}
+
 /** Was im Zustand einer Seite steht: der Anfangszustand, die Ergebnisse ihrer Aktionen (mit dem Out des
   * Service), die Eingaben ihrer Bausteine, die Parameter der URL und der Benutzer. Ein Pfad, den mehrere
   * setzen (Anfangszustand und Auswahl), steht einmal - mit allen Quellen. */
@@ -478,7 +499,7 @@ export function dataOf(page: Page, targets: Targets): DataNode[] {
       for (const [k, v] of Object.entries(rest)) if (v !== undefined && (node as Record<string, unknown>)[k] === undefined) (node as Record<string, unknown>)[k] = v;
     } else nodes.set(path, { path, sources: [source], ...rest });
   };
-  for (const [k, v] of Object.entries(page.state ?? {})) put(k, 'Anfangszustand', { type: jsType(v) });
+  for (const [k, v] of Object.entries(page.state ?? {})) put(k, 'Anfangszustand', { type: jsType(v), fields: fieldsOfValue(v) });
   for (const { where, key, action } of actionsOf(page)) {
     if (action.do === 'call' && action.result) {
       const svc = targets.services.find((s) => s.topic === action.service);
@@ -491,7 +512,14 @@ export function dataOf(page: Page, targets: Targets): DataNode[] {
     if (block.type === 'choice')
       put(block.bind, `Auswahl «${block.label ?? block.bind}»`, { type: 'ein Wert der Auswahl', values: block.options.map((o) => String(o.value)), key });
     if (block.type === 'pick') put(block.bind, `Auswahl aus Liste «${block.label ?? block.bind}»`, { type: `ein Eintrag aus ${block.items}`, key });
-    if (block.type === 'fields') for (const f of block.fields) put(f.bind.split('.')[0], `Eingabefeld «${f.label}»`, { type: f.bind.includes('.') ? 'Objekt' : 'Text', key });
+    if (block.type === 'fields')
+      for (const f of block.fields) {
+        const [head, ...rest] = f.bind.split('.');
+        put(head, `Eingabefeld «${f.label}»`, { type: rest.length ? 'Objekt' : 'Text', key });
+        // ein Feld darunter (`contact.email`): als Feld des Objekts - so lässt sich {{contact.email}} kopieren
+        const node = nodes.get(head)!;
+        if (rest.length) node.fields = withPath(node.fields, rest, 'Text');
+      }
   }
   // die Parameter der URL, die die Seite liest
   for (const m of JSON.stringify(page).matchAll(/\{\{\s*query\.([\w$]+)/g)) put(`query.${m[1]}`, 'URL-Parameter', { type: 'Text' });

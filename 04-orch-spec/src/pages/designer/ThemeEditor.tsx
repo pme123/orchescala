@@ -55,6 +55,8 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   };
   // «eigener Stapel» bleibt gewählt, auch wenn das Feld leer ist oder genau «sans» darin steht
   const [custom, setCustom] = useState(() => !!t.font && !isFontPreset(t.font));
+  // ein eigener Stapel, der erst nach dem Öffnen kommt (pages/app.json geladen): das Feld zeigen
+  useEffect(() => { if (t.font && !isFontPreset(t.font)) setCustom(true); }, [t.font]);
   const onPrimaryContrast = t.primary && t.onPrimary ? contrast(t.primary, t.onPrimary) : null;
   const preset = custom ? 'custom' : t.font && isFontPreset(t.font) ? t.font : '';
 

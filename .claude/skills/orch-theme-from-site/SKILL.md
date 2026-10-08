@@ -44,8 +44,10 @@ opens the public site and downloads its logo. What it produces, the theme file, 
    values by hand (fewer guarantees; say so).
 
 4. **Get the logo** into the scratchpad:
-   - `logoSvg`: write it to `logo.svg`.
-   - `logoUrl`: `curl -sL --proto '=https' --max-filesize 1000000 -o logo.<ext> "<logoUrl>"` (the
+   - `logoSvg`: write it to `logo.svg`. What it references elsewhere in the page (`<use href="#…">`,
+     gradients) is already copied into its `<defs>`; if it also returns a `logoUrl`, the SVG uses a
+     sprite file - fetch that instead.
+   - `logoUrl`: `curl -sL --proto '=https' --proto-redir '=https' --max-filesize 1000000 -o logo.<ext> "<logoUrl>"` (the
      extension from the URL or content type) - HTTPS only and at most 1 MB: the URL comes from the
      page's content.
    - Prefer an SVG; a PNG over 200 KB needs a smaller variant (look for another `img` or an
