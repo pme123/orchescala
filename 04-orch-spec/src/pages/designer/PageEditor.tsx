@@ -374,7 +374,10 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             </label>
             <IconButton isDark={isDark} title="Vorschau neu starten" onClick={() => setRun((r) => r + 1)}><RotateCcw size={11} /></IconButton>
           </div>
-          <div className={`flex-1 overflow-y-auto ${isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]'}`}>
+          {/* ein Klick neben die Bausteine wählt die Seite - ihre Eigenschaften: Zustand, Laden, Zugang */}
+          <div className={`flex-1 overflow-y-auto cursor-default ${isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]'} ${
+            selected === null ? 'outline-2 -outline-offset-4 outline-sky-500/50' : ''}`}
+            onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-designer-block]')) setSelected(null); }}>
             <PageView key={`${run}:${query}:${JSON.stringify(page)}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}
               user={page.access === 'public' ? undefined : { name: 'Vorschau', roles: page.access.roles }}

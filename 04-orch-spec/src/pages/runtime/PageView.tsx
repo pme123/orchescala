@@ -173,7 +173,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     if (!designer || node === null) return node;
     const selected = designer.selected === key;
     return (
-      <div key={key} onClickCapture={() => designer.onSelect(key)}
+      <div key={key} data-designer-block={key} onClickCapture={() => designer.onSelect(key)}
         className={`relative -m-1 rounded p-1 outline-offset-2 transition-[outline-color] ${
           selected ? 'outline-2 outline-sky-500' : 'outline-1 outline-transparent hover:outline-dashed hover:outline-sky-400/60'}`}>
         {selected && designer.toolbar && (
