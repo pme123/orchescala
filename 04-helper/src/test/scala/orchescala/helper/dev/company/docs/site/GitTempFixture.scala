@@ -11,6 +11,8 @@ object GitTempFixture:
 
   /** git-temp with a company repo: acme-shop released as 1.0.0, then changed; acme-cards never tagged. */
   def singleRepoGitTemp(): os.Path =
+    // an export needs tar - without one these tests are skipped, not failed
+    munit.Assertions.assume(ProjectRepo.hasTar, "tar is not on the PATH")
     val gitTemp = os.temp.dir(prefix = "git-temp")
     val repo    = gitTemp / "orchescala-acme"
     os.write(repo / "projects" / "acme-shop" / "03-api" / "OpenApi.yml", "version: 1.0.0\n", createFolders = true)

@@ -115,18 +115,7 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
         val also = if gitErr.nonEmpty then s" (git: $gitErr)" else ""
         throw new Exception(s"tar of $project at $ref failed: $tarErr$also")
       if git.exitCode() != 0 then throw new Exception(s"git archive $ref of $project did not finish: $gitErr")
-      // swap: the old one aside, the new one in - if that fails, the old one back (a locked file, a full
-      // disk): dest is never gone
-      val old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}"
-      if os.exists(dest) then os.move(dest, old)
-      try os.move(fresh, dest)
-      catch
-        case NonFatal(e) =>
-          // the original error counts - a failing way back is only added to it
-          scala.util.Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed
-            .foreach(e.addSuppressed)
-          throw e
-      os.remove.all(old)
+      ProjectRepo.replace(dest, fresh, old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}")
     finally
       archive.filter(_.isAlive()).foreach(_.destroy())
       os.remove.all(fresh)
@@ -138,6 +127,19 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
 end ProjectRepo
 
 object ProjectRepo:
+
+  /** `dest` replaced by `fresh`: the old one aside, the new one in, the old one removed - if the move
+    * fails (a locked file, a full disk), the old one goes back: dest is never gone.
+    */
+  private def replace(dest: os.Path, fresh: os.Path, old: os.Path): Unit =
+    if os.exists(dest) then os.move(dest, old)
+    try os.move(fresh, dest)
+    catch
+      case NonFatal(e) =>
+        // the original error counts - a failing way back is only added to it
+        scala.util.Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed.foreach(e.addSuppressed)
+        throw e
+    os.remove.all(old)
 
   /** Is there a tar to unpack `git archive` with? */
   private[site] lazy val hasTar: Boolean =
@@ -240,14 +242,15 @@ object ProjectRepo:
       repo.exportTo(tag, dest)
       tag
 
-  /** The repo of a project in git-temp: its own clone, else a clone that has it under `projects/`
-    * (the first by name - with a warning if there are several).
+  /** The repo of a project in git-temp: its own clone, else a clone that has it under `projects/` -
+    * `orchescala-<company>` first (the clone ApiConfig makes), then by name; a warning if there are
+    * several (e.g. one left from before).
     */
   def locate(gitTemp: os.Path, project: String): Option[ProjectRepo] =
     if os.exists(gitTemp / project / ".git") then Some(ProjectRepo(gitTemp / project, "", project))
     else if !os.isDir(gitTemp) then None
     else
-      val clones = os.list(gitTemp).sortBy(_.last)
+      val clones = os.list(gitTemp).sortBy(d => (!d.last.startsWith("orchescala-"), d.last))
         .filter(d => os.exists(d / ".git") && os.isDir(d / "projects" / project))
       if clones.size > 1 then
         val names = clones.map(_.last).mkString(", ")

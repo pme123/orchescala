@@ -269,6 +269,12 @@ class ProjectRepoTest extends FunSuite:
     git(repo, "tag", "acme-v5.0.1")
     assertEquals(acme.releaseTags("5.0.0", acme.localTags()), Seq.empty) // now it has: no plain tags
 
+  test("locate - the orchescala-<company> clone before a clone left from before"):
+    val gitTemp = singleRepoGitTemp()
+    os.copy(gitTemp / "orchescala-acme", gitTemp / "acme") // the old place initProject cloned to
+    val shop = Console.withOut(java.io.ByteArrayOutputStream())(ProjectRepo.locate(gitTemp, "acme-shop")).get
+    assertEquals(shop.repo, gitTemp / "orchescala-acme")
+
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()
     val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")

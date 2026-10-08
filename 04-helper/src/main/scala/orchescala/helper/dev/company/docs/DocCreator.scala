@@ -265,11 +265,12 @@ trait DocCreator extends DependencyCreator, Helpers:
       isWorker
     )
 
-  /** `git fetch --all --tags --prune` in a project's own clone - without a credential prompt, at most
-    * two minutes. A failure is logged: a tag that is there locally still counts (resolveTagRef).
+  /** `git fetch --all --tags` in a project's own clone - without a credential prompt, at most two
+    * minutes; no `--prune` (as ProjectRepo.fetchTagsOnce: it would drop tags made in this clone only).
+    * A failure is logged: a tag that is there locally still counts (resolveTagRef).
     */
   private def fetchAllTags(projectPath: os.Path): Boolean =
-    val cmd    = Seq("git", "fetch", "--all", "--tags", "--prune")
+    val cmd    = Seq("git", "fetch", "--all", "--tags")
     println(cmd.mkString(" "))
     val result = scala.util.Try(
       os.proc(cmd).call(

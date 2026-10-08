@@ -174,12 +174,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
   private case class DocsFailure(status: Status, message: String)
 
   /** A worker app that did not answer (503) is not asked again for this long - the next files of the
-    * same page (the yml, each diagram) come from the site at once, not after another timeout each. So
-    * one slow answer (over `docsForwardTimeout`, e.g. a cold start) gives the released docs of that
-    * project for this long. Only 503 counts: a wrong URL or a client that could not be built (500)
+    * same page (the yml, each diagram, loaded within seconds of it) come from the site at once, not
+    * after another timeout each. Short: one slow answer (over `docsForwardTimeout`, e.g. a cold start)
+    * gives the released docs of that project only this long. Only 503 counts: a wrong URL or a client that could not be built (500)
     * and an error answer (502) are never remembered.
     */
-  private[gateway] val DocsDownFor = 30.seconds
+  private[gateway] val DocsDownFor = 10.seconds
   // per instance - the gateway makes one (GatewayServer); keyed by project: the docs URL depends on the
   // project only (docsAppUrl), so a company has no worker app of its own
   private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
