@@ -64,6 +64,16 @@ class CompanyWrapperGeneratorTest extends FunSuite:
       CompanySbtGenerator(Seq(C7, C8, Op)).generate
       assert(os.read(settings).contains(workerOpDep))
 
+  test("the company build publishes `<company>-orchescala-<module>_3` - what the release check looks for"):
+    inCompany: projectDir =>
+      CompanySbtGenerator(Seq(C7)).generate
+      val projectDef = os.read(projectDir / "project" / "ProjectDef.scala")
+      val settings   = os.read(projectDir / "project" / "Settings.scala")
+      assert(projectDef.contains("""val org = "democompany""""), projectDef)
+      assert(projectDef.contains("""val name = "democompany-orchescala""""), projectDef)
+      assert(settings.contains("""name := s"$projectName-$m""""), settings)
+      assertEquals(orchescala.helper.dev.publish.PublishHelper.artifactSuffix(settings), "_3")
+
   test("the gateway is no docker image without the company's settings - no build options either"):
     inCompany: projectDir =>
       CompanySbtGenerator(Seq(C7)).generate

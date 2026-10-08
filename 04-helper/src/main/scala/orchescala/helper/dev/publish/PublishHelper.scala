@@ -34,11 +34,9 @@ case class PublishHelper()(using
     ).run(releaseSteps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
 
-  /** [[PublishHelper.verifyVersionFree]] for the modules of this project - published without
-    * the Scala suffix (`crossPaths := false` in its Settings).
-    */
+  /** [[PublishHelper.verifyVersionFree]] for the modules of this project. */
   private def verifyVersionFree(version: String): Unit =
-    PublishHelper.verifyVersionFree(version, devConfig, artifactSuffix = "")
+    PublishHelper.verifyVersionFree(version, devConfig, artifactSuffix(workDir / "project" / "Settings.scala"))
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
@@ -82,23 +80,25 @@ object PublishHelper extends Helpers:
       )
   end verifyCleanWorkingTree
 
-  /** The tracked files with changes - without the CHANGELOG, the one file a release edits. */
+  /** The tracked files that differ from HEAD (staged or not) - without the CHANGELOG, the one
+    * file a release edits. NUL-separated, so a path with spaces or special characters comes
+    * as it is (`--porcelain` quotes them); no rename detection, so a path is always a path.
+    */
   private def changedTrackedFiles(repo: os.Path): Seq[String] =
-    os.proc("git", "status", "--porcelain").call(cwd = repo).out.lines()
-      .filterNot(_.startsWith("??"))
-      .map(_.drop(3).trim)
+    os.proc("git", "diff", "--name-only", "-z", "--no-renames", "HEAD").call(cwd = repo)
+      .out.text().split('\u0000').toSeq
       .filter(_.nonEmpty)
       .filterNot(_ == "CHANGELOG.md")
 
   /** A failed release leaves its changes in the tracked files (the versions, generated docs) -
     * the next try with the same version stopped at [[verifyCleanWorkingTree]]. So they are
-    * restored; the CHANGELOG and untracked files stay as they are.
+    * restored from HEAD (the index too); the CHANGELOG and untracked files stay as they are.
     */
   def restoreWorkingTree(repo: os.Path = workDir): Unit =
     val changed = changedTrackedFiles(repo)
     if changed.nonEmpty then
       println(s"Restoring the working tree for the next try:\n - ${changed.mkString("\n - ")}")
-      os.proc("git" +: "checkout" +: "--" +: changed).call(cwd = repo)
+      os.proc("git" +: "checkout" +: "HEAD" +: "--" +: changed).call(cwd = repo)
   end restoreWorkingTree
 
   /** [[restoreWorkingTree]] when a release fails before its git step - after it, the version is
@@ -182,6 +182,22 @@ object PublishHelper extends Helpers:
     else Seq(Build) ++ Option.when(hasDocs)(UploadDocs) ++ Seq(Upload, Git)
   end releaseSteps
 
+  /** The suffix of the artifacts of a build - from its `project/Settings.scala`: none with
+    * `crossPaths := false` (a project), else `_<Scala major>` of its `scalaV` (the company
+    * project: `_3`). Fails without the `scalaV` - a guessed suffix made the check pass as
+    * "free" on the wrong URL.
+    */
+  def artifactSuffix(settings: os.Path): String = artifactSuffix(os.read(settings), settings.toString)
+
+  def artifactSuffix(settings: String, name: String = "project/Settings.scala"): String =
+    val crossPathsOff = settings.linesIterator.map(_.trim).exists(_.startsWith("crossPaths := false"))
+    val ScalaV        = """val scalaV\s*=\s*"(\d+)\.[^"]*"""".r
+    if crossPathsOff then ""
+    else
+      ScalaV.findFirstMatchIn(settings).map(m => s"_${m.group(1)}")
+        .getOrElse(throw IllegalStateException(s"No `val scalaV = \"...\"` in $name - the artifact suffix is unknown."))
+  end artifactSuffix
+
   /** The pom of each module in the release repo - what `publish` uploads: `publishMavenStyle`,
     * the `organization` (ProjectDef.org) as path, the module's `name` plus `artifactSuffix`
     * (`_3` unless `crossPaths := false`).
@@ -194,23 +210,29 @@ object PublishHelper extends Helpers:
     * credentials right? A taken release version fails at the upload, after the docs and the
     * docker image went out (the image tag of the existing release overwritten); wrong
     * credentials failed there too. `status` is the HTTP status of a HEAD request - 404 is
-    * free, 200 taken, 401/403 the credentials.
+    * free, 200 taken, 401/403 the credentials (Artifactory - GitLab answers 404 for a project
+    * the token may not read, so a wrong token passes here and fails at the upload, as
+    * before), a redirect is not followed (the token would go to the other host).
     */
   def verifyVersionFree(version: String, urls: Seq[String], status: String => Int): Unit =
     urls.foreach: url =>
       val code = status(url)
       println(s"  $code $url")
       code match
-        case 404       => ()
-        case 200       =>
+        case 404                     => ()
+        case 200                     =>
           throw IllegalStateException(
             s"Version $version is in the repository already: $url - remove it there, or release the next version."
           )
-        case 401 | 403 =>
+        case 401 | 403               =>
           throw IllegalStateException(
             s"The repository refuses the credentials ($code): $url - check the environment variables of the repository."
           )
-        case other     =>
+        case 301 | 302 | 307 | 308   =>
+          throw IllegalStateException(
+            s"The repository redirects ($code): $url - configure the final address of the repository."
+          )
+        case other                   =>
           throw IllegalStateException(s"The repository is not reachable ($other): $url")
   end verifyVersionFree
 
@@ -218,10 +240,15 @@ object PublishHelper extends Helpers:
     * project (a module that is never published is simply not there). Nothing to check with
     * the dummy repo.
     */
-  def verifyVersionFree(version: String, devConfig: DevConfig, artifactSuffix: String): Unit =
+  def verifyVersionFree(
+      version: String,
+      devConfig: DevConfig,
+      artifactSuffix: String,
+      env: String => Option[String] = sys.env.get
+  ): Unit =
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
-      val config = repos.releaseRepoCurlConfig().fold(msg => throw IllegalArgumentException(msg), identity)
+      val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalArgumentException(msg), identity)
       val urls   = releaseArtifactUrls(
         repo.repoUrl,
         devConfig.companyName,
@@ -232,12 +259,13 @@ object PublishHelper extends Helpers:
       verifyVersionFree(version, urls, curlStatus(config))
   end verifyVersionFree
 
-  /** The HTTP status of a HEAD request (redirects followed) - 0 if the server is not reachable
-    * (or not within 30 seconds). `config` are the lines of a curl config (the credentials).
+  /** The HTTP status of a HEAD request - 0 if the server is not reachable (or not within 30
+    * seconds). No redirect is followed: curl keeps a custom header (the GitLab token) on a
+    * redirect to another host. `config` are the lines of a curl config (the credentials).
     */
   def curlStatus(config: Seq[String])(url: String): Int =
     os.proc(
-      "curl", "--silent", "--head", "--location", "--connect-timeout", "10", "--max-time", "30",
+      "curl", "--silent", "--head", "--connect-timeout", "10", "--max-time", "30",
       "--output", "/dev/null", "--write-out", "%{http_code}", "--config", "-", url
     ).call(check = false, stdin = config.mkString("", "\n", "\n"))
       .out.text().trim.toIntOption.getOrElse(0)
@@ -291,8 +319,16 @@ object PublishHelper extends Helpers:
       steps.foreach: step =>
         try run(step)
         catch
-          case e: Exception =>
-            onFailure(step)
+          case e: Throwable =>
+            if step == ReleaseStep.Upload then
+              println(
+                "The upload failed: the docker image (if any) is pushed already - the next try overwrites " +
+                  "its tag; the modules `publish` uploaded before it failed are in the repository - remove " +
+                  "the version there before the next try."
+              )
+            // the failure of the release stays the error - a failing restore is added to it
+            try onFailure(step)
+            catch case restore: Throwable => e.addSuppressed(restore)
             throw e
 
     private def run(step: ReleaseStep): Unit =

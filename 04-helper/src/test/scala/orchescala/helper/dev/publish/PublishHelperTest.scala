@@ -174,9 +174,15 @@ class PublishHelperRetryTest extends FunSuite:
   /** The version is rewritten, then the build fails: the next try must pass the clean-tree check. */
   test("a failed release restores the versions it rewrote - the CHANGELOG and untracked files stay"):
     val dir = repo()
+    // a generated doc with a special name - `--porcelain` would quote it
+    os.write(dir / "docs" / "Prozess Ü (1).md", "# v1", createFolders = true)
+    os.proc("git", "add", ".").call(cwd = dir)
+    os.proc("git", "commit", "-q", "-m", "doc").call(cwd = dir)
     os.write.over(dir / "CHANGELOG.md", "# Changelog\n## 1.1.0")
     os.write(dir / "notes.txt", "not tracked")
+    os.write.over(dir / "docs" / "Prozess Ü (1).md", "# v2 generated")
     PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
+    os.proc("git", "add", "ProjectDef.scala").call(cwd = dir) // staged or not
     intercept[IllegalStateException](PublishHelper.verifyCleanWorkingTree(dir))
 
     val runs = PublishHelper.sbtRuns(None)
@@ -191,8 +197,21 @@ class PublishHelperRetryTest extends FunSuite:
 
     PublishHelper.verifyCleanWorkingTree(dir) // the next try starts clean
     assertEquals(os.read(dir / "ProjectDef.scala"), "version = \"1.0.0\"")
+    assertEquals(os.read(dir / "docs" / "Prozess Ü (1).md"), "# v1")
     assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
     assert(os.exists(dir / "notes.txt"))
+
+  test("a failing restore does not hide the failure of the release"):
+    val runs = PublishHelper.sbtRuns(None)
+    val rel  = PublishHelper.ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      exec = _ => throw IllegalStateException("sbt failed"),
+      onFailure = _ => throw IllegalArgumentException("restore failed")
+    )
+    val error = intercept[IllegalStateException](rel.run(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = false)))
+    assertEquals(error.getSuppressed.toSeq.map(_.getMessage), Seq("restore failed"))
 
   test("a snapshot keeps its changes; after the git step nothing is restored"):
     val dir = repo()
@@ -237,45 +256,102 @@ class PublishHelperVersionFreeTest extends FunSuite:
     )
     assertEquals(company, Seq("https://repo/valiant/valiant-orchescala-domain_3/1.2.3/valiant-orchescala-domain_3-1.2.3.pom"))
 
-  test("wrong credentials and an unreachable repository stop the release"):
-    val refused = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 401))
+  test("wrong credentials, a redirect and an unreachable repository stop the release"):
+    val refused  = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 401))
     assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
-    val down    = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 0))
+    val redirect = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 302))
+    assert(redirect.getMessage.contains("redirects"), redirect.getMessage)
+    val down     = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 0))
     assert(down.getMessage.contains("not reachable"), down.getMessage)
 
+  test("the artifact suffix comes from the build's Settings.scala"):
+    val project = Seq("""  val scalaV = "3.7.4"""", "    crossPaths := false").mkString("\n")
+    val company = Seq("""  val scalaV = "3.7.4"""", "    // crossPaths := false,").mkString("\n")
+    assertEquals(PublishHelper.artifactSuffix(project), "")
+    assertEquals(PublishHelper.artifactSuffix(company), "_3")
+    assertEquals(PublishHelper.artifactSuffix("""val scalaV = "2.13.16""""), "_2")
+    val error = intercept[IllegalStateException](PublishHelper.artifactSuffix("object Settings {}"))
+    assert(error.getMessage.contains("scalaV"), error.getMessage)
 
-  /** curl against a small HTTP server: the status, the redirect, the credentials from the curl
-    * config fed through stdin, an unreachable port.
+
+  /** A small HTTP server playing the repository: `taken` paths exist, the rest is missing, a
+    * `redirect` path redirects, and without the expected credentials everything is 401. Every
+    * request path is recorded.
     */
-  test("curlStatus: status codes, redirects, the credentials of the config, unreachable"):
+  private def withRepo(authorized: com.sun.net.httpserver.HttpExchange => Boolean)(
+      body: (String, () => Seq[String]) => Unit
+  ): Unit =
     import com.sun.net.httpserver.HttpServer
     import java.net.InetSocketAddress
-    val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    val requests = collection.mutable.ListBuffer.empty[String]
+    val server   = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     server.createContext(
       "/",
       exchange =>
         val path   = exchange.getRequestURI.getPath
-        val token  = Option(exchange.getRequestHeaders.getFirst("Private-Token"))
+        requests += path
         val status =
           if path.endsWith("/redirect") then
             exchange.getResponseHeaders.add("Location", "/repo/missing")
             302
-          else if !token.contains("secret") then 401
-          else if path.endsWith("/missing") then 404
-          else 200
+          else if !authorized(exchange) then 401
+          else if path.contains("taken") then 200
+          else 404
         exchange.sendResponseHeaders(status, -1)
         exchange.close()
     )
     server.start()
-    try
-      val base   = s"http://127.0.0.1:${server.getAddress.getPort}/repo"
-      val config = Seq("""header = "Private-Token: secret"""")
-      assertEquals(PublishHelper.curlStatus(config)(s"$base/taken"), 200)
-      assertEquals(PublishHelper.curlStatus(config)(s"$base/missing"), 404)
-      assertEquals(PublishHelper.curlStatus(config)(s"$base/redirect"), 404) // followed
-      assertEquals(PublishHelper.curlStatus(Seq.empty)(s"$base/taken"), 401)
+    try body(s"http://127.0.0.1:${server.getAddress.getPort}", () => requests.toSeq)
     finally server.stop(0)
+  end withRepo
+
+  test("curlStatus: status codes, no redirect followed, the credentials of the config, unreachable"):
+    withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret")): (base, _) =>
+      val config = Seq("""header = "Private-Token: secret"""")
+      assertEquals(PublishHelper.curlStatus(config)(s"$base/repo/taken"), 200)
+      assertEquals(PublishHelper.curlStatus(config)(s"$base/repo/missing"), 404)
+      assertEquals(PublishHelper.curlStatus(config)(s"$base/repo/redirect"), 302)
+      assertEquals(PublishHelper.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(PublishHelper.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
+
+  /** The whole check for a project: the Artifactory repo of its DevConfig, the user/password
+    * from the environment (as basic auth), the poms of its modules (the company as groupId,
+    * `ProjectDef.org`), the suffix.
+    */
+  test("verifyVersionFree for a DevConfig - the URLs of its modules, the credentials, the result"):
+    import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
+    import orchescala.engine.config.{RepoConfig, ReposConfig}
+    import orchescala.helper.util.{DevConfig, SbtConfig}
+    val basic = java.util.Base64.getEncoder.encodeToString("me:secret".getBytes)
+    withRepo(e => Option(e.getRequestHeaders.getFirst("Authorization")).contains(s"Basic $basic")): (base, requests) =>
+      val devConfig = DevConfig(
+        ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, ModuleType.projectModules)
+      ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(repos = Seq(
+        RepoConfig.Artifactory("release", base, "libs-release", "REPO_USER", "REPO_PWD")
+      ))))
+      val env       = Map("REPO_USER" -> "me", "REPO_PWD" -> "secret")
+      PublishHelper.verifyVersionFree("1.2.3", devConfig, artifactSuffix = "", env.get)
+      assertEquals(
+        requests(),
+        ModuleType.projectModules.map(m =>
+          s"/libs-release/democompany/democompany-customer-$m/1.2.3/democompany-customer-$m-1.2.3.pom"
+        )
+      )
+      // the company's suffix
+      PublishHelper.verifyVersionFree("1.2.3", devConfig, artifactSuffix = "_3", env.get)
+      assert(requests().last.endsWith("/democompany-customer-worker_3/1.2.3/democompany-customer-worker_3-1.2.3.pom"), requests().last)
+      // wrong credentials stop it
+      val refused = intercept[IllegalStateException]:
+        PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("REPO_USER" -> "me", "REPO_PWD" -> "wrong").get)
+      assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
+      // missing environment variables stop it before any request
+      val before  = requests().size
+      intercept[IllegalArgumentException](PublishHelper.verifyVersionFree("1.2.3", devConfig, "", _ => None))
+      assertEquals(requests().size, before)
+      // a taken module
+      val taken = intercept[IllegalStateException]:
+        PublishHelper.verifyVersionFree("1.2.3-taken", devConfig, "", env.get)
+      assert(taken.getMessage.contains("is in the repository already"), taken.getMessage)
 
 end PublishHelperVersionFreeTest

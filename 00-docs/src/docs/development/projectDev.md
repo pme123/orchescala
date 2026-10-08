@@ -83,6 +83,8 @@ The following steps are executed:
   the credentials work: a `HEAD` on the pom of each module, before anything is built or uploaded.
   - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
     of the existing release overwritten). Remove the half-finished version there, or release the next.
+  - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a project the
+    token may not read - a wrong token passes here and fails at the upload, as before.
 - Push the `develop` branch.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
 - Build everything locally (`sbt package packageSrc makePom` - what `publish` packages, without
@@ -105,7 +107,8 @@ The following steps are executed:
     without its artifacts - the next try overwrites it.
 - A release that fails before its git step restores the files it rewrote (the versions, generated
   docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
-  and untracked files stay as they are.
+  and untracked files stay as they are. A release you abort (Ctrl-C) is not restored - `git status`
+  shows the files, `git checkout HEAD -- <files>` restores them.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.
 - Increase the version to the next minor _SNAPSHOT_ version.

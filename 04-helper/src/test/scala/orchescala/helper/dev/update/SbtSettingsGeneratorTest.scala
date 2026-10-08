@@ -56,4 +56,20 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(buildSbt.contains("dockerSettings,\n    dockerBuildSettings,"), buildSbt)
       assert(buildSbt.contains("enablePlugins(DockerPlugin, JavaAppPackaging)"), buildSbt)
 
+  /** The release check builds the pom URLs from the company name and `<project>-<module>` without
+    * a suffix - what the generated build publishes: `organization := ProjectDef.org`, the name,
+    * `crossPaths := false`.
+    */
+  test("the generated build publishes what the release check looks for"):
+    inProject(SbtConfig()): projectDir =>
+      SbtGenerator().generate
+      SbtSettingsGenerator(isGateway = false).generate
+      val projectDef = os.read(projectDir / "project" / "ProjectDef.scala")
+      val settings   = os.read(projectDir / "project" / "Settings.scala")
+      assert(projectDef.contains("""val org = "democompany""""), projectDef)
+      assert(projectDef.contains("""val name = "democompany-customer""""), projectDef)
+      assert(settings.contains("organization := ProjectDef.org"), settings)
+      assert(settings.contains("""name := s"${ProjectDef.name}${module.map(p => s"-$p").getOrElse("")}""""), settings)
+      assertEquals(orchescala.helper.dev.publish.PublishHelper.artifactSuffix(settings), "")
+
 end SbtSettingsGeneratorTest
