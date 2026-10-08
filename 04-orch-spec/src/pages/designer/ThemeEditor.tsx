@@ -4,11 +4,10 @@ import { FileUp, ImagePlus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { Theme } from '../runtime/spec';
-import { FONTS, isThemeColor, parseThemeFile, themeProblem, themeStyle } from '../runtime/theme';
+import { FONTS, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, themeProblem, themeStyle } from '../runtime/theme';
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
 
-const MAX_LOGO = 200 * 1024;
 
 /** Eine Farbe - getippt bleibt sie hier, bis sie eine ist (ein halbes `#0b5` kommt nicht ins Theme). */
 function ColorField({ isDark, label, value, onChange, disabled }: {
@@ -16,8 +15,9 @@ function ColorField({ isDark, label, value, onChange, disabled }: {
 }) {
   const c = cls(isDark);
   const [text, setText] = useState(value ?? '');
-  // von aussen geändert (Farbwähler, Import, Vorgabe) - die Anzeige folgt
-  useEffect(() => setText(value ?? ''), [value]);
+  // von aussen geändert (Farbwähler, Import, Vorgabe) - die Anzeige folgt; was man gerade tippt (und schon
+  // gilt, z.B. «#abc» auf dem Weg zu «#abcdef»), bleibt stehen
+  useEffect(() => setText((t) => (t.trim() === (value ?? '') ? t : value ?? '')), [value]);
   const valid = text === '' || isThemeColor(text.trim());
   return (
     <label className="block space-y-1">
@@ -59,7 +59,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     setNote({ tone: 'ok', text: `Übernommen${r.name ? `: ${r.name}` : ''}${r.source ? ` (aus ${r.source})` : ''} - noch speichern.` });
   };
   const logoFile = (file: File) => {
-    if (file.size > MAX_LOGO) return setNote({ tone: 'error', text: 'Das Logo ist grösser als 200 KB.' });
+    if (file.size > MAX_LOGO_BYTES) return setNote({ tone: 'error', text: 'Das Logo ist grösser als 200 KB.' });
     const reader = new FileReader();
     reader.onload = () => {
       const logo = String(reader.result);

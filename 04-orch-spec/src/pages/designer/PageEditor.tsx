@@ -129,24 +129,31 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   }, [flush]);
   const store = (next: Page) => {
     setPage(next);
+    latest.current = next;
     pending.current = next;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
   };
 
   // ---- rückgängig: jede Änderung der Seite; Tippen in einem Feld ist ein Schritt (history.ts). Die Stände
-  // gehören zu dieser Seite: der Designer hängt den Editor mit key={slug} ein, eine andere Seite beginnt neu.
+  // gehören zu dieser Seite: der Designer hängt den Editor mit key={slug} ein, eine andere Seite beginnt neu
+  // (und das Aufräumen oben speichert, was noch aussteht). Refs, nicht Zustand: zwei Schritte vor dem
+  // nächsten Rendern (⌘Z gedrückt gehalten) sehen so je den Stand des vorigen - `page` wäre noch der alte.
   const history = useRef<History<Page>>(emptyHistory());
+  const latest = useRef<Page | null>(null);
+  latest.current ??= page;
   const [, setHistoryTick] = useState(0);
   const update = (next: Page, coalesce?: string) => {
-    if (!canEdit || !page) return;
-    history.current = record(history.current, page, coalesce, Date.now());
+    const current = latest.current ?? page;
+    if (!canEdit || !current) return;
+    history.current = record(history.current, current, coalesce, Date.now());
     store(next);
     setHistoryTick((t) => t + 1);
   };
   const step = (dir: 'undo' | 'redo') => {
-    if (!canEdit || !page) return;
-    const done = travel(history.current, page, dir);
+    const current = latest.current ?? page;
+    if (!canEdit || !current) return;
+    const done = travel(history.current, current, dir);
     if (!done) return;
     history.current = done.history;
     store(done.value);

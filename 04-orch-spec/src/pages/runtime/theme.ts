@@ -62,6 +62,18 @@ export function textOn(color: string): '#000000' | '#ffffff' {
   return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#000000' : '#ffffff';
 }
 
+const FONT_FORBIDDEN = /[;{}<>\\@]|url\s*\(/i;
+
+/** Das Logo höchstens so gross (wie eine Datei im Logo-Feld). */
+export const MAX_LOGO_BYTES = 200 * 1024;
+
+/** Die Grösse des Bilds in einer base64-data:-URI - die dekodierten Bytes, nicht die Länge des Texts. */
+export function dataUriBytes(uri: string): number {
+  const b64 = uri.slice(uri.indexOf(',') + 1).replace(/\s/g, '');
+  const padding = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - padding;
+}
+
 /** Was an einem Theme nicht stimmt - null, wenn es passt. Für den Import und den Build. */
 export function themeProblem(raw: unknown): string | null {
   if (raw === undefined) return null;
@@ -69,13 +81,14 @@ export function themeProblem(raw: unknown): string | null {
   const t = raw as Record<string, unknown>;
   for (const k of ['primary', 'onPrimary', 'background', 'surface', 'text'])
     if (t[k] !== undefined && (typeof t[k] !== 'string' || !COLOR.test(t[k] as string))) return `«theme.${k}» ist keine Farbe (#rrggbb, rgb(…), hsl(…))`;
-  if (t.font !== undefined && (typeof t.font !== 'string' || /[;{}<>]/.test(t.font))) return '«theme.font» ist kein Schrift-Stapel';
+  // nur Namen von Schriften: nichts, was etwas von aussen lädt (url(…), @import) oder CSS maskiert (Backslash)
+  if (t.font !== undefined && (typeof t.font !== 'string' || FONT_FORBIDDEN.test(t.font))) return '«theme.font» ist kein Schrift-Stapel';
   // nur eigene Schlüssel - `toString` oder `__proto__` sind keine Ecken
   if (t.radius !== undefined && !(typeof t.radius === 'string' && Object.hasOwn(RADIUS, t.radius))) return '«theme.radius» ist nicht none, sm, md, lg oder xl';
   if (t.mode !== undefined && t.mode !== 'light' && t.mode !== 'dark') return '«theme.mode» ist nicht light oder dark';
   if (t.logo !== undefined) {
     if (typeof t.logo !== 'string' || !/^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/.test(t.logo)) return '«theme.logo» ist keine data:-URI eines Bilds (PNG, JPEG, GIF, WebP, SVG)';
-    if (t.logo.length > (200 * 1024 * 4) / 3) return '«theme.logo» ist grösser als 200 KB';
+    if (dataUriBytes(t.logo) > MAX_LOGO_BYTES) return '«theme.logo» ist grösser als 200 KB';
   }
   return null;
 }

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
-import { FONTS, isThemeColor, parseThemeFile, rgbOf, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
+import { dataUriBytes, FONTS, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 import { isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -100,4 +100,18 @@ test('theme mode - the user\'s choice before the app\'s default, stored under it
   assert.equal(storedMode('orch-pages.theme', broken), null);
   rememberMode('orch-pages.theme', 'dark', broken); // no exception
   assert.equal(storedMode('orch-pages.theme', null), null);
+});
+
+test('themeProblem - a font loads nothing from outside', () => {
+  for (const font of ['x, url(http://evil.example/f.woff)', 'X, URL (x)', '"A\\"', '@import x', 'a; b'])
+    assert.match(themeProblem({ font }) ?? '', /theme.font/, font);
+  assert.equal(themeProblem({ font: '"Frutiger LT", Arial, sans-serif' }), null);
+});
+
+test('themeProblem - the logo size is the decoded size (200 KB)', () => {
+  const uri = (n: number) => `data:image/png;base64,${Buffer.from('x'.repeat(n)).toString('base64')}`;
+  for (const n of [0, 1, 2, 3, 150 * 1024, MAX_LOGO_BYTES]) assert.equal(dataUriBytes(uri(n)), n);
+  assert.equal(themeProblem({ logo: uri(150 * 1024) }), null); // was rejected by the length estimate
+  assert.equal(themeProblem({ logo: uri(MAX_LOGO_BYTES) }), null);
+  assert.match(themeProblem({ logo: uri(MAX_LOGO_BYTES + 1) }) ?? '', /200 KB/);
 });

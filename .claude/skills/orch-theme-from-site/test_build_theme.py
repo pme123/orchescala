@@ -6,7 +6,9 @@ import sys
 import tempfile
 import unittest
 
-from build_theme import contrast, font_stack, problems, radius, to_hex
+import base64
+
+from build_theme import MAX_LOGO, contrast, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -54,6 +56,17 @@ class Problems(unittest.TestCase):
     def test_invalid(self):
         found = problems({'primary': 'red', 'font': 'x; color: red', 'radius': 'huge', 'mode': 'dim', 'logo': 'https://x/logo.svg'})
         self.assertEqual(len(found), 5, found)
+
+    def test_font_loading_from_outside(self):
+        for font in ('x, url(http://evil.example/f.woff)', 'X, URL (x)', '"A\\"', '@import x'):
+            self.assertTrue(problems({'font': font}), font)
+
+    def test_logo_size_is_the_decoded_size(self):
+        uri = lambda n: 'data:image/png;base64,' + base64.b64encode(b'x' * n).decode()
+        for n in (0, 1, 2, 3, 150 * 1024, MAX_LOGO):
+            self.assertEqual(data_uri_bytes(uri(n)), n)
+        self.assertEqual(problems({'logo': uri(MAX_LOGO)}), [])
+        self.assertEqual(problems({'logo': uri(MAX_LOGO + 1)}), ['theme.logo ist grösser als 200 KB'])
 
     def test_contrast(self):
         self.assertAlmostEqual(contrast('#ffffff', '#000000'), 21, places=1)

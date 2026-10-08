@@ -272,6 +272,45 @@ test('dataOf - what is in the state of a page and where it comes from', () => {
   assert.ok(at('user'));
 });
 
+test('placeBlock - the page itself (no block key): at the end of the page, not silently at the start', () => {
+  const r = placeBlock(page.body, { type: 'text', text: 'neu' }, '', 'inside');
+  assert.equal(r.key, String(page.body.length));
+  assert.deepEqual(r.body.map((b) => b.type), [...page.body.map((b) => b.type), 'text']);
+  assert.equal(placeBlock(page.body, { type: 'text', text: 'x' }, '', 'before').key, String(page.body.length));
+});
+
+test('relocateBlock - into a later sibling\'s child, inside its old parent, to the page', () => {
+  const t = (text: string): Component => ({ type: 'text', text });
+  const body: Component[] = [
+    t('a'),
+    { type: 'section', label: 'S', body: [t('s0'), { type: 'section', label: 'Inner', body: [t('i0')] }] },
+  ];
+  // a (index 0) before i0 (1.1.0) - after the removal the path is 0.1.0
+  const deep = relocateBlock(body, '0', '1.1.0', 'before');
+  assert.equal(deep.key, '0.1.0');
+  assert.equal((blockAt(deep.body, '0.1.0') as { text: string }).text, 'a');
+  assert.equal((blockAt(deep.body, '0.1.1') as { text: string }).text, 'i0');
+  // s0 «inside» its own section: at its end
+  const own = relocateBlock(body, '1.0', '1', 'inside');
+  assert.equal(own.key, '1.1');
+  assert.deepEqual((blockAt(own.body, '1') as Extract<Component, { type: 'section' }>).body.map((b) => b.type), ['section', 'text']);
+  // to the page (''): at its end
+  const top = relocateBlock(body, '1.1.0', '', 'inside');
+  assert.equal(top.key, '2');
+  assert.equal((blockAt(top.body, '2') as { text: string }).text, 'i0');
+  assert.deepEqual((blockAt(top.body, '1.1') as Extract<Component, { type: 'section' }>).body, []);
+});
+
+test('unwrapSection - a nested section: its blocks in its place, in the parent section', () => {
+  const t = (text: string): Component => ({ type: 'text', text });
+  const body: Component[] = [{ type: 'section', label: 'S', body: [t('s0'), { type: 'section', label: 'Inner', body: [t('i0'), t('i1')] }, t('s2')] }];
+  const r = unwrapSection(body, '0.1');
+  assert.equal(r.key, '0.1');
+  assert.deepEqual((r.body[0] as Extract<Component, { type: 'section' }>).body.map((b) => (b as { text: string }).text), ['s0', 'i0', 'i1', 's2']);
+  const empty = unwrapSection([{ type: 'section', label: 'S', body: [{ type: 'section', label: 'E', body: [] }] }], '0.0');
+  assert.equal(empty.key, '0'); // the parent section is selected
+});
+
 test('dataOf - an input field gives text (the inputs deliver strings), an object for a dotted path', () => {
   const form: Page = {
     ...page,

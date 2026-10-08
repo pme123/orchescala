@@ -79,6 +79,7 @@ def font_stack(family, headings=()):
     names = [f.strip().strip('"\'') for f in family.split(',') if f.strip()]
     if all(n.lower() in SYSTEM | GENERIC for n in names):
         brand = next((h for h in headings if any(n.strip().strip('"\'').lower() not in SYSTEM | GENERIC for n in h.split(','))), None)
+        # one level only: brand has a non-system name, so the call does not come back here
         return font_stack(brand) if brand else 'sans'
 
     generic = next((n for n in names if n.lower() in GENERIC), None)
@@ -113,13 +114,20 @@ def logo_uri(path):
     return f'data:{mime};base64,{base64.b64encode(data).decode()}'
 
 
+def data_uri_bytes(uri):
+    """The size of the image in a base64 data: URI - the decoded bytes (as theme.ts dataUriBytes)."""
+    b64 = re.sub(r'\s', '', uri[uri.find(',') + 1:])
+    return len(b64) * 3 // 4 - (2 if b64.endswith('==') else 1 if b64.endswith('=') else 0)
+
+
 def problems(theme):
     """What orch-spec's themeProblem would reject in a theme this script writes - an empty list if none."""
     found = []
     for k in ('primary', 'onPrimary', 'background', 'surface', 'text'):
         if k in theme and not re.fullmatch(r'#[0-9a-f]{6}', theme[k]):
             found.append(f'theme.{k} ist keine Farbe #rrggbb: {theme[k]!r}')
-    if 'font' in theme and re.search(r'[;{}<>]', theme['font']):
+    # font names only: nothing that loads from outside (url(…), @import) or escapes CSS (backslash)
+    if 'font' in theme and re.search(r'[;{}<>\\@]|url\s*\(', theme['font'], re.I):
         found.append(f'theme.font ist kein Schrift-Stapel: {theme["font"]!r}')
     if 'radius' in theme and theme['radius'] not in ('none', 'sm', 'md', 'lg', 'xl'):
         found.append(f'theme.radius ist nicht none, sm, md, lg oder xl: {theme["radius"]!r}')
@@ -129,7 +137,7 @@ def problems(theme):
     if logo is not None:
         if not re.match(r'data:image/(png|jpeg|gif|webp|svg\+xml);base64,', logo):
             found.append('theme.logo ist keine data:-URI eines Bilds')
-        if len(logo) > MAX_LOGO * 4 / 3:
+        if data_uri_bytes(logo) > MAX_LOGO:
             found.append('theme.logo ist grösser als 200 KB')
     return found
 
