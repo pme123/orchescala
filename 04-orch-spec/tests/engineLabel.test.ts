@@ -68,7 +68,8 @@ test('the audit note of a conversion - written once, it stays', () => {
   assert.equal(conversionNote('c8'), 'In Camunda 8 umgewandelt');
 });
 
-test('no text in src names an engine by hand - only comments, the labels come from engineLabels', () => {
+// a guard, not a proof: line by line, lines starting as a comment are skipped
+test('no line of code in src names an engine by hand - the labels come from engineLabels', () => {
   const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
     .flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
   // from the test itself (dist-tests/…), not from the cwd
