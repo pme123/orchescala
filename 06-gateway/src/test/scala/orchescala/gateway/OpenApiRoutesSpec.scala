@@ -151,9 +151,11 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         traversal  <- openApiRoutes.orSiteFile("..", "acme-shop", "OpenApi.yml")(unreachable)
       yield assertTrue(
         released.status == Status.Ok,
+        released.rawHeader(openApiRoutes.DocsSourceHeader).contains("released"),
         body.contains("acme-shop (released)"),
         noUrl.status == Status.Ok,
         liveBody == "live",
+        live.rawHeader(openApiRoutes.DocsSourceHeader).isEmpty,
         workerErr.status == Status.BadGateway,
         wrongUrl.status == Status.InternalServerError,
         missing.status == Status.ServiceUnavailable,
@@ -172,7 +174,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         diagram._1 == Status.Ok, diagram._2.contains("<bpmn"),
         none._1 == Status.ServiceUnavailable
       )
-    },
+    } @@ TestAspect.timeout(20.seconds), // a sandbox that drops packets instead of refusing: fail, not hang
     test("the favicon is served (its stream closed)") {
       for
         response <- openApiRoutes.routes.runZIO(Request.get(URL.decode("/favicon.ico").toOption.get))

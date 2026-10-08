@@ -194,7 +194,8 @@ trait DocCreator extends DependencyCreator, Helpers:
     val configs = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
         ZIO.foreachPar(versions.toSeq) { case (projectName, version) =>
-          ZIO.attempt {
+          // git and tar processes - not on the threads of the ZIO scheduler
+          ZIO.attemptBlocking {
             val previousVersion =
               previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
             fetchConf(

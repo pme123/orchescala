@@ -7,28 +7,7 @@ import munit.FunSuite
   */
 class ProjectRepoTest extends FunSuite:
 
-  private def git(dir: os.Path, args: String*): Unit =
-    os.proc("git", "-c", "user.name=test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "tag.forcesignannotated=false", args)
-      .call(cwd = dir, stdout = os.Pipe, stderr = os.Pipe)
-
-  /** git-temp with a company repo: acme-shop released as 1.0.0, then changed; acme-cards never tagged. */
-  private def singleRepoGitTemp(): os.Path =
-    val gitTemp = os.temp.dir(prefix = "git-temp")
-    val repo    = gitTemp / "orchescala-acme"
-    os.write(repo / "projects" / "acme-shop" / "03-api" / "OpenApi.yml", "version: 1.0.0\n", createFolders = true)
-    os.write(repo / "projects" / "acme-shop" / "src" / "main" / "resources" / "camunda" / "shop.bpmn", "<bpmn/>", createFolders = true)
-    os.write(repo / "projects" / "acme-cards" / "03-api" / "OpenApi.yml", "cards\n", createFolders = true)
-    git(repo, "init", "-q")
-    git(repo, "add", ".")
-    git(repo, "commit", "-q", "-m", "release")
-    git(repo, "tag", "acme-shop-v1.0.0")
-    os.write.over(repo / "projects" / "acme-shop" / "03-api" / "OpenApi.yml", "version: 1.1.0-SNAPSHOT\n")
-    // a project that came after the release tag of acme-shop
-    os.write(repo / "projects" / "acme-new" / "README.md", "new", createFolders = true)
-    git(repo, "add", ".")
-    git(repo, "commit", "-q", "-m", "later")
-    git(repo, "tag", "acme-new-v0.1.0")
-    gitTemp
+  import GitTempFixture.*
 
   test("locate - a project in the company's single repo, with its folder as prefix"):
     val gitTemp = singleRepoGitTemp()
@@ -130,30 +109,28 @@ class ProjectRepoTest extends FunSuite:
     assertEquals(shop.repo, gitTemp / "orchescala-acme")
     assert(out.toString.contains("several clones"), out.toString)
 
-  test("resolveTag - no origin to fetch from: the local tags still count, no exception"):
-    val shop = ProjectRepo.locate(singleRepoGitTemp(), "acme-shop").get
-    assertEquals(shop.resolveTag("1.0.0"), Some("acme-shop-v1.0.0"))
-    assertEquals(shop.resolveTag("3.0.0"), None)
-
-  test("SiteAssembler.writeApi - the API of a project in a single repo, at its tag"):
+  test("resolveTag - origin not reachable: the local tags still count, the failure is logged"):
     val gitTemp = singleRepoGitTemp()
-    val repo    = gitTemp / "orchescala-acme"
-    os.write(repo / "projects" / "acme-shop" / "03-api" / "PostmanOpenApi.yml", "postman\n", createFolders = true)
-    git(repo, "add", ".")
-    git(repo, "commit", "-q", "-m", "postman")
-    git(repo, "tag", "acme-shop-v1.1.0")
-    val shop   = ProjectRepo.locate(gitTemp, "acme-shop").get
-    assertEquals(SiteAssembler.releaseRef(shop, "1.0.0"), Some("acme-shop-v1.0.0"))
-    assertEquals(SiteAssembler.releaseRef(shop, "4.0.0"), None)
-    val target = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
-    val yml    = SiteAssembler.writeApi(shop, "acme-shop-v1.0.0", target, "<html/>")
-    assertEquals(yml.map(new String(_)), Some("version: 1.0.0\n"))
-    assertEquals(os.read(target / "OpenApi.html"), "<html/>")
-    assert(os.exists(target / "diagrams" / "shop.bpmn"))
-    assert(!os.exists(target / "PostmanOpenApi.yml")) // not yet at 1.0.0
-    SiteAssembler.writeApi(shop, "acme-shop-v1.1.0", target, "<html/>")
-    assertEquals(os.read(target / "PostmanOpenApi.yml"), "postman\n")
-    val cards = ProjectRepo.locate(gitTemp, "acme-new").get
-    assertEquals(SiteAssembler.writeApi(cards, "acme-new-v0.1.0", os.temp.dir() / "x", "<html/>"), None) // no OpenApi.yml
+    git(gitTemp / "orchescala-acme", "remote", "add", "origin", (gitTemp / "gone.git").toString)
+    val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
+    val out     = java.io.ByteArrayOutputStream()
+    Console.withOut(out):
+      assertEquals(shop.resolveTag("1.0.0"), Some("acme-shop-v1.0.0")) // local: no fetch
+      assertEquals(out.toString, "")
+      assertEquals(shop.resolveTag("3.0.0"), None) // not local: fetched - and that failed
+    assert(out.toString.contains(s"fetching the tags of ${shop.repo} failed"), out.toString)
+
+  test("fetchTagsOnce - once per repo within FetchValidMs, then again"):
+    val repo = singleRepoGitTemp() / "orchescala-acme"
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      assert(ProjectRepo.fetchTagsOnce(repo, now = 1000))
+      assert(!ProjectRepo.fetchTagsOnce(repo, now = 1000 + ProjectRepo.FetchValidMs - 1))
+      assert(ProjectRepo.fetchTagsOnce(repo, now = 1000 + ProjectRepo.FetchValidMs))
+
+  test("exportTo - a deeper project folder: as many leading folders stripped"):
+    val gitTemp = singleRepoGitTemp()
+    val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")
+    deep.exportTo("acme-shop-v1.0.0", gitTemp / "api")
+    assertEquals(os.list(gitTemp / "api").map(_.last), IndexedSeq("OpenApi.yml"))
 
 end ProjectRepoTest

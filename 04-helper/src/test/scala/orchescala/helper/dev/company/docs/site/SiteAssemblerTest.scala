@@ -3,9 +3,11 @@ package orchescala.helper.dev.company.docs.site
 import munit.FunSuite
 
 /** The whole site from a real company `00-docs` and its project checkouts in git-temp - skipped if
-  * they are not on this machine. No WebDAV involved.
+  * they are not on this machine. No WebDAV involved. The API of a project (writeApi) is tested on a
+  * git-temp of its own (GitTempFixture), always.
   */
 class SiteAssemblerTest extends FunSuite:
+  import GitTempFixture.*
 
   // the 00-docs of a company-orchescala repo - only from COMPANY_DOCS_PATH, otherwise the test is
   // skipped: no fallback, so the outcome never depends on what lies in a home directory
@@ -93,5 +95,26 @@ class SiteAssemblerTest extends FunSuite:
       val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
       assertEquals(code, "404")
     finally running.stop()
+
+  test("writeApi - the API of a project in a single repo, at its tag"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme-shop" / "03-api" / "PostmanOpenApi.yml", "postman\n", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "postman")
+    git(repo, "tag", "acme-shop-v1.1.0")
+    val shop   = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assertEquals(SiteAssembler.releaseRef(shop, "1.0.0"), Some("acme-shop-v1.0.0"))
+    assertEquals(SiteAssembler.releaseRef(shop, "4.0.0"), None)
+    val target = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val yml    = SiteAssembler.writeApi(shop, "acme-shop-v1.0.0", target, "<html/>")
+    assertEquals(yml.map(new String(_)), Some("version: 1.0.0\n"))
+    assertEquals(os.read(target / "OpenApi.html"), "<html/>")
+    assert(os.exists(target / "diagrams" / "shop.bpmn"))
+    assert(!os.exists(target / "PostmanOpenApi.yml")) // not yet at 1.0.0
+    SiteAssembler.writeApi(shop, "acme-shop-v1.1.0", target, "<html/>")
+    assertEquals(os.read(target / "PostmanOpenApi.yml"), "postman\n")
+    val cards = ProjectRepo.locate(gitTemp, "acme-new").get
+    assertEquals(SiteAssembler.writeApi(cards, "acme-new-v0.1.0", os.temp.dir() / "x", "<html/>"), None) // no OpenApi.yml
 
 end SiteAssemblerTest

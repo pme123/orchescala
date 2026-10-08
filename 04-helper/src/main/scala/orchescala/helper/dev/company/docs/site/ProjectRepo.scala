@@ -15,6 +15,12 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
   /** A file of the project, as a path in the repo. */
   def path(file: String): String = prefix + file
 
+  /** The project's folder in the repo (`projects/acme-shop`) - `.` for its own clone. */
+  private def folder: String = if singleRepo then prefix.stripSuffix("/") else "."
+
+  /** The leading folders `git archive` puts before the project's files. */
+  private def depth: Int = if singleRepo then folder.split('/').count(_.nonEmpty) else 0
+
   /** The tags a release of `version` may have - the project's own first. */
   def tagCandidates(version: String): Seq[String] =
     if singleRepo then Seq(s"$project-v$version", s"$project-$version", s"v$version", version)
@@ -34,7 +40,8 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * (`<ref>:` is the root tree of an own clone - `<ref>:.` is no object name.)
     */
   def existsAt(ref: String): Boolean =
-    os.proc("git", "-C", repo.toString, "cat-file", "-e", s"$ref:${prefix.stripSuffix("/")}")
+    val tree = if singleRepo then folder else ""
+    os.proc("git", "-C", repo.toString, "cat-file", "-e", s"$ref:$tree")
       .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
 
   /** The project's files at `ref` into `dest` (emptied first) - in one repo only its own folder.
@@ -44,18 +51,21 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     require(!repo.startsWith(dest), s"$dest holds the clone $repo - not emptied")
     require(existsAt(ref), s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
-    val fresh  = os.temp.dir(dir = { os.makeDir.all(dest / os.up); dest / os.up }, prefix = s".${dest.last}-")
-    val errors = fresh / os.up / s"${fresh.last}.git-archive.err" // a file: a noisy stderr does not block git
+    os.makeDir.all(dest / os.up)
+    val fresh  = os.temp.dir(dir = dest / os.up, prefix = s".${dest.last}-")
+    // a file: a noisy stderr does not block git
+    val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
     try
-      val archive = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, if singleRepo then prefix.stripSuffix("/") else ".")
+      val archive = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder)
         .spawn(stderr = errors)
-      val tar = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh.toString, s"--strip-components=${prefix.count(_ == '/')}")
+      val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, s"--strip-components=$depth")
         .call(stdin = archive.stdout, check = false, stderr = os.Pipe)
       archive.waitFor()
       // git's failure is the cause - tar then only sees a cut stream
       if archive.exitCode() != 0 then
         throw new Exception(s"git archive $ref of $project failed: ${os.read(errors).trim}")
-      if tar.exitCode != 0 then throw new Exception(s"tar of $project at $ref failed: ${tar.err.text().trim}")
+      if tar.exitCode != 0 then
+        throw new Exception(s"tar of $project at $ref failed: ${tar.err.text().trim}")
       os.remove.all(dest)
       os.move(fresh, dest)
     finally
@@ -69,32 +79,58 @@ end ProjectRepo
 
 object ProjectRepo:
 
-  private val fetched = java.util.concurrent.ConcurrentHashMap.newKeySet[os.Path]()
-
-  /** `git fetch --tags` in a clone - once per run; no credential prompt (it would hang the helper), no
-    * `--prune` (it would drop tags made in this clone only), a minute at most; a failure is logged.
+  /** A fetch per repo is good for this long - the projects of one docs run share it; a later run (or a
+    * failed fetch) fetches again.
     */
-  private[site] def fetchTagsOnce(repo: os.Path): Unit =
-    if fetched.add(repo) then
+  private[site] val FetchValidMs = 5 * 60 * 1000L
+  private val lastFetch          = java.util.concurrent.ConcurrentHashMap[os.Path, java.lang.Long]()
+
+  /** `git fetch --tags` in a clone - at most once per FetchValidMs; no credential prompt (it would hang
+    * the helper), no `--prune` (it would drop tags made in this clone only), a minute at most; a
+    * failure is logged.
+    * @return true if it fetched now (false: a recent fetch counts)
+    */
+  private[site] def fetchTagsOnce(repo: os.Path, now: Long = System.currentTimeMillis()): Boolean =
+    val due = lastFetch.compute(
+      repo,
+      (_, last) => if last == null || now - last >= FetchValidMs then now else last
+    ) == now
+    if due then
       val fetch = scala.util.Try(
         os.proc("git", "-C", repo.toString, "fetch", "--tags")
-          .call(check = false, stdout = os.Pipe, stderr = os.Pipe, env = Map("GIT_TERMINAL_PROMPT" -> "0"), timeout = 60000)
+          .call(
+            check = false,
+            stdout = os.Pipe,
+            stderr = os.Pipe,
+            env = Map("GIT_TERMINAL_PROMPT" -> "0"),
+            timeout = 60000
+          )
       )
       fetch.toOption.filter(_.exitCode == 0) match
         case Some(_) => ()
         case None    =>
           val why = fetch.fold(_.getMessage, _.err.text().trim)
           println(s"  ! fetching the tags of $repo failed: $why")
+    due
 
   /** A release of a project in a company's single repo into `dest` (its copy in git-temp): the
     * project's folder at its tag. None if the project has its own clone (then it is checked out there).
+    *
+    * The release docs are of released versions only - like the checkout of an own clone
+    * (DocCreator.resolveTagRef), a version without a tag stops the run; VERSIONS.conf names a version
+    * that is not released yet. (The site's API page, SiteAssembler, shows HEAD instead, with a warning.)
     * @throws Exception if there is no tag for `version` or the project is not there at the tag
     */
-  def exportRelease(gitTemp: os.Path, project: String, version: String, dest: os.Path): Option[String] =
+  def exportRelease(
+      gitTemp: os.Path,
+      project: String,
+      version: String,
+      dest: os.Path
+  ): Option[String] =
     locate(gitTemp, project).filter(_.singleRepo).map: repo =>
-      val tag = repo.resolveTag(version).getOrElse(
-        throw new Exception(s"Tag not found in ${repo.repo}: ${repo.tagCandidates(version).mkString(" or ")}")
-      )
+      val tag = repo.resolveTag(version).getOrElse:
+        val tried = repo.tagCandidates(version).mkString(" or ")
+        throw new Exception(s"Tag not found in ${repo.repo}: $tried - is $project $version released?")
       repo.exportTo(tag, dest)
       tag
 
@@ -108,6 +144,7 @@ object ProjectRepo:
       val clones = os.list(gitTemp).sortBy(_.last)
         .filter(d => os.exists(d / ".git") && os.isDir(d / "projects" / project))
       if clones.size > 1 then
-        println(s"  ! $project is in several clones of $gitTemp (${clones.map(_.last).mkString(", ")}) - taking ${clones.head.last}")
+        val names = clones.map(_.last).mkString(", ")
+        println(s"  ! $project is in several clones of $gitTemp ($names) - taking ${clones.head.last}")
       clones.headOption.map(ProjectRepo(_, s"projects/$project/", project))
 end ProjectRepo

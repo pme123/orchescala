@@ -170,11 +170,18 @@ class OpenApiRoutes()(using config: GatewayConfig):
         // which avoids OAuth2 query params (code, state, …) ever landing on the main /docs page.
         (protectedRoutes @@ oauth2AuthMiddleware(auth)) ++ oauth2CallbackRoute(auth) ++ faviconRoute
 
+  /** Why a docs request did not reach the worker app - the status the gateway answers with. */
+  private case class DocsFailure(status: Status, message: String)
+
+  /** Marks a docs answer that is not the worker app's (live) one. */
+  private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
+
   /** When the project's worker app is not there - no docs URL for it (404) or not reachable (503, see
     * forwardDocsRequest; e.g. a project of another team, not running here) - the released version the
     * docs site holds (`site/<company>/<project>/…`, written by the helper's SiteAssembler at the tag of
-    * VERSIONS.conf), with a warning. A worker app that answers - also with an error of its own (502) -
-    * or a wrong docs URL (500) is passed on: the live one, not hidden behind an older file.
+    * VERSIONS.conf), with a warning and the header `X-Orchescala-Docs-Source: released` (not live).
+    * A worker app that answers - also with an error of its own (502) - or a wrong docs URL (500) is
+    * passed on: the live one, not hidden behind an older file.
     */
   private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
       forwarded: Response
@@ -185,7 +192,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
     else
       serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).flatMap: fromSite =>
         if fromSite.status.isSuccess then
-          ZIO.logWarning(s"Docs of '$projectName' (${forwarded.status.code}): the released $file of the site instead").as(fromSite)
+          ZIO.logWarning(
+            s"Docs of '$projectName' (${forwarded.status.code}): the released $file of the site instead"
+          ).as(fromSite.addHeader(DocsSourceHeader, "released"))
         else ZIO.succeed(forwarded)
 
   /** Forwards a docs request to the worker app of the project.
@@ -210,11 +219,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
       case Some(baseUrl) =>
         (for
           uri      <- ZIO.fromEither(Uri.parse(baseUrl).map(_.addPath(path)))
-                        .mapError(err => Status.InternalServerError -> s"Invalid docs URL: $err")
+                        .mapError(err => DocsFailure(Status.InternalServerError, s"Invalid docs URL: $err"))
           _        <- ZIO.logInfo(s"Forwarding docs request to: $uri")
           request   = basicRequest.get(uri)
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
-                        request.send(backend).mapError(err => Status.ServiceUnavailable -> err.getMessage)
+                        request.send(backend)
+                          .mapError(err => DocsFailure(Status.ServiceUnavailable, err.getMessage))
           result   <- response.body match
                         case Right(body) =>
                           ZIO.succeed(
@@ -229,9 +239,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
         yield result)
           .provideLayer(HttpClientProvider.live)
           .catchAll: failure =>
-            val (status, err) = failure match
-              case (status: Status, err) => status                     -> err
-              case err                   => Status.InternalServerError -> err // the HTTP client
+            val DocsFailure(status, err) = failure match
+              case f: DocsFailure => f
+              case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage) // the client
             ZIO.logError(
               s"Error forwarding docs request for '$projectName': $err"
             ).as(Response.status(status))
