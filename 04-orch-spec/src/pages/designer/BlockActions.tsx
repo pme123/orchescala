@@ -48,7 +48,13 @@ export function BlockActions({ isDark, block, ops, compact }: {
       {btn(`nach oben (⌥↑)`, <ArrowUp size={size} />, () => ops.move(-1))}
       {btn(`nach unten (⌥↓)`, <ArrowDown size={size} />, () => ops.move(1))}
       {btn(`verdoppeln (${MOD}D)`, <Copy size={size} />, ops.duplicate, compact ? undefined : 'Kopie')}
-      {btn('Typ wechseln', <Repeat2 size={size} />, () => setMenu(menu === 'type' ? null : 'type'), compact ? undefined : 'Typ')}
+      {block.type === 'section' && block.body.length > 0
+        // ein anderer Typ verlöre die Bausteine des Abschnitts - erst auflösen
+        ? <span title="Ein Abschnitt mit Bausteinen - erst auflösen, dann den Typ wechseln"
+            className={`flex items-center gap-1 ${compact ? 'p-1' : 'px-1.5 py-1'} text-[10px] opacity-35 ${c.muted2}`}>
+            <Repeat2 size={size} />{!compact && 'Typ'}
+          </span>
+        : btn('Typ wechseln', <Repeat2 size={size} />, () => setMenu(menu === 'type' ? null : 'type'), compact ? undefined : 'Typ')}
       {btn('Baustein einfügen', <Plus size={size} />, () => setMenu(menu === 'after' ? null : 'after'), compact ? undefined : 'Einfügen')}
       {block.type === 'section'
         ? btn('Abschnitt auflösen - seine Bausteine bleiben', <FolderOutput size={size} />, ops.unwrap)

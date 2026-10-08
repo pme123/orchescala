@@ -190,7 +190,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); k.redo(); return; }
       if (e.key === 'Escape') { k.deselect(); return; }
       if (!k.ops) return;
-      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); k.ops.remove(); }
+      // nur Entf - Backspace auf einem Knopf oder der Seite löschte sonst ungewollt
+      if (e.key === 'Delete') { e.preventDefault(); k.ops.remove(); }
       else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); k.ops.duplicate(); }
       else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); k.ops.move(-1); }
       else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); k.ops.move(1); }

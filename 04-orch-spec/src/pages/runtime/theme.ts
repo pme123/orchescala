@@ -13,6 +13,9 @@ const RADIUS: Record<NonNullable<Theme['radius']>, string> = { none: '0px', sm: 
 
 const COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%deg]+\))$/i;
 
+/** Eine Farbe, wie das Theme sie nimmt (#rrggbb, rgb(…), hsl(…)). */
+export const isThemeColor = (v: string): boolean => COLOR.test(v);
+
 /** Ist die Farbe hell? Für den Text auf ihr - nur #rgb / #rrggbb, sonst «dunkel». */
 function isLight(color: string): boolean {
   const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})/i)?.[1];
@@ -30,7 +33,8 @@ export function themeProblem(raw: unknown): string | null {
   for (const k of ['primary', 'onPrimary', 'background', 'surface', 'text'])
     if (t[k] !== undefined && (typeof t[k] !== 'string' || !COLOR.test(t[k] as string))) return `«theme.${k}» ist keine Farbe (#rrggbb, rgb(…), hsl(…))`;
   if (t.font !== undefined && (typeof t.font !== 'string' || /[;{}<>]/.test(t.font))) return '«theme.font» ist kein Schrift-Stapel';
-  if (t.radius !== undefined && !(typeof t.radius === 'string' && t.radius in RADIUS)) return '«theme.radius» ist nicht none, sm, md, lg oder xl';
+  // nur eigene Schlüssel - `toString` oder `__proto__` sind keine Ecken
+  if (t.radius !== undefined && !(typeof t.radius === 'string' && Object.hasOwn(RADIUS, t.radius))) return '«theme.radius» ist nicht none, sm, md, lg oder xl';
   if (t.mode !== undefined && t.mode !== 'light' && t.mode !== 'dark') return '«theme.mode» ist nicht light oder dark';
   if (t.logo !== undefined) {
     if (typeof t.logo !== 'string' || !/^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/.test(t.logo)) return '«theme.logo» ist keine data:-URI eines Bilds (PNG, JPEG, GIF, WebP, SVG)';
@@ -53,7 +57,7 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
     if (theme.text) v['--orch-text'] = theme.text;
   }
   if (theme.font) v['--orch-font'] = FONTS[theme.font] ?? theme.font;
-  if (theme.radius) v['--orch-radius'] = RADIUS[theme.radius];
+  if (theme.radius && Object.hasOwn(RADIUS, theme.radius)) v['--orch-radius'] = RADIUS[theme.radius];
   return { ...v, fontFamily: v['--orch-font'] } as CSSProperties;
 }
 

@@ -1,27 +1,38 @@
 // Der Auftritt der App (app.json `theme`): importieren - z.B. was der Skill orch-theme-from-site aus der
 // Website der Bank gemacht hat - und von Hand anpassen. Mit einer kleinen Probe, wie es aussieht.
 import { FileUp, ImagePlus, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { Theme } from '../runtime/spec';
-import { FONTS, parseThemeFile, themeStyle } from '../runtime/theme';
+import { FONTS, isThemeColor, parseThemeFile, themeProblem, themeStyle } from '../runtime/theme';
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
 
 const MAX_LOGO = 200 * 1024;
 
+/** Eine Farbe - getippt bleibt sie hier, bis sie eine ist (ein halbes `#0b5` kommt nicht ins Theme). */
 function ColorField({ isDark, label, value, onChange, disabled }: {
   isDark: boolean; label: string; value: string | undefined; onChange: (v: string | undefined) => void; disabled?: boolean;
 }) {
   const c = cls(isDark);
+  const [text, setText] = useState(value ?? '');
+  // von aussen geändert (Farbwähler, Import, Vorgabe) - die Anzeige folgt
+  useEffect(() => setText(value ?? ''), [value]);
+  const valid = text === '' || isThemeColor(text.trim());
   return (
     <label className="block space-y-1">
       <span className={`text-[10px] ${c.muted2}`}>{label}</span>
       <span className="flex items-center gap-1.5">
         <input type="color" disabled={disabled} value={/^#[0-9a-f]{6}$/i.test(value ?? '') ? value : '#000000'}
           onChange={(e) => onChange(e.target.value)} className="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0" />
-        <input value={value ?? ''} disabled={disabled} placeholder="Vorgabe" onChange={(e) => onChange(e.target.value || undefined)}
-          className={`w-full font-mono text-[11px] px-2 py-1 rounded border outline-none ${c.input}`} />
+        <input value={text} disabled={disabled} placeholder="Vorgabe" title={valid ? undefined : 'keine Farbe - #rrggbb, rgb(…), hsl(…)'}
+          onChange={(e) => {
+            const next = e.target.value;
+            setText(next);
+            if (next.trim() === '') onChange(undefined);
+            else if (isThemeColor(next.trim())) onChange(next.trim());
+          }}
+          className={`w-full font-mono text-[11px] px-2 py-1 rounded border outline-none ${c.input} ${valid ? '' : '!border-rose-500'}`} />
       </span>
     </label>
   );
@@ -50,7 +61,14 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   const logoFile = (file: File) => {
     if (file.size > MAX_LOGO) return setNote({ tone: 'error', text: 'Das Logo ist grösser als 200 KB.' });
     const reader = new FileReader();
-    reader.onload = () => set({ logo: String(reader.result) });
+    reader.onload = () => {
+      const logo = String(reader.result);
+      // dieselbe Prüfung wie beim Lesen und Bauen - Typ und Grösse der data:-URI
+      const problem = themeProblem({ logo });
+      if (problem) setNote({ tone: 'error', text: problem });
+      else set({ logo });
+    };
+    reader.onerror = () => setNote({ tone: 'error', text: 'Das Logo liess sich nicht lesen.' });
     reader.readAsDataURL(file);
   };
 
@@ -107,7 +125,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
               <ImagePlus size={11} /> wählen
             </button>
             {t.logo && <button type="button" onClick={() => set({ logo: undefined })} className={`text-[10px] ${c.muted2}`}>entfernen</button>}
-            <input ref={logoRef} type="file" accept="image/*" className="hidden"
+            <input ref={logoRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) logoFile(f); }} />
           </>
         )}

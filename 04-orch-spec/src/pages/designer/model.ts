@@ -205,6 +205,7 @@ function sampleValue(f: PField, i: number): unknown {
 export type BlockKey = string;
 
 export function blockAt(body: Component[], key: BlockKey): Component | undefined {
+  if (!/^\d+(\.\d+)*$/.test(key)) return undefined; // '' (die Seite) ist kein Baustein - Number('') wäre 0
   const [head, ...rest] = key.split('.').map(Number);
   const block = body[head];
   if (!block || rest.length === 0) return block;
@@ -315,7 +316,8 @@ export function unwrapSection(body: Component[], key: BlockKey): { body: Compone
   const index = indexOf(key);
   let next = removeBlock(body, key);
   section.body.forEach((b, i) => { next = insertAt(next, parent, index + i, b); });
-  return { body: next, key: section.body.length ? keyIn(parent, index) : parent || '0' };
+  // ein leerer Abschnitt: danach ist sein Elternteil gewählt (die Seite: '')
+  return { body: next, key: section.body.length ? keyIn(parent, index) : parent };
 }
 
 /** Der Text, der einen Baustein benennt - Überschrift, Text, Bezeichnung oder Beschriftung. */

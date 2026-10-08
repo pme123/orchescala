@@ -270,3 +270,28 @@ test('dataOf - what is in the state of a page and where it comes from', () => {
   assert.ok(at('query.token'));
   assert.ok(at('user'));
 });
+
+test('relocateBlock - out of its own section, and into a later section after the shift', () => {
+  // 0 heading, 1 section [1.0 pick, 1.1 text], 2 button
+  const out = relocateBlock(page.body, '1.0', '1', 'before'); // a child before its own section
+  assert.deepEqual(out.body.map((b) => b.type), ['heading', 'pick', 'section', 'button']);
+  assert.equal(out.key, '1');
+  const two: Component[] = [
+    { type: 'text', text: 'a' },
+    { type: 'section', label: 'A', body: [] },
+    { type: 'section', label: 'B', body: [{ type: 'text', text: 'b' }] },
+  ];
+  // the text at 0 into section B (index 2) - after the removal B is at 1
+  const into = relocateBlock(two, '0', '2', 'inside');
+  assert.equal(into.key, '1.1');
+  assert.equal((blockAt(into.body, '1') as Extract<Component, { type: 'section' }>).label, 'B');
+  assert.equal((blockAt(into.body, '1.1') as { text: string }).text, 'a');
+});
+
+test('unwrapSection - an empty section: its parent is selected (the page: no key)', () => {
+  const body: Component[] = [{ type: 'heading', text: 'x' }, { type: 'section', label: 'leer', body: [] }];
+  const r = unwrapSection(body, '1');
+  assert.deepEqual(r.body.map((b) => b.type), ['heading']);
+  assert.equal(r.key, '');
+  assert.equal(blockAt(r.body, r.key), undefined);
+});

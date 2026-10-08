@@ -1,7 +1,7 @@
 // The theme of an app as CSS variables: light colours in light mode, primary, font and corners in both.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { FONTS, parseThemeFile, themeStyle } from '../src/pages/runtime/theme';
+import { FONTS, isThemeColor, parseThemeFile, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 
 test('themeStyle - the variables of a theme', () => {
   const light = themeStyle({ primary: '#0b5cab', background: '#fafafa', font: 'sans', radius: 'md' }, false) as Record<string, string>;
@@ -29,4 +29,13 @@ test('parseThemeFile - the file of the skill or a plain theme', () => {
   assert.ok(!('error' in plain) && plain.theme.primary === '#004b87');
   assert.ok('error' in parseThemeFile('nicht json'));
   assert.ok('error' in parseThemeFile(JSON.stringify({ theme: { primary: 'blau' } })));
+});
+
+test('themeProblem - keys of the prototype are no corners', () => {
+  for (const radius of ['toString', 'constructor', '__proto__', 'hasOwnProperty'])
+    assert.match(themeProblem({ radius }) ?? '', /theme\.radius/, radius);
+  assert.equal(themeProblem({ radius: 'md' }), null);
+  assert.equal((themeStyle({ radius: 'toString' as never }, false) as Record<string, string>)['--orch-radius'], undefined);
+  assert.ok(isThemeColor('#0b5cab') && isThemeColor('rgb(1, 2, 3)'));
+  assert.ok(!isThemeColor('rgb(') && !isThemeColor('blau'));
 });
