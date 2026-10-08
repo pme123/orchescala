@@ -92,9 +92,9 @@ function juelIssues(expression: string, engine: EngineId | undefined, json = fal
   if (json && isJsonLiteral(body)) {
     const g = feelToGroovy(body);
     if (g.ok) return [];
-    return [{ level: 'warn', text: `Für Camunda 7 als JSON-Skript nicht übersetzbar (${g.reason}) — beim Export bleibt das FEEL stehen.` }];
+    return [{ level: 'warn', text: `Für Camunda 7 / Operaton als JSON-Skript nicht übersetzbar (${g.reason}) — beim Export bleibt das FEEL stehen.` }];
   }
-  return [{ level: 'warn', text: `Für Camunda 7 nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
+  return [{ level: 'warn', text: `Für Camunda 7 / Operaton nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
 }
 
 // ── Prozess-Ebene (kein Schritt gewählt) ─────────────────────────────────────
@@ -449,7 +449,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                       variables={variables}
                       onChange={v => onPatch(step.id, { [f.key]: v || undefined })}
                       placeholder={f.placeholder}
-                      title={`${f.title}\nMit «=» ein FEEL-Ausdruck — im BPMN für ${spec.engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 als ${…}'}; sonst fester Text.`} />
+                      title={`${f.title}\nMit «=» ein FEEL-Ausdruck — im BPMN für ${spec.engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 / Operaton als ${…}'}; sonst fester Text.`} />
                     {issues.map((it, k) => (
                       <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
                         <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
@@ -676,7 +676,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                     variables={variables}
                     onChange={v => setBranch({ condition: v || undefined })}
                     placeholder={b.isDefault ? 'Standardzweig — keine Bedingung' : 'Bedingung als FEEL, z. B. = severalMatches'}
-                    title="Bedingung des Zweigs als FEEL (= …) — beim Export für Camunda 7 nach JUEL übersetzt" />
+                    title="Bedingung des Zweigs als FEEL (= …) — beim Export für Camunda 7 / Operaton nach JUEL übersetzt" />
                 </div>
               );
             })}
@@ -899,7 +899,7 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
                       variables={variables}
                       onChange={v => setDraft(d => ({ ...d, [p.name]: v }))}
                       placeholder={p.inBlock ? 'im gemeinsamen Block' : p.default ? `Vorgabe: ${p.default}` : 'Text — oder = FEEL'}
-                      title={`${p.description ? `${p.description}\n` : ''}Mit «=» ein FEEL-Ausdruck (wie bei den Mappings) — im BPMN für ${engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 als ${…}'}; sonst fester Text.`} />
+                      title={`${p.description ? `${p.description}\n` : ''}Mit «=» ein FEEL-Ausdruck (wie bei den Mappings) — im BPMN für ${engine === 'c8' ? 'Camunda 8 als =…' : 'Camunda 7 / Operaton als ${…}'}; sonst fester Text.`} />
                     )}
                   </div>
                 </div>

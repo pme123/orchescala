@@ -34,7 +34,7 @@ export const EXPORT_META: Record<ExportKind, { label: string; hint: string; ext:
   },
   bpmn: {
     label: 'BPMN',
-    hint: 'Das Diagramm mit den Mappings und Bedingungen aus der Spezifikation — FEEL für Camunda 8 wie es ist, für Camunda 7 nach JUEL übersetzt.',
+    hint: 'Das Diagramm mit den Mappings und Bedingungen aus der Spezifikation — FEEL für Camunda 8 wie es ist, für Camunda 7 / Operaton nach JUEL übersetzt.',
     ext: 'bpmn',
   },
   scala: {

@@ -208,7 +208,7 @@ export default function App() {
         <div className="ml-auto flex items-center gap-2">
           {/* Navigation: FEEL-Spickzettel, Doku, Admin */}
           <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
-            title="FEEL-Spickzettel — Syntax, Funktionen, Camunda 7 → 8" onClick={() => setFeelOpen(true)} />
+            title="FEEL-Spickzettel — Syntax, Funktionen, Camunda 7 / Operaton → Camunda 8" onClick={() => setFeelOpen(true)} />
           {docHref && (
             <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
           )}

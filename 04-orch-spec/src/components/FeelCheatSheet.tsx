@@ -99,7 +99,7 @@ export default function FeelCheatSheet({ isDark, onClose }: { isDark: boolean; o
 
           {!!juel.length && (
             <section>
-              <h4 className={th}>Camunda 7 (JUEL) → Camunda 8 (FEEL)</h4>
+              <h4 className={th}>Camunda 7 / Operaton (JUEL) → Camunda 8 (FEEL)</h4>
               {juel.map(([a, b]) => (
                 <div key={a} className={rowCls}>
                   <span className="font-mono text-[10px]">{a}</span>

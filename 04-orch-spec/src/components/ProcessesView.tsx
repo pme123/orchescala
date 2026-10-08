@@ -531,7 +531,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                           </div>
                           <span className={`text-[9px] whitespace-nowrap ${c.muted}`}>{sum.total} Schritte · {relativeTime(data.updatedAt)}</span>
                         </div>
-                        <span title={engine === 'C8' ? 'Camunda 8 — FEEL' : 'Camunda 7 — JUEL beim Export'}
+                        <span title={engine === 'C8' ? 'Camunda 8 — FEEL' : 'Camunda 7 / Operaton — JUEL beim Export'}
                           className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
                             engine === 'C8'
                               ? (isDark ? 'border-sky-500/40 text-sky-300' : 'border-sky-300 text-sky-800')

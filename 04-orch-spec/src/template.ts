@@ -27,7 +27,7 @@ export interface EngineDef {
 }
 
 export const ENGINES: EngineDef[] = [
-  { id: 'c7', label: 'Camunda 7', hint: 'External Tasks mit Topic, camunda:-Erweiterungen', file: 'c7.bpmn' },
+  { id: 'c7', label: 'Camunda 7 / Operaton', hint: 'External Tasks mit Topic, camunda:-Erweiterungen', file: 'c7.bpmn' },
   { id: 'c8', label: 'Camunda 8', hint: 'zeebe:taskDefinition', file: 'c8.bpmn' },
 ];
 

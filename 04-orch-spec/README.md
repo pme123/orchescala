@@ -1561,7 +1561,11 @@ Die Beispieldaten enthalten **301 Einträge** (220 Services, 54 Teilprozesse,
 
 ### Camunda 7 ⇄ Camunda 8
 
-Ein Klick auf die Engine im Kopf («· Camunda 7») wandelt das Diagramm in die
+«Camunda 7» meint das BPMN von Camunda 7 (`camunda:`-Erweiterungen, JUEL) – Operaton führt es
+unverändert aus; orch-spec nennt diese Engine deshalb «Camunda 7 / Operaton» (`c7`). Welche der beiden
+ein Projekt betreibt, steht in Orchescala (`engineType` in `PROJECT.conf`), nicht in der Spezifikation.
+
+Ein Klick auf die Engine im Kopf («· Camunda 7 / Operaton») wandelt das Diagramm in die
 andere Engine um — und zurück. Der Dialog wandelt erst zur Probe und zeigt,
 was danach von Hand zu prüfen ist; umgestellt wird erst auf «Umwandeln».
 Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form

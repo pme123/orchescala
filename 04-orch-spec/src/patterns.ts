@@ -1306,7 +1306,7 @@ function pairBlock(fg: Graph, fEntry: Element, tg: Graph, tEntry: Element): Arra
 export function applyPattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, params: Record<string, string> = {}): PatternResult {
   const same = (issues: string[]): PatternResult => ({ xml, changed: false, issues });
   const src = fragmentFor(def, engine);
-  if (!src) return same([`«${def.name}» hat kein BPMN für ${engine === 'c8' ? 'Camunda 8' : 'Camunda 7'}.`]);
+  if (!src) return same([`«${def.name}» hat kein BPMN für ${engine === 'c8' ? 'Camunda 8' : 'Camunda 7 / Operaton'}.`]);
   const doc = parseXml(xml);
   if (!doc) return same(['Das Diagramm ist kein lesbares BPMN.']);
   const proc = mainProcess(doc);

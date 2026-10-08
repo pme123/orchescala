@@ -192,7 +192,7 @@ const EXECUTION: Record<string, string> = {
 };
 function executionProperty(name: string): string {
   const feel = EXECUTION[name];
-  if (!feel) throw new Unsupported(`«execution.${name}» gibt es nur in Camunda 7 — kein FEEL-Gegenstück`);
+  if (!feel) throw new Unsupported(`«execution.${name}» gibt es nur in Camunda 7 / Operaton — kein FEEL-Gegenstück`);
   return feel;
 }
 
