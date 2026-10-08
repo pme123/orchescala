@@ -29,13 +29,16 @@ case class PublishHelper()(using
     ReleaseRun(
       projectRuns(hasWorkerApp = os.exists(workerAppFile)),
       uploadDocs = () => publishToWebserver(),
-      git = () => git(version, replaceVersion)
+      git = () => git(version, replaceVersion),
+      onFailure = restoreForRetry(isSnapshot)
     ).run(releaseSteps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
 
-  /** [[PublishHelper.verifyVersionFree]] for the modules of this project. */
+  /** [[PublishHelper.verifyVersionFree]] for the modules of this project - published without
+    * the Scala suffix (`crossPaths := false` in its Settings).
+    */
   private def verifyVersionFree(version: String): Unit =
-    PublishHelper.verifyVersionFree(version, devConfig)
+    PublishHelper.verifyVersionFree(version, devConfig, artifactSuffix = "")
 
   private lazy val apiFile: os.Path =
     workDir / "03-api" / "src" / "main" / "scala" / devConfig.projectPath / "api" / "ApiProjectCreator.scala"
@@ -72,16 +75,37 @@ object PublishHelper extends Helpers:
     * CHANGELOG may be edited (untracked files are not committed).
     */
   def verifyCleanWorkingTree(repo: os.Path = workDir): Unit =
-    val changed = os.proc("git", "status", "--porcelain").call(cwd = repo).out.lines()
-      .filterNot(_.startsWith("??"))
-      .map(_.drop(3).trim)
-      .filter(_.nonEmpty)
-      .filterNot(_ == "CHANGELOG.md")
+    val changed = changedTrackedFiles(repo)
     if changed.nonEmpty then
       throw IllegalStateException(
         s"Uncommitted changes - commit or stash them before a release:\n - ${changed.mkString("\n - ")}"
       )
   end verifyCleanWorkingTree
+
+  /** The tracked files with changes - without the CHANGELOG, the one file a release edits. */
+  private def changedTrackedFiles(repo: os.Path): Seq[String] =
+    os.proc("git", "status", "--porcelain").call(cwd = repo).out.lines()
+      .filterNot(_.startsWith("??"))
+      .map(_.drop(3).trim)
+      .filter(_.nonEmpty)
+      .filterNot(_ == "CHANGELOG.md")
+
+  /** A failed release leaves its changes in the tracked files (the versions, generated docs) -
+    * the next try with the same version stopped at [[verifyCleanWorkingTree]]. So they are
+    * restored; the CHANGELOG and untracked files stay as they are.
+    */
+  def restoreWorkingTree(repo: os.Path = workDir): Unit =
+    val changed = changedTrackedFiles(repo)
+    if changed.nonEmpty then
+      println(s"Restoring the working tree for the next try:\n - ${changed.mkString("\n - ")}")
+      os.proc("git" +: "checkout" +: "--" +: changed).call(cwd = repo)
+  end restoreWorkingTree
+
+  /** [[restoreWorkingTree]] when a release fails before its git step - after it, the version is
+    * uploaded and committed, nothing to retry. A snapshot keeps its changes as before.
+    */
+  def restoreForRetry(isSnapshot: Boolean, repo: os.Path = workDir): ReleaseStep => Unit =
+    step => if !isSnapshot && step != ReleaseStep.Git then restoreWorkingTree(repo)
 
   private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
 
@@ -158,7 +182,10 @@ object PublishHelper extends Helpers:
     else Seq(Build) ++ Option.when(hasDocs)(UploadDocs) ++ Seq(Upload, Git)
   end releaseSteps
 
-  /** The pom of each module of the project in the release repo - `publish` uploads them. */
+  /** The pom of each module in the release repo - what `publish` uploads: `publishMavenStyle`,
+    * the `organization` (ProjectDef.org) as path, the module's `name` plus `artifactSuffix`
+    * (`_3` unless `crossPaths := false`).
+    */
   def releaseArtifactUrls(repoUrl: String, org: String, artifacts: Seq[String], version: String)
       : Seq[String] =
     artifacts.map(a => s"$repoUrl/${org.replace('.', '/')}/$a/$version/$a-$version.pom")
@@ -171,7 +198,9 @@ object PublishHelper extends Helpers:
     */
   def verifyVersionFree(version: String, urls: Seq[String], status: String => Int): Unit =
     urls.foreach: url =>
-      status(url) match
+      val code = status(url)
+      println(s"  $code $url")
+      code match
         case 404       => ()
         case 200       =>
           throw IllegalStateException(
@@ -179,7 +208,7 @@ object PublishHelper extends Helpers:
           )
         case 401 | 403 =>
           throw IllegalStateException(
-            s"The repository refuses the credentials (${status(url)}): $url - check the environment variables of the repository."
+            s"The repository refuses the credentials ($code): $url - check the environment variables of the repository."
           )
         case other     =>
           throw IllegalStateException(s"The repository is not reachable ($other): $url")
@@ -189,26 +218,29 @@ object PublishHelper extends Helpers:
     * project (a module that is never published is simply not there). Nothing to check with
     * the dummy repo.
     */
-  def verifyVersionFree(version: String, devConfig: DevConfig): Unit =
+  def verifyVersionFree(version: String, devConfig: DevConfig, artifactSuffix: String): Unit =
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
-      val auth = repos.releaseRepoCurlAuth().fold(msg => throw IllegalArgumentException(msg), identity)
-      val urls = releaseArtifactUrls(
+      val config = repos.releaseRepoCurlConfig().fold(msg => throw IllegalArgumentException(msg), identity)
+      val urls   = releaseArtifactUrls(
         repo.repoUrl,
         devConfig.companyName,
-        devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m"),
+        devConfig.apiProjectConfig.modules.map(m => s"${devConfig.projectName}-$m$artifactSuffix"),
         version
       )
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyVersionFree(version, urls, curlStatus(auth))
+      verifyVersionFree(version, urls, curlStatus(config))
   end verifyVersionFree
 
-  /** The HTTP status of a HEAD request - 0 if the server is not reachable. */
-  private def curlStatus(auth: Seq[String])(url: String): Int =
+  /** The HTTP status of a HEAD request (redirects followed) - 0 if the server is not reachable
+    * (or not within 30 seconds). `config` are the lines of a curl config (the credentials).
+    */
+  def curlStatus(config: Seq[String])(url: String): Int =
     os.proc(
-      Seq("curl", "--silent", "--head", "--output", "/dev/null", "--write-out", "%{http_code}") ++
-        auth :+ url
-    ).call(check = false).out.text().trim.toIntOption.getOrElse(0)
+      "curl", "--silent", "--head", "--location", "--connect-timeout", "10", "--max-time", "30",
+      "--output", "/dev/null", "--write-out", "%{http_code}", "--config", "-", url
+    ).call(check = false, stdin = config.mkString("", "\n", "\n"))
+      .out.text().trim.toIntOption.getOrElse(0)
 
   /** The sbt runs of a project - the docs (`api/run`) come with the build. */
   def projectRuns(hasWorkerApp: Boolean): SbtRuns =
@@ -251,10 +283,20 @@ object PublishHelper extends Helpers:
       runs: SbtRuns,
       uploadDocs: () => Unit,
       git: () => Unit,
-      exec: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole()
+      exec: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole(),
+      // called with the failed step before the failure is rethrown - see restoreForRetry
+      onFailure: ReleaseStep => Unit = _ => ()
   ):
     def run(steps: Seq[ReleaseStep]): Unit =
-      steps.foreach:
+      steps.foreach: step =>
+        try run(step)
+        catch
+          case e: Exception =>
+            onFailure(step)
+            throw e
+
+    private def run(step: ReleaseStep): Unit =
+      step match
         case ReleaseStep.Build      =>
           println(s"SBT build: ${runs.build.mkString(" ")}")
           exec(runs.build)

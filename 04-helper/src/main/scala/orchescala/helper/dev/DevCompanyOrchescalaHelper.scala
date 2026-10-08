@@ -96,7 +96,9 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     verifySnapshots()
     verifyChangelog(newVersion)
     val isSnapshot = newVersion.contains("-")
-    if !isSnapshot then verifyVersionFree(newVersion, devConfig)
+    // the company's artifacts carry the Scala suffix (no `crossPaths := false`)
+    if !isSnapshot then
+      verifyVersionFree(newVersion, devConfig, artifactSuffix = s"_${scalaBinaryVersion}")
     replaceVersion(newVersion, projectFile)
     println("Versions replaced")
     println(s"isSnapshot: $isSnapshot")
@@ -109,8 +111,13 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
     ReleaseRun(
       companyRuns(hasGateway),
       uploadDocs = () => (),
-      git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile))
+      git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
+      onFailure = restoreForRetry(isSnapshot)
     ).run(releaseSteps(isSnapshot, hasDocs = false))
   end publish
+
+  /** `3` for Scala 3.x - the suffix of the company's artifacts (`<name>_3`). */
+  private lazy val scalaBinaryVersion: String =
+    orchescala.BuildInfo.scalaVersion.split('.').head
 
 end DevCompanyOrchescalaHelper

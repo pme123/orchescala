@@ -26,28 +26,31 @@ case class ReposConfig(
   def releaseRepo: Option[RepoConfig] =
     repos.headOption.filterNot(_.repoUrl == "???")
 
-  /** The curl arguments that authenticate at the release repo - as the sbt build does: an
-    * Artifactory repo with its user/password, a GitLab repo with the first credentials (the
-    * job token on a pipeline). Left with the missing environment variables.
+  /** The lines of a curl config (`curl -K -`, fed through stdin - so the secret is not in
+    * `ps`) that authenticate at the release repo, as the sbt build does: an Artifactory repo
+    * with its user/password, a GitLab repo with the first credentials (the job token on a
+    * pipeline). Left with the missing environment variables.
     */
-  def releaseRepoCurlAuth(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
+  def releaseRepoCurlConfig(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
+    def line(option: String, value: String) =
+      s"""$option = "${value.replace("\\", "\\\\").replace("\"", "\\\"")}""""
     def userPassword(usernameEnv: String, passwordEnv: String) =
       (for
         user <- env(usernameEnv)
         pwd  <- env(passwordEnv)
-      yield Seq("-u", s"$user:$pwd"))
+      yield Seq(line("user", s"$user:$pwd")))
         .toRight(s"System Environment Variables $usernameEnv and/ or $passwordEnv are not set.")
     releaseRepo match
       case Some(a: RepoConfig.Artifactory) => userPassword(a.usernameEnv, a.passwordEnv)
       case _                               =>
         credentials.headOption match
           case Some(t: RepoCredentials.PrivateToken) =>
-            env("CI_JOB_TOKEN").map(token => Seq("--header", s"Job-Token: $token"))
-              .orElse(env(t.tokenEnv).map(token => Seq("--header", s"Private-Token: $token")))
+            env("CI_JOB_TOKEN").map(token => Seq(line("header", s"Job-Token: $token")))
+              .orElse(env(t.tokenEnv).map(token => Seq(line("header", s"Private-Token: $token"))))
               .toRight(s"System Environment Variable ${t.tokenEnv} is not set.")
           case Some(u: RepoCredentials.UserPassword) => userPassword(u.usernameEnv, u.passwordEnv)
           case None                                  => Right(Seq.empty)
-  end releaseRepoCurlAuth
+  end releaseRepoCurlConfig
 
 end ReposConfig
 object ReposConfig:

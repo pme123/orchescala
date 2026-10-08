@@ -92,7 +92,9 @@ class PublishHelperSbtRunsTest extends FunSuite:
     )
     assertEquals(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = true), Seq(Build, Upload))
 
-  /** A release whose processes are recorded instead of run - `failing` throws. */
+  /** A release whose processes are recorded instead of run - `failing` throws; a failure is
+    * recorded as `failed <step>`.
+    */
   private def release(failing: Set[String] = Set.empty): (PublishHelper.ReleaseRun, () => Seq[String]) =
     val log  = collection.mutable.ListBuffer.empty[String]
     def step(name: String): Unit =
@@ -103,7 +105,8 @@ class PublishHelperSbtRunsTest extends FunSuite:
       runs,
       uploadDocs = () => step("docs"),
       git = () => step("git"),
-      exec = cmd => step(if cmd == runs.build then "build" else "upload")
+      exec = cmd => step(if cmd == runs.build then "build" else "upload"),
+      onFailure = failed => log += s"failed $failed"
     )
     (rel, () => log.toSeq)
 
@@ -119,19 +122,19 @@ class PublishHelperSbtRunsTest extends FunSuite:
     val (rel, log) = release(failing = Set("build"))
     intercept[IllegalStateException]:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
-    assertEquals(log(), Seq("build"))
+    assertEquals(log(), Seq("build", "failed Build"))
 
   test("failing docs stop the release - nothing is uploaded"):
     val (rel, log) = release(failing = Set("docs"))
     intercept[IllegalStateException]:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
-    assertEquals(log(), Seq("build", "docs"))
+    assertEquals(log(), Seq("build", "docs", "failed UploadDocs"))
 
   test("a failing upload: the docs are on the webserver already, git does not run"):
     val (rel, log) = release(failing = Set("upload"))
     intercept[IllegalStateException]:
       rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
-    assertEquals(log(), Seq("build", "docs", "upload"))
+    assertEquals(log(), Seq("build", "docs", "upload", "failed Upload"))
 
   test("the runs of a project and of the company project"):
     assertEquals(
@@ -152,6 +155,54 @@ class PublishHelperSbtRunsTest extends FunSuite:
     )
 
 end PublishHelperSbtRunsTest
+
+class PublishHelperRetryTest extends FunSuite:
+
+  /** A git repository with one committed file and a CHANGELOG. */
+  private def repo(): os.Path =
+    val dir = os.temp.dir(prefix = "orchescala-retry-")
+    def git(args: String*) = os.proc("git" +: args).call(cwd = dir)
+    git("init", "-q")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "test")
+    os.write(dir / "ProjectDef.scala", "version = \"1.0.0\"")
+    os.write(dir / "CHANGELOG.md", "# Changelog")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    dir
+
+  /** The version is rewritten, then the build fails: the next try must pass the clean-tree check. */
+  test("a failed release restores the versions it rewrote - the CHANGELOG and untracked files stay"):
+    val dir = repo()
+    os.write.over(dir / "CHANGELOG.md", "# Changelog\n## 1.1.0")
+    os.write(dir / "notes.txt", "not tracked")
+    PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
+    intercept[IllegalStateException](PublishHelper.verifyCleanWorkingTree(dir))
+
+    val runs = PublishHelper.sbtRuns(None)
+    val rel  = PublishHelper.ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => (),
+      exec = _ => throw IllegalStateException("sbt failed"),
+      onFailure = PublishHelper.restoreForRetry(isSnapshot = false, dir)
+    )
+    intercept[IllegalStateException](rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true)))
+
+    PublishHelper.verifyCleanWorkingTree(dir) // the next try starts clean
+    assertEquals(os.read(dir / "ProjectDef.scala"), "version = \"1.0.0\"")
+    assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
+    assert(os.exists(dir / "notes.txt"))
+
+  test("a snapshot keeps its changes; after the git step nothing is restored"):
+    val dir = repo()
+    PublishHelper.replaceVersion("1.1.0-SNAPSHOT", dir / "ProjectDef.scala")
+    PublishHelper.restoreForRetry(isSnapshot = true, dir)(PublishHelper.ReleaseStep.Build)
+    assertEquals(os.read(dir / "ProjectDef.scala").trim, "version = \"1.1.0-SNAPSHOT\"")
+    PublishHelper.restoreForRetry(isSnapshot = false, dir)(PublishHelper.ReleaseStep.Git)
+    assertEquals(os.read(dir / "ProjectDef.scala").trim, "version = \"1.1.0-SNAPSHOT\"")
+
+end PublishHelperRetryTest
 
 class PublishHelperVersionFreeTest extends FunSuite:
 
@@ -180,10 +231,51 @@ class PublishHelperVersionFreeTest extends FunSuite:
     assert(error.getMessage.contains("is in the repository already"), error.getMessage)
     assert(error.getMessage.contains("example-customer-worker"), error.getMessage)
 
+  test("the company's artifacts carry the Scala suffix, a project's do not"):
+    val company = PublishHelper.releaseArtifactUrls(
+      "https://repo", "valiant", Seq("valiant-orchescala-domain_3"), "1.2.3"
+    )
+    assertEquals(company, Seq("https://repo/valiant/valiant-orchescala-domain_3/1.2.3/valiant-orchescala-domain_3-1.2.3.pom"))
+
   test("wrong credentials and an unreachable repository stop the release"):
     val refused = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 401))
     assert(refused.getMessage.contains("refuses the credentials"), refused.getMessage)
     val down    = intercept[IllegalStateException](PublishHelper.verifyVersionFree("1.2.3", urls, _ => 0))
     assert(down.getMessage.contains("not reachable"), down.getMessage)
+
+
+  /** curl against a small HTTP server: the status, the redirect, the credentials from the curl
+    * config fed through stdin, an unreachable port.
+    */
+  test("curlStatus: status codes, redirects, the credentials of the config, unreachable"):
+    import com.sun.net.httpserver.HttpServer
+    import java.net.InetSocketAddress
+    val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext(
+      "/",
+      exchange =>
+        val path   = exchange.getRequestURI.getPath
+        val token  = Option(exchange.getRequestHeaders.getFirst("Private-Token"))
+        val status =
+          if path.endsWith("/redirect") then
+            exchange.getResponseHeaders.add("Location", "/repo/missing")
+            302
+          else if !token.contains("secret") then 401
+          else if path.endsWith("/missing") then 404
+          else 200
+        exchange.sendResponseHeaders(status, -1)
+        exchange.close()
+    )
+    server.start()
+    try
+      val base   = s"http://127.0.0.1:${server.getAddress.getPort}/repo"
+      val config = Seq("""header = "Private-Token: secret"""")
+      assertEquals(PublishHelper.curlStatus(config)(s"$base/taken"), 200)
+      assertEquals(PublishHelper.curlStatus(config)(s"$base/missing"), 404)
+      assertEquals(PublishHelper.curlStatus(config)(s"$base/redirect"), 404) // followed
+      assertEquals(PublishHelper.curlStatus(Seq.empty)(s"$base/taken"), 401)
+    finally server.stop(0)
+    // nobody listens there - `000` becomes 0
+    assertEquals(PublishHelper.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
 
 end PublishHelperVersionFreeTest
