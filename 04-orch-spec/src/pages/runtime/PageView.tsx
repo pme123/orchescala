@@ -14,8 +14,9 @@ type Props = {
   gateway: Gateway;
   /** Im Designer: die Parameter der URL (z.B. token), die die Seite sieht */
   query?: Record<string, string>;
-  /** Im Designer: ein Klick auf einen Baustein wählt ihn aus, der ausgewählte ist markiert */
-  designer?: { selected?: string; onSelect: (key: string) => void };
+  /** Im Designer: ein Klick auf einen Baustein wählt ihn aus, der ausgewählte ist markiert - mit seinen
+    * Aktionen (`toolbar`) am Rahmen */
+  designer?: { selected?: string; onSelect: (key: string) => void; toolbar?: (key: string) => React.ReactNode };
 };
 
 /** Eine Seite der Spezifikation: ihr Zustand, ihre Aktionen und ihre Bausteine. */
@@ -173,8 +174,11 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     const selected = designer.selected === key;
     return (
       <div key={key} onClickCapture={() => designer.onSelect(key)}
-        className={`-m-1 rounded p-1 outline-offset-2 transition-[outline-color] ${
+        className={`relative -m-1 rounded p-1 outline-offset-2 transition-[outline-color] ${
           selected ? 'outline-2 outline-sky-500' : 'outline-1 outline-transparent hover:outline-dashed hover:outline-sky-400/60'}`}>
+        {selected && designer.toolbar && (
+          <div className={`absolute -top-4 right-1 z-20 rounded border shadow-sm ${c.border} ${isDark ? 'bg-[#1a1b1e]' : 'bg-white'}`}>{designer.toolbar(key)}</div>
+        )}
         {node}
       </div>
     );

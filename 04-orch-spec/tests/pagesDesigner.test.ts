@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  blockAt, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, removeBlock, sampleOf,
-  slugOf, statePaths, targetsOf, updateBlock,
+  blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
+  removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
 } from '../src/pages/designer/model';
 import type { Model, ProcessSpec } from '../src/types';
 import type { Component, Page } from '../src/pages/runtime/spec';
@@ -191,4 +191,64 @@ test('pageFindings - a message without business key', () => {
 test('slugOf', () => {
   assert.equal(slugOf('appointments/book'), 'book');
   assert.equal(slugOf('Termin Buchen'), 'termin-buchen');
+});
+
+test('placeBlock - before, after, into a section', () => {
+  const body = page.body; // 0 heading, 1 section [1.0 pick, 1.1 text], 2 button
+  const text = newBlock('text');
+  const before = placeBlock(body, text, '1.0', 'before');
+  assert.equal(before.key, '1.0');
+  assert.equal(blockAt(before.body, '1.1')?.type, 'pick');
+  const after = placeBlock(body, text, '2', 'after');
+  assert.equal(after.key, '3');
+  const inside = placeBlock(body, text, '1', 'inside');
+  assert.equal(inside.key, '1.2');
+  // inside something that is no section: after it
+  assert.equal(placeBlock(body, text, '0', 'inside').key, '1');
+});
+
+test('relocateBlock - drag and drop in the outline', () => {
+  const body = page.body;
+  // down in the same list: the target shifts by one after the removal
+  const down = relocateBlock(body, '0', '2', 'after');
+  assert.deepEqual(down.body.map((b) => b.type), ['section', 'button', 'heading']);
+  assert.equal(down.key, '2');
+  // into a section and out again
+  const into = relocateBlock(body, '2', '1', 'inside');
+  assert.equal(into.key, '1.2');
+  assert.equal(blockAt(into.body, '1.2')?.type, 'button');
+  const out = relocateBlock(into.body, '1.0', '0', 'before');
+  assert.equal(out.key, '0');
+  assert.equal(blockAt(out.body, '0')?.type, 'pick');
+  assert.equal((blockAt(out.body, '2') as Extract<Component, { type: 'section' }>).body.length, 2);
+  // a section into itself or its children: nothing happens
+  assert.equal(relocateBlock(body, '1', '1.0', 'before').body, body);
+  assert.equal(relocateBlock(body, '1', '1', 'inside').body, body);
+  // before a later sibling of a block in a section (the section's index shifts)
+  const fromSection = relocateBlock(body, '0', '1.1', 'before');
+  assert.equal(fromSection.key, '0.1');
+  assert.equal(blockAt(fromSection.body, '0.1')?.type, 'heading');
+});
+
+test('wrapInSection and unwrapSection', () => {
+  const wrapped = wrapInSection(page.body, '2');
+  assert.equal(blockAt(wrapped.body, '2')?.type, 'section');
+  assert.equal(blockAt(wrapped.body, '2.0')?.type, 'button');
+  const unwrapped = unwrapSection(page.body, '1');
+  assert.deepEqual(unwrapped.body.map((b) => b.type), ['heading', 'pick', 'text', 'button']);
+  assert.equal(unwrapped.key, '1');
+  assert.equal(unwrapSection(page.body, '0').body, page.body); // no section
+});
+
+test('convertBlock - the text, the binding and the condition stay', () => {
+  const heading = convertBlock({ type: 'text', text: 'Hallo', visible: "step == 'a'" }, 'heading');
+  assert.deepEqual(heading, { type: 'heading', text: 'Hallo', visible: "step == 'a'" });
+  const button = convertBlock({ type: 'heading', text: 'Weiter' }, 'button');
+  assert.equal((button as { label: string }).label, 'Weiter');
+  assert.deepEqual((button as { actions: unknown[] }).actions, []);
+  const pick = convertBlock({ type: 'choice', bind: 'topic', label: 'Thema', required: true, options: [] }, 'pick');
+  assert.equal((pick as { bind: string }).bind, 'topic');
+  assert.equal((pick as { label: string }).label, 'Thema');
+  assert.equal((pick as { required: boolean }).required, true);
+  assert.equal(convertBlock(page.body[0], 'heading'), page.body[0]); // the same type: unchanged
 });

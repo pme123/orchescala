@@ -264,6 +264,94 @@ export function insertBlock(body: Component[], block: Component, key?: BlockKey,
   };
 }
 
+/** Wohin ein Baustein kommt, relativ zu einem anderen - davor, danach oder (in einen Abschnitt) hinein. */
+export type Place = 'before' | 'after' | 'inside';
+
+/** Fügt `block` in die Liste `parent` (Schlüssel eines Abschnitts, '' für die Seite) an `index` ein. */
+function insertAt(body: Component[], parent: BlockKey, index: number, block: Component): Component[] {
+  const put = (list: Component[]) => [...list.slice(0, index), block, ...list.slice(index)];
+  return parent === '' ? put(body) : updateBlock(body, parent, (b) => (b.type === 'section' ? { ...b, body: put(b.body) } : b));
+}
+
+const parentOf = (key: BlockKey) => key.split('.').slice(0, -1).join('.');
+const indexOf = (key: BlockKey) => Number(key.split('.').pop());
+const keyIn = (parent: BlockKey, index: number) => (parent === '' ? String(index) : `${parent}.${index}`);
+
+/** Fügt vor oder nach `key` ein - oder in den Abschnitt `key` (als letzten). Der neue Schlüssel. */
+export function placeBlock(body: Component[], block: Component, key: BlockKey, place: Place): { body: Component[]; key: BlockKey } {
+  const at = blockAt(body, key);
+  if (place === 'inside' && at?.type === 'section') return { body: insertAt(body, key, at.body.length, block), key: `${key}.${at.body.length}` };
+  // «hinein» in etwas, das kein Abschnitt ist: danach
+  const index = indexOf(key) + (place === 'before' ? 0 : 1);
+  return { body: insertAt(body, parentOf(key), index, block), key: keyIn(parentOf(key), index) };
+}
+
+/** Verschiebt einen Baustein an eine andere Stelle (Drag & Drop) - der neue Schlüssel. In sich selbst
+  * oder seine Kinder geht nicht: dann bleibt alles, wie es ist. */
+export function relocateBlock(body: Component[], from: BlockKey, to: BlockKey, place: Place): { body: Component[]; key: BlockKey } {
+  const block = blockAt(body, from);
+  if (!block || from === to || to.startsWith(`${from}.`)) return { body, key: from };
+  // nach dem Entfernen rückt ein späterer Geschwister-Pfad (oder einer darin) um eins nach vorn
+  const fromParts = from.split('.').map(Number);
+  const toParts = to.split('.').map(Number);
+  const depth = fromParts.length - 1;
+  const sameParent = toParts.length > depth && fromParts.slice(0, depth).every((p, i) => p === toParts[i]);
+  if (sameParent && toParts[depth] > fromParts[depth]) toParts[depth] -= 1;
+  return placeBlock(removeBlock(body, from), block, toParts.join('.'), place);
+}
+
+/** Packt einen Baustein in einen neuen Abschnitt (an seiner Stelle). */
+export function wrapInSection(body: Component[], key: BlockKey): { body: Component[]; key: BlockKey } {
+  const block = blockAt(body, key);
+  if (!block) return { body, key };
+  return { body: updateBlock(body, key, (b) => ({ type: 'section', label: 'Abschnitt', body: [b] })), key };
+}
+
+/** Löst einen Abschnitt auf: seine Bausteine stehen danach an seiner Stelle. */
+export function unwrapSection(body: Component[], key: BlockKey): { body: Component[]; key: BlockKey } {
+  const section = blockAt(body, key);
+  if (section?.type !== 'section') return { body, key };
+  const parent = parentOf(key);
+  const index = indexOf(key);
+  let next = removeBlock(body, key);
+  section.body.forEach((b, i) => { next = insertAt(next, parent, index + i, b); });
+  return { body: next, key: section.body.length ? keyIn(parent, index) : parent || '0' };
+}
+
+/** Der Text, der einen Baustein benennt - Überschrift, Text, Bezeichnung oder Beschriftung. */
+function titleOf(b: Component): string | undefined {
+  switch (b.type) {
+    case 'heading':
+    case 'text':
+      return b.text;
+    case 'button':
+      return b.label;
+    case 'loading':
+      return b.text;
+    default:
+      return b.label;
+  }
+}
+
+/** Ein Baustein in einem anderen Typ: was passt, bleibt - der Text (als Überschrift, Text, Bezeichnung),
+  * die Bindung einer Auswahl, die Bedingung; der Rest kommt vom neuen Typ. */
+export function convertBlock(b: Component, type: Component['type']): Component {
+  if (b.type === type) return b;
+  const fresh = newBlock(type) as Component & Record<string, unknown>;
+  const title = titleOf(b);
+  const next: Record<string, unknown> = { ...fresh };
+  if (title !== undefined && title !== '') {
+    if (type === 'heading' || type === 'text' || type === 'loading') next.text = title;
+    else next.label = title;
+  }
+  if ((b.type === 'choice' || b.type === 'pick') && (type === 'choice' || type === 'pick')) {
+    next.bind = b.bind;
+    if (b.required !== undefined) next.required = b.required;
+  }
+  if (b.visible) next.visible = b.visible;
+  return next as Component;
+}
+
 /** Jeder Baustein mit seinem Schlüssel - Tiefe zuerst, wie die Gliederung sie zeigt. */
 export function flatten(body: Component[], prefix = ''): { key: BlockKey; block: Component; depth: number }[] {
   return body.flatMap((block, i) => {

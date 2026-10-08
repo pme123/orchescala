@@ -1,8 +1,8 @@
 // Der Designer einer Seite (E15): die Gliederung ihrer Bausteine, die Seite live - mit demselben Renderer
 // wie die App, gespeist mit Beispieldaten der Services - und die Eigenschaften des ausgewählten Bausteins.
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ChevronLeft, Copy, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus,
-  RotateCcw, Rows3, SquareDashed, TextCursorInput, Trash2, Type, CalendarRange,
+  AlertTriangle, ChevronLeft, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
+  RotateCcw, Rows3, SquareDashed, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../../auth';
@@ -11,11 +11,12 @@ import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
 import type { Gateway } from '../runtime/gatewayTypes';
 import type { Component, Page } from '../runtime/spec';
+import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
 import { IconButton } from './fields';
 import {
-  blockAt, flatten, insertBlock, moveBlock, newBlock, pageFindings, removeBlock, sampleOf, statePaths, targetsOf,
-  updateBlock, type BlockKey, type Targets,
+  blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
+  sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
 
 const ICONS: Record<Component['type'], React.ReactNode> = {
@@ -80,6 +81,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [query, setQuery] = useState('token=0b1c9a4e-7a43-4f0e-9d39-3a3f6c2d8e11');
   const [run, setRun] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
+  // die Tastatur liest immer die Aktionen dieses Renderns (sie hängen an Seite und Auswahl)
+  const keys = useRef<{ undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
   // ---- speichern: eine Sekunde nach der letzten Änderung und beim Verlassen - ein Schreiben nach dem
@@ -119,13 +123,43 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       now();
     };
   }, [flush]);
-  const update = (next: Page) => {
-    if (!canEdit) return;
+  const store = (next: Page) => {
     setPage(next);
     pending.current = next;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
   };
+
+  // ---- rückgängig: jede Änderung der Seite; Tippen in einem Feld ist ein Schritt (bis 1 s Pause)
+  const past = useRef<Page[]>([]);
+  const future = useRef<Page[]>([]);
+  const lastEdit = useRef<{ key: string; at: number } | null>(null);
+  const [, setHistoryTick] = useState(0);
+  const update = (next: Page, coalesce?: string) => {
+    if (!canEdit || !page) return;
+    const now = Date.now();
+    const same = coalesce !== undefined && lastEdit.current?.key === coalesce && now - lastEdit.current.at < 1000;
+    if (!same) {
+      past.current = [...past.current.slice(-99), page];
+      future.current = [];
+    }
+    lastEdit.current = coalesce === undefined ? null : { key: coalesce, at: now };
+    store(next);
+    setHistoryTick((t) => t + 1);
+  };
+  const travel = (from: React.MutableRefObject<Page[]>, to: React.MutableRefObject<Page[]>) => {
+    if (!canEdit || !page || from.current.length === 0) return;
+    const next = from.current[from.current.length - 1];
+    from.current = from.current.slice(0, -1);
+    to.current = [...to.current, page];
+    lastEdit.current = null;
+    store(next);
+    // ein Baustein, den es danach nicht mehr gibt, ist nicht mehr gewählt
+    setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null));
+    setHistoryTick((t) => t + 1);
+  };
+  const undo = () => travel(past, future);
+  const redo = () => travel(future, past);
 
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : EMPTY), [model, specs]);
   const gateway = useMemo(() => previewGateway(targets), [targets]);
@@ -135,6 +169,27 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     [page, targets, pages, slug],
   );
   const queryParams = useMemo(() => Object.fromEntries(new URLSearchParams(query)), [query]);
+
+  // ---- Tastatur: ⌘Z / ⇧⌘Z, Entf, ⌘D, ⌥↑/⌥↓, Esc - nicht beim Tippen in einem Feld
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest('input, textarea, select, [contenteditable="true"]'))) return;
+      const k = keys.current;
+      if (!k) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) k.redo(); else k.undo(); return; }
+      if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); k.redo(); return; }
+      if (e.key === 'Escape') { k.deselect(); return; }
+      if (!k.ops) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); k.ops.remove(); }
+      else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); k.ops.duplicate(); }
+      else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); k.ops.move(-1); }
+      else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); k.ops.move(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (!page) {
     return (
@@ -147,12 +202,34 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
 
   const outline = flatten(page.body);
   const block = selected ? blockAt(page.body, selected) : undefined;
-  const setBody = (body: Component[]) => update({ ...page, body });
-  const add = (type: Component['type']) => {
-    const r = insertBlock(page.body, newBlock(type), selected ?? undefined, block?.type === 'section');
+  const setBody = (body: Component[], coalesce?: string) => update({ ...page, body }, coalesce);
+  const apply = (r: { body: Component[]; key: BlockKey }) => {
     setBody(r.body);
-    setSelected(r.key);
+    setSelected(blockAt(r.body, r.key) ? r.key : null);
+  };
+  const add = (type: Component['type']) => {
+    apply(insertBlock(page.body, newBlock(type), selected ?? undefined, block?.type === 'section'));
     setAdding(false);
+  };
+  /** Die Aktionen für einen Baustein - in der Vorschau, im Kopf der Eigenschaften, in der Gliederung. */
+  const opsFor = (key: BlockKey): BlockOps => ({
+    move: (by) => apply(moveBlock(page.body, key, by)),
+    duplicate: () => { const b = blockAt(page.body, key); if (b) apply(placeBlock(page.body, structuredClone(b), key, 'after')); },
+    remove: () => { setBody(removeBlock(page.body, key)); setSelected(null); },
+    convert: (type) => { setBody(updateBlock(page.body, key, (b) => convertBlock(b, type))); setSelected(key); },
+    insert: (type, place: Place) => apply(placeBlock(page.body, newBlock(type), key, place)),
+    wrap: () => apply(wrapInSection(page.body, key)),
+    unwrap: () => apply(unwrapSection(page.body, key)),
+  });
+  const ops = selected !== null && block ? opsFor(selected) : null;
+  keys.current = { undo, redo, ops, deselect: () => setSelected(null) };
+
+  // ---- Drag & Drop in der Gliederung: oben/unten an einer Zeile davor/danach, mitten in einem Abschnitt hinein
+  const placeAt = (e: React.DragEvent, isSection: boolean): Place => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const y = (e.clientY - r.top) / r.height;
+    if (isSection) return y < 0.25 ? 'before' : y > 0.75 ? 'after' : 'inside';
+    return y < 0.5 ? 'before' : 'after';
   };
   const errors = findings.filter((f) => f.level === 'error').length;
   const warnings = findings.filter((f) => f.level === 'warning').length;
@@ -174,7 +251,13 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             <AlertTriangle size={10} /> {errors + warnings}
           </span>
         )}
-        <span className={`ml-auto text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
+        {canEdit && (
+          <div className="ml-auto flex items-center gap-0.5">
+            <IconButton isDark={isDark} title="rückgängig (⌘Z)" disabled={past.current.length === 0} onClick={undo}><Undo2 size={12} /></IconButton>
+            <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={future.current.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
+          </div>
+        )}
+        <span className={`${canEdit ? '' : 'ml-auto '}text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
           {!canEdit ? 'nur lesen' : saveState.error ?? (saveState.at ? `gespeichert ${saveState.at.toLocaleTimeString('de-CH')}` : '')}
         </span>
       </div>
@@ -187,24 +270,45 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             className={`w-full text-left px-3 py-1.5 text-[11px] ${selected === null ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
             Seite · {page.title}
           </button>
-          {outline.map(({ key, block: b, depth }) => (
-            <button key={key} onClick={() => setSelected(key)} style={{ paddingLeft: `${12 + depth * 14}px` }}
-              className={`w-full flex items-center gap-2 text-left pr-3 py-1.5 text-[11px] ${
-                selected === key ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
-              <span className={c.muted}>{ICONS[b.type]}</span>
-              <span className="truncate">{summaryOf(b) || BLOCK_LABELS[b.type]}</span>
-              {b.visible && <span className={`ml-auto text-[9px] ${c.muted}`} title={`sichtbar, wenn ${b.visible}`}>if</span>}
-            </button>
-          ))}
+          {outline.map(({ key, block: b, depth }) => {
+            const over = drag?.over === key ? drag.place : undefined;
+            return (
+              <div key={key} draggable={canEdit}
+                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); setDrag({ from: key }); }}
+                onDragOver={(e) => {
+                  if (!drag || drag.from === key || key.startsWith(`${drag.from}.`)) return;
+                  e.preventDefault();
+                  const place = placeAt(e, b.type === 'section');
+                  if (drag.over !== key || drag.place !== place) setDrag({ ...drag, over: key, place });
+                }}
+                onDragLeave={() => drag?.over === key && setDrag({ from: drag.from })}
+                onDrop={(e) => { e.preventDefault(); if (drag?.over && drag.place) apply(relocateBlock(page.body, drag.from, drag.over, drag.place)); setDrag(null); }}
+                onDragEnd={() => setDrag(null)}
+                onClick={() => setSelected(key)}
+                style={{ paddingLeft: `${4 + depth * 14}px` }}
+                className={`group relative w-full flex items-center gap-1.5 pr-1 py-1 text-[11px] cursor-pointer border-y-2 ${
+                  over === 'before' ? 'border-t-sky-500 border-b-transparent' : over === 'after' ? 'border-b-sky-500 border-t-transparent' : 'border-transparent'} ${
+                  over === 'inside' ? 'ring-2 ring-inset ring-sky-500' : ''} ${
+                  drag?.from === key ? 'opacity-40' : ''} ${
+                  selected === key ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
+                {canEdit && <GripVertical size={11} className={`flex-shrink-0 cursor-grab opacity-0 group-hover:opacity-60 ${c.muted}`} />}
+                <span className={c.muted}>{ICONS[b.type]}</span>
+                <span className="truncate flex-1">{summaryOf(b) || BLOCK_LABELS[b.type]}</span>
+                {b.visible && <span className={`text-[9px] group-hover:hidden ${c.muted}`} title={`sichtbar, wenn ${b.visible}`}>if</span>}
+                {canEdit && (
+                  <span className="hidden group-hover:flex">
+                    <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact />
+                  </span>
+                )}
+              </div>
+            );
+          })}
           {canEdit && (
             <div className="px-3 py-2 space-y-2">
-              {selected !== null && (
-                <div className="flex gap-1">
-                  <IconButton isDark={isDark} title="nach oben" onClick={() => { const r = moveBlock(page.body, selected, -1); setBody(r.body); setSelected(r.key); }}><ArrowUp size={12} /></IconButton>
-                  <IconButton isDark={isDark} title="nach unten" onClick={() => { const r = moveBlock(page.body, selected, 1); setBody(r.body); setSelected(r.key); }}><ArrowDown size={12} /></IconButton>
-                  <IconButton isDark={isDark} title="verdoppeln" onClick={() => { if (!block) return; const r = insertBlock(page.body, structuredClone(block), selected); setBody(r.body); setSelected(r.key); }}><Copy size={12} /></IconButton>
-                  <IconButton isDark={isDark} title="entfernen" onClick={() => { setBody(removeBlock(page.body, selected)); setSelected(null); }}><Trash2 size={12} /></IconButton>
-                </div>
+              {outline.length > 1 && (
+                <p className={`text-[9px] leading-snug ${c.muted}`}>
+                  Ziehen zum Verschieben (mitten auf einen Abschnitt: hinein) · Entf löscht · ⌘D verdoppelt · ⌥↑↓ verschiebt · ⌘Z rückgängig
+                </p>
               )}
               <div className="relative">
                 <button onClick={() => setAdding((a) => !a)}
@@ -254,7 +358,10 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             <PageView key={`${run}:${query}:${JSON.stringify(page)}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}
               user={page.access === 'public' ? undefined : { name: 'Vorschau', roles: page.access.roles }}
-              designer={{ selected: selected ?? undefined, onSelect: setSelected }} />
+              designer={{
+                selected: selected ?? undefined, onSelect: setSelected,
+                toolbar: canEdit ? (key) => { const b = blockAt(page.body, key); return b ? <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact /> : null; } : undefined,
+              }} />
           </div>
         </div>
 
@@ -262,10 +369,21 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (
             // key: ein anderer Baustein bekommt frische Formulare (kein halber JSON-Text des vorigen)
-            <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
-              onChange={(b) => setBody(updateBlock(page.body, selected, () => b))} />
+            <>
+              {canEdit && ops && (
+                <div className={`sticky top-0 z-20 px-3 py-1.5 border-b space-y-1 ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={c.muted}>{ICONS[block.type]}</span>
+                    <span className={`text-[10px] font-semibold uppercase tracking-widest ${c.muted2}`}>{BLOCK_LABELS[block.type]}</span>
+                  </div>
+                  <BlockActions isDark={isDark} block={block} ops={ops} />
+                </div>
+              )}
+              <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
+                onChange={(b) => setBody(updateBlock(page.body, selected, () => b), `props:${selected}`)} />
+            </>
           ) : (
-            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={update} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, 'page')} />
           )}
         </div>
       </div>
