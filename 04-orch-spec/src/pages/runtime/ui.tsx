@@ -2,7 +2,9 @@
 import { useEffect, useState } from 'react';
 
 export const cls = (isDark: boolean) => ({
-  // die Farben aus dem Theme der App (theme.ts - nur im Modus des Themes gesetzt), sonst der z9nai-Stil
+  // die Farben aus dem Theme der App (theme.ts - nur im Modus des Themes gesetzt), sonst der z9nai-Stil.
+  // Gedämpftes (title, muted, btn, icon, Ränder) bleibt Schwarz/Weiss mit Deckkraft: es passt so auf jeden
+  // Hintergrund des Modus, wie Hell- und Dunkelgrau es täten
   bg: isDark ? 'bg-[var(--orch-bg,#0e0f11)]' : 'bg-[var(--orch-bg,#f5f4f0)]',
   panel: isDark ? 'bg-[var(--orch-surface,rgba(255,255,255,0.02))]' : 'bg-[var(--orch-surface,rgba(0,0,0,0.02))]',
   panelStrong: isDark ? 'bg-[var(--orch-surface,#16171a)]' : 'bg-[var(--orch-surface,#ffffff)]',
@@ -16,7 +18,7 @@ export const cls = (isDark: boolean) => ({
   hover: isDark ? 'hover:bg-white/5' : 'hover:bg-black/5',
   icon: isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70',
   input: isDark
-    ? 'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-white/30'
+    ? 'bg-white/5 border-white/10 text-[var(--orch-text,#ffffff)] placeholder-white/20 focus:border-[var(--orch-primary,rgba(255,255,255,0.3))]'
     : 'bg-black/5 border-black/10 text-[var(--orch-text,#000000)] placeholder-black/20 focus:border-[var(--orch-primary,rgba(0,0,0,0.3))]',
   btn: isDark
     ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white'
@@ -28,7 +30,7 @@ export const cls = (isDark: boolean) => ({
   success: isDark ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800',
   info: isDark ? 'border-blue-500/30 bg-blue-500/5 text-blue-300' : 'border-blue-300 bg-blue-50 text-blue-800',
   selected: isDark
-    ? 'border-[var(--orch-primary,rgba(255,255,255,0.6))] bg-white/10 text-white'
+    ? 'border-[var(--orch-primary,rgba(255,255,255,0.6))] bg-white/10 text-[var(--orch-text,#ffffff)]'
     : 'border-[var(--orch-primary,rgba(0,0,0,0.6))] bg-black/5 text-[var(--orch-text,#000000)]',
 });
 

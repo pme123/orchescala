@@ -107,6 +107,7 @@ export default function App() {
     <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`} style={style}>
       {!embedded && (
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
+          {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
           {app?.theme?.logo
             ? <img src={app.theme.logo} alt="" className="h-7 max-w-40 object-contain" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}

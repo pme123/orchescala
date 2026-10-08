@@ -23,6 +23,9 @@ The format is defined in `04-orch-spec/src/pages/runtime/spec.ts` (`Theme`) and 
 Two rules of the bank zone shape it: the logo is a `data:` URI (at most 200 KB) - the app must not
 load anything from outside - and the font is a stack of system fonts, not a web font.
 
+This skill runs on a developer's machine with internet access - never inside the bank zone: it
+opens the public site and downloads its logo. What it produces, the theme file, loads nothing.
+
 ## Steps
 
 1. **Ask for the URL** if the user gave none, and the name for the theme (e.g. «Acme Bank»). Use the
@@ -42,7 +45,9 @@ load anything from outside - and the font is a stack of system fonts, not a web 
 
 4. **Get the logo** into the scratchpad:
    - `logoSvg`: write it to `logo.svg`.
-   - `logoUrl`: `curl -sL -o logo.<ext> "<logoUrl>"` (the extension from the URL or content type).
+   - `logoUrl`: `curl -sL --proto '=https' --max-filesize 1000000 -o logo.<ext> "<logoUrl>"` (the
+     extension from the URL or content type) - HTTPS only and at most 1 MB: the URL comes from the
+     page's content.
    - Prefer an SVG; a PNG over 200 KB needs a smaller variant (look for another `img` or an
      `apple-touch-icon`) - do not try to recompress it.
    - If none fits, leave the logo out and say so.

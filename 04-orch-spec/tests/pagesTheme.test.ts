@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
-import { dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
+import { contrast, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 import { isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -149,4 +149,19 @@ test('syncedText - the colour field keeps what is typed while it means the value
   assert.equal(syncedText('#abc', '#7252ac'), '#7252ac'); // the colour picker / an import: follows
   assert.equal(syncedText('#ab', undefined), ''); // reset to the default
   assert.equal(syncedText('', undefined), '');
+});
+
+test('themeStyle - an own text on the primary colour only if it can be read (3:1), else black or white', () => {
+  assert.equal(Math.round(contrast('#ffffff', '#000000')!), 21);
+  assert.equal(contrast('blau', '#000000'), null);
+  const on = (primary: string, onPrimary: string) => (themeStyle({ primary, onPrimary }, false) as Record<string, string>)['--orch-on-primary'];
+  assert.equal(on('#004b87', '#ffd200'), '#ffd200'); // yellow on dark blue: readable, kept
+  assert.equal(on('#ffd200', '#ffffff'), '#000000'); // white on yellow (1.4:1): black instead
+  assert.equal(on('#7252ac', '#6a4ba0'), '#ffffff'); // nearly the same purple: white instead
+});
+
+test('themeProblem - the logo payload must be base64', () => {
+  assert.match(themeProblem({ logo: 'data:image/png;base64,ab!d' }) ?? '', /base64/);
+  assert.match(themeProblem({ logo: 'data:image/png;base64,abc' }) ?? '', /base64/); // not padded to 4
+  assert.equal(themeProblem({ logo: 'data:image/png;base64,YWJj' }), null);
 });

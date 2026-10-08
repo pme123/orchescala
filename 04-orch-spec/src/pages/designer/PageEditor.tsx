@@ -182,7 +182,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.closest('input, textarea, select, [contenteditable="true"]'))) return;
+      // schon behandelt, beim Tippen in einem Feld, in einem Dialog darüber: nicht für den Designer
+      if (e.defaultPrevented) return;
+      if (t && (t.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]'))) return;
       const k = keys.current;
       if (!k) return;
       const mod = e.metaKey || e.ctrlKey;
@@ -191,8 +193,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       if (e.key === 'Escape') { k.deselect(); return; }
       if (!k.ops) return;
       // nur Entf - Backspace auf einem Knopf oder der Seite löschte sonst ungewollt
-      if (e.key === 'Delete') { e.preventDefault(); k.ops.remove(); }
-      else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); k.ops.duplicate(); }
+      // gedrückt gehalten: einmal löschen / verdoppeln, nicht ein Baustein je Wiederholung (⌘Z und ⌥↑↓ dürfen)
+      if (e.key === 'Delete') { e.preventDefault(); if (!e.repeat) k.ops.remove(); }
+      else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); if (!e.repeat) k.ops.duplicate(); }
       else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); k.ops.move(-1); }
       else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); k.ops.move(1); }
     };

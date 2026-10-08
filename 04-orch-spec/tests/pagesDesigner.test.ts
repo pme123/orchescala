@@ -318,6 +318,11 @@ test('relocateBlock - the index shifts: into a later sibling section, out to a l
   assert.deepEqual(anc.body.map((b) => (b.type === 'text' ? b.text : b.type)), ['a', 's1', 'section', 'b']);
   // a section onto its own child: nothing changes
   assert.equal(relocateBlock(body, '1', '1.0', 'before').body, body);
+  // a target that is no block (any more - e.g. after an undo mid-drag): nothing moves
+  const stale = relocateBlock(body, '0', '7', 'before');
+  assert.equal(stale.body, body);
+  assert.equal(stale.key, '0');
+  assert.equal(relocateBlock(body, '0', '1.9', 'after').body, body);
 });
 
 test('unwrapSection - a nested section: its blocks in its place, in the parent section', () => {

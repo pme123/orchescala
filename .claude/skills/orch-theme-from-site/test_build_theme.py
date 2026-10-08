@@ -81,6 +81,10 @@ class Problems(unittest.TestCase):
         self.assertEqual(problems({'logo': uri(MAX_LOGO)}), [])
         self.assertEqual(problems({'logo': uri(MAX_LOGO + 1)}), ['theme.logo ist grösser als 200 KB'])
 
+    def test_logo_payload_is_base64(self):
+        self.assertEqual(problems({'logo': 'data:image/png;base64,ab!d'}), ['theme.logo ist kein gültiges base64'])
+        self.assertEqual(problems({'logo': 'data:image/png;base64,abc'}), ['theme.logo ist kein gültiges base64'])
+
     def test_contrast(self):
         self.assertAlmostEqual(contrast('#ffffff', '#000000'), 21, places=1)
 

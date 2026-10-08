@@ -158,6 +158,8 @@ def problems(theme):
     if logo is not None:
         if not re.match(r'data:image/(png|jpeg|gif|webp|svg\+xml);base64,', logo):
             found.append('theme.logo ist keine data:-URI eines Bilds')
+        elif len(payload := logo[logo.find(',') + 1:]) % 4 or not re.fullmatch(r'[A-Za-z0-9+/]*={0,2}', payload):
+            found.append('theme.logo ist kein gültiges base64')
         if data_uri_bytes(logo) > MAX_LOGO:
             found.append('theme.logo ist grösser als 200 KB')
     return found

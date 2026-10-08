@@ -283,7 +283,7 @@ export function placeBlock(body: Component[], block: Component, key: BlockKey, p
   const at = blockAt(body, key);
   // kein Baustein (die Seite selbst, '') - ans Ende der Seite, nicht still an den Anfang
   if (!at) return { body: [...body, block], key: String(body.length) };
-  if (place === 'inside' && at?.type === 'section') return { body: insertAt(body, key, at.body.length, block), key: `${key}.${at.body.length}` };
+  if (place === 'inside' && at.type === 'section') return { body: insertAt(body, key, at.body.length, block), key: `${key}.${at.body.length}` };
   // «hinein» in etwas, das kein Abschnitt ist: danach
   const index = indexOf(key) + (place === 'before' ? 0 : 1);
   return { body: insertAt(body, parentOf(key), index, block), key: keyIn(parentOf(key), index) };
@@ -294,8 +294,10 @@ export function placeBlock(body: Component[], block: Component, key: BlockKey, p
 export function relocateBlock(body: Component[], from: BlockKey, to: BlockKey, place: Place): { body: Component[]; key: BlockKey } {
   const block = blockAt(body, from);
   if (!block || from === to || to.startsWith(`${from}.`)) return { body, key: from };
-  // auf die Seite selbst ('' - kein Baustein): ans Ende - ''.split('.') wäre sonst der Baustein 0
-  if (!blockAt(body, to)) return placeBlock(removeBlock(body, from), block, '', place);
+  // auf die Seite selbst (''): ans Ende - ''.split('.') wäre sonst der Baustein 0. Ein anderer Schlüssel
+  // ohne Baustein (z.B. ein alter Zielpunkt nach ⌘Z mitten im Ziehen): nichts verschieben
+  if (to === '') return placeBlock(removeBlock(body, from), block, '', place);
+  if (!blockAt(body, to)) return { body, key: from };
   // nach dem Entfernen rückt ein späterer Geschwister-Pfad (oder einer darin) um eins nach vorn
   const fromParts = from.split('.').map(Number);
   const toParts = to.split('.').map(Number);

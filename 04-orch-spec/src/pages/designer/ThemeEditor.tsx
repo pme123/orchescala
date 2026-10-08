@@ -4,7 +4,11 @@ import { FileUp, ImagePlus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { Theme } from '../runtime/spec';
-import { isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, syncedText, themeProblem, themeStyle } from '../runtime/theme';
+import {
+  contrast, isFontPreset, isThemeColor, MAX_LOGO_BYTES, MIN_ON_PRIMARY_CONTRAST, parseThemeFile, syncedText, themeProblem, themeStyle,
+} from '../runtime/theme';
+
+const MAX_THEME_FILE_BYTES = 1024 * 1024;
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
 
@@ -51,10 +55,19 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   };
   // «eigener Stapel» bleibt gewählt, auch wenn das Feld leer ist oder genau «sans» darin steht
   const [custom, setCustom] = useState(() => !!t.font && !isFontPreset(t.font));
+  const onPrimaryContrast = t.primary && t.onPrimary ? contrast(t.primary, t.onPrimary) : null;
   const preset = custom ? 'custom' : t.font && isFontPreset(t.font) ? t.font : '';
 
   const importFile = async (file: File) => {
-    const r = parseThemeFile(await file.text());
+    // ein Theme ist klein (das Logo bis 200 KB) - was viel grösser ist, ist keins
+    if (file.size > MAX_THEME_FILE_BYTES) return setNote({ tone: 'error', text: 'Die Datei ist zu gross für ein Theme (bis 1 MB).' });
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      return setNote({ tone: 'error', text: 'Die Datei liess sich nicht lesen.' });
+    }
+    const r = parseThemeFile(text);
     if ('error' in r) return setNote({ tone: 'error', text: r.error });
     setCustom(!!r.theme.font && !isFontPreset(r.theme.font));
     onChange(r.theme);
@@ -116,6 +129,12 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
         <SelectField isDark={isDark} label="Modus" value={t.mode ?? ''} onChange={(mode) => set({ mode: (mode || undefined) as Theme['mode'] })}
           options={[{ value: '', label: 'Wahl des Benutzers' }, { value: 'light', label: 'hell' }, { value: 'dark', label: 'dunkel' }]} />
       </div>
+      {onPrimaryContrast !== null && onPrimaryContrast < 4.5 && (
+        <div className="text-[10px] text-amber-600">
+          Text auf der Primärfarbe: Kontrast nur {onPrimaryContrast.toFixed(1)}:1 (WCAG: 4.5)
+          {onPrimaryContrast < MIN_ON_PRIMARY_CONTRAST ? ' - die App nimmt dafür Schwarz oder Weiss.' : '.'}
+        </div>
+      )}
       {preset === 'custom' && (
         <TextField isDark={isDark} label="Schrift-Stapel" hint="Systemschriften - in der Bankenzone gibt es keine Webfonts von aussen" mono
           value={t.font} onChange={(font) => set({ font: font || undefined })} />
@@ -123,6 +142,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
 
       <div className="flex items-center gap-3">
         <span className={`text-[10px] ${c.muted2}`}>Logo</span>
+        {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
         {t.logo ? <img src={t.logo} alt="" className="h-8 max-w-40 object-contain rounded border border-black/10 bg-white p-0.5" />
           : <span className={`text-[10px] ${c.muted}`}>keins (das Orchescala-Symbol)</span>}
         {canEdit && (

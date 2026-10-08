@@ -62,6 +62,18 @@ function luminance([r, g, b]: [number, number, number]): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
+/** Der Kontrast zweier Theme-Farben nach WCAG (1…21) - null, wenn eine keine ist. */
+export function contrast(a: string, b: string): number | null {
+  const [x, y] = [rgbOf(a), rgbOf(b)];
+  if (!x || !y) return null;
+  const [hi, lo] = [luminance(x), luminance(y)].sort((p, q) => q - p);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Unter diesem Kontrast nimmt die App für den Text auf der Primärfarbe Schwarz oder Weiss (WCAG für
+  * grosse Schrift und Bedienelemente) - der Editor warnt schon unter 4.5. */
+export const MIN_ON_PRIMARY_CONTRAST = 3;
+
 /** Der Text auf einer Farbe: Schwarz oder Weiss, was den grösseren Kontrast hat (WCAG, wie der Skill). */
 export function textOn(color: string): '#000000' | '#ffffff' {
   const rgb = rgbOf(color);
@@ -74,6 +86,9 @@ const FONT_FORBIDDEN = /[;{}<>\\@]|url\s*\(/i;
 
 /** Das Logo höchstens so gross (wie eine Datei im Logo-Feld). */
 export const MAX_LOGO_BYTES = 200 * 1024;
+
+/** Gültiges base64 (Standard-Alphabet, aufgefüllt auf ein Vielfaches von 4). */
+const isBase64 = (s: string): boolean => s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
 
 /** Die Grösse des Bilds in einer base64-data:-URI - die dekodierten Bytes, nicht die Länge des Texts. */
 export function dataUriBytes(uri: string): number {
@@ -95,7 +110,9 @@ export function themeProblem(raw: unknown): string | null {
   if (t.radius !== undefined && !(typeof t.radius === 'string' && Object.hasOwn(RADIUS, t.radius))) return '«theme.radius» ist nicht none, sm, md, lg oder xl';
   if (t.mode !== undefined && t.mode !== 'light' && t.mode !== 'dark') return '«theme.mode» ist nicht light oder dark';
   if (t.logo !== undefined) {
+    // ein SVG ist nur als <img> sicher (kein Skript, nichts von aussen) - nie inline einsetzen
     if (typeof t.logo !== 'string' || !/^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/.test(t.logo)) return '«theme.logo» ist keine data:-URI eines Bilds (PNG, JPEG, GIF, WebP, SVG)';
+    if (!isBase64(t.logo.slice(t.logo.indexOf(',') + 1))) return '«theme.logo» ist kein gültiges base64';
     if (dataUriBytes(t.logo) > MAX_LOGO_BYTES) return '«theme.logo» ist grösser als 200 KB';
   }
   return null;
@@ -108,7 +125,9 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
   const v: Record<string, string> = {};
   if (theme.primary) {
     v['--orch-primary'] = theme.primary;
-    v['--orch-on-primary'] = theme.onPrimary ?? textOn(theme.primary);
+    // ein eigener Text auf der Primärfarbe - nur, wenn man ihn lesen kann
+    const own = theme.onPrimary && (contrast(theme.primary, theme.onPrimary) ?? 0) >= MIN_ON_PRIMARY_CONTRAST;
+    v['--orch-on-primary'] = own ? theme.onPrimary! : textOn(theme.primary);
   }
   if ((theme.mode === 'dark') === isDark) {
     if (theme.background) v['--orch-bg'] = theme.background;
