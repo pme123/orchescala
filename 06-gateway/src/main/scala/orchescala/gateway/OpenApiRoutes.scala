@@ -170,6 +170,21 @@ class OpenApiRoutes()(using config: GatewayConfig):
         // which avoids OAuth2 query params (code, state, …) ever landing on the main /docs page.
         (protectedRoutes @@ oauth2AuthMiddleware(auth)) ++ oauth2CallbackRoute(auth) ++ faviconRoute
 
+  /** When the project's worker app cannot give its docs - no docs URL for it (404) or it does not
+    * answer / fails (5xx; e.g. a project of another team, not running here) - the released version
+    * the docs site holds (`site/<company>/<project>/…`, written by the helper's SiteAssembler at the
+    * tag of VERSIONS.conf). Otherwise the worker app's answer - the live one, also a 4xx of its own.
+    */
+  private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
+      forwarded: Response
+  ): ZIO[Any, Nothing, Response] =
+    val unavailable = forwarded.status == Status.NotFound || forwarded.status.isServerError
+    if !unavailable || !isValidProjectName(companyName) || !isValidProjectName(projectName) then
+      ZIO.succeed(forwarded)
+    else
+      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).map: fromSite =>
+        if fromSite.status.isSuccess then fromSite else forwarded
+
   /** Forwards a docs request to the worker app of the project.
     *
     * The project name comes from the request path, and the default `docsAppUrl` takes it as the
@@ -177,19 +192,6 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
     * slashes) is accepted - the path goes into the URL as encoded segments.
     */
-  /** When the project's worker app does not answer (not running here - e.g. a project of another
-    * team), the released version the docs site holds (`site/<company>/<project>/…`, written by the
-    * helper's SiteAssembler at the tag of VERSIONS.conf). Otherwise the worker app's - the live one.
-    */
-  private[gateway] def orSiteFile(companyName: String, projectName: String, file: String)(
-      forwarded: Response
-  ): ZIO[Any, Nothing, Response] =
-    if forwarded.status.isSuccess || !isValidProjectName(companyName) || !isValidProjectName(projectName) then
-      ZIO.succeed(forwarded)
-    else
-      serveClasspathFile(siteResourcePath(s"$companyName/$projectName/$file")).map: fromSite =>
-        if fromSite.status.isSuccess then fromSite else forwarded
-
   private def forwardDocsRequest(
       projectName: String,
       path: Seq[String],

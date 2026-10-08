@@ -15,6 +15,10 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
 
   private val openApiRoutes = OpenApiRoutes()(using testConfig)
 
+  // the worker apps of the projects: none - a closed port on this machine (the default docsAppUrl could
+  // reach a real worker app of the developer, e.g. on localhost:5555)
+  private val noWorkerApps = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some("http://127.0.0.1:9")))
+
   def spec: Spec[TestEnvironment & Scope, Any] = suite("OpenApiRoutes")(
     test("needsCanonicalSiteRedirect only redirects the exact /site path") {
       assertTrue(
@@ -146,6 +150,19 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         liveBody == "live",
         missing.status == Status.InternalServerError,
         traversal.status == Status.InternalServerError
+      )
+    },
+    test("the routes of a project's API: without its worker app the released files of the site") {
+      def get(path: String) =
+        noWorkerApps.routes.runZIO(Request.get(URL.decode(path).toOption.get)).flatMap(r => r.body.asString.map(r.status -> _))
+      for
+        yml     <- get("/site/acme/acme-shop/OpenApi.yml")
+        diagram <- get("/site/acme/acme-shop/diagrams/shop.bpmn")
+        none    <- get("/site/acme/acme-cards/OpenApi.yml")
+      yield assertTrue(
+        yml._1 == Status.Ok, yml._2.contains("acme-shop (released)"),
+        diagram._1 == Status.Ok, diagram._2.contains("<bpmn"),
+        none._1 != Status.Ok
       )
     },
     test("the favicon is served (its stream closed)") {

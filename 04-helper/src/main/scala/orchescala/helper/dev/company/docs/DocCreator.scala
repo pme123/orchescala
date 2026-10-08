@@ -239,15 +239,10 @@ trait DocCreator extends DependencyCreator, Helpers:
       _           =
         if !os.exists(projectPath) then
           apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
-      _           = ProjectRepo.locate(gitBasePath, project) match
-        // all projects in one repo: the project's folder at its tag (`<project>-v<version>`)
-        case Some(repo) if repo.singleRepo =>
-          val tag = repo.resolveTag(version).getOrElse(
-            throw new Exception(s"Tag not found in ${repo.repo}: ${repo.tagCandidates(version).mkString(" or ")}")
-          )
-          println(s"Export $project at '$tag' from ${repo.repo}")
-          repo.exportTo(tag, projectPath)
-        case _ =>
+      // all projects in one repo: the project's folder at its tag (`<project>-v<version>`) - else its own clone
+      _           = ProjectRepo.exportRelease(gitBasePath, project, version, projectPath) match
+        case Some(tag) => println(s"Exported $project at '$tag'")
+        case None =>
           // ensure all tags are present locally
           os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
           // resolve correct tag name (handles 'v' and non-'v')

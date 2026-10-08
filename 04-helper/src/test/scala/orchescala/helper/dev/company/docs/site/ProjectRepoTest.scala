@@ -23,7 +23,11 @@ class ProjectRepoTest extends FunSuite:
     git(repo, "commit", "-q", "-m", "release")
     git(repo, "tag", "acme-shop-v1.0.0")
     os.write.over(repo / "projects" / "acme-shop" / "03-api" / "OpenApi.yml", "version: 1.1.0-SNAPSHOT\n")
-    git(repo, "commit", "-q", "-am", "later")
+    // a project that came after the release tag of acme-shop
+    os.write(repo / "projects" / "acme-new" / "README.md", "new", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "later")
+    git(repo, "tag", "acme-new-v0.1.0")
     gitTemp
 
   test("locate - a project in the company's single repo, with its folder as prefix"):
@@ -59,5 +63,55 @@ class ProjectRepoTest extends FunSuite:
     assert(!os.exists(dest / "stale.txt"))
     assert(!os.exists(dest / "projects"))
     assert(!os.exists(dest / "acme-cards"))
+
+  test("exportRelease - the project's folder at its release tag; None for an own clone"):
+    val gitTemp = singleRepoGitTemp()
+    assertEquals(ProjectRepo.exportRelease(gitTemp, "acme-shop", "1.0.0", gitTemp / "acme-shop"), Some("acme-shop-v1.0.0"))
+    assertEquals(os.read(gitTemp / "acme-shop" / "03-api" / "OpenApi.yml"), "version: 1.0.0\n")
+    val own = os.temp.dir(prefix = "git-temp")
+    os.write(own / "acme-own" / "README.md", "own", createFolders = true)
+    git(own / "acme-own", "init", "-q")
+    assertEquals(ProjectRepo.exportRelease(own, "acme-own", "1.0.0", own / "acme-own"), None)
+
+  test("exportRelease - no tag for the version, or the project not there at the tag: an error, nothing emptied"):
+    val gitTemp = singleRepoGitTemp()
+    os.write(gitTemp / "acme-shop" / "keep.txt", "kept", createFolders = true)
+    intercept[Exception](ProjectRepo.exportRelease(gitTemp, "acme-shop", "9.9.9", gitTemp / "acme-shop"))
+    val newOne = ProjectRepo.locate(gitTemp, "acme-new").get
+    intercept[IllegalArgumentException](newOne.exportTo("acme-shop-v1.0.0", gitTemp / "acme-new"))
+    assert(os.exists(gitTemp / "acme-shop" / "keep.txt"))
+
+  test("exportTo - never empties the clone itself"):
+    val gitTemp = singleRepoGitTemp()
+    val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
+    intercept[IllegalArgumentException](shop.exportTo("acme-shop-v1.0.0", gitTemp))
+    intercept[IllegalArgumentException](shop.exportTo("acme-shop-v1.0.0", shop.repo))
+    assert(os.exists(shop.repo / ".git"))
+
+  test("resolveTag - no origin to fetch from: the local tags still count, no exception"):
+    val shop = ProjectRepo.locate(singleRepoGitTemp(), "acme-shop").get
+    assertEquals(shop.resolveTag("1.0.0"), Some("acme-shop-v1.0.0"))
+    assertEquals(shop.resolveTag("3.0.0"), None)
+
+  test("SiteAssembler.writeApi - the API of a project in a single repo, at its tag"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme-shop" / "03-api" / "PostmanOpenApi.yml", "postman\n", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "postman")
+    git(repo, "tag", "acme-shop-v1.1.0")
+    val shop   = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assertEquals(SiteAssembler.releaseRef(shop, "1.0.0"), Some("acme-shop-v1.0.0"))
+    assertEquals(SiteAssembler.releaseRef(shop, "4.0.0"), None)
+    val target = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val yml    = SiteAssembler.writeApi(shop, "acme-shop-v1.0.0", target, "<html/>")
+    assertEquals(yml.map(new String(_)), Some("version: 1.0.0\n"))
+    assertEquals(os.read(target / "OpenApi.html"), "<html/>")
+    assert(os.exists(target / "diagrams" / "shop.bpmn"))
+    assert(!os.exists(target / "PostmanOpenApi.yml")) // not yet at 1.0.0
+    SiteAssembler.writeApi(shop, "acme-shop-v1.1.0", target, "<html/>")
+    assertEquals(os.read(target / "PostmanOpenApi.yml"), "postman\n")
+    val cards = ProjectRepo.locate(gitTemp, "acme-new").get
+    assertEquals(SiteAssembler.writeApi(cards, "acme-new-v0.1.0", os.temp.dir() / "x", "<html/>"), None) // no OpenApi.yml
 
 end ProjectRepoTest
