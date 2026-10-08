@@ -10,6 +10,9 @@ export type TokenSource = {
   reauthenticate: () => Promise<never>;
 };
 
+/** Wie lange ein Aufruf höchstens dauert - länger als der Gateway selbst wartet (callTimeout). */
+const CALL_TIMEOUT_MS = 60_000;
+
 /** POST an den Gateway – öffentlich ohne Token, sonst mit dem Token des Benutzers. */
 export function post(path: string, body: unknown, isPublic: boolean): Promise<unknown> {
   return postWith({ accessToken, renewToken, reauthenticate }, path, body, isPublic);
@@ -21,7 +24,12 @@ export async function postWith(
   const send = (token?: string) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
-    return fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
+    // ein Gateway, der nicht antwortet, hielte die Seite sonst für immer «busy»
+    return fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) })
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(504, 'Keine Antwort vom Gateway');
+        throw e;
+      });
   };
   let response = await send(isPublic ? undefined : await accessToken());
   if (response.status === 401 && !isPublic) {

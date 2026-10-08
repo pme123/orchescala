@@ -21,7 +21,7 @@ function userManager(): Promise<UserManager> {
     })
     .then((config) => {
       const appUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
-      return new UserManager({
+      const um = new UserManager({
         authority: config.authority,
         client_id: config.clientId,
         redirect_uri: appUrl,
@@ -33,7 +33,12 @@ function userManager(): Promise<UserManager> {
         automaticSilentRenew: false,
         userStore: new WebStorageStateStore({ store: window.sessionStorage }),
         stateStore: new WebStorageStateStore({ store: stateStorage(), prefix: STATE_PREFIX }),
+        // eine abgebrochene Anmeldung (anderer Tab, zurück) gilt nach 15 Minuten nicht mehr als begonnen
+        staleStateAgeInSeconds: 15 * 60,
       });
+      // ... und ihr Zustand bleibt nicht für immer liegen
+      void um.clearStaleState().catch(() => {});
+      return um;
     })
     .catch((e) => {
       // nicht für immer: der nächste Aufruf versucht es wieder (z.B. nach einem Netzfehler)

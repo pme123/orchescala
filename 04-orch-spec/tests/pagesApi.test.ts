@@ -98,3 +98,10 @@ test('the public paths - as the gateway serves them (PublicEndpoints: /public/wo
     ['/public/process/acme%20shop/async', undefined],
   ]);
 });
+
+test('no answer - a 504 instead of busy forever', async () => {
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    throw new DOMException(String(init?.signal ? 'aborted' : ''), 'TimeoutError');
+  }) as typeof fetch;
+  await assert.rejects(postWith(tokens('new').source, '/public/worker/x', {}, true), (e: ApiError) => e instanceof ApiError && e.status === 504);
+});
