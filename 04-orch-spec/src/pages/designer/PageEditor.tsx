@@ -9,6 +9,7 @@ import { usePermissions } from '../../auth';
 import { useStore } from '../../store';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
+import { themeStyle } from '../runtime/theme';
 import type { Gateway } from '../runtime/gatewayTypes';
 import type { Component, Page } from '../runtime/spec';
 import { BlockActions, type BlockOps } from './BlockActions';
@@ -377,8 +378,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             <IconButton isDark={isDark} title="Vorschau neu starten" onClick={() => setRun((r) => r + 1)}><RotateCcw size={11} /></IconButton>
           </div>
           {/* ein Klick neben die Bausteine wählt die Seite - ihre Eigenschaften: Zustand, Laden, Zugang */}
-          <div className={`flex-1 overflow-y-auto cursor-default ${isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]'} ${
+          <div className={`flex-1 overflow-y-auto cursor-default ${isDark ? 'bg-[#0e0f11]' : 'bg-[var(--orch-bg,#f5f4f0)]'} ${
             selected === null ? 'outline-2 -outline-offset-4 outline-sky-500/50' : ''}`}
+            style={themeStyle(pagesApp?.data.theme, isDark)}
             onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-designer-block]')) setSelected(null); }}>
             <PageView key={`${run}:${query}:${JSON.stringify(page)}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}

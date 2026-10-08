@@ -1,6 +1,7 @@
 // Die Form einer Seite und der Einstellungen der App - eine Datei von Hand (oder eine ältere) wird
 // beim Lesen geprüft: der Renderer verlässt sich auf body als Liste und auf bekannte Bausteine.
 import type { Component } from './spec';
+import { themeProblem } from './theme';
 
 const TYPES: ReadonlySet<Component['type']> = new Set([
   'heading', 'text', 'choice', 'pick', 'fields', 'summary', 'button', 'section', 'loading',
@@ -34,7 +35,7 @@ export function appProblem(raw: unknown): string | null {
   for (const k of ['title', 'subtitle', 'home'] as const)
     if (raw[k] !== undefined && typeof raw[k] !== 'string') return `«${k}» ist kein Text`;
   if (raw.labels !== undefined && !(isObject(raw.labels) && Object.values(raw.labels).every(isObject))) return '«labels» ist nicht { name: { wert: text } }';
-  return null;
+  return themeProblem(raw.theme);
 }
 
 function bodyProblem(body: unknown, at: string): string | null {

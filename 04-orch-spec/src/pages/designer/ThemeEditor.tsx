@@ -1,0 +1,130 @@
+// Der Auftritt der App (app.json `theme`): importieren - z.B. was der Skill orch-theme-from-site aus der
+// Website der Bank gemacht hat - und von Hand anpassen. Mit einer kleinen Probe, wie es aussieht.
+import { FileUp, ImagePlus, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { cls } from '../../ui';
+import type { Theme } from '../runtime/spec';
+import { FONTS, parseThemeFile, themeStyle } from '../runtime/theme';
+import { cls as pageCls } from '../runtime/ui';
+import { SelectField, TextField } from './fields';
+
+const MAX_LOGO = 200 * 1024;
+
+function ColorField({ isDark, label, value, onChange, disabled }: {
+  isDark: boolean; label: string; value: string | undefined; onChange: (v: string | undefined) => void; disabled?: boolean;
+}) {
+  const c = cls(isDark);
+  return (
+    <label className="block space-y-1">
+      <span className={`text-[10px] ${c.muted2}`}>{label}</span>
+      <span className="flex items-center gap-1.5">
+        <input type="color" disabled={disabled} value={/^#[0-9a-f]{6}$/i.test(value ?? '') ? value : '#000000'}
+          onChange={(e) => onChange(e.target.value)} className="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0" />
+        <input value={value ?? ''} disabled={disabled} placeholder="Vorgabe" onChange={(e) => onChange(e.target.value || undefined)}
+          className={`w-full font-mono text-[11px] px-2 py-1 rounded border outline-none ${c.input}`} />
+      </span>
+    </label>
+  );
+}
+
+export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
+  isDark: boolean; theme: Theme | undefined; onChange: (t: Theme | undefined) => void; canEdit: boolean;
+}) {
+  const c = cls(isDark);
+  const t = theme ?? {};
+  const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const logoRef = useRef<HTMLInputElement>(null);
+  const set = (patch: Partial<Theme>) => {
+    const next = Object.fromEntries(Object.entries({ ...t, ...patch }).filter(([, v]) => v !== undefined && v !== '')) as Theme;
+    onChange(Object.keys(next).length ? next : undefined);
+  };
+  const preset = t.font && t.font in FONTS ? t.font : t.font ? 'custom' : '';
+
+  const importFile = async (file: File) => {
+    const r = parseThemeFile(await file.text());
+    if ('error' in r) return setNote({ tone: 'error', text: r.error });
+    onChange(r.theme);
+    setNote({ tone: 'ok', text: `Übernommen${r.name ? `: ${r.name}` : ''}${r.source ? ` (aus ${r.source})` : ''} - noch speichern.` });
+  };
+  const logoFile = (file: File) => {
+    if (file.size > MAX_LOGO) return setNote({ tone: 'error', text: 'Das Logo ist grösser als 200 KB.' });
+    const reader = new FileReader();
+    reader.onload = () => set({ logo: String(reader.result) });
+    reader.readAsDataURL(file);
+  };
+
+  // die Probe: dieselben Klassen wie der Renderer, mit den Variablen des Themes
+  const p = pageCls(false);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        {canEdit && (
+          <>
+            <button type="button" onClick={() => importRef.current?.click()}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <FileUp size={12} /> Theme importieren (JSON)
+            </button>
+            <input ref={importRef} type="file" accept="application/json,.json" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f); }} />
+            {theme && (
+              <button type="button" onClick={() => { onChange(undefined); setNote({ tone: 'ok', text: 'Zurück zum z9nai-Stil - noch speichern.' }); }}
+                className={`flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+                <X size={12} /> Vorgabe
+              </button>
+            )}
+          </>
+        )}
+        {note && <span className={`text-[10px] ${note.tone === 'error' ? 'text-rose-500' : 'text-emerald-600'}`}>{note.text}</span>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+        <ColorField isDark={isDark} label="Primärfarbe - Buttons, Auswahl" value={t.primary} disabled={!canEdit} onChange={(primary) => set({ primary })} />
+        <ColorField isDark={isDark} label="Text auf der Primärfarbe" value={t.onPrimary} disabled={!canEdit} onChange={(onPrimary) => set({ onPrimary })} />
+        <ColorField isDark={isDark} label="Hintergrund" value={t.background} disabled={!canEdit} onChange={(background) => set({ background })} />
+        <ColorField isDark={isDark} label="Flächen" value={t.surface} disabled={!canEdit} onChange={(surface) => set({ surface })} />
+        <ColorField isDark={isDark} label="Text" value={t.text} disabled={!canEdit} onChange={(text) => set({ text })} />
+        <SelectField isDark={isDark} label="Ecken" value={t.radius ?? ''} onChange={(radius) => set({ radius: (radius || undefined) as Theme['radius'] })}
+          options={[{ value: '', label: 'Vorgabe' }, { value: 'none', label: 'eckig' }, { value: 'sm', label: 'klein' }, { value: 'md', label: 'mittel' }, { value: 'lg', label: 'gross' }, { value: 'xl', label: 'sehr rund' }]} />
+        <SelectField isDark={isDark} label="Schrift" value={preset}
+          onChange={(v) => set({ font: v === 'custom' ? (t.font && !(t.font in FONTS) ? t.font : 'Arial, sans-serif') : v || undefined })}
+          options={[{ value: '', label: 'Vorgabe (mono)' }, { value: 'sans', label: 'serifenlos' }, { value: 'serif', label: 'mit Serifen' }, { value: 'mono', label: 'mono' }, { value: 'custom', label: 'eigener Stapel …' }]} />
+        <SelectField isDark={isDark} label="Modus" value={t.mode ?? ''} onChange={(mode) => set({ mode: (mode || undefined) as Theme['mode'] })}
+          options={[{ value: '', label: 'Wahl des Benutzers' }, { value: 'light', label: 'hell' }, { value: 'dark', label: 'dunkel' }]} />
+      </div>
+      {preset === 'custom' && (
+        <TextField isDark={isDark} label="Schrift-Stapel" hint="Systemschriften - in der Bankenzone gibt es keine Webfonts von aussen" mono
+          value={t.font} onChange={(font) => set({ font: font || undefined })} />
+      )}
+
+      <div className="flex items-center gap-3">
+        <span className={`text-[10px] ${c.muted2}`}>Logo</span>
+        {t.logo ? <img src={t.logo} alt="" className="h-8 max-w-40 object-contain rounded border border-black/10 bg-white p-0.5" />
+          : <span className={`text-[10px] ${c.muted}`}>keins (das Orchescala-Symbol)</span>}
+        {canEdit && (
+          <>
+            <button type="button" onClick={() => logoRef.current?.click()} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
+              <ImagePlus size={11} /> wählen
+            </button>
+            {t.logo && <button type="button" onClick={() => set({ logo: undefined })} className={`text-[10px] ${c.muted2}`}>entfernen</button>}
+            <input ref={logoRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) logoFile(f); }} />
+          </>
+        )}
+      </div>
+
+      <div className={`rounded border p-3 space-y-2 ${p.bg} ${p.text}`} style={themeStyle(theme, false)}>
+        <div className="flex items-center gap-2">
+          {t.logo && <img src={t.logo} alt="" className="h-5 max-w-24 object-contain" />}
+          <span className="text-sm font-bold">So sieht es aus</span>
+        </div>
+        <div className={`rounded-lg border p-2 text-xs ${p.border} ${p.panel}`}>Eine Fläche mit Text - und eine Auswahl:</div>
+        <div className="flex gap-2">
+          <span className={`rounded-lg border px-3 py-1.5 text-xs ${p.selected}`}>gewählt</span>
+          <span className={`rounded-lg border px-3 py-1.5 text-xs ${p.border2}`}>frei</span>
+          <span className={`rounded-lg px-4 py-1.5 text-xs font-bold ${p.btnPrimary}`}>Termin anfragen</span>
+        </div>
+      </div>
+    </div>
+  );
+}

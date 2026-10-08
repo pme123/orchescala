@@ -23,11 +23,14 @@
 // in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
 // eine Frage, die sich hier stellt — steht das drin?
 import { useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Puzzle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink } from '../auth';
 import type { CatalogFile } from '../catalogImport';
 import BrandingForm from './BrandingForm';
+import { ThemeEditor } from '../pages/designer/ThemeEditor';
+import type { Theme } from '../pages/runtime/spec';
+import { usePermissions } from '../auth';
 import CatalogBuild from './CatalogBuild';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
@@ -119,6 +122,13 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
         hint="Name und Logo stehen links in der Kopfzeile."
         more="Ohne Namen heisst die App dort schlicht «Orch Spec». Das Logo liegt als Data-URI in der model.json — eine zweite Datei im geteilten Ordner wäre umständlicher, eine Adresse von aussen gäbe es in der Bankenzone nicht. Deshalb muss es klein bleiben (bis 200 KB).">
         <BrandingForm model={model} isDark={isDark} onSave={saveModel} />
+      </AdminSection>
+
+      <AdminSection id="app-theme" icon={<Palette size={13} />} title="Theme der App" isDark={isDark}
+        state={<AppThemeState isDark={isDark} />}
+        hint="Farben, Schrift, Ecken und Logo der Seiten - z.B. aus der Website der Bank importiert."
+        more="Gilt für die Seiten der App (pages/app.json, theme) - in der App und in der Vorschau des Designers. Eine Theme-Datei macht der Skill orch-theme-from-site aus der Website der Bank; importieren, prüfen, speichern. Das Logo liegt als data:-URI im Theme (bis 200 KB), die Schrift ist ein Stapel von Systemschriften - in der Bankenzone gibt es keine Adresse von aussen.">
+        <AppThemeForm isDark={isDark} />
       </AdminSection>
 
       <AdminSection id="catalog" icon={<BookOpen size={13} />} title="Katalog" isDark={isDark}
@@ -386,5 +396,40 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl, state }: {
         </SaveRow>
       </div>
     </AdminSection>
+  );
+}
+
+/** Der Zustand des Themes der App - für den Kopf des Abschnitts. */
+function AppThemeState({ isDark }: { isDark: boolean }) {
+  const { pagesApp } = useStore();
+  const t = pagesApp?.data.theme;
+  return <StateChip tone={t ? 'ok' : 'off'} label={t ? 'eigenes Theme' : 'z9nai-Stil'} isDark={isDark} />;
+}
+
+/** Das Theme der App bearbeiten und speichern - in pages/app.json, neben Titel, Startseite und Texten. */
+function AppThemeForm({ isDark }: { isDark: boolean }) {
+  const { pagesApp, savePagesApp } = useStore();
+  const { canEdit } = usePermissions();
+  const c = cls(isDark);
+  const [draft, setDraft] = useState<Theme | undefined>(pagesApp?.data.theme);
+  const [msg, setMsg] = useState<string | null>(null);
+  const changed = JSON.stringify(draft ?? null) !== JSON.stringify(pagesApp?.data.theme ?? null);
+  return (
+    <div className="space-y-3">
+      <ThemeEditor isDark={isDark} theme={draft} onChange={setDraft} canEdit={canEdit} />
+      {canEdit && (
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={!changed}
+            onClick={async () => {
+              const r = await savePagesApp({ ...(pagesApp?.data ?? {}), theme: draft }, pagesApp?.version ?? null);
+              setMsg(r.status === 'saved' ? 'gespeichert' : r.status === 'conflict' ? 'pages/app.json wurde inzwischen geändert - neu laden.' : r.message);
+            }}
+            className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+            Speichern
+          </button>
+          {msg && <span className={`text-[10px] ${msg === 'gespeichert' ? 'text-emerald-600' : 'text-rose-500'}`}>{msg}</span>}
+        </div>
+      )}
+    </div>
   );
 }

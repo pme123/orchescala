@@ -6,9 +6,14 @@
 body {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-  background: #f5f4f0;
+  background: var(--orch-bg, #f5f4f0);
   color: #1a1a1a;
 }
+
+/* die Ecken aus dem Theme der App (theme.ts) - nur, wo es sie setzt */
+[style*="--orch-radius"] .rounded,
+[style*="--orch-radius"] .rounded-lg,
+[style*="--orch-radius"] .rounded-xl { border-radius: var(--orch-radius); }
 
 .dark body {
   background: #0e0f11;

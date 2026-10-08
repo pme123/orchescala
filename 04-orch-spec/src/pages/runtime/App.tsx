@@ -5,6 +5,7 @@ import { gateway } from './api';
 import { completeLogin, currentUser, login, logout, rolesOf } from './auth';
 import PageView from './PageView';
 import type { Page, Pages } from './spec';
+import { themeStyle } from './theme';
 import { cls, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
@@ -30,7 +31,8 @@ function pagePath(): string {
 type Loaded = { pages: Pages; page?: Page; user: User | null };
 
 export default function App() {
-  const { isDark, toggleTheme } = useTheme();
+  const [preferred, setPreferred] = useState<'light' | 'dark' | undefined>();
+  const { isDark, toggleTheme } = useTheme(preferred);
   const c = cls(isDark);
   const embedded = new URLSearchParams(window.location.search).has('embed');
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -54,6 +56,7 @@ export default function App() {
       // ein IdP nur für Seiten mit Login - eine öffentliche Seite kommt ohne aus
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
       if (!current) return;
+      setPreferred(pages.app.theme?.mode);
       setLoaded({ pages, page, user });
       document.title = [page?.title, pages.app.title].filter(Boolean).join(' · ');
     })().catch((e) => current && setFailure(e instanceof Error ? e.message : String(e)));
@@ -88,10 +91,12 @@ export default function App() {
     );
 
   return (
-    <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`}>
+    <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`} style={themeStyle(app?.theme, isDark)}>
       {!embedded && (
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
-          <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />
+          {app?.theme?.logo
+            ? <img src={app.theme.logo} alt="" className="h-7 max-w-40 object-contain" />
+            : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
           <span className={`text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
           {app?.subtitle && <span className={`text-[10px] ${c.muted}`}>{app.subtitle}</span>}
           <div className="ml-auto flex items-center gap-3">
