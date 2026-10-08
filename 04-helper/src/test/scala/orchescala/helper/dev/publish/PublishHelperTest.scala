@@ -180,6 +180,9 @@ class PublishHelperRetryTest extends FunSuite:
     os.proc("git", "commit", "-q", "-m", "doc").call(cwd = dir)
     os.write.over(dir / "CHANGELOG.md", "# Changelog\n## 1.1.0")
     os.write(dir / "notes.txt", "not tracked")
+    PublishHelper.verifyCleanWorkingTree(dir)
+    // as publish does: armed with the clean tree, then the release rewrites the files
+    val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir)
     os.write.over(dir / "docs" / "Prozess Ü (1).md", "# v2 generated")
     PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
     os.proc("git", "add", "ProjectDef.scala").call(cwd = dir) // staged or not
@@ -191,7 +194,7 @@ class PublishHelperRetryTest extends FunSuite:
       uploadDocs = () => (),
       git = () => (),
       exec = _ => throw IllegalStateException("sbt failed"),
-      onFailure = PublishHelper.restoreForRetry(isSnapshot = false, dir)
+      onFailure = restore
     )
     intercept[IllegalStateException](rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true)))
 
@@ -200,6 +203,35 @@ class PublishHelperRetryTest extends FunSuite:
     assertEquals(os.read(dir / "docs" / "Prozess Ü (1).md"), "# v1")
     assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
     assert(os.exists(dir / "notes.txt"))
+
+  test("an interrupt or a fatal error goes through without a restore"):
+    def interrupted(error: Throwable): Seq[String] =
+      val log  = collection.mutable.ListBuffer.empty[String]
+      val runs = PublishHelper.sbtRuns(None)
+      val rel  = PublishHelper.ReleaseRun(
+        runs,
+        uploadDocs = () => (),
+        git = () => (),
+        exec = _ => throw error,
+        onFailure = step => log += s"failed $step"
+      )
+      // munit's intercept lets a fatal error through (and interrupts the thread) - caught by hand
+      try rel.run(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = false))
+      catch case e: Throwable => assertEquals(e, error)
+      Thread.interrupted() // clears the flag, should one have been set
+      log.toSeq
+    assertEquals(interrupted(InterruptedException("Ctrl-C")), Seq.empty)
+    assertEquals(interrupted(OutOfMemoryError("sbt")), Seq.empty)
+    assertEquals(interrupted(IllegalStateException("sbt failed")), Seq("failed Build"))
+
+  test("with changes of yours in the tree the restore is not armed - whatever the caller checked"):
+    val dir = repo()
+    os.write.over(dir / "ProjectDef.scala", "version = \"1.0.0\" // my unfinished work")
+    val restore = PublishHelper.restoreForRetry(isSnapshot = false, dir) // armed with a dirty tree
+    PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
+    restore(PublishHelper.ReleaseStep.Build)
+    // nothing discarded - neither the rewritten version nor the unfinished work
+    assertEquals(os.read(dir / "ProjectDef.scala").trim, "version = \"1.1.0\" // my unfinished work")
 
   test("a failing restore does not hide the failure of the release"):
     val runs = PublishHelper.sbtRuns(None)
@@ -295,7 +327,7 @@ class PublishHelperVersionFreeTest extends FunSuite:
             exchange.getResponseHeaders.add("Location", "/repo/missing")
             302
           else if !authorized(exchange) then 401
-          else if path.contains("taken") then 200
+          else if path.contains("taken") || path.matches(".*/api/v4/projects/[^/]+") then 200 // a GitLab project
           else 404
         exchange.sendResponseHeaders(status, -1)
         exchange.close()
@@ -314,6 +346,44 @@ class PublishHelperVersionFreeTest extends FunSuite:
       assertEquals(PublishHelper.curlStatus(Seq.empty)(s"$base/repo/taken"), 401)
     // nobody listens there - `000` becomes 0
     assertEquals(PublishHelper.curlStatus(Seq.empty)("http://127.0.0.1:1/repo"), 0)
+
+  test("without curl: a clear message, no stack trace of a missing program"):
+    val error = intercept[IllegalStateException]:
+      PublishHelper.curlStatus(Seq.empty, curl = "/no/such/curl")("http://127.0.0.1:1/repo")
+    assert(error.getMessage.contains("`/no/such/curl` is needed"), error.getMessage)
+
+  test("a GitLab project registry: the project tells whether the token reads it"):
+    val registry = "https://gitlab.example.com/api/v4/projects/42/packages/maven"
+    assertEquals(PublishHelper.gitlabProjectUrl(registry), Some("https://gitlab.example.com/api/v4/projects/42"))
+    assertEquals(PublishHelper.gitlabProjectUrl("https://gitlab.example.com/api/v4/groups/7/-/packages/maven"), None)
+    PublishHelper.verifyGitlabCredentials(registry, _ => 200)
+    val refused = intercept[IllegalStateException](PublishHelper.verifyGitlabCredentials(registry, _ => 404))
+    assert(refused.getMessage.contains("GitLab refuses the credentials (404)"), refused.getMessage)
+    // a group registry: a warning only
+    PublishHelper.verifyGitlabCredentials("https://gitlab.example.com/api/v4/groups/7/-/packages/maven", _ => 404)
+
+  test("verifyVersionFree for a GitLab DevConfig - the project first, then the poms"):
+    import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
+    import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig}
+    import orchescala.helper.util.{DevConfig, SbtConfig}
+    withRepo(e => Option(e.getRequestHeaders.getFirst("Private-Token")).contains("secret")): (base, requests) =>
+      val devConfig = DevConfig(
+        ApiProjectConfig("democompany-customer", VersionConfig("1.2.3"), Seq.empty, Seq.empty, Seq.empty, Seq(ModuleType.domain))
+      ).withSbtConfig(SbtConfig(reposConfig = ReposConfig(
+        credentials = Seq(RepoCredentials.PrivateToken("gitlab", "127.0.0.1", "GITLAB_TOKEN")),
+        repos = Seq(RepoConfig.Gitlab("release", s"$base/api/v4/projects/42/packages/maven"))
+      )))
+      PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("GITLAB_TOKEN" -> "secret").get)
+      assertEquals(
+        requests(),
+        Seq(
+          "/api/v4/projects/42",
+          "/api/v4/projects/42/packages/maven/democompany/democompany-customer-domain/1.2.3/democompany-customer-domain-1.2.3.pom"
+        )
+      )
+      val wrong = intercept[IllegalStateException]:
+        PublishHelper.verifyVersionFree("1.2.3", devConfig, "", Map("GITLAB_TOKEN" -> "wrong").get)
+      assert(wrong.getMessage.contains("GitLab refuses the credentials"), wrong.getMessage)
 
   /** The whole check for a project: the Artifactory repo of its DevConfig, the user/password
     * from the environment (as basic auth), the poms of its modules (the company as groupId,

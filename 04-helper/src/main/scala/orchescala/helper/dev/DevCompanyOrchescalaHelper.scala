@@ -89,13 +89,15 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
 
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")
-    if !newVersion.contains("-") then
+    val isSnapshot = newVersion.contains("-")
+    if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(newVersion)
+    // armed now, with the clean tree - before the version is rewritten
+    val restore    = restoreForRetry(isSnapshot)
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)
-    val isSnapshot = newVersion.contains("-")
     if !isSnapshot then
       verifyVersionFree(newVersion, devConfig, artifactSuffix(workDir / "project" / "Settings.scala"))
     replaceVersion(newVersion, projectFile)
@@ -111,7 +113,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       companyRuns(hasGateway),
       uploadDocs = () => (),
       git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
-      onFailure = restoreForRetry(isSnapshot)
+      onFailure = restore
     ).run(releaseSteps(isSnapshot, hasDocs = false))
   end publish
 

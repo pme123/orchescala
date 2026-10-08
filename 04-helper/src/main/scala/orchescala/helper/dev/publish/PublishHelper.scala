@@ -1,6 +1,7 @@
 package orchescala.helper.dev.publish
 
 import orchescala.api.ApiConfig
+import orchescala.engine.config.RepoConfig
 import orchescala.helper.util.{DevConfig, Helpers, PublishConfig}
 
 case class PublishHelper()(using
@@ -16,6 +17,8 @@ case class PublishHelper()(using
     if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(version)
+    // armed now, with the clean tree - before the versions are rewritten
+    val restore    = restoreForRetry(isSnapshot)
     verify(version)
     if !isSnapshot then verifyVersionFree(version)
     pushDevelop()
@@ -30,7 +33,7 @@ case class PublishHelper()(using
       projectRuns(hasWorkerApp = os.exists(workerAppFile)),
       uploadDocs = () => publishToWebserver(),
       git = () => git(version, replaceVersion),
-      onFailure = restoreForRetry(isSnapshot)
+      onFailure = restore
     ).run(releaseSteps(isSnapshot, hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
 
@@ -103,9 +106,21 @@ object PublishHelper extends Helpers:
 
   /** [[restoreWorkingTree]] when a release fails before its git step - after it, the version is
     * uploaded and committed, nothing to retry. A snapshot keeps its changes as before.
+    *
+    * The restore discards changes - so it is armed only when the tree is clean NOW (as
+    * [[verifyCleanWorkingTree]] guarantees for a release): with changes of yours in the tree,
+    * nothing is restored, whatever the caller checked.
     */
   def restoreForRetry(isSnapshot: Boolean, repo: os.Path = workDir): ReleaseStep => Unit =
-    step => if !isSnapshot && step != ReleaseStep.Git then restoreWorkingTree(repo)
+    val changesBefore = if isSnapshot then Seq.empty else changedTrackedFiles(repo)
+    step =>
+      if !isSnapshot && step != ReleaseStep.Git then
+        if changesBefore.isEmpty then restoreWorkingTree(repo)
+        else
+          println(
+            s"Not restoring the working tree - it had changes before the release:\n - ${changesBefore.mkString("\n - ")}"
+          )
+  end restoreForRetry
 
   private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
 
@@ -249,6 +264,10 @@ object PublishHelper extends Helpers:
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
       val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalArgumentException(msg), identity)
+      val status = curlStatus(config)
+      repo match
+        case gitlab: RepoConfig.Gitlab => verifyGitlabCredentials(gitlab.repoUrl, status)
+        case _                         => ()
       val urls   = releaseArtifactUrls(
         repo.repoUrl,
         devConfig.companyName,
@@ -256,19 +275,54 @@ object PublishHelper extends Helpers:
         version
       )
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyVersionFree(version, urls, curlStatus(config))
+      verifyVersionFree(version, urls, status)
   end verifyVersionFree
+
+  /** The project of a GitLab maven registry (`.../api/v4/projects/<id>/packages/maven`) - the
+    * endpoint that tells whether the token may read it. None for another registry (a group's).
+    */
+  def gitlabProjectUrl(repoUrl: String): Option[String] =
+    val Project = """^(.*/api/v4/projects/[^/]+)/packages/maven/?$""".r
+    repoUrl match
+      case Project(project) => Some(project)
+      case _                => None
+
+  /** GitLab answers 404 for a package the token may not read - so a wrong token looked like a
+    * free version. The project itself answers 200 with a token that reads it - checked first.
+    * A registry that is not a project's gets a warning only.
+    */
+  def verifyGitlabCredentials(repoUrl: String, status: String => Int): Unit =
+    gitlabProjectUrl(repoUrl) match
+      case Some(project) =>
+        val code = status(project)
+        println(s"  $code $project")
+        if code != 200 then
+          throw IllegalStateException(
+            s"GitLab refuses the credentials ($code): $project - check the token of the repository."
+          )
+      case None          =>
+        println(
+          s"WARNING: $repoUrl is no project registry - the credentials are not checked, a wrong token fails at the upload."
+        )
+  end verifyGitlabCredentials
 
   /** The HTTP status of a HEAD request - 0 if the server is not reachable (or not within 30
     * seconds). No redirect is followed: curl keeps a custom header (the GitLab token) on a
     * redirect to another host. `config` are the lines of a curl config (the credentials).
+    * Fails with a clear message without `curl`.
     */
-  def curlStatus(config: Seq[String])(url: String): Int =
-    os.proc(
-      "curl", "--silent", "--head", "--connect-timeout", "10", "--max-time", "30",
-      "--output", "/dev/null", "--write-out", "%{http_code}", "--config", "-", url
-    ).call(check = false, stdin = config.mkString("", "\n", "\n"))
-      .out.text().trim.toIntOption.getOrElse(0)
+  def curlStatus(config: Seq[String], curl: String = "curl")(url: String): Int =
+    val result =
+      try
+        os.proc(
+          curl, "--silent", "--head", "--connect-timeout", "10", "--max-time", "30",
+          "--output", "/dev/null", "--write-out", "%{http_code}", "--config", "-", url
+        ).call(check = false, stdin = config.mkString("", "\n", "\n"))
+      catch
+        case e: java.io.IOException =>
+          throw IllegalStateException(s"`$curl` is needed to check the repository - not found: ${e.getMessage}", e)
+    result.out.text().trim.toIntOption.getOrElse(0)
+  end curlStatus
 
   /** The sbt runs of a project - the docs (`api/run`) come with the build. */
   def projectRuns(hasWorkerApp: Boolean): SbtRuns =
@@ -319,12 +373,13 @@ object PublishHelper extends Helpers:
       steps.foreach: step =>
         try run(step)
         catch
-          case e: Throwable =>
+          // an interrupt (Ctrl-C) or a fatal error goes through without a restore
+          case scala.util.control.NonFatal(e) =>
             if step == ReleaseStep.Upload then
               println(
-                "The upload failed: the docker image (if any) is pushed already - the next try overwrites " +
-                  "its tag; the modules `publish` uploaded before it failed are in the repository - remove " +
-                  "the version there before the next try."
+                "The upload failed: the docker image (if any) is pushed already, and the modules `publish` " +
+                  "uploaded before it failed are in the repository. The next try fails the check of the version " +
+                  "until you remove the version there - then it overwrites the image's tag."
               )
             // the failure of the release stays the error - a failing restore is added to it
             try onFailure(step)

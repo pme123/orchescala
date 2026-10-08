@@ -30,6 +30,14 @@ class ReposConfigTest extends FunSuite:
     val env   = Map("REPO_USER" -> "me", "REPO_PWD" -> """p"w\d""")
     assertEquals(repos.releaseRepoCurlConfig(env.get), Right(Seq("""user = "me:p\"w\\d"""")))
 
+  test("a line break in a secret is refused - it would start another curl option"):
+    val repos = ReposConfig(repos = Seq(artifactory))
+    val env   = Map("REPO_USER" -> "me", "REPO_PWD" -> "secret\n")
+    assertEquals(
+      repos.releaseRepoCurlConfig(env.get),
+      Left("System Environment Variable REPO_USER/REPO_PWD contains a line break.")
+    )
+
   test("a GitLab repo authenticates with the token - the job token on a pipeline"):
     val repos = ReposConfig(
       credentials = Seq(RepoCredentials.PrivateToken("gitlab", "gitlab.example.com", "GITLAB_TOKEN")),

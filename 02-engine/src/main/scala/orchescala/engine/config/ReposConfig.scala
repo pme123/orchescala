@@ -32,22 +32,25 @@ case class ReposConfig(
     * pipeline). Left with the missing environment variables.
     */
   def releaseRepoCurlConfig(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
-    def line(option: String, value: String) =
-      s"""$option = "${value.replace("\\", "\\\\").replace("\"", "\\\"")}""""
+    // a line break in a secret (read from a file) would start another config line - an option
+    def line(option: String, value: String, envName: String): Either[String, Seq[String]] =
+      if value.exists(c => c == '\n' || c == '\r') then
+        Left(s"System Environment Variable $envName contains a line break.")
+      else Right(Seq(s"""$option = "${value.replace("\\", "\\\\").replace("\"", "\\\"")}""""))
     def userPassword(usernameEnv: String, passwordEnv: String) =
       (for
         user <- env(usernameEnv)
         pwd  <- env(passwordEnv)
-      yield Seq(line("user", s"$user:$pwd")))
-        .toRight(s"System Environment Variables $usernameEnv and/ or $passwordEnv are not set.")
+      yield line("user", s"$user:$pwd", s"$usernameEnv/$passwordEnv"))
+        .getOrElse(Left(s"System Environment Variables $usernameEnv and/ or $passwordEnv are not set."))
     releaseRepo match
       case Some(a: RepoConfig.Artifactory) => userPassword(a.usernameEnv, a.passwordEnv)
       case _                               =>
         credentials.headOption match
           case Some(t: RepoCredentials.PrivateToken) =>
-            env("CI_JOB_TOKEN").map(token => Seq(line("header", s"Job-Token: $token")))
-              .orElse(env(t.tokenEnv).map(token => Seq(line("header", s"Private-Token: $token"))))
-              .toRight(s"System Environment Variable ${t.tokenEnv} is not set.")
+            env("CI_JOB_TOKEN").map(token => line("header", s"Job-Token: $token", "CI_JOB_TOKEN"))
+              .orElse(env(t.tokenEnv).map(token => line("header", s"Private-Token: $token", t.tokenEnv)))
+              .getOrElse(Left(s"System Environment Variable ${t.tokenEnv} is not set."))
           case Some(u: RepoCredentials.UserPassword) => userPassword(u.usernameEnv, u.passwordEnv)
           case None                                  => Right(Seq.empty)
   end releaseRepoCurlConfig
