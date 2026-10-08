@@ -150,7 +150,30 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     if (value) return `${chain}.${value}`;
     return use === 'scalar' && type !== 'list' && type !== 'context' ? `${chain}.value()` : chain;
   };
-  const val = (n: SyntaxNode, use: Use): string => ending(n, tr(n), use);
+  /**
+   * Was ein Spin-Pfad prüfen muss, bevor er liest: je optionaler Schritt (laut
+   * Datenmodell) `hasProp` und `isNull` — `prop` wirft sonst «Unable to find …»;
+   * eine optionale Variable am Anfang mit `!= null`. Leer, wenn nichts fehlen darf.
+   */
+  const guards = (n: SyntaxNode): string[] => {
+    if (n.name === 'VariableName') {
+      const name = text(n);
+      return varOf(n)?.optional || opts.optional?.has(name) ? [`${unsetSafe(n)} != null`] : [];
+    }
+    if (n.name !== 'PathExpression' || !spin(n)) return [];
+    const [base, , prop] = children(n).filter(k => !k.type.isError);
+    if (!base || !prop || (base.name !== 'VariableName' && base.name !== 'PathExpression')) return [];
+    const before = guards(base);
+    if (!varOf(n)?.optional) return before;
+    const b = tr(base), p = JSON.stringify(text(prop));
+    return [...before, `${b}.hasProp(${p})`, `!${b}.prop(${p}).isNull()`];
+  };
+  const val = (n: SyntaxNode, use: Use): string => {
+    const v = ending(n, tr(n), use);
+    if ((use !== 'value' && use !== 'scalar') || n.name !== 'PathExpression' || !spin(n)) return v;
+    const g = guards(n);
+    return g.length ? `(${g.join(' && ')} ? ${v} : null)` : v;
+  };
   /** ist der Wert gesetzt? Bei einem Spin-Pfad jeder Schritt — `prop` wirft, wenn das Feld fehlt */
   const present = (n: SyntaxNode): string => {
     if (spin(n)) {
