@@ -56,6 +56,12 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         onClose={() => setCreating(false)} />}
 
       {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
+      {/* z.B. nach dem Löschen der Startseite - die App fände für / keine Seite */}
+      {pagesApp?.data.home && !pages.some((p) => p.data.path === pagesApp.data.home) && (
+        <p className="mb-2 flex items-center gap-1.5 text-[11px] text-amber-600">
+          <AlertTriangle size={11} /> Die Startseite «/{pagesApp.data.home}» gibt es nicht (mehr) – unter «App» eine andere wählen.
+        </p>
+      )}
       {/* da, aber nicht lesbar: sonst sähe man sie nicht - und «Neu» mit demselben Namen scheiterte rätselhaft */}
       {pagesUnreadable.length > 0 && (
         <div className={`mb-3 rounded border p-2.5 space-y-1 ${isDark ? 'border-rose-500/30 bg-rose-500/10' : 'border-rose-300 bg-rose-50'}`}>
