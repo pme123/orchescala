@@ -8,7 +8,7 @@ import scala.util.control.NonFatal
   * (`<project>-v<version>`), as the projects are released one by one; a plain `v<version>` is taken
   * too.
   *
-  * Needs `git` and `tar` on the PATH (tar with `--strip-components` and `--no-same-owner`: GNU tar or
+  * Needs `git` and `tar` on the PATH (exportTo says so if tar is missing) (tar with `--strip-components` and `--no-same-owner`: GNU tar or
   * bsdtar; tested on Linux and macOS).
   *
   * @param prefix the project's folder in the repo - empty for its own clone
@@ -43,6 +43,15 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     if singleRepo then Seq(s"$project-v$version", s"$project-$version", s"v$version", version)
     else Seq(s"v$version", version)
 
+  /** The tags of `version` that count, of the `known` ones, in order. In one repo a plain `v<version>`
+    * counts only for a project that has no tag of its own at all (released before tags per project):
+    * once a project tags `<project>-v…`, a plain tag is some other project's release. And only a tag
+    * at which the project is there.
+    */
+  def releaseTags(version: String, known: Set[String]): Seq[String] =
+    val ownTags = singleRepo && known.exists(_.startsWith(s"$project-"))
+    tagCandidates(version).filter(t => known.contains(t) && (!ownTags || isOwnTag(t))).filter(existsAt)
+
   /** The tag of a release of `version` - local first, then after fetching the tags from origin (once
     * per repo, see fetchTagsOnce). In one repo a tag of the candidates may be another project's
     * release (`v1.0.0`) - only a tag at which the project is there counts.
@@ -54,11 +63,9 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * anyway - it refuses to clobber an existing tag without `--force`.)
     */
   private[docs] def resolveTag(version: String): Option[String] =
-    val candidates = tagCandidates(version)
-    def found(known: Set[String]) = candidates.filter(known.contains).find(existsAt)
-    found(tags()).orElse:
+    releaseTags(version, localTags()).headOption.orElse:
       ProjectRepo.fetchTagsOnce(repo)
-      found(tags())
+      releaseTags(version, localTags()).headOption
 
   /** Is the project there at `ref`? In one repo a release tag of another project may lack it.
     * (`<ref>:` is the root tree of an own clone - `<ref>:.` is no object name.)
@@ -72,6 +79,7 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
     */
   def exportTo(ref: String, dest: os.Path): Unit =
+    require(ProjectRepo.hasTar, "exporting a release needs tar on the PATH (GNU tar or bsdtar)")
     require(!repo.startsWith(dest), s"$dest holds the clone $repo - not emptied")
     require(existsAt(ref), s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
@@ -113,12 +121,17 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       os.remove.all(fresh)
       os.remove(errors, checkExists = false)
 
-  private def tags(): Set[String] =
+  private[site] def localTags(): Set[String] =
     os.proc("git", "-C", repo.toString, "tag", "-l").call(stdout = os.Pipe, check = false)
       .out.text().linesIterator.map(_.trim).toSet
 end ProjectRepo
 
 object ProjectRepo:
+
+  /** Is there a tar to unpack `git archive` with? */
+  private[site] lazy val hasTar: Boolean =
+    scala.util.Try(os.proc("tar", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0)
+      .getOrElse(false)
 
   /** How long an export (git archive into tar) may take. */
   private[site] val ExportTimeoutMs = 10 * 60 * 1000L

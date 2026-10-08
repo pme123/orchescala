@@ -121,7 +121,7 @@ object SiteAssembler:
     * another project's release).
     */
   def releaseRef(projectRepo: ProjectRepo, version: String): Option[String] =
-    projectRepo.tagCandidates(version).find(projectRepo.existsAt)
+    projectRepo.releaseTags(version, projectRepo.localTags()).headOption
 
   /** The API of a project at `ref` into `target`: OpenApi.yml (with the CURRENT API page from the jar,
     * not what the project shipped at that tag), the company gateway's Postman variant if there is
@@ -157,9 +157,13 @@ object SiteAssembler:
             gitShow(repo, at(f)).foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
       yml
 
-  /** The default branch of the clone (`origin/HEAD`), else `HEAD`. */
+  /** The default branch of the clone: `origin/HEAD`, else `origin/main` / `origin/master` (a clone made
+    * with `git init` + `remote add` has no origin/HEAD), else `HEAD`.
+    */
   def newestRef(projectRepo: ProjectRepo): String =
-    gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", "origin/HEAD^{commit}").fold("HEAD")(_ => "origin/HEAD")
+    Seq("origin/HEAD", "origin/main", "origin/master")
+      .find(r => gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", s"$r^{commit}").isDefined)
+      .getOrElse("HEAD")
 
   /** A git command's output - None if it fails (a probe like `cat-file -e`); a minute at most. */
   private def gitOut(repo: os.Path, args: String*): Option[Array[Byte]] =

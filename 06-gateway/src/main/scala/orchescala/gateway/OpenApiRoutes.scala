@@ -180,6 +180,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * and an error answer (502) are never remembered.
     */
   private[gateway] val DocsDownFor = 30.seconds
+  // per instance - the gateway makes one (GatewayServer); keyed by project: the docs URL depends on the
+  // project only (docsAppUrl), so a company has no worker app of its own
   private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
 
   /** Marks a docs answer that is not the worker app's (live) one. */
@@ -846,4 +848,3 @@ object OpenApiRoutes:
     def size: Int = synchronized(until.size)
   end DownList
 end OpenApiRoutes
-

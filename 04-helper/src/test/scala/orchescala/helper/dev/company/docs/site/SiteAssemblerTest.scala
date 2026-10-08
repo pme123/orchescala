@@ -136,5 +136,13 @@ class SiteAssemblerTest extends FunSuite:
     assertEquals(SiteAssembler.newestRef(ProjectRepo(clone, "", "orchescala-acme")), "origin/HEAD")
     // without a remote (a clone of its own making): HEAD
     assertEquals(SiteAssembler.newestRef(ProjectRepo(origin, "", "orchescala-acme")), "HEAD")
+    // a remote without origin/HEAD (git init + remote add + fetch): its main branch
+    val made   = os.temp.dir(prefix = "git-temp") / "made"
+    os.makeDir.all(made)
+    git(made, "init", "-q")
+    git(made, "remote", "add", "origin", origin.toString)
+    val branch = os.proc("git", "-C", origin.toString, "branch", "--show-current").call().out.text().trim
+    git(made, "fetch", "-q", "origin", s"$branch:refs/remotes/origin/main")
+    assertEquals(SiteAssembler.newestRef(ProjectRepo(made, "", "made")), "origin/main")
 
 end SiteAssemblerTest

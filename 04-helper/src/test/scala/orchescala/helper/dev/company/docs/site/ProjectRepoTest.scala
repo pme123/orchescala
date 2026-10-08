@@ -195,9 +195,15 @@ class ProjectRepoTest extends FunSuite:
     Console.withOut(java.io.ByteArrayOutputStream()):
       assertEquals(newOne.resolveTag("2.0.0"), None)
     assertEquals(SiteAssembler.releaseRef(newOne, "2.0.0"), None)
+    // acme-cards never had a tag of its own: a plain tag still counts (released before tags per project)
+    val cards   = ProjectRepo.locate(gitTemp, "acme-cards").get
+    assertEquals(cards.resolveTag("2.0.0"), Some("v2.0.0"))
+    assertEquals(SiteAssembler.releaseRef(cards, "2.0.0"), Some("v2.0.0"))
+    // acme-shop tags its own releases (acme-shop-v1.0.0): a plain v2.0.0 is another project's
     val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
-    assertEquals(shop.resolveTag("2.0.0"), Some("v2.0.0")) // acme-shop is there: a plain tag still counts
-    assertEquals(SiteAssembler.releaseRef(shop, "2.0.0"), Some("v2.0.0"))
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      assertEquals(shop.resolveTag("2.0.0"), None)
+    assertEquals(SiteAssembler.releaseRef(shop, "2.0.0"), None)
 
   test("fetchTagsOnce - a release tag moved on origin: named, the local one stays"):
     val origin  = singleRepoGitTemp() / "orchescala-acme"
@@ -213,13 +219,16 @@ class ProjectRepoTest extends FunSuite:
     val first = os.proc("git", "-C", origin.toString, "rev-list", "--max-parents=0", "HEAD").call().out.text().trim
     assertEquals(local, first)
 
-  test("exportRelease - a plain v<version> in one repo: taken, with a warning"):
+  test("exportRelease - a plain v<version> in one repo: for a project without tags of its own, with a warning"):
     val gitTemp = singleRepoGitTemp()
-    git(gitTemp / "orchescala-acme", "tag", "v3.0.0") // the company's tag - no acme-shop-v3.0.0
+    git(gitTemp / "orchescala-acme", "tag", "v3.0.0") // the company's tag
     val out     = java.io.ByteArrayOutputStream()
-    val tag     = Console.withOut(out)(ProjectRepo.exportRelease(gitTemp, "acme-shop", "3.0.0", gitTemp / "acme-shop"))
+    val tag     = Console.withOut(out)(ProjectRepo.exportRelease(gitTemp, "acme-cards", "3.0.0", gitTemp / "acme-cards"))
     assertEquals(tag, Some("v3.0.0"))
     assert(out.toString.contains("no tag of its own"), out.toString)
+    // acme-shop has tags of its own - no acme-shop-v3.0.0: the run stops instead of taking v3.0.0
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      intercept[Exception](ProjectRepo.exportRelease(gitTemp, "acme-shop", "3.0.0", gitTemp / "acme-shop"))
     val own     = java.io.ByteArrayOutputStream()
     Console.withOut(own)(ProjectRepo.exportRelease(gitTemp, "acme-shop", "1.0.0", gitTemp / "acme-shop"))
     assert(!own.toString.contains("no tag of its own"), own.toString)
