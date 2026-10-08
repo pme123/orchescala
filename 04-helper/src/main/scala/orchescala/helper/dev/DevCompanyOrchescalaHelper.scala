@@ -109,16 +109,11 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
       sbtOptions = Seq("-J-Xmx3G")
     )
     // the company project has no docs to upload - its site is `publishDocs`
-    releaseSteps(isSnapshot, hasDocs = false)
-      .foreach:
-        case ReleaseStep.Build  =>
-          println(s"SBT build: ${runs.build.mkString(" ")}")
-          os.proc(runs.build).callOnConsole()
-        case ReleaseStep.Upload =>
-          println(s"SBT publish: ${runs.publish.mkString(" ")}")
-          os.proc(runs.publish).callOnConsole()
-        case ReleaseStep.Git    => git(newVersion, newVers => replaceVersion(newVers, projectFile))
-        case ReleaseStep.UploadDocs => ()
+    ReleaseRun(
+      runs,
+      uploadDocs = () => (),
+      git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile))
+    ).run(releaseSteps(isSnapshot, hasDocs = false))
   end publish
 
 end DevCompanyOrchescalaHelper

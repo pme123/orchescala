@@ -89,7 +89,7 @@ class CompanyWrapperGeneratorTest extends FunSuite:
           settings
         )
         assert(settings.contains("""lazy val dockerSettings = Seq(dockerBaseImage := "x")"""), settings)
-        assert(buildSbt.contains("dockerBuildSettings,\n    dockerSettings,"), buildSbt)
+        assert(buildSbt.contains("dockerSettings,\n    dockerBuildSettings,"), buildSbt)
         assert(buildSbt.contains(".enablePlugins(DockerPlugin, JavaAppPackaging)"), buildSbt)
     finally os.remove.all(dir)
 

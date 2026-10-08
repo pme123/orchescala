@@ -28,16 +28,11 @@ case class PublishHelper()(using
       dockerProject = Option.when(os.exists(workerAppFile))("worker"),
       build = Seq("api/run")
     )
-    releaseSteps(isSnapshot = version.contains("-"), hasDocs = devConfig.publishConfig.nonEmpty)
-      .foreach:
-        case ReleaseStep.Build      =>
-          println(s"SBT build: ${runs.build.mkString(" ")}")
-          os.proc(runs.build).callOnConsole()
-        case ReleaseStep.UploadDocs => publishToWebserver()
-        case ReleaseStep.Upload     =>
-          println(s"SBT publish: ${runs.publish.mkString(" ")}")
-          os.proc(runs.publish).callOnConsole()
-        case ReleaseStep.Git        => git(version, replaceVersion)
+    ReleaseRun(
+      runs,
+      uploadDocs = () => publishToWebserver(),
+      git = () => git(version, replaceVersion)
+    ).run(releaseSteps(isSnapshot = version.contains("-"), hasDocs = devConfig.publishConfig.nonEmpty))
   end publish
 
   private lazy val apiFile: os.Path =
@@ -163,8 +158,10 @@ object PublishHelper extends Helpers:
 
   /** The two sbt runs of a release.
     *
-    * `build` is where the build may fail: `publishLocal` compiles and packages every module,
-    * the docker image is built (`Docker / publishLocal`), the docs are generated. `publish`
+    * `build` is where the build may fail: every module is compiled and packaged as `publish`
+    * packages it (the jar, the sources, the pom - `publishLocal` would do the same, but it
+    * writes the release version to `~/.ivy2/local`, where it shadows the repository), the
+    * docker image is built (`Docker / publishLocal`), the docs are generated. `publish`
     * repeats the packaging (the compiler and docker reuse their caches) and uploads - what is
     * left to fail there is the upload itself (credentials, network, a taken version). The
     * docker image is pushed before the artifacts - its tag can be overwritten, the artifacts
@@ -179,11 +176,32 @@ object PublishHelper extends Helpers:
   ): SbtRuns =
     val sbt = "sbt" +: sbtOptions
     SbtRuns(
-      build = sbt ++ Seq("publishLocal") ++
+      build = sbt ++ Seq("package", "packageSrc", "makePom") ++
         dockerProject.map(p => s"$p / Docker / publishLocal") ++ build,
       publish = sbt ++ dockerProject.map(p => s"$p / Docker / publish") :+ "publish"
     )
   end sbtRuns
+
+  /** Runs the steps of a release - a failing step throws and stops the release there. The
+    * processes (`run`) are replaced in the tests.
+    */
+  case class ReleaseRun(
+      runs: SbtRuns,
+      uploadDocs: () => Unit,
+      git: () => Unit,
+      run: Seq[String] => Unit = cmd => os.proc(cmd).callOnConsole()
+  ):
+    def run(steps: Seq[ReleaseStep]): Unit =
+      steps.foreach:
+        case ReleaseStep.Build      =>
+          println(s"SBT build: ${runs.build.mkString(" ")}")
+          run(runs.build)
+        case ReleaseStep.UploadDocs => uploadDocs()
+        case ReleaseStep.Upload     =>
+          println(s"SBT publish: ${runs.publish.mkString(" ")}")
+          run(runs.publish)
+        case ReleaseStep.Git        => git()
+  end ReleaseRun
 
   def verifyVersion(newVersion: String): Unit =
     val releaseVersion = """^(\d+)\.(\d+)\.(\d+)(-.*)?$"""

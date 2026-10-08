@@ -49,11 +49,11 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(settings.contains("lazy val dockerBuildSettings: Seq[Setting[_]] = Seq()"), settings)
       assert(settings.contains("lazy val dockerSettings = Seq()"), settings)
 
-  test("build.sbt: the worker gets both settings"):
+  test("build.sbt: the worker gets both settings - the build options after the company's"):
     inProject(SbtConfig()): projectDir =>
       SbtGenerator().generate
       val buildSbt = os.read(projectDir / "build.sbt")
-      assert(buildSbt.contains("dockerBuildSettings,\n    dockerSettings,"), buildSbt)
+      assert(buildSbt.contains("dockerSettings,\n    dockerBuildSettings,"), buildSbt)
       assert(buildSbt.contains("enablePlugins(DockerPlugin, JavaAppPackaging)"), buildSbt)
 
 end SbtSettingsGeneratorTest

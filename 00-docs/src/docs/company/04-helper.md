@@ -93,6 +93,9 @@ private lazy val companySbtConfig = SbtConfig(
   dockerBuildOptions = Seq("--platform", "linux/amd64")
 )
 ```
+`dockerBuildSettings` appends to `dockerBuildOptions` (`++=`) and comes after your `dockerSettings` in
+the build - so a `dockerBuildOptions := Seq(...)` of yours keeps the platform. An own `dockerBuildCommand`
+replaces the whole command, the platform included - then add `--platform` there yourself.
 
 @:callout(info)
 `--platform` needs BuildKit, i.e. the `buildx` plugin of the Docker CLI - the legacy builder of

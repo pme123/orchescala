@@ -70,14 +70,14 @@ class PublishHelperSbtRunsTest extends FunSuite:
     val runs = PublishHelper.sbtRuns(dockerProject = Some("worker"), build = Seq("api/run"))
     assertEquals(
       runs.build,
-      Seq("sbt", "publishLocal", "worker / Docker / publishLocal", "api/run")
+      Seq("sbt", "package", "packageSrc", "makePom", "worker / Docker / publishLocal", "api/run")
     )
     // the image first - its tag can be overwritten, the artifacts of a release can not
     assertEquals(runs.publish, Seq("sbt", "worker / Docker / publish", "publish"))
 
   test("without a docker image - and with sbt options"):
     val runs = PublishHelper.sbtRuns(dockerProject = None, sbtOptions = Seq("-J-Xmx3G"))
-    assertEquals(runs.build, Seq("sbt", "-J-Xmx3G", "publishLocal"))
+    assertEquals(runs.build, Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom"))
     assertEquals(runs.publish, Seq("sbt", "-J-Xmx3G", "publish"))
 
   test("the steps of a release: build, the docs, the upload, git - a snapshot only builds and uploads"):
@@ -91,5 +91,40 @@ class PublishHelperSbtRunsTest extends FunSuite:
       Seq(Build, Upload, Git)
     )
     assertEquals(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = true), Seq(Build, Upload))
+
+  /** A release whose processes are recorded instead of run - `failing` throws. */
+  private def release(failing: Set[String] = Set.empty): (PublishHelper.ReleaseRun, () => Seq[String]) =
+    val log  = collection.mutable.ListBuffer.empty[String]
+    def step(name: String): Unit =
+      log += name
+      if failing(name) then throw IllegalStateException(s"$name failed")
+    val runs = PublishHelper.sbtRuns(Some("worker"))
+    val rel  = PublishHelper.ReleaseRun(
+      runs,
+      uploadDocs = () => step("docs"),
+      git = () => step("git"),
+      run = cmd => step(if cmd == runs.build then "build" else "upload")
+    )
+    (rel, () => log.toSeq)
+
+  test("the release runs its steps in order"):
+    val (rel, log) = release()
+    rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
+    assertEquals(log(), Seq("build", "docs", "upload", "git"))
+    val (snapshot, snapshotLog) = release()
+    snapshot.run(PublishHelper.releaseSteps(isSnapshot = true, hasDocs = true))
+    assertEquals(snapshotLog(), Seq("build", "upload"))
+
+  test("a failing build stops the release - nothing is uploaded"):
+    val (rel, log) = release(failing = Set("build"))
+    intercept[IllegalStateException]:
+      rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
+    assertEquals(log(), Seq("build"))
+
+  test("a failing upload stops before git - the docs are on the webserver already"):
+    val (rel, log) = release(failing = Set("upload"))
+    intercept[IllegalStateException]:
+      rel.run(PublishHelper.releaseSteps(isSnapshot = false, hasDocs = true))
+    assertEquals(log(), Seq("build", "docs", "upload"))
 
 end PublishHelperSbtRunsTest

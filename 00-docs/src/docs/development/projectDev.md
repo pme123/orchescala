@@ -81,17 +81,22 @@ The following steps are executed:
   - Run the command again.
 - Push the `develop` branch.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
-- Build everything locally (`sbt publishLocal`, the Docker image of the worker
-  with `worker / Docker / publishLocal`, the documentation with `ApiProjectCreator.scala`).
+- Build everything locally (`sbt package packageSrc makePom` - what `publish` packages, without
+  `publishLocal`'s copy in `~/.ivy2/local` that would shadow the repository; the Docker image of the
+  worker with `worker / Docker / publishLocal`; the documentation with `ApiProjectCreator.scala`).
   - Nothing is uploaded yet: a release version is immutable in the repository (e.g. Artifactory).
     If a step fails here, you fix it and run the command again with the same version.
 - Uploads the documentation to a WebDAV-webserver (optional).
   - On purpose before the repository: the webserver takes a version again, the repository does not.
     A release that fails at the upload is repeated with the same version - its docs are uploaded again.
+  - Known side effect: fails the upload, the docs of a version that was never released are on the
+    webserver until the release is repeated.
 - Publish the project to the repository (`worker / Docker / publish`, then `publish`).
   - This sbt run repeats the packaging (compiler and Docker reuse their caches) and uploads -
     what is left to fail here is the upload itself (credentials, network, a taken version).
   - The Docker image is pushed first - its tag can be overwritten, the artifacts can not.
+  - `publish` uploads module by module: fails it midway, the modules uploaded so far are in the
+    repository - this is the one case that still needs the version removed there before the next try.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.
 - Increase the version to the next minor _SNAPSHOT_ version.
