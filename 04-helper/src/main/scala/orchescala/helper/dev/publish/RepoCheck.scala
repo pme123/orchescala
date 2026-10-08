@@ -150,7 +150,7 @@ object RepoCheck:
     val repos = devConfig.sbtConfig.reposConfig
     repos.releaseRepo.foreach: repo =>
       val config = repos.releaseRepoCurlConfig(env).fold(msg => throw IllegalStateException(msg), identity)
-      val status = curlStatus(config)
+      val status = retryingOnce(curlStatus(config)) // every probe: a transient failure is tried once more
       // the GitLab token questions (and only these) a pipeline answers with ORCHESCALA_PUBLISH_YES=true
       val gitlabConfirm = pipelineYes(env).getOrElse(confirm)
       repo match
@@ -169,39 +169,42 @@ object RepoCheck:
             "NOTE: the job token is not probed - a package it may not read looks free here and fails at the upload."
           )
         case _                                                         => ()
-      val status2 = retryingOnce(status)
-      verifyLastRelease(lastRelease, names, repo, status2)
+      verifyLastRelease(lastRelease, names, repo, status)
       println(s"Checking that $version is free in ${repo.repoUrl} ...")
-      verifyUrlsFree(version, releaseUrls(version, names, repo), status2)
+      verifyUrlsFree(version, releaseUrls(version, names, repo), status)
   end verifyVersionFree
 
-  /** The positive control of the check: the last release must be where the check looks (its
-    * first pom answers 200) - a 404 for it means the URLs are wrong (the organization, the
-    * name, the modules, the suffix, or the repository), and every version would read as
-    * free. Before the first release there is nothing to control - said.
+  /** The positive control of the check: the last release must be where the check looks - one
+    * of its poms answers 200 (a module that is never published, or one added since, is simply
+    * not there). All of them 404 means the URLs are wrong (the organization, the name, the
+    * modules, the suffix, or the repository), and every version would read as free. Before
+    * the first release there is nothing to control - said.
     */
   def verifyLastRelease(lastRelease: Option[String], names: BuildNames, repo: RepoConfig, status: String => Int): Unit =
     lastRelease match
       case None       => println("No release yet - the URLs of the check can not be controlled against one.")
       case Some(last) =>
-        val url  = releaseUrls(last, names, repo).head
-        val code = status(url)
-        println(s"  $code $url (the last release)")
-        code match
-          case 200       => ()
-          case 404       =>
-            throw IllegalStateException(
-              s"The last release $last is not found where the check looks: $url - the URLs are wrong " +
-                "(the organization, the name, the modules, the suffix of the build - or the repository), " +
-                "every version would read as free."
-            )
-          case 401 | 403 =>
-            throw IllegalStateException(
-              s"The repository refuses the credentials ($code): $url - check the environment " +
-                "variables of the repository."
-            )
-          case 0         => throw IllegalStateException(s"The repository is not reachable: $url")
-          case other     => throw IllegalStateException(s"The repository answered an unexpected status ($other): $url")
+        val urls  = releaseUrls(last, names, repo)
+        // one found is enough - the others are not asked
+        val found = urls.iterator.map { url =>
+          val code = status(url)
+          println(s"  $code $url (the last release)")
+          code match
+            case 200 | 404 => code
+            case 401 | 403 =>
+              throw IllegalStateException(
+                s"The repository refuses the credentials ($code): $url - check the environment " +
+                  "variables of the repository."
+              )
+            case 0         => throw IllegalStateException(s"The repository is not reachable: $url")
+            case other     => throw IllegalStateException(s"The repository answered an unexpected status ($other): $url")
+        }.contains(200)
+        if !found then
+          throw IllegalStateException(
+            s"The last release $last is not found where the check looks (none of its poms) - the URLs are " +
+              "wrong (the organization, the name, the modules, the suffix of the build - or the repository), " +
+              "every version would read as free."
+          )
   end verifyLastRelease
 
   /** The poms `publish` uploads for `version` - every module of the project (a module that

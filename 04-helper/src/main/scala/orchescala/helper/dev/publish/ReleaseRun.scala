@@ -78,11 +78,14 @@ final class ReleaseRun(
     */
   def abortedAt(step: ReleaseStep): Thread =
     Thread: () =>
+      val deadline = clock() + ReleaseRun.hookBudgetMillis
       println(s"Aborted at $step")
       try
         awaitChild()
         onFailure(step) // first - the report is best effort and may take a while
-        if step == ReleaseStep.Upload && !isSnapshot then reportOnce()
+        if step == ReleaseStep.Upload && !isSnapshot then
+          if clock() < deadline then reportOnce()
+          else println("No time left to look up what was uploaded - see the repository.")
       catch case scala.util.control.NonFatal(restore) => restore.printStackTrace()
 
   def run(steps: Seq[ReleaseStep]): Unit =
@@ -150,8 +153,15 @@ object ReleaseRun:
       awaitChild: () => Unit = () => SbtChild.awaitExit(),
       // the JVM's shutdown hooks
       addShutdownHook: Thread => Unit = Runtime.getRuntime.addShutdownHook,
-      removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_)
+      removeShutdownHook: Thread => Unit = Runtime.getRuntime.removeShutdownHook(_),
+      // the clock of the shutdown hook's deadline
+      clock: () => Long = () => System.currentTimeMillis()
   )
+
+  /** A shutdown hook has this long for the wait, the restore and the report - a second Ctrl-C
+    * kills the JVM; the report (curl per pom) is skipped once it is over.
+    */
+  val hookBudgetMillis: Long = 25_000
 
   /** A release version is immutable in the repository (Artifactory): when the docker build or
     * the docs failed after `sbt publish`, the version was taken and the next try needed a new

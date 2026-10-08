@@ -227,6 +227,14 @@ class RepoCheckTest extends FunSuite:
       assert(requests().last.endsWith("/democompany-customer-domain/1.0.0-taken/democompany-customer-domain-1.0.0-taken.pom"), requests().last)
       val wrong = intercept[IllegalStateException](RepoCheck.verifyLastRelease(Some("1.0.0"), names, repo, status))
       assert(wrong.getMessage.contains("not found where the check looks"), wrong.getMessage)
+      // the first module is not published (or new since the last release): another one found is enough
+      val codes = collection.mutable.ListBuffer.empty[String]
+      RepoCheck.verifyLastRelease(
+        Some("1.0.0"), names, repo,
+        url => { codes += url; if url.contains("-api/") then 200 else 404 }
+      )
+      assertEquals(codes.size, 2) // domain 404, api 200 - the rest not asked
+      intercept[IllegalStateException](RepoCheck.verifyLastRelease(Some("1.0.0"), names, repo, _ => 404))
       // through the check itself
       import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
       import orchescala.engine.config.ReposConfig

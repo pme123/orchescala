@@ -82,6 +82,23 @@ class ReleaseRunTest extends FunSuite:
     rel.abortedAt(ReleaseStep.Upload).run()
     assertEquals(log().count(_ == "reported"), 1)
 
+  test("the hook skips the report once its time is over - a second Ctrl-C would kill the JVM in it"):
+    val log  = collection.mutable.ListBuffer.empty[String]
+    var now  = 1_000_000L
+    val rel  = ReleaseRun(
+      SbtRuns.of(Some("worker")),
+      uploadDocs = () => (),
+      git = () => (),
+      hooks = ReleaseRun.Hooks(
+        onFailure = step => log += s"restored $step",
+        afterFailedUpload = () => log += "reported",
+        awaitChild = () => now += ReleaseRun.hookBudgetMillis + 1, // sbt took all the time
+        clock = () => now
+      )
+    )
+    rel.abortedAt(ReleaseStep.Upload).run()
+    assertEquals(log.toSeq, Seq("restored Upload")) // restored, not reported
+
   test("a failing snapshot upload: nothing to report, no check of the version ran"):
     val log  = collection.mutable.ListBuffer.empty[String]
     val runs = SbtRuns.of(Some("worker"))

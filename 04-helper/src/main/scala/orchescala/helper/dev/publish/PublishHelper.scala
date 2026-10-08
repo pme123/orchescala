@@ -81,10 +81,6 @@ object PublishHelper extends Helpers:
 
   private val Release = """^v?(\d+)\.(\d+)\.(\d+)$""".r
 
-  /** Why `newVersion` does not follow the releases (`tags`, e.g. `v1.9.19`) - None if it does: the
-    * next patch of its `Major.Minor` line, else the next minor (`.0`) or major (`.0.0`) after the
-    * highest release. A typo (1.19.20 for 1.9.20) was released, its docker image deployed as missing.
-    */
   /** The highest release among the `tags` (`v1.9.19` -> `1.9.19`) - None before the first. */
   def lastRelease(tags: Seq[String]): Option[String] =
     tags.collect { case Release(ma, mi, pa) => (ma.toInt, mi.toInt, pa.toInt) }.maxOption
@@ -94,6 +90,10 @@ object PublishHelper extends Helpers:
   def lastRelease(repo: os.Path = workDir): Option[String] =
     lastRelease(os.proc("git", "tag", "--list").call(cwd = repo).out.lines())
 
+  /** Why `newVersion` does not follow the releases (`tags`, e.g. `v1.9.19`) - None if it does: the
+    * next patch of its `Major.Minor` line, else the next minor (`.0`) or major (`.0.0`) after the
+    * highest release. A typo (1.19.20 for 1.9.20) was released, its docker image deployed as missing.
+    */
   def nextVersionProblem(newVersion: String, tags: Seq[String]): Option[String] =
     val releases = tags.collect { case Release(ma, mi, pa) => (ma.toInt, mi.toInt, pa.toInt) }
     val show     = (v: (Int, Int, Int)) => s"${v._1}.${v._2}.${v._3}"

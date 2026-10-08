@@ -119,7 +119,9 @@ The following steps are executed:
   - This sbt run repeats the packaging (compiler and Docker reuse their caches) and uploads -
     what is left to fail here is the upload itself (credentials, network, a taken version). The image
     is built again for the push (sbt-native-packager): a Docker failure there is late - after the docs.
-  - The Docker image is pushed first - its tag can be overwritten, the artifacts can not.
+  - The Docker image is pushed first - its tag can be overwritten, the artifacts can not. With GitLab the
+    check of the credentials can be inconclusive (a package the token may not read looks free) - then a
+    wrong token fails at `publish`, after the image went out; the next try overwrites its tag.
   - `publish` uploads module by module: fails it midway, the modules uploaded so far are in the
     repository - this is the one case that still needs the version removed there before the next try.
     The console names them (the poms found in the repository).
