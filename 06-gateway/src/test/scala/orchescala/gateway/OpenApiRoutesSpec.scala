@@ -204,13 +204,13 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       def get(path: String) = routes.runZIO(Request.get(URL.decode(path).toOption.get))
       (for
         first  <- get("/site/acme/acme-shop/OpenApi.yml").timed
-        second <- get("/site/acme/acme-shop/diagrams/shop.bpmn").timed
+        second <- get("/site/acme/acme-shop/diagrams/shop.bpmn")
       yield assertTrue(
         first._2.status == Status.Ok,
         first._2.rawHeader(openApiRoutes.DocsSourceHeader).contains("released"),
         first._1.toMillis >= 900, // waited for the timeout
-        second._2.status == Status.Ok,
-        second._1.toMillis < 900 // the worker app did not answer just now: not asked again
+        second.status == Status.Ok,
+        held.size == 1 // the worker app did not answer just now: not asked again
       )).ensuring(ZIO.succeed { stuck.close(); held.forEach(_.close()) })
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("isValidSiteFolder - a company folder may have _ (no fallback is skipped for it)") {

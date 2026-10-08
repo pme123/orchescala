@@ -138,6 +138,17 @@ class ProjectRepoTest extends FunSuite:
       assert(!ProjectRepo.fetchTagsOnce(gone, now = 1000 + ProjectRepo.FailedFetchValidMs - 1))
       assert(ProjectRepo.fetchTagsOnce(gone, now = 1000 + ProjectRepo.FailedFetchValidMs))
 
+  test("fetchTagsOnce - the window counts from the end of a slow fetch"):
+    val repo  = singleRepoGitTemp() / "orchescala-acme"
+    var clock = 0L
+    def slowFailingFetch(r: os.Path) =
+      clock += 60000 // timed out after a minute
+      false
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      assert(ProjectRepo.fetchTagsOnce(repo, now = clock, fetch = slowFailingFetch))
+      // the next project, right after: still within the failed window - not another minute
+      assert(!ProjectRepo.fetchTagsOnce(repo, now = clock, fetch = slowFailingFetch))
+
   test("resolveTag - projects of one repo in parallel: the second waits for the fetch of the first"):
     val origin = singleRepoGitTemp() / "orchescala-acme"
     val gitTemp = os.temp.dir(prefix = "git-temp")
@@ -221,12 +232,18 @@ class ProjectRepoTest extends FunSuite:
     assert(err.getMessage.contains("not checked on origin"), err.getMessage)
     assert(!err.getMessage.contains("released?"), err.getMessage)
 
-  test("exportTo - leftovers of a killed run next to dest are removed"):
+  test("exportTo - leftovers of a killed run next to dest are removed - only the project's own"):
     val gitTemp = singleRepoGitTemp()
-    os.makeDir.all(gitTemp / ".acme-shop-123")
-    os.write(gitTemp / ".acme-shop-123.git-archive.err", "old")
+    os.makeDir.all(gitTemp / ".acme-shop.orch-export-123")
+    os.write(gitTemp / ".acme-shop.orch-export-123.git-archive.err", "old")
+    // an export of another project whose name starts the same - running in parallel
+    os.makeDir.all(gitTemp / ".acme-shop-plus.orch-export-456")
     ProjectRepo.locate(gitTemp, "acme-shop").get.exportTo("acme-shop-v1.0.0", gitTemp / "acme-shop")
-    assertEquals(os.list(gitTemp).map(_.last).filter(_.startsWith(".")), IndexedSeq.empty)
+    assertEquals(os.list(gitTemp).map(_.last).filter(_.startsWith(".")), IndexedSeq(".acme-shop-plus.orch-export-456"))
+    // and the other way round: acme's cleanup does not touch acme-shop's
+    os.makeDir.all(gitTemp / ".acme-shop.orch-export-789")
+    ProjectRepo.locate(gitTemp, "acme-shop").get.exportTo("acme-shop-v1.0.0", gitTemp / "acme")
+    assert(os.exists(gitTemp / ".acme-shop.orch-export-789"))
 
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()

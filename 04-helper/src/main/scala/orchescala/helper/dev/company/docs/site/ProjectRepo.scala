@@ -6,6 +6,9 @@ package orchescala.helper.dev.company.docs.site
   * (`<project>-v<version>`), as the projects are released one by one; a plain `v<version>` is taken
   * too.
   *
+  * Needs `git` and `tar` on the PATH (tar with `--strip-components` and `--no-same-owner`: GNU tar,
+  * bsdtar - also the one of Windows 10+).
+  *
   * @param prefix the project's folder in the repo - empty for its own clone
   */
 case class ProjectRepo(repo: os.Path, prefix: String, project: String):
@@ -68,9 +71,11 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     require(existsAt(ref), s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
     os.makeDir.all(dest / os.up)
-    // left by a run that was killed midway
-    os.list(dest / os.up).filter(_.last.startsWith(s".${dest.last}-")).foreach(os.remove.all)
-    val fresh  = os.temp.dir(dir = dest / os.up, prefix = s".${dest.last}-")
+    // left by a run that was killed midway - only this project's: `.acme.orch-export-…` is no prefix of
+    // `.acme-shop.orch-export-…`, which another export may be writing right now
+    val marker = s".${dest.last}.orch-export-"
+    os.list(dest / os.up).filter(_.last.startsWith(marker)).foreach(os.remove.all)
+    val fresh  = os.temp.dir(dir = dest / os.up, prefix = marker)
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
     try
@@ -135,7 +140,8 @@ object ProjectRepo:
       if start < state.validUntil then false
       else
         val ok = fetch(repo)
-        state.validUntil = start + (if ok then FetchValidMs else FailedFetchValidMs)
+        // from its end: a fetch that timed out (60 s) is not already over its 30 s when it returns
+        state.validUntil = now + (if ok then FetchValidMs else FailedFetchValidMs)
         state.failure = Option.when(!ok)(s"fetching the tags of $repo failed (see above)")
         true
 

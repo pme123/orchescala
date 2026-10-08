@@ -177,7 +177,18 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * same page (the yml, each diagram) come from the site at once, not after another timeout each.
     */
   private[gateway] val DocsDownFor = 30.seconds
+  /** Per project (its worker app - the docs URL depends on the project only) until when it is not asked.
+    * At most DocsDownMax entries: expired ones are dropped first; beyond that a project is not
+    * remembered - the request path decides the name, the map must not grow with it.
+    */
   private val docsDownUntil        = java.util.concurrent.ConcurrentHashMap[String, java.lang.Long]()
+  private[gateway] val DocsDownMax = 1000
+
+  private def rememberDown(projectName: String): Unit =
+    val now = java.lang.System.currentTimeMillis
+    if docsDownUntil.size >= DocsDownMax then docsDownUntil.values.removeIf(_ <= now)
+    if docsDownUntil.size < DocsDownMax || docsDownUntil.containsKey(projectName) then
+      docsDownUntil.put(projectName, now + DocsDownFor.toMillis)
 
   /** Marks a docs answer that is not the worker app's (live) one. */
   private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
@@ -281,8 +292,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
             ).as(Response.status(status))
           .tap: response =>
             ZIO.succeed:
-              if response.status == Status.ServiceUnavailable then
-                docsDownUntil.put(projectName, java.lang.System.currentTimeMillis + DocsDownFor.toMillis)
+              if response.status == Status.ServiceUnavailable then rememberDown(projectName)
               else docsDownUntil.remove(projectName)
 
   // ---------------------------------------------------------------------------
