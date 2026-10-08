@@ -79,11 +79,72 @@ The following steps are executed:
   - Check and adjust manually `CHANGELOG.md`.
   - Remove `//---DRAFT start` / `//---DRAFT end`.
   - Run the command again.
-- Push the `develop` branch.
+- Check that the version is free in the release repository (the first of `reposConfig`) - and that
+  the credentials work: a `HEAD` on the pom of each module, before anything is built or uploaded.
+  - A taken version fails at the upload, after the docs and the Docker image went out (the image tag
+    of the existing release overwritten). Remove the half-finished version there, or release the next.
+  - The poms are those of the generated build: `<name>-<module>` for every module of `build.sbt` (the
+    sub projects of the domain too; the company's with the Scala suffix) under the `organization` - all
+    read from the build's own files (`project/ProjectDef.scala`, `build.sbt`, `project/Settings.scala`).
+    A module with a `name` of its own is not covered by the check.
+  - Where the check can not tell (a GitLab group registry, a token that may not read the project, no
+    credentials), it asks. Without a terminal (a pipeline) the answer is no and the release stops - a
+    GitLab pipeline with its job token is not asked; a pipeline with a deploy token says yes with
+    `ORCHESCALA_PUBLISH_YES=true` - to the GitLab token questions only: no credentials at all, the check of
+    the version and of the next version stay.
+  - First the last release (the highest tag) must be found there - else the URLs of the check are wrong
+    and every version would read as free; before the first release there is nothing to control.
+  - A repository that answers HEAD with 405/501 is asked with a GET of the first byte. A redirect is
+    followed on the same host only (an upgrade to https too) - the credentials go nowhere else.
+  - Wrong credentials are found with Artifactory (401/403). GitLab answers 404 for a package the
+    token may not read - so the project of a project registry is asked first. Does it not show the
+    project (a wrong token - or a deploy token, which may not read it), or is the registry a group's,
+    the release goes on only when you confirm. The job token of a pipeline is GitLab's
+    own, it is not probed.
+- Push the `develop` branch - the one outward step before the build: the documentation takes the
+  references from the remote. It pushes committed work only (the tree is clean), a next try pushes nothing.
 - Adjust the version in `ProjectDef.scala` and `ApiProjectCreator.scala`.
-- Run `ApiProjectCreator.scala`.
-- Publish the project to the repository.
+- Build everything locally (`sbt package packageSrc makePom` - what `publish` packages, without
+  `publishLocal`'s copy in `~/.ivy2/local` that would shadow the repository; the Docker image of the
+  worker with `worker / Docker / publishLocal`; the documentation with `ApiProjectCreator.scala`).
+  - Nothing is uploaded yet: a release version is immutable in the repository (e.g. Artifactory).
+    If a step fails here, you fix it and run the command again with the same version - that holds for
+    every failure before the upload to the repository (the build, the docs, the WebDAV upload).
 - Uploads the documentation to a WebDAV-webserver (optional).
+  - On purpose before the repository: the webserver takes a version again, the repository does not.
+    A release that fails at the upload is repeated with the same version - its docs are uploaded again.
+  - Known side effect: if the upload fails afterwards, the docs of a version that was never released
+    stay on the webserver until the release is repeated.
+- Publish the project to the repository (`worker / Docker / publish`, then `publish`).
+  - This sbt run repeats the packaging (compiler and Docker reuse their caches) and uploads -
+    what is left to fail here is the upload itself (credentials, network, a taken version). The image
+    is built again for the push (sbt-native-packager): a Docker failure there is late - after the docs.
+  - The Docker image is pushed first - its tag can be overwritten, the artifacts can not. With GitLab the
+    check of the credentials can be inconclusive (a package the token may not read looks free) - then a
+    wrong token fails at `publish`, after the image went out; the next try overwrites its tag.
+  - `publish` uploads module by module: fails it midway, the modules uploaded so far are in the
+    repository - this is the one case that still needs the version removed there before the next try.
+    The console names them (the poms found in the repository).
+  - Fails `publish` after the Docker push, the image with the version's tag is in the registry
+    without its artifacts - the next try overwrites it.
+  - `develop` is pushed before the build (the documentation needs the remote) - a release that fails
+    afterwards leaves it pushed. It is committed work only, the next try pushes nothing.
+  - The Docker image is built again for the push (sbt-native-packager rebuilds it for `Docker / publish`):
+    a Docker failure there - a base image that can not be pulled, the registry - comes after the docs.
+- Before the first sbt run of a release with a Docker image, `docker buildx version` must work when the
+  images are built for a platform (the default) - otherwise the release stops right there, with the
+  way to get `buildx`.
+- A snapshot (`x.y.z-SNAPSHOT`) is overwritable in the repository: it skips the check of the version and
+  keeps its rewritten version in the tree, as before - the retry with the same version is for releases.
+- A release that fails before its git step restores the files it rewrote (the versions, generated
+  docs) - so the next try with the same version starts from a clean working tree. The `CHANGELOG.md`
+  and untracked files stay as they are. The scope is every tracked file changed since the release
+  started - what the release's own commit would take: so no edits of tracked files while a release runs.
+  Also when you abort it (Ctrl-C: sbt gets it too, the restore
+  waits up to 10 seconds for it to end, then ends it - about 10 seconds more at most). A second Ctrl-C in
+  that time, or a kill, skips the restore. Should it fail, `git status` shows the files, `git checkout HEAD -- <files>` restores them.
+- Fails the git step at the end (a push refused), the version is released - the console says what is
+  left to do by hand; nothing is restored then.
 - Merge the branch (`develop`) into `master`.
 - Tag the GIT repository with the version.
 - Increase the version to the next minor _SNAPSHOT_ version.

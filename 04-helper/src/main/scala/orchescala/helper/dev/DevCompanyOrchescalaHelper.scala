@@ -5,6 +5,9 @@ import orchescala.engine.EngineConfig
 import orchescala.helper.dev.company.CompanyGenerator
 import orchescala.helper.dev.company.docs.DocCreator
 import orchescala.helper.dev.publish.PublishHelper.*
+import orchescala.helper.dev.publish.RepoCheck.{BuildNames, reportUploaded, verifyVersionFree}
+import orchescala.helper.dev.publish.WorkingTree.*
+import orchescala.helper.dev.publish.{DockerCheck, ReleaseRun, SbtRuns}
 import orchescala.engine.config.RepoConfig
 import orchescala.helper.util.{DevConfig, PublishConfig}
 
@@ -89,40 +92,38 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
 
   private def publish(newVersion: String): Unit =
     println(s"Publishing ${devConfig.projectName}: $newVersion")
-    if !newVersion.contains("-") then
+    val isSnapshot = newVersion.contains("-")
+    if !isSnapshot then
       verifyCleanWorkingTree()
       verifyNextVersion(newVersion)
     verifyVersion(newVersion)
     verifySnapshots()
     verifyChangelog(newVersion)
-    replaceVersion(newVersion, projectFile)
-    println("Versions replaced")
-    val isSnapshot = newVersion.contains("-")
-    println(s"isSnapshot: $isSnapshot")
-
-    lazy val sbtProcs = Seq(
-      "sbt",
-      "-J-Xmx3G",
-      "publish"
-    )
-
+    lazy val names = BuildNames.from(workDir) // what the build publishes under
+    if !isSnapshot then verifyVersionFree(newVersion, devConfig, names, lastRelease = lastRelease())
     lazy val gatewayAppFile: os.Path =
       workDir / "04-gateway" / "src" / "main" / "scala" /
         devConfig.projectPath / "gateway" / "GatewayServerApp.scala"
-
-    lazy val sbtDockerProcs =
-      if os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty then
-        Seq(
-          "gateway / Docker / publish"
-        )
-      else
-        Seq.empty
-    println(s"SBT: ${(sbtProcs ++ sbtDockerProcs).mkString(" ")}")
-    os.proc(sbtProcs ++ sbtDockerProcs).callOnConsole()
-
-    if !isSnapshot then
-      git(newVersion, newVers => replaceVersion(newVers, projectFile))
-    end if
+    val hasGateway = os.exists(gatewayAppFile) && devConfig.sbtConfig.dockerGatewaySettings.nonEmpty
+    // every check before the version is rewritten - a failing one leaves the tree as it is
+    if hasGateway then DockerCheck.verifyBuildx(devConfig.sbtConfig.dockerBuildOptions)
+    // armed now, with the clean tree - right before the version is rewritten
+    val restore    = restoreForRetry(isSnapshot)
+    restoring(restore):
+      replaceVersion(newVersion, projectFile)
+    println("Versions replaced")
+    println(s"isSnapshot: $isSnapshot")
+    // the company project has no docs to upload - its site is `publishDocs`
+    ReleaseRun(
+      SbtRuns.company(hasGateway, devConfig.sbtConfig.publishSbtOptions),
+      uploadDocs = () => (),
+      git = () => git(newVersion, newVers => replaceVersion(newVers, projectFile)),
+      hooks = ReleaseRun.Hooks(
+        onFailure = restore,
+        afterFailedUpload = () => reportUploaded(newVersion, devConfig, names)
+      ),
+      isSnapshot = isSnapshot
+    ).run(ReleaseRun.steps(isSnapshot, hasDocs = false))
   end publish
 
 end DevCompanyOrchescalaHelper

@@ -22,6 +22,47 @@ case class ReposConfig(
   def deploymentArtifactPattern: String =
     "<repo>/<company>/<project>/<version>/<project>-<version>.jar"
 
+  /** The release repo (the first one) - None for the dummy (`???`). */
+  def releaseRepo: Option[RepoConfig] =
+    repos.headOption.filterNot(_.repoUrl == "???")
+
+  /** The lines of a curl config (`curl -K -`, fed through stdin - so the secret is not in
+    * `ps`) that authenticate at the release repo, as the sbt build does: an Artifactory repo
+    * with its user/password, another repo with the credentials of its host (the job token on
+    * a pipeline of that GitLab - `CI_SERVER_HOST`). Left with the missing environment
+    * variables, or without credentials for the host.
+    */
+  def releaseRepoCurlConfig(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
+    // a line break in a secret (read from a file) would start another config line - an option
+    def line(option: String, value: String, envName: String): Either[String, Seq[String]] =
+      if value.exists(c => c == '\n' || c == '\r') then
+        Left(s"System Environment Variable $envName contains a line break.")
+      else Right(Seq(s"""$option = "${value.replace("\\", "\\\\").replace("\"", "\\\"")}""""))
+    def userPassword(usernameEnv: String, passwordEnv: String) =
+      (for
+        user <- env(usernameEnv)
+        pwd  <- env(passwordEnv)
+      yield line("user", s"$user:$pwd", s"$usernameEnv/$passwordEnv"))
+        .getOrElse(Left(s"System Environment Variables $usernameEnv and/ or $passwordEnv are not set."))
+    releaseRepo match
+      case Some(a: RepoConfig.Artifactory) => userPassword(a.usernameEnv, a.passwordEnv)
+      case Some(repo)                      =>
+        // as sbt: the credentials of the repo's host
+        val host = scala.util.Try(java.net.URI(repo.repoUrl).getHost).toOption.getOrElse("")
+        credentials.find(_.repoHost == host) match
+          case Some(t: RepoCredentials.PrivateToken) =>
+            // the job token is the pipeline's GitLab's (CI_SERVER_HOST) - not for another host
+            val jobToken = env("CI_JOB_TOKEN").filter(_ => env("CI_SERVER_HOST").contains(host))
+            jobToken.map(token => line("header", s"Job-Token: $token", "CI_JOB_TOKEN"))
+              .orElse(env(t.tokenEnv).map(token => line("header", s"Private-Token: $token", t.tokenEnv)))
+              .getOrElse(Left(s"System Environment Variable ${t.tokenEnv} is not set."))
+          case Some(u: RepoCredentials.UserPassword) => userPassword(u.usernameEnv, u.passwordEnv)
+          case None if credentials.isEmpty           => Right(Seq.empty)
+          case None                                  =>
+            Left(s"No credentials for $host - configured for: ${credentials.map(_.repoHost).mkString(", ")}")
+      case None                            => Right(Seq.empty)
+  end releaseRepoCurlConfig
+
 end ReposConfig
 object ReposConfig:
   lazy val dummyRepos = ReposConfig(
@@ -105,6 +146,8 @@ end RepoConfig
 
 sealed trait RepoCredentials:
   def name: String
+  // the host these credentials are for - sbt (and the release check) pick them by it
+  def repoHost: String
   def sbtContent: String
 
 object RepoCredentials:

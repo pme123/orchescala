@@ -20,14 +20,14 @@ class PublishHelperTest extends FunSuite:
   test("a release refuses uncommitted changes - `git commit -a` took them into the release"):
     val dir = repo()
     os.write.over(dir / "build.sbt", "version := \"1.1.0\" // unfinished work")
-    val error = intercept[IllegalStateException](PublishHelper.verifyCleanWorkingTree(dir))
+    val error = intercept[IllegalStateException](WorkingTree.verifyCleanWorkingTree(dir))
     assert(error.getMessage.contains("build.sbt"), error.getMessage)
 
   test("the edited CHANGELOG and untracked files are fine"):
     val dir = repo()
     os.write.over(dir / "CHANGELOG.md", "# Changelog\n## 1.1.0")
     os.write(dir / "notes.txt", "not tracked")
-    PublishHelper.verifyCleanWorkingTree(dir)
+    WorkingTree.verifyCleanWorkingTree(dir)
 
   private val tags = Seq("v1.9.18", "v1.9.19", "v1.8.3", "not-a-release")
 
@@ -52,6 +52,14 @@ class PublishHelperTest extends FunSuite:
   test("no releases yet, or a SNAPSHOT: nothing to check"):
     assertEquals(PublishHelper.nextVersionProblem("0.1.0", Seq.empty), None)
     assertEquals(PublishHelper.nextVersionProblem("1.19.20-SNAPSHOT", tags), None)
+
+  test("a failed fetch of the tags is said - the local tags may be behind"):
+    val dir      = repo()
+    os.proc("git", "remote", "add", "origin", "/no/such/repo.git").call(cwd = dir) // unreachable
+    val warnings = collection.mutable.ListBuffer.empty[String]
+    PublishHelper.verifyNextVersion("1.0.0", dir, _ => true, warn = warnings += _)
+    assertEquals(warnings.size, 1)
+    assert(warnings.head.contains("could not fetch the tags"), warnings.head)
 
   test("against the tags of the repository - stops without a yes"):
     val dir = repo()

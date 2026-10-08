@@ -3,6 +3,7 @@ package orchescala.helper.dev.company
 import orchescala.BuildInfo
 import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.update.*
+import orchescala.helper.util.SbtConfig
 
 /** @param supportedEngines
   *   only decides on the Operaton worker (`EngineType.Op`): the Camunda 7 and 8 workers are always
@@ -33,6 +34,12 @@ case class CompanySbtGenerator(
 
   private lazy val projectConf      = config.apiProjectConfig
   private lazy val buildSbtDir      = config.projectDir / "build.sbt"
+  // the gateway is a docker image - only with the company's settings for it
+  private lazy val hasGatewayDocker = config.sbtConfig.dockerGatewaySettings.nonEmpty
+  // the build options after the company's settings - so they stay with a `dockerBuildOptions :=`
+  private lazy val gatewaySettings  =
+    Seq("dockerSettings") ++ Option.when(hasGatewayDocker)("dockerBuildSettings") ++
+      Seq("unitTestSettings", "zioTestSettings")
   private lazy val companyNameUpper = companyName.toUpperCase()
 
   private lazy val projectDev =
@@ -244,6 +251,10 @@ case class CompanySbtGenerator(
        |  )
        |
        |  // gateway
+       |${
+        if hasGatewayDocker then SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)
+        else ""
+      }
        |  lazy val dockerSettings = ${config.sbtConfig.dockerGatewaySettings.getOrElse("preventPublication")}
        |}
        |""".stripMargin
@@ -325,12 +336,10 @@ case class CompanySbtGenerator(
        |  .settings(publicationSettings)
        |  .settings(libraryDependencies ++= gatewayDeps)
        |  .settings(
-       |    dockerSettings,
-       |    unitTestSettings,
-       |    zioTestSettings
+       |    ${gatewaySettings.mkString(",\n    ")}
        |  )
        |  .dependsOn(worker)
-       |  .enablePlugins(${config.sbtConfig.dockerGatewaySettings.map(_ => "DockerPlugin, ").mkString}JavaAppPackaging)
+       |  .enablePlugins(${if hasGatewayDocker then "DockerPlugin, " else ""}JavaAppPackaging)
        |
        |lazy val helper = project
        |  .in(file("./04-helper"))
