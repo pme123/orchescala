@@ -21,7 +21,7 @@ import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
-import { interactionBelow, overallStatus, statusParts, stepStatuses } from '../status';
+import { dataBelow, overallStatus, statusParts, stepStatuses, withDataStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
@@ -345,11 +345,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         bpmnRef.current?.setColor(id, projectColor(ref, spec.project, model?.projects, model?.projectColors));
       }
     }
-    // Ein neuer Status gilt auch für alles darunter — Pfade, Subprozess, Fehler- und Nebenpfade
+    // Ein neuer Status gilt auch für alles darunter — Pfade, Subprozess, Fehler- und Nebenpfade —
+    // und für das Datenmodell dieser Schritte (Interaktion samt In/Out; beim Start die Klassen des Prozesses)
     const status = patch.status;
     let below = 0;
+    const touched = new Set<string>([id]);
     const deep = (steps: Step[]): Step[] => steps.map(s => {
       below++;
+      touched.add(s.id);
       const next: Step = { ...s, status: status! };
       if (s.children) next.children = deep(s.children);
       if (s.branches) next.branches = s.branches.map(b => ({ ...b, steps: deep(b.steps) }));
@@ -373,7 +376,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     });
     const steps = walk(spec.steps);
     const name = byIdRef.current.get(id)?.name || id;
-    update({ ...spec, steps }, status && below
+    const next = status ? withDataStatus({ ...spec, steps }, touched, status) : { ...spec, steps };
+    update(next, status && below
       ? { source: 'manual', note: `Status «${STATUS_META[status].label}» für «${name}» und ${below} Schritt${below === 1 ? '' : 'e'} darunter` }
       : undefined);
   }, [spec, update]);
@@ -1091,12 +1095,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   onStatus={canEdit ? (id, s) => patchStep(id, { status: s }) : undefined}
                   findings={findings}
                   interactionOf={id => (spec.interactions ?? []).find(i => i.stepId === id) ?? null}
-                  interactionBelowOf={(s, ia) => interactionBelow(s, ia, spec)}
+                  dataBelowOf={s => dataBelow(s, spec)}
                   serviceOf={s => catalogEntry(s, model)}
                   processId={spec.processId ?? ''}
                   hasCatalog={!!model?.services?.length}
                   patternName={id => model?.patterns?.find(d => d.id === id)?.name ?? id}
-                  onOpenInteraction={ia => { setFocusType(ia.inTypeId ?? ia.outTypeId ?? null); setTab('model'); }} />
+                  onOpenInteraction={ia => { setFocusType(ia.inTypeId ?? ia.outTypeId ?? null); setTab('model'); }}
+                  onOpenType={id => { setFocusType(id); setTab('model'); }} />
                 {!spec.steps.length && (
                   <p className={`text-xs ${c.muted}`}>
                     Noch kein Ablauf — «Mit BPMN abgleichen» übernimmt die Struktur aus der Implementation.
@@ -1300,8 +1305,10 @@ interface ListProps {
   findings: Map<string, Finding>;
   /** die Interaktion eines Schritts — eigener Vertrag, im Baum hervorgehoben */
   interactionOf: (id: string) => Interaction | null;
-  /** der Status der Interaktion (samt Klassen), wenn er tiefer steht als der des Schritts */
-  interactionBelowOf: (step: Step, ia: Interaction | null) => Status | null;
+  /** das Datenmodell des Schritts (Interaktion samt Klassen, beim Start die des Prozesses), wenn es tiefer steht */
+  dataBelowOf: (step: Step) => { status: Status; typeId: string | null; label: string } | null;
+  /** springt ins Datenmodell zu einer Klasse */
+  onOpenType: (id: string) => void;
   /** Katalog-Eintrag eines fremden Services — teal; fehlt er, rot */
   serviceOf: (step: Step) => ServiceDef | null;
   /** springt ins Datenmodell zur Interaktion */
@@ -1422,8 +1429,9 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   }
 
   const ia = p.interactionOf(step.id);
-  // die Interaktion (samt Klassen) steht tiefer als der Schritt — ihr Status am Chip
-  const iaBelow = p.interactionBelowOf(step, ia);
+  // das Datenmodell (Interaktion samt Klassen, beim Start die des Prozesses) steht tiefer — sein Status am Chip
+  const below = p.dataBelowOf(step);
+  const iaBelow = below?.status ?? null;
   const finding = p.findings.get(step.id) ?? null;
   // fremder Service: Katalog-Kennung oder Topic — nicht der eigene Worker, nicht der Init-Worker
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== p.processId ? (step.serviceId ?? step.topic ?? '') : '';
@@ -1450,6 +1458,16 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
               p.isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
             <span className="truncate">{ia.name}</span>
             {iaBelow && <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[iaBelow].dark : STATUS_META[iaBelow].light}`}>{STATUS_META[iaBelow].label}</span>}
+          </button>
+        )}
+        {/* der Start des Prozesses: seine Klassen (In, InitIn, …), wenn eine tiefer steht */}
+        {!ia && below && (
+          <button onClick={e => { e.stopPropagation(); if (below.typeId) p.onOpenType(below.typeId); }}
+            title={`Datenmodell des Prozesses: «${below.label}» erst «${STATUS_META[below.status].label}» — zum Datenmodell`}
+            className={`hidden md:inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${
+              p.isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
+            <span className="truncate">{below.label}</span>
+            <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[below.status].dark : STATUS_META[below.status].light}`}>{STATUS_META[below.status].label}</span>
           </button>
         )}
         {/* Pattern am Schritt */}

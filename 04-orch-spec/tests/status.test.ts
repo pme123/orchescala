@@ -45,3 +45,25 @@ test('a step carries the status of its interaction and its classes - the overall
   // eine Klasse ohne Schritt zählt fürs Datenmodell
   assert.deepEqual(parts.review, { steps: 0, model: ['Address'] });
 });
+
+test('the start carries the classes of the process; a new step status applies to its data model', async () => {
+  const { dataBelow, statusParts, withDataStatus } = await import('../src/status');
+  const spec = {
+    steps: [step('Start', 'accepted', { kind: 'start' }), step('task', 'accepted')],
+    types: [
+      { id: 't-in', name: 'In', kind: 'case', status: 'changed', root: true },
+      { id: 't-init', name: 'InitIn', kind: 'case', status: 'accepted', initIn: true },
+      { id: 't-ia-in', name: 'Merge.In', kind: 'case', status: 'accepted', interactionId: 'ia' },
+      { id: 't-ia-out', name: 'Merge.Out', kind: 'case', status: 'changed', interactionId: 'ia' },
+    ],
+    interactions: [{ id: 'ia', name: 'Merge', kind: 'customTask', stepId: 'task', inTypeId: 't-ia-in', outTypeId: 't-ia-out', status: 'changed' }],
+  } as unknown as ProcessSpec;
+  // der Start zeigt die Klasse des Prozesses, die tiefer steht
+  assert.deepEqual(dataBelow(spec.steps[0], spec), { status: 'changed', typeId: 't-in', label: 'In' });
+  assert.deepEqual(dataBelow(spec.steps[1], spec), { status: 'changed', typeId: 't-ia-in', label: 'Merge' });
+  assert.deepEqual(statusParts(spec).changed, { steps: 2, model: [] });
+  // «Abgenommen» am Schritt: Interaktion, In und Out ziehen mit — am Start die Klassen des Prozesses
+  const next = withDataStatus(spec, new Set(['task', 'Start']), 'accepted');
+  assert.equal(overallStatus(next), 'accepted');
+  assert.equal(dataBelow(next.steps[1], next), null);
+});

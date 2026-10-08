@@ -20,7 +20,7 @@
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
 import { C8_LABEL } from './engineLabels';
-import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
+import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
 import { juelOptions, referencedVariables, resultVariables } from './feel';
 import { catalogEntry } from './interactions';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
@@ -357,6 +357,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
   // Was der Linter des Modelers beanstandet und sich aus dem Diagramm selbst ergibt
   tidyGlobals(defs, issues);
   nameBoundaryEvents(defs, spec);
+  nameSteps(byId, spec);
   checkStartMessage(defs, spec, issues);
 
   // Die Steuerparameter (`_…`) stehen immer am Schluss — Eingaben bleiben vor Ausgaben
@@ -457,6 +458,19 @@ function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
       case 'escalationEventDefinition': name = nameOfRef(def, 'escalationRef', 'escalationCode'); break;
     }
     if (name) el.setAttribute('name', name);
+  }
+}
+
+/**
+ * Ein Element ohne Label (Linter-Regel `label-required`) bekommt den Namen, den
+ * die Spezifikation ihm gab — sonst hiesse es im Ablauf wie seine ID. Start, Ende
+ * und Gateways nicht: ihr Ersatzname («Start», «Verzweigung») ist kein Label.
+ */
+function nameSteps(byId: Map<string, Element>, spec: ProcessSpec) {
+  for (const s of allSteps(spec.steps)) {
+    if (unnamed(s) || s.kind === 'start' || s.kind === 'end' || s.kind === 'gateway') continue;
+    const el = byId.get(s.id);
+    if (el && !el.getAttribute('name')?.trim()) el.setAttribute('name', s.name.trim());
   }
 }
 

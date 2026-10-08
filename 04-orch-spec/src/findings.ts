@@ -12,9 +12,9 @@ import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
-import { catalogEntry, interactionKind, interactionOrigin } from './interactions';
+import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, isInitWorker } from './bpmn';
+import { GENERAL_VARIABLES, isInitWorker, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
@@ -40,8 +40,9 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
   const out = new Map<string, Finding>();
   const variables = processVariables(spec, model);
   const scopes = multiInstanceScopes(spec.steps);
+  const wiring = wiringSteps(spec);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables, scopes);
+    const f = stepFindings(step, spec, model, variables, scopes, wiring);
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
@@ -180,7 +181,7 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
   return { spec: changed ? { ...spec, steps } : spec, added, changed };
 }
 
-export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps)): Finding {
+export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps), wiring: Set<string> = wiringSteps(spec)): Finding {
   // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn
   if (step.kind === 'goto' || step.pattern) return NONE;
   // in einer Mehrfachausführung kommen `loopCounter` und das Element dazu
@@ -190,6 +191,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const types = spec.types ?? [];
   const processId = spec.processId ?? '';
   const ia: Interaction | null = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
+  // ohne Label im BPMN heisst der Schritt wie seine ID — der Name hier geht beim Export hinein
+  // (in einem Pattern-Block benennt das Pattern)
+  if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
@@ -213,8 +217,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       else if (empty(outT)) warnings.push(`${ia.name}: Out ist leer.`);
     }
     // Signale und Nachrichten dürfen ohne In auskommen — auch ein leeres ist kein Mangel
-  } else if (interactionKind(step, processId) && step.id !== spec.steps.find(s => s.kind === 'start')?.id) {
-    // der Start des Prozesses ist keine eigene Nachricht — das ist sein In
+  } else if (interactionKind(step, processId) && step.id !== spec.steps.find(s => s.kind === 'start')?.id && !wiring.has(step.id)) {
+    // der Start des Prozesses ist keine eigene Nachricht — das ist sein In; ebenso
+    // alles in einem Pattern-Block und die Nachricht mit dem Namen des Prozesses (siehe wiringSteps)
     warnings.push('Noch keine Interaktion — Objekt mit In/Out anlegen (Datenmodell → aus dem Ablauf).');
   }
 

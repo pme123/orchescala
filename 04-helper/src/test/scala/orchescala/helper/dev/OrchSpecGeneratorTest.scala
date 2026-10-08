@@ -803,6 +803,37 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       val m = mergeObject.merge(withVal)
       assertEquals(m.linesIterator.count(_.contains("processLabels: ProcessLabels")), 1, m)
 
+  test("registration - a worker registered in a block of another name is not added again"):
+    val workerApp =
+      """object WorkerApp extends CompanyWorkerApp:
+        |  workers(
+        |    lilaSetV2Workers,
+        |  )
+        |
+        |  private lazy val lilaSetV2Workers =
+        |    import a.b.worker.lilaSet.v2.*
+        |    Seq(
+        |      LilaSetWorker(),
+        |      MergeNewAccountsWorker()
+        |    )
+        |  end lilaSetV2Workers
+        |end WorkerApp
+        |""".stripMargin
+    val registration = OrchSpecRegistration(
+      "WorkerApp",
+      "workers(",
+      "lilaSetWorkers",
+      Seq("LilaSetWorker()", "MergeNewAccountsWorker()"),
+      entries => s"  private lazy val lilaSetWorkers =\n    Seq(\n${entries.map(e => s"      $e,").mkString("\n")}\n    )\n  end lilaSetWorkers"
+    )
+    assertEquals(registration.register(workerApp), RegistrationResult.Unchanged)
+    // a new one goes into a block of its own - only that one
+    registration.copy(entries = registration.entries :+ "CalcAgeWorker()").register(workerApp) match
+      case RegistrationResult.Registered(content, _) =>
+        assertEquals(content.linesIterator.count(_.contains("LilaSetWorker()")), 1, content)
+        assert(content.contains("      CalcAgeWorker(),"), content)
+      case other                                     => fail(other.toString)
+
   test("new process object - a descr of several lines is a stripMargin text"):
     val block = mergeObject.block.replace(
       "// descr: Neue Karte\n",
