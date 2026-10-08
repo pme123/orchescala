@@ -30,7 +30,7 @@ import { appProblem, pageProblem, pageSlugProblem } from './pages/runtime/valida
 const DIR = 'processes';
 /** Die Seiten der App (E15) - eine Datei pro Seite, dazu `app.json` */
 const PAGES_DIR = 'pages';
-/** Der Name einer Seiten-Datei - klein, ohne Pfad */
+/** Die Einstellungen der App (Titel, Startseite, Texte für Werte) - neben den Seiten in pages/ */
 const APP_FILE = 'app.json';
 /** Stammdaten — in `config/`, damit dort nur Admins schreiben können */
 export const MODEL_PATH = 'config/model.json';
@@ -285,6 +285,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [pagesApp, setPagesApp] = useState<{ data: PagesApp; version: string } | null>(null);
   // eine app.json, die da ist, aber nicht lesbar - nie wie «keine» überschreiben
   const pagesAppBroken = useRef(false);
+  // jedes Lesen und jedes Schreiben der Seiten zählt hoch - ein Lesen, das während eines Schreibens
+  // lief, überschreibt die Liste nicht mit dem Stand von vorher
+  const pagesGen = useRef(0);
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
@@ -393,6 +396,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Die Seiten: wenige kleine Dateien - eine, die nicht passt, gilt als unlesbar
   const refreshPagesIn = useCallback(async (be: StorageBackend) => {
+    const gen = ++pagesGen.current;
     const items: PageListItem[] = [];
     let app = null as { data: PagesApp; version: string } | null;
     let brokenApp = false;
@@ -415,11 +419,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       }));
     } catch (e) {
+      // die Liste ist nicht lesbar (z.B. SharePoint kurz weg): der Stand von vorher bleibt - app.json
+      // heisst deshalb nicht «kaputt», und ohne Version würde ohnehin nur neu angelegt (createOnly)
       console.error('[orch-spec] refreshPages:', e);
-      brokenApp = true; // die Liste ist nicht lesbar - auch app.json nicht überschreiben
+      return;
     }
-    // ein spätes Lesen eines anderen Ordners (Ordner gewechselt) überschreibt nichts
-    if (backendRef.current !== be) return;
+    // ein spätes Lesen eines anderen Ordners (Ordner gewechselt) oder von vor einem Schreiben überschreibt nichts
+    if (backendRef.current !== be || pagesGen.current !== gen) return;
     pagesAppBroken.current = brokenApp;
     setPages(items.sort(byPath));
     setPagesApp(app);
@@ -834,7 +840,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ── Seiten ────────────────────────────────────────────────────────────────
   // `stale`: inzwischen ist ein anderer Ordner gewählt - das Ergebnis gehört nicht in dessen Liste
-  const writeJson = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult & { exists?: true; stale?: boolean }> => {
+  const writePageFile = useCallback(async (path: string, data: unknown, expectedVersion: string | null): Promise<SaveResult & { exists?: true; stale?: boolean }> => {
     const be = backendRef.current;
     if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
     try { await be.ensureDir(PAGES_DIR); } catch { /* write meldet es */ }
@@ -845,23 +851,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (w.reason === 'exists') return { status: 'error', message: 'Die Datei gibt es schon – Seite neu laden.', exists: true };
       return { status: 'error', message: w.reason === 'forbidden' ? w.message : 'Schreiben fehlgeschlagen — die Datei wurde NICHT gespeichert.' };
     }
+    pagesGen.current++;
     return { status: 'saved', version: w.version, stale: backendRef.current !== be };
   }, []);
 
   const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null): Promise<SaveResult> => {
     const bad = pageSlugProblem(slug);
     if (bad) return { status: 'error', message: bad };
-    const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
+    const r = await writePageFile(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
     if (r.status === 'saved' && !r.stale)
       setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }].sort(byPath));
     return r;
-  }, [writeJson]);
+  }, [writePageFile]);
 
   const createPage = useCallback(async (slug: string, data: Page) => {
     const bad = pageSlugProblem(slug);
     if (bad) return { ok: false as const, message: bad };
     // ohne Version: nur neu anlegen (createOnly)
-    const r = await writeJson(`${PAGES_DIR}/${slug}.json`, data, null);
+    const r = await writePageFile(`${PAGES_DIR}/${slug}.json`, data, null);
     if (r.status !== 'saved')
       return { ok: false as const, message: 'exists' in r && r.exists ? 'Eine Seite mit diesem Namen gibt es schon (vielleicht unlesbar - siehe Konsole).'
         : r.status === 'error' ? r.message
@@ -869,26 +876,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : `Unerwartete Antwort beim Anlegen (Konflikt, Version ${r.currentVersion || '?'}) – Seite neu laden.` };
     if (!r.stale) setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
     return { ok: true as const };
-  }, [writeJson]);
+  }, [writePageFile]);
 
   const deletePage = useCallback(async (slug: string, expectedVersion: string) => {
     const be = backendRef.current;
     if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
     const bad = pageSlugProblem(slug);
     if (bad) return { ok: false as const, message: bad };
-    // löschen kennt kein ifMatch - vorher lesen: eine Seite, die jemand inzwischen geändert hat, bleibt.
-    // Kein Schutz, nur ein kleineres Fenster: eine Änderung zwischen Lesen und Löschen geht verloren
-    let current;
-    try {
-      current = await be.read(`${PAGES_DIR}/${slug}.json`); // null: die Datei gibt es nicht mehr
-    } catch (e) {
-      // nicht lesbar (z.B. SharePoint kurz weg) - dann auch nicht ungeprüft löschen
-      return { ok: false as const, message: `Die Seite ist gerade nicht lesbar – nicht gelöscht (${e instanceof Error ? e.message : String(e)}).` };
-    }
-    if (current && current.version !== expectedVersion)
-      return { ok: false as const, message: 'Die Seite wurde inzwischen geändert – Seite neu laden.' };
-    const d = await be.delete(`${PAGES_DIR}/${slug}.json`);
-    if (!d.ok) return { ok: false as const, message: d.message };
+    // nur die Version, die die Liste zeigt - eine Seite, die jemand inzwischen geändert hat, bleibt
+    const d = await be.delete(`${PAGES_DIR}/${slug}.json`, { ifMatch: expectedVersion });
+    if (!d.ok) return { ok: false as const, message: d.reason === 'conflict' ? 'Die Seite wurde inzwischen geändert – Seite neu laden.' : d.message };
+    pagesGen.current++;
     if (backendRef.current === be) setPages(prev => prev.filter(p => p.slug !== slug));
     return { ok: true as const };
   }, []);
@@ -896,10 +894,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const savePagesApp = useCallback(async (data: PagesApp, expectedVersion: string | null): Promise<SaveResult> => {
     if (pagesAppBroken.current)
       return { status: 'error', message: `${PAGES_DIR}/${APP_FILE} ist nicht lesbar – sie wird nicht überschrieben. Bitte von Hand reparieren.` };
-    const r = await writeJson(`${PAGES_DIR}/${APP_FILE}`, data, expectedVersion);
+    const r = await writePageFile(`${PAGES_DIR}/${APP_FILE}`, data, expectedVersion);
     if (r.status === 'saved' && !r.stale) setPagesApp({ data, version: r.version });
     return r;
-  }, [writeJson]);
+  }, [writePageFile]);
 
   const saveModel = useCallback(async (m: Model): Promise<{ ok: true } | { ok: false; message: string }> => {
     const be = backendRef.current;
