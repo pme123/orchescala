@@ -5,8 +5,10 @@
 
 extracted.json is the object extract.js returned. The choices (primary colour, font, corners) are
 taken from it; --primary / --background / --text / --font / --radius override them. The output is
-{ kind: 'orch-theme', version: 1, name, source, theme }, checked like orch-spec's themeProblem
-(04-orch-spec/src/pages/runtime/theme.ts): colours as #rrggbb, the logo as a data: URI up to 200 KB.
+{ kind: 'orch-theme', version: 1, name, source, theme }. Before it is written, problems() checks it
+the way orch-spec's themeProblem (04-orch-spec/src/pages/runtime/theme.ts) does for what this script
+writes: colours as #rrggbb, a known radius and mode, a font without CSS syntax, the logo as an image
+data: URI up to 200 KB.
 """
 import argparse
 import base64
@@ -78,13 +80,14 @@ def font_stack(family, headings=()):
     if all(n.lower() in SYSTEM | GENERIC for n in names):
         brand = next((h for h in headings if any(n.strip().strip('"\'').lower() not in SYSTEM | GENERIC for n in h.split(','))), None)
         return font_stack(brand) if brand else 'sans'
-    
+
     generic = next((n for n in names if n.lower() in GENERIC), None)
     named = [n for n in names if n.lower() not in GENERIC][:2]
     if not named:
         return {'serif': 'serif', 'monospace': 'mono', 'ui-monospace': 'mono'}.get((generic or '').lower(), 'sans')
-    fallback = 'Georgia, serif' if generic in ('serif', 'ui-serif') else 'Arial, Helvetica, sans-serif'
-    return ', '.join(f'"{n}"' if ' ' in n else n for n in named) + ', ' + fallback
+    fallback = ['Georgia', 'serif'] if generic in ('serif', 'ui-serif') else ['Arial', 'Helvetica', 'sans-serif']
+    stack = named + [f for f in fallback if f.lower() not in {n.lower() for n in named}]
+    return ', '.join(f'"{n}"' if ' ' in n else n for n in stack)
 
 
 def radius(px_values):
@@ -96,14 +99,49 @@ def radius(px_values):
     return None
 
 
+LOGO_TYPES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'}
+
+
 def logo_uri(path):
-    data = open(path, 'rb').read()
+    with open(path, 'rb') as f:
+        data = f.read()
     if len(data) > MAX_LOGO:
         sys.exit(f'Das Logo hat {len(data) // 1024} KB - bis 200 KB (z.B. als SVG oder kleiner skaliert).')
-    mime = 'image/svg+xml' if path.endswith('.svg') else mimetypes.guess_type(path)[0] or 'image/png'
-    if not mime.startswith('image/'):
-        sys.exit(f'{path} ist kein Bild ({mime}).')
+    mime = 'image/svg+xml' if path.lower().endswith('.svg') else mimetypes.guess_type(path)[0] or 'image/png'
+    if mime not in LOGO_TYPES:
+        sys.exit(f'{path} ist kein Logo, das die App nimmt ({mime}; PNG, JPEG, GIF, WebP oder SVG).')
     return f'data:{mime};base64,{base64.b64encode(data).decode()}'
+
+
+def problems(theme):
+    """What orch-spec's themeProblem would reject in a theme this script writes - an empty list if none."""
+    found = []
+    for k in ('primary', 'onPrimary', 'background', 'surface', 'text'):
+        if k in theme and not re.fullmatch(r'#[0-9a-f]{6}', theme[k]):
+            found.append(f'theme.{k} ist keine Farbe #rrggbb: {theme[k]!r}')
+    if 'font' in theme and re.search(r'[;{}<>]', theme['font']):
+        found.append(f'theme.font ist kein Schrift-Stapel: {theme["font"]!r}')
+    if 'radius' in theme and theme['radius'] not in ('none', 'sm', 'md', 'lg', 'xl'):
+        found.append(f'theme.radius ist nicht none, sm, md, lg oder xl: {theme["radius"]!r}')
+    if 'mode' in theme and theme['mode'] not in ('light', 'dark'):
+        found.append(f'theme.mode ist nicht light oder dark: {theme["mode"]!r}')
+    logo = theme.get('logo')
+    if logo is not None:
+        if not re.match(r'data:image/(png|jpeg|gif|webp|svg\+xml);base64,', logo):
+            found.append('theme.logo ist keine data:-URI eines Bilds')
+        if len(logo) > MAX_LOGO * 4 / 3:
+            found.append('theme.logo ist grösser als 200 KB')
+    return found
+
+
+def color_arg(name, value):
+    """An override from the command line as #rrggbb - an invalid one stops with a clear message."""
+    if value is None:
+        return None
+    h = to_hex(value)
+    if not h:
+        sys.exit(f'--{name} {value!r} ist keine Farbe (#rgb, #rrggbb oder rgb(…)).')
+    return h
 
 
 def main():
@@ -118,11 +156,12 @@ def main():
     ap.add_argument('--radius', choices=['none', 'sm', 'md', 'lg', 'xl'])
     ap.add_argument('-o', '--out', required=True)
     a = ap.parse_args()
-    ex = json.load(open(a.extracted))
+    with open(a.extracted, encoding='utf-8') as f:
+        ex = json.load(f)
 
-    primary = to_hex(a.primary) if a.primary else pick_primary(ex)
-    background = to_hex(a.background or ex.get('background')) or '#ffffff'
-    text = to_hex(a.text or ex.get('text')) or '#1a1a1a'
+    primary = color_arg('primary', a.primary) or pick_primary(ex)
+    background = color_arg('background', a.background) or to_hex(ex.get('background')) or '#ffffff'
+    text = color_arg('text', a.text) or to_hex(ex.get('text')) or '#1a1a1a'
     theme = {
         'primary': primary,
         'background': background,
@@ -152,10 +191,14 @@ def main():
     if a.logo:
         theme['logo'] = logo_uri(a.logo)
     theme = {k: v for k, v in theme.items() if v}
+    found = problems(theme)
+    if found:
+        sys.exit('Das Theme nähme orch-spec nicht an:\n  ' + '\n  '.join(found))
 
     out = {'kind': 'orch-theme', 'version': 1, 'name': a.name, 'source': ex.get('url'),
            'extracted': date.today().isoformat(), 'theme': theme}
-    json.dump(out, open(a.out, 'w'), indent=2, ensure_ascii=False)
+    with open(a.out, 'w', encoding='utf-8') as f:
+        json.dump(out, f, indent=2, ensure_ascii=False)
     shown = {k: (v if k != 'logo' else f'data:… ({len(v) * 3 // 4 // 1024} KB)') for k, v in theme.items()}
     print(json.dumps(shown, indent=2, ensure_ascii=False))
     for w in warnings:

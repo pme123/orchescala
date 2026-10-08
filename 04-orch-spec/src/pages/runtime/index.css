@@ -10,10 +10,13 @@ body {
   color: #1a1a1a;
 }
 
-/* die Ecken aus dem Theme der App (theme.ts) - nur, wo es sie setzt */
+/* die Ecken aus dem Theme der App (theme.ts) - nur, wo es sie setzt; rund (rounded-full) bleibt rund */
+[style*="--orch-radius"] .rounded-sm,
 [style*="--orch-radius"] .rounded,
+[style*="--orch-radius"] .rounded-md,
 [style*="--orch-radius"] .rounded-lg,
-[style*="--orch-radius"] .rounded-xl { border-radius: var(--orch-radius); }
+[style*="--orch-radius"] .rounded-xl,
+[style*="--orch-radius"] .rounded-2xl { border-radius: var(--orch-radius); }
 
 .dark body {
   background: #0e0f11;

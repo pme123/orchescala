@@ -1,5 +1,6 @@
 // The designer of the pages: what a page can call, sample data, the block tree and the checks.
 import assert from 'node:assert/strict';
+import { COALESCE_MS, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
 import { test } from 'node:test';
 import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
@@ -269,6 +270,51 @@ test('dataOf - what is in the state of a page and where it comes from', () => {
   assert.equal(at('slot')?.type, 'ein Eintrag aus slots.slots');
   assert.ok(at('query.token'));
   assert.ok(at('user'));
+});
+
+test('dataOf - an input field gives text (the inputs deliver strings), an object for a dotted path', () => {
+  const form: Page = {
+    ...page,
+    state: { count: 0 },
+    body: [{ type: 'fields', fields: [
+      { bind: 'name', label: 'Name' },
+      { bind: 'count', label: 'Anzahl' },
+      { bind: 'contact.email', label: 'E-Mail', input: 'email' },
+    ] }],
+  };
+  const nodes = dataOf(form, targets);
+  const at = (path: string) => nodes.find((n) => n.path === path);
+  assert.equal(at('name')?.type, 'Text');
+  assert.equal(at('contact')?.type, 'Objekt');
+  // the initial state is named first - its type stays, the field is a further source
+  assert.equal(at('count')?.type, 'Zahl');
+  assert.deepEqual(at('count')?.sources, ['Anfangszustand', 'Eingabefeld «Anzahl»']);
+});
+
+test('history - a step per change, typing in one field is one step, redo is gone after a change', () => {
+  let h = emptyHistory<string>();
+  h = record(h, 'a', undefined, 0); // a -> b
+  h = record(h, 'b', 'props:0', 100); // b -> c (typing)
+  h = record(h, 'c', 'props:0', 600); // c -> d: the same field within 1 s - the same step
+  assert.deepEqual(h.past, ['a', 'b']);
+  h = record(h, 'd', 'props:0', 600 + COALESCE_MS); // a pause: a new step
+  assert.deepEqual(h.past, ['a', 'b', 'd']);
+  h = record(h, 'e', 'props:1', 2700); // another field: a new step
+  assert.deepEqual(h.past, ['a', 'b', 'd', 'e']);
+  const back = travel(h, 'f', 'undo')!;
+  assert.equal(back.value, 'e');
+  assert.deepEqual(back.history.future, ['f']);
+  assert.equal(back.history.last, null); // typing after an undo is a new step
+  const again = travel(back.history, 'e', 'redo')!;
+  assert.equal(again.value, 'f');
+  assert.deepEqual(again.history.past, ['a', 'b', 'd', 'e']);
+  assert.deepEqual(record(back.history, 'e', undefined, 5000).future, []); // a change drops redo
+  assert.equal(travel(emptyHistory<string>(), 'x', 'undo'), null);
+  assert.equal(travel(emptyHistory<string>(), 'x', 'redo'), null);
+  let long = emptyHistory<number>();
+  for (let i = 0; i < HISTORY_LIMIT + 20; i++) long = record(long, i, undefined, i * 2000);
+  assert.equal(long.past.length, HISTORY_LIMIT);
+  assert.equal(long.past[0], 20); // the oldest are gone
 });
 
 test('relocateBlock - out of its own section, and into a later section after the shift', () => {

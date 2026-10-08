@@ -16,6 +16,7 @@ import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
 import { DataView } from './DataView';
 import { IconButton } from './fields';
+import { emptyHistory, record, travel, type History } from './history';
 import {
   actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
@@ -133,36 +134,28 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     timer.current = setTimeout(() => void flush(), 1000);
   };
 
-  // ---- rückgängig: jede Änderung der Seite; Tippen in einem Feld ist ein Schritt (bis 1 s Pause)
-  const past = useRef<Page[]>([]);
-  const future = useRef<Page[]>([]);
-  const lastEdit = useRef<{ key: string; at: number } | null>(null);
+  // ---- rückgängig: jede Änderung der Seite; Tippen in einem Feld ist ein Schritt (history.ts). Die Stände
+  // gehören zu dieser Seite: der Designer hängt den Editor mit key={slug} ein, eine andere Seite beginnt neu.
+  const history = useRef<History<Page>>(emptyHistory());
   const [, setHistoryTick] = useState(0);
   const update = (next: Page, coalesce?: string) => {
     if (!canEdit || !page) return;
-    const now = Date.now();
-    const same = coalesce !== undefined && lastEdit.current?.key === coalesce && now - lastEdit.current.at < 1000;
-    if (!same) {
-      past.current = [...past.current.slice(-99), page];
-      future.current = [];
-    }
-    lastEdit.current = coalesce === undefined ? null : { key: coalesce, at: now };
+    history.current = record(history.current, page, coalesce, Date.now());
     store(next);
     setHistoryTick((t) => t + 1);
   };
-  const travel = (from: React.MutableRefObject<Page[]>, to: React.MutableRefObject<Page[]>) => {
-    if (!canEdit || !page || from.current.length === 0) return;
-    const next = from.current[from.current.length - 1];
-    from.current = from.current.slice(0, -1);
-    to.current = [...to.current, page];
-    lastEdit.current = null;
-    store(next);
+  const step = (dir: 'undo' | 'redo') => {
+    if (!canEdit || !page) return;
+    const done = travel(history.current, page, dir);
+    if (!done) return;
+    history.current = done.history;
+    store(done.value);
     // ein Baustein, den es danach nicht mehr gibt, ist nicht mehr gewählt
-    setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null));
+    setSelected((s) => (s !== null && blockAt(done.value.body, s) ? s : null));
     setHistoryTick((t) => t + 1);
   };
-  const undo = () => travel(past, future);
-  const redo = () => travel(future, past);
+  const undo = () => step('undo');
+  const redo = () => step('redo');
 
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : EMPTY), [model, specs]);
   const gateway = useMemo(() => previewGateway(targets), [targets]);
@@ -262,8 +255,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         )}
         {canEdit && (
           <div className="ml-auto flex items-center gap-0.5">
-            <IconButton isDark={isDark} title="rückgängig (⌘Z)" disabled={past.current.length === 0} onClick={undo}><Undo2 size={12} /></IconButton>
-            <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={future.current.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
+            <IconButton isDark={isDark} title="rückgängig (⌘Z)" disabled={history.current.past.length === 0} onClick={undo}><Undo2 size={12} /></IconButton>
+            <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={history.current.future.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
           </div>
         )}
         <span className={`${canEdit ? '' : 'ml-auto '}text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>

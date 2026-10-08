@@ -53,18 +53,48 @@ export function Chip({ tone, isDark, children, title }: {
   );
 }
 
+/** Wo der Browser die Wahl des Benutzers (hell/dunkel) für die Seiten merkt - nicht `orch-ui.theme`: das
+  * schreibt orch-spec auf demselben Origin bei jedem Laden, es ist also keine Wahl. */
+export const CHOICE_KEY = 'orch-pages.theme';
+/** Der Modus, den die App zuletzt vorgab - damit eine dunkle App nicht hell aufblitzt, bis pages.json da ist. */
+export const APP_MODE_KEY = 'orch-pages.app-mode';
+
+type Mode = 'light' | 'dark';
+type Store = Pick<Storage, 'getItem' | 'setItem'>;
+const store = (): Store | null => {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
+};
+
+/** Ein gemerkter Modus - null ohne Speicher oder Wert. */
+export function storedMode(key: string, from: Store | null = store()): Mode | null {
+  try {
+    const v = from?.getItem(key);
+    return v === 'dark' || v === 'light' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberMode(key: string, mode: Mode | undefined, to: Store | null = store()): void {
+  try {
+    if (mode) to?.setItem(key, mode);
+  } catch {
+    // kein Speicher - nur für diese Sitzung
+  }
+}
+
+/** Dunkel? Die Wahl des Benutzers vor der Vorgabe der App; ohne beides hell. */
+export const isDarkMode = (chosen: Mode | null, preferred: Mode | undefined): boolean => (chosen ?? preferred) === 'dark';
+
 /** Hell/Dunkel wie in den z9nai-Apps: Klasse `dark` am html-Element. Die Wahl des Benutzers merkt sich der
   * Browser; ohne Wahl gilt die Vorgabe der App (`theme.mode`). */
-export function useTheme(preferred?: 'light' | 'dark'): { isDark: boolean; toggleTheme: () => void } {
-  const [chosen, setChosen] = useState<'light' | 'dark' | null>(() => {
-    try {
-      const v = localStorage.getItem('orch-ui.theme');
-      return v === 'dark' || v === 'light' ? v : null;
-    } catch {
-      return null;
-    }
-  });
-  const isDark = (chosen ?? preferred) === 'dark';
+export function useTheme(preferred?: Mode): { isDark: boolean; toggleTheme: () => void } {
+  const [chosen, setChosen] = useState<Mode | null>(() => storedMode(CHOICE_KEY));
+  const isDark = isDarkMode(chosen, preferred);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     document.documentElement.classList.toggle('light', !isDark);
@@ -72,11 +102,7 @@ export function useTheme(preferred?: 'light' | 'dark'): { isDark: boolean; toggl
   const toggleTheme = () => {
     const next = isDark ? 'light' : 'dark';
     setChosen(next);
-    try {
-      localStorage.setItem('orch-ui.theme', next);
-    } catch {
-      // kein Speicher - nur für diese Sitzung
-    }
+    rememberMode(CHOICE_KEY, next);
   };
   return { isDark, toggleTheme };
 }

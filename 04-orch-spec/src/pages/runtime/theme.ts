@@ -11,18 +11,55 @@ export const FONTS: Record<string, string> = {
 
 const RADIUS: Record<NonNullable<Theme['radius']>, string> = { none: '0px', sm: '4px', md: '8px', lg: '12px', xl: '18px' };
 
-const COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%deg]+\))$/i;
+// genau die Formen, die CSS nimmt: #rgb, #rgba, #rrggbb, #rrggbbaa; rgb()/rgba() und hsl()/hsla() mit
+// Kommas oder Leerzeichen (und «/ alpha») - kein «rgb(%%)», das still keine Farbe gäbe
+const N = String.raw`\d{1,3}(?:\.\d+)?%?`;
+const A = String.raw`(?:\d*\.)?\d+%?`;
+const H = String.raw`-?\d{1,3}(?:\.\d+)?(?:deg)?`;
+const P = String.raw`\d{1,3}(?:\.\d+)?%`;
+const COLOR = new RegExp(
+  '^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})' +
+    `|rgba?\\(\\s*${N}\\s*,\\s*${N}\\s*,\\s*${N}\\s*(?:,\\s*${A}\\s*)?\\)` +
+    `|rgba?\\(\\s*${N}\\s+${N}\\s+${N}\\s*(?:/\\s*${A}\\s*)?\\)` +
+    `|hsla?\\(\\s*${H}\\s*,\\s*${P}\\s*,\\s*${P}\\s*(?:,\\s*${A}\\s*)?\\)` +
+    `|hsla?\\(\\s*${H}\\s+${P}\\s+${P}\\s*(?:/\\s*${A}\\s*)?\\))$`,
+  'i',
+);
 
 /** Eine Farbe, wie das Theme sie nimmt (#rrggbb, rgb(…), hsl(…)). */
 export const isThemeColor = (v: string): boolean => COLOR.test(v);
 
-/** Ist die Farbe hell? Für den Text auf ihr - nur #rgb / #rrggbb, sonst «dunkel». */
-function isLight(color: string): boolean {
-  const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})/i)?.[1];
-  if (!hex) return false;
-  const full = hex.length === 3 ? hex.split('').map((h) => h + h).join('') : hex;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6;
+/** Rot, Grün, Blau (0…1) einer Theme-Farbe - null, wenn es keine ist. */
+export function rgbOf(color: string): [number, number, number] | null {
+  if (!COLOR.test(color)) return null;
+  const c = color.trim().toLowerCase();
+  if (c.startsWith('#')) {
+    const h = c.slice(1);
+    const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255) as [number, number, number];
+  }
+  const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
+  const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
+  if (c.startsWith('rgb')) return nums.slice(0, 3).map((v) => Math.min(1, part(v, 255))) as [number, number, number];
+  const hue = ((parseFloat(nums[0]) % 360) + 360) % 360;
+  const [s, l] = [part(nums[1], 100), part(nums[2], 100)].map((v) => Math.min(1, v));
+  const k = (n: number) => (n + hue / 30) % 12;
+  const f = (n: number) => l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return [f(0), f(8), f(4)];
+}
+
+/** Die relative Leuchtdichte nach WCAG - wie build_theme.py des Skills. */
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** Der Text auf einer Farbe: Schwarz oder Weiss, was den grösseren Kontrast hat (WCAG, wie der Skill). */
+export function textOn(color: string): '#000000' | '#ffffff' {
+  const rgb = rgbOf(color);
+  if (!rgb) return '#ffffff';
+  const l = luminance(rgb);
+  return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#000000' : '#ffffff';
 }
 
 /** Was an einem Theme nicht stimmt - null, wenn es passt. Für den Import und den Build. */
@@ -49,7 +86,7 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
   const v: Record<string, string> = {};
   if (theme.primary) {
     v['--orch-primary'] = theme.primary;
-    v['--orch-on-primary'] = theme.onPrimary ?? (isLight(theme.primary) ? '#000000' : '#ffffff');
+    v['--orch-on-primary'] = theme.onPrimary ?? textOn(theme.primary);
   }
   if (!isDark) {
     if (theme.background) v['--orch-bg'] = theme.background;

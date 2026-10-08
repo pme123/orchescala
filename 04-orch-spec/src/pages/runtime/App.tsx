@@ -3,10 +3,11 @@ import type { User } from 'oidc-client-ts';
 import { useEffect, useState } from 'react';
 import { gateway } from './api';
 import { completeLogin, currentUser, login, logout, rolesOf } from './auth';
+import { homeParams } from './homeParams';
 import PageView from './PageView';
 import type { Page, Pages } from './spec';
 import { themeStyle } from './theme';
-import { cls, useTheme } from './ui';
+import { APP_MODE_KEY, cls, rememberMode, storedMode, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
 
@@ -31,7 +32,8 @@ function pagePath(): string {
 type Loaded = { pages: Pages; page?: Page; user: User | null };
 
 export default function App() {
-  const [preferred, setPreferred] = useState<'light' | 'dark' | undefined>();
+  // die Vorgabe vom letzten Mal, bis pages.json da ist - eine dunkle App blitzt so nicht hell auf
+  const [preferred, setPreferred] = useState<'light' | 'dark' | undefined>(() => storedMode(APP_MODE_KEY) ?? undefined);
   const { isDark, toggleTheme } = useTheme(preferred);
   const c = cls(isDark);
   const embedded = new URLSearchParams(window.location.search).has('embed');
@@ -49,12 +51,9 @@ export default function App() {
         return r.json();
       });
       const loggedIn = await completeLogin().catch(() => false); // Rückkehr vom IdP
-      // zur Startseite - mit den Parametern des Links (z.B. ?token=…). An der Wurzel kommt nur der IdP zurück:
-      // code/state, die nicht übernommen wurden (z.B. mit «Zurück» auf die alte Rückkehr), nicht mitnehmen
+      // zur Startseite - mit den Parametern des Links, ohne eine Antwort des IdP, die nicht übernommen wurde
       if (pagePath() === '' && pages.app.home) {
-        const params = new URLSearchParams(window.location.search);
-        if (!loggedIn) for (const p of ['code', 'state', 'session_state', 'iss']) params.delete(p);
-        const rest = params.toString();
+        const rest = homeParams(window.location.search, loggedIn);
         window.history.replaceState({}, '', `${base}${pages.app.home}${rest ? `?${rest}` : ''}`);
       }
       const page = pages.pages.find((p) => p.path === pagePath());
@@ -62,6 +61,7 @@ export default function App() {
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
       if (!current) return;
       setPreferred(pages.app.theme?.mode);
+      rememberMode(APP_MODE_KEY, pages.app.theme?.mode ?? 'light');
       setLoaded({ pages, page, user });
       document.title = [page?.title, pages.app.title].filter(Boolean).join(' · ');
     })().catch((e) => current && setFailure(e instanceof Error ? e.message : String(e)));
@@ -72,6 +72,14 @@ export default function App() {
 
   const app = loaded?.pages.app;
   const page = loaded?.page;
+  const style = themeStyle(app?.theme, isDark);
+  // der Hintergrund auch am body - beim Überscrollen und eingebettet ist er sonst der z9nai-Hintergrund
+  const bg = (style as Record<string, string | undefined>)['--orch-bg'];
+  useEffect(() => {
+    const root = document.documentElement.style;
+    if (bg) root.setProperty('--orch-bg', bg);
+    else root.removeProperty('--orch-bg');
+  }, [bg]);
   const user = loaded?.user;
 
   let content: React.ReactNode;
@@ -96,7 +104,7 @@ export default function App() {
     );
 
   return (
-    <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`} style={themeStyle(app?.theme, isDark)}>
+    <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`} style={style}>
       {!embedded && (
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
           {app?.theme?.logo
