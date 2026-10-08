@@ -191,19 +191,19 @@ trait DocCreator extends DependencyCreator, Helpers:
     // Use ZIO to run fetchConf in parallel
     import zio.*
 
-    val configs = Unsafe.unsafe { implicit unsafe =>
+    // the BPMN and the worker version of a project share its folder (`-worker` stripped): one after the
+    // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version
+    val perProject = java.util.concurrent.ConcurrentHashMap[String, Object]()
+    val configs    = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
         ZIO.foreachPar(versions.toSeq) { case (projectName, version) =>
           // git and tar processes - not on the threads of the ZIO scheduler
           ZIO.attemptBlocking {
             val previousVersion =
               previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
-            fetchConf(
-              projectName.replace("-worker", ""),
-              version,
-              previousVersion,
-              projectName.endsWith("worker")
-            )
+            val project         = projectName.replace("-worker", "")
+            perProject.computeIfAbsent(project, _ => Object()).synchronized:
+              fetchConf(project, version, previousVersion, projectName.endsWith("worker"))
           }
         }.withParallelism(apiConfig.engineConfig.parallelism)
       ).getOrThrow()
