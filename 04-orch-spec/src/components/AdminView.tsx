@@ -23,11 +23,14 @@
 // in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
 // eine Frage, die sich hier stellt — steht das drin?
 import { useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Puzzle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
-import { GUID_RE, setupLink } from '../auth';
+import { GUID_RE, setupLink, usePermissions } from '../auth';
 import type { CatalogFile } from '../catalogImport';
 import BrandingForm from './BrandingForm';
+import { appProblem } from '../pages/runtime/validate';
+import { draftAfterSave, ThemeEditor } from '../pages/designer/ThemeEditor';
+import type { Theme } from '../pages/runtime/spec';
 import CatalogBuild from './CatalogBuild';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
@@ -119,6 +122,13 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
         hint="Name und Logo stehen links in der Kopfzeile."
         more="Ohne Namen heisst die App dort schlicht «Orch Spec». Das Logo liegt als Data-URI in der model.json — eine zweite Datei im geteilten Ordner wäre umständlicher, eine Adresse von aussen gäbe es in der Bankenzone nicht. Deshalb muss es klein bleiben (bis 200 KB).">
         <BrandingForm model={model} isDark={isDark} onSave={saveModel} />
+      </AdminSection>
+
+      <AdminSection id="app-theme" icon={<Palette size={13} />} title="Theme der App" isDark={isDark}
+        state={<AppThemeState isDark={isDark} />}
+        hint="Farben, Schrift, Ecken und Logo der Seiten - z.B. aus der Website der Bank importiert."
+        more="Gilt für die Seiten der App (pages/app.json, theme) - in der App und in der Vorschau des Designers. Eine Theme-Datei macht der Skill orch-theme-from-site aus der Website der Bank; importieren, prüfen, speichern. Das Logo liegt als data:-URI im Theme (bis 200 KB), die Schrift ist ein Stapel von Systemschriften - in der Bankenzone gibt es keine Adresse von aussen.">
+        <AppThemeForm isDark={isDark} />
       </AdminSection>
 
       <AdminSection id="catalog" icon={<BookOpen size={13} />} title="Katalog" isDark={isDark}
@@ -386,5 +396,53 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl, state }: {
         </SaveRow>
       </div>
     </AdminSection>
+  );
+}
+
+/** Der Zustand des Themes der App - für den Kopf des Abschnitts. */
+function AppThemeState({ isDark }: { isDark: boolean }) {
+  const { pagesApp } = useStore();
+  const t = pagesApp?.data.theme;
+  return <StateChip tone={t ? 'ok' : 'off'} label={t ? 'eigenes Theme' : 'z9nai-Stil'} isDark={isDark} />;
+}
+
+/** Das Theme der App bearbeiten und speichern - in pages/app.json, neben Titel, Startseite und Texten. */
+function AppThemeForm({ isDark }: { isDark: boolean }) {
+  const { pagesApp, savePagesApp } = useStore();
+  const { canEdit } = usePermissions();
+  const c = cls(isDark);
+  // erst eine Änderung macht einen Entwurf - bis dahin das Theme, wie es (auch später) geladen ist: ein
+  // pages/app.json, das nach dem Öffnen kommt, wird so nicht beim Speichern durch «kein Theme» ersetzt
+  const [draft, setDraft] = useState<{ theme: Theme | undefined } | null>(null);
+  const theme = draft ? draft.theme : pagesApp?.data.theme;
+  const [msg, setMsg] = useState<string | null>(null);
+  const changed = draft !== null && JSON.stringify(draft.theme ?? null) !== JSON.stringify(pagesApp?.data.theme ?? null);
+  return (
+    <div className="space-y-3">
+      <ThemeEditor isDark={isDark} theme={theme} onChange={(t) => { setDraft({ theme: t }); setMsg(null); }} canEdit={canEdit} />
+      {canEdit && (
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={!changed}
+            onClick={async () => {
+              const app = { ...(pagesApp?.data ?? {}), theme };
+              // dieselbe Prüfung wie beim Laden und Bauen - sonst liesse sich die Datei danach nicht mehr öffnen
+              const problem = appProblem(app);
+              if (problem) return setMsg(`So nicht speicherbar: ${problem}`);
+              // savePagesApp antwortet mit einem Status - fällt es trotzdem (ein Fehler der Ablage), sagen wir es
+              const r = await savePagesApp(app, pagesApp?.version ?? null)
+                .catch((e: unknown) => ({ status: 'error' as const, message: e instanceof Error ? e.message : String(e) }));
+              // gespeichert ist, was beim Klick galt - eine Änderung seither bleibt ein Entwurf
+              // ohne geladenes pages/app.json (version null) legt das Speichern sie nur neu an - eine, die es
+              // gibt, überschreibt es nicht («Die Datei gibt es schon»)
+              if (r.status === 'saved') setDraft((d) => draftAfterSave(d, theme));
+              setMsg(r.status === 'saved' ? 'gespeichert' : r.status === 'conflict' ? 'pages/app.json wurde inzwischen geändert - neu laden.' : r.message);
+            }}
+            className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+            Speichern
+          </button>
+          {msg && <span className={`text-[10px] ${msg === 'gespeichert' ? 'text-emerald-600' : 'text-rose-500'}`}>{msg}</span>}
+        </div>
+      )}
+    </div>
   );
 }

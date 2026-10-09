@@ -1,9 +1,11 @@
 // The designer of the pages: what a page can call, sample data, the block tree and the checks.
 import assert from 'node:assert/strict';
+import { COALESCE_MAX_MS, COALESCE_MS, coalesceKey, diffPath, emptyHistory, HISTORY_LIMIT, record, travel } from '../src/pages/designer/history';
+import { designerKey, type KeyLike } from '../src/pages/designer/keys';
 import { test } from 'node:test';
 import {
-  blockAt, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, removeBlock, sampleOf,
-  slugOf, statePaths, targetsOf, updateBlock,
+  blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
+  dataOf, lostOnConvert, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
 } from '../src/pages/designer/model';
 import type { Model, ProcessSpec } from '../src/types';
 import type { Component, Page } from '../src/pages/runtime/spec';
@@ -191,4 +193,341 @@ test('pageFindings - a message without business key', () => {
 test('slugOf', () => {
   assert.equal(slugOf('appointments/book'), 'book');
   assert.equal(slugOf('Termin Buchen'), 'termin-buchen');
+});
+
+test('placeBlock - before, after, into a section', () => {
+  const body = page.body; // 0 heading, 1 section [1.0 pick, 1.1 text], 2 button
+  const text = newBlock('text');
+  const before = placeBlock(body, text, '1.0', 'before');
+  assert.equal(before.key, '1.0');
+  assert.equal(blockAt(before.body, '1.1')?.type, 'pick');
+  const after = placeBlock(body, text, '2', 'after');
+  assert.equal(after.key, '3');
+  const inside = placeBlock(body, text, '1', 'inside');
+  assert.equal(inside.key, '1.2');
+  // inside something that is no section: after it
+  assert.equal(placeBlock(body, text, '0', 'inside').key, '1');
+});
+
+test('relocateBlock - drag and drop in the outline', () => {
+  const body = page.body;
+  // down in the same list: the target shifts by one after the removal
+  const down = relocateBlock(body, '0', '2', 'after');
+  assert.deepEqual(down.body.map((b) => b.type), ['section', 'button', 'heading']);
+  assert.equal(down.key, '2');
+  // into a section and out again
+  const into = relocateBlock(body, '2', '1', 'inside');
+  assert.equal(into.key, '1.2');
+  assert.equal(blockAt(into.body, '1.2')?.type, 'button');
+  const out = relocateBlock(into.body, '1.0', '0', 'before');
+  assert.equal(out.key, '0');
+  assert.equal(blockAt(out.body, '0')?.type, 'pick');
+  assert.equal((blockAt(out.body, '2') as Extract<Component, { type: 'section' }>).body.length, 2);
+  // a section into itself or its children: nothing happens
+  assert.equal(relocateBlock(body, '1', '1.0', 'before').body, body);
+  assert.equal(relocateBlock(body, '1', '1', 'inside').body, body);
+  // before a later sibling of a block in a section (the section's index shifts)
+  const fromSection = relocateBlock(body, '0', '1.1', 'before');
+  assert.equal(fromSection.key, '0.1');
+  assert.equal(blockAt(fromSection.body, '0.1')?.type, 'heading');
+});
+
+test('wrapInSection and unwrapSection', () => {
+  const wrapped = wrapInSection(page.body, '2');
+  assert.equal(blockAt(wrapped.body, '2')?.type, 'section');
+  assert.equal(blockAt(wrapped.body, '2.0')?.type, 'button');
+  const unwrapped = unwrapSection(page.body, '1');
+  assert.deepEqual(unwrapped.body.map((b) => b.type), ['heading', 'pick', 'text', 'button']);
+  assert.equal(unwrapped.key, '1');
+  assert.equal(unwrapSection(page.body, '0').body, page.body); // no section
+});
+
+test('convertBlock - the text, the binding and the condition stay', () => {
+  const heading = convertBlock({ type: 'text', text: 'Hallo', visible: "step == 'a'" }, 'heading');
+  assert.deepEqual(heading, { type: 'heading', text: 'Hallo', visible: "step == 'a'" });
+  const button = convertBlock({ type: 'heading', text: 'Weiter' }, 'button');
+  assert.equal((button as { label: string }).label, 'Weiter');
+  assert.deepEqual((button as { actions: unknown[] }).actions, []);
+  const pick = convertBlock({ type: 'choice', bind: 'topic', label: 'Thema', required: true, options: [] }, 'pick');
+  assert.equal((pick as { bind: string }).bind, 'topic');
+  assert.equal((pick as { label: string }).label, 'Thema');
+  assert.equal((pick as { required: boolean }).required, true);
+  assert.equal(convertBlock(page.body[0], 'heading'), page.body[0]); // the same type: unchanged
+});
+
+test('dataOf - what is in the state of a page and where it comes from', () => {
+  const nodes = dataOf(page, targets);
+  const at = (path: string) => nodes.find((n) => n.path === path);
+  // the result of the load action: the Out of the service, with its list of slots
+  const slots = at('slots')!;
+  assert.deepEqual(slots.sources, ['Laden: acme-shop-freeSlots']);
+  assert.equal(slots.type, 'FreeSlots.Out');
+  assert.equal(slots.fields?.[0].name, 'slots');
+  assert.equal(slots.fields?.[0].collection, true);
+  assert.deepEqual(slots.fields?.[0].fields?.map((f) => f.name), ['start', 'end', 'advisorName', 'topic']);
+  // the initial state and a binding on the same path: one entry, both sources
+  assert.deepEqual(at('topic')?.sources, ['Anfangszustand']);
+  assert.deepEqual(at('slot')?.sources, ['Auswahl aus Liste «slot»']);
+  assert.equal(at('slot')?.type, 'ein Eintrag aus slots.slots');
+  assert.ok(at('query.token'));
+  assert.ok(at('user'));
+});
+
+test('placeBlock - the page itself (no block key): at the end of the page, not silently at the start', () => {
+  const r = placeBlock(page.body, { type: 'text', text: 'neu' }, '', 'inside');
+  assert.equal(r.key, String(page.body.length));
+  assert.deepEqual(r.body.map((b) => b.type), [...page.body.map((b) => b.type), 'text']);
+  assert.equal(placeBlock(page.body, { type: 'text', text: 'x' }, '', 'before').key, String(page.body.length));
+});
+
+test('relocateBlock - into a later sibling\'s child, inside its old parent, to the page', () => {
+  const t = (text: string): Component => ({ type: 'text', text });
+  const body: Component[] = [
+    t('a'),
+    { type: 'section', label: 'S', body: [t('s0'), { type: 'section', label: 'Inner', body: [t('i0')] }] },
+  ];
+  // a (index 0) before i0 (1.1.0) - after the removal the path is 0.1.0
+  const deep = relocateBlock(body, '0', '1.1.0', 'before');
+  assert.equal(deep.key, '0.1.0');
+  assert.equal((blockAt(deep.body, '0.1.0') as { text: string }).text, 'a');
+  assert.equal((blockAt(deep.body, '0.1.1') as { text: string }).text, 'i0');
+  // s0 «inside» its own section: at its end
+  const own = relocateBlock(body, '1.0', '1', 'inside');
+  assert.equal(own.key, '1.1');
+  assert.deepEqual((blockAt(own.body, '1') as Extract<Component, { type: 'section' }>).body.map((b) => b.type), ['section', 'text']);
+  // to the page (''): at its end
+  const top = relocateBlock(body, '1.1.0', '', 'inside');
+  assert.equal(top.key, '2');
+  assert.equal((blockAt(top.body, '2') as { text: string }).text, 'i0');
+  assert.deepEqual((blockAt(top.body, '1.1') as Extract<Component, { type: 'section' }>).body, []);
+});
+
+test('relocateBlock - the index shifts: into a later sibling section, out to a later place, onto an ancestor', () => {
+  const t = (text: string): Component => ({ type: 'text', text });
+  const body: Component[] = [t('a'), { type: 'section', label: 'S', body: [t('s0'), t('s1')] }, t('b')];
+  // a (0) into the later section (1) - after the removal it is at 0
+  const into = relocateBlock(body, '0', '1', 'inside');
+  assert.equal(into.key, '0.2');
+  assert.deepEqual((into.body[0] as Extract<Component, { type: 'section' }>).body.map((b) => (b as { text: string }).text), ['s0', 's1', 'a']);
+  // s0 out of the section, after b (2) - other parent: no shift
+  const out = relocateBlock(body, '1.0', '2', 'after');
+  assert.equal(out.key, '3');
+  assert.deepEqual(out.body.map((b) => (b.type === 'text' ? b.text : b.type)), ['a', 'section', 'b', 's0']);
+  // s1 onto its own section (an ancestor) before it - out in front of the section
+  const anc = relocateBlock(body, '1.1', '1', 'before');
+  assert.equal(anc.key, '1');
+  assert.deepEqual(anc.body.map((b) => (b.type === 'text' ? b.text : b.type)), ['a', 's1', 'section', 'b']);
+  // a section onto its own child: nothing changes
+  assert.equal(relocateBlock(body, '1', '1.0', 'before').body, body);
+  // a target that is no block (any more - e.g. after an undo mid-drag): nothing moves
+  const stale = relocateBlock(body, '0', '7', 'before');
+  assert.equal(stale.body, body);
+  assert.equal(stale.key, '0');
+  assert.equal(relocateBlock(body, '0', '1.9', 'after').body, body);
+});
+
+test('unwrapSection - a nested section: its blocks in its place, in the parent section', () => {
+  const t = (text: string): Component => ({ type: 'text', text });
+  const body: Component[] = [{ type: 'section', label: 'S', body: [t('s0'), { type: 'section', label: 'Inner', body: [t('i0'), t('i1')] }, t('s2')] }];
+  const r = unwrapSection(body, '0.1');
+  assert.equal(r.key, '0.1');
+  assert.deepEqual((r.body[0] as Extract<Component, { type: 'section' }>).body.map((b) => (b as { text: string }).text), ['s0', 'i0', 'i1', 's2']);
+  const empty = unwrapSection([{ type: 'section', label: 'S', body: [{ type: 'section', label: 'E', body: [] }] }], '0.0');
+  assert.equal(empty.key, '0'); // the parent section is selected
+});
+
+test('dataOf - an input field gives text (the inputs deliver strings), an object for a dotted path', () => {
+  const form: Page = {
+    ...page,
+    state: { count: 0 },
+    body: [{ type: 'fields', fields: [
+      { bind: 'name', label: 'Name' },
+      { bind: 'count', label: 'Anzahl' },
+      { bind: 'contact.email', label: 'E-Mail', input: 'email' },
+    ] }],
+  };
+  const nodes = dataOf(form, targets);
+  const at = (path: string) => nodes.find((n) => n.path === path);
+  assert.equal(at('name')?.type, 'Text');
+  assert.equal(at('contact')?.type, 'Objekt');
+  // the initial state is named first - its type stays, the field is a further source
+  assert.equal(at('count')?.type, 'Zahl');
+  assert.deepEqual(at('count')?.sources, ['Anfangszustand', 'Eingabefeld «Anzahl»']);
+});
+
+test('history - a step per change, typing in one field is one step, redo is gone after a change', () => {
+  let h = emptyHistory<string>();
+  h = record(h, 'a', undefined, 0); // a -> b
+  h = record(h, 'b', 'props:0', 100); // b -> c (typing)
+  h = record(h, 'c', 'props:0', 600); // c -> d: the same field within 1 s - the same step
+  assert.deepEqual(h.past, ['a', 'b']);
+  h = record(h, 'd', 'props:0', 600 + COALESCE_MS); // a pause: a new step
+  assert.deepEqual(h.past, ['a', 'b', 'd']);
+  h = record(h, 'e', 'props:1', 2700); // another field: a new step
+  assert.deepEqual(h.past, ['a', 'b', 'd', 'e']);
+  const back = travel(h, 'f', 'undo')!;
+  assert.equal(back.value, 'e');
+  assert.deepEqual(back.history.future, ['f']);
+  assert.equal(back.history.last, null); // typing after an undo is a new step
+  const again = travel(back.history, 'e', 'redo')!;
+  assert.equal(again.value, 'f');
+  assert.deepEqual(again.history.past, ['a', 'b', 'd', 'e']);
+  assert.deepEqual(record(back.history, 'e', undefined, 5000).future, []); // a change drops redo
+  assert.equal(travel(emptyHistory<string>(), 'x', 'undo'), null);
+  assert.equal(travel(emptyHistory<string>(), 'x', 'redo'), null);
+  let long = emptyHistory<number>();
+  for (let i = 0; i < HISTORY_LIMIT + 20; i++) long = record(long, i, undefined, i * 2000);
+  assert.equal(long.past.length, HISTORY_LIMIT);
+  assert.equal(long.past[0], 20); // the oldest are gone
+});
+
+test('history - typing without a 1 s pause stays one step (up to COALESCE_MAX_MS); a pause starts the next', () => {
+  let h = emptyHistory<string>();
+  // a keystroke every 400 ms for 10 s - each refreshes the time, so all of it is one step
+  for (let i = 0; i < 25; i++) h = record(h, `v${i}`, 'props:0', i * 400);
+  assert.deepEqual(h.past, ['v0']);
+  h = record(h, 'v25', 'props:0', 24 * 400 + COALESCE_MS); // the pause: a new step
+  assert.deepEqual(h.past, ['v0', 'v25']);
+});
+
+test('diffPath - the coalesce key: one field is one step, another field or deleting an option a new one', () => {
+  const choice: Component = { type: 'choice', label: 'Thema', bind: 'topic', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] };
+  assert.equal(diffPath(choice, { ...choice, label: 'Them' }), 'label');
+  assert.equal(diffPath(choice, { ...choice, bind: 'topi' }), 'bind');
+  const renamed = { ...choice, options: [{ value: 'a', label: 'AA' }, choice.options[1]] };
+  assert.equal(diffPath(choice, renamed), 'options.0.label');
+  assert.equal(diffPath(choice, { ...choice, options: [choice.options[0]] }), 'options'); // deleted
+  assert.equal(diffPath(choice, { ...choice, label: 'X', bind: 'y' }), ''); // several at once
+  assert.equal(diffPath(choice, choice), '');
+  // in the history: label, then bind on the same block within 1 s - two steps; typing the label - one
+  const key = (next: Component) => `props:0:${diffPath(choice, next)}`;
+  let h = emptyHistory<string>();
+  h = record(h, 'v0', key({ ...choice, label: 'T' }), 0);
+  h = record(h, 'v1', key({ ...choice, label: 'Th' }), 200);
+  h = record(h, 'v2', key({ ...choice, bind: 't' }), 400);
+  h = record(h, 'v3', key({ ...choice, options: [choice.options[0]] }), 600);
+  assert.deepEqual(h.past, ['v0', 'v2', 'v3']);
+});
+
+test('dataOf - nested paths: the field of an object binding, the fields of an initial object', () => {
+  const form: Page = {
+    ...page,
+    state: { address: { street: '', city: { zip: '', name: '' } }, items: [{ id: 1 }] },
+    body: [{ type: 'fields', fields: [{ bind: 'contact.email', label: 'E-Mail' }, { bind: 'contact.phone.mobile', label: 'Mobil' }] }],
+  };
+  const nodes = dataOf(form, targets);
+  const at = (path: string) => nodes.find((n) => n.path === path)!;
+  assert.deepEqual(at('contact').fields?.map((f) => f.name), ['email', 'phone']);
+  assert.equal(at('contact').fields?.[0].type, 'Text');
+  assert.deepEqual(at('contact').fields?.[1].fields?.map((f) => f.name), ['mobile']);
+  assert.deepEqual(at('address').fields?.map((f) => f.name), ['street', 'city']);
+  assert.deepEqual(at('address').fields?.[1].fields?.map((f) => f.name), ['zip', 'name']);
+  assert.equal(at('items').fields?.[0].name, 'id');
+  assert.equal(at('items').collection, true); // the Daten tab copies {{items.0.id}}
+  assert.equal(at('address').collection, undefined);
+  assert.equal(at('items').fields?.[0].type, 'Zahl');
+});
+
+test('history - type, undo, type again within 1 s: the undo ends the step, the new typing is its own', () => {
+  let h = emptyHistory<string>();
+  h = record(h, 'a', 'props:0:label', 0); // a -> ab
+  h = record(h, 'ab', 'props:0:label', 100); // ab -> abc (the same step)
+  const back = travel(h, 'abc', 'undo')!; // back to a
+  assert.equal(back.value, 'a');
+  h = record(back.history, 'a', 'props:0:label', 300); // typing again 200 ms later: a new step
+  assert.deepEqual(h.past, ['a']);
+  assert.deepEqual(h.future, []); // and redo is gone
+  const again = travel(h, 'ax', 'undo')!;
+  assert.equal(again.value, 'a');
+});
+
+test('designerKey - what a key does, and when it is the browser\'s', () => {
+  const k = (key: string, more: Partial<KeyLike> = {}): KeyLike =>
+    ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, repeat: false, defaultPrevented: false, ...more });
+  assert.deepEqual(designerKey(k('z', { metaKey: true }), false, true, false), { action: 'undo', run: true });
+  assert.deepEqual(designerKey(k('Z', { metaKey: true, shiftKey: true }), false, true, false), { action: 'redo', run: true });
+  assert.deepEqual(designerKey(k('z', { ctrlKey: true, repeat: true }), false, true, false), { action: 'undo', run: true }); // held: repeats
+  assert.deepEqual(designerKey(k('Delete'), false, true, true), { action: 'remove', run: true });
+  assert.deepEqual(designerKey(k('Delete', { repeat: true }), false, true, true), { action: 'remove', run: false }); // held: once
+  assert.deepEqual(designerKey(k('ArrowDown', { altKey: true, repeat: true }), false, true, true), { action: 'down', run: false });
+  assert.deepEqual(designerKey(k('d', { metaKey: true }), false, true, true), { action: 'duplicate', run: true });
+  assert.equal(designerKey(k('Delete'), false, true, false), null); // no block selected
+  assert.equal(designerKey(k('Backspace'), false, true, true), null); // only Delete deletes
+  assert.equal(designerKey(k('ArrowDown'), false, true, true), null); // plain arrows scroll
+  // read-only: the browser keeps ⌘Z and ⌘D (bookmark) - only Esc
+  assert.equal(designerKey(k('z', { metaKey: true }), false, false, true), null);
+  assert.equal(designerKey(k('d', { metaKey: true }), false, false, true), null);
+  assert.deepEqual(designerKey(k('Escape'), false, false, true), { action: 'deselect', run: true });
+  // in a field or dialog, or already handled: not the designer's
+  assert.equal(designerKey(k('z', { metaKey: true }), true, true, true), null);
+  assert.equal(designerKey(k('Delete', { defaultPrevented: true }), false, true, true), null);
+  // nothing to undo / redo: ⌘Z stays the browser's
+  assert.equal(designerKey(k('z', { metaKey: true }), false, true, true, { undo: false, redo: true }), null);
+  assert.deepEqual(designerKey(k('z', { metaKey: true, shiftKey: true }), false, true, true, { undo: false, redo: true }), { action: 'redo', run: true });
+  assert.equal(designerKey(k('y', { ctrlKey: true }), false, true, true, { undo: true, redo: false }), null);
+});
+
+test('coalesceKey - a change of several places at once merges with nothing', () => {
+  const b: Component = { type: 'button', label: 'A', action: [] } as unknown as Component;
+  assert.equal(coalesceKey('props:0', b, { ...b, label: 'AB' }), 'props:0:label');
+  assert.equal(coalesceKey('props:0', b, { type: 'text', text: 'A' }), undefined); // a type change
+  let h = emptyHistory<string>();
+  h = record(h, 'v0', coalesceKey('page', { a: 1, b: 1 }, { a: 2, b: 2 }), 0);
+  h = record(h, 'v1', coalesceKey('page', { a: 2, b: 2 }, { a: 3, b: 3 }), 100);
+  assert.deepEqual(h.past, ['v0', 'v1']); // two steps, not one
+});
+
+test('history - travel keeps both stacks within HISTORY_LIMIT', () => {
+  let h = emptyHistory<number>();
+  for (let i = 0; i < HISTORY_LIMIT; i++) h = record(h, i, undefined, i * 2000);
+  const back = travel(h, HISTORY_LIMIT, 'undo')!;
+  const forth = travel({ ...back.history, past: [...back.history.past, -1] }, 99, 'redo')!;
+  assert.ok(forth.history.past.length <= HISTORY_LIMIT);
+});
+
+test('relocateBlock - onto the page (\'\'): at its end, whatever the place', () => {
+  const body: Component[] = [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }];
+  for (const place of ['before', 'after', 'inside'] as const) {
+    const r = relocateBlock(body, '0', '', place);
+    assert.equal(r.key, '1');
+    assert.deepEqual(r.body.map((x) => (x as { text: string }).text), ['b', 'a']);
+  }
+});
+
+test('history - a step of continuous typing ends after COALESCE_MAX_MS', () => {
+  let h = emptyHistory<number>();
+  for (let t = 0; t <= COALESCE_MAX_MS + 2000; t += 500) h = record(h, t, 'props:0:text', t);
+  assert.deepEqual(h.past, [0, COALESCE_MAX_MS]); // the second step starts once the first is 10 s long
+});
+
+test('lostOnConvert - what a type change would drop, for the warning', () => {
+  assert.equal(lostOnConvert({ type: 'fields', fields: [{ bind: 'a', label: 'A' }, { bind: 'b', label: 'B' }] }), '2 Eingabefelder');
+  assert.equal(lostOnConvert({ type: 'summary', items: [{ label: 'x', value: 'y' }] }), '1 Zeile');
+  assert.equal(lostOnConvert({ type: 'button', label: 'Go', actions: [] }), null);
+  assert.equal(lostOnConvert({ type: 'heading', text: 'T' }), null); // the text is kept
+});
+
+test('relocateBlock - out of its own section, and into a later section after the shift', () => {
+  // 0 heading, 1 section [1.0 pick, 1.1 text], 2 button
+  const out = relocateBlock(page.body, '1.0', '1', 'before'); // a child before its own section
+  assert.deepEqual(out.body.map((b) => b.type), ['heading', 'pick', 'section', 'button']);
+  assert.equal(out.key, '1');
+  const two: Component[] = [
+    { type: 'text', text: 'a' },
+    { type: 'section', label: 'A', body: [] },
+    { type: 'section', label: 'B', body: [{ type: 'text', text: 'b' }] },
+  ];
+  // the text at 0 into section B (index 2) - after the removal B is at 1
+  const into = relocateBlock(two, '0', '2', 'inside');
+  assert.equal(into.key, '1.1');
+  assert.equal((blockAt(into.body, '1') as Extract<Component, { type: 'section' }>).label, 'B');
+  assert.equal((blockAt(into.body, '1.1') as { text: string }).text, 'a');
+});
+
+test('unwrapSection - an empty section: its parent is selected (the page: no key)', () => {
+  const body: Component[] = [{ type: 'heading', text: 'x' }, { type: 'section', label: 'leer', body: [] }];
+  const r = unwrapSection(body, '1');
+  assert.deepEqual(r.body.map((b) => b.type), ['heading']);
+  assert.equal(r.key, '');
+  assert.equal(blockAt(r.body, r.key), undefined);
 });

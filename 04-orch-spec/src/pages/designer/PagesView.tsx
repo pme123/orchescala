@@ -10,6 +10,7 @@ import { JsonField, SelectField, TextField } from './fields';
 import { flatten, pageFindings, slugOf, targetsOf } from './model';
 import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
+import { ThemeEditor } from './ThemeEditor';
 
 export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }) {
   const { isDark, model, specs, pages, pagesApp, pagesUnreadable, createPage, deletePage, savePagesApp } = useStore();
@@ -184,6 +185,12 @@ function AppSettings({ app, pages, canEdit, onSave, onClose }: {
         <SelectField isDark={isDark} label="Startseite" value={draft.home ?? ''} onChange={(home) => setDraft({ ...draft, home: home || undefined })}
           options={[{ value: '', label: '–' }, ...pages.map((p) => ({ value: p.path, label: `${p.title} (/${p.path})` }))]} />
       </div>
+      <details className={`rounded border ${c.border2}`}>
+        <summary className={`px-2 py-1.5 text-[11px] cursor-pointer ${c.muted2}`}>Auftritt (Theme){draft.theme ? ' · eigenes' : ''}</summary>
+        <div className="p-2">
+          <ThemeEditor isDark={isDark} theme={draft.theme} onChange={(theme) => setDraft({ ...draft, theme })} canEdit={canEdit} />
+        </div>
+      </details>
       <JsonField isDark={isDark} label="Texte für Werte" hint="{{wert|label:topic}} – je Name die Texte der Werte" rows={8}
         value={draft.labels} onChange={(labels) => setDraft({ ...draft, labels: labels as App['labels'] })} />
       <div className="flex items-center justify-end gap-2">
