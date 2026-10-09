@@ -76,6 +76,42 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     Console.withOut(java.io.ByteArrayOutputStream()):
       intercept[Exception](repoConfig.initProject(gitTemp, "acme-shop", "acme"))
 
+  test("the docs' pull of the company clone never prompts: an origin asking for a login fails at once"):
+    // an origin that wants credentials - on the console git would ask for them and wait
+    val server  = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/", exchange =>
+      exchange.getResponseHeaders.add("WWW-Authenticate", "Basic realm=\"acme\"")
+      exchange.sendResponseHeaders(401, -1)
+      exchange.close()
+    )
+    server.start()
+    try
+      val gitTemp = os.temp.dir(prefix = "git-temp")
+      val clone   = gitTemp / "orchescala-acme"
+      os.write(clone / ".gitignore", "target/\n", createFolders = true)
+      os.write(clone / "projects" / "acme-shop" / "PROJECT.conf", "name = acme-shop\n", createFolders = true)
+      git(clone, "init", "-q")
+      git(clone, "add", ".")
+      git(clone, "commit", "-q", "-m", "projects")
+      git(clone, "remote", "add", "origin", s"http://127.0.0.1:${server.getAddress.getPort}/orchescala-acme.git")
+      // no credential helper of the machine in between; an askpass program that would wait for a login
+      git(clone, "config", "credential.helper", "")
+      val askPass = gitTemp / "ask.sh"
+      os.write(askPass, "#!/bin/sh\nsleep 120\n", perms = "rwxr-xr-x")
+      git(clone, "config", "core.askPass", askPass.toString)
+      val config  = ProjectsConfig(perGitRepoConfigs = Seq(ProjectsPerGitRepoConfig(
+        cloneBaseUrl = s"http://127.0.0.1:${server.getAddress.getPort}",
+        projects = Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))),
+        singleRepo = true
+      )))
+      val out     = java.io.ByteArrayOutputStream()
+      given ExecutionContext = ExecutionContext.global
+      // asked, it would wait 2 minutes per prompt
+      val update  = Future(blocking(Console.withOut(out)(config.updateSingleRepoClone("acme-shop", gitTemp, "acme"))))
+      Await.result(update, 20.seconds)
+      assert(out.toString.contains("not updated"), out.toString)
+    finally server.stop(0)
+
   test("a clone killed midway (a .git, no commit) does not serve"):
     val gitTemp = os.temp.dir(prefix = "git-temp")
     val clone   = gitTemp / "orchescala-acme"

@@ -343,7 +343,7 @@ trait DocCreator extends DependencyCreator, Helpers:
               cwd = projectPath,
               stdout = os.Pipe,
               stderr = os.Pipe,
-              env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
+              env = ProjectsPerGitRepoConfig.BatchGitEnv,
               timeout = 60000
             )
             .out.text()

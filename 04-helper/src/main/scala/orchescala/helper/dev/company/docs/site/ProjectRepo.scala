@@ -1,5 +1,7 @@
 package orchescala.helper.dev.company.docs.site
 
+import orchescala.api.ProjectsPerGitRepoConfig
+
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.concurrent.locks.ReentrantLock
@@ -320,8 +322,8 @@ object ProjectRepo:
           check = false,
           stdout = os.Pipe,
           stderr = os.Pipe,
-          // C: git's messages in English - the moved-tag case is recognised by them
-          env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
+          // in English - the moved-tag case is recognised by its message
+          env = ProjectsPerGitRepoConfig.BatchGitEnv,
           timeout = timeoutMs
         )
     )
@@ -337,7 +339,7 @@ object ProjectRepo:
     ok
 
   /** A release of a project in a company's single repo into `dest` (its copy in git-temp): the
-    * project's folder at its tag. None if the project has its own clone (then it is checked out there).
+    * project's folder at its tag. None if no company clone in git-temp has the project.
     *
     * The release docs are of released versions only - like the checkout of an own clone
     * (DocCreator.resolveTagRef), a version without a tag stops the run; VERSIONS.conf names a version
@@ -350,7 +352,11 @@ object ProjectRepo:
       version: String,
       dest: os.Path
   ): Option[String] =
-    locate(gitTemp, project).filter(_.singleRepo).map: repo =>
+    // the company clone, even if an own clone is left in dest from before the switch to one repo - the
+    // export replaces it
+    inCompanyClone(gitTemp, project).map: repo =>
+      if os.exists(dest / ".git") then
+        println(s"  ! $dest is an own clone from before - replaced by $project of ${repo.repo}")
       val tag = repo.resolveTag(version).getOrElse[String]:
         val tried = repo.tagCandidates(version).mkString(" or ")
         // not «unreleased», if origin could not be asked - say so
@@ -366,7 +372,10 @@ object ProjectRepo:
     */
   def locate(gitTemp: os.Path, project: String): Option[ProjectRepo] =
     if os.exists(gitTemp / project / ".git") then Some(ProjectRepo(gitTemp / project, "", project))
-    else if !os.isDir(gitTemp) then None
+    else inCompanyClone(gitTemp, project)
+
+  private def inCompanyClone(gitTemp: os.Path, project: String): Option[ProjectRepo] =
+    if !os.isDir(gitTemp) then None
     else
       val clones = os.list(gitTemp).sortBy(d => (!d.last.startsWith("orchescala-"), d.last))
         .filter(d => os.exists(d / ".git") && os.isDir(d / "projects" / project))

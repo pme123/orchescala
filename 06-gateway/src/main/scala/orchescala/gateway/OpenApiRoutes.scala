@@ -184,7 +184,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
   // project only (docsAppUrl), so a company has no worker app of its own
   private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
   // projects without released files are remembered too (no 20 s per file), in a small list of their own -
-  // names a client makes up fill only that one, not the real marks above
+  // names a client makes up cannot push the real marks above out (a made-up name is skipped for 10 s itself)
   private[gateway] val docsDownNoSite = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 100)
   private def isDown(projectName: String)   = docsDown.isDown(projectName, nowMs) || docsDownNoSite.isDown(projectName, nowMs)
   private def markUp(projectName: String)   = { docsDown.markUp(projectName); docsDownNoSite.markUp(projectName) }

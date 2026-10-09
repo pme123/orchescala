@@ -49,7 +49,7 @@ class ProjectRepoTest extends FunSuite:
     assert(!os.exists(dest / "projects"))
     assert(!os.exists(dest / "acme-cards"))
 
-  test("exportRelease - the project's folder at its release tag; None for an own clone"):
+  test("exportRelease - the project's folder at its release tag; None if no company clone has it"):
     val gitTemp = singleRepoGitTemp()
     assertEquals(ProjectRepo.exportRelease(gitTemp, "acme-shop", "1.0.0", gitTemp / "acme-shop"), Some("acme-shop-v1.0.0"))
     assertEquals(os.read(gitTemp / "acme-shop" / "03-api" / "OpenApi.yml"), "version: 1.0.0\n")
@@ -57,6 +57,17 @@ class ProjectRepoTest extends FunSuite:
     os.write(own / "acme-own" / "README.md", "own", createFolders = true)
     git(own / "acme-own", "init", "-q")
     assertEquals(ProjectRepo.exportRelease(own, "acme-own", "1.0.0", own / "acme-own"), None)
+
+  test("exportRelease - an own clone left from before one repo: the company clone's folder replaces it"):
+    val gitTemp = singleRepoGitTemp()
+    os.write(gitTemp / "acme-shop" / "README.md", "own", createFolders = true)
+    git(gitTemp / "acme-shop", "init", "-q")
+    val out     = java.io.ByteArrayOutputStream()
+    val tag     = Console.withOut(out)(ProjectRepo.exportRelease(gitTemp, "acme-shop", "1.0.0", gitTemp / "acme-shop"))
+    assertEquals(tag, Some("acme-shop-v1.0.0"))
+    assertEquals(os.read(gitTemp / "acme-shop" / "03-api" / "OpenApi.yml"), "version: 1.0.0\n")
+    assert(!os.exists(gitTemp / "acme-shop" / ".git"))
+    assert(out.toString.contains("is an own clone from before"), out.toString)
 
   test("exportRelease - no tag for the version, or the project not there at the tag: an error, nothing emptied"):
     val gitTemp = singleRepoGitTemp()

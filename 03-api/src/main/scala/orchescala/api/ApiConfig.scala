@@ -172,8 +172,12 @@ case class ProjectsConfig(
   def inSingleRepo(projectName: String): Boolean =
     perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(projectName))
 
-  /** The company clone of a project in one repo for all, updated (once per run) - nothing for a project
-    * of an own repo. Only the clone: the docs export the project's folder at its tag from it.
+  /** The company clone of a project in one repo for all, updated - nothing for a project of an own repo.
+    * Only the clone: the docs export the project's folder at its tag from it.
+    *
+    * Once per `UpdateValidMs` per clone path and JVM: a long-lived JVM (sbt shell, a watch mode) works with
+    * a clone up to 5 minutes old; the remote is the one of the clone, a changed `cloneBaseUrl` needs a new
+    * clone (git-temp removed).
     */
   def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Unit =
     perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName))
@@ -307,7 +311,7 @@ case class ProjectsPerGitRepoConfig(
     // gone meanwhile (git-temp wiped): made again, whatever the last update was
     val force  = mode == CloneUpdate.Always || !os.exists(clone / ".git")
     val update = Try(ProjectsPerGitRepoConfig.once(clone, force = force):
-      updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")
+      updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git", batch = mode == CloneUpdate.CachedOrAsIs)
     )
     update match
       case Success(_)                                                => clone
@@ -319,21 +323,30 @@ case class ProjectsPerGitRepoConfig(
   def containsProject(projectName: String): Boolean =
     projects.exists(_.name == projectName)
 
-  private def updateProject(gitProjectDir: os.Path, gitRepo: String): Unit =
+  /** @param batch no prompt and a timeout (the docs: the clone's lock is held, every project of the company
+    *              waits) - else on the console, as `init` always did
+    */
+  private def updateProject(gitProjectDir: os.Path, gitRepo: String, batch: Boolean = false): Unit =
     println(s"Git Project Dir: $gitProjectDir")
     println(s"Git Repo: $gitRepo")
     os.makeDir.all(gitProjectDir)
-    if !(gitProjectDir / ".gitignore").toIO.exists() then
-      os.proc("git", "clone", gitRepo, gitProjectDir)
-        .callOnConsole(gitProjectDir)
+    def git(args: String*) =
+      val proc = os.proc("git", args)
+      if batch then
+        proc.call(
+          cwd = gitProjectDir,
+          stdin = "",
+          stdout = os.Inherit,
+          env = ProjectsPerGitRepoConfig.BatchGitEnv,
+          timeout = ProjectsPerGitRepoConfig.BatchGitTimeoutMs
+        )
+      else proc.callOnConsole(gitProjectDir)
+    if !(gitProjectDir / ".gitignore").toIO.exists() then git("clone", gitRepo, gitProjectDir.toString)
     else
       // develop, the branch Orchescala's repos work on - a repo without it: its default branch (main, master)
       val branch = if hasRemoteBranch(gitProjectDir, "develop") then "develop" else defaultBranch(gitProjectDir)
-      os
-        .proc("git", "checkout", branch)
-        .callOnConsole(gitProjectDir)
-      os.proc("git", "pull", "origin", branch)
-        .callOnConsole(gitProjectDir)
+      git("checkout", branch)
+      git("pull", "origin", branch)
     end if
   end updateProject
 
@@ -341,7 +354,14 @@ case class ProjectsPerGitRepoConfig(
   // and says why, before the pull fails on the same cause
   private def hasRemoteBranch(dir: os.Path, branch: String): Boolean =
     Try(os.proc("git", "ls-remote", "--exit-code", "--heads", "origin", branch)
-      .call(cwd = dir, check = false, stdout = os.Pipe, stderr = os.Pipe)) match
+      .call(
+        cwd = dir,
+        check = false,
+        stdout = os.Pipe,
+        stderr = os.Pipe,
+        env = ProjectsPerGitRepoConfig.BatchGitEnv,
+        timeout = 60000
+      )) match
       case Success(r) if r.exitCode == 2 => false
       case Success(r) if r.exitCode == 0 => true
       case other                          =>
@@ -365,7 +385,7 @@ enum CloneUpdate:
   case Always
   /** pulled once per `UpdateValidMs` (initProject) - a failure fails */
   case Cached
-  /** as Cached, but a failure leaves the clone as it is, with a warning (the docs) */
+  /** as Cached, but no prompt, a timeout, and a failure leaves the clone as it is, with a warning (the docs) */
   case CachedOrAsIs
 
 object ProjectsPerGitRepoConfig:
@@ -377,6 +397,12 @@ object ProjectsPerGitRepoConfig:
     val state = AtomicReference(Updated()) // also read without the lock (updateFailure)
   private[api] val UpdateValidMs       = 5 * 60 * 1000L
   private[api] val FailedUpdateValidMs = 30 * 1000L
+  /** git without asking: a login fails at once - on the terminal and by an askpass program (an empty
+    * GIT_ASKPASS: none, not core.askPass). An SSH passphrase prompt or a stalled origin ends with the
+    * caller's timeout. C: git's messages in English (some are recognised).
+    */
+  private[orchescala] val BatchGitEnv = Map("GIT_TERMINAL_PROMPT" -> "0", "GIT_ASKPASS" -> "", "LC_ALL" -> "C")
+  private val BatchGitTimeoutMs       = 5 * 60 * 1000L
 
   /** Why the last update of a clone failed - None if it worked or did not run (for the docs' errors). */
   def updateFailure(clone: os.Path): Option[String] =
