@@ -265,13 +265,14 @@ test('parseThemeFile - JSON null is JSON, but no theme', () => {
   assert.ok('error' in broken && broken.error === 'Die Datei ist kein JSON.');
 });
 
-test('decodeBase64 / cleanLogo - base64 to UTF-8 text, refused before the parser', async () => {
-  const { cleanLogo, decodeBase64 } = await import('../src/pages/designer/ThemeEditor');
-  const b64 = (text: string) => btoa(Array.from(new TextEncoder().encode(text), (b) => String.fromCharCode(b)).join(''));
-  assert.equal(decodeBase64(b64('<svg>Prüfung ä</svg>')), '<svg>Prüfung ä</svg>'); // umlauts survive
+test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, refused before the parser', async () => {
+  const { cleanLogo, decodeBase64, encodeBase64 } = await import('../src/pages/designer/ThemeEditor');
+  // the encoding cleanLogo returns its SVG with - umlauts and characters beyond Latin-1 survive the round trip
+  assert.equal(decodeBase64(encodeBase64('<svg>Prüfung ä € 銀行</svg>')), '<svg>Prüfung ä € 銀行</svg>');
+  assert.equal(encodeBase64('ä'), 'w6Q='); // UTF-8 (c3 a4), not Latin-1
   assert.equal(decodeBase64('!!!'), null);
-  // no DOM needed: these return before the SVG is parsed
+  // the tests run in Node without a DOM (no DOMParser): only what returns before the SVG is parsed
   assert.equal(cleanLogo('data:image/svg+xml;base64,!!!'), null);
-  assert.equal(cleanLogo(`data:image/svg+xml;base64,${b64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
+  assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
   assert.equal(cleanLogo('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA'); // not an SVG: as it is
 });

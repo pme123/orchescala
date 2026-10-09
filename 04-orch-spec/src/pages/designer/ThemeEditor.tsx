@@ -27,8 +27,12 @@ export function cleanLogo(uri: string): string | null {
   }
   for (const at of [...doc.documentElement.attributes])
     if (svgDropsAttribute(at.name, at.value)) doc.documentElement.removeAttributeNode(at);
-  const clean = new TextEncoder().encode(new XMLSerializer().serializeToString(doc));
-  return `data:image/svg+xml;base64,${btoa(Array.from(clean, (b) => String.fromCharCode(b)).join(''))}`;
+  return `data:image/svg+xml;base64,${encodeBase64(new XMLSerializer().serializeToString(doc))}`;
+}
+
+/** UTF-8-Text als base64 - das Gegenstück zu decodeBase64 (btoa allein nimmt nur Latin-1). */
+export function encodeBase64(text: string): string {
+  return btoa(Array.from(new TextEncoder().encode(text), (b) => String.fromCharCode(b)).join(''));
 }
 
 /** base64 als UTF-8-Text - null, wenn es keins ist. */
