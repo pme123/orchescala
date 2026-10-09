@@ -3,9 +3,11 @@ package orchescala.helper.dev.company.docs.site
 import munit.FunSuite
 
 /** The whole site from a real company `00-docs` and its project checkouts in git-temp - skipped if
-  * they are not on this machine. No WebDAV involved.
+  * they are not on this machine. No WebDAV involved. The API of a project (writeApi) is tested on a
+  * git-temp of its own (GitTempFixture), always.
   */
 class SiteAssemblerTest extends FunSuite:
+  import GitTempFixture.*
 
   // the 00-docs of a company-orchescala repo - only from COMPANY_DOCS_PATH, otherwise the test is
   // skipped: no fallback, so the outcome never depends on what lies in a home directory
@@ -93,5 +95,94 @@ class SiteAssemblerTest extends FunSuite:
       val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
       assertEquals(code, "404")
     finally running.stop()
+
+  test("writeApi - the API of a project in a single repo, at its tag"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme-shop" / "03-api" / "PostmanOpenApi.yml", "postman\n", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "postman")
+    git(repo, "tag", "acme-shop-v1.1.0")
+    val shop   = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assertEquals(SiteAssembler.releaseRef(shop, "1.0.0"), Some("acme-shop-v1.0.0"))
+    assertEquals(SiteAssembler.releaseRef(shop, "4.0.0"), None)
+    val target = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val yml    = SiteAssembler.writeApi(shop, "acme-shop-v1.0.0", target, "<html/>")
+    assertEquals(yml.map(new String(_)), Some("version: 1.0.0\n"))
+    assertEquals(os.read(target / "OpenApi.html"), "<html/>")
+    assert(os.exists(target / "diagrams" / "shop.bpmn"))
+    assert(!os.exists(target / "PostmanOpenApi.yml")) // not yet at 1.0.0
+    SiteAssembler.writeApi(shop, "acme-shop-v1.1.0", target, "<html/>")
+    assertEquals(os.read(target / "PostmanOpenApi.yml"), "postman\n")
+    val cards = ProjectRepo.locate(gitTemp, "acme-new").get
+    assertEquals(SiteAssembler.writeApi(cards, "acme-new-v0.1.0", os.temp.dir() / "x", "<html/>"), None) // no OpenApi.yml
+
+  test("writeApi - a diagram with a non-ASCII name (git quotes it without -z)"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme-shop" / "src" / "main" / "resources" / "camunda" / "Prüfung.bpmn", "<bpmn ü/>")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "umlaut")
+    git(repo, "tag", "acme-shop-v1.2.0")
+    val target = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.2.0", target, "<html/>")
+    assertEquals(os.read(target / "diagrams" / "Prüfung.bpmn"), "<bpmn ü/>")
+
+  test("newestRef - an own clone at a tag: its default branch, not the checked-out tag"):
+    val origin = singleRepoGitTemp() / "orchescala-acme"
+    val clone  = os.temp.dir(prefix = "git-temp") / "orchescala-acme"
+    os.proc("git", "clone", "-q", origin.toString, clone.toString).call(stdout = os.Pipe, stderr = os.Pipe)
+    os.proc("git", "-C", clone.toString, "checkout", "-q", "acme-shop-v1.0.0").call(stdout = os.Pipe, stderr = os.Pipe)
+    assertEquals(SiteAssembler.newestRef(ProjectRepo(clone, "", "orchescala-acme")), "origin/HEAD")
+    // without a remote (a clone of its own making): HEAD
+    assertEquals(SiteAssembler.newestRef(ProjectRepo(origin, "", "orchescala-acme")), "HEAD")
+    // a remote without origin/HEAD (git init + remote add + fetch): its main branch
+    val made   = os.temp.dir(prefix = "git-temp") / "made"
+    os.makeDir.all(made)
+    git(made, "init", "-q")
+    git(made, "remote", "add", "origin", origin.toString)
+    val branch = os.proc("git", "-C", origin.toString, "branch", "--show-current").call().out.text().trim
+    git(made, "fetch", "-q", "origin", s"$branch:refs/remotes/origin/main")
+    assertEquals(SiteAssembler.newestRef(ProjectRepo(made, "", "made")), "origin/main")
+
+  test("writeApi - two diagrams of the same name: the first taken, said"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    val camunda = repo / "projects" / "acme-shop" / "src" / "main" / "resources" / "camunda"
+    os.write(camunda / "a" / "order.bpmn", "<bpmn a/>", createFolders = true)
+    os.write(camunda / "b" / "order.bpmn", "<bpmn b/>", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "twice")
+    git(repo, "tag", "acme-shop-v1.3.0")
+    val target  = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val out     = java.io.ByteArrayOutputStream()
+    Console.withOut(out)(SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.3.0", target, "<html/>"))
+    assertEquals(os.read(target / "diagrams" / "order.bpmn"), "<bpmn a/>")
+    assert(out.toString.contains("2 diagrams named order.bpmn"), out.toString)
+
+  test("writeApi - the same diagram for both engines: camunda8's, as before, without a warning"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    val main    = repo / "projects" / "acme-shop" / "src" / "main" / "resources"
+    os.write(main / "camunda" / "pay.bpmn", "<bpmn c7/>", createFolders = true)
+    os.write(main / "camunda8" / "pay.bpmn", "<bpmn c8/>", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "both engines")
+    git(repo, "tag", "acme-shop-v1.4.0")
+    val target  = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val out     = java.io.ByteArrayOutputStream()
+    Console.withOut(out)(SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.4.0", target, "<html/>"))
+    assertEquals(os.read(target / "diagrams" / "pay.bpmn"), "<bpmn c8/>")
+    assert(!out.toString.contains("diagrams named pay.bpmn"), out.toString)
+
+  test("writeApi - a diagram or Postman variant removed since the last release does not stay on the site"):
+    val gitTemp = singleRepoGitTemp()
+    val target  = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    os.write(target / "diagrams" / "gone.bpmn", "<bpmn old/>", createFolders = true) // of an earlier release
+    os.write(target / "PostmanOpenApi.yml", "postman of an earlier release")
+    SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.0.0", target, "<html/>")
+    assertEquals(os.list(target / "diagrams").map(_.last), IndexedSeq("shop.bpmn"))
+    assert(!os.exists(target / "PostmanOpenApi.yml")) // 1.0.0 has none - not the old one
+    assert(!os.exists(target / ".diagrams-new"))
 
 end SiteAssemblerTest

@@ -102,8 +102,12 @@ trait GatewayConfig:
       in: JsonObject
   ): IO[GatewayError, IdentityCorrelation]
 
-  /** Resolves the base URL of a worker app by project name, used for forwarding docs requests.
-    * Returns None if the project docs are not available remotely.
+  /** Resolves the base URL of a worker app by project name, used for forwarding docs requests - by the
+    * project only: `/site/a/shop/…` and `/site/b/shop/…` ask the same worker app (and share whether it is
+    * down).
+    * Returns None if the project docs are not available remotely - then `/site/<company>/<project>/…`
+    * serves the released files of the docs site, if it has them (marked with the response header
+    * `X-Orchescala-Docs-Source: released`), as for a worker app that does not answer.
     */
   def docsAppUrl: (projectName: String) => Option[String]
 
@@ -112,6 +116,13 @@ trait GatewayConfig:
     * Returns None if the project has no UI.
     */
   def uiAppUrl: (projectName: String) => Option[String] = docsAppUrl
+
+  /** How long a worker app may take for its docs (`/site/<company>/<project>/OpenApi.*`, diagrams) -
+    * after that the gateway answers with the released file of the docs site (or 503), and does not ask
+    * that worker app again for 10 s (the rest of the page). Long enough for a worker app that starts
+    * cold; one that needs longer is asked again by the next page after the 10 s.
+    */
+  def docsForwardTimeout: zio.Duration = zio.Duration.fromSeconds(20)
 
   /** `Content-Security-Policy` header for the UI bundle (`/app/...`). None by default - the policy
     * depends on the app, e.g. the identity provider it talks to.

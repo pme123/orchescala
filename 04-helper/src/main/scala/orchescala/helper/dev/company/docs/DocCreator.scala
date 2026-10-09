@@ -6,15 +6,22 @@ import orchescala.api.{
   JiraLinks,
   ProjectConfig,
   ProjectGroup,
+  ProjectsPerGitRepoConfig,
   catalogFileName
 }
-import orchescala.helper.dev.company.docs.site.{LocalSiteServer, SiteAssembler}
+import orchescala.helper.dev.company.docs.site.{
+  LocalSiteServer,
+  ProjectRepo,
+  ReleaseNotFound,
+  SiteAssembler
+}
 import orchescala.helper.dev.publish.SiteWebDAV
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
 
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import scala.util.control.NonFatal
 
 /** the idea is use Orchescala to create Company's Process documentation.
   *
@@ -189,25 +196,39 @@ trait DocCreator extends DependencyCreator, Helpers:
     // Use ZIO to run fetchConf in parallel
     import zio.*
 
-    val configs = Unsafe.unsafe { implicit unsafe =>
+    // one repo for all needs tar for its exports - said once, before N projects fail on it in parallel
+    val inOneRepo = versions.keys.map(_.stripSuffix("-worker"))
+      .exists(p => apiConfig.projectsConfig.perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(p)))
+    if inOneRepo && !ProjectRepo.hasTar then
+      throw new Exception("the docs of a repo for all projects need a tar with --no-same-owner and --strip-components")
+    // the projects in parallel, the BPMN and worker version of one after the other (they share its folder);
+    // every project to its end, then all failures together. Projects of one repo share its tag fetch
+    val results = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
-        ZIO.foreachPar(versions.toSeq) { case (projectName, version) =>
-          ZIO.attempt {
-            val previousVersion =
-              previousVersions.get(projectName).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
-            fetchConf(
-              projectName.replace("-worker", ""),
-              version,
-              previousVersion,
-              projectName.endsWith("worker")
-            )
+        ZIO.foreachPar(DocCreator.byProject(versions)) { case (project, projectVersions) =>
+          ZIO.foreach(projectVersions) { v =>
+            // git and tar processes - not on the threads of the ZIO scheduler
+            ZIO.attemptBlocking {
+              val previousVersion =
+                previousVersions.get(v.name).map(_._1).getOrElse(DocProjectConfig.defaultVersion)
+              fetchConf(project, v.version, previousVersion, v.isWorker)
+            }.either.map(v.name -> _)
           }
         }.withParallelism(apiConfig.engineConfig.parallelism)
       ).getOrThrow()
-    }
+    }.flatten
+    DocCreator.failureOf(results.collect { case (name, Left(e)) => name -> e }).foreach(e => throw e)
+
+    // built from a clone that could not be pulled or fetched: said again at the end, not only in the middle
+    ProjectsPerGitRepoConfig.updateFailure(companyClone).foreach: why =>
+      println(s"  ! the docs are from $companyClone as it was - it could not be updated: $why")
+    versions.keys.map(_.stripSuffix("-worker")).toSeq.distinct.sorted.foreach: project =>
+      apiConfig.projectsConfig.projectConfig(project).map(_.absGitPath(gitBasePath)).foreach: path =>
+        ProjectRepo.fetchFailure(path).foreach: why =>
+          println(s"  ! the docs of $project are from the tags $path had - $why")
 
     // Flatten the results and filter out None values
-    configs.flatten
+    results.collect { case (_, Right(conf)) => conf }.flatten
   end setupConfigs
 
   private def extractVersions(
@@ -236,25 +257,13 @@ trait DocCreator extends DependencyCreator, Helpers:
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
       _           = println(s"Project Git Path $projectPath / $gitBasePath")
+      // one repo for all: the company clone updated, the project's folder exported at its tag;
+      // else its own clone (made if not there), checked out at the tag
+      singleRepo  = apiConfig.projectsConfig.inSingleRepo(project)
       _           =
-        if !os.exists(projectPath) then
-          apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
-
-      // ensure all tags are present locally
-      _ = os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
-
-      // resolve correct tag name (handles 'v' and non-'v')
-      tagRef = resolveTagRef(projectPath, version)
-      _      = println(s"Checkout $project to 'tags/$tagRef'")
-
-      // try checkout; if local changes block it, force the checkout
-      _ = 
-        try
-          os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
-        catch
-          case _: Throwable =>
-            println("Checkout failed, retrying with '-f' due to local changes")
-            os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
+        if singleRepo then apiConfig.projectsConfig.updateSingleRepoClone(project, gitBasePath, apiConfig.companyName)
+      _           = if singleRepo then exportFromCompanyRepo(project, version, projectPath)
+                    else checkoutOwnClone(project, version, projectPath)
     yield DocProjectConfig(
       apiProjectConfig(projectPath / apiConfig.projectsConfig.projectConfPath),
       os.read.lines(projectPath / "CHANGELOG.md"),
@@ -262,8 +271,54 @@ trait DocCreator extends DependencyCreator, Helpers:
       isWorker
     )
 
+  private def companyClone = gitBasePath / s"orchescala-${apiConfig.companyName}"
+
+  /** The project's folder of the company clone at its release tag into `projectPath`. */
+  private def exportFromCompanyRepo(project: String, version: String, projectPath: os.Path): Unit =
+    val exported =
+      try ProjectRepo.exportRelease(gitBasePath, project, version, projectPath)
+      catch
+        // not found after the company clone could not be pulled: that is the cause to name
+        case e: ReleaseNotFound =>
+          ProjectsPerGitRepoConfig.updateFailure(companyClone).fold(throw e): why =>
+            throw ReleaseNotFound(s"${e.getMessage} - the company clone was not updated: $why", e)
+    exported match
+      case Some(tag) => println(s"Exported $project at '$tag'")
+      case None      => throw new Exception(s"$project is not in the company repo $companyClone (no projects/$project)")
+
+  /** A project's own clone (made if not there) checked out at its release tag. */
+  private def checkoutOwnClone(project: String, version: String, projectPath: os.Path): Unit =
+    if !os.exists(projectPath) then apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
+    // the tags fetched once - resolveTagRef only reads what is there then
+    val fetched = fetchAllTags(projectPath)
+    val tagRef  = resolveTagRef(projectPath, version, fetched)
+    println(s"Checkout $project to 'tags/$tagRef'")
+    try os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
+    catch
+      case NonFatal(e) =>
+        // only local changes are a reason for -f, which discards them (said); another failure is the error
+        val changes = scala.util.Try(
+          // tracked changes only - untracked files never block a checkout
+          os.proc("git", "status", "--porcelain", "--untracked-files=no")
+            .call(cwd = projectPath, stdout = os.Pipe).out.text().trim
+        ).getOrElse("")
+        if changes.isEmpty then throw e
+        println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")
+        os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
+
+  /** `git fetch --all --tags` in a project's own clone - ProjectRepo.fetchTags (no prompt, no prune, the
+    * failure logged), two minutes at most: a tag that is there locally still counts (resolveTagRef).
+    */
+  private def fetchAllTags(projectPath: os.Path): Boolean =
+    // once per clone and run, as in the single repo - the BPMN and the worker version share the clone
+    val fetchAll   = ProjectRepo.fetchTags(_, more = Seq("--all"), timeoutMs = 120000)
+    val fetchedNow = ProjectRepo.fetchTagsOnce(projectPath, fetch = fetchAll)
+    val ok         = ProjectRepo.fetchFailure(projectPath).isEmpty
+    if fetchedNow && ok then println(s"  fetched the tags of $projectPath (git fetch --all --tags)")
+    ok
+
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
-  private def resolveTagRef(projectPath: os.Path, version: String): String =
+  private def resolveTagRef(projectPath: os.Path, version: String, fetched: Boolean): String =
     val candidates = Seq(s"v$version", version)
 
     // check local tags first
@@ -273,16 +328,36 @@ trait DocCreator extends DependencyCreator, Helpers:
         .out.text().linesIterator.map(_.trim).toSet
 
     candidates.find(localTags.contains).getOrElse {
-      // fetch all tags and re-check against remote
-      os.proc("git", "fetch", "--all", "--tags", "--prune").callOnConsole(projectPath)
+      // the tags were just fetched (fetchConf) - re-check against remote; origin not reachable: say so
+      if !fetched then
+        throw ReleaseNotFound(
+          s"Tag not found in $projectPath: ${candidates.mkString(" or ")} - " +
+            "fetching the tags failed, not checked on origin"
+        )
 
+      // as the fetch: no credential prompt, a minute at most; the tag names exactly (`v1.0` is not `v1.0.1`)
       val remoteTags =
-        os.proc("git", "ls-remote", "--tags", "origin")
-          .call(cwd = projectPath, stdout = os.Pipe)
-          .out.text()
+        scala.util.Try(
+          os.proc("git", "ls-remote", "--tags", "origin")
+            .call(
+              cwd = projectPath,
+              stdout = os.Pipe,
+              stderr = os.Pipe,
+              env = ProjectsPerGitRepoConfig.BatchGitEnv,
+              timeout = 60000
+            )
+            .out.text()
+        ).getOrElse("")
+          .linesIterator.map(_.split('\t').last.stripSuffix("^{}").stripPrefix("refs/tags/")).toSet
 
-      candidates.find(c => remoteTags.contains(s"refs/tags/$c"))
-        .getOrElse(throw new Exception(s"Tag not found: ${candidates.mkString(" or ")}"))
+      // fetched just now and still not here: on origin it would be a tag git did not take (moved there,
+      // «would clobber») - said clearly, not left to an opaque failing checkout
+      candidates.find(remoteTags.contains) match
+        case Some(tag) =>
+          throw ReleaseNotFound(
+            s"Tag $tag is on origin but not in $projectPath after the fetch - moved there? (see above)"
+          )
+        case None      => throw ReleaseNotFound(s"Tag not found: ${candidates.mkString(" or ")}")
     }
   end resolveTagRef
 
@@ -531,4 +606,33 @@ trait DocCreator extends DependencyCreator, Helpers:
       ticket: Option[String] = None
   )
 
+end DocCreator
+
+object DocCreator:
+
+  /** A version of VERSIONS.conf: `democompany-customer-worker` → the worker of `democompany-customer`. */
+  case class ProjectVersion(name: String, version: String):
+    def isWorker: Boolean = name.endsWith("-worker")
+    def project: String   = name.stripSuffix("-worker")
+
+  /** The error of a run whose versions failed - None if none did. Only releases missing: a
+    * ReleaseNotFound, else an Exception; the first (other) error is the cause, all others suppressed.
+    */
+  def failureOf(failures: Seq[(String, Throwable)]): Option[Throwable] =
+    Option.when(failures.nonEmpty):
+      val msg    = s"The docs of ${failures.size} version(s) could not be prepared:\n  " +
+        failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
+      val errors = failures.map(_._2)
+      val cause  = errors.find(!_.isInstanceOf[ReleaseNotFound]).getOrElse(errors.head)
+      val e      =
+        if cause.isInstanceOf[ReleaseNotFound] then ReleaseNotFound(msg, cause) else new Exception(msg, cause)
+      errors.filterNot(_ eq cause).foreach(e.addSuppressed) // the others kept, with their traces
+      e
+
+  /** The versions per project - its BPMN and its worker version share the project's folder: one after
+    * the other (setupConfigs runs the projects in parallel, the versions of one in this order).
+    */
+  def byProject(versions: Map[String, String]): Seq[(String, Seq[ProjectVersion])] =
+    versions.toSeq.map(ProjectVersion(_, _)).groupBy(_.project).toSeq.sortBy(_._1)
+      .map((project, vs) => project -> vs.sortBy(_.isWorker))
 end DocCreator

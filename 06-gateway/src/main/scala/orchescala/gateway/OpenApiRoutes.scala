@@ -106,23 +106,26 @@ class OpenApiRoutes()(using config: GatewayConfig):
       // Forward docs HTML page for a project worker app
       // Rewrites relative "diagrams/" links so they resolve correctly under /docs/openApis/{projectName}/
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.html" -> handler {
-        (_: String, projectName: String, _: Request) =>
-          forwardDocsRequest(projectName, Seq("docs"), MediaType.text.html)
+        (companyName: String, projectName: String, _: Request) =>
+          forwardDocsRequest(companyName, projectName, Seq("docs"), MediaType.text.html)
+            .flatMap(orSiteFile(companyName, projectName, "OpenApi.html", MediaType.text.html))
       },
 
       // Forward OpenApi.yml for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.yml" -> handler {
-        (_: String, projectName: String, _: Request) =>
-          forwardDocsRequest(projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
+        (companyName: String, projectName: String, _: Request) =>
+          forwardDocsRequest(companyName, projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
+            .flatMap(orSiteFile(companyName, projectName, "OpenApi.yml", MediaType.text.yaml))
       },
 
       // Forward BPMN/DMN diagrams for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "diagrams" / string(
         "diagramName"
       ) -> handler {
-        (_: String, projectName: String, diagramName: String, _: Request) =>
+        (companyName: String, projectName: String, diagramName: String, _: Request) =>
           if isValidDiagramName(diagramName) then
-            forwardDocsRequest(projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
+            forwardDocsRequest(companyName, projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
+              .flatMap(orSiteFile(companyName, projectName, s"diagrams/$diagramName", MediaType.application.xml))
           else ZIO.succeed(Response.status(Status.NotFound))
       },
 
@@ -167,14 +170,81 @@ class OpenApiRoutes()(using config: GatewayConfig):
         // which avoids OAuth2 query params (code, state, …) ever landing on the main /docs page.
         (protectedRoutes @@ oauth2AuthMiddleware(auth)) ++ oauth2CallbackRoute(auth) ++ faviconRoute
 
+  /** Why a docs request did not reach the worker app - the status the gateway answers with. */
+  private case class DocsFailure(status: Status, message: String)
+
+  /** A worker app that did not answer at all (not reachable, no answer in time) is not asked again for
+    * this long: the rest of the page (yml, diagrams) comes from the site at once, the same release as its
+    * OpenApi.html. A worker app that answers stays live - also when it gives a 503 of its own for one
+    * file: that file comes from the site, the others stay its own (a page may then mix the two).
+    */
+  private[gateway] val DocsDownFor = 10.seconds
+  private def nowMs: Long          = java.lang.System.currentTimeMillis
+  // per instance - the gateway makes one (GatewayServer); keyed by project: the docs URL depends on the
+  // project only (docsAppUrl), so a company has no worker app of its own
+  private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
+  // projects without released files are remembered too (no 20 s per file), in a small list of their own -
+  // names a client makes up cannot push the real marks above out (a made-up name is skipped for 10 s itself)
+  private[gateway] val docsDownNoSite = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 100)
+  private def isDown(projectName: String)   = docsDown.isDown(projectName, nowMs) || docsDownNoSite.isDown(projectName, nowMs)
+  private def markUp(projectName: String)   = { docsDown.markUp(projectName); docsDownNoSite.markUp(projectName) }
+
+  /** Marks a docs answer that is not the worker app's (live) one. */
+  private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
+
+  /** When the project's worker app is not there - no docs URL for it (404) or not reachable (503, see
+    * forwardDocsRequest; e.g. a project of another team, not running here) - the released version the
+    * docs site holds (`site/<company>/<project>/…`, written by the helper's SiteAssembler at the tag of
+    * VERSIONS.conf), logged and with the header `X-Orchescala-Docs-Source: released` (not live). A 404
+    * is only forwardDocsRequest's own (no docs URL): a worker app's 404 comes back as 502.
+    * A worker app that answers - also with an error of its own (502) - or a wrong docs URL (500) is
+    * passed on: the live one, not hidden behind an older file.
+    *
+    * The site's OpenApi.html is the API page of the orch-doc jar (not the worker app's): it loads
+    * `OpenApi.yml` and `diagrams/<name>` relative to itself - these same routes, with the same fallback.
+    */
+  // the statuses come from forwardDocsRequest: 404 only its own «no docs URL» (a worker app's 404 is 502),
+  // 503 «not there» (not reachable, no answer in time, its own 503)
+  private[gateway] def orSiteFile(
+      companyName: String,
+      projectName: String,
+      file: String,
+      contentType: MediaType
+  )(
+      forwarded: Response
+  ): ZIO[Any, Nothing, Response] =
+    val unavailable = forwarded.status == Status.NotFound || forwarded.status == Status.ServiceUnavailable
+    if !unavailable then ZIO.succeed(forwarded)
+    else if !isValidSiteFolder(companyName) || !isValidProjectName(projectName) then
+      ZIO.logInfo(s"Docs of '$companyName/$projectName': no site folder of that name - no fallback")
+        .as(forwarded)
+    else
+      // the same headers as the live answer (forwardDocsRequest) - .bpmn/.dmn have no type of their own
+      val resource = siteResourcePath(s"$companyName/$projectName/$file")
+      serveClasspathFile(resource, Some(contentType)).flatMap: fromSite =>
+        if fromSite.status.isSuccess then
+          // per file (the yml, each diagram) - info, the header marks the answer
+          ZIO.logInfo(
+            s"Docs of '$projectName' (${forwarded.status.code}): the released $file of the site instead"
+          ).as(
+            fromSite
+              .addHeader("X-Content-Type-Options", "nosniff")
+              .addHeader(DocsSourceHeader, "released")
+          )
+        else ZIO.succeed(forwarded)
+
   /** Forwards a docs request to the worker app of the project.
     *
     * The project name comes from the request path, and the default `docsAppUrl` takes it as the
     * host: `/site/x/attacker.example/OpenApi.html` made the gateway fetch any host and serve the
     * answer as HTML on its own origin (SSRF and XSS). Only a plain host name (no dots, ports or
     * slashes) is accepted - the path goes into the URL as encoded segments.
+    *
+    * No docs URL: 404; the worker app not reachable or no answer within `docsForwardTimeout`: 503
+    * (and for DocsDownFor not asked again); its error answer: 502; a wrong URL: 500.
     */
   private def forwardDocsRequest(
+      companyName: String,
       projectName: String,
       path: Seq[String],
       contentType: MediaType
@@ -184,31 +254,77 @@ class OpenApiRoutes()(using config: GatewayConfig):
         ZIO.logWarning(
           s"No docs URL for project: $projectName"
         ).as(Response.status(Status.NotFound))
+      case Some(_) if isDown(projectName) =>
+        ZIO.logDebug(s"Docs of '$projectName': its worker app did not answer just now - not asked")
+          .as(Response.status(Status.ServiceUnavailable))
       case Some(baseUrl) =>
         (for
           uri      <- ZIO.fromEither(Uri.parse(baseUrl).map(_.addPath(path)))
-                        .mapError(err => s"Invalid docs URL: $err")
+                        .mapError(err => DocsFailure(Status.InternalServerError, s"Invalid docs URL: $err"))
           _        <- ZIO.logInfo(s"Forwarding docs request to: $uri")
           request   = basicRequest.get(uri)
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
-                        request.send(backend).mapError(_.getMessage)
+                        request.send(backend)
+                          .mapError:
+                            // not reachable or the answer broke off: «not there» (503, the released file);
+                            // any other client error (TLS, a bad request) is no outage - 500, no fallback
+                            case err: sttp.client3.SttpClientException.ConnectException =>
+                              DocsFailure(Status.ServiceUnavailable, err.getMessage)
+                            case err: sttp.client3.SttpClientException.ReadException =>
+                              DocsFailure(Status.ServiceUnavailable, err.getMessage)
+                            case err => DocsFailure(Status.InternalServerError, err.getMessage)
+                          // a worker app that is not there should not hold the page for the client's
+                          // default timeout - the released file is the answer then
+                          .timeoutFail(
+                            DocsFailure(Status.ServiceUnavailable, s"no answer within ${config.docsForwardTimeout}")
+                          )(config.docsForwardTimeout)
           result   <- response.body match
                         case Right(body) =>
+                          // it answers: not down (any more)
+                          ZIO.succeed(markUp(projectName)) *>
                           ZIO.succeed(
                             Response.text(body)
                               .addHeader(Header.ContentType(contentType))
                               .addHeader("X-Content-Type-Options", "nosniff")
                           )
+                        // its own 503 (e.g. restarting, or a file it does not serve): this file from the
+                        // site - the project is not marked down for it (it answers); any other error is its
+                        // answer (502)
+                        case Left(err) if response.code.code == 503 =>
+                          // it answers - a down mark from before goes
+                          ZIO.succeed(markUp(projectName)) *>
+                          ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
+                            .as(Response.status(Status.ServiceUnavailable))
                         case Left(err)   =>
+                          // it answered (with an error): not down
+                          ZIO.succeed(markUp(projectName)) *>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"
                           ).as(Response.status(Status.BadGateway))
         yield result)
           .provideLayer(HttpClientProvider.live)
-          .catchAll: err =>
-            ZIO.logError(
-              s"Error forwarding docs request for '$projectName': $err"
-            ).as(Response.status(Status.InternalServerError))
+          .catchAll: failure =>
+            val docsFailure = failure match
+              case f: DocsFailure => f
+              // HttpClientProvider.live could not be built - no request was sent
+              case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage)
+            // not reachable or no answer in time: down - the rest of the page from the site at once
+            // (a warning: the page is served from the site - an error only for a wrong URL / client, 500)
+            if docsFailure.status == Status.ServiceUnavailable then
+              // with released files (a site folder) in the main list, else in the small one - names a client
+              // makes up do not push out the real marks
+              // (the classpath lookup is blocking I/O)
+              ZIO.attemptBlocking(hasSiteFolder(companyName, projectName))
+                .tapError(e => ZIO.logWarning(s"Site folder of '$companyName/$projectName' not readable: ${e.getMessage}"))
+                .orElseSucceed(false)
+                .flatMap(withSite =>
+                  ZIO.succeed((if withSite then docsDown else docsDownNoSite).markDown(projectName, nowMs))
+                ) *>
+                ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
+                  .as(Response.status(docsFailure.status))
+            else
+              ZIO.logError(s"Error forwarding docs request for '$projectName': ${docsFailure.message}")
+                .as(Response.status(docsFailure.status))
 
   // ---------------------------------------------------------------------------
   // OAuth 2.0 Authorization Code Grant helpers
@@ -480,6 +596,10 @@ class OpenApiRoutes()(using config: GatewayConfig):
   private[gateway] def isValidProjectName(projectName: String): Boolean =
     projectName.matches("[A-Za-z0-9]+(-[A-Za-z0-9]+)*")
 
+  /** A company's folder of the site (`site/<company>/`) - a plain name, also with `_`. */
+  private[gateway] def isValidSiteFolder(name: String): Boolean =
+    name.matches("[A-Za-z0-9][A-Za-z0-9_-]*")
+
   private[gateway] def isValidDiagramName(diagramName: String): Boolean =
     diagramName.matches("[A-Za-z0-9_-][A-Za-z0-9._-]*") && !diagramName.contains("..")
 
@@ -555,6 +675,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
           case _ =>
             Seq.empty
+
+  /** Has the docs site released files of the project (`site/<company>/<project>/`)? */
+  private def hasSiteFolder(companyName: String, projectName: String): Boolean =
+    isValidSiteFolder(companyName) && isValidProjectName(projectName) &&
+      classpathDirectoryExists(siteResourcePath(s"$companyName/$projectName"))
 
   private[gateway] def classpathResourceExists(resourcePath: String): Boolean =
     Option(getClass.getClassLoader.getResource(resourcePath.stripSuffix("/"))).nonEmpty
@@ -699,10 +824,16 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * Used to serve the documentation site (the orch-doc build, see the company's publishDocs)
     * which is placed in the classpath under `/site` (e.g. `/site/index.html`, `/site/globex/...`).
     */
-  private def serveClasspathFile(resourcePath: String): ZIO[Any, Nothing, Response] =
-    ZIO.attempt {
+  private def serveClasspathFile(
+      resourcePath: String,
+      contentType: Option[MediaType] = None
+  ): ZIO[Any, Nothing, Response] =
+    // reading a file of the jar - not on the compute pool (the fallback of every diagram comes here)
+    ZIO.attemptBlocking {
       val ext       = resourcePath.split('.').lastOption.getOrElse("").toLowerCase
-      val mediaType = MediaType.forFileExtension(ext).getOrElse(MediaType.application.`octet-stream`)
+      val mediaType = contentType
+        .orElse(MediaType.forFileExtension(ext))
+        .getOrElse(MediaType.application.`octet-stream`)
       Option(getClass.getClassLoader.getResourceAsStream(resourcePath)) match
         case None         =>
           Response.status(Status.NotFound)
@@ -738,4 +869,35 @@ class OpenApiRoutes()(using config: GatewayConfig):
       .filter(_.nonEmpty)
       .getOrElse("http")
 
+end OpenApiRoutes
+
+object OpenApiRoutes:
+
+  /** The worker apps that did not answer (503) - for `downForMs` not asked again. At most `max`
+    * projects (the request path names them): when full, expired entries go first, then the one that
+    * ends first. Check and change are one step.
+    */
+  final class DownList(downForMs: Long, max: Int):
+    // a ReentrantLock as the helper's locks - it never blocks long here, but no pinned carrier either
+    private val lock  = java.util.concurrent.locks.ReentrantLock()
+    private val until = scala.collection.mutable.HashMap.empty[String, Long]
+    private def locked[A](a: => A): A =
+      lock.lock()
+      try a
+      finally lock.unlock()
+
+    def isDown(project: String, now: Long): Boolean = locked(until.get(project).exists(_ > now))
+
+    /** Its worker app did not answer: not asked again for `downForMs`. */
+    def markDown(project: String, now: Long): Unit = locked:
+      if until.size >= max then until.filterInPlace((_, t) => t > now)
+      // still full: the one that ends first goes - a new project is remembered, not asked again each time
+      if until.size >= max && !until.contains(project) then until.remove(until.minBy(_._2)._1)
+      until.update(project, now + downForMs)
+
+    /** Its worker app answered (also with an error): asked again. */
+    def markUp(project: String): Unit = locked(until.remove(project))
+
+    def size: Int = locked(until.size)
+  end DownList
 end OpenApiRoutes

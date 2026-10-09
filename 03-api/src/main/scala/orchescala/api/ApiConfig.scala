@@ -6,6 +6,12 @@ import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import sttp.apispec.openapi.Contact
 import zio.{Runtime, Unsafe, ZIO}
 
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.ReentrantLock
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
+
 case class ApiConfig(
     engineConfig: EngineConfig,
     // your company name like 'mycompany'
@@ -162,6 +168,21 @@ case class ProjectsConfig(
     perGitRepoConfigs.foreach(_.initProject(tempGitDir, projectName, companyName))
   end initProject
 
+  /** Is the project in one repo for all (`singleRepo`)? */
+  def inSingleRepo(projectName: String): Boolean =
+    perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(projectName))
+
+  /** The company clone of a project in one repo for all, updated - nothing for a project of an own repo.
+    * Only the clone: the docs export the project's folder at its tag from it.
+    *
+    * Once per `UpdateValidMs` per clone path and JVM: a long-lived JVM (sbt shell, a watch mode) works with
+    * a clone up to 5 minutes old; the remote is the one of the clone, a changed `cloneBaseUrl` needs a new
+    * clone (git-temp removed).
+    */
+  def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Unit =
+    perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName))
+      .foreach(_.updateClone(tempGitDir, companyName, CloneUpdate.CachedOrAsIs))
+
   def projectConfig(projectName: String): Option[ProjectConfig] =
     projectConfigs.find(_.name == projectName)
 
@@ -235,12 +256,11 @@ case class ProjectsPerGitRepoConfig(
   def init(gitDir: os.Path, companyName: String) =
     if singleRepo then
       ZIO
-        .attempt:
-          val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
-          updateProject(gitDir / s"orchescala-$companyName", gitRepo)
+        // git - not on the compute pool; init pulls every time (the cache is for the docs' many projects)
+        .attemptBlocking(updateClone(gitDir, companyName, CloneUpdate.Always))
         .flatMap: _ =>
           ZIO.foreachPar(projects): project =>
-            ZIO.attempt:
+            ZIO.attemptBlocking: // copying - not on the compute pool
               val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / project.name
               val projectGit = project.absGitPath(gitDir)
               println(s"Copy init $gitTemp to $projectGit")
@@ -255,45 +275,169 @@ case class ProjectsPerGitRepoConfig(
           updateProject(project.absGitPath(gitDir), gitRepo)
         .withParallelism(DefaultEngineConfig().parallelism)
 
+  /** Makes a project's checkout in git-temp - blocks (git clone/pull, copy): call it from a blocking
+    * thread (`ZIO.attemptBlocking`), as DocCreator does.
+    */
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
-    if singleRepo then
-      ZIO
-        .attempt:
-          val gitRepo = s"$cloneBaseUrl/$companyName.git"
-          updateProject(gitDir / companyName, gitRepo)
-        .flatMap: _ =>
-          ZIO.attempt:
-            val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / projectName
-            val projectGit = gitDir / projectName
-            println(s"Copy initProject $gitTemp to $projectGit")
-            if os.exists(projectGit) then
-              os.remove.all(projectGit)
-            os.copy(gitTemp, projectGit)
-    else
+    // ProjectsConfig asks every repo config - only the one with the project acts
+    if singleRepo && containsProject(projectName) then
+      // the same clone as init, updated once per run (also with projects in parallel), the project copied
+      // from it
+      val clone      = updateClone(gitDir, companyName)
+      val gitTemp    = clone / "projects" / projectName
+      if !os.isDir(gitTemp) then
+        throw new Exception(s"$projectName is not in the company repo $clone (no projects/$projectName)")
+      val projectGit = gitDir / projectName
+      println(s"Copy initProject $gitTemp to $projectGit")
+      if os.exists(projectGit) then
+        os.remove.all(projectGit)
+      os.copy(gitTemp, projectGit)
+    else if !singleRepo then
       projects.find(_.name == projectName)
         .foreach: project =>
           val gitRepo = s"$cloneBaseUrl/${project.name}.git"
           updateProject(project.absGitPath(gitDir), gitRepo)
   end initProject
 
+  /** The company clone `orchescala-<company>` (one repo for all), made or pulled - also with callers in
+    * parallel (init, initProject, the docs).
+    * @return the clone
+    */
+  def updateClone(gitDir: os.Path, companyName: String, mode: CloneUpdate = CloneUpdate.Cached): os.Path =
+    val clone = gitDir / s"orchescala-$companyName"
+    // a clone killed midway has a .git, but no commit - it does not serve
+    def usable = Try(os.proc("git", "-C", clone.toString, "rev-parse", "--verify", "-q", "HEAD")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0).getOrElse(false)
+    // gone meanwhile (git-temp wiped): made again, whatever the last update was
+    val force  = mode == CloneUpdate.Always || !os.exists(clone / ".git")
+    val update = Try(ProjectsPerGitRepoConfig.once(clone, force = force):
+      updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git", batch = mode == CloneUpdate.CachedOrAsIs)
+    )
+    update match
+      case Success(_)                                                => clone
+      case Failure(e) if mode == CloneUpdate.CachedOrAsIs && usable =>
+        println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
+        clone
+      case Failure(e)                                                => throw e
+
   def containsProject(projectName: String): Boolean =
     projects.exists(_.name == projectName)
 
-  private def updateProject(gitProjectDir: os.Path, gitRepo: String): Unit =
+  /** @param batch no prompt and a timeout (the docs: the clone's lock is held, every project of the company
+    *              waits) - else on the console, as `init` always did
+    */
+  private def updateProject(gitProjectDir: os.Path, gitRepo: String, batch: Boolean = false): Unit =
     println(s"Git Project Dir: $gitProjectDir")
     println(s"Git Repo: $gitRepo")
     os.makeDir.all(gitProjectDir)
-    if !(gitProjectDir / ".gitignore").toIO.exists() then
-      os.proc("git", "clone", gitRepo, gitProjectDir)
-        .callOnConsole(gitProjectDir)
+    def git(args: String*) =
+      val proc = os.proc("git", args)
+      if batch then
+        proc.call(
+          cwd = gitProjectDir,
+          stdin = "",
+          stdout = os.Inherit,
+          env = ProjectsPerGitRepoConfig.BatchGitEnv,
+          timeout = ProjectsPerGitRepoConfig.BatchGitTimeoutMs
+        )
+      else proc.callOnConsole(gitProjectDir)
+    if !(gitProjectDir / ".gitignore").toIO.exists() then git("clone", gitRepo, gitProjectDir.toString)
     else
-      os
-        .proc("git", "checkout", "develop")
-        .callOnConsole(gitProjectDir)
-      os.proc("git", "pull", "origin", "develop")
-        .callOnConsole(gitProjectDir)
+      // develop, the branch Orchescala's repos work on - a repo without it: its default branch (main, master)
+      val branch = if hasRemoteBranch(gitProjectDir, "develop") then "develop" else defaultBranch(gitProjectDir)
+      git("checkout", branch)
+      git("pull", "origin", branch)
     end if
   end updateProject
+
+  // only «origin has no such branch» (exit 2) counts - offline (another code) it stays develop, as before,
+  // and says why, before the pull fails on the same cause
+  private def hasRemoteBranch(dir: os.Path, branch: String): Boolean =
+    Try(os.proc("git", "ls-remote", "--exit-code", "--heads", "origin", branch)
+      .call(
+        cwd = dir,
+        check = false,
+        stdout = os.Pipe,
+        stderr = os.Pipe,
+        env = ProjectsPerGitRepoConfig.BatchGitEnv,
+        timeout = 60000
+      )) match
+      case Success(r) if r.exitCode == 2 => false
+      case Success(r) if r.exitCode == 0 => true
+      case other                          =>
+        val why = other.fold(_.getMessage, r => r.err.text().trim)
+        println(s"  ! origin of $dir not asked for '$branch' ($why) - $branch it is")
+        true
+
+  private def defaultBranch(dir: os.Path): String =
+    Try(os.proc("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+      .call(cwd = dir, stdout = os.Pipe, stderr = os.Pipe).out.text().trim.stripPrefix("origin/"))
+      .toOption.filter(_.nonEmpty).getOrElse("develop")
+end ProjectsPerGitRepoConfig
+
+/** An update of a clone that failed just before - each caller its own, with the failure as its cause. */
+final class CloneUpdateFailed(clone: os.Path, cause: Throwable)
+    extends Exception(s"$clone could not be updated just before: ${cause.getMessage}", cause)
+
+/** How the company clone is updated. */
+enum CloneUpdate:
+  /** pulled every time (init) - a failure fails */
+  case Always
+  /** pulled once per `UpdateValidMs` (initProject) - a failure fails */
+  case Cached
+  /** as Cached, but no prompt, a timeout, and a failure leaves the clone as it is, with a warning (the docs) */
+  case CachedOrAsIs
+
+object ProjectsPerGitRepoConfig:
+  /** What is known of a clone's last update - replaced as a whole, never changed. */
+  private final case class Updated(doneAt: Option[Long] = None, failed: Option[(Long, Throwable)] = None)
+  // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
+  private final class Update:
+    val lock  = ReentrantLock()
+    val state = AtomicReference(Updated()) // also read without the lock (updateFailure)
+  private[api] val UpdateValidMs       = 5 * 60 * 1000L
+  private[api] val FailedUpdateValidMs = 30 * 1000L
+  /** git without asking: a login fails at once - on the terminal and by an askpass program (an empty
+    * GIT_ASKPASS: none, not core.askPass). An SSH passphrase prompt or a stalled origin ends with the
+    * caller's timeout. C: git's messages in English (some are recognised).
+    */
+  private[orchescala] val BatchGitEnv = Map("GIT_TERMINAL_PROMPT" -> "0", "GIT_ASKPASS" -> "", "LC_ALL" -> "C")
+  private val BatchGitTimeoutMs       = 5 * 60 * 1000L
+
+  /** Why the last update of a clone failed - None if it worked or did not run (for the docs' errors). */
+  def updateFailure(clone: os.Path): Option[String] =
+    Option(updates.get(clone)).flatMap(_.state.get.failed.map((_, e) => Option(e.getMessage).getOrElse(e.toString)))
+  private val updates = ConcurrentHashMap[os.Path, Update]()
+
+  /** `update` of a clone once per run - a caller at the same time waits for it, then goes on. A successful
+    * update counts `UpdateValidMs` (a process that runs on pulls again for its next docs run), a failed one
+    * `FailedUpdateValidMs` - its callers get that failure again.
+    * @param force read under the lock - e.g. the clone is gone: then it updates whatever the last time
+    */
+  private[api] def once(clone: os.Path, now: => Long = System.currentTimeMillis(), force: => Boolean = false)(
+      update: => Unit
+  ): Unit =
+    val entry = updates.computeIfAbsent(clone, _ => Update())
+    entry.lock.lockInterruptibly()
+    try
+      val start  = now // read once
+      val forced = force // under the lock: a caller that waited sees what the one before did
+      val known  = entry.state.get
+      known.failed match
+        // failed just now: the same failure, not another pull per project - a new exception per caller
+        case Some((at, e)) if !forced && start - at < FailedUpdateValidMs => throw CloneUpdateFailed(clone, e)
+        case _ if !forced && known.doneAt.exists(start - _ < UpdateValidMs) => ()
+        case _ =>
+          // from its end: a slow clone does not use up the window it opens
+          try
+            update
+            entry.state.set(Updated(doneAt = Some(now)))
+          catch
+            case NonFatal(e) =>
+              // a failure ends an earlier success - after its window the next caller pulls again
+              entry.state.set(Updated(failed = Some(now -> e)))
+              throw e
+    finally entry.lock.unlock()
 end ProjectsPerGitRepoConfig
 
 case class ProjectConfig(

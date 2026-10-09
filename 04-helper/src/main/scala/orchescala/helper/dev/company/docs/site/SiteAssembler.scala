@@ -52,44 +52,33 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
         val apiDocUrl     = p.hcursor.get[String]("apiDocUrl").getOrElse("")
         val version       = p.hcursor.get[String]("version").toOption
         val workerVersion = p.hcursor.get[String]("workerVersion").toOption
-        val repo          = gitTemp / name
         val targetCo      = """^\.\./([\w-]+)/""".r.findFirstMatchIn(apiDocUrl).map(_.group(1)).getOrElse(co)
         val target        = out / targetCo / name
-        if !os.exists(repo) then
-          println(s"  ✗ $name: no checkout in $gitTemp - API skipped")
-          apiMissing += 1
-        else
-          // bpmn and worker are released separately - the API doc is the NEWEST of the two
-          val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
-          var ref    = newest.map("v" + _).getOrElse("HEAD")
-          if ref != "HEAD" && git(repo, "rev-parse", "-q", "--verify", s"$ref^{commit}").isEmpty then
-            println(s"  ! $name: tag $ref not found - using HEAD")
-            ref = "HEAD"
-          // old-style projects (pre 03-api) keep openApi.yml in the repo root
-          val ymlPath = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml")
-            .find(f => git(repo, "cat-file", "-e", s"$ref:$f").isDefined)
-          ymlPath.flatMap(f => git(repo, "show", s"$ref:$f")) match
-            case None      =>
-              println(s"  ✗ $name: no OpenApi.yml at $ref")
-              apiMissing += 1
-            case Some(yml) =>
-              os.makeDir.all(target / "diagrams")
-              os.write.over(target / "OpenApi.yml", yml)
-              SiteAssembler.searchEntries(targetCo, name, new String(yml, java.nio.charset.StandardCharsets.UTF_8))
-                .foreach(e => searchEntries.getOrElseUpdate(s"$targetCo/$name/${e.hcursor.get[String]("id").getOrElse("")}", e))
-              // the API page: always the CURRENT one from the jar, not what the project shipped at that tag
-              os.write.over(target / "OpenApi.html", apiPage)
-              // the company gateway's Postman variant (only projects generated with that config have it)
-              git(repo, "show", s"$ref:03-api/PostmanOpenApi.yml").foreach: postman =>
-                os.write.over(target / "PostmanOpenApi.yml", postman)
-                os.write.over(target / "PostmanOpenApi.html", apiPage)
-              Seq("src/main/resources/camunda", "src/main/resources/camunda8").foreach: dia =>
-                git(repo, "ls-tree", "-r", "--name-only", ref, "--", dia).map(new String(_).trim).filter(_.nonEmpty)
-                  .foreach: ls =>
-                    ls.split("\n").filter(_.matches(".*\\.(bpmn|dmn)$")).foreach: f =>
-                      git(repo, "show", s"$ref:$f").foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
-              println(s"  ✓ $name @ $ref")
-              if ref == "HEAD" && newest.isDefined then apiHead += 1 else apiOk += 1
+        // its own clone - or the company's single repo with the project under projects/<name>
+        ProjectRepo.locate(gitTemp, name) match
+          case None =>
+            println(s"  ✗ $name: no checkout in $gitTemp - API skipped")
+            apiMissing += 1
+          case Some(projectRepo) =>
+            // bpmn and worker are released separately - the API doc is the NEWEST of the two
+            val newest = Seq(version, workerVersion).flatten.sortWith(cmpVersion(_, _) < 0).lastOption
+            val tag    = newest.flatMap(SiteAssembler.releaseRef(projectRepo, _))
+            tag.flatMap(projectRepo.plainTagWarning).foreach(println)
+            // no tag: the newest the clone has - its default branch (an own clone stands at the tag
+            // DocCreator checked out last, which may be the older of BPMN and worker)
+            val ref    = tag.getOrElse(SiteAssembler.newestRef(projectRepo))
+            newest.filter(_ => tag.isEmpty).foreach: v =>
+              val tried = projectRepo.tagCandidates(v).mkString(" / ")
+              println(s"  ! $name: no tag for $v ($tried) - using $ref, which may be unreleased")
+            SiteAssembler.writeApi(projectRepo, ref, target, apiPage) match
+              case None      =>
+                println(s"  ✗ $name: no OpenApi.yml at $ref")
+                apiMissing += 1
+              case Some(yml) =>
+                SiteAssembler.searchEntries(targetCo, name, new String(yml, java.nio.charset.StandardCharsets.UTF_8))
+                  .foreach(e => searchEntries.getOrElseUpdate(s"$targetCo/$name/${e.hcursor.get[String]("id").getOrElse("")}", e))
+                println(s"  ✓ $name @ $ref")
+                if tag.isEmpty && newest.isDefined then apiHead += 1 else apiOk += 1
     searchEntries.values.groupBy(_.hcursor.get[String]("company").getOrElse("")).foreach: (co, entries) =>
       os.write.over(out / co / "search.json", io.circe.Json.arr(entries.toSeq*).spaces2, createFolders = true)
       println(s"  ✓ search index $co: ${entries.size} operations")
@@ -112,14 +101,12 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
     SpecCatalog.writeProjectColors(projectColors, out / "spec" / "catalog.generated.json")
     println(s"\nSite assembled in $out")
     println(s"  APIs: $apiOk at their defined version · $apiHead on HEAD (tag missing) · $apiMissing skipped")
+    if apiHead > 0 then
+      println(s"  ! $apiHead API(s) from the default branch, not from a release - tag them before publishing")
     out
   end assemble
 
   private lazy val apiPage: String = os.read(os.resource / "OrchDocApi.html")
-
-  private def git(repo: os.Path, args: String*): Option[Array[Byte]] =
-    val r = os.proc("git", "-C", repo.toString, args).call(check = false, stderr = os.Pipe)
-    Option.when(r.exitCode == 0)(r.out.bytes)
 
   private def cmpVersion(a: String, b: String): Int =
     val pa = a.split("\\.").map(_.toIntOption.getOrElse(0)); val pb = b.split("\\.").map(_.toIntOption.getOrElse(0))
@@ -129,6 +116,98 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
 end SiteAssembler
 
 object SiteAssembler:
+
+  /** The release tag of `version` in the project's repo (its own tags first in a single repo) - the
+    * same rule as ProjectRepo.resolveTag, but no fetch: the site is built from what git-temp has.
+    * `existsAt` is both checks - the tag is there, and the project at it (in one repo `v1.0.0` may be
+    * another project's release).
+    */
+  def releaseRef(projectRepo: ProjectRepo, version: String): Option[String] =
+    projectRepo.releaseTags(version, projectRepo.localTags()).headOption
+
+  /** The API of a project at `ref` into `target`: OpenApi.yml (with the CURRENT API page from the jar,
+    * not what the project shipped at that tag), the company gateway's Postman variant if there is
+    * one, and the BPMN/DMN diagrams - in a single repo all under the project's folder.
+    * @return the OpenApi.yml - None if the project has none at `ref`
+    */
+  def writeApi(
+      projectRepo: ProjectRepo,
+      ref: String,
+      target: os.Path,
+      apiPage: String
+  ): Option[Array[Byte]] =
+    val repo     = projectRepo.repo
+    def at(file: String) = s"$ref:$file"
+    // old-style projects (pre 03-api) keep openApi.yml in the repo root
+    val ymlPath  = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
+      .find(f => gitOut(repo, "cat-file", "-e", at(f)).isDefined)
+    ymlPath.flatMap(f => gitShow(repo, at(f))).map: yml =>
+      os.makeDir.all(target)
+      os.write.over(target / "OpenApi.yml", yml)
+      os.write.over(target / "OpenApi.html", apiPage)
+      // the Postman variant of this release - or none, not one left from an earlier release
+      gitOut(repo, "show", at(projectRepo.path("03-api/PostmanOpenApi.yml"))) match
+        case Some(postman) =>
+          os.write.over(target / "PostmanOpenApi.yml", postman)
+          os.write.over(target / "PostmanOpenApi.html", apiPage)
+        case None          =>
+          os.remove(target / "PostmanOpenApi.yml", checkExists = false)
+          os.remove(target / "PostmanOpenApi.html", checkExists = false)
+      val diagramDirs = Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path)
+      // the site has one folder of diagrams (the page links them by name). camunda8 over camunda - a
+      // project with both engines has the same diagram in both, as before the later one is shown; the
+      // same name twice within one of them: the first is taken, said
+      val byName = diagramDirs.foldLeft(Map.empty[String, String]): (taken, dir) =>
+        // -z: the names as they are (without it git quotes non-ASCII names, and git show finds none)
+        val files = gitOut(repo, "ls-tree", "-r", "-z", "--name-only", ref, "--", dir)
+          .map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
+          .flatMap(_.split('\u0000').toSeq.filter(_.nonEmpty))
+          .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
+        val inDir = files.groupBy(_.split("/").last).toSeq.sortBy(_._1).map: (name, same) =>
+          if same.size > 1 then
+            val others = same.tail.mkString(", ")
+            println(s"  ! ${projectRepo.project}: ${same.size} diagrams named $name - ${same.head} taken ($others not)")
+          name -> same.head
+        taken ++ inDir
+      // the diagrams of this release only (one removed since the last does not stay) - written next to the
+      // old folder, then in its place: a failure midway leaves the old diagrams, not none
+      val fresh = target / ".diagrams-new"
+      os.remove.all(fresh)
+      os.makeDir.all(fresh)
+      byName.toSeq.sortBy(_._1).foreach: (name, file) =>
+        gitShow(repo, at(file)).foreach(b => os.write.over(fresh / name, b))
+      os.remove.all(target / "diagrams")
+      os.move(fresh, target / "diagrams")
+      yml
+
+  /** The default branch of the clone: `origin/HEAD`, else `origin/main` / `origin/master` (a clone made
+    * with `git init` + `remote add` has no origin/HEAD), else `HEAD`.
+    */
+  def newestRef(projectRepo: ProjectRepo): String =
+    Seq("origin/HEAD", "origin/main", "origin/master")
+      .find(r => gitOut(projectRepo.repo, "rev-parse", "-q", "--verify", s"$r^{commit}").isDefined)
+      .getOrElse("HEAD")
+
+  /** A git command's output - None if it fails (a probe like `cat-file -e`: «no»); a minute at most - a
+    * timeout is said, it is no «no».
+    */
+  private def gitOut(repo: os.Path, args: String*): Option[Array[Byte]] =
+    scala.util.Try(os.proc("git", "-C", repo.toString, args).call(check = false, stderr = os.Pipe, timeout = 60000))
+      .fold(
+        e =>
+          println(s"  ! git ${args.mkString(" ")} in $repo did not finish: ${e.getMessage}")
+          None,
+        r => Option.when(r.exitCode == 0)(r.out.bytes)
+      )
+
+  /** `git show <ref>:<file>` of a file that is there - a failure is said, not taken for «no such file». */
+  private def gitShow(repo: os.Path, refFile: String): Option[Array[Byte]] =
+    val r = scala.util.Try(os.proc("git", "-C", repo.toString, "show", refFile)
+      .call(check = false, stderr = os.Pipe, timeout = 60000))
+    r.toOption.filter(_.exitCode == 0).map(_.out.bytes).orElse:
+      val why = r.fold(_.getMessage, _.err.text().trim)
+      println(s"  ! git show $refFile in $repo failed: $why")
+      None
 
   /** The documentation app incl. orch-spec (`orch-doc-site/` in the orchescala-orch-doc jar) into
     * `out` - by the index `files.txt` the build writes, since a jar cannot be listed.
