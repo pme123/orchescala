@@ -257,3 +257,21 @@ test('svgDrops* - the SVG rules of an imported or uploaded logo (as parse_svg of
   assert.ok(!svgDropsAttribute('fill', 'url(#g)'));
   assert.ok(!svgDropsAttribute('d', 'M0 0h10v10z'));
 });
+
+test('parseThemeFile - JSON null is JSON, but no theme', () => {
+  const r = parseThemeFile('null');
+  assert.ok('error' in r && r.error === 'Die Datei ist kein Theme.');
+  const broken = parseThemeFile('{nope');
+  assert.ok('error' in broken && broken.error === 'Die Datei ist kein JSON.');
+});
+
+test('decodeBase64 / cleanLogo - base64 to UTF-8 text, refused before the parser', async () => {
+  const { cleanLogo, decodeBase64 } = await import('../src/pages/designer/ThemeEditor');
+  const b64 = (text: string) => btoa(Array.from(new TextEncoder().encode(text), (b) => String.fromCharCode(b)).join(''));
+  assert.equal(decodeBase64(b64('<svg>Prüfung ä</svg>')), '<svg>Prüfung ä</svg>'); // umlauts survive
+  assert.equal(decodeBase64('!!!'), null);
+  // no DOM needed: these return before the SVG is parsed
+  assert.equal(cleanLogo('data:image/svg+xml;base64,!!!'), null);
+  assert.equal(cleanLogo(`data:image/svg+xml;base64,${b64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
+  assert.equal(cleanLogo('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA'); // not an SVG: as it is
+});

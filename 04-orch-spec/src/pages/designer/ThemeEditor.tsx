@@ -31,8 +31,8 @@ export function cleanLogo(uri: string): string | null {
   return `data:image/svg+xml;base64,${btoa(Array.from(clean, (b) => String.fromCharCode(b)).join(''))}`;
 }
 
-/** base64 as UTF-8 text - null if it is none. */
-function decodeBase64(b64: string): string | null {
+/** base64 als UTF-8-Text - null, wenn es keins ist. */
+export function decodeBase64(b64: string): string | null {
   try {
     return new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
   } catch {

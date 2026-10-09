@@ -48,7 +48,7 @@ function parseColor(color: string): { rgb: number[]; alpha: number } | null {
   return c.startsWith('#') ? hexColor(c.slice(1)) : functionColor(c);
 }
 
-/** #rgb, #rgba, #rrggbb, #rrggbbaa (without the #). */
+/** #rgb, #rgba, #rrggbb, #rrggbbaa (ohne das #). */
 function hexColor(h: string): { rgb: number[]; alpha: number } {
   const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
   return {
@@ -57,7 +57,7 @@ function hexColor(h: string): { rgb: number[]; alpha: number } {
   };
 }
 
-/** rgb(…)/rgba(…) or hsl(…)/hsla(…), with commas or spaces. */
+/** rgb(…)/rgba(…) oder hsl(…)/hsla(…), mit Kommas oder Leerzeichen. */
 function functionColor(c: string): { rgb: number[]; alpha: number } {
   const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
   const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
@@ -178,7 +178,7 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
 /** Die Schlüssel eines Themes (spec.ts `Theme`). */
 const THEME_KEYS = ['primary', 'onPrimary', 'background', 'surface', 'text', 'font', 'radius', 'logo', 'mode'];
 
-/** JSON as a value - null if it is none (a `{ value }`, as `null` is JSON too). */
+/** JSON als Wert - null, wenn es keins ist (ein `{ value }`, denn auch `null` ist JSON). */
 function parseJson(text: string): { value: unknown } | null {
   try {
     return { value: JSON.parse(text) };
