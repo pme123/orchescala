@@ -239,6 +239,7 @@ class ProjectRepoTest extends FunSuite:
     val err = Console.withOut(java.io.ByteArrayOutputStream()):
       intercept[Exception](ProjectRepo.exportRelease(gitTemp, "acme-shop", "7.0.0", gitTemp / "acme-shop"))
     assert(err.getMessage.contains("not checked on origin"), err.getMessage)
+    assert(err.isInstanceOf[ReleaseNotFound]) // no release - not a broken repo
     assert(!err.getMessage.contains("released?"), err.getMessage)
 
   test("exportTo - leftovers of a killed run next to dest are removed - only the project's own"):

@@ -257,19 +257,18 @@ case class ProjectsPerGitRepoConfig(
 
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
     if singleRepo then
-      ZIO
-        .attempt:
-          // the same clone as init - the project is copied from it below
-          val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
-          updateProject(gitDir / s"orchescala-$companyName", gitRepo)
-        .flatMap: _ =>
-          ZIO.attempt:
-            val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / projectName
-            val projectGit = gitDir / projectName
-            println(s"Copy initProject $gitTemp to $projectGit")
-            if os.exists(projectGit) then
-              os.remove.all(projectGit)
-            os.copy(gitTemp, projectGit)
+      // the same clone as init - updated once per run, also when the projects of the company come here in
+      // parallel (DocCreator); then the project is copied from it. (It ran nothing before: the ZIO it
+      // built was dropped.)
+      val clone      = gitDir / s"orchescala-$companyName"
+      ProjectsPerGitRepoConfig.once(clone):
+        updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")
+      val gitTemp    = clone / "projects" / projectName
+      val projectGit = gitDir / projectName
+      println(s"Copy initProject $gitTemp to $projectGit")
+      if os.exists(projectGit) then
+        os.remove.all(projectGit)
+      os.copy(gitTemp, projectGit)
     else
       projects.find(_.name == projectName)
         .foreach: project =>
@@ -295,6 +294,26 @@ case class ProjectsPerGitRepoConfig(
         .callOnConsole(gitProjectDir)
     end if
   end updateProject
+end ProjectsPerGitRepoConfig
+
+object ProjectsPerGitRepoConfig:
+  // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
+  private final class Update:
+    val lock = java.util.concurrent.locks.ReentrantLock()
+    var done = false
+  private val updates = java.util.concurrent.ConcurrentHashMap[os.Path, Update]()
+
+  /** `update` of a clone once per run - a caller at the same time waits for it, then goes on; a failed
+    * update is tried again by the next caller.
+    */
+  private[api] def once(clone: os.Path)(update: => Unit): Unit =
+    val state = updates.computeIfAbsent(clone, _ => Update())
+    state.lock.lock()
+    try
+      if !state.done then
+        update
+        state.done = true
+    finally state.lock.unlock()
 end ProjectsPerGitRepoConfig
 
 case class ProjectConfig(

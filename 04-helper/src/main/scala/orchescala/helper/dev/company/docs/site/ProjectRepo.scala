@@ -126,6 +126,11 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       .out.text().linesIterator.map(_.trim).toSet
 end ProjectRepo
 
+/** No release (tag) of a version - VERSIONS.conf names one that is not released, or origin could not be
+  * asked. A broken repo or export is a plain Exception.
+  */
+final class ReleaseNotFound(message: String) extends Exception(message)
+
 object ProjectRepo:
 
   /** `dest` replaced by `fresh`: the old one aside, the new one in, the old one removed - if the move
@@ -180,7 +185,9 @@ object ProjectRepo:
     * at most its timeout, instead of reading the tags before it. One small entry per clone of git-temp,
     * for the run of the helper.
     */
+  // a ReentrantLock, not synchronized: a fetch of up to a minute would pin a virtual thread's carrier
   private final class FetchState:
+    val lock                          = java.util.concurrent.locks.ReentrantLock()
     var validUntil: Long              = Long.MinValue
     /** why the last fetch failed - for the error of a tag that is then not found */
     var failure: Option[String]       = None
@@ -195,13 +202,14 @@ object ProjectRepo:
     *   Call it from a blocking thread (`ZIO.attemptBlocking`, as DocCreator does), never from ZIO's
     *   compute pool.
     */
-  private[site] def fetchTagsOnce(
+  private[docs] def fetchTagsOnce(
       repo: os.Path,
       now: => Long = System.currentTimeMillis(),
       fetch: os.Path => Boolean = fetchTags(_)
   ): Boolean =
     val state = fetches.computeIfAbsent(repo, _ => FetchState())
-    state.synchronized:
+    state.lock.lock()
+    try
       val start = now
       if start < state.validUntil then false
       else
@@ -210,10 +218,14 @@ object ProjectRepo:
         state.validUntil = now + (if ok then FetchValidMs else FailedFetchValidMs)
         state.failure = Option.when(!ok)(s"fetching the tags of $repo failed (see above)")
         true
+    finally state.lock.unlock()
 
   /** Why the last fetch of the repo failed - None if it worked or did not run. */
-  private[site] def fetchFailure(repo: os.Path): Option[String] =
-    Option(fetches.get(repo)).flatMap(s => s.synchronized(s.failure))
+  private[docs] def fetchFailure(repo: os.Path): Option[String] =
+    Option(fetches.get(repo)).flatMap: s =>
+      s.lock.lock()
+      try s.failure
+      finally s.lock.unlock()
 
   /** `git fetch --tags` (and `more`, e.g. `--all`) - no credential prompt, at most `timeoutMs`; a
     * failure is logged, a release tag moved on origin named. For the single repo and own clones alike.
@@ -257,11 +269,11 @@ object ProjectRepo:
       dest: os.Path
   ): Option[String] =
     locate(gitTemp, project).filter(_.singleRepo).map: repo =>
-      val tag = repo.resolveTag(version).getOrElse:
+      val tag = repo.resolveTag(version).getOrElse[String]:
         val tried = repo.tagCandidates(version).mkString(" or ")
         // not «unreleased», if origin could not be asked - say so
         val why   = fetchFailure(repo.repo).fold(s"is $project $version released?")(f => s"$f - not checked on origin")
-        throw new Exception(s"Tag not found in ${repo.repo}: $tried - $why")
+        throw ReleaseNotFound(s"Tag not found in ${repo.repo}: $tried - $why")
       repo.plainTagWarning(tag).foreach(println)
       repo.exportTo(tag, dest)
       tag

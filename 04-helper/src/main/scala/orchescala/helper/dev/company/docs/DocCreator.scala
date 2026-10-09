@@ -273,8 +273,10 @@ trait DocCreator extends DependencyCreator, Helpers:
     * failure logged), two minutes at most: a tag that is there locally still counts (resolveTagRef).
     */
   private def fetchAllTags(projectPath: os.Path): Boolean =
-    println(s"git fetch --all --tags ($projectPath)")
-    ProjectRepo.fetchTags(projectPath, more = Seq("--all"), timeoutMs = 120000)
+    // once per clone and run, as in the single repo - the BPMN and the worker version share the clone
+    if ProjectRepo.fetchTagsOnce(projectPath, fetch = ProjectRepo.fetchTags(_, more = Seq("--all"), timeoutMs = 120000))
+    then println(s"  fetched the tags of $projectPath (git fetch --all --tags)")
+    ProjectRepo.fetchFailure(projectPath).isEmpty
 
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
   private def resolveTagRef(projectPath: os.Path, version: String, fetched: Boolean): String =

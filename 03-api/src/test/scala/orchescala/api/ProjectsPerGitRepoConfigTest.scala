@@ -1,0 +1,49 @@
+package orchescala.api
+
+import munit.FunSuite
+
+import scala.concurrent.*
+import scala.concurrent.duration.*
+
+/** The single repo of a company in git-temp: initProject clones it once (a local «remote»), then copies
+  * the project out of it - also when the projects come in parallel.
+  */
+class ProjectsPerGitRepoConfigTest extends FunSuite:
+
+  private def git(dir: os.Path, args: String*): Unit =
+    os.proc("git", "-c", "user.name=test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false", args)
+      .call(cwd = dir, stdout = os.Pipe, stderr = os.Pipe)
+
+  test("initProject (single repo) - one clone of orchescala-<company>, the project copied from it"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    val work    = os.temp.dir(prefix = "work")
+    os.write(work / ".gitignore", "target/\n")
+    for p <- Seq("acme-shop", "acme-cards", "acme-new") do
+      os.write(work / "projects" / p / "PROJECT.conf", s"name = $p\n", createFolders = true)
+    git(work, "init", "-q")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "projects")
+    os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / "orchescala-acme.git").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    val config  = ProjectsPerGitRepoConfig(
+      cloneBaseUrl = remotes.toString,
+      projects = Seq("acme-shop", "acme-cards", "acme-new").map(ProjectConfig(_, ProjectGroup("acme"))),
+      singleRepo = true
+    )
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    val pool    = ExecutionContext.fromExecutorService(java.util.concurrent.Executors.newFixedThreadPool(3))
+    given ExecutionContext = pool
+    try
+      Await.result(
+        Future.sequence(Seq("acme-shop", "acme-cards", "acme-new").map: p =>
+          Future(blocking(Console.withOut(java.io.ByteArrayOutputStream())(config.initProject(gitTemp, p, "acme"))))),
+        2.minutes
+      )
+    finally pool.shutdown()
+    assert(os.exists(gitTemp / "orchescala-acme" / ".git"))
+    assert(!os.exists(gitTemp / "acme")) // not the old place
+    for p <- Seq("acme-shop", "acme-cards", "acme-new") do
+      assertEquals(os.read(gitTemp / p / "PROJECT.conf"), s"name = $p\n")
+      assert(!os.exists(gitTemp / p / ".git")) // a copy - the history is the company clone's
+
+end ProjectsPerGitRepoConfigTest
