@@ -231,7 +231,11 @@ test('alphaOf - the opacity itself; the page background check uses it', () => {
   assert.deepEqual(rgb255('hsl(240, 100%, 50%)'), [0, 0, 255]);
   assert.deepEqual(rgb255('hsla(0, 100%, 25%, 1)'), [128, 0, 0]);
   assert.deepEqual(rgb255('rgb(200% 0% 0%)'), [255, 0, 0]); // over 100%: 100%
-  // fewer than three components never reach the conversion: COLOR refuses them
+  assert.deepEqual(rgb255('hsl(120 50% 50% / 50%)'), [159, 223, 159]); // space syntax with alpha
+  assert.equal(alphaOf('hsl(120 50% 50% / 50%)'), 0.5);
+  assert.deepEqual(rgb255('hsl(120deg, 100%, 50%)'), [0, 255, 0]); // deg: what parseFloat reads
+  // fewer than three components, or what parseFloat does not read, never reach the conversion: COLOR refuses them
+  for (const c of ['hsl(none 100% 50%)', 'rgb(none 0 0)', 'hsl(1.5turn, 100%, 50%)']) assert.equal(rgbOf(c), null, c);
   for (const c of ['hsl(120)', 'hsl(120, 50%)', 'rgb(1, 2)', 'hsl(120 50%)'])
     assert.equal(rgbOf(c), null, c);
 });
@@ -295,9 +299,16 @@ test('cleanLogo - the SVG walked and cleaned: scripts, handlers and outside link
   const out = cleanLogo(`data:image/svg+xml;base64,${encodeBase64(svg)}`, linkedom);
   assert.ok(out?.startsWith('data:image/svg+xml;base64,'), String(out));
   const clean = decodeBase64(out!.slice(out!.indexOf(',') + 1))!;
-  for (const gone of ['onload', 'alert', '<script', 'onclick', 'evil.test', '<image']) assert.ok(!clean.includes(gone), `${gone} in ${clean}`);
-  for (const kept of ['viewBox="0 0 10 10"', 'fill="url(#g)"', 'href="#g"', '<linearGradient id="g"', 'Prüfung ä'])
-    assert.ok(clean.includes(kept), `${kept} not in ${clean}`);
+  // the result read again: what is in it, element by element - not only which text is missing
+  const doc = linkedom.parse(clean);
+  const all = [...doc.querySelectorAll('*')];
+  assert.deepEqual(all.map((el) => el.localName), ['svg', 'defs', 'linearGradient', 'a', 'rect', 'use', 'text']);
+  const attrs = all.flatMap((el) => [...el.attributes].map((at) => `${el.localName} ${at.name}=${at.value}`));
+  assert.deepEqual(attrs, [
+    'svg xmlns=http://www.w3.org/2000/svg', 'svg viewBox=0 0 10 10', 'linearGradient id=g',
+    'rect fill=url(#g)', 'rect width=10', 'rect height=10', 'use href=#g',
+  ]); // no on…, the <a> without its outside href, its <rect> kept
+  assert.equal(doc.querySelector('text')?.textContent, 'Prüfung ä');
   const logo = (text: string, dom: SvgDom) => cleanLogo(`data:image/svg+xml;base64,${encodeBase64(text)}`, dom);
   assert.equal(logo('<html><body/></html>', linkedom), null); // no SVG
   // broken XML: the browser says so with a <parsererror> in the document (linkedom does not - so a parser that does)
@@ -310,7 +321,8 @@ test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, r
   assert.equal(decodeBase64(encodeBase64('<svg>Prüfung ä € 銀行</svg>')), '<svg>Prüfung ä € 銀行</svg>');
   assert.equal(encodeBase64('ä'), 'w6Q='); // UTF-8 (c3 a4), not Latin-1
   assert.equal(decodeBase64('!!!'), null);
-  assert.equal(decodeBase64(btoa('\xff')), '\ufffd'); // no UTF-8: U+FFFD, not null
+  // no UTF-8: U+FFFD, not null - as before; whether a logo like that should be refused (fatal) is open
+  assert.equal(decodeBase64(btoa('\xff')), '\ufffd');
   // without a DOM (no DOMParser): what returns before the SVG is parsed
   assert.equal(cleanLogo('data:image/svg+xml;base64,!!!'), null);
   assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
