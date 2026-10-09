@@ -56,5 +56,12 @@ object EngineError:
       err match
         case err: ServiceRequestError => err
         case err                      => ServiceRequestError(500, err.toString)
-    
+
+    /** A refusal of the caller's request: a 4xx, but no auth status - 401, 403 and 407 belong to
+      * the token check, not to the service. The one rule for a worker (`CustomError.refused`) and
+      * for forwarding to a worker app (`WorkerForwardUtil`).
+      */
+    def isRefusal(status: Int): Boolean =
+      status >= 400 && status < 500 && status != 401 && status != 403 && status != 407
+
 end EngineError

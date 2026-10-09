@@ -6,7 +6,7 @@ import orchescala.engine.domain.EngineError.{ServiceRequestError, UnexpectedErro
 import orchescala.engine.rest.SttpClientBackend
 import sttp.client3.basicRequest
 import sttp.model.Uri
-import zio.{ZIO, durationInt}
+import zio.{IO, ZIO, durationInt}
 
 import scala.concurrent.duration.DurationInt
 
@@ -74,19 +74,35 @@ object WorkerForwardUtil:
                         )
                       .timeoutFail(ServiceRequestError(504, s"Timeout forwarding request to worker app"))(15.seconds)
       _        <- ZIO.logInfo(s"Worker app response status: ${response.code.code}")
-      result   <- response.body match
-                    case Right(body) =>
-                      ZIO.fromEither(parser.parse(body))
-                        .mapError(err =>
-                          UnexpectedError(s"Failed to parse error response: $err")
-                        )
-                    case Left(err)   =>
-                      ZIO
-                        .fromEither(parser.parse(err).flatMap(_.as[ServiceRequestError]))
-                        .orElse(ZIO.succeed(ServiceRequestError(response.code.code, truncateErrorBody(err))))
-                        .flatMap(ZIO.fail(_))
-    yield result).tapError: err =>
-      ZIO.logError(s"Error forwarding request to worker app: ${LogSafe.forLog(err.toString, "in the response")}")
+    yield response)
+      // no answer: no connection, a timeout or an invalid URL
+      .tapError(logError)
+      .flatMap: response =>
+        response.body match
+          case Right(body) =>
+            ZIO.fromEither(parser.parse(body))
+              .mapError(err => UnexpectedError(s"Failed to parse error response: $err"))
+              .tapError(logError)
+          case Left(body)  =>
+            failWith(response.code.code, body)
+
+  /** A non-2xx answer. A refusal of the worker app (e.g. 409 «taken») is an answer, not a failure -
+    * info only. The HTTP status decides; the body only shows that the worker app answered (not a
+    * proxy, not a missing route): its ServiceRequestError with the same status - the worker app
+    * takes the status of a refusal from that errorCode (`WorkerEndpoints.httpStatus`), so they match.
+    */
+  private def failWith(status: Int, body: String): IO[ServiceRequestError, Nothing] =
+    val answer  = parser.parse(body).flatMap(_.as[ServiceRequestError]).toOption
+    val err     = answer.getOrElse(ServiceRequestError(status, truncateErrorBody(body)))
+    val refusal = ServiceRequestError.isRefusal(status) && answer.exists(_.errorCode == status)
+    (if refusal then ZIO.logInfo(s"Worker app refused the request: ${forLog(err)}")
+     else logError(err)) *> ZIO.fail(err)
+
+  private def logError(err: EngineError) =
+    ZIO.logError(s"Error forwarding request to worker app: ${forLog(err)}")
+
+  private def forLog(err: EngineError): String =
+    LogSafe.forLog(err.toString, "in the response")
 
   private val MaxErrorBodyLength = 500
 
