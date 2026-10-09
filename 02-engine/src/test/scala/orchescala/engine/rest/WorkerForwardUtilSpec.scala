@@ -14,12 +14,12 @@ import scala.jdk.CollectionConverters.*
 
 object WorkerForwardUtilSpec extends ZIOSpecDefault:
 
-  private final class WorkerApp:
+  private final class WorkerApp(status: StatusCode = StatusCode.Ok, body: String = "{}"):
     val requests = ConcurrentLinkedQueue[Request[?, ?]]()
     val layer: ULayer[SttpClientBackend] = ZLayer.succeed(
       AsyncHttpClientZioBackend.stub.whenAnyRequest.thenRespondF: request =>
         requests.add(request)
-        ZIO.succeed(Response("{}", StatusCode.Ok))
+        ZIO.succeed(Response(body, status))
     )
 
   // as on a server (not localhost): the worker host comes from the topic name
@@ -63,6 +63,27 @@ object WorkerForwardUtilSpec extends ZIOSpecDefault:
       yield assertTrue(exit.causeOption.flatMap(_.failureOption).exists:
         case EngineError.ServiceRequestError(400, _) => true
         case _                                       => false)
+    },
+    test("a refusal of the worker app (4xx) is logged as info - not as an error") {
+      val app = WorkerApp(StatusCode.Conflict, """{"errorCode":409,"errorMsg":"Der Termin ist leider vergeben"}""")
+      for
+        exit   <- forward("mycompany-myproject-reserveSlot", app)
+        output <- ZTestLogger.logOutput
+      yield assertTrue(
+        exit.causeOption.flatMap(_.failureOption).exists:
+          case EngineError.ServiceRequestError(409, msg) => msg.contains("vergeben")
+          case _                                         => false
+        ,
+        output.exists(l => l.logLevel == LogLevel.Info && l.message().contains("refused")),
+        !output.exists(_.logLevel == LogLevel.Error)
+      )
+    },
+    test("a failure of the worker app (5xx) is logged as an error") {
+      val app = WorkerApp(StatusCode.InternalServerError, """{"errorCode":500,"errorMsg":"boom"}""")
+      for
+        exit   <- forward("mycompany-myproject-reserveSlot", app)
+        output <- ZTestLogger.logOutput
+      yield assertTrue(exit.isFailure, output.exists(_.logLevel == LogLevel.Error))
     }
   )
 end WorkerForwardUtilSpec

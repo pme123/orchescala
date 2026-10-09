@@ -85,8 +85,18 @@ object WorkerForwardUtil:
                         .fromEither(parser.parse(err).flatMap(_.as[ServiceRequestError]))
                         .orElse(ZIO.succeed(ServiceRequestError(response.code.code, truncateErrorBody(err))))
                         .flatMap(ZIO.fail(_))
-    yield result).tapError: err =>
-      ZIO.logError(s"Error forwarding request to worker app: ${LogSafe.forLog(err.toString, "in the response")}")
+    yield result).tapError(logForwardError)
+
+  /** A refusal of the worker app (4xx, e.g. 409 «taken») is an answer, not a failure - info only;
+    * no connection, a timeout, a 5xx or an unexpected answer is an error.
+    */
+  private def logForwardError(err: EngineError) =
+    val detail = LogSafe.forLog(err.toString, "in the response")
+    err match
+      case ServiceRequestError(code, _) if code >= 400 && code < 500 =>
+        ZIO.logInfo(s"Worker app refused the request: $detail")
+      case _                                                         =>
+        ZIO.logError(s"Error forwarding request to worker app: $detail")
 
   private val MaxErrorBodyLength = 500
 
