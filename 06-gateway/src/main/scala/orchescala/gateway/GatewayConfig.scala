@@ -116,8 +116,9 @@ trait GatewayConfig:
   def uiAppUrl: (projectName: String) => Option[String] = docsAppUrl
 
   /** How long a worker app may take for its docs (`/site/<company>/<project>/OpenApi.*`, diagrams) -
-    * after that the gateway answers with the released file of the docs site (or 503). Long enough for
-    * a worker app that starts cold; a page that waits longer is worse than the released docs.
+    * after that the gateway answers with the released file of the docs site (or 503), and does not ask
+    * that worker app again for 10 s (the rest of the page). Long enough for a worker app that starts
+    * cold; one that needs longer is asked again by the next page after the 10 s.
     */
   def docsForwardTimeout: zio.Duration = zio.Duration.fromSeconds(20)
 

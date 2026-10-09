@@ -263,6 +263,9 @@ case class ProjectsPerGitRepoConfig(
           updateProject(project.absGitPath(gitDir), gitRepo)
         .withParallelism(DefaultEngineConfig().parallelism)
 
+  /** Makes a project's checkout in git-temp - blocks (git clone/pull, copy): call it from a blocking
+    * thread (`ZIO.attemptBlocking`), as DocCreator does.
+    */
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
     if singleRepo then
       // the same clone as init - updated once per run, also when the projects of the company come here in
@@ -289,11 +292,12 @@ case class ProjectsPerGitRepoConfig(
     */
   def updateClone(gitDir: os.Path, companyName: String): os.Path =
     val clone = gitDir / s"orchescala-$companyName"
-    scala.util.Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")))
-      .failed.foreach: e =>
-        if os.exists(clone / ".git") then println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
-        else throw e
-    clone
+    scala.util.Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
+      case scala.util.Success(_)                            => clone
+      case scala.util.Failure(e) if os.exists(clone / ".git") =>
+        println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
+        clone
+      case scala.util.Failure(e)                            => throw e
 
   def containsProject(projectName: String): Boolean =
     projects.exists(_.name == projectName)
@@ -318,9 +322,11 @@ end ProjectsPerGitRepoConfig
 object ProjectsPerGitRepoConfig:
   // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
   private final class Update:
-    val lock          = java.util.concurrent.locks.ReentrantLock()
-    var doneAt: Long  = Long.MinValue
-  private[api] val UpdateValidMs = 5 * 60 * 1000L
+    val lock                             = java.util.concurrent.locks.ReentrantLock()
+    var doneAt: Long                     = Long.MinValue
+    var failed: Option[(Long, Throwable)] = None
+  private[api] val UpdateValidMs       = 5 * 60 * 1000L
+  private[api] val FailedUpdateValidMs = 30 * 1000L
   private val updates = java.util.concurrent.ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on; a failed
@@ -332,9 +338,19 @@ object ProjectsPerGitRepoConfig:
     state.lock.lock()
     try
       val start = now // read once
-      if state.doneAt == Long.MinValue || start - state.doneAt >= UpdateValidMs then
-        update
-        state.doneAt = start
+      state.failed match
+        // failed just now: the same failure, not another pull per project
+        case Some((at, e)) if start - at < FailedUpdateValidMs => throw e
+        case _ if state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
+        case _ =>
+          try
+            update
+            state.doneAt = start
+            state.failed = None
+          catch
+            case scala.util.control.NonFatal(e) =>
+              state.failed = Some(start -> e)
+              throw e
     finally state.lock.unlock()
 end ProjectsPerGitRepoConfig
 

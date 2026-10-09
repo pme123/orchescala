@@ -221,16 +221,19 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         srv.createContext("/", ex => { ex.sendResponseHeaders(code, -1); ex.close() })
         srv.start()
         srv
-      def routes(port: Int) = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port"))).routes
+      def api(port: Int) = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port")))
       ZIO.acquireRelease(ZIO.succeed(server(503) -> server(500)))((a, b) => ZIO.succeed { a.stop(0); b.stop(0) })
         .flatMap: (restarting, broken) =>
+          val restartingApi = api(restarting.getAddress.getPort)
           for
-            released <- routes(restarting.getAddress.getPort).runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
+            released <- restartingApi.routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
             body     <- released.body.asString
-            passed   <- routes(broken.getAddress.getPort).runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
+            passed   <- api(broken.getAddress.getPort).routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
           yield assertTrue(
             released.status == Status.Ok,
             body.contains("acme-shop (released)"),
+            // it answered (503 for this file): not marked down - the next file is asked live
+            !restartingApi.docsDown.isDown("acme-shop", java.lang.System.currentTimeMillis),
             passed.status == Status.BadGateway
           )
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),

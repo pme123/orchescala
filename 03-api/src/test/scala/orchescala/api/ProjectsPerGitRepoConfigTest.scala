@@ -104,10 +104,12 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     assertEquals(updates, 1)
     ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs)(updates += 1)
     assertEquals(updates, 2)
-    // a failed update is tried again at once
+    // a failed update: the same failure for FailedUpdateValidMs (not another pull per project), then again
     val other = os.temp.dir(prefix = "clone")
     intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 0)(throw new Exception("no network")))
-    ProjectsPerGitRepoConfig.once(other, now = 1)(updates += 1)
+    val again = intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 1)(updates += 1))
+    assertEquals((again.getMessage, updates), ("no network", 2))
+    ProjectsPerGitRepoConfig.once(other, now = ProjectsPerGitRepoConfig.FailedUpdateValidMs)(updates += 1)
     assertEquals(updates, 3)
 
 end ProjectsPerGitRepoConfigTest

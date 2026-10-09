@@ -263,13 +263,16 @@ class OpenApiRoutes()(using config: GatewayConfig):
                           )(config.docsForwardTimeout)
           result   <- response.body match
                         case Right(body) =>
+                          // it answers: not down (any more)
+                          ZIO.succeed(docsDown.answered(projectName, Status.Ok, java.lang.System.currentTimeMillis)) *>
                           ZIO.succeed(
                             Response.text(body)
                               .addHeader(Header.ContentType(contentType))
                               .addHeader("X-Content-Type-Options", "nosniff")
                           )
-                        // its own 503 (e.g. restarting): not there, as a timeout - the released file;
-                        // any other error is its answer (502)
+                        // its own 503 (e.g. restarting, or a file it does not serve): this file from the
+                        // site - the project is not marked down for it (it answers); any other error is its
+                        // answer (502)
                         case Left(err) if response.code.code == 503 =>
                           ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
                             .as(Response.status(Status.ServiceUnavailable))
@@ -284,12 +287,13 @@ class OpenApiRoutes()(using config: GatewayConfig):
               case f: DocsFailure => f
               // HttpClientProvider.live could not be built - no request was sent
               case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage)
-            ZIO.logError(
-              s"Error forwarding docs request for '$projectName': ${docsFailure.message}"
-            ).as(Response.status(docsFailure.status))
-          // the answer of this worker app (not of the cases above, which did not ask it): down or not
-          .tap: response =>
-            ZIO.succeed(docsDown.answered(projectName, response.status, java.lang.System.currentTimeMillis))
+            // not reachable or no answer in time: down - the rest of the page from the site at once
+            ZIO.when(docsFailure.status == Status.ServiceUnavailable)(
+              ZIO.succeed(docsDown.answered(projectName, Status.ServiceUnavailable, java.lang.System.currentTimeMillis))
+            ) *>
+              ZIO.logError(
+                s"Error forwarding docs request for '$projectName': ${docsFailure.message}"
+              ).as(Response.status(docsFailure.status))
 
   // ---------------------------------------------------------------------------
   // OAuth 2.0 Authorization Code Grant helpers

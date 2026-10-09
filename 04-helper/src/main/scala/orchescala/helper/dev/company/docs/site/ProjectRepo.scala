@@ -87,7 +87,8 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
   def exportTo(ref: String, dest: os.Path): Unit =
     // what the machine or the repo lacks - an error of the run, not of the code (require is for those)
     def fail(why: String) = throw new Exception(why)
-    if !ProjectRepo.hasTar then fail("exporting a release needs tar on the PATH (GNU tar or bsdtar)")
+    if !ProjectRepo.hasTar then
+      fail("exporting a release needs a tar on the PATH with --no-same-owner and --strip-components (GNU tar or bsdtar)")
     if repo.startsWith(dest) then fail(s"$dest holds the clone $repo - not emptied")
     if !existsAt(ref) then fail(s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
@@ -95,12 +96,14 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     // left by a run that was killed midway - only this project's: `.acme.orch-export-…` is no prefix of
     // `.acme-shop.orch-export-…`, which another export may be writing right now
     val marker = s".${dest.last}.orch-export-"
-    // older than an export may take - a younger one may be another run's, at work right now
+    // older than an export may take - a younger one may be another run's, at work right now. The age is
+    // the start in the name (a folder's mtime changes only with its own entries); with their
+    // .git-archive.err; one another export removes meanwhile is no error
     val stale  = System.currentTimeMillis - ProjectRepo.ExportTimeoutMs
-    // (with their .git-archive.err - the same marker); one another export removes meanwhile is no error
     os.list(dest / os.up).filter(_.last.startsWith(marker))
-      .foreach(p => scala.util.Try(if os.mtime(p) < stale then os.remove.all(p)))
-    val fresh  = os.temp.dir(dir = dest / os.up, prefix = marker)
+      .filter(p => ProjectRepo.startedAt(p.last.stripPrefix(marker)).forall(_ < stale))
+      .foreach(p => scala.util.Try(os.remove.all(p)))
+    val fresh  = os.temp.dir(dir = dest / os.up, prefix = s"$marker${System.currentTimeMillis}-")
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
     var archive = Option.empty[os.SubProcess]
@@ -175,9 +178,22 @@ object ProjectRepo:
     else None
 
   /** Is there a tar to unpack `git archive` with? */
+  /** A tar that takes what exportTo gives it - `--no-same-owner` and `--strip-components` (GNU tar,
+    * bsdtar; not e.g. busybox's): tried on an empty archive.
+    */
   private[site] lazy val hasTar: Boolean =
-    scala.util.Try(os.proc("tar", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0)
-      .getOrElse(false)
+    scala.util.Try:
+      val empty = os.proc("tar", "-c", "-f", "-", "-T", "/dev/null").call(stdout = os.Pipe, stderr = os.Pipe).out.bytes
+      val into  = os.temp.dir(prefix = "tar-check")
+      val r     = os.proc("tar", "-x", "--no-same-owner", "--strip-components=0", "-f", "-", "-C", into)
+        .call(stdin = empty, check = false, stdout = os.Pipe, stderr = os.Pipe)
+      os.remove.all(into)
+      r.exitCode == 0
+    .getOrElse(false)
+
+  /** When an export folder was started - the millis in its name (`<millis>-…`, also `old-<millis>-…`). */
+  private[site] def startedAt(rest: String): Option[Long] =
+    rest.stripPrefix("old-").takeWhile(_.isDigit).toLongOption
 
   /** How long an export (git archive into tar) may take. */
   private[site] val ExportTimeoutMs = 10 * 60 * 1000L
