@@ -114,11 +114,12 @@ export default function App() {
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
           {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
           {logo
-            ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-40 object-contain" />
-            : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
-          {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab md) - Knöpfe und Byline behalten ihren Platz */}
+            ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-40 flex-shrink-0 object-contain" />
+            : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 flex-shrink-0 opacity-80" />}
+          {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab sm - auf dem Handy ist kein Platz für ihn) -
+              Logo, Knöpfe und Byline behalten ihren Platz */}
           <span title={app?.title} className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
-          {app?.subtitle && <span title={app.subtitle} className={`hidden min-w-0 truncate text-[10px] md:inline ${c.muted}`}>{app.subtitle}</span>}
+          {app?.subtitle && <span title={app.subtitle} className={`hidden min-w-0 truncate text-[10px] sm:inline ${c.muted}`}>{app.subtitle}</span>}
           <div className="ml-auto flex flex-shrink-0 items-center gap-3">
             {user && (
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
