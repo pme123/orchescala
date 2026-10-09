@@ -117,8 +117,8 @@ export default function App() {
             ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-40 object-contain" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
           {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab md) - Knöpfe und Byline behalten ihren Platz */}
-          <span className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
-          {app?.subtitle && <span className={`hidden min-w-0 truncate text-[10px] md:inline ${c.muted}`}>{app.subtitle}</span>}
+          <span title={app?.title} className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
+          {app?.subtitle && <span title={app.subtitle} className={`hidden min-w-0 truncate text-[10px] md:inline ${c.muted}`}>{app.subtitle}</span>}
           <div className="ml-auto flex flex-shrink-0 items-center gap-3">
             {user && (
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
@@ -131,8 +131,8 @@ export default function App() {
             <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} className={`rounded p-1.5 transition-colors ${c.icon}`}>
               {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            {/* der Name am Link - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
-            <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="z9nai GmbH"
+            {/* der Name am Link, wie er sichtbar ist - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
+            <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="by z9nai GmbH"
               className={`${logo ? 'flex' : 'hidden sm:flex'} items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
               {/* ohne eigenes Logo zeigt die App links schon das von z9nai: dann nur der Text, und unter sm
                   gar nichts - neben Benutzer und Knopf ist dort kein Platz für ihn */}

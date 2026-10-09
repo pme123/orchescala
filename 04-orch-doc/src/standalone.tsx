@@ -65,8 +65,8 @@ function StandaloneApp() {
             className={`p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
             {isDark ? <Sun size={13} /> : <Moon size={13} />}
           </button>
-          {/* the name on the link - the image next to it is decoration, read once by a screen reader */}
-          <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="z9nai GmbH"
+          {/* the name on the link as it is shown - the image next to it is decoration, read once by a screen reader */}
+          <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="by z9nai GmbH"
             className={`flex items-center gap-2 text-[10px] whitespace-nowrap opacity-70 hover:opacity-100 transition-opacity ${c.muted2}`}>
             <span className="hidden lg:inline">by z9nai GmbH</span>
             <img src={favicon} alt="" className="w-5 h-5" />
