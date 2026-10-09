@@ -177,7 +177,8 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
     if !gitDone then git.destroy()
     val what    = s"$project at $ref"
-    ProjectRepo.exportFailure(what, gitDone, git.exitCode(), tail(errors), tar.exitCode, tar.err.text().trim.takeRight(4000))
+    val tarErr  = tar.err.text().trim.takeRight(4000)
+    ProjectRepo.exportFailure(what, gitDone, git.exitCode(), tail(errors), tar.exitCode, tarErr)
       .foreach(msg => throw new Exception(msg))
     ProjectRepo.replace(dest, fresh, old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}")
 

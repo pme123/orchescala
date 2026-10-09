@@ -9,7 +9,12 @@ import orchescala.api.{
   ProjectsPerGitRepoConfig,
   catalogFileName
 }
-import orchescala.helper.dev.company.docs.site.{LocalSiteServer, ProjectRepo, ReleaseNotFound, SiteAssembler}
+import orchescala.helper.dev.company.docs.site.{
+  LocalSiteServer,
+  ProjectRepo,
+  ReleaseNotFound,
+  SiteAssembler
+}
 import orchescala.helper.dev.publish.SiteWebDAV
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
@@ -292,7 +297,8 @@ trait DocCreator extends DependencyCreator, Helpers:
         // only local changes are a reason for -f, which discards them (said); another failure is the error
         val changes = scala.util.Try(
           // tracked changes only - untracked files never block a checkout
-          os.proc("git", "status", "--porcelain", "--untracked-files=no").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
+          os.proc("git", "status", "--porcelain", "--untracked-files=no")
+            .call(cwd = projectPath, stdout = os.Pipe).out.text().trim
         ).getOrElse("")
         if changes.isEmpty then throw e
         println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")
@@ -303,7 +309,8 @@ trait DocCreator extends DependencyCreator, Helpers:
     */
   private def fetchAllTags(projectPath: os.Path): Boolean =
     // once per clone and run, as in the single repo - the BPMN and the worker version share the clone
-    val fetchedNow = ProjectRepo.fetchTagsOnce(projectPath, fetch = ProjectRepo.fetchTags(_, more = Seq("--all"), timeoutMs = 120000))
+    val fetchAll   = ProjectRepo.fetchTags(_, more = Seq("--all"), timeoutMs = 120000)
+    val fetchedNow = ProjectRepo.fetchTagsOnce(projectPath, fetch = fetchAll)
     val ok         = ProjectRepo.fetchFailure(projectPath).isEmpty
     if fetchedNow && ok then println(s"  fetched the tags of $projectPath (git fetch --all --tags)")
     ok
@@ -322,19 +329,32 @@ trait DocCreator extends DependencyCreator, Helpers:
       // the tags were just fetched (fetchConf) - re-check against remote; origin not reachable: say so
       if !fetched then
         throw ReleaseNotFound(
-          s"Tag not found in $projectPath: ${candidates.mkString(" or ")} - fetching the tags failed, not checked on origin"
+          s"Tag not found in $projectPath: ${candidates.mkString(" or ")} - " +
+            "fetching the tags failed, not checked on origin"
         )
 
+      // as the fetch: no credential prompt, a minute at most; the tag names exactly (`v1.0` is not `v1.0.1`)
       val remoteTags =
-        os.proc("git", "ls-remote", "--tags", "origin")
-          .call(cwd = projectPath, stdout = os.Pipe)
-          .out.text()
+        scala.util.Try(
+          os.proc("git", "ls-remote", "--tags", "origin")
+            .call(
+              cwd = projectPath,
+              stdout = os.Pipe,
+              stderr = os.Pipe,
+              env = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C"),
+              timeout = 60000
+            )
+            .out.text()
+        ).getOrElse("")
+          .linesIterator.map(_.split('\t').last.stripSuffix("^{}").stripPrefix("refs/tags/")).toSet
 
       // fetched just now and still not here: on origin it would be a tag git did not take (moved there,
       // «would clobber») - said clearly, not left to an opaque failing checkout
-      candidates.find(c => remoteTags.contains(s"refs/tags/$c")) match
+      candidates.find(remoteTags.contains) match
         case Some(tag) =>
-          throw ReleaseNotFound(s"Tag $tag is on origin but not in $projectPath after the fetch - moved there? (see above)")
+          throw ReleaseNotFound(
+            s"Tag $tag is on origin but not in $projectPath after the fetch - moved there? (see above)"
+          )
         case None      => throw ReleaseNotFound(s"Tag not found: ${candidates.mkString(" or ")}")
     }
   end resolveTagRef
@@ -602,7 +622,8 @@ object DocCreator:
         failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
       val errors = failures.map(_._2)
       val cause  = errors.find(!_.isInstanceOf[ReleaseNotFound]).getOrElse(errors.head)
-      val e      = if cause.isInstanceOf[ReleaseNotFound] then ReleaseNotFound(msg, cause) else new Exception(msg, cause)
+      val e      =
+        if cause.isInstanceOf[ReleaseNotFound] then ReleaseNotFound(msg, cause) else new Exception(msg, cause)
       errors.filterNot(_ eq cause).foreach(e.addSuppressed) // the others kept, with their traces
       e
 
