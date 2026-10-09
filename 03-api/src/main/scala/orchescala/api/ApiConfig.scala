@@ -174,7 +174,7 @@ case class ProjectsConfig(
   def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Boolean =
     perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName)) match
       case Some(config) =>
-        config.updateClone(tempGitDir, companyName, keepOnFailure = true)
+        config.updateClone(tempGitDir, companyName, CloneUpdate.CachedOrAsIs)
         true
       case None         => false
 
@@ -252,7 +252,7 @@ case class ProjectsPerGitRepoConfig(
     if singleRepo then
       ZIO
         // git - not on the compute pool; init pulls every time (the cache is for the docs' many projects)
-        .attemptBlocking(updateClone(gitDir, companyName, always = true))
+        .attemptBlocking(updateClone(gitDir, companyName, CloneUpdate.Always))
         .flatMap: _ =>
           ZIO.foreachPar(projects): project =>
             ZIO.attemptBlocking: // copying - not on the compute pool
@@ -294,25 +294,26 @@ case class ProjectsPerGitRepoConfig(
           updateProject(project.absGitPath(gitDir), gitRepo)
   end initProject
 
-  /** The company clone `orchescala-<company>` (one repo for all), made or pulled - once per run, also with
-    * callers in parallel (init, initProject, the docs).
-    * @param keepOnFailure the docs: offline or with origin away, a clone with a commit serves as it is (a
-    *   warning) - init and initProject fail, as before
-    * @param always pull whatever the last update was (init) - else once per `UpdateValidMs`
+  /** The company clone `orchescala-<company>` (one repo for all), made or pulled - also with callers in
+    * parallel (init, initProject, the docs).
     * @return the clone
     */
-  def updateClone(gitDir: os.Path, companyName: String, keepOnFailure: Boolean = false, always: Boolean = false): os.Path =
+  def updateClone(gitDir: os.Path, companyName: String, mode: CloneUpdate = CloneUpdate.Cached): os.Path =
     val clone = gitDir / s"orchescala-$companyName"
     // a clone killed midway has a .git, but no commit - it does not serve
     def usable = Try(os.proc("git", "-C", clone.toString, "rev-parse", "--verify", "-q", "HEAD")
       .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0).getOrElse(false)
-    // gone meanwhile (git-temp wiped in a process that runs on): made again, whatever the last update was
-    Try(ProjectsPerGitRepoConfig.once(clone, force = always || !os.exists(clone / ".git"))(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
-      case Success(_)                                => clone
-      case Failure(e) if keepOnFailure && usable     =>
+    // gone meanwhile (git-temp wiped): made again, whatever the last update was
+    val force  = mode == CloneUpdate.Always || !os.exists(clone / ".git")
+    val update = Try(ProjectsPerGitRepoConfig.once(clone, force = force):
+      updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")
+    )
+    update match
+      case Success(_)                                                => clone
+      case Failure(e) if mode == CloneUpdate.CachedOrAsIs && usable =>
         println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
         clone
-      case Failure(e)                                => throw e
+      case Failure(e)                                                => throw e
 
   def containsProject(projectName: String): Boolean =
     projects.exists(_.name == projectName)
@@ -345,6 +346,15 @@ case class ProjectsPerGitRepoConfig(
       .call(cwd = dir, stdout = os.Pipe, stderr = os.Pipe).out.text().trim.stripPrefix("origin/"))
       .toOption.filter(_.nonEmpty).getOrElse("develop")
 end ProjectsPerGitRepoConfig
+
+/** How the company clone is updated. */
+enum CloneUpdate:
+  /** pulled every time (init) - a failure fails */
+  case Always
+  /** pulled once per `UpdateValidMs` (initProject) - a failure fails */
+  case Cached
+  /** as Cached, but a failure leaves the clone as it is, with a warning (the docs) */
+  case CachedOrAsIs
 
 object ProjectsPerGitRepoConfig:
   /** What is known of a clone's last update - replaced as a whole, never changed. */
