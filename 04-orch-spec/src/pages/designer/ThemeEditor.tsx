@@ -17,13 +17,8 @@ const MAX_THEME_FILE_BYTES = 1024 * 1024;
   * sind. Im Browser, mit seinem Parser; ein SVG, das er nicht liest, ist null. */
 export function cleanLogo(uri: string): string | null {
   if (!uri.startsWith('data:image/svg+xml;base64,')) return uri;
-  let text: string;
-  try {
-    text = new TextDecoder().decode(Uint8Array.from(atob(uri.slice(uri.indexOf(',') + 1)), (ch) => ch.charCodeAt(0)));
-  } catch {
-    return null;
-  }
-  if (/<!(DOCTYPE|ENTITY)/i.test(text)) return null;
+  const text = decodeBase64(uri.slice(uri.indexOf(',') + 1));
+  if (text === null || /<!(DOCTYPE|ENTITY)/i.test(text)) return null;
   const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
   if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg') return null;
   for (const el of [...doc.querySelectorAll('*')]) {
@@ -33,9 +28,16 @@ export function cleanLogo(uri: string): string | null {
   for (const at of [...doc.documentElement.attributes])
     if (svgDropsAttribute(at.name, at.value)) doc.documentElement.removeAttributeNode(at);
   const clean = new TextEncoder().encode(new XMLSerializer().serializeToString(doc));
-  let bin = '';
-  clean.forEach((b) => { bin += String.fromCharCode(b); });
-  return `data:image/svg+xml;base64,${btoa(bin)}`;
+  return `data:image/svg+xml;base64,${btoa(Array.from(clean, (b) => String.fromCharCode(b)).join(''))}`;
+}
+
+/** base64 as UTF-8 text - null if it is none. */
+function decodeBase64(b64: string): string | null {
+  try {
+    return new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+  } catch {
+    return null;
+  }
 }
 
 /** Der Entwurf nach dem Speichern von `saved`: weg, wenn er noch dasselbe ist - eine Änderung, die während
@@ -102,12 +104,8 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   const importFile = async (file: File) => {
     // ein Theme ist klein (das Logo bis 200 KB) - was viel grösser ist, ist keins
     if (file.size > MAX_THEME_FILE_BYTES) return setNote({ tone: 'error', text: 'Die Datei ist zu gross für ein Theme (bis 1 MB).' });
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      return setNote({ tone: 'error', text: 'Die Datei liess sich nicht lesen.' });
-    }
+    const text = await file.text().catch(() => null);
+    if (text === null) return setNote({ tone: 'error', text: 'Die Datei liess sich nicht lesen.' });
     const r = parseThemeFile(text);
     if ('error' in r) return setNote({ tone: 'error', text: r.error });
     // ein SVG-Logo aus der Datei gesäubert wie vom Skill - die Datei kann von irgendwo sein

@@ -45,27 +45,29 @@ export const isThemeColor = (v: string): boolean => COLOR.test(v);
 function parseColor(color: string): { rgb: number[]; alpha: number } | null {
   if (!COLOR.test(color)) return null;
   const c = color.trim().toLowerCase();
-  let rgb: number[];
-  let alpha = 1;
-  if (c.startsWith('#')) {
-    const h = c.slice(1);
-    const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
-    rgb = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
-    if (full.length === 8) alpha = parseInt(full.slice(6, 8), 16) / 255;
-  } else {
-    const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
-    const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
-    if (nums[3] !== undefined) alpha = Math.min(1, part(nums[3], 1));
-    if (c.startsWith('rgb')) rgb = nums.slice(0, 3).map((v) => Math.min(1, part(v, 255)));
-    else {
-      const hue = ((parseFloat(nums[0]) % 360) + 360) % 360;
-      const [s, l] = [part(nums[1], 100), part(nums[2], 100)].map((v) => Math.min(1, v));
-      const k = (n: number) => (n + hue / 30) % 12;
-      const f = (n: number) => l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
-      rgb = [f(0), f(8), f(4)];
-    }
-  }
-  return { rgb, alpha };
+  return c.startsWith('#') ? hexColor(c.slice(1)) : functionColor(c);
+}
+
+/** #rgb, #rgba, #rrggbb, #rrggbbaa (without the #). */
+function hexColor(h: string): { rgb: number[]; alpha: number } {
+  const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
+  return {
+    rgb: [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255),
+    alpha: full.length === 8 ? parseInt(full.slice(6, 8), 16) / 255 : 1,
+  };
+}
+
+/** rgb(…)/rgba(…) or hsl(…)/hsla(…), with commas or spaces. */
+function functionColor(c: string): { rgb: number[]; alpha: number } {
+  const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
+  const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
+  const alpha = nums[3] !== undefined ? Math.min(1, part(nums[3], 1)) : 1;
+  if (c.startsWith('rgb')) return { rgb: nums.slice(0, 3).map((v) => Math.min(1, part(v, 255))), alpha };
+  const hue = ((parseFloat(nums[0]) % 360) + 360) % 360;
+  const [s, l] = [part(nums[1], 100), part(nums[2], 100)].map((v) => Math.min(1, v));
+  const k = (n: number) => (n + hue / 30) % 12;
+  const f = (n: number) => l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return { rgb: [f(0), f(8), f(4)], alpha };
 }
 
 export function rgbOf(color: string, over: [number, number, number] = [1, 1, 1]): [number, number, number] | null {
@@ -176,14 +178,20 @@ export function themeStyle(theme: Theme | undefined, isDark: boolean): CSSProper
 /** Die Schlüssel eines Themes (spec.ts `Theme`). */
 const THEME_KEYS = ['primary', 'onPrimary', 'background', 'surface', 'text', 'font', 'radius', 'logo', 'mode'];
 
+/** JSON as a value - null if it is none (a `{ value }`, as `null` is JSON too). */
+function parseJson(text: string): { value: unknown } | null {
+  try {
+    return { value: JSON.parse(text) };
+  } catch {
+    return null;
+  }
+}
+
 /** Eine Theme-Datei: das Theme selbst oder `{ kind: 'orch-theme', name, source, theme }` (vom Skill). */
 export function parseThemeFile(text: string): { theme: Theme; name?: string; source?: string } | { error: string } {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return { error: 'Die Datei ist kein JSON.' };
-  }
+  const parsed = parseJson(text);
+  if (!parsed) return { error: 'Die Datei ist kein JSON.' };
+  const raw = parsed.value;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { error: 'Die Datei ist kein Theme.' };
   const r = raw as Record<string, unknown>;
   const wrapped = r.kind === 'orch-theme' || 'theme' in r;
