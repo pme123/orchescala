@@ -261,9 +261,10 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-own", ProjectGroup("acme"))))
     ))
     val gitTemp = os.temp.dir(prefix = "git-temp")
+    assert(config.inSingleRepo("acme-shop") && !config.inSingleRepo("acme-own"))
     Console.withOut(java.io.ByteArrayOutputStream()):
-      assert(config.updateSingleRepoClone("acme-shop", gitTemp, "acme"))
-      assert(!config.updateSingleRepoClone("acme-own", gitTemp, "acme"))
+      config.updateSingleRepoClone("acme-shop", gitTemp, "acme")
+      config.updateSingleRepoClone("acme-own", gitTemp, "acme") // an own repo: nothing
     assert(os.exists(gitTemp / "orchescala-acme" / ".git"))
     assert(!os.exists(gitTemp / "acme-shop")) // no copy - the docs export the folder at its tag
 
@@ -278,8 +279,8 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     // a failed update: the same failure for FailedUpdateValidMs (not another pull per project), then again
     val other = os.temp.dir(prefix = "clone")
     intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 0)(throw new Exception("no network")))
-    val again = intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 1)(updates.incrementAndGet()))
-    assertEquals((again.getMessage, updates.get), ("no network", 2))
+    val again = intercept[CloneUpdateFailed](ProjectsPerGitRepoConfig.once(other, now = 1)(updates.incrementAndGet()))
+    assertEquals((again.getCause.getMessage, updates.get), ("no network", 2))
     ProjectsPerGitRepoConfig.once(other, now = ProjectsPerGitRepoConfig.FailedUpdateValidMs)(updates.incrementAndGet())
     assertEquals(updates.get, 3)
     assertEquals(ProjectsPerGitRepoConfig.updateFailure(other), None) // it worked again

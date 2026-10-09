@@ -168,15 +168,16 @@ case class ProjectsConfig(
     perGitRepoConfigs.foreach(_.initProject(tempGitDir, projectName, companyName))
   end initProject
 
-  /** The company clone of a project in one repo for all, updated (once per run) - true if the project is
-    * in such a repo. Only the clone: the docs export the project's folder at its tag from it.
+  /** Is the project in one repo for all (`singleRepo`)? */
+  def inSingleRepo(projectName: String): Boolean =
+    perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(projectName))
+
+  /** The company clone of a project in one repo for all, updated (once per run) - nothing for a project
+    * of an own repo. Only the clone: the docs export the project's folder at its tag from it.
     */
-  def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Boolean =
-    perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName)) match
-      case Some(config) =>
-        config.updateClone(tempGitDir, companyName, CloneUpdate.CachedOrAsIs)
-        true
-      case None         => false
+  def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Unit =
+    perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName))
+      .foreach(_.updateClone(tempGitDir, companyName, CloneUpdate.CachedOrAsIs))
 
   def projectConfig(projectName: String): Option[ProjectConfig] =
     projectConfigs.find(_.name == projectName)
@@ -336,16 +337,27 @@ case class ProjectsPerGitRepoConfig(
     end if
   end updateProject
 
-  // only «origin has no such branch» (exit 2) counts - offline (another code) it stays develop, as before
+  // only «origin has no such branch» (exit 2) counts - offline (another code) it stays develop, as before,
+  // and says why, before the pull fails on the same cause
   private def hasRemoteBranch(dir: os.Path, branch: String): Boolean =
     Try(os.proc("git", "ls-remote", "--exit-code", "--heads", "origin", branch)
-      .call(cwd = dir, check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 2).getOrElse(true)
+      .call(cwd = dir, check = false, stdout = os.Pipe, stderr = os.Pipe)) match
+      case Success(r) if r.exitCode == 2 => false
+      case Success(r) if r.exitCode == 0 => true
+      case other                          =>
+        val why = other.fold(_.getMessage, r => r.err.text().trim)
+        println(s"  ! origin of $dir not asked for '$branch' ($why) - $branch it is")
+        true
 
   private def defaultBranch(dir: os.Path): String =
     Try(os.proc("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
       .call(cwd = dir, stdout = os.Pipe, stderr = os.Pipe).out.text().trim.stripPrefix("origin/"))
       .toOption.filter(_.nonEmpty).getOrElse("develop")
 end ProjectsPerGitRepoConfig
+
+/** An update of a clone that failed just before - each caller its own, with the failure as its cause. */
+final class CloneUpdateFailed(clone: os.Path, cause: Throwable)
+    extends Exception(s"$clone could not be updated just before: ${cause.getMessage}", cause)
 
 /** How the company clone is updated. */
 enum CloneUpdate:
@@ -387,7 +399,7 @@ object ProjectsPerGitRepoConfig:
       val known  = entry.state.get
       known.failed match
         // failed just now: the same failure, not another pull per project - a new exception per caller
-        case Some((at, e)) if !forced && start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
+        case Some((at, e)) if !forced && start - at < FailedUpdateValidMs => throw CloneUpdateFailed(clone, e)
         case _ if !forced && known.doneAt.exists(start - _ < UpdateValidMs) => ()
         case _ =>
           // from its end: a slow clone does not use up the window it opens

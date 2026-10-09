@@ -259,7 +259,9 @@ trait DocCreator extends DependencyCreator, Helpers:
       _           = println(s"Project Git Path $projectPath / $gitBasePath")
       // one repo for all: the company clone updated, the project's folder exported at its tag;
       // else its own clone (made if not there), checked out at the tag
-      singleRepo  = apiConfig.projectsConfig.updateSingleRepoClone(project, gitBasePath, apiConfig.companyName)
+      singleRepo  = apiConfig.projectsConfig.inSingleRepo(project)
+      _           =
+        if singleRepo then apiConfig.projectsConfig.updateSingleRepoClone(project, gitBasePath, apiConfig.companyName)
       _           = if singleRepo then exportFromCompanyRepo(project, version, projectPath)
                     else checkoutOwnClone(project, version, projectPath)
     yield DocProjectConfig(

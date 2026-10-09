@@ -262,17 +262,17 @@ object ProjectRepo:
   private[site] val FetchValidMs       = 5 * 60 * 1000L
   private[site] val FailedFetchValidMs = 30 * 1000L
 
-  /** Per repo: until when its last fetch counts. The lock serializes check and fetch - a project of
-    * the same repo (DocCreator runs them in parallel, on blocking threads) waits for a running fetch,
-    * at most its timeout, instead of reading the tags before it. One small entry per clone of git-temp,
-    * for the run of the helper.
-    */
-  // a ReentrantLock, not synchronized: a fetch of up to a minute would pin a virtual thread's carrier
   /** What is known of a repo's last fetch - replaced as a whole, never changed. */
   private final case class Fetched(validUntil: Long = Long.MinValue, failure: Option[String] = None)
+  // a ReentrantLock, not synchronized: a fetch of up to a minute would pin a virtual thread's carrier
   private final class FetchState:
     val lock  = ReentrantLock()
     val state = AtomicReference(Fetched()) // also read without the lock (fetchFailure)
+
+  /** Per repo: until when its last fetch counts. The lock serializes check and fetch - a project of
+    * the same repo (DocCreator runs them in parallel, on blocking threads) waits for a running fetch,
+    * at most its timeout, instead of reading the tags before it. One small entry per clone of git-temp.
+    */
   private val fetches = ConcurrentHashMap[os.Path, FetchState]()
 
   /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
