@@ -156,6 +156,29 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       zio.Unsafe.unsafe { implicit u => zio.Runtime.default.unsafe.run(repoConfig.init(gitTemp, "acme")).getOrThrow() }
       assertEquals(inClone, "v2\n") // init pulled
 
+  test("a company repo on main only (no develop): pulled from main; initProject replaces an existing copy"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    val work    = os.temp.dir(prefix = "work")
+    os.write(work / ".gitignore", "target/\n")
+    os.write(work / "projects" / "acme-shop" / "PROJECT.conf", "v1\n", createFolders = true)
+    git(work, "init", "-q", "-b", "main")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "v1")
+    os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / "orchescala-acme.git").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    val repoConfig = ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))), singleRepo = true)
+    val gitTemp    = os.temp.dir(prefix = "git-temp")
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      zio.Unsafe.unsafe { implicit u => zio.Runtime.default.unsafe.run(repoConfig.init(gitTemp, "acme")).getOrThrow() }
+      os.write.over(work / "projects" / "acme-shop" / "PROJECT.conf", "v2\n")
+      git(work, "commit", "-q", "-am", "v2")
+      git(work, "push", "-q", (remotes / "orchescala-acme.git").toString, "main")
+      os.write(gitTemp / "acme-shop" / "local.txt", "a local change in the copy")
+      zio.Unsafe.unsafe { implicit u => zio.Runtime.default.unsafe.run(repoConfig.init(gitTemp, "acme")).getOrThrow() }
+      repoConfig.initProject(gitTemp, "acme-shop", "acme")
+    assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "v2\n") // main pulled
+    assert(!os.exists(gitTemp / "acme-shop" / "local.txt")) // the copy is the clone's - replaced
+
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0

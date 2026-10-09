@@ -104,6 +104,14 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
     */
   def exportTo(ref: String, dest: os.Path): Unit =
+    // one export of a dest at a time - the BPMN and worker version of a project already run one after the
+    // other (DocCreator.byProject), this makes it so for any caller
+    val lock = ProjectRepo.exportLocks.computeIfAbsent(dest, _ => ReentrantLock())
+    lock.lockInterruptibly()
+    try exportLocked(ref, dest)
+    finally lock.unlock()
+
+  private def exportLocked(ref: String, dest: os.Path): Unit =
     val marker = s".${dest.last}.orch-export-"
     // a run that died between the two moves of a swap left dest away and the old one aside: back first,
     // whatever this export then does
@@ -228,6 +236,8 @@ object ProjectRepo:
   /** When an export folder was started - the millis in its name (`<millis>-…`, also `old-<millis>-…`). */
   private[site] def startedAt(rest: String): Option[Long] =
     rest.stripPrefix("old-").takeWhile(_.isDigit).toLongOption
+
+  private[site] val exportLocks = ConcurrentHashMap[os.Path, ReentrantLock]()
 
   /** How long an export (git archive into tar) may take. */
   private[site] val ExportTimeoutMs = 10 * 60 * 1000L

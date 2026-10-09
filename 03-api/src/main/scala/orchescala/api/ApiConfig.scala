@@ -324,13 +324,25 @@ case class ProjectsPerGitRepoConfig(
       os.proc("git", "clone", gitRepo, gitProjectDir)
         .callOnConsole(gitProjectDir)
     else
+      // develop, the branch Orchescala's repos work on - a repo without it: its default branch (main, master)
+      val branch = if hasRemoteBranch(gitProjectDir, "develop") then "develop" else defaultBranch(gitProjectDir)
       os
-        .proc("git", "checkout", "develop")
+        .proc("git", "checkout", branch)
         .callOnConsole(gitProjectDir)
-      os.proc("git", "pull", "origin", "develop")
+      os.proc("git", "pull", "origin", branch)
         .callOnConsole(gitProjectDir)
     end if
   end updateProject
+
+  // only «origin has no such branch» (exit 2) counts - offline (another code) it stays develop, as before
+  private def hasRemoteBranch(dir: os.Path, branch: String): Boolean =
+    Try(os.proc("git", "ls-remote", "--exit-code", "--heads", "origin", branch)
+      .call(cwd = dir, check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 2).getOrElse(true)
+
+  private def defaultBranch(dir: os.Path): String =
+    Try(os.proc("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+      .call(cwd = dir, stdout = os.Pipe, stderr = os.Pipe).out.text().trim.stripPrefix("origin/"))
+      .toOption.filter(_.nonEmpty).getOrElse("develop")
 end ProjectsPerGitRepoConfig
 
 object ProjectsPerGitRepoConfig:

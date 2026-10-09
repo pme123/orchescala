@@ -102,7 +102,9 @@ trait GatewayConfig:
       in: JsonObject
   ): IO[GatewayError, IdentityCorrelation]
 
-  /** Resolves the base URL of a worker app by project name, used for forwarding docs requests.
+  /** Resolves the base URL of a worker app by project name, used for forwarding docs requests - by the
+    * project only: `/site/a/shop/…` and `/site/b/shop/…` ask the same worker app (and share whether it is
+    * down).
     * Returns None if the project docs are not available remotely - then `/site/<company>/<project>/…`
     * serves the released files of the docs site, if it has them (marked with the response header
     * `X-Orchescala-Docs-Source: released`), as for a worker app that does not answer.

@@ -183,6 +183,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
   // per instance - the gateway makes one (GatewayServer); keyed by project: the docs URL depends on the
   // project only (docsAppUrl), so a company has no worker app of its own
   private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
+  // projects without released files are remembered too (no 20 s per file), in a small list of their own -
+  // names a client makes up fill only that one, not the real marks above
+  private[gateway] val docsDownNoSite = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 100)
+  private def isDown(projectName: String)   = docsDown.isDown(projectName, nowMs) || docsDownNoSite.isDown(projectName, nowMs)
+  private def markUp(projectName: String)   = { docsDown.markUp(projectName); docsDownNoSite.markUp(projectName) }
 
   /** Marks a docs answer that is not the worker app's (live) one. */
   private[gateway] val DocsSourceHeader = "X-Orchescala-Docs-Source"
@@ -249,7 +254,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         ZIO.logWarning(
           s"No docs URL for project: $projectName"
         ).as(Response.status(Status.NotFound))
-      case Some(_) if docsDown.isDown(projectName, nowMs) =>
+      case Some(_) if isDown(projectName) =>
         ZIO.logDebug(s"Docs of '$projectName': its worker app did not answer just now - not asked")
           .as(Response.status(Status.ServiceUnavailable))
       case Some(baseUrl) =>
@@ -269,7 +274,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
           result   <- response.body match
                         case Right(body) =>
                           // it answers: not down (any more)
-                          ZIO.succeed(docsDown.markUp(projectName)) *>
+                          ZIO.succeed(markUp(projectName)) *>
                           ZIO.succeed(
                             Response.text(body)
                               .addHeader(Header.ContentType(contentType))
@@ -280,12 +285,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
                         // answer (502)
                         case Left(err) if response.code.code == 503 =>
                           // it answers - a down mark from before goes
-                          ZIO.succeed(docsDown.markUp(projectName)) *>
+                          ZIO.succeed(markUp(projectName)) *>
                           ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
                             .as(Response.status(Status.ServiceUnavailable))
                         case Left(err)   =>
                           // it answered (with an error): not down
-                          ZIO.succeed(docsDown.markUp(projectName)) *>
+                          ZIO.succeed(markUp(projectName)) *>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"
                           ).as(Response.status(Status.BadGateway))
@@ -299,13 +304,15 @@ class OpenApiRoutes()(using config: GatewayConfig):
             // not reachable or no answer in time: down - the rest of the page from the site at once
             // (a warning: the page is served from the site - an error only for a wrong URL / client, 500)
             if docsFailure.status == Status.ServiceUnavailable then
-              // marked down only with released files to fall back to (a site folder) - so names a client
-              // makes up do not fill the list and push out the real ones
+              // with released files (a site folder) in the main list, else in the small one - names a client
+              // makes up do not push out the real marks
               // (the classpath lookup is blocking I/O)
               ZIO.attemptBlocking(hasSiteFolder(companyName, projectName))
                 .tapError(e => ZIO.logWarning(s"Site folder of '$companyName/$projectName' not readable: ${e.getMessage}"))
                 .orElseSucceed(false)
-                .flatMap(withSite => ZIO.when(withSite)(ZIO.succeed(docsDown.markDown(projectName, nowMs)))) *>
+                .flatMap(withSite =>
+                  ZIO.succeed((if withSite then docsDown else docsDownNoSite).markDown(projectName, nowMs))
+                ) *>
                 ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
                   .as(Response.status(docsFailure.status))
             else
