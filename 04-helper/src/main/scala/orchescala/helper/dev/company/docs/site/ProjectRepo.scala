@@ -177,11 +177,15 @@ object ProjectRepo:
     else if !gitDone || gitExit != 0 then Some(s"git archive of $what did not finish: $gitErr")
     else None
 
-  /** Is there a tar to unpack `git archive` with? */
   /** A tar that takes what exportTo gives it - `--no-same-owner` and `--strip-components` (GNU tar,
     * bsdtar; not e.g. busybox's): tried on an empty archive.
     */
-  private[site] lazy val hasTar: Boolean =
+  private[site] def hasTar: Boolean = tarChecked || {
+    tarChecked = checkTar() // only a «yes» is kept - a check that failed by chance is tried again
+    tarChecked
+  }
+  @volatile private var tarChecked = false
+  private def checkTar(): Boolean =
     scala.util.Try:
       val empty = os.proc("tar", "-c", "-f", "-", "-T", "/dev/null").call(stdout = os.Pipe, stderr = os.Pipe).out.bytes
       val into  = os.temp.dir(prefix = "tar-check")
@@ -225,7 +229,8 @@ object ProjectRepo:
     * @return true if it fetched now (false: a recent fetch counts)
     * @note blocks - for up to the fetch's timeout, also while waiting for another caller's fetch.
     *   Call it from a blocking thread (`ZIO.attemptBlocking`, as DocCreator does), never from ZIO's
-    *   compute pool.
+    *   compute pool. A stalled origin makes the projects of a repo wait for its timeout once, then
+    *   they fail fast for FailedFetchValidMs.
     */
   private[docs] def fetchTagsOnce(
       repo: os.Path,

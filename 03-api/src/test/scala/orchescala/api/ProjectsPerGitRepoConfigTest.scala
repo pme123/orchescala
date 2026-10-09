@@ -57,7 +57,7 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       Console.withOut(java.io.ByteArrayOutputStream())(config.initProject(gitTemp, "acme-shop", "acme"))
     assert(!os.exists(gitTemp / "acme-shop"))
 
-  test("initProject (single repo) - the remote gone, the clone there: it serves as it is"):
+  test("the remote gone, the clone there: it serves the docs as it is; initProject fails as before"):
     val gitTemp = os.temp.dir(prefix = "git-temp")
     val clone   = gitTemp / "orchescala-acme"
     os.write(clone / ".gitignore", "target/\n", createFolders = true)
@@ -65,15 +65,54 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     git(clone, "init", "-q")
     git(clone, "add", ".")
     git(clone, "commit", "-q", "-m", "projects")
-    val config  = ProjectsPerGitRepoConfig(
+    val repoConfig = ProjectsPerGitRepoConfig(
       cloneBaseUrl = (os.temp.dir(prefix = "remotes") / "none").toString,
       projects = Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))),
       singleRepo = true
     )
     val out     = java.io.ByteArrayOutputStream()
-    Console.withOut(out)(config.initProject(gitTemp, "acme-shop", "acme"))
+    Console.withOut(out)(ProjectsConfig(perGitRepoConfigs = Seq(repoConfig)).updateSingleRepoClone("acme-shop", gitTemp, "acme"))
     assert(out.toString.contains("not updated"), out.toString)
-    assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "name = acme-shop\n")
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      intercept[Exception](repoConfig.initProject(gitTemp, "acme-shop", "acme"))
+
+  test("a clone killed midway (a .git, no commit) does not serve"):
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    val clone   = gitTemp / "orchescala-acme"
+    os.makeDir.all(clone)
+    git(clone, "init", "-q")
+    os.write(clone / ".gitignore", "target/\n")
+    val config  = ProjectsConfig(perGitRepoConfigs = Seq(ProjectsPerGitRepoConfig(
+      cloneBaseUrl = (os.temp.dir(prefix = "remotes") / "none").toString,
+      projects = Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))),
+      singleRepo = true
+    )))
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      intercept[Exception](config.updateSingleRepoClone("acme-shop", gitTemp, "acme"))
+
+  test("once - a caller at the same time waits for the running update, then does not update again"):
+    val clone   = os.temp.dir(prefix = "clone")
+    val started = java.util.concurrent.CountDownLatch(1)
+    val release = java.util.concurrent.CountDownLatch(1)
+    val updates = java.util.concurrent.atomic.AtomicInteger()
+    val first   = Thread(() =>
+      ProjectsPerGitRepoConfig.once(clone):
+        updates.incrementAndGet()
+        started.countDown()
+        release.await()
+    )
+    first.start()
+    started.await()
+    @volatile var secondDone = false
+    val second  = Thread(() => { ProjectsPerGitRepoConfig.once(clone)(updates.incrementAndGet()); secondDone = true })
+    second.start()
+    Thread.sleep(200)
+    assert(!secondDone) // waits for the first
+    release.countDown()
+    first.join(5000)
+    second.join(5000)
+    assert(secondDone)
+    assertEquals(updates.get, 1)
 
   test("updateSingleRepoClone - only for a project in one repo for all, only the clone"):
     val remotes = os.temp.dir(prefix = "remotes")

@@ -196,6 +196,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * The site's OpenApi.html is the API page of the orch-doc jar (not the worker app's): it loads
     * `OpenApi.yml` and `diagrams/<name>` relative to itself - these same routes, with the same fallback.
     */
+  // the statuses come from forwardDocsRequest: 404 only its own «no docs URL» (a worker app's 404 is 502),
+  // 503 «not there» (not reachable, no answer in time, its own 503)
   private[gateway] def orSiteFile(
       companyName: String,
       projectName: String,
@@ -277,6 +279,8 @@ class OpenApiRoutes()(using config: GatewayConfig):
                           ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
                             .as(Response.status(Status.ServiceUnavailable))
                         case Left(err)   =>
+                          // it answered (with an error): not down
+                          ZIO.succeed(docsDown.answered(projectName, Status.BadGateway, java.lang.System.currentTimeMillis)) *>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"
                           ).as(Response.status(Status.BadGateway))

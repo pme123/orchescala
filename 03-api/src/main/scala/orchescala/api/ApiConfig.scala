@@ -6,6 +6,11 @@ import orchescala.engine.{DefaultEngineConfig, EngineConfig}
 import sttp.apispec.openapi.Contact
 import zio.{Runtime, Unsafe, ZIO}
 
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
+
 case class ApiConfig(
     engineConfig: EngineConfig,
     // your company name like 'mycompany'
@@ -168,7 +173,7 @@ case class ProjectsConfig(
   def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Boolean =
     perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName)) match
       case Some(config) =>
-        config.updateClone(tempGitDir, companyName)
+        config.updateClone(tempGitDir, companyName, keepOnFailure = true)
         true
       case None         => false
 
@@ -286,18 +291,22 @@ case class ProjectsPerGitRepoConfig(
   end initProject
 
   /** The company clone `orchescala-<company>` (one repo for all), made or pulled - once per run, also with
-    * callers in parallel (init, initProject, the docs). Offline or with origin away, a clone that is there
-    * serves as it is (a warning) - only without one it fails.
+    * callers in parallel (init, initProject, the docs).
+    * @param keepOnFailure the docs: offline or with origin away, a clone with a commit serves as it is (a
+    *   warning) - init and initProject fail, as before
     * @return the clone
     */
-  def updateClone(gitDir: os.Path, companyName: String): os.Path =
+  def updateClone(gitDir: os.Path, companyName: String, keepOnFailure: Boolean = false): os.Path =
     val clone = gitDir / s"orchescala-$companyName"
-    scala.util.Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
-      case scala.util.Success(_)                            => clone
-      case scala.util.Failure(e) if os.exists(clone / ".git") =>
+    // a clone killed midway has a .git, but no commit - it does not serve
+    def usable = Try(os.proc("git", "-C", clone.toString, "rev-parse", "--verify", "-q", "HEAD")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0).getOrElse(false)
+    Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
+      case Success(_)                                => clone
+      case Failure(e) if keepOnFailure && usable     =>
         println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
         clone
-      case scala.util.Failure(e)                            => throw e
+      case Failure(e)                                => throw e
 
   def containsProject(projectName: String): Boolean =
     projects.exists(_.name == projectName)
@@ -322,12 +331,12 @@ end ProjectsPerGitRepoConfig
 object ProjectsPerGitRepoConfig:
   // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
   private final class Update:
-    val lock                             = java.util.concurrent.locks.ReentrantLock()
+    val lock                             = ReentrantLock()
     var doneAt: Long                     = Long.MinValue
     var failed: Option[(Long, Throwable)] = None
   private[api] val UpdateValidMs       = 5 * 60 * 1000L
   private[api] val FailedUpdateValidMs = 30 * 1000L
-  private val updates = java.util.concurrent.ConcurrentHashMap[os.Path, Update]()
+  private val updates = ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on; a failed
     * update is tried again by the next caller, a successful one counts `UpdateValidMs` (as the tag fetch
@@ -339,8 +348,9 @@ object ProjectsPerGitRepoConfig:
     try
       val start = now // read once
       state.failed match
-        // failed just now: the same failure, not another pull per project
-        case Some((at, e)) if start - at < FailedUpdateValidMs => throw e
+        // failed just now: the same failure, not another pull per project - a new one per caller (one
+        // instance on many threads would collect their suppressed errors)
+        case Some((at, e)) if start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
         case _ if state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
         case _ =>
           try
@@ -348,7 +358,7 @@ object ProjectsPerGitRepoConfig:
             state.doneAt = start
             state.failed = None
           catch
-            case scala.util.control.NonFatal(e) =>
+            case NonFatal(e) =>
               state.failed = Some(start -> e)
               throw e
     finally state.lock.unlock()
