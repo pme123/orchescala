@@ -336,16 +336,13 @@ object ProjectsPerGitRepoConfig:
   private final class Update:
     val lock                             = ReentrantLock()
     var doneAt: Long                     = Long.MinValue
-    var failed: Option[(Long, Throwable)] = None
+    @volatile var failed: Option[(Long, Throwable)] = None // read without the lock (updateFailure)
   private[api] val UpdateValidMs       = 5 * 60 * 1000L
   private[api] val FailedUpdateValidMs = 30 * 1000L
 
   /** Why the last update of a clone failed - None if it worked or did not run (for the docs' errors). */
   def updateFailure(clone: os.Path): Option[String] =
-    Option(updates.get(clone)).flatMap: s =>
-      s.lock.lock()
-      try s.failed.map(_._2.getMessage)
-      finally s.lock.unlock()
+    Option(updates.get(clone)).flatMap(_.failed.map(_._2.getMessage)) // volatile - no wait for an update
   private val updates = ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on. A successful
@@ -357,7 +354,7 @@ object ProjectsPerGitRepoConfig:
       update: => Unit
   ): Unit =
     val state = updates.computeIfAbsent(clone, _ => Update())
-    state.lock.lock()
+    state.lock.lockInterruptibly()
     try
       val start  = now // read once
       val forced = force // under the lock: a caller that waited sees what the one before did

@@ -316,6 +316,27 @@ class ProjectRepoTest extends FunSuite:
     assertEquals(os.read(dest / "new.txt"), "new")
     assert(!os.exists(dir / ".old"))
 
+  test("releaseTags - a plain tag from before the project's own ones is its old release"):
+    // v0.9.0 (plain, the old way) -> acme-shop-v1.0.0 (own tags from then on) -> v2.0.0 (another project's)
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    val repo    = gitTemp / "orchescala-acme"
+    os.write(repo / "projects" / "acme-shop" / "README.md", "0.9", createFolders = true)
+    git(repo, "init", "-q")
+    git(repo, "config", "gc.auto", "0")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "0.9")
+    git(repo, "tag", "v0.9.0")
+    os.write.over(repo / "projects" / "acme-shop" / "README.md", "1.0")
+    git(repo, "commit", "-q", "-am", "1.0")
+    git(repo, "tag", "acme-shop-v1.0.0")
+    os.write(repo / "projects" / "other" / "README.md", "other", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "other")
+    git(repo, "tag", "v2.0.0")
+    val shop = ProjectRepo.locate(gitTemp, "acme-shop").get
+    assertEquals(shop.releaseTags("0.9.0", shop.localTags()), Seq("v0.9.0")) // before its own tags: its own
+    assertEquals(shop.releaseTags("2.0.0", shop.localTags()), Seq.empty) // after them: another project's
+
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()
     val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")

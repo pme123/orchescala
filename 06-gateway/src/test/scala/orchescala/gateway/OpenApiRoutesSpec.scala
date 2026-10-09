@@ -295,6 +295,19 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       val refreshed = down.isDown("d", now = 40001) && down.size == 1
       assertTrue(inWindow, !after, cleared, notDown, capped, refreshed)
     },
+    test("DownList - markDown / markUp from many threads: never over max, no error") {
+      val down    = OpenApiRoutes.DownList(downForMs = 30000, max = 50)
+      val threads = (1 to 8).map: t =>
+        Thread(() =>
+          for i <- 1 to 2000 do
+            val p = s"p${(t * 7919 + i) % 120}"
+            if i % 3 == 0 then down.markUp(p) else down.markDown(p, now = i.toLong)
+            assert(down.size <= 50)
+        )
+      threads.foreach(_.start())
+      threads.foreach(_.join(10000))
+      assertTrue(down.size <= 50, threads.forall(!_.isAlive))
+    },
     test("isValidSiteFolder - a company folder may have _ (no fallback is skipped for it)") {
       assertTrue(
         openApiRoutes.isValidSiteFolder("acme_corp"),

@@ -54,13 +54,24 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     else Seq(s"v$version", version)
 
   /** The tags of `version` that count, of the `known` ones, in order. In one repo a plain `v<version>`
-    * counts only for a project that has no tag of its own at all (released before tags per project):
-    * once a project tags `<project>-v…`, a plain tag is some other project's release. And only a tag
-    * at which the project is there.
+    * counts for a project without tags of its own, or when it is older than one of them (released before
+    * tags per project); else it is some other project's release. And only a tag at which the project is
+    * there.
     */
   def releaseTags(version: String, known: Set[String]): Seq[String] =
-    val ownTags = singleRepo && known.exists(isOwnTag)
-    tagCandidates(version).filter(t => known.contains(t) && (!ownTags || isOwnTag(t))).filter(existsAt)
+    val ownTags = if singleRepo then known.filter(isOwnTag) else Set.empty[String]
+    // a plain tag from before the project's own ones (it is an ancestor of one of them) is its old release
+    def plainCounts(t: String) = ownTags.isEmpty || ownTags.exists(own => strictAncestor(t, own))
+    tagCandidates(version).filter(t => known.contains(t) && (isOwnTag(t) || plainCounts(t))).filter(existsAt)
+
+  /** Is `a` an earlier commit of `b`'s history (not the same commit)? */
+  private def strictAncestor(a: String, b: String): Boolean =
+    def commit(r: String) = Try(os.proc("git", "-C", repo.toString, "rev-parse", s"$r^{commit}")
+      .call(stdout = os.Pipe, stderr = os.Pipe).out.text().trim).toOption
+    commit(a).zip(commit(b)).exists((ca, cb) =>
+      ca != cb && os.proc("git", "-C", repo.toString, "merge-base", "--is-ancestor", ca, cb)
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+    )
 
   /** The tag of a release of `version` - local first, then after fetching the tags from origin (once
     * per repo, see fetchTagsOnce). In one repo a tag of the candidates may be another project's
@@ -88,6 +99,10 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
   /** The project's files at `ref` into `dest` (emptied first) - in one repo only its own folder.
     * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
     */
+  /** The end of git's stderr - a noisy one is not read whole into a message. */
+  private def tail(file: os.Path): String =
+    Try(os.read(file)).getOrElse("").trim.takeRight(4000)
+
   def exportTo(ref: String, dest: os.Path): Unit =
     // what the machine or the repo lacks - an error of the run, not of the code (require is for those)
     def fail(why: String) = throw new Exception(why)
@@ -99,7 +114,8 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     // into a folder next to dest - dest is replaced only when everything is there
     os.makeDir.all(dest / os.up)
     // left by a run that was killed midway - only this project's: `.acme.orch-export-…` is no prefix of
-    // `.acme-shop.orch-export-…`, which another export may be writing right now
+    // `.acme-shop.orch-export-…`, which another export may be writing right now (a plain startsWith - no
+    // glob or regex, whatever the project's name)
     val marker = s".${dest.last}.orch-export-"
     // older than an export may take - a younger one may be another run's, at work right now. The age is
     // the start in the name (a folder's mtime changes only with its own entries); with their
@@ -126,12 +142,12 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
             // tar did not run or finish (the timeout): git stopped too, its message kept, the cause
             // attached - an interrupt is no NonFatal and goes on as it is
             git.destroy()
-            throw new Exception(s"tar of $project at $ref failed: ${e.getMessage} (git: ${os.read(errors).trim})", e)
+            throw new Exception(s"tar of $project at $ref failed: ${e.getMessage} (git: ${tail(errors)})", e)
       // tar gone early: git may block on the closed pipe - not for ever
       val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
       if !gitDone then git.destroy()
       val what    = s"$project at $ref"
-      ProjectRepo.exportFailure(what, gitDone, git.exitCode(), os.read(errors).trim, tar.exitCode, tar.err.text().trim)
+      ProjectRepo.exportFailure(what, gitDone, git.exitCode(), tail(errors), tar.exitCode, tar.err.text().trim.takeRight(4000))
         .foreach(msg => throw new Exception(msg))
       ProjectRepo.replace(dest, fresh, old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}")
     finally

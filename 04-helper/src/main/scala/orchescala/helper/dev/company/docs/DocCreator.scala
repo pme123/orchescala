@@ -211,23 +211,15 @@ trait DocCreator extends DependencyCreator, Helpers:
         }.withParallelism(apiConfig.engineConfig.parallelism)
       ).getOrThrow()
     }.flatten
-    val failures = results.collect { case (name, Left(e)) => name -> e }
-    if failures.nonEmpty then
-      val msg = s"The docs of ${failures.size} version(s) could not be prepared:\n  " +
-        failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
-      // only releases missing: that is what it is; else the first other error is the cause
-      val errors = failures.map(_._2)
-      errors.find(!_.isInstanceOf[ReleaseNotFound]) match
-        case None        => throw ReleaseNotFound(msg, errors.head)
-        case Some(cause) =>
-          // the first other error the cause, all others kept with their traces
-          val e = new Exception(msg, cause)
-          errors.filterNot(_ eq cause).foreach(e.addSuppressed)
-          throw e
+    DocCreator.failureOf(results.collect { case (name, Left(e)) => name -> e }).foreach(e => throw e)
 
-    // built from a company clone that could not be pulled: said again at the end, not only in the middle
+    // built from a clone that could not be pulled or fetched: said again at the end, not only in the middle
     ProjectsPerGitRepoConfig.updateFailure(companyClone).foreach: why =>
       println(s"  ! the docs are from $companyClone as it was - it could not be updated: $why")
+    versions.keys.map(_.stripSuffix("-worker")).toSeq.distinct.sorted.foreach: project =>
+      apiConfig.projectsConfig.projectConfig(project).map(_.absGitPath(gitBasePath)).foreach: path =>
+        ProjectRepo.fetchFailure(path).foreach: why =>
+          println(s"  ! the docs of $project are from the tags $path had - $why")
 
     // Flatten the results and filter out None values
     results.collect { case (_, Right(conf)) => conf }.flatten
@@ -601,6 +593,22 @@ object DocCreator:
   /** The versions per project - its BPMN and its worker version share the project's folder: one after
     * the other (setupConfigs runs the projects in parallel, the versions of one in this order).
     */
+  /** The error of a run whose versions failed - None if none did. Only releases missing: a
+    * ReleaseNotFound (the first as cause); else an Exception with the first other error as cause and all
+    * others suppressed, with their traces.
+    */
+  def failureOf(failures: Seq[(String, Throwable)]): Option[Throwable] =
+    Option.when(failures.nonEmpty):
+      val msg    = s"The docs of ${failures.size} version(s) could not be prepared:\n  " +
+        failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
+      val errors = failures.map(_._2)
+      errors.find(!_.isInstanceOf[ReleaseNotFound]) match
+        case None        => ReleaseNotFound(msg, errors.head)
+        case Some(cause) =>
+          val e = new Exception(msg, cause)
+          errors.filterNot(_ eq cause).foreach(e.addSuppressed)
+          e
+
   def byProject(versions: Map[String, String]): Seq[(String, Seq[ProjectVersion])] =
     versions.toSeq.map(ProjectVersion(_, _)).groupBy(_.project).toSeq.sortBy(_._1)
       .map((project, vs) => project -> vs.sortBy(_.isWorker))
