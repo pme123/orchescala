@@ -6,12 +6,22 @@
 body {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-  background: #f5f4f0;
+  background: var(--orch-bg, #f5f4f0);
   color: #1a1a1a;
 }
 
+/* die Ecken aus dem Theme der App (theme.ts) - nur, wo es sie setzt; rund (rounded-full) bleibt rund.
+   --orch-radius ist die Ecke der Buttons und Karten (rounded-lg) - die anderen Grössen im Verhältnis dazu,
+   so bleiben kleine Chips kleiner gerundet als grosse Flächen */
+[style*="--orch-radius"] .rounded-sm { border-radius: calc(var(--orch-radius) * 0.33); }
+[style*="--orch-radius"] .rounded { border-radius: calc(var(--orch-radius) * 0.5); }
+[style*="--orch-radius"] .rounded-md { border-radius: calc(var(--orch-radius) * 0.75); }
+[style*="--orch-radius"] .rounded-lg { border-radius: var(--orch-radius); }
+[style*="--orch-radius"] .rounded-xl { border-radius: calc(var(--orch-radius) * 1.33); }
+[style*="--orch-radius"] .rounded-2xl { border-radius: calc(var(--orch-radius) * 2); }
+
 .dark body {
-  background: #0e0f11;
+  background: var(--orch-bg, #0e0f11);
   color: #e8e8e8;
 }
 

@@ -75,9 +75,34 @@ export type Page = {
   body: Component[];
 };
 
+/** Der Auftritt der App - z.B. aus der Website der Bank (Skill orch-theme-from-site). Alles freiwillig;
+  * ohne Angabe gilt der z9nai-Stil. In der Bankenzone gibt es keine Adresse von aussen: das Logo ist
+  * eine data:-URI, die Schrift ein Stapel von Systemschriften. */
+export type Theme = {
+  /** Buttons, gewählte Kacheln, Fokus - `#0b5cab` */
+  primary?: string;
+  /** Text auf `primary` - ohne Angabe Weiss oder Schwarz, je nach Helligkeit */
+  onPrimary?: string;
+  /** Hintergrund der Seite (hell) */
+  background?: string;
+  /** Flächen: Karten, Abschnitte (hell) */
+  surface?: string;
+  /** Text (hell) */
+  text?: string;
+  /** `sans`, `serif`, `mono` oder ein CSS-Stapel: `"Frutiger", Arial, sans-serif` */
+  font?: string;
+  /** Ecken: `none`, `sm`, `md`, `lg`, `xl` */
+  radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
+  /** das Logo in der Kopfzeile - eine data:-URI (bis 200 KB) */
+  logo?: string;
+  /** hell oder dunkel als Vorgabe - der Benutzer kann weiterhin wechseln */
+  mode?: 'light' | 'dark';
+};
+
 export type App = {
   title?: string;
   subtitle?: string;
+  theme?: Theme;
   /** Die Seite für / */
   home?: string;
   /** Texte für Werte – {{wert|label:topic}} */

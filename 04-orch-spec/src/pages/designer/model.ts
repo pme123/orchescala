@@ -205,6 +205,7 @@ function sampleValue(f: PField, i: number): unknown {
 export type BlockKey = string;
 
 export function blockAt(body: Component[], key: BlockKey): Component | undefined {
+  if (!/^\d+(\.\d+)*$/.test(key)) return undefined; // '' (die Seite) ist kein Baustein - Number('') wäre 0
   const [head, ...rest] = key.split('.').map(Number);
   const block = body[head];
   if (!block || rest.length === 0) return block;
@@ -262,6 +263,112 @@ export function insertBlock(body: Component[], block: Component, key?: BlockKey,
     body: inParent(body, key, (list, i) => [...list.slice(0, i + 1), block, ...list.slice(i + 1)]),
     key: [...parts.slice(0, -1), index + 1].join('.'),
   };
+}
+
+/** Wohin ein Baustein kommt, relativ zu einem anderen - davor, danach oder (in einen Abschnitt) hinein. */
+export type Place = 'before' | 'after' | 'inside';
+
+/** Fügt `block` in die Liste `parent` (Schlüssel eines Abschnitts, '' für die Seite) an `index` ein. */
+function insertAt(body: Component[], parent: BlockKey, index: number, block: Component): Component[] {
+  const put = (list: Component[]) => [...list.slice(0, index), block, ...list.slice(index)];
+  return parent === '' ? put(body) : updateBlock(body, parent, (b) => (b.type === 'section' ? { ...b, body: put(b.body) } : b));
+}
+
+const parentOf = (key: BlockKey) => key.split('.').slice(0, -1).join('.');
+const indexOf = (key: BlockKey) => Number(key.split('.').pop());
+const keyIn = (parent: BlockKey, index: number) => (parent === '' ? String(index) : `${parent}.${index}`);
+
+/** Fügt vor oder nach `key` ein - oder in den Abschnitt `key` (als letzten). Der neue Schlüssel. */
+export function placeBlock(body: Component[], block: Component, key: BlockKey, place: Place): { body: Component[]; key: BlockKey } {
+  const at = blockAt(body, key);
+  // kein Baustein (die Seite selbst, '') - ans Ende der Seite, nicht still an den Anfang
+  if (!at) return { body: [...body, block], key: String(body.length) };
+  if (place === 'inside' && at.type === 'section') return { body: insertAt(body, key, at.body.length, block), key: `${key}.${at.body.length}` };
+  // «hinein» in etwas, das kein Abschnitt ist: danach
+  const index = indexOf(key) + (place === 'before' ? 0 : 1);
+  return { body: insertAt(body, parentOf(key), index, block), key: keyIn(parentOf(key), index) };
+}
+
+/** Verschiebt einen Baustein an eine andere Stelle (Drag & Drop) - der neue Schlüssel. In sich selbst
+  * oder seine Kinder geht nicht: dann bleibt alles, wie es ist. */
+export function relocateBlock(body: Component[], from: BlockKey, to: BlockKey, place: Place): { body: Component[]; key: BlockKey } {
+  const block = blockAt(body, from);
+  if (!block || from === to || to.startsWith(`${from}.`)) return { body, key: from };
+  // auf die Seite selbst (''): ans Ende - ''.split('.') wäre sonst der Baustein 0. Ein anderer Schlüssel
+  // ohne Baustein (z.B. ein alter Zielpunkt nach ⌘Z mitten im Ziehen): nichts verschieben
+  if (to === '') return placeBlock(removeBlock(body, from), block, '', place);
+  if (!blockAt(body, to)) return { body, key: from };
+  // nach dem Entfernen rückt ein späterer Geschwister-Pfad (oder einer darin) um eins nach vorn
+  const fromParts = from.split('.').map(Number);
+  const toParts = to.split('.').map(Number);
+  const depth = fromParts.length - 1;
+  const sameParent = toParts.length > depth && fromParts.slice(0, depth).every((p, i) => p === toParts[i]);
+  if (sameParent && toParts[depth] > fromParts[depth]) toParts[depth] -= 1;
+  return placeBlock(removeBlock(body, from), block, toParts.join('.'), place);
+}
+
+/** Packt einen Baustein in einen neuen Abschnitt (an seiner Stelle). */
+export function wrapInSection(body: Component[], key: BlockKey): { body: Component[]; key: BlockKey } {
+  const block = blockAt(body, key);
+  if (!block) return { body, key };
+  return { body: updateBlock(body, key, (b) => ({ type: 'section', label: 'Abschnitt', body: [b] })), key };
+}
+
+/** Löst einen Abschnitt auf: seine Bausteine stehen danach an seiner Stelle. */
+export function unwrapSection(body: Component[], key: BlockKey): { body: Component[]; key: BlockKey } {
+  const section = blockAt(body, key);
+  if (section?.type !== 'section') return { body, key };
+  const parent = parentOf(key);
+  const index = indexOf(key);
+  let next = removeBlock(body, key);
+  section.body.forEach((b, i) => { next = insertAt(next, parent, index + i, b); });
+  // ein leerer Abschnitt: danach ist sein Elternteil gewählt (die Seite: '')
+  return { body: next, key: section.body.length ? keyIn(parent, index) : parent };
+}
+
+/** Der Text, der einen Baustein benennt - Überschrift, Text, Bezeichnung oder Beschriftung. */
+function titleOf(b: Component): string | undefined {
+  switch (b.type) {
+    case 'heading':
+    case 'text':
+    case 'loading':
+      return b.text;
+    default:
+      return b.label;
+  }
+}
+
+/** Was ein Typwechsel des Bausteins verliert - für die Warnung im Menü; null, wenn nichts Eigenes da ist.
+  * (Ein Abschnitt mit Bausteinen wechselt den Typ gar nicht - erst auflösen.) */
+export function lostOnConvert(b: Component): string | null {
+  const n = (count: number, one: string, many: string) => (count === 1 ? `1 ${one}` : `${count} ${many}`);
+  switch (b.type) {
+    case 'section': return b.body.length ? n(b.body.length, 'Baustein', 'Bausteine') : null;
+    case 'fields': return b.fields.length ? n(b.fields.length, 'Eingabefeld', 'Eingabefelder') : null;
+    case 'summary': return b.items.length ? n(b.items.length, 'Zeile', 'Zeilen') : null;
+    case 'button': return b.actions.length ? n(b.actions.length, 'Aktion', 'Aktionen') : null;
+    case 'choice': return b.options.length ? n(b.options.length, 'Option', 'Optionen') : null;
+    default: return null;
+  }
+}
+
+/** Ein Baustein in einem anderen Typ: was passt, bleibt - der Text (als Überschrift, Text, Bezeichnung),
+  * die Bindung einer Auswahl, die Bedingung; der Rest kommt vom neuen Typ. */
+export function convertBlock(b: Component, type: Component['type']): Component {
+  if (b.type === type) return b;
+  const fresh = newBlock(type) as Component & Record<string, unknown>;
+  const title = titleOf(b);
+  const next: Record<string, unknown> = { ...fresh };
+  if (title !== undefined && title !== '') {
+    if (type === 'heading' || type === 'text' || type === 'loading') next.text = title;
+    else next.label = title;
+  }
+  if ((b.type === 'choice' || b.type === 'pick') && (type === 'choice' || type === 'pick')) {
+    next.bind = b.bind;
+    if (b.required !== undefined) next.required = b.required;
+  }
+  if (b.visible) next.visible = b.visible;
+  return next as Component;
 }
 
 /** Jeder Baustein mit seinem Schlüssel - Tiefe zuerst, wie die Gliederung sie zeigt. */
@@ -351,6 +458,89 @@ export function statePaths(page: Page, targets: Targets): string[] {
   }
   ['query', 'user.name', 'user.email', 'user.roles'].forEach((p) => paths.add(p));
   return [...paths].sort();
+}
+
+/** Ein Eintrag im Zustand einer Seite - woher er kommt und was drin steht (für «Daten» im Designer). */
+export type DataNode = {
+  path: string;
+  /** woher: Anfangszustand, eine Aktion (mit Service), eine Eingabe, die URL, der Benutzer */
+  sources: string[];
+  /** der Typ - aus der Domain (z.B. `Slot`, `LocalDateTime`) oder ein einfacher (Text, Zahl, Liste) */
+  type?: string;
+  collection?: boolean;
+  /** die Felder - das Out eines Service oder die Felder einer Case Class */
+  fields?: PField[];
+  /** feste Werte (einer Auswahl) oder die eines Enums */
+  values?: string[];
+  /** der Baustein, der ihn setzt - für einen Klick dorthin */
+  key?: BlockKey;
+};
+
+const jsType = (v: unknown): string =>
+  v === null ? 'leer' : Array.isArray(v) ? 'Liste' : typeof v === 'object' ? 'Objekt' : typeof v === 'number' ? 'Zahl'
+    : typeof v === 'boolean' ? 'Ja/Nein' : 'Text';
+
+/** Die Felder eines Werts des Anfangszustands (ein Objekt, eine Liste von Objekten) - für die Pfade darin. */
+function fieldsOfValue(v: unknown, depth = 0): PField[] | undefined {
+  const item = Array.isArray(v) ? v[0] : v;
+  if (typeof item !== 'object' || item === null || Array.isArray(item) || depth > 3) return undefined;
+  return Object.entries(item).map(([name, x]) => ({
+    name, type: jsType(Array.isArray(x) ? x[0] : x), optional: false, collection: Array.isArray(x), fields: fieldsOfValue(x, depth + 1),
+  }));
+}
+
+/** Ein Pfad unter einem Knoten (`contact.email` → das Feld `email` von `contact`) - in die Felder gemischt. */
+function withPath(fields: PField[] | undefined, parts: string[], type: string): PField[] {
+  const [name, ...rest] = parts;
+  const list = [...(fields ?? [])];
+  const i = list.findIndex((f) => f.name === name);
+  const old = i >= 0 ? list[i] : { name, type: rest.length ? 'Objekt' : type, optional: false, collection: false };
+  const next = rest.length ? { ...old, fields: withPath(old.fields, rest, type) } : old;
+  if (i >= 0) list[i] = next;
+  else list.push(next);
+  return list;
+}
+
+/** Was im Zustand einer Seite steht: der Anfangszustand, die Ergebnisse ihrer Aktionen (mit dem Out des
+  * Service), die Eingaben ihrer Bausteine, die Parameter der URL und der Benutzer. Ein Pfad, den mehrere
+  * setzen (Anfangszustand und Auswahl), steht einmal - mit allen Quellen. */
+export function dataOf(page: Page, targets: Targets): DataNode[] {
+  const nodes = new Map<string, DataNode>();
+  const put = (path: string, source: string, rest: Omit<DataNode, 'path' | 'sources'> = {}) => {
+    const node = nodes.get(path);
+    if (node) {
+      if (!node.sources.includes(source)) node.sources.push(source);
+      for (const [k, v] of Object.entries(rest)) if (v !== undefined && (node as Record<string, unknown>)[k] === undefined) (node as Record<string, unknown>)[k] = v;
+    } else nodes.set(path, { path, sources: [source], ...rest });
+  };
+  // eine Liste: ihre Felder sind die eines Eintrags - der Pfad dahin hat den Index ({{items.0.id}})
+  for (const [k, v] of Object.entries(page.state ?? {}))
+    put(k, 'Anfangszustand', { type: jsType(v), fields: fieldsOfValue(v), collection: Array.isArray(v) || undefined });
+  for (const { where, key, action } of actionsOf(page)) {
+    if (action.do === 'call' && action.result) {
+      const svc = targets.services.find((s) => s.topic === action.service);
+      put(action.result, `${where}: ${action.service}`, { type: svc ? `${svc.name}.Out` : 'unbekannter Service', fields: svc?.out, key });
+    } else if (action.do === 'start' && action.result) put(action.result, `${where}: Start ${action.process}`, { type: 'Prozess-Start', key });
+    else if (action.do === 'message' && action.result) put(action.result, `${where}: Message ${action.name}`, { type: 'Message', key });
+    else if (action.do === 'set') put(action.path.split('.')[0], `${where}: Wert setzen`, { key });
+  }
+  for (const { key, block } of flatten(page.body)) {
+    if (block.type === 'choice')
+      put(block.bind, `Auswahl «${block.label ?? block.bind}»`, { type: 'ein Wert der Auswahl', values: block.options.map((o) => String(o.value)), key });
+    if (block.type === 'pick') put(block.bind, `Auswahl aus Liste «${block.label ?? block.bind}»`, { type: `ein Eintrag aus ${block.items}`, key });
+    if (block.type === 'fields')
+      for (const f of block.fields) {
+        const [head, ...rest] = f.bind.split('.');
+        put(head, `Eingabefeld «${f.label}»`, { type: rest.length ? 'Objekt' : 'Text', key });
+        // ein Feld darunter (`contact.email`): als Feld des Objekts - so lässt sich {{contact.email}} kopieren
+        const node = nodes.get(head)!;
+        if (rest.length) node.fields = withPath(node.fields, rest, 'Text');
+      }
+  }
+  // die Parameter der URL, die die Seite liest
+  for (const m of JSON.stringify(page).matchAll(/\{\{\s*query\.([\w$]+)/g)) put(`query.${m[1]}`, 'URL-Parameter', { type: 'Text' });
+  put('user', 'Benutzer (mit Login)', { type: 'name, email, roles' });
+  return [...nodes.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
 // ---------------------------------------------------------------- die Befunde

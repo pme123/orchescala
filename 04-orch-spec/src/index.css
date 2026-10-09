@@ -59,3 +59,12 @@ textarea.grow { field-sizing: content; min-height: 2.2em; }
    läge damit über den Dialogen (Export, Katalog …). Es bleibt sichtbar, aber
    in der Zeichenfläche. */
 .bjs-container .bjs-powered-by { z-index: 10 !important; }
+
+/* die Ecken aus dem Theme einer App (pages/runtime/theme.ts) - wie in der App (pages/runtime/index.css):
+   in der Vorschau des Seiten-Designers und der Probe des Themes; nur unter einem Element, das sie setzt */
+[style*="--orch-radius"] .rounded-sm { border-radius: calc(var(--orch-radius) * 0.33); }
+[style*="--orch-radius"] .rounded { border-radius: calc(var(--orch-radius) * 0.5); }
+[style*="--orch-radius"] .rounded-md { border-radius: calc(var(--orch-radius) * 0.75); }
+[style*="--orch-radius"] .rounded-lg { border-radius: var(--orch-radius); }
+[style*="--orch-radius"] .rounded-xl { border-radius: calc(var(--orch-radius) * 1.33); }
+[style*="--orch-radius"] .rounded-2xl { border-radius: calc(var(--orch-radius) * 2); }

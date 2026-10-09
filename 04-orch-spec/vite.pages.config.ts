@@ -99,6 +99,9 @@ function pagesPlugin(): Plugin {
 export default defineConfig({
   root: path.resolve(__dirname, 'src/pages/runtime'),
   base,
+  // ein eigener Cache - sonst überschreibt `npm run dev:pages` die vorgebündelten Abhängigkeiten von
+  // `npm run dev` (beide im selben Ordner), und orch-spec bleibt mit «504 Outdated Optimize Dep» weiss
+  cacheDir: path.resolve(__dirname, 'node_modules/.vite-pages'),
   plugins: [react(), tailwindcss(), pagesPlugin()],
   build: {
     outDir,

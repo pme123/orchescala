@@ -1,21 +1,26 @@
 // Der Designer einer Seite (E15): die Gliederung ihrer Bausteine, die Seite live - mit demselben Renderer
 // wie die App, gespeist mit Beispieldaten der Services - und die Eigenschaften des ausgewählten Bausteins.
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ChevronLeft, Copy, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus,
-  RotateCcw, Rows3, SquareDashed, TextCursorInput, Trash2, Type, CalendarRange,
+  AlertTriangle, ChevronLeft, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
+  RotateCcw, Rows3, SquareDashed, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../../auth';
 import { useStore } from '../../store';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
+import { themeStyle } from '../runtime/theme';
 import type { Gateway } from '../runtime/gatewayTypes';
 import type { Component, Page } from '../runtime/spec';
+import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
+import { DataView } from './DataView';
 import { IconButton } from './fields';
+import { coalesceKey, emptyHistory, record, travel, type History } from './history';
+import { designerKey, type DesignerKey } from './keys';
 import {
-  blockAt, flatten, insertBlock, moveBlock, newBlock, pageFindings, removeBlock, sampleOf, statePaths, targetsOf,
-  updateBlock, type BlockKey, type Targets,
+  actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
+  sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
 
 const ICONS: Record<Component['type'], React.ReactNode> = {
@@ -80,6 +85,12 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [query, setQuery] = useState('token=0b1c9a4e-7a43-4f0e-9d39-3a3f6c2d8e11');
   const [run, setRun] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [left, setLeft] = useState<'outline' | 'data'>('outline');
+  const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
+  // die Tastatur liest immer die Aktionen dieses Renderns (sie hängen an Seite und Auswahl)
+  const keys = useRef<{
+    undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean; can: { undo: boolean; redo: boolean };
+  }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
   // ---- speichern: eine Sekunde nach der letzten Änderung und beim Verlassen - ein Schreiben nach dem
@@ -87,6 +98,8 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const pending = useRef<Page | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
+  const retries = useRef(0);
+  const closed = useRef(false); // nach dem Verlassen: der letzte Versuch beim Aufräumen, keine weiteren
   const flush = useCallback((): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -96,18 +109,28 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       pending.current = null;
       const r = await savePage(slug, data, version.current);
       if (r.status === 'saved') {
+        retries.current = 0;
         version.current = r.version;
-        setSaveState({ at: new Date() });
+        if (!closed.current) setSaveState({ at: new Date() }); // der letzte Versuch beim Verlassen: niemand sieht es
         return true;
       }
       // nicht verlieren: bleibt ausstehend, solange nichts Neueres kam
       pending.current ??= data;
-      setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
+      if (!closed.current)
+        setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
+      // ein Fehler der Verbindung: von selbst noch einmal, immer seltener (2 s … 30 s) - ein Konflikt nicht,
+      // den löst nur, wer die Seite neu lädt
+      if (r.status !== 'conflict' && !timer.current && !closed.current) {
+        const wait = Math.min(30000, 2000 * 2 ** retries.current++);
+        timer.current = setTimeout(() => void flush(), wait);
+      }
       return false;
     });
     return saving.current;
   }, [slug, savePage]);
   useEffect(() => {
+    // eingehängt (wieder - StrictMode hängt in der Entwicklung aus und ein): Versuche wieder erlaubt
+    closed.current = false;
     // beim Verlassen der Seite oder des Tabs - React räumt beim Schliessen nicht auf
     const now = () => void flush();
     const hidden = () => document.visibilityState === 'hidden' && now();
@@ -116,16 +139,50 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     return () => {
       window.removeEventListener('pagehide', now);
       document.removeEventListener('visibilitychange', hidden);
+      closed.current = true;
       now();
     };
   }, [flush]);
-  const update = (next: Page) => {
-    if (!canEdit) return;
+  const store = (next: Page) => {
     setPage(next);
+    latest.current = next;
     pending.current = next;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
   };
+
+  // ---- rückgängig: jede Änderung der Seite; Tippen in einem Feld ist ein Schritt (history.ts). Die Stände
+  // gehören zu dieser Seite: der Designer hängt den Editor mit key={slug} ein, eine andere Seite beginnt neu
+  // (und das Aufräumen oben speichert, was noch aussteht). Refs, nicht Zustand: zwei Schritte vor dem
+  // nächsten Rendern (⌘Z gedrückt gehalten) sehen so je den Stand des vorigen - `page` wäre noch der alte.
+  const history = useRef<History<Page>>(emptyHistory());
+  const latest = useRef<Page | null>(null);
+  // beim Rendern der neueste Stand: setPage kommt nur aus store, das latest schon gesetzt hat - so auch
+  // eine Seite, die erst nach dem Einhängen geladen ist
+  latest.current = page;
+  const [, setHistoryTick] = useState(0);
+  const update = (next: Page, coalesce?: string) => {
+    const current = latest.current ?? page;
+    if (!canEdit || !current) return;
+    // nichts geändert (ein Ablegen an derselben Stelle, verschieben am Rand): kein Schritt, kein Speichern
+    if (next === current || JSON.stringify(next) === JSON.stringify(current)) return;
+    history.current = record(history.current, current, coalesce, Date.now());
+    store(next);
+    setHistoryTick((t) => t + 1);
+  };
+  const step = (dir: 'undo' | 'redo') => {
+    const current = latest.current ?? page;
+    if (!canEdit || !current) return;
+    const done = travel(history.current, current, dir);
+    if (!done) return;
+    history.current = done.history;
+    store(done.value);
+    // ein Baustein, den es danach nicht mehr gibt, ist nicht mehr gewählt
+    setSelected((s) => (s !== null && blockAt(done.value.body, s) ? s : null));
+    setHistoryTick((t) => t + 1);
+  };
+  const undo = () => step('undo');
+  const redo = () => step('redo');
 
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : EMPTY), [model, specs]);
   const gateway = useMemo(() => previewGateway(targets), [targets]);
@@ -135,6 +192,33 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     [page, targets, pages, slug],
   );
   const queryParams = useMemo(() => Object.fromEntries(new URLSearchParams(query)), [query]);
+  const data = useMemo(() => (page ? dataOf(page, targets) : []), [page, targets]);
+  const usedServices = useMemo(
+    () => (page ? actionsOf(page).flatMap(({ action }) => (action.do === 'call' ? [action.service] : [])) : []),
+    [page],
+  );
+
+  // ---- Tastatur: ⌘Z / ⇧⌘Z, Entf, ⌘D, ⌥↑/⌥↓, Esc - nicht beim Tippen in einem Feld
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = keys.current;
+      if (!k) return;
+      const t = e.target as HTMLElement | null;
+      const inField = !!t?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]');
+      const hit = designerKey(e, inField, k.canEdit, !!k.ops, k.can);
+      if (!hit) return;
+      if (hit.action !== 'deselect') e.preventDefault();
+      if (!hit.run) return;
+      const run: Record<DesignerKey, () => void> = {
+        undo: k.undo, redo: k.redo, deselect: k.deselect,
+        remove: () => k.ops?.remove(), duplicate: () => k.ops?.duplicate(),
+        up: () => k.ops?.move(-1), down: () => k.ops?.move(1),
+      };
+      run[hit.action]();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (!page) {
     return (
@@ -147,12 +231,40 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
 
   const outline = flatten(page.body);
   const block = selected ? blockAt(page.body, selected) : undefined;
-  const setBody = (body: Component[]) => update({ ...page, body });
-  const add = (type: Component['type']) => {
-    const r = insertBlock(page.body, newBlock(type), selected ?? undefined, block?.type === 'section');
+  // der neueste Stand, nicht der des Renderns - zwei Aktionen vor dem nächsten Rendern bauen aufeinander auf
+  const body = () => (latest.current ?? page).body;
+  const setBody = (next: Component[], coalesce?: string) => update({ ...(latest.current ?? page), body: next }, coalesce);
+  const apply = (r: { body: Component[]; key: BlockKey }) => {
     setBody(r.body);
-    setSelected(r.key);
+    setSelected(blockAt(r.body, r.key) ? r.key : null);
+  };
+  const add = (type: Component['type']) => {
+    apply(insertBlock(body(), newBlock(type), selected ?? undefined, block?.type === 'section'));
     setAdding(false);
+  };
+  /** Die Aktionen für einen Baustein - in der Vorschau, im Kopf der Eigenschaften, in der Gliederung. */
+  const opsFor = (key: BlockKey): BlockOps => ({
+    move: (by) => apply(moveBlock(body(), key, by)),
+    duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), structuredClone(b), key, 'after')); },
+    remove: () => { setBody(removeBlock(body(), key)); setSelected(null); },
+    convert: (type) => { setBody(updateBlock(body(), key, (b) => convertBlock(b, type))); setSelected(key); },
+    insert: (type, place: Place) => apply(placeBlock(body(), newBlock(type), key, place)),
+    wrap: () => apply(wrapInSection(body(), key)),
+    unwrap: () => apply(unwrapSection(body(), key)),
+  });
+  const ops = selected !== null && block ? opsFor(selected) : null;
+  keys.current = {
+    undo, redo, ops, deselect: () => setSelected(null), canEdit,
+    // beim Drücken gelesen - zwei ⌘Z vor dem nächsten Rendern sehen je den Stand des vorigen
+    get can() { return { undo: history.current.past.length > 0, redo: history.current.future.length > 0 }; },
+  };
+
+  // ---- Drag & Drop in der Gliederung: oben/unten an einer Zeile davor/danach, mitten in einem Abschnitt hinein
+  const placeAt = (e: React.DragEvent, isSection: boolean): Place => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const y = (e.clientY - r.top) / r.height;
+    if (isSection) return y < 0.25 ? 'before' : y > 0.75 ? 'after' : 'inside';
+    return y < 0.5 ? 'before' : 'after';
   };
   const errors = findings.filter((f) => f.level === 'error').length;
   const warnings = findings.filter((f) => f.level === 'warning').length;
@@ -174,37 +286,80 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             <AlertTriangle size={10} /> {errors + warnings}
           </span>
         )}
-        <span className={`ml-auto text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
+        {canEdit && (
+          <div className="ml-auto flex items-center gap-0.5">
+            <IconButton isDark={isDark} title="rückgängig (⌘Z)" disabled={history.current.past.length === 0} onClick={undo}><Undo2 size={12} /></IconButton>
+            <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={history.current.future.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
+          </div>
+        )}
+        <span className={`${canEdit ? '' : 'ml-auto '}text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
           {!canEdit ? 'nur lesen' : saveState.error ?? (saveState.at ? `gespeichert ${saveState.at.toLocaleTimeString('de-CH')}` : '')}
         </span>
       </div>
 
       <div className="flex-1 flex min-h-0">
         {/* Gliederung */}
-        <div className={`w-64 flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
-          <div className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-widest ${c.muted2}`}>Aufbau</div>
+        <div className={`${left === 'data' ? 'w-80' : 'w-64'} flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
+          <div className={`sticky top-0 z-10 flex border-b ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
+            {(['outline', 'data'] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setLeft(t)}
+                className={`flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-widest border-b-2 ${
+                  left === t ? 'border-sky-500 ' + c.text : 'border-transparent ' + c.muted2}`}>
+                {t === 'outline' ? 'Aufbau' : 'Daten'}
+              </button>
+            ))}
+          </div>
+          {left === 'data' ? (
+            <DataView isDark={isDark} nodes={data} targets={targets} usedServices={usedServices}
+              onSelect={(key) => { setSelected(key); setLeft('outline'); }} />
+          ) : (<>
           <button onClick={() => setSelected(null)}
             className={`w-full text-left px-3 py-1.5 text-[11px] ${selected === null ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
             Seite · {page.title}
           </button>
-          {outline.map(({ key, block: b, depth }) => (
-            <button key={key} onClick={() => setSelected(key)} style={{ paddingLeft: `${12 + depth * 14}px` }}
-              className={`w-full flex items-center gap-2 text-left pr-3 py-1.5 text-[11px] ${
-                selected === key ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
-              <span className={c.muted}>{ICONS[b.type]}</span>
-              <span className="truncate">{summaryOf(b) || BLOCK_LABELS[b.type]}</span>
-              {b.visible && <span className={`ml-auto text-[9px] ${c.muted}`} title={`sichtbar, wenn ${b.visible}`}>if</span>}
-            </button>
-          ))}
+          {outline.map(({ key, block: b, depth }) => {
+            const over = drag?.over === key ? drag.place : undefined;
+            return (
+              <div key={key} draggable={canEdit}
+                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); setDrag({ from: key }); }}
+                onDragOver={(e) => {
+                  if (!drag || drag.from === key || key.startsWith(`${drag.from}.`)) return;
+                  e.preventDefault();
+                  const place = placeAt(e, b.type === 'section');
+                  if (drag.over !== key || drag.place !== place) setDrag({ ...drag, over: key, place });
+                }}
+                // nur beim Verlassen der Zeile - nicht beim Wechsel auf ihr Symbol, ihren Text, ihre Knöpfe
+                onDragLeave={(e) => {
+                  if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                  if (drag?.over === key) setDrag({ from: drag.from });
+                }}
+                onDrop={(e) => { e.preventDefault(); if (drag?.over && drag.place) apply(relocateBlock(body(), drag.from, drag.over, drag.place)); setDrag(null); }}
+                onDragEnd={() => setDrag(null)}
+                onClick={() => setSelected(key)}
+                style={{ paddingLeft: `${4 + depth * 14}px` }}
+                className={`group relative w-full flex items-center gap-1.5 pr-1 py-1 text-[11px] cursor-pointer border-y-2 ${
+                  over === 'before' ? 'border-t-sky-500 border-b-transparent' : over === 'after' ? 'border-b-sky-500 border-t-transparent' : 'border-transparent'} ${
+                  over === 'inside' ? 'ring-2 ring-inset ring-sky-500' : ''} ${
+                  drag?.from === key ? 'opacity-40' : ''} ${
+                  selected === key ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
+                {canEdit && <GripVertical size={11} className={`flex-shrink-0 cursor-grab opacity-0 group-hover:opacity-60 ${c.muted}`} />}
+                <span className={c.muted}>{ICONS[b.type]}</span>
+                <span className="truncate flex-1">{summaryOf(b) || BLOCK_LABELS[b.type]}</span>
+                {b.visible && <span className={`text-[9px] group-hover:hidden ${c.muted}`} title={`sichtbar, wenn ${b.visible}`}>if</span>}
+                {canEdit && (
+                  <span className="hidden group-hover:flex">
+                    <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact />
+                  </span>
+                )}
+              </div>
+            );
+          })}
           {canEdit && (
             <div className="px-3 py-2 space-y-2">
-              {selected !== null && (
-                <div className="flex gap-1">
-                  <IconButton isDark={isDark} title="nach oben" onClick={() => { const r = moveBlock(page.body, selected, -1); setBody(r.body); setSelected(r.key); }}><ArrowUp size={12} /></IconButton>
-                  <IconButton isDark={isDark} title="nach unten" onClick={() => { const r = moveBlock(page.body, selected, 1); setBody(r.body); setSelected(r.key); }}><ArrowDown size={12} /></IconButton>
-                  <IconButton isDark={isDark} title="verdoppeln" onClick={() => { if (!block) return; const r = insertBlock(page.body, structuredClone(block), selected); setBody(r.body); setSelected(r.key); }}><Copy size={12} /></IconButton>
-                  <IconButton isDark={isDark} title="entfernen" onClick={() => { setBody(removeBlock(page.body, selected)); setSelected(null); }}><Trash2 size={12} /></IconButton>
-                </div>
+              {outline.length > 1 && (
+                <p className={`text-[9px] leading-snug ${c.muted}`}>
+                  Ziehen zum Verschieben (mitten auf einen Abschnitt: hinein) · Entf löscht · ⌘D verdoppelt · ⌥↑↓ verschiebt · ⌘Z rückgängig
+                </p>
               )}
               <div className="relative">
                 <button onClick={() => setAdding((a) => !a)}
@@ -223,6 +378,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
               </div>
             </div>
           )}
+          </>)}
           {findings.length > 0 && (
             <div className={`border-t px-3 py-2 space-y-1.5 ${c.border}`}>
               <div className={`text-[10px] font-semibold uppercase tracking-widest ${c.muted2}`}>Befunde</div>
@@ -243,18 +399,29 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         <div className="flex-1 flex flex-col min-w-0">
           <div className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border-b text-[10px] ${c.border} ${c.muted2}`}>
             <span className="font-semibold uppercase tracking-widest">Vorschau</span>
-            <span className={c.muted}>Beispieldaten aus den Out-Typen der Services</span>
+            <span className={c.muted} title="Services liefern Beispieldaten aus ihrem Out-Typ; Starts, Messages und Tasks gelingen nur zum Schein. Echt bucht die App (/app/… über den Gateway).">
+              Beispieldaten · nichts wird gebucht oder gesendet
+            </span>
             <label className="ml-auto flex items-center gap-1">
               ?<input value={query} onChange={(e) => setQuery(e.target.value)} title="Die Parameter der URL, z.B. token"
                 className={`w-72 font-mono text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
             </label>
             <IconButton isDark={isDark} title="Vorschau neu starten" onClick={() => setRun((r) => r + 1)}><RotateCcw size={11} /></IconButton>
           </div>
-          <div className={`flex-1 overflow-y-auto ${isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]'}`}>
-            <PageView key={`${run}:${query}:${JSON.stringify(page)}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
+          {/* ein Klick neben die Bausteine wählt die Seite - ihre Eigenschaften: Zustand, Laden, Zugang */}
+          <div className={`flex-1 overflow-y-auto cursor-default ${isDark ? 'bg-[var(--orch-bg,#0e0f11)]' : 'bg-[var(--orch-bg,#f5f4f0)]'} ${
+            selected === null ? 'outline-2 -outline-offset-4 outline-sky-500/50' : ''}`}
+            style={themeStyle(pagesApp?.data.theme, isDark)}
+            onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-designer-block]')) setSelected(null); }}>
+            {/* neu gestartet, wenn sich ändert, was die Seite beim Start liest (Zustand, Laden, Zugang) - nicht bei
+                jedem Tastendruck in einem Text: den zeigt sie ohnehin */}
+            <PageView key={`${run}:${query}:${JSON.stringify([page.state, page.load, page.access])}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}
               user={page.access === 'public' ? undefined : { name: 'Vorschau', roles: page.access.roles }}
-              designer={{ selected: selected ?? undefined, onSelect: setSelected }} />
+              designer={{
+                selected: selected ?? undefined, onSelect: setSelected,
+                toolbar: canEdit ? (key) => { const b = blockAt(page.body, key); return b ? <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact /> : null; } : undefined,
+              }} />
           </div>
         </div>
 
@@ -262,10 +429,21 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (
             // key: ein anderer Baustein bekommt frische Formulare (kein halber JSON-Text des vorigen)
-            <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
-              onChange={(b) => setBody(updateBlock(page.body, selected, () => b))} />
+            <>
+              {canEdit && ops && (
+                <div className={`sticky top-0 z-20 px-3 py-1.5 border-b space-y-1 ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={c.muted}>{ICONS[block.type]}</span>
+                    <span className={`text-[10px] font-semibold uppercase tracking-widest ${c.muted2}`}>{BLOCK_LABELS[block.type]}</span>
+                  </div>
+                  <BlockActions isDark={isDark} block={block} ops={ops} />
+                </div>
+              )}
+              <BlockProps key={selected} isDark={isDark} block={block} targets={targets} paths={paths}
+                onChange={(b) => setBody(updateBlock(body(), selected, () => b), coalesceKey(`props:${selected}`, blockAt(body(), selected), b))} />
+            </>
           ) : (
-            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={update} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))} />
           )}
         </div>
       </div>

@@ -2,29 +2,36 @@
 import { useEffect, useState } from 'react';
 
 export const cls = (isDark: boolean) => ({
-  bg: isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]',
-  panel: isDark ? 'bg-white/2' : 'bg-black/2',
-  panelStrong: isDark ? 'bg-[#16171a]' : 'bg-white',
+  // die Farben aus dem Theme der App (theme.ts - nur im Modus des Themes gesetzt), sonst der z9nai-Stil.
+  // Gedämpftes (title, muted, btn, icon, Ränder) bleibt Schwarz/Weiss mit Deckkraft: es passt so auf jeden
+  // Hintergrund des Modus, wie Hell- und Dunkelgrau es täten
+  bg: isDark ? 'bg-[var(--orch-bg,#0e0f11)]' : 'bg-[var(--orch-bg,#f5f4f0)]',
+  panel: isDark ? 'bg-[var(--orch-surface,rgba(255,255,255,0.02))]' : 'bg-[var(--orch-surface,rgba(0,0,0,0.02))]',
+  panelStrong: isDark ? 'bg-[var(--orch-surface,#16171a)]' : 'bg-[var(--orch-surface,#ffffff)]',
   top: isDark ? 'bg-[#0c0d0f]' : 'bg-[#eae9e5]',
   border: isDark ? 'border-white/8' : 'border-black/8',
   border2: isDark ? 'border-white/15' : 'border-black/15',
-  text: isDark ? 'text-white' : 'text-black',
+  text: isDark ? 'text-[var(--orch-text,#ffffff)]' : 'text-[var(--orch-text,#000000)]',
   title: isDark ? 'text-white/70' : 'text-black/70',
   muted: isDark ? 'text-white/40' : 'text-black/40',
   muted2: isDark ? 'text-white/60' : 'text-black/60',
   hover: isDark ? 'hover:bg-white/5' : 'hover:bg-black/5',
   icon: isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70',
   input: isDark
-    ? 'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-white/30'
-    : 'bg-black/5 border-black/10 text-black placeholder-black/20 focus:border-black/30',
+    ? 'bg-white/5 border-white/10 text-[var(--orch-text,#ffffff)] placeholder-white/20 focus:border-[var(--orch-primary,rgba(255,255,255,0.3))]'
+    : 'bg-black/5 border-black/10 text-[var(--orch-text,#000000)] placeholder-black/20 focus:border-[var(--orch-primary,rgba(0,0,0,0.3))]',
   btn: isDark
     ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white'
     : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black',
-  btnPrimary: isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80',
+  btnPrimary: isDark
+    ? 'bg-[var(--orch-primary,#ffffff)] text-[var(--orch-on-primary,#000000)] hover:opacity-90'
+    : 'bg-[var(--orch-primary,#000000)] text-[var(--orch-on-primary,#ffffff)] hover:opacity-85',
   error: isDark ? 'border-rose-500/30 bg-rose-500/5 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700',
   success: isDark ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800',
   info: isDark ? 'border-blue-500/30 bg-blue-500/5 text-blue-300' : 'border-blue-300 bg-blue-50 text-blue-800',
-  selected: isDark ? 'border-white/60 bg-white/10 text-white' : 'border-black/60 bg-black/5 text-black',
+  selected: isDark
+    ? 'border-[var(--orch-primary,rgba(255,255,255,0.6))] bg-white/10 text-[var(--orch-text,#ffffff)]'
+    : 'border-[var(--orch-primary,rgba(0,0,0,0.6))] bg-black/5 text-[var(--orch-text,#000000)]',
 });
 
 export type Tone = 'green' | 'blue' | 'red' | 'amber' | 'neutral';
@@ -48,23 +55,57 @@ export function Chip({ tone, isDark, children, title }: {
   );
 }
 
-/** Hell/Dunkel wie in den z9nai-Apps: Klasse `dark` am html-Element, im Browser gemerkt. */
-export function useTheme(): { isDark: boolean; toggleTheme: () => void } {
-  const [isDark, setIsDark] = useState(() => {
-    try {
-      return localStorage.getItem('orch-ui.theme') === 'dark';
-    } catch {
-      return false;
-    }
-  });
+/** Wo der Browser die Wahl des Benutzers (hell/dunkel) für die Seiten merkt - nicht `orch-ui.theme`: das
+  * schreibt orch-spec auf demselben Origin bei jedem Laden, es ist also keine Wahl. */
+export const CHOICE_KEY = 'orch-pages.theme';
+/** Der Modus, den die App zuletzt vorgab - damit eine dunkle App nicht hell aufblitzt, bis pages.json da ist.
+  * Je App (ihr Pfad `/app/<projekt>/`): auf einem Origin liegen mehrere. */
+export const appModeKey = (base: string): string => `orch-pages.app-mode:${base}`;
+
+type Mode = 'light' | 'dark';
+type Store = Pick<Storage, 'getItem' | 'setItem'>;
+const store = (): Store | null => {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
+};
+
+/** Ein gemerkter Modus - null ohne Speicher oder Wert. */
+export function storedMode(key: string, from: Store | null = store()): Mode | null {
+  try {
+    const v = from?.getItem(key);
+    return v === 'dark' || v === 'light' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberMode(key: string, mode: Mode | undefined, to: Store | null = store()): void {
+  try {
+    if (mode) to?.setItem(key, mode);
+  } catch {
+    // kein Speicher - nur für diese Sitzung
+  }
+}
+
+/** Dunkel? Die Wahl des Benutzers vor der Vorgabe der App; ohne beides hell. */
+export const isDarkMode = (chosen: Mode | null, preferred: Mode | undefined): boolean => (chosen ?? preferred) === 'dark';
+
+/** Hell/Dunkel wie in den z9nai-Apps: Klasse `dark` am html-Element. Die Wahl des Benutzers merkt sich der
+  * Browser; ohne Wahl gilt die Vorgabe der App (`theme.mode`). */
+export function useTheme(preferred?: Mode): { isDark: boolean; toggleTheme: () => void } {
+  const [chosen, setChosen] = useState<Mode | null>(() => storedMode(CHOICE_KEY));
+  const isDark = isDarkMode(chosen, preferred);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     document.documentElement.classList.toggle('light', !isDark);
-    try {
-      localStorage.setItem('orch-ui.theme', isDark ? 'dark' : 'light');
-    } catch {
-      // kein Speicher - nur für diese Sitzung
-    }
   }, [isDark]);
-  return { isDark, toggleTheme: () => setIsDark((d) => !d) };
+  const toggleTheme = () => {
+    const next = isDark ? 'light' : 'dark';
+    setChosen(next);
+    rememberMode(CHOICE_KEY, next);
+  };
+  return { isDark, toggleTheme };
 }

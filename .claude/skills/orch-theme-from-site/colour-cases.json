@@ -1,0 +1,32 @@
+{
+  "_comment": "Colours the theme takes (theme.ts isThemeColor) and the skill reads (build_theme.py) - the same table for both test suites, so the rules do not drift apart.",
+  "valid": [
+    "#abc",
+    "#abcd",
+    "#0b5cab",
+    "#0b5cab80",
+    "rgb(1, 2, 3)",
+    "rgba(1,2,3,0.5)",
+    "rgb(1 2 3 / 50%)",
+    "rgb(10%, 20%, 30%)",
+    "rgb(100% 0 0)",
+    "hsl(210, 50%, 40%)",
+    "hsl(210deg 50% 40% / .5)",
+    "hsla(-30, 100%, 50%, 1)"
+  ],
+  "invalid": [
+    "#abcde",
+    "#abcdefa",
+    "#ggg",
+    "rgb(%%)",
+    "rgb(1, 2)",
+    "rgb(1,,2,3)",
+    "rgb(100%, 0, 0)",
+    "rgba(255, 0%, 0, 0.5)",
+    "hsl(1, 2, 3)",
+    "rgb(1 2 3 4)",
+    "blau",
+    "rgb(1,2,3); x",
+    "rgb(1.2.3, 0, 0)"
+  ]
+}

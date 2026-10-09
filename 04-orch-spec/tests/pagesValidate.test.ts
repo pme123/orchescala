@@ -56,3 +56,13 @@ test('appProblem', () => {
   assert.ok(appProblem({ title: 1 }));
   assert.ok(appProblem({ labels: { topic: 'Beratung' } }));
 });
+
+test('appProblem - the theme of the app', () => {
+  const ok = { title: 'X', theme: { primary: '#0b5cab', background: '#ffffff', text: 'rgb(20, 20, 20)', font: 'sans', radius: 'lg', mode: 'light',
+    logo: 'data:image/svg+xml;base64,PHN2Zy8+' } };
+  assert.equal(appProblem(ok), null);
+  assert.match(appProblem({ theme: { primary: 'blue' } }) ?? '', /theme\.primary/);
+  assert.match(appProblem({ theme: { radius: 'huge' } }) ?? '', /theme\.radius/);
+  assert.match(appProblem({ theme: { logo: 'https://bank.example/logo.png' } }) ?? '', /data:-URI/);
+  assert.match(appProblem({ theme: { font: 'x; } body { display:none' } }) ?? '', /theme\.font/);
+});
