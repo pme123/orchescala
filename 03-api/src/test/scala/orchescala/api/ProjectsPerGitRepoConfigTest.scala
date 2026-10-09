@@ -75,6 +75,27 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     assert(out.toString.contains("not updated"), out.toString)
     assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "name = acme-shop\n")
 
+  test("updateSingleRepoClone - only for a project in one repo for all, only the clone"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    val work    = os.temp.dir(prefix = "work")
+    os.write(work / ".gitignore", "target/\n")
+    os.write(work / "projects" / "acme-shop" / "PROJECT.conf", "name = acme-shop\n", createFolders = true)
+    git(work, "init", "-q")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "projects")
+    os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / "orchescala-acme.git").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    val config  = ProjectsConfig(perGitRepoConfigs = Seq(
+      ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))), singleRepo = true),
+      ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-own", ProjectGroup("acme"))))
+    ))
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      assert(config.updateSingleRepoClone("acme-shop", gitTemp, "acme"))
+      assert(!config.updateSingleRepoClone("acme-own", gitTemp, "acme"))
+    assert(os.exists(gitTemp / "orchescala-acme" / ".git"))
+    assert(!os.exists(gitTemp / "acme-shop")) // no copy - the docs export the folder at its tag
+
   test("once - an update counts UpdateValidMs, then the next run updates again"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0

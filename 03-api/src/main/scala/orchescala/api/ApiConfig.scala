@@ -162,6 +162,16 @@ case class ProjectsConfig(
     perGitRepoConfigs.foreach(_.initProject(tempGitDir, projectName, companyName))
   end initProject
 
+  /** The company clone of a project in one repo for all, updated (once per run) - true if the project is
+    * in such a repo. Only the clone: the docs export the project's folder at its tag from it.
+    */
+  def updateSingleRepoClone(projectName: String, tempGitDir: os.Path, companyName: String): Boolean =
+    perGitRepoConfigs.find(c => c.singleRepo && c.containsProject(projectName)) match
+      case Some(config) =>
+        config.updateClone(tempGitDir, companyName)
+        true
+      case None         => false
+
   def projectConfig(projectName: String): Option[ProjectConfig] =
     projectConfigs.find(_.name == projectName)
 
@@ -235,11 +245,7 @@ case class ProjectsPerGitRepoConfig(
   def init(gitDir: os.Path, companyName: String) =
     if singleRepo then
       ZIO
-        .attempt:
-          val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
-          val clone   = gitDir / s"orchescala-$companyName"
-          // the same once as initProject - the docs run after it does not pull again
-          ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, gitRepo))
+        .attemptBlocking(updateClone(gitDir, companyName)) // git - not on the compute pool
         .flatMap: _ =>
           ZIO.foreachPar(projects): project =>
             ZIO.attempt:
@@ -262,12 +268,7 @@ case class ProjectsPerGitRepoConfig(
       // the same clone as init - updated once per run, also when the projects of the company come here in
       // parallel (DocCreator); then the project is copied from it. (It ran nothing before: the ZIO it
       // built was dropped.)
-      val clone      = gitDir / s"orchescala-$companyName"
-      // offline or origin away: the clone that is there still serves (its tags) - only without one it fails
-      scala.util.Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")))
-        .failed.foreach: e =>
-          if os.exists(clone / ".git") then println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
-          else throw e
+      val clone      = updateClone(gitDir, companyName)
       val gitTemp    = clone / "projects" / projectName
       val projectGit = gitDir / projectName
       println(s"Copy initProject $gitTemp to $projectGit")
@@ -280,6 +281,19 @@ case class ProjectsPerGitRepoConfig(
           val gitRepo = s"$cloneBaseUrl/${project.name}.git"
           updateProject(project.absGitPath(gitDir), gitRepo)
   end initProject
+
+  /** The company clone `orchescala-<company>` (one repo for all), made or pulled - once per run, also with
+    * callers in parallel (init, initProject, the docs). Offline or with origin away, a clone that is there
+    * serves as it is (a warning) - only without one it fails.
+    * @return the clone
+    */
+  def updateClone(gitDir: os.Path, companyName: String): os.Path =
+    val clone = gitDir / s"orchescala-$companyName"
+    scala.util.Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")))
+      .failed.foreach: e =>
+        if os.exists(clone / ".git") then println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
+        else throw e
+    clone
 
   def containsProject(projectName: String): Boolean =
     projects.exists(_.name == projectName)

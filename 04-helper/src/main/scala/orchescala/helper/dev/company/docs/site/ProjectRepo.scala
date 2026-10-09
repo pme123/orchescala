@@ -112,10 +112,12 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
       val tar     = scala.util.Try(
         os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, strip)
           .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
-      ).getOrElse:
-        // tar did not finish (the timeout): git stopped too, its message kept
+      ).recover { case NonFatal(e) =>
+        // tar did not run or finish (the timeout, no tar): git stopped too, its message kept, the cause
+        // attached - an interrupt is no NonFatal and goes on as it is
         git.destroy()
-        throw new Exception(s"tar of $project at $ref did not finish (git: ${os.read(errors).trim})")
+        throw new Exception(s"tar of $project at $ref failed: ${e.getMessage} (git: ${os.read(errors).trim})", e)
+      }.get
       // tar gone early: git may block on the closed pipe - not for ever
       val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
       if !gitDone then git.destroy()

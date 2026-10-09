@@ -210,9 +210,14 @@ trait DocCreator extends DependencyCreator, Helpers:
         }.withParallelism(apiConfig.engineConfig.parallelism)
       ).getOrThrow()
     }.flatten
-    val failed  = results.collect { case (name, Left(e)) => s"$name: ${e.getMessage}" }
-    if failed.nonEmpty then
-      throw new Exception(s"The docs of ${failed.size} version(s) could not be prepared:\n  ${failed.mkString("\n  ")}")
+    val failures = results.collect { case (name, Left(e)) => name -> e }
+    if failures.nonEmpty then
+      val msg = s"The docs of ${failures.size} version(s) could not be prepared:\n  " +
+        failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
+      // only releases missing: that is what it is; else the first other error is the cause
+      failures.map(_._2).find(!_.isInstanceOf[ReleaseNotFound]) match
+        case None        => throw ReleaseNotFound(msg)
+        case Some(cause) => throw new Exception(msg, cause)
 
     // Flatten the results and filter out None values
     results.collect { case (_, Right(conf)) => conf }.flatten
@@ -244,11 +249,11 @@ trait DocCreator extends DependencyCreator, Helpers:
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
       _           = println(s"Project Git Path $projectPath / $gitBasePath")
-      // in one repo for all: every run - it pulls the company clone (once per run) and makes it if it is
-      // gone; an own clone only when it is not there (then checked out below)
-      singleRepo  = apiConfig.projectsConfig.perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(project))
+      // in one repo for all: the company clone pulled (once per run), made if gone - the project's folder
+      // comes from it at its tag (exportRelease); an own clone made only when it is not there
+      singleRepo  = apiConfig.projectsConfig.updateSingleRepoClone(project, gitBasePath, apiConfig.companyName)
       _           =
-        if singleRepo || !os.exists(projectPath) then
+        if !singleRepo && !os.exists(projectPath) then
           apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
       // all projects in one repo: the project's folder at its tag (`<project>-v<version>`) - else its own clone
       _           = ProjectRepo.exportRelease(gitBasePath, project, version, projectPath) match

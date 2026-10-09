@@ -277,6 +277,8 @@ class ProjectRepoTest extends FunSuite:
     assert(!acme.isOwnTag("acme-shop-v1.0.0"))
     assert(!acme.isOwnTag("acme-2fa-v1.0.0")) // a project acme-2fa - its name starts with a digit
     assert(!acme.isOwnTag("acme-2-v1.0.0") && !acme.isOwnTag("acme-2-1.0.0")) // a project acme-2
+    assert(acme.isOwnTag("acme-1.2.0") && acme.isOwnTag("acme-1.0-beta"))
+    assert(!acme.isOwnTag("acme-1-v1.2.0")) // a project acme-1
     assert(!acme.isOwnTag("acme-2fa-1.0.0"))
     assert(acme.isOwnTag("acme-v1.0.0-RC1") && acme.isOwnTag("acme-1.2.3+build.7"))
     assert(acme.isOwnTag("acme-v5.0.0") && acme.isOwnTag("acme-5.0.0"))
