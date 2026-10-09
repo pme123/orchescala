@@ -39,6 +39,8 @@ export default function App() {
   const embedded = new URLSearchParams(window.location.search).has('embed');
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // ein Logo des Themes, das nicht lädt (404, blockiert) - seine Adresse: dann wie ohne Logo
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true; // StrictMode: nur der Lauf, der noch gilt, setzt den Zustand
@@ -72,6 +74,7 @@ export default function App() {
 
   const app = loaded?.pages.app;
   const page = loaded?.page;
+  const logo = app?.theme?.logo && app.theme.logo !== failedLogo ? app.theme.logo : undefined;
   const style = themeStyle(app?.theme, isDark);
   // der Hintergrund auch am body - beim Überscrollen und eingebettet ist er sonst der z9nai-Hintergrund
   const bg = (style as Record<string, string | undefined>)['--orch-bg'];
@@ -109,8 +112,8 @@ export default function App() {
       {!embedded && (
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
           {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
-          {app?.theme?.logo
-            ? <img src={app.theme.logo} alt="" className="h-7 max-w-40 object-contain" />
+          {logo
+            ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-40 object-contain" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
           {/* a long title gives way (truncated, the subtitle only from md on) - the controls and the byline keep their place */}
           <span className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
@@ -127,11 +130,12 @@ export default function App() {
             <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} className={`rounded p-1.5 transition-colors ${c.icon}`}>
               {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH"
+            {/* der Name am Link - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
+            <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="z9nai GmbH"
               className={`flex items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
               {/* without a logo of its own the app shows the z9nai one on the left already: the text only, always */}
-              <span className={app?.theme?.logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
-              {app?.theme?.logo && <img src={`${base}favicon.png`} alt="z9nai" className="h-5 w-5" />}
+              <span className={logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
+              {logo && <img src={`${base}favicon.png`} alt="" className="h-5 w-5" />}
             </a>
           </div>
         </div>
