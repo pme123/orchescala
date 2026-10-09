@@ -195,7 +195,8 @@ trait DocCreator extends DependencyCreator, Helpers:
     // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version;
     // the projects in parallel
     // every project to its end - one failing does not interrupt the others (their git and tar would run
-    // on, unseen); then all failures together
+    // on, unseen); then all failures together. The projects of one repo share its tag fetch (fetchTagsOnce):
+    // while it runs, they wait for it on blocking threads - at most its timeout
     val results = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
         ZIO.foreachPar(DocCreator.byProject(versions)) { case (project, projectVersions) =>

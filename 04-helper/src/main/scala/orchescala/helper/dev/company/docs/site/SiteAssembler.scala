@@ -149,14 +149,18 @@ object SiteAssembler:
         os.write.over(target / "PostmanOpenApi.yml", postman)
         os.write.over(target / "PostmanOpenApi.html", apiPage)
       val diagramDirs = Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path)
-      diagramDirs.foreach: dir =>
+      val diagrams    = diagramDirs.flatMap: dir =>
         // -z: the names as they are (without it git quotes non-ASCII names, and git show finds none)
         gitOut(repo, "ls-tree", "-r", "-z", "--name-only", ref, "--", dir)
           .map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
           .flatMap(_.split('\u0000').toSeq.filter(_.nonEmpty))
           .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
-          .foreach: f =>
-            gitShow(repo, at(f)).foreach(b => os.write.over(target / "diagrams" / f.split("/").last, b))
+      // the site has one folder of diagrams (the page links them by name): the same name twice - the first
+      // is taken, said
+      diagrams.groupBy(_.split("/").last).toSeq.sortBy(_._1).foreach: (name, files) =>
+        if files.size > 1 then
+          println(s"  ! ${projectRepo.project}: ${files.size} diagrams named $name - ${files.head} taken (${files.tail.mkString(", ")} not)")
+        gitShow(repo, at(files.head)).foreach(b => os.write.over(target / "diagrams" / name, b))
       yml
 
   /** The default branch of the clone: `origin/HEAD`, else `origin/main` / `origin/master` (a clone made

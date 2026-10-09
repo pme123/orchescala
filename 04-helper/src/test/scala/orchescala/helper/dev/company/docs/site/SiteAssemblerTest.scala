@@ -145,4 +145,19 @@ class SiteAssemblerTest extends FunSuite:
     git(made, "fetch", "-q", "origin", s"$branch:refs/remotes/origin/main")
     assertEquals(SiteAssembler.newestRef(ProjectRepo(made, "", "made")), "origin/main")
 
+  test("writeApi - two diagrams of the same name: the first taken, said"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    val camunda = repo / "projects" / "acme-shop" / "src" / "main" / "resources" / "camunda"
+    os.write(camunda / "a" / "order.bpmn", "<bpmn a/>", createFolders = true)
+    os.write(camunda / "b" / "order.bpmn", "<bpmn b/>", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "twice")
+    git(repo, "tag", "acme-shop-v1.3.0")
+    val target  = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val out     = java.io.ByteArrayOutputStream()
+    Console.withOut(out)(SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.3.0", target, "<html/>"))
+    assertEquals(os.read(target / "diagrams" / "order.bpmn"), "<bpmn a/>")
+    assert(out.toString.contains("2 diagrams named order.bpmn"), out.toString)
+
 end SiteAssemblerTest
