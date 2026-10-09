@@ -104,11 +104,14 @@ export default function App() {
 
 function CustomerBrand({ co, isDark }: { co?: CompanyRef; isDark: boolean }) {
   const c = cls(isDark);
+  // a logo that does not load (404, blocked) - its address, so another logo is tried again
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
   if (!co) return null;
+  const logo = co.logo && co.logo !== failedLogo ? co.logo : undefined;
   const inner = <>
     {/* the logo says who it is - the name only without one (in the tooltip it stays) */}
-    {co.logo
-      ? <img src={co.logo} alt={co.name} title={co.name} className="h-6 max-w-[7rem] object-contain" />
+    {logo
+      ? <img src={logo} alt={co.name} title={co.name} onError={() => setFailedLogo(logo)} className="h-6 max-w-[7rem] object-contain" />
       : <span className={`text-xs font-bold tracking-widest truncate ${isDark ? 'text-white/70' : 'text-black/70'}`}>{co.name}</span>}
   </>;
   const k = `flex items-center gap-2 min-w-0 opacity-90 hover:opacity-100 transition-opacity ${c.text}`;

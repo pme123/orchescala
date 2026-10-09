@@ -112,9 +112,10 @@ export default function App() {
           {app?.theme?.logo
             ? <img src={app.theme.logo} alt="" className="h-7 max-w-40 object-contain" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
-          <span className={`text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
-          {app?.subtitle && <span className={`text-[10px] ${c.muted}`}>{app.subtitle}</span>}
-          <div className="ml-auto flex items-center gap-3">
+          {/* a long title gives way (truncated, the subtitle only from md on) - the controls and the byline keep their place */}
+          <span className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
+          {app?.subtitle && <span className={`hidden min-w-0 truncate text-[10px] md:inline ${c.muted}`}>{app.subtitle}</span>}
+          <div className="ml-auto flex flex-shrink-0 items-center gap-3">
             {user && (
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
                 <span>{user.profile.name ?? user.profile.preferred_username}</span>
@@ -128,8 +129,9 @@ export default function App() {
             </button>
             <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH"
               className={`flex items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
-              <span className="hidden sm:inline">by z9nai GmbH</span>
-              <img src={`${base}favicon.png`} alt="z9nai" className="h-5 w-5" />
+              {/* without a logo of its own the app shows the z9nai one on the left already: the text only, always */}
+              <span className={app?.theme?.logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
+              {app?.theme?.logo && <img src={`${base}favicon.png`} alt="z9nai" className="h-5 w-5" />}
             </a>
           </div>
         </div>
