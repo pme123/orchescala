@@ -291,7 +291,8 @@ trait DocCreator extends DependencyCreator, Helpers:
       case NonFatal(e) =>
         // only local changes are a reason for -f, which discards them (said); another failure is the error
         val changes = scala.util.Try(
-          os.proc("git", "status", "--porcelain").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
+          // tracked changes only - untracked files never block a checkout
+          os.proc("git", "status", "--porcelain", "--untracked-files=no").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
         ).getOrElse("")
         if changes.isEmpty then throw e
         println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")

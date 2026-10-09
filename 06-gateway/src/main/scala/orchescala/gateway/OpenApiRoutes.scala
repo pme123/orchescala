@@ -265,7 +265,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
           request   = basicRequest.get(uri)
           response <- ZIO.serviceWithZIO[SttpClientBackend]: backend =>
                         request.send(backend)
-                          .mapError(err => DocsFailure(Status.ServiceUnavailable, err.getMessage))
+                          .mapError:
+                            // not reachable or the answer broke off: «not there» (503, the released file);
+                            // any other client error (TLS, a bad request) is no outage - 500, no fallback
+                            case err: sttp.client3.SttpClientException.ConnectException =>
+                              DocsFailure(Status.ServiceUnavailable, err.getMessage)
+                            case err: sttp.client3.SttpClientException.ReadException =>
+                              DocsFailure(Status.ServiceUnavailable, err.getMessage)
+                            case err => DocsFailure(Status.InternalServerError, err.getMessage)
                           // a worker app that is not there should not hold the page for the client's
                           // default timeout - the released file is the answer then
                           .timeoutFail(
