@@ -175,4 +175,11 @@ class SiteAssemblerTest extends FunSuite:
     assertEquals(os.read(target / "diagrams" / "pay.bpmn"), "<bpmn c8/>")
     assert(!out.toString.contains("diagrams named pay.bpmn"), out.toString)
 
+  test("writeApi - a diagram removed since the last release does not stay on the site"):
+    val gitTemp = singleRepoGitTemp()
+    val target  = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    os.write(target / "diagrams" / "gone.bpmn", "<bpmn old/>", createFolders = true) // of an earlier release
+    SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.0.0", target, "<html/>")
+    assertEquals(os.list(target / "diagrams").map(_.last), IndexedSeq("shop.bpmn"))
+
 end SiteAssemblerTest

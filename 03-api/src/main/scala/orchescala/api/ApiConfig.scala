@@ -386,7 +386,8 @@ object ProjectsPerGitRepoConfig:
             entry.state.set(Updated(doneAt = Some(now)))
           catch
             case NonFatal(e) =>
-              entry.state.set(known.copy(failed = Some(now -> e)))
+              // a failure ends an earlier success - after its window the next caller pulls again
+              entry.state.set(Updated(failed = Some(now -> e)))
               throw e
     finally entry.lock.unlock()
 end ProjectsPerGitRepoConfig

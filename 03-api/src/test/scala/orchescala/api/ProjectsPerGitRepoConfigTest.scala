@@ -200,6 +200,17 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       init()
     assertEquals(os.read(gitTemp / "acme-own" / "PROJECT.conf"), "v2\n")
 
+  test("once - a failure after a success ends it: after the failure window the next caller updates"):
+    val clone   = os.temp.dir(prefix = "clone")
+    val updates = java.util.concurrent.atomic.AtomicInteger()
+    ProjectsPerGitRepoConfig.once(clone, now = 0)(updates.incrementAndGet())
+    // forced (e.g. the clone gone) and failing - the success before no longer counts
+    intercept[Exception](ProjectsPerGitRepoConfig.once(clone, now = 1000, force = true)(throw new Exception("offline")))
+    intercept[Exception](ProjectsPerGitRepoConfig.once(clone, now = 2000)(updates.incrementAndGet()))
+    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.FailedUpdateValidMs)(updates.incrementAndGet())
+    assertEquals(updates.get, 2) // pulled again, not «done 5 min ago»
+    assertEquals(ProjectsPerGitRepoConfig.updateFailure(clone), None)
+
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
     val updates = java.util.concurrent.atomic.AtomicInteger()

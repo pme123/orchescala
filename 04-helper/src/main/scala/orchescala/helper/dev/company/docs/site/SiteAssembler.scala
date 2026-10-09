@@ -142,6 +142,8 @@ object SiteAssembler:
     val ymlPath  = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
       .find(f => gitOut(repo, "cat-file", "-e", at(f)).isDefined)
     ymlPath.flatMap(f => gitShow(repo, at(f))).map: yml =>
+      // the diagrams of this release only - one removed or renamed since the last does not stay
+      os.remove.all(target / "diagrams")
       os.makeDir.all(target / "diagrams")
       os.write.over(target / "OpenApi.yml", yml)
       os.write.over(target / "OpenApi.html", apiPage)
