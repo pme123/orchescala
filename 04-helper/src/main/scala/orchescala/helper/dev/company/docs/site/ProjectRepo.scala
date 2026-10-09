@@ -96,13 +96,13 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     os.proc("git", "-C", repo.toString, "cat-file", "-e", s"$ref:$tree")
       .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
 
-  /** The project's files at `ref` into `dest` (emptied first) - in one repo only its own folder.
-    * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
-    */
   /** The end of git's stderr - a noisy one is not read whole into a message. */
   private def tail(file: os.Path): String =
     Try(os.read(file)).getOrElse("").trim.takeRight(4000)
 
+  /** The project's files at `ref` into `dest` (emptied first) - in one repo only its own folder.
+    * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
+    */
   def exportTo(ref: String, dest: os.Path): Unit =
     // what the machine or the repo lacks - an error of the run, not of the code (require is for those)
     def fail(why: String) = throw new Exception(why)
@@ -178,7 +178,9 @@ object ProjectRepo:
         // the original error counts - a failing way back is only added to it
         Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed.foreach(e.addSuppressed)
         throw e
-    os.remove.all(old)
+    // dest is the new one now - a leftover old one (a locked file) is no failure of the export; the next
+    // export's cleanup takes it
+    Try(os.remove.all(old)).failed.foreach(e => println(s"  ! $old not removed: ${e.getMessage}"))
 
   /** Why an export failed - None if it did not. Tar first: is it fine, a failing git is the cause; did it
     * fail, git counts only with a message of its own (a git that died on tar's closed pipe, or was

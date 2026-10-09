@@ -302,7 +302,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
               // marked down only with released files to fall back to (a site folder) - so names a client
               // makes up do not fill the list and push out the real ones
               // (the classpath lookup is blocking I/O)
-              ZIO.attemptBlocking(hasSiteFolder(companyName, projectName)).orElseSucceed(false)
+              ZIO.attemptBlocking(hasSiteFolder(companyName, projectName))
+                .tapError(e => ZIO.logWarning(s"Site folder of '$companyName/$projectName' not readable: ${e.getMessage}"))
+                .orElseSucceed(false)
                 .map(withSite => if withSite then docsDown.markDown(projectName, nowMs)) *>
                 ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
                   .as(Response.status(docsFailure.status))
