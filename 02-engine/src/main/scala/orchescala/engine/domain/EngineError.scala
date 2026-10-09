@@ -62,6 +62,6 @@ object EngineError:
       * for forwarding to a worker app (`WorkerForwardUtil`).
       */
     def isRefusal(status: Int): Boolean =
-      (400 to 499).contains(status) && !Set(401, 403, 407).contains(status)
+      status >= 400 && status < 500 && status != 401 && status != 403 && status != 407
 
 end EngineError

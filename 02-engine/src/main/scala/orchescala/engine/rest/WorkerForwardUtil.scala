@@ -88,7 +88,8 @@ object WorkerForwardUtil:
 
   /** A non-2xx answer. A refusal of the worker app (e.g. 409 «taken») is an answer, not a failure -
     * info only. The HTTP status decides; the body only shows that the worker app answered (not a
-    * proxy, not a missing route): its ServiceRequestError with the same status.
+    * proxy, not a missing route): its ServiceRequestError with the same status - the worker app
+    * takes the status of a refusal from that errorCode (`WorkerEndpoints.httpStatus`), so they match.
     */
   private def failWith(status: Int, body: String): IO[ServiceRequestError, Nothing] =
     val answer  = parser.parse(body).flatMap(_.as[ServiceRequestError]).toOption

@@ -5,6 +5,7 @@ import io.circe.*
 import io.github.iltotore.iron.constraint.string.ValidUUID
 import io.github.iltotore.iron.refineEither
 import orchescala.domain.*
+import orchescala.engine.domain.EngineError
 import orchescala.engine.rest.SttpClientBackend
 import orchescala.worker.WorkerError.*
 import zio.{IO, ZIO}
@@ -182,9 +183,9 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
 
   object RefusedRequest:
-    // the same rule as for forwarding to a worker app
+    // the same rule as for forwarding to a worker app (the engine's - not WorkerError.ServiceRequestError)
     private[worker] def isRefusal(status: Int): Boolean =
-      orchescala.engine.domain.EngineError.ServiceRequestError.isRefusal(status)
+      EngineError.ServiceRequestError.isRefusal(status)
 
   case class UnexpectedRunError(
       errorMsg: String

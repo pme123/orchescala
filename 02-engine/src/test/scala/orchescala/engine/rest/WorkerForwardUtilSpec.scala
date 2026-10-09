@@ -14,13 +14,15 @@ import scala.jdk.CollectionConverters.*
 
 object WorkerForwardUtilSpec extends ZIOSpecDefault:
 
-  private final class WorkerApp(status: StatusCode = StatusCode.Ok, body: String = "{}"):
+  private final class WorkerApp(answer: Task[Response[String]] = ZIO.succeed(Response("{}", StatusCode.Ok))):
     val requests = ConcurrentLinkedQueue[Request[?, ?]]()
     val layer: ULayer[SttpClientBackend] = ZLayer.succeed(
       AsyncHttpClientZioBackend.stub.whenAnyRequest.thenRespondF: request =>
         requests.add(request)
-        ZIO.succeed(Response(body, status))
+        answer
     )
+
+  private def answering(status: StatusCode, body: String) = WorkerApp(ZIO.succeed(Response(body, status)))
 
   // as on a server (not localhost): the worker host comes from the topic name
   private given DefaultEngineConfig =
@@ -32,12 +34,20 @@ object WorkerForwardUtilSpec extends ZIOSpecDefault:
   private val refusedLine = "Worker app refused the request:"
   private val errorLine   = "Error forwarding request to worker app:"
 
-  /** A worker app answering `status` with `body` - the failure and the log lines of the call. */
-  private def answered(status: StatusCode, body: String) =
+  /** A call to `app` - its failure and its log lines. */
+  private def called(app: WorkerApp) =
     for
-      exit   <- forward("mycompany-myproject-reserveSlot", WorkerApp(status, body))
+      exit   <- forward("mycompany-myproject-reserveSlot", app)
       output <- ZTestLogger.logOutput
     yield (exit.causeOption.flatMap(_.failureOption), output.map(l => l.logLevel -> l.message()))
+
+  /** How many lines of `level` start with `prefix` - exactly one is logged per call. */
+  private def count(lines: Seq[(LogLevel, String)], level: LogLevel, prefix: String) =
+    lines.count((l, line) => l == level && line.startsWith(prefix))
+
+  /** An error, logged once - and no refusal. */
+  private def loggedAsError(lines: Seq[(LogLevel, String)]) =
+    count(lines, LogLevel.Error, errorLine) == 1 && !lines.exists(_._2.startsWith(refusedLine))
 
   def spec = suite("WorkerForwardUtil")(
     test("topic names that would reach another host are rejected - no request is sent") {
@@ -81,14 +91,14 @@ object WorkerForwardUtilSpec extends ZIOSpecDefault:
         "400 - the input is not valid" -> (StatusCode.BadRequest, 400, "The slot is in the past")
       ).map { case (name, (status, code, msg)) =>
         test(name) {
-          for (failure, lines) <- answered(status, s"""{"errorCode":$code,"errorMsg":"$msg"}""")
+          for (failure, lines) <- called(answering(status, s"""{"errorCode":$code,"errorMsg":"$msg"}"""))
           yield assertTrue(
             failure.exists:
               case EngineError.ServiceRequestError(`code`, `msg`) => true
               case _                                            => false
             ,
-            lines.exists((level, line) => level == LogLevel.Info && line.startsWith(refusedLine)),
-            !lines.exists((level, line) => level == LogLevel.Error && line.startsWith(errorLine))
+            count(lines, LogLevel.Info, refusedLine) == 1,
+            count(lines, LogLevel.Error, errorLine) == 0
           )
         }
       }*
@@ -105,14 +115,26 @@ object WorkerForwardUtilSpec extends ZIOSpecDefault:
         "a 500"                                                    -> (StatusCode.InternalServerError, """{"errorCode":500,"errorMsg":"boom"}""")
       ).map { case (name, (status, body)) =>
         test(name) {
-          for (failure, lines) <- answered(status, body)
-          yield assertTrue(
-            failure.isDefined,
-            lines.exists((level, line) => level == LogLevel.Error && line.startsWith(errorLine)),
-            !lines.exists(_._2.startsWith(refusedLine))
-          )
+          for (failure, lines) <- called(answering(status, body))
+          yield assertTrue(failure.isDefined, loggedAsError(lines))
         }
       }*
+    ),
+    suite("no answer is logged as an error")(
+      test("the worker app cannot be reached - 503") {
+        for (failure, lines) <- called(WorkerApp(ZIO.fail(java.net.ConnectException("Connection refused"))))
+        yield assertTrue(
+          failure.exists:
+            case EngineError.ServiceRequestError(503, _) => true
+            case _                                       => false
+          ,
+          loggedAsError(lines)
+        )
+      },
+      test("a 2xx whose body is no JSON") {
+        for (failure, lines) <- called(answering(StatusCode.Ok, "<html>ok</html>"))
+        yield assertTrue(failure.isDefined, loggedAsError(lines))
+      }
     )
   )
 end WorkerForwardUtilSpec
