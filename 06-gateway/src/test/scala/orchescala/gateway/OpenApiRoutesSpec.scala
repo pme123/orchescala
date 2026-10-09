@@ -280,6 +280,19 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         api.docsDownNoSite.isDown("made-up-name", java.lang.System.currentTimeMillis) // but is not asked again
       )
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
+    test("down by another company's request (no site there): this company's released file, not a bare 503") {
+      // b/shop has no site folder (in the small list) - acme/acme-shop has one: the shortcut still falls back
+      val api = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some("http://127.0.0.1:1")))
+      api.docsDownNoSite.markDown("acme-shop", java.lang.System.currentTimeMillis)
+      for
+        answer <- api.routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
+        body   <- answer.body.asString
+      yield assertTrue(
+        answer.status == Status.Ok,
+        body.contains("acme-shop (released)"),
+        answer.rawHeader(api.DocsSourceHeader).contains("released")
+      )
+    },
     test("DownList - 503 down for the window, a good answer clears it, at most max projects") {
       val down = OpenApiRoutes.DownList(downForMs = 30000, max = 2)
       down.markDown("shop", now = 0)

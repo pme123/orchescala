@@ -142,14 +142,17 @@ object SiteAssembler:
     val ymlPath  = Seq("03-api/OpenApi.yml", "openApi.yml", "OpenApi.yml").map(projectRepo.path)
       .find(f => gitOut(repo, "cat-file", "-e", at(f)).isDefined)
     ymlPath.flatMap(f => gitShow(repo, at(f))).map: yml =>
-      // the diagrams of this release only - one removed or renamed since the last does not stay
-      os.remove.all(target / "diagrams")
-      os.makeDir.all(target / "diagrams")
+      os.makeDir.all(target)
       os.write.over(target / "OpenApi.yml", yml)
       os.write.over(target / "OpenApi.html", apiPage)
-      gitOut(repo, "show", at(projectRepo.path("03-api/PostmanOpenApi.yml"))).foreach: postman =>
-        os.write.over(target / "PostmanOpenApi.yml", postman)
-        os.write.over(target / "PostmanOpenApi.html", apiPage)
+      // the Postman variant of this release - or none, not one left from an earlier release
+      gitOut(repo, "show", at(projectRepo.path("03-api/PostmanOpenApi.yml"))) match
+        case Some(postman) =>
+          os.write.over(target / "PostmanOpenApi.yml", postman)
+          os.write.over(target / "PostmanOpenApi.html", apiPage)
+        case None          =>
+          os.remove(target / "PostmanOpenApi.yml", checkExists = false)
+          os.remove(target / "PostmanOpenApi.html", checkExists = false)
       val diagramDirs = Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path)
       // the site has one folder of diagrams (the page links them by name). camunda8 over camunda - a
       // project with both engines has the same diagram in both, as before the later one is shown; the
@@ -162,11 +165,19 @@ object SiteAssembler:
           .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
         val inDir = files.groupBy(_.split("/").last).toSeq.sortBy(_._1).map: (name, same) =>
           if same.size > 1 then
-            println(s"  ! ${projectRepo.project}: ${same.size} diagrams named $name - ${same.head} taken (${same.tail.mkString(", ")} not)")
+            val others = same.tail.mkString(", ")
+            println(s"  ! ${projectRepo.project}: ${same.size} diagrams named $name - ${same.head} taken ($others not)")
           name -> same.head
         taken ++ inDir
+      // the diagrams of this release only (one removed since the last does not stay) - written next to the
+      // old folder, then in its place: a failure midway leaves the old diagrams, not none
+      val fresh = target / ".diagrams-new"
+      os.remove.all(fresh)
+      os.makeDir.all(fresh)
       byName.toSeq.sortBy(_._1).foreach: (name, file) =>
-        gitShow(repo, at(file)).foreach(b => os.write.over(target / "diagrams" / name, b))
+        gitShow(repo, at(file)).foreach(b => os.write.over(fresh / name, b))
+      os.remove.all(target / "diagrams")
+      os.move(fresh, target / "diagrams")
       yml
 
   /** The default branch of the clone: `origin/HEAD`, else `origin/main` / `origin/master` (a clone made
