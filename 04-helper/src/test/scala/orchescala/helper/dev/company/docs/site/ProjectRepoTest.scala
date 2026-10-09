@@ -63,14 +63,14 @@ class ProjectRepoTest extends FunSuite:
     os.write(gitTemp / "acme-shop" / "keep.txt", "kept", createFolders = true)
     intercept[Exception](ProjectRepo.exportRelease(gitTemp, "acme-shop", "9.9.9", gitTemp / "acme-shop"))
     val newOne = ProjectRepo.locate(gitTemp, "acme-new").get
-    intercept[IllegalArgumentException](newOne.exportTo("acme-shop-v1.0.0", gitTemp / "acme-new"))
+    intercept[Exception](newOne.exportTo("acme-shop-v1.0.0", gitTemp / "acme-new"))
     assert(os.exists(gitTemp / "acme-shop" / "keep.txt"))
 
   test("exportTo - never empties the clone itself"):
     val gitTemp = singleRepoGitTemp()
     val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
-    intercept[IllegalArgumentException](shop.exportTo("acme-shop-v1.0.0", gitTemp))
-    intercept[IllegalArgumentException](shop.exportTo("acme-shop-v1.0.0", shop.repo))
+    intercept[Exception](shop.exportTo("acme-shop-v1.0.0", gitTemp))
+    intercept[Exception](shop.exportTo("acme-shop-v1.0.0", shop.repo))
     assert(os.exists(shop.repo / ".git"))
 
   test("exportTo - git archive fails (a file of the tree is gone): git's error, dest kept, no leftovers"):

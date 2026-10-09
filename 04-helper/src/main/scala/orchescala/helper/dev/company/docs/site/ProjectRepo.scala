@@ -85,9 +85,11 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
     */
   def exportTo(ref: String, dest: os.Path): Unit =
-    require(ProjectRepo.hasTar, "exporting a release needs tar on the PATH (GNU tar or bsdtar)")
-    require(!repo.startsWith(dest), s"$dest holds the clone $repo - not emptied")
-    require(existsAt(ref), s"$project is not in $repo at $ref")
+    // what the machine or the repo lacks - an error of the run, not of the code (require is for those)
+    def fail(why: String) = throw new Exception(why)
+    if !ProjectRepo.hasTar then fail("exporting a release needs tar on the PATH (GNU tar or bsdtar)")
+    if repo.startsWith(dest) then fail(s"$dest holds the clone $repo - not emptied")
+    if !existsAt(ref) then fail(s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
     os.makeDir.all(dest / os.up)
     // left by a run that was killed midway - only this project's: `.acme.orch-export-…` is no prefix of

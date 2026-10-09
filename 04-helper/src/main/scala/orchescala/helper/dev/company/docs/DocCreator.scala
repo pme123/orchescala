@@ -256,7 +256,11 @@ trait DocCreator extends DependencyCreator, Helpers:
             os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
           catch
             case NonFatal(_) =>
-              println("Checkout failed, retrying with '-f' due to local changes")
+              // -f discards them - say which, the clone may hold work of someone
+              val changes = scala.util.Try(
+                os.proc("git", "status", "--porcelain").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
+              ).getOrElse("")
+              println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")
               os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
     yield DocProjectConfig(
       apiProjectConfig(projectPath / apiConfig.projectsConfig.projectConfPath),
