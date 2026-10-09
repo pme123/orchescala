@@ -5,7 +5,7 @@ import { DOMParser } from 'linkedom';
 import { homeParams } from '../src/pages/runtime/homeParams';
 import colourCases from '../../.claude/skills/orch-theme-from-site/colour-cases.json';
 import { alphaOf, contrast, svgDropsAttribute, svgDropsElement, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
-import { cleanLogo, decodeBase64, encodeBase64 } from '../src/pages/designer/logo';
+import { cleanLogo, decodeBase64, encodeBase64, type SvgDom } from '../src/pages/designer/logo';
 import { appModeKey, isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -282,35 +282,27 @@ test('parseThemeFile - JSON null is JSON, but no theme', () => {
 });
 
 test('cleanLogo - the SVG walked and cleaned: scripts, handlers and outside links dropped, the rest kept', () => {
-  // the browser's parser and serializer, from linkedom (it has no XMLSerializer: a document's toString is its XML).
-  // So this tests the walk, not the browser's serialization (checked by hand). The globals are set for this test
-  // only - fine while the tests of a file run one after the other (node:test without `concurrency`)
-  const g = globalThis as unknown as Record<string, unknown>;
-  const stubs: Record<string, unknown> = {
-    DOMParser,
-    XMLSerializer: class { serializeToString = (doc: Document) => doc.toString(); },
+  // linkedom in place of the browser's parser and serializer (it has no XMLSerializer: a document's toString is
+  // its XML) - so this tests the walk, not the browser's own parsing and serialization (checked by hand)
+  const linkedom: SvgDom = {
+    parse: (text) => new DOMParser().parseFromString(text, 'image/svg+xml') as unknown as Document,
+    serialize: (doc) => doc.toString(),
   };
-  // what was there before - put back afterwards, or removed again if nothing was
-  const before = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(g, k)] as const);
-  Object.assign(g, stubs);
-  try {
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" viewBox="0 0 10 10">'
-      + '<defs><linearGradient id="g"/></defs><script>alert(2)</script>'
-      + '<a href="https://evil.test"><rect fill="url(#g)" onclick="alert(3)" width="10" height="10"/></a>'
-      + '<use href="#g"/><image href="https://evil.test/x.png"/><text>Prüfung ä</text></svg>';
-    const out = cleanLogo(`data:image/svg+xml;base64,${encodeBase64(svg)}`);
-    assert.ok(out?.startsWith('data:image/svg+xml;base64,'), String(out));
-    const clean = decodeBase64(out!.slice(out!.indexOf(',') + 1))!;
-    for (const gone of ['onload', 'alert', '<script', 'onclick', 'evil.test', '<image']) assert.ok(!clean.includes(gone), `${gone} in ${clean}`);
-    for (const kept of ['viewBox="0 0 10 10"', 'fill="url(#g)"', 'href="#g"', '<linearGradient id="g"', 'Prüfung ä'])
-      assert.ok(clean.includes(kept), `${kept} not in ${clean}`);
-    assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<html><body/></html>')}`), null); // no SVG
-  } finally {
-    for (const [k, d] of before) {
-      if (d) Object.defineProperty(g, k, d);
-      else delete g[k];
-    }
-  }
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" viewBox="0 0 10 10">'
+    + '<defs><linearGradient id="g"/></defs><script>alert(2)</script>'
+    + '<a href="https://evil.test"><rect fill="url(#g)" onclick="alert(3)" width="10" height="10"/></a>'
+    + '<use href="#g"/><image href="https://evil.test/x.png"/><text>Prüfung ä</text></svg>';
+  const out = cleanLogo(`data:image/svg+xml;base64,${encodeBase64(svg)}`, linkedom);
+  assert.ok(out?.startsWith('data:image/svg+xml;base64,'), String(out));
+  const clean = decodeBase64(out!.slice(out!.indexOf(',') + 1))!;
+  for (const gone of ['onload', 'alert', '<script', 'onclick', 'evil.test', '<image']) assert.ok(!clean.includes(gone), `${gone} in ${clean}`);
+  for (const kept of ['viewBox="0 0 10 10"', 'fill="url(#g)"', 'href="#g"', '<linearGradient id="g"', 'Prüfung ä'])
+    assert.ok(clean.includes(kept), `${kept} not in ${clean}`);
+  const logo = (text: string, dom: SvgDom) => cleanLogo(`data:image/svg+xml;base64,${encodeBase64(text)}`, dom);
+  assert.equal(logo('<html><body/></html>', linkedom), null); // no SVG
+  // broken XML: the browser says so with a <parsererror> in the document (linkedom does not - so a parser that does)
+  const reportsError: SvgDom = { ...linkedom, parse: () => linkedom.parse('<svg><parsererror>line 1</parsererror></svg>') };
+  assert.equal(logo('<svg><rect></svg>', reportsError), null);
 });
 
 test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, refused before the parser', () => {
@@ -318,6 +310,7 @@ test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, r
   assert.equal(decodeBase64(encodeBase64('<svg>Prüfung ä € 銀行</svg>')), '<svg>Prüfung ä € 銀行</svg>');
   assert.equal(encodeBase64('ä'), 'w6Q='); // UTF-8 (c3 a4), not Latin-1
   assert.equal(decodeBase64('!!!'), null);
+  assert.equal(decodeBase64(btoa('\xff')), '\ufffd'); // no UTF-8: U+FFFD, not null
   // without a DOM (no DOMParser): what returns before the SVG is parsed
   assert.equal(cleanLogo('data:image/svg+xml;base64,!!!'), null);
   assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
