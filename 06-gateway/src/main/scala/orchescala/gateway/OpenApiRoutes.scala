@@ -179,6 +179,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * file: that file comes from the site, the others stay its own (a page may then mix the two).
     */
   private[gateway] val DocsDownFor = 10.seconds
+  private def nowMs: Long          = java.lang.System.currentTimeMillis
   // per instance - the gateway makes one (GatewayServer); keyed by project: the docs URL depends on the
   // project only (docsAppUrl), so a company has no worker app of its own
   private[gateway] val docsDown    = OpenApiRoutes.DownList(DocsDownFor.toMillis, max = 1000)
@@ -247,7 +248,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
         ZIO.logWarning(
           s"No docs URL for project: $projectName"
         ).as(Response.status(Status.NotFound))
-      case Some(_) if docsDown.isDown(projectName, java.lang.System.currentTimeMillis) =>
+      case Some(_) if docsDown.isDown(projectName, nowMs) =>
         ZIO.logDebug(s"Docs of '$projectName': its worker app did not answer just now - not asked")
           .as(Response.status(Status.ServiceUnavailable))
       case Some(baseUrl) =>
@@ -267,7 +268,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
           result   <- response.body match
                         case Right(body) =>
                           // it answers: not down (any more)
-                          ZIO.succeed(docsDown.answered(projectName, Status.Ok, java.lang.System.currentTimeMillis)) *>
+                          ZIO.succeed(docsDown.answered(projectName, Status.Ok, nowMs)) *>
                           ZIO.succeed(
                             Response.text(body)
                               .addHeader(Header.ContentType(contentType))
@@ -277,11 +278,13 @@ class OpenApiRoutes()(using config: GatewayConfig):
                         // site - the project is not marked down for it (it answers); any other error is its
                         // answer (502)
                         case Left(err) if response.code.code == 503 =>
+                          // it answers - a down mark from before goes
+                          ZIO.succeed(docsDown.answered(projectName, Status.Ok, nowMs)) *>
                           ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
                             .as(Response.status(Status.ServiceUnavailable))
                         case Left(err)   =>
                           // it answered (with an error): not down
-                          ZIO.succeed(docsDown.answered(projectName, Status.BadGateway, java.lang.System.currentTimeMillis)) *>
+                          ZIO.succeed(docsDown.answered(projectName, Status.BadGateway, nowMs)) *>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"
                           ).as(Response.status(Status.BadGateway))
@@ -294,7 +297,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
               case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage)
             // not reachable or no answer in time: down - the rest of the page from the site at once
             ZIO.when(docsFailure.status == Status.ServiceUnavailable)(
-              ZIO.succeed(docsDown.answered(projectName, Status.ServiceUnavailable, java.lang.System.currentTimeMillis))
+              ZIO.succeed(docsDown.answered(projectName, Status.ServiceUnavailable, nowMs))
             ) *>
               ZIO.logError(
                 s"Error forwarding docs request for '$projectName': ${docsFailure.message}"

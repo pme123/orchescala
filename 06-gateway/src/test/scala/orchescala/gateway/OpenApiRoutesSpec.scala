@@ -225,6 +225,8 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       ZIO.acquireRelease(ZIO.succeed(server(503) -> server(500)))((a, b) => ZIO.succeed { a.stop(0); b.stop(0) })
         .flatMap: (restarting, broken) =>
           val restartingApi = api(restarting.getAddress.getPort)
+          // a mark from before (its window over): the 503 of an app that answers takes it away
+          restartingApi.docsDown.answered("acme-shop", Status.ServiceUnavailable, java.lang.System.currentTimeMillis - 60000)
           for
             released <- restartingApi.routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
             body     <- released.body.asString
@@ -234,6 +236,7 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
             body.contains("acme-shop (released)"),
             // it answered (503 for this file): not marked down - the next file is asked live
             !restartingApi.docsDown.isDown("acme-shop", java.lang.System.currentTimeMillis),
+            restartingApi.docsDown.size == 0, // the old mark is gone, not only expired
             passed.status == Status.BadGateway
           )
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),

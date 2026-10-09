@@ -34,11 +34,12 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     */
   def isOwnTag(tag: String): Boolean = !singleRepo || OwnTag.matches(tag)
 
-  /** `<project>-v1.2.3` or `<project>-1.2.3`, also `-RC1` / `+build.7` - a dotted version, so not the tag
-    * of a project `<project>-shop`, `<project>-2fa` or `<project>-2` (`<project>-2-v1.0.0`).
+  /** `<project>-v2`, `<project>-v1.2.3` or `<project>-1.2.3`, also `-RC1` / `+build.7` - with a `v` any
+    * version, without one a dotted version: not the tag of a project `<project>-shop`, `<project>-2fa` or
+    * `<project>-2` (`<project>-2-v1.0.0`).
     */
   private lazy val OwnTag =
-    (java.util.regex.Pattern.quote(project) + "-v?\\d+(\\.\\d+)+([-+](?!v?\\d)[0-9A-Za-z.+-]*)?").r
+    (java.util.regex.Pattern.quote(project) + "-(v\\d+(\\.\\d+)*|\\d+(\\.\\d+)+)([-+](?!v?\\d)[0-9A-Za-z.+-]*)?").r
 
   /** A warning when a release is taken from a plain tag in one repo - None for the project's own. */
   def plainTagWarning(tag: String): Option[String] =

@@ -215,9 +215,14 @@ trait DocCreator extends DependencyCreator, Helpers:
       val msg = s"The docs of ${failures.size} version(s) could not be prepared:\n  " +
         failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
       // only releases missing: that is what it is; else the first other error is the cause
-      failures.map(_._2).find(!_.isInstanceOf[ReleaseNotFound]) match
+      val errors = failures.map(_._2)
+      errors.find(!_.isInstanceOf[ReleaseNotFound]) match
         case None        => throw ReleaseNotFound(msg)
-        case Some(cause) => throw new Exception(msg, cause)
+        case Some(cause) =>
+          // the first other error the cause, all others kept with their traces
+          val e = new Exception(msg, cause)
+          errors.filterNot(_ eq cause).foreach(e.addSuppressed)
+          throw e
 
     // Flatten the results and filter out None values
     results.collect { case (_, Right(conf)) => conf }.flatten
@@ -268,11 +273,13 @@ trait DocCreator extends DependencyCreator, Helpers:
           try
             os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
           catch
-            case NonFatal(_) =>
-              // -f discards them - say which, the clone may hold work of someone
+            case NonFatal(e) =>
+              // only local changes are a reason for -f - it discards them: say which; another failure
+              // (a missing tag, a broken clone) is the error it is
               val changes = scala.util.Try(
                 os.proc("git", "status", "--porcelain").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
               ).getOrElse("")
+              if changes.isEmpty then throw e
               println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")
               os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
     yield DocProjectConfig(
