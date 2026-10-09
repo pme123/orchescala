@@ -1,6 +1,7 @@
 // The theme of an app as CSS variables: light colours in light mode, primary, font and corners in both.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { DOMParser } from 'linkedom';
 import { homeParams } from '../src/pages/runtime/homeParams';
 import colourCases from '../../.claude/skills/orch-theme-from-site/colour-cases.json';
 import { alphaOf, contrast, svgDropsAttribute, svgDropsElement, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
@@ -223,6 +224,13 @@ test('alphaOf - the opacity itself; the page background check uses it', () => {
   assert.equal(alphaOf('#f008'), 0x88 / 255); // #rgba
   assert.equal(alphaOf('hsla(120, 100%, 50%, .5)'), 0.5);
   assert.equal(alphaOf('rgb(0 0 0 / 200%)'), 1); // at most 1
+  // and the colour itself of the same forms (on white): #rgba doubled, the hsl conversion, % clamped
+  const rgb255 = (c: string) => rgbOf(c)?.map((v) => Math.round(v * 255));
+  assert.deepEqual(rgb255('#f008'), [255, 119, 119]); // red, 0x88 opaque, on white
+  assert.deepEqual(rgb255('#ff000080'), [255, 127, 127]);
+  assert.deepEqual(rgb255('hsl(240, 100%, 50%)'), [0, 0, 255]);
+  assert.deepEqual(rgb255('hsla(0, 100%, 25%, 1)'), [128, 0, 0]);
+  assert.deepEqual(rgb255('rgb(200% 0% 0%)'), [255, 0, 0]); // over 100%: 100%
 });
 
 test('parseThemeFile - a plain object is a theme only with theme keys alone', () => {
@@ -270,12 +278,35 @@ test('parseThemeFile - JSON null is JSON, but no theme', () => {
   assert.ok('error' in broken && broken.error === 'Die Datei ist kein JSON.');
 });
 
+test('cleanLogo - the SVG walked and cleaned: scripts, handlers and outside links dropped, the rest kept', () => {
+  // the browser's parser and serializer, from linkedom (it has no XMLSerializer: a document's toString is its XML)
+  const g = globalThis as unknown as { DOMParser?: unknown; XMLSerializer?: unknown };
+  g.DOMParser = DOMParser;
+  g.XMLSerializer = class { serializeToString = (doc: Document) => doc.toString(); };
+  try {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" viewBox="0 0 10 10">'
+      + '<defs><linearGradient id="g"/></defs><script>alert(2)</script>'
+      + '<a href="https://evil.test"><rect fill="url(#g)" onclick="alert(3)" width="10" height="10"/></a>'
+      + '<use href="#g"/><image href="https://evil.test/x.png"/><text>Prüfung ä</text></svg>';
+    const out = cleanLogo(`data:image/svg+xml;base64,${encodeBase64(svg)}`);
+    assert.ok(out?.startsWith('data:image/svg+xml;base64,'), String(out));
+    const clean = decodeBase64(out!.slice(out!.indexOf(',') + 1))!;
+    for (const gone of ['onload', 'alert', '<script', 'onclick', 'evil.test', '<image']) assert.ok(!clean.includes(gone), `${gone} in ${clean}`);
+    for (const kept of ['viewBox="0 0 10 10"', 'fill="url(#g)"', 'href="#g"', '<linearGradient id="g"', 'Prüfung ä'])
+      assert.ok(clean.includes(kept), `${kept} not in ${clean}`);
+    assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<html><body/></html>')}`), null); // no SVG
+  } finally {
+    delete g.DOMParser;
+    delete g.XMLSerializer;
+  }
+});
+
 test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, refused before the parser', () => {
   // the encoding cleanLogo returns its SVG with - umlauts and characters beyond Latin-1 survive the round trip
   assert.equal(decodeBase64(encodeBase64('<svg>Prüfung ä € 銀行</svg>')), '<svg>Prüfung ä € 銀行</svg>');
   assert.equal(encodeBase64('ä'), 'w6Q='); // UTF-8 (c3 a4), not Latin-1
   assert.equal(decodeBase64('!!!'), null);
-  // the tests run in Node without a DOM (no DOMParser): only what returns before the SVG is parsed
+  // without a DOM (no DOMParser): what returns before the SVG is parsed
   assert.equal(cleanLogo('data:image/svg+xml;base64,!!!'), null);
   assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
   assert.equal(cleanLogo('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA'); // not an SVG: as it is
