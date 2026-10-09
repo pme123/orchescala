@@ -8,9 +8,85 @@ import unittest
 
 import base64
 
-from build_theme import MAX_LOGO, contrast, logo_uri, parse_svg, sniff_image, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
+from build_theme import MAX_LOGO, clear_white_png, contrast, logo_uri, png_encode, png_rgba, parse_svg, sniff_image, svg_symbol, unread_colours, data_uri_bytes, font_stack, problems, radius, to_hex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def png(w, h, pixels, ctype=2, filters=(0,), plte=b'', trns=b''):
+    """A small PNG of `pixels` (rows of tuples: RGB for type 2, palette indices for type 3), each row
+    stored with the next filter of `filters` - to read back with png_rgba."""
+    import struct
+    import zlib
+    bpp = 3 if ctype == 2 else 1
+    raw, prev = b'', bytes(w * bpp)
+    for y, row in enumerate(pixels):
+        line = bytes(v for px in row for v in (px if ctype == 2 else (px,)))
+        f = filters[y % len(filters)]
+        out = bytearray()
+        for x in range(len(line)):
+            a = line[x - bpp] if x >= bpp else 0
+            b, c = prev[x], (prev[x - bpp] if x >= bpp else 0)
+            pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+            pred = (0, a, b, (a + b) // 2, a if pa <= pb and pa <= pc else b if pb <= pc else c)[f]
+            out.append((line[x] - pred) & 255)
+        raw += bytes((f,)) + bytes(out)
+        prev = line
+    chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, ctype, 0, 0, 0))
+            + (chunk(b'PLTE', plte) if plte else b'') + (chunk(b'tRNS', trns) if trns else b'')
+            + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+
+W = (255, 255, 255)
+# a logo on a white box: black, a soft (half) edge, the bank's blue
+LOGO = [[W, W, W, W], [W, (0, 0, 0), (128, 128, 128), W], [W, (0, 119, 185), W, W], [W, W, W, W]]
+
+
+class LogoBackground(unittest.TestCase):
+    def pixel(self, data, x, y):
+        w, h, rows = png_rgba(data)
+        return tuple(rows[y][4 * x:4 * x + 4])
+
+    def test_png_filters_are_read(self):
+        for f in range(5):
+            data = png(4, 4, LOGO, filters=(f,))
+            self.assertEqual(self.pixel(data, 1, 2), (0, 119, 185, 255), f'filter {f}')
+            self.assertEqual(self.pixel(data, 2, 1), (128, 128, 128, 255), f'filter {f}')
+
+    def test_white_box_becomes_transparent(self):
+        out, reason = clear_white_png(png(4, 4, LOGO, filters=(0, 1, 2, 4)))
+        self.assertIsNone(reason)
+        self.assertEqual(self.pixel(out, 0, 0), (0, 0, 0, 0))
+        self.assertEqual(self.pixel(out, 1, 1), (0, 0, 0, 255))
+        self.assertEqual(self.pixel(out, 2, 1), (0, 0, 0, 127))  # the soft edge: black, half - no grey seam
+        r, g, b, a = self.pixel(out, 1, 2)
+        self.assertEqual(a, 255)
+        self.assertEqual((r, g, b), (0, 119, 185))  # the colour stays
+
+    def test_palette_png(self):
+        data = png(3, 3, [[0, 0, 0], [0, 1, 0], [0, 0, 0]], ctype=3, plte=bytes((255, 255, 255, 0, 75, 135)), filters=(4,))
+        out, reason = clear_white_png(data)
+        self.assertIsNone(reason)
+        self.assertEqual(self.pixel(out, 0, 0)[3], 0)
+        self.assertEqual(self.pixel(out, 1, 1), (0, 75, 135, 255))
+
+    def test_already_transparent_stays(self):
+        data = png(2, 2, [[0, 0], [0, 1]], ctype=3, plte=bytes((255, 255, 255, 0, 75, 135)), trns=b'\x00')
+        out, reason = clear_white_png(data)
+        self.assertIs(out, data)
+        self.assertIsNone(reason)
+
+    def test_coloured_box_stays(self):
+        blue = (0, 119, 185)
+        data = png(3, 3, [[blue] * 3, [blue, W, blue], [blue] * 3])
+        out, reason = clear_white_png(data)
+        self.assertIs(out, data)
+        self.assertEqual(reason, 'Ecken nicht weiss')
+
+    def test_unread_png_stays(self):
+        out, reason = clear_white_png(b'\x89PNG\r\n\x1a\nnonsense')
+        self.assertIsNotNone(reason)
 
 
 class ToHex(unittest.TestCase):
@@ -262,6 +338,23 @@ class Cli(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(theme['primary'], '#004b87')
         self.assertIn('WARN Farben der Seite nicht gelesen', p.stdout)
+
+    def test_logo_on_white_becomes_transparent_in_light_mode(self):
+        with tempfile.TemporaryDirectory() as d:
+            logo = os.path.join(d, 'logo.png')
+            with open(logo, 'wb') as f:
+                f.write(png(4, 4, LOGO))
+            light = {'background': '#ffffff', 'ctaBackgrounds': [['#004b87', 1]]}
+            p, theme = self.run_script(light, '--logo', logo)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn('transparent gemacht', p.stdout)
+            data = base64.b64decode(theme['logo'].split(',', 1)[1])
+            self.assertEqual(png_rgba(data)[2][0][3], 0)
+            p, theme = self.run_script(light, '--logo', logo, '--keep-logo-background')
+            self.assertEqual(base64.b64decode(theme['logo'].split(',', 1)[1]), png(4, 4, LOGO))
+            p, theme = self.run_script({'background': '#101418', 'ctaBackgrounds': [['#004b87', 1]]}, '--logo', logo)
+            self.assertEqual(theme['mode'], 'dark')
+            self.assertEqual(base64.b64decode(theme['logo'].split(',', 1)[1]), png(4, 4, LOGO))  # a dark logo would vanish
 
     def test_missing_logo_file_is_a_message(self):
         p, theme = self.run_script({'background': '#ffffff'}, '--logo', '/nonexistent/logo.svg')
