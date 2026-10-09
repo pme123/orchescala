@@ -2,7 +2,9 @@
 // testbar (cleanLogo braucht zum Säubern den DOMParser des Browsers).
 import { svgDropsAttribute, svgDropsElement } from '../runtime/theme';
 
-/** Lesen und Schreiben eines SVG - im Browser seine eigenen (DOMParser, XMLSerializer). */
+/** Lesen und Schreiben eines SVG - im Browser seine eigenen (DOMParser, XMLSerializer). Die Tests laufen in
+  * Node mit linkedom: browserDom selbst (Namensräume, die Form von <parsererror>, die Ausgabe) prüfen sie
+  * nicht - das ist von Hand im Browser geprüft. */
 export type SvgDom = { parse: (text: string) => Document; serialize: (doc: Document) => string };
 
 const browserDom: SvgDom = {
