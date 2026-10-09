@@ -6,6 +6,7 @@ import orchescala.api.{
   JiraLinks,
   ProjectConfig,
   ProjectGroup,
+  ProjectsPerGitRepoConfig,
   catalogFileName
 }
 import orchescala.helper.dev.company.docs.site.{LocalSiteServer, ProjectRepo, ReleaseNotFound, SiteAssembler}
@@ -261,7 +262,14 @@ trait DocCreator extends DependencyCreator, Helpers:
         if !singleRepo && !os.exists(projectPath) then
           apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
       // all projects in one repo: the project's folder at its tag (`<project>-v<version>`) - else its own clone
-      _           = ProjectRepo.exportRelease(gitBasePath, project, version, projectPath) match
+      // a release not found after the company clone could not be pulled: that is the cause to name
+      exported    = try ProjectRepo.exportRelease(gitBasePath, project, version, projectPath)
+                    catch
+                      case e: ReleaseNotFound =>
+                        val clone = gitBasePath / s"orchescala-${apiConfig.companyName}"
+                        ProjectsPerGitRepoConfig.updateFailure(clone).fold(throw e): why =>
+                          throw ReleaseNotFound(s"${e.getMessage} - the company clone was not updated: $why")
+      _           = exported match
         case Some(tag) => println(s"Exported $project at '$tag'")
         case None =>
           // ensure all tags are present locally - once: resolveTagRef only reads what is there now

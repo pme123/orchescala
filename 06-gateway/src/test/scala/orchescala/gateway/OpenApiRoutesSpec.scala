@@ -269,12 +269,12 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
       down.answered("cards", Status.InternalServerError, now = 0)
       down.answered("cards", Status.BadGateway, now = 0)
       val notDown   = !down.isDown("cards", now = 1)
-      // full: expired ones go first, else a new project is not remembered
+      // full: expired ones go first, then the one that ends first - the new project is remembered
       down.answered("a", Status.ServiceUnavailable, now = 0)
-      down.answered("b", Status.ServiceUnavailable, now = 0)
+      down.answered("b", Status.ServiceUnavailable, now = 5)
       down.answered("c", Status.ServiceUnavailable, now = 10)
-      val capped    = down.size == 2 && !down.isDown("c", now = 11)
-      down.answered("d", Status.ServiceUnavailable, now = 40000) // a and b have expired
+      val capped    = down.size == 2 && down.isDown("c", now = 11) && !down.isDown("a", now = 11) && down.isDown("b", now = 11)
+      down.answered("d", Status.ServiceUnavailable, now = 40000) // b and c have expired
       val refreshed = down.isDown("d", now = 40001) && down.size == 1
       assertTrue(inWindow, !after, cleared, notDown, capped, refreshed)
     },

@@ -296,12 +296,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
               // HttpClientProvider.live could not be built - no request was sent
               case err: Throwable => DocsFailure(Status.InternalServerError, err.getMessage)
             // not reachable or no answer in time: down - the rest of the page from the site at once
-            ZIO.when(docsFailure.status == Status.ServiceUnavailable)(
-              ZIO.succeed(docsDown.answered(projectName, Status.ServiceUnavailable, nowMs))
-            ) *>
-              ZIO.logError(
-                s"Error forwarding docs request for '$projectName': ${docsFailure.message}"
-              ).as(Response.status(docsFailure.status))
+            // (a warning: the page is served from the site - an error only for a wrong URL / client, 500)
+            if docsFailure.status == Status.ServiceUnavailable then
+              ZIO.succeed(docsDown.answered(projectName, Status.ServiceUnavailable, nowMs)) *>
+                ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
+                  .as(Response.status(docsFailure.status))
+            else
+              ZIO.logError(s"Error forwarding docs request for '$projectName': ${docsFailure.message}")
+                .as(Response.status(docsFailure.status))
 
   // ---------------------------------------------------------------------------
   // OAuth 2.0 Authorization Code Grant helpers
@@ -846,8 +848,8 @@ end OpenApiRoutes
 object OpenApiRoutes:
 
   /** The worker apps that did not answer (503) - for `downForMs` not asked again. At most `max`
-    * projects (the request path names them): when full, expired entries go first, beyond that a project
-    * is not remembered. Check and change are one step.
+    * projects (the request path names them): when full, expired entries go first, then the one that
+    * ends first. Check and change are one step.
     */
   final class DownList(downForMs: Long, max: Int):
     // a ReentrantLock as the helper's locks - it never blocks long here, but no pinned carrier either
@@ -865,7 +867,9 @@ object OpenApiRoutes:
       if status != Status.ServiceUnavailable then until.remove(project)
       else
         if until.size >= max then until.filterInPlace((_, t) => t > now)
-        if until.size < max || until.contains(project) then until.update(project, now + downForMs)
+        // still full: the one that ends first goes - a new project is remembered, not asked again each time
+        if until.size >= max && !until.contains(project) then until.remove(until.minBy(_._2)._1)
+        until.update(project, now + downForMs)
 
     def size: Int = locked(until.size)
   end DownList

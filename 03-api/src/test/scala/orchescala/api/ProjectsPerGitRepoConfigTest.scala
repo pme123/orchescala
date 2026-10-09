@@ -154,7 +154,10 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     @volatile var secondDone = false
     val second  = Thread(() => { ProjectsPerGitRepoConfig.once(clone)(updates.incrementAndGet()); secondDone = true })
     second.start()
-    Thread.sleep(200)
+    // it is parked on the lock (not merely slow): its state says so
+    val deadline = System.currentTimeMillis + 5000
+    while second.getState != Thread.State.WAITING && System.currentTimeMillis < deadline do Thread.sleep(10)
+    assertEquals(second.getState, Thread.State.WAITING)
     assert(!secondDone) // waits for the first
     release.countDown()
     first.join(5000)
@@ -198,5 +201,8 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     assertEquals((again.getMessage, updates), ("no network", 2))
     ProjectsPerGitRepoConfig.once(other, now = ProjectsPerGitRepoConfig.FailedUpdateValidMs)(updates += 1)
     assertEquals(updates, 3)
+    assertEquals(ProjectsPerGitRepoConfig.updateFailure(other), None) // it worked again
+    intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 10 * ProjectsPerGitRepoConfig.UpdateValidMs)(throw new Exception("offline")))
+    assertEquals(ProjectsPerGitRepoConfig.updateFailure(other), Some("offline"))
 
 end ProjectsPerGitRepoConfigTest

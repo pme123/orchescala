@@ -274,9 +274,8 @@ case class ProjectsPerGitRepoConfig(
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
     // ProjectsConfig asks every repo config - only the one with the project acts
     if singleRepo && containsProject(projectName) then
-      // the same clone as init - updated once per run, also when the projects of the company come here in
-      // parallel (DocCreator); then the project is copied from it. (It ran nothing before: the ZIO it
-      // built was dropped.)
+      // the same clone as init, updated once per run (also with projects in parallel), the project copied
+      // from it
       val clone      = updateClone(gitDir, companyName)
       val gitTemp    = clone / "projects" / projectName
       if !os.isDir(gitTemp) then
@@ -340,6 +339,13 @@ object ProjectsPerGitRepoConfig:
     var failed: Option[(Long, Throwable)] = None
   private[api] val UpdateValidMs       = 5 * 60 * 1000L
   private[api] val FailedUpdateValidMs = 30 * 1000L
+
+  /** Why the last update of a clone failed - None if it worked or did not run (for the docs' errors). */
+  def updateFailure(clone: os.Path): Option[String] =
+    Option(updates.get(clone)).flatMap: s =>
+      s.lock.lock()
+      try s.failed.map(_._2.getMessage)
+      finally s.lock.unlock()
   private val updates = ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on. A successful
