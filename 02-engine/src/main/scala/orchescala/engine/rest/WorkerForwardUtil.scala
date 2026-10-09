@@ -77,26 +77,39 @@ object WorkerForwardUtil:
       result   <- response.body match
                     case Right(body) =>
                       ZIO.fromEither(parser.parse(body))
-                        .mapError(err =>
-                          UnexpectedError(s"Failed to parse error response: $err")
-                        )
+                        .mapBoth(err => UnexpectedError(s"Failed to parse error response: $err"), Right(_))
                     case Left(err)   =>
-                      ZIO
-                        .fromEither(parser.parse(err).flatMap(_.as[ServiceRequestError]))
-                        .orElse(ZIO.succeed(ServiceRequestError(response.code.code, truncateErrorBody(err))))
-                        .flatMap(ZIO.fail(_))
-    yield result).tapError(logForwardError)
+                      ZIO.succeed(Left(errorAnswer(response.code.code, err)))
+    yield result)
+      // no answer: no connection, a timeout, an invalid URL or a body that is no JSON
+      .tapError(err => ZIO.logError(s"Error forwarding request to worker app: ${forLog(err)}"))
+      .flatMap:
+        case Right(json)                     => ZIO.succeed(json)
+        // a refusal of the worker app (e.g. 409 «taken») is an answer, not a failure - info only
+        case Left(ErrorAnswer(err, refusal)) =>
+          (if refusal then ZIO.logInfo(s"Worker app refused the request: ${forLog(err)}")
+           else ZIO.logError(s"Error forwarding request to worker app: ${forLog(err)}")) *> ZIO.fail(err)
 
-  /** A refusal of the worker app (4xx, e.g. 409 «taken») is an answer, not a failure - info only;
-    * no connection, a timeout, a 5xx or an unexpected answer is an error.
+  /** A non-2xx answer of the worker app - `refusal`: the worker app's own refusal of the request. */
+  private final case class ErrorAnswer(error: ServiceRequestError, refusal: Boolean)
+
+  private def errorAnswer(status: Int, body: String): ErrorAnswer =
+    val answer = parser.parse(body).flatMap(_.as[ServiceRequestError]).toOption
+    ErrorAnswer(
+      answer.getOrElse(ServiceRequestError(status, truncateErrorBody(body))),
+      // the HTTP status decides - the body only shows that the worker app answered (not a proxy,
+      // not a missing route): its ServiceRequestError with the same status
+      refusal = isRefusal(status) && answer.exists(_.errorCode == status)
+    )
+
+  /** As a refusal of a worker (`RefusedRequest.isRefusal`): a 4xx, but no auth status - 401, 403
+    * and 407 belong to the token check.
     */
-  private def logForwardError(err: EngineError) =
-    val detail = LogSafe.forLog(err.toString, "in the response")
-    err match
-      case ServiceRequestError(code, _) if code >= 400 && code < 500 =>
-        ZIO.logInfo(s"Worker app refused the request: $detail")
-      case _                                                         =>
-        ZIO.logError(s"Error forwarding request to worker app: $detail")
+  private def isRefusal(status: Int): Boolean =
+    (400 to 499).contains(status) && !Set(401, 403, 407).contains(status)
+
+  private def forLog(err: EngineError): String =
+    LogSafe.forLog(err.toString, "in the response")
 
   private val MaxErrorBodyLength = 500
 
