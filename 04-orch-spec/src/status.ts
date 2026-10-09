@@ -59,6 +59,21 @@ export function stepData(step: Step, spec: Parts): { status: Status; typeId: str
   return { status: st, typeId: at?.id ?? null, label: at?.name ?? 'Datenmodell' };
 }
 
+/**
+ * Die Klassen am Start des Prozesses: In, InitIn und InConfig immer (der Vertrag des
+ * Prozesses), weitere Klassen des Prozesses nur, wenn sie tiefer stehen als der Start.
+ * `below`: der Status liegt tiefer — er gehört an den Chip.
+ */
+export function startClasses(step: Step, spec: Parts): Array<{ id: string; name: string; status: Status | null; below: boolean }> {
+  if (step.id !== processStartId(spec)) return [];
+  const below = (t: TypeDef) => !!t.status && rank(t.status) >= 0 && rank(t.status) < rank(step.status);
+  const order = (t: TypeDef) => (t.root ? 0 : t.initIn ? 1 : t.inConfig ? 2 : 3);
+  return processClasses(spec)
+    .filter(t => t.root || t.initIn || t.inConfig || below(t))
+    .sort((a, b) => order(a) - order(b))
+    .map(t => ({ id: t.id, name: t.name || '(ohne Namen)', status: t.status ?? null, below: below(t) }));
+}
+
 /** Steht das Datenmodell des Schritts tiefer als der Schritt? Dann dessen Status und Klasse. */
 export function dataBelow(step: Step, spec: Parts): { status: Status; typeId: string | null; label: string } | null {
   const d = stepData(step, spec);

@@ -34,6 +34,7 @@ import { uid } from '../util';
 import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../clipboard';
 import { pasteField, pasteType, typeClosure } from '../copyPaste';
 import { patternOfField } from '../patterns';
+import { interactionStatus } from '../status';
 
 interface Props {
   spec: ProcessSpec;
@@ -725,8 +726,10 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, interactions, m
             extends {meta.dsl} · Schritt {ia.stepId}
           </div>
         </div>
-        <select value={ia.status ?? 'draft'} disabled={!canEdit}
-          title="Status der Interaktion — gilt auch für ihr In und Out"
+        {/* der Status der Einheit: der kleinste von Interaktion, In und Out — sonst stünde hier
+            «Abgenommen», während das Out noch «Angepasst» ist, und dieselbe Wahl löste nichts aus */}
+        <select value={interactionStatus(ia, { types }) ?? ia.status ?? 'draft'} disabled={!canEdit}
+          title="Status der Interaktion samt In und Out (der kleinste) — eine Wahl gilt für alle drei"
           onChange={e => onPatch({ status: e.target.value as Status })}
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
@@ -957,6 +960,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
   onOpenType: (id: string) => void;
 }) {
+  // In oder Out einer Interaktion: mit ihr eine Einheit (ein Status für alle drei)
+  const unit = t.interactionId ? (spec.interactions ?? []).find(x => x.id === t.interactionId) ?? null : null;
   const confirm = useConfirm();
   const clip = useContext(ClipContext);
   const c = cls(isDark);
@@ -1006,8 +1011,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
             onChange={e => onPatch({ name: e.target.value })}
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
         </div>
-        <select value={t.status ?? 'draft'} disabled={!canEdit}
-          title={t.interactionId ? 'Status — gilt für die Interaktion samt In und Out' : undefined}
+        <select value={(unit ? interactionStatus(unit, { types }) : null) ?? t.status ?? 'draft'} disabled={!canEdit}
+          title={unit ? 'Status der Interaktion samt In und Out (der kleinste) — eine Wahl gilt für alle drei' : undefined}
           onChange={e => onPatch({ status: e.target.value as Status })}
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
