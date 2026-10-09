@@ -1,5 +1,8 @@
 package orchescala.helper.dev.company.docs.site
 
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import scala.util.Try
 import scala.util.control.NonFatal
 
 /** Where the git history of a project lies in git-temp - its own clone (`<git-temp>/<project>/.git`),
@@ -102,7 +105,7 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val stale  = System.currentTimeMillis - ProjectRepo.ExportTimeoutMs
     os.list(dest / os.up).filter(_.last.startsWith(marker))
       .filter(p => ProjectRepo.startedAt(p.last.stripPrefix(marker)).forall(_ < stale))
-      .foreach(p => scala.util.Try(os.remove.all(p)))
+      .foreach(p => Try(os.remove.all(p)))
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = s"$marker${System.currentTimeMillis}-")
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
@@ -155,7 +158,7 @@ object ProjectRepo:
     catch
       case NonFatal(e) =>
         // the original error counts - a failing way back is only added to it
-        scala.util.Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed.foreach(e.addSuppressed)
+        Try(if os.exists(old) && !os.exists(dest) then os.move(old, dest)).failed.foreach(e.addSuppressed)
         throw e
     os.remove.all(old)
 
@@ -187,13 +190,13 @@ object ProjectRepo:
   }
   @volatile private var tarChecked = false
   private def checkTar(): Boolean =
-    scala.util.Try:
+    Try:
       val empty = os.proc("tar", "-c", "-f", "-", "-T", "/dev/null").call(stdout = os.Pipe, stderr = os.Pipe).out.bytes
       val into  = os.temp.dir(prefix = "tar-check")
-      val r     = os.proc("tar", "-x", "--no-same-owner", "--strip-components=0", "-f", "-", "-C", into)
-        .call(stdin = empty, check = false, stdout = os.Pipe, stderr = os.Pipe)
-      os.remove.all(into)
-      r.exitCode == 0
+      try
+        os.proc("tar", "-x", "--no-same-owner", "--strip-components=0", "-f", "-", "-C", into)
+          .call(stdin = empty, check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+      finally os.remove.all(into)
     .getOrElse(false)
 
   /** When an export folder was started - the millis in its name (`<millis>-…`, also `old-<millis>-…`). */
@@ -217,11 +220,11 @@ object ProjectRepo:
     */
   // a ReentrantLock, not synchronized: a fetch of up to a minute would pin a virtual thread's carrier
   private final class FetchState:
-    val lock                          = java.util.concurrent.locks.ReentrantLock()
+    val lock                          = ReentrantLock()
     var validUntil: Long              = Long.MinValue
     /** why the last fetch failed - for the error of a tag that is then not found */
     var failure: Option[String]       = None
-  private val fetches = java.util.concurrent.ConcurrentHashMap[os.Path, FetchState]()
+  private val fetches = ConcurrentHashMap[os.Path, FetchState]()
 
   /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
     * the helper), no `--prune` (it would drop tags made in this clone only), a minute at most; a
@@ -263,7 +266,7 @@ object ProjectRepo:
     * @return true if it worked
     */
   private[docs] def fetchTags(repo: os.Path, more: Seq[String] = Nil, timeoutMs: Long = 60000): Boolean =
-    val fetch = scala.util.Try(
+    val fetch = Try(
       os.proc("git", "-C", repo.toString, "fetch", "--tags", more)
         .call(
           check = false,

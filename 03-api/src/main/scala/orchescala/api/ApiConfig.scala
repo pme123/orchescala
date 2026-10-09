@@ -301,7 +301,8 @@ case class ProjectsPerGitRepoConfig(
     // a clone killed midway has a .git, but no commit - it does not serve
     def usable = Try(os.proc("git", "-C", clone.toString, "rev-parse", "--verify", "-q", "HEAD")
       .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0).getOrElse(false)
-    Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
+    // gone meanwhile (git-temp wiped in a process that runs on): made again, whatever the last update was
+    Try(ProjectsPerGitRepoConfig.once(clone, force = !os.exists(clone / ".git"))(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
       case Success(_)                                => clone
       case Failure(e) if keepOnFailure && usable     =>
         println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
@@ -342,17 +343,21 @@ object ProjectsPerGitRepoConfig:
     * update is tried again by the next caller, a successful one counts `UpdateValidMs` (as the tag fetch
     * of the docs): a process that runs on (an sbt server) pulls again for its next docs run.
     */
-  private[api] def once(clone: os.Path, now: => Long = System.currentTimeMillis())(update: => Unit): Unit =
+  /** @param force read under the lock - e.g. «the clone is gone»: then it updates whatever the last time */
+  private[api] def once(clone: os.Path, now: => Long = System.currentTimeMillis(), force: => Boolean = false)(
+      update: => Unit
+  ): Unit =
     val state = updates.computeIfAbsent(clone, _ => Update())
     state.lock.lock()
     try
-      val start = now // read once
+      val start  = now // read once
+      val forced = force // under the lock: a caller that waited sees what the one before did
       state.failed match
         // failed just now: the same failure, not another pull per project - a new one per caller (one
         // instance on many threads would collect their suppressed errors). Only git's failures pass here,
         // no typed errors of the docs (ReleaseNotFound comes after the clone)
-        case Some((at, e)) if start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
-        case _ if state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
+        case Some((at, e)) if !forced && start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
+        case _ if !forced && state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
         case _ =>
           try
             update

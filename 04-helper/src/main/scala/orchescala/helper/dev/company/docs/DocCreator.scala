@@ -1,7 +1,5 @@
 package orchescala.helper.dev.company.docs
 
-import scala.util.control.NonFatal
-
 import orchescala.api.{
   ApiProjectConfig,
   DocProjectConfig,
@@ -17,6 +15,7 @@ import os.Path
 
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import scala.util.control.NonFatal
 
 /** the idea is use Orchescala to create Company's Process documentation.
   *

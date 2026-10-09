@@ -90,6 +90,14 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     Console.withOut(java.io.ByteArrayOutputStream()):
       intercept[Exception](config.updateSingleRepoClone("acme-shop", gitTemp, "acme"))
 
+  test("once - force (the clone gone) updates within UpdateValidMs too"):
+    val clone   = os.temp.dir(prefix = "clone")
+    var updates = 0
+    ProjectsPerGitRepoConfig.once(clone, now = 0)(updates += 1)
+    ProjectsPerGitRepoConfig.once(clone, now = 1)(updates += 1)
+    ProjectsPerGitRepoConfig.once(clone, now = 2, force = true)(updates += 1)
+    assertEquals(updates, 2)
+
   test("once - a caller at the same time waits for the running update, then does not update again"):
     val clone   = os.temp.dir(prefix = "clone")
     val started = java.util.concurrent.CountDownLatch(1)
