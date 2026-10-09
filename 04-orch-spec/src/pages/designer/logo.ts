@@ -4,7 +4,9 @@ import { svgDropsAttribute, svgDropsElement } from '../runtime/theme';
 
 /** Lesen und Schreiben eines SVG - im Browser seine eigenen (DOMParser, XMLSerializer). Die Tests laufen in
   * Node mit linkedom: browserDom selbst (Namensräume, die Form von <parsererror>, die Ausgabe) prüfen sie
-  * nicht - das ist von Hand im Browser geprüft. */
+  * nicht - das ist von Hand im Browser geprüft. Ein kaputtes SVG gibt dort ein Dokument mit <parsererror>
+  * (Chrome/WebKit: in einem HTML-Dokument; Firefox: als Wurzel) - beides fängt cleanLogo, mit dem Selektor
+  * (jeder Namensraum) und weil die Wurzel kein <svg> ist. */
 export type SvgDom = { parse: (text: string) => Document; serialize: (doc: Document) => string };
 
 const browserDom: SvgDom = {
