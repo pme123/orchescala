@@ -115,7 +115,7 @@ export default function App() {
           {logo
             ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-40 object-contain" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
-          {/* a long title gives way (truncated, the subtitle only from md on) - the controls and the byline keep their place */}
+          {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab md) - Knöpfe und Byline behalten ihren Platz */}
           <span className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
           {app?.subtitle && <span className={`hidden min-w-0 truncate text-[10px] md:inline ${c.muted}`}>{app.subtitle}</span>}
           <div className="ml-auto flex flex-shrink-0 items-center gap-3">
@@ -133,7 +133,7 @@ export default function App() {
             {/* der Name am Link - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
             <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="z9nai GmbH"
               className={`flex items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
-              {/* without a logo of its own the app shows the z9nai one on the left already: the text only, always */}
+              {/* ohne eigenes Logo zeigt die App links schon das von z9nai: dann nur der Text, auf jeder Breite */}
               <span className={logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
               {logo && <img src={`${base}favicon.png`} alt="" className="h-5 w-5" />}
             </a>
