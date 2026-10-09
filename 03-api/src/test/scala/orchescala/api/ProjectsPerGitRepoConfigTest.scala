@@ -130,6 +130,32 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     assert(os.exists(gitTemp / "acme-own" / ".git")) // its own clone
     assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "name = acme-shop\n")
 
+  test("init pulls every time, the docs' updateSingleRepoClone once per UpdateValidMs"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    val work    = os.temp.dir(prefix = "work")
+    os.write(work / ".gitignore", "target/\n")
+    os.write(work / "projects" / "acme-shop" / "PROJECT.conf", "v1\n", createFolders = true)
+    git(work, "init", "-q", "-b", "develop")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "v1")
+    os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / "orchescala-acme.git").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    val repoConfig = ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))), singleRepo = true)
+    val config     = ProjectsConfig(perGitRepoConfigs = Seq(repoConfig))
+    val gitTemp    = os.temp.dir(prefix = "git-temp")
+    def push(text: String) =
+      os.write.over(work / "projects" / "acme-shop" / "PROJECT.conf", text)
+      git(work, "commit", "-q", "-am", text.trim)
+      git(work, "push", "-q", (remotes / "orchescala-acme.git").toString, "develop")
+    def inClone = os.read(gitTemp / "orchescala-acme" / "projects" / "acme-shop" / "PROJECT.conf")
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      config.updateSingleRepoClone("acme-shop", gitTemp, "acme")
+      push("v2\n")
+      config.updateSingleRepoClone("acme-shop", gitTemp, "acme") // within the window: no pull
+      assertEquals(inClone, "v1\n")
+      zio.Unsafe.unsafe { implicit u => zio.Runtime.default.unsafe.run(repoConfig.init(gitTemp, "acme")).getOrThrow() }
+      assertEquals(inClone, "v2\n") // init pulled
+
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0

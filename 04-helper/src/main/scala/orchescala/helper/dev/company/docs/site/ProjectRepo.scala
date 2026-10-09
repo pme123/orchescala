@@ -205,7 +205,7 @@ object ProjectRepo:
     * bsdtar; not e.g. busybox's): tried on an empty archive.
     */
   @volatile private var tarChecked = false
-  private[site] def hasTar: Boolean = tarChecked || {
+  private[docs] def hasTar: Boolean = tarChecked || {
     tarChecked = checkTar() // only a «yes» is kept - a check that failed by chance is tried again
     tarChecked
   }

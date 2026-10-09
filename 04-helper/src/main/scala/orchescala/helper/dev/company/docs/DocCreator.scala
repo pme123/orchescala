@@ -197,6 +197,9 @@ trait DocCreator extends DependencyCreator, Helpers:
     // every project to its end - one failing does not interrupt the others (their git and tar would run
     // on, unseen); then all failures together. The projects of one repo share its tag fetch (fetchTagsOnce):
     // while it runs, they wait for it on blocking threads - at most its timeout
+    // one repo for all needs tar for its exports - said once, before N projects fail on it in parallel
+    if apiConfig.projectsConfig.perGitRepoConfigs.exists(_.singleRepo) && !ProjectRepo.hasTar then
+      throw new Exception("the docs of a repo for all projects need a tar with --no-same-owner and --strip-components")
     val results = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
         ZIO.foreachPar(DocCreator.byProject(versions)) { case (project, projectVersions) =>
@@ -590,9 +593,6 @@ object DocCreator:
     def isWorker: Boolean = name.endsWith("-worker")
     def project: String   = name.stripSuffix("-worker")
 
-  /** The versions per project - its BPMN and its worker version share the project's folder: one after
-    * the other (setupConfigs runs the projects in parallel, the versions of one in this order).
-    */
   /** The error of a run whose versions failed - None if none did. Only releases missing: a
     * ReleaseNotFound (the first as cause); else an Exception with the first other error as cause and all
     * others suppressed, with their traces.
@@ -609,6 +609,9 @@ object DocCreator:
           errors.filterNot(_ eq cause).foreach(e.addSuppressed)
           e
 
+  /** The versions per project - its BPMN and its worker version share the project's folder: one after
+    * the other (setupConfigs runs the projects in parallel, the versions of one in this order).
+    */
   def byProject(versions: Map[String, String]): Seq[(String, Seq[ProjectVersion])] =
     versions.toSeq.map(ProjectVersion(_, _)).groupBy(_.project).toSeq.sortBy(_._1)
       .map((project, vs) => project -> vs.sortBy(_.isWorker))

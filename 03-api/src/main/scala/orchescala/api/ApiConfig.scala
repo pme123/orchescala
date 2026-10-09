@@ -250,7 +250,8 @@ case class ProjectsPerGitRepoConfig(
   def init(gitDir: os.Path, companyName: String) =
     if singleRepo then
       ZIO
-        .attemptBlocking(updateClone(gitDir, companyName)) // git - not on the compute pool
+        // git - not on the compute pool; init pulls every time (the cache is for the docs' many projects)
+        .attemptBlocking(updateClone(gitDir, companyName, always = true))
         .flatMap: _ =>
           ZIO.foreachPar(projects): project =>
             ZIO.attemptBlocking: // copying - not on the compute pool
@@ -296,15 +297,16 @@ case class ProjectsPerGitRepoConfig(
     * callers in parallel (init, initProject, the docs).
     * @param keepOnFailure the docs: offline or with origin away, a clone with a commit serves as it is (a
     *   warning) - init and initProject fail, as before
+    * @param always pull whatever the last update was (init) - else once per `UpdateValidMs`
     * @return the clone
     */
-  def updateClone(gitDir: os.Path, companyName: String, keepOnFailure: Boolean = false): os.Path =
+  def updateClone(gitDir: os.Path, companyName: String, keepOnFailure: Boolean = false, always: Boolean = false): os.Path =
     val clone = gitDir / s"orchescala-$companyName"
     // a clone killed midway has a .git, but no commit - it does not serve
     def usable = Try(os.proc("git", "-C", clone.toString, "rev-parse", "--verify", "-q", "HEAD")
       .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0).getOrElse(false)
     // gone meanwhile (git-temp wiped in a process that runs on): made again, whatever the last update was
-    Try(ProjectsPerGitRepoConfig.once(clone, force = !os.exists(clone / ".git"))(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
+    Try(ProjectsPerGitRepoConfig.once(clone, force = always || !os.exists(clone / ".git"))(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git"))) match
       case Success(_)                                => clone
       case Failure(e) if keepOnFailure && usable     =>
         println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
