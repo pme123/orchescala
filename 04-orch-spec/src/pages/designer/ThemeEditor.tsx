@@ -5,38 +5,14 @@ import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { Theme } from '../runtime/spec';
 import {
-  contrast, isFontPreset, isThemeColor, MAX_LOGO_BYTES, MIN_ON_PRIMARY_CONTRAST, parseThemeFile, svgDropsAttribute, svgDropsElement,
-  syncedText, themeProblem, themeStyle,
+  contrast, isFontPreset, isThemeColor, MAX_LOGO_BYTES, MIN_ON_PRIMARY_CONTRAST, parseThemeFile, syncedText, themeProblem,
+  themeStyle,
 } from '../runtime/theme';
 import { cls as pageCls } from '../runtime/ui';
 import { SelectField, TextField } from './fields';
+import { cleanLogo } from './logo';
 
 const MAX_THEME_FILE_BYTES = 1024 * 1024;
-
-/** Ein SVG-Logo (data:-URI) gesäubert wie vom Skill (svgDropsElement/-Attribute) - andere Bilder, wie sie
-  * sind. Im Browser, mit seinem Parser; ein SVG, das er nicht liest, ist null. */
-export function cleanLogo(uri: string): string | null {
-  if (!uri.startsWith('data:image/svg+xml;base64,')) return uri;
-  let text: string;
-  try {
-    text = new TextDecoder().decode(Uint8Array.from(atob(uri.slice(uri.indexOf(',') + 1)), (ch) => ch.charCodeAt(0)));
-  } catch {
-    return null;
-  }
-  if (/<!(DOCTYPE|ENTITY)/i.test(text)) return null;
-  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-  if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg') return null;
-  for (const el of [...doc.querySelectorAll('*')]) {
-    if (svgDropsElement(el.localName)) { el.remove(); continue; }
-    for (const at of [...el.attributes]) if (svgDropsAttribute(at.name, at.value)) el.removeAttributeNode(at);
-  }
-  for (const at of [...doc.documentElement.attributes])
-    if (svgDropsAttribute(at.name, at.value)) doc.documentElement.removeAttributeNode(at);
-  const clean = new TextEncoder().encode(new XMLSerializer().serializeToString(doc));
-  let bin = '';
-  clean.forEach((b) => { bin += String.fromCharCode(b); });
-  return `data:image/svg+xml;base64,${btoa(bin)}`;
-}
 
 /** Der Entwurf nach dem Speichern von `saved`: weg, wenn er noch dasselbe ist - eine Änderung, die während
   * des Speicherns kam, bleibt ein Entwurf. */
@@ -102,12 +78,8 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   const importFile = async (file: File) => {
     // ein Theme ist klein (das Logo bis 200 KB) - was viel grösser ist, ist keins
     if (file.size > MAX_THEME_FILE_BYTES) return setNote({ tone: 'error', text: 'Die Datei ist zu gross für ein Theme (bis 1 MB).' });
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      return setNote({ tone: 'error', text: 'Die Datei liess sich nicht lesen.' });
-    }
+    const text = await file.text().catch(() => null);
+    if (text === null) return setNote({ tone: 'error', text: 'Die Datei liess sich nicht lesen.' });
     const r = parseThemeFile(text);
     if ('error' in r) return setNote({ tone: 'error', text: r.error });
     // ein SVG-Logo aus der Datei gesäubert wie vom Skill - die Datei kann von irgendwo sein
