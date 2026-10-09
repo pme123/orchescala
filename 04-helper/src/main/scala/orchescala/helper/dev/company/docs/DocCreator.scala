@@ -218,12 +218,16 @@ trait DocCreator extends DependencyCreator, Helpers:
       // only releases missing: that is what it is; else the first other error is the cause
       val errors = failures.map(_._2)
       errors.find(!_.isInstanceOf[ReleaseNotFound]) match
-        case None        => throw ReleaseNotFound(msg)
+        case None        => throw ReleaseNotFound(msg, errors.head)
         case Some(cause) =>
           // the first other error the cause, all others kept with their traces
           val e = new Exception(msg, cause)
           errors.filterNot(_ eq cause).foreach(e.addSuppressed)
           throw e
+
+    // built from a company clone that could not be pulled: said again at the end, not only in the middle
+    ProjectsPerGitRepoConfig.updateFailure(companyClone).foreach: why =>
+      println(s"  ! the docs are from $companyClone as it was - it could not be updated: $why")
 
     // Flatten the results and filter out None values
     results.collect { case (_, Right(conf)) => conf }.flatten
@@ -255,52 +259,50 @@ trait DocCreator extends DependencyCreator, Helpers:
       projConfig <- apiConfig.projectsConfig.projectConfig(project)
       projectPath = projConfig.absGitPath(gitBasePath)
       _           = println(s"Project Git Path $projectPath / $gitBasePath")
-      // in one repo for all: the company clone pulled (once per run), made if gone - the project's folder
-      // comes from it at its tag (exportRelease); an own clone made only when it is not there
+      // one repo for all: the company clone updated, the project's folder exported at its tag;
+      // else its own clone (made if not there), checked out at the tag
       singleRepo  = apiConfig.projectsConfig.updateSingleRepoClone(project, gitBasePath, apiConfig.companyName)
-      _           =
-        if !singleRepo && !os.exists(projectPath) then
-          apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
-      // all projects in one repo: the project's folder at its tag (`<project>-v<version>`) - else its own clone
-      // a release not found after the company clone could not be pulled: that is the cause to name
-      exported    = try ProjectRepo.exportRelease(gitBasePath, project, version, projectPath)
-                    catch
-                      case e: ReleaseNotFound =>
-                        val clone = gitBasePath / s"orchescala-${apiConfig.companyName}"
-                        ProjectsPerGitRepoConfig.updateFailure(clone).fold(throw e): why =>
-                          throw ReleaseNotFound(s"${e.getMessage} - the company clone was not updated: $why")
-      _           = exported match
-        case Some(tag) => println(s"Exported $project at '$tag'")
-        // one repo for all, but the project not in its clone: said, not the own-clone path on no folder
-        case None if singleRepo =>
-          throw new Exception(
-            s"$project is not in the company repo ${gitBasePath / s"orchescala-${apiConfig.companyName}"} (no projects/$project)"
-          )
-        case None =>
-          // ensure all tags are present locally - once: resolveTagRef only reads what is there now
-          val fetched = fetchAllTags(projectPath)
-          // resolve correct tag name (handles 'v' and non-'v')
-          val tagRef  = resolveTagRef(projectPath, version, fetched)
-          println(s"Checkout $project to 'tags/$tagRef'")
-          // try checkout; if local changes block it, force the checkout
-          try
-            os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
-          catch
-            case NonFatal(e) =>
-              // only local changes are a reason for -f - it discards them: say which; another failure
-              // (a missing tag, a broken clone) is the error it is
-              val changes = scala.util.Try(
-                os.proc("git", "status", "--porcelain").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
-              ).getOrElse("")
-              if changes.isEmpty then throw e
-              println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")
-              os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
+      _           = if singleRepo then exportFromCompanyRepo(project, version, projectPath)
+                    else checkoutOwnClone(project, version, projectPath)
     yield DocProjectConfig(
       apiProjectConfig(projectPath / apiConfig.projectsConfig.projectConfPath),
       os.read.lines(projectPath / "CHANGELOG.md"),
       versionPrevious,
       isWorker
     )
+
+  private def companyClone = gitBasePath / s"orchescala-${apiConfig.companyName}"
+
+  /** The project's folder of the company clone at its release tag into `projectPath`. */
+  private def exportFromCompanyRepo(project: String, version: String, projectPath: os.Path): Unit =
+    val exported =
+      try ProjectRepo.exportRelease(gitBasePath, project, version, projectPath)
+      catch
+        // not found after the company clone could not be pulled: that is the cause to name
+        case e: ReleaseNotFound =>
+          ProjectsPerGitRepoConfig.updateFailure(companyClone).fold(throw e): why =>
+            throw ReleaseNotFound(s"${e.getMessage} - the company clone was not updated: $why", e)
+    exported match
+      case Some(tag) => println(s"Exported $project at '$tag'")
+      case None      => throw new Exception(s"$project is not in the company repo $companyClone (no projects/$project)")
+
+  /** A project's own clone (made if not there) checked out at its release tag. */
+  private def checkoutOwnClone(project: String, version: String, projectPath: os.Path): Unit =
+    if !os.exists(projectPath) then apiConfig.projectsConfig.initProject(project, gitBasePath, apiConfig.companyName)
+    // the tags fetched once - resolveTagRef only reads what is there then
+    val fetched = fetchAllTags(projectPath)
+    val tagRef  = resolveTagRef(projectPath, version, fetched)
+    println(s"Checkout $project to 'tags/$tagRef'")
+    try os.proc("git", "checkout", s"tags/$tagRef").callOnConsole(projectPath)
+    catch
+      case NonFatal(e) =>
+        // only local changes are a reason for -f, which discards them (said); another failure is the error
+        val changes = scala.util.Try(
+          os.proc("git", "status", "--porcelain").call(cwd = projectPath, stdout = os.Pipe).out.text().trim
+        ).getOrElse("")
+        if changes.isEmpty then throw e
+        println(s"Checkout failed, retrying with '-f' - discarding the local changes:\n$changes")
+        os.proc("git", "checkout", "-f", s"tags/$tagRef").callOnConsole(projectPath)
 
   /** `git fetch --all --tags` in a project's own clone - ProjectRepo.fetchTags (no prompt, no prune, the
     * failure logged), two minutes at most: a tag that is there locally still counts (resolveTagRef).

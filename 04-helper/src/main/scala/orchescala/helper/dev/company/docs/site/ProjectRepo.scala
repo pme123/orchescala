@@ -147,7 +147,7 @@ end ProjectRepo
 /** No release (tag) of a version - VERSIONS.conf names one that is not released, or origin could not be
   * asked. A broken repo or export is a plain Exception.
   */
-final class ReleaseNotFound(message: String) extends Exception(message)
+final class ReleaseNotFound(message: String, cause: Throwable = null) extends Exception(message, cause)
 
 object ProjectRepo:
 
@@ -223,13 +223,13 @@ object ProjectRepo:
   // a ReentrantLock, not synchronized: a fetch of up to a minute would pin a virtual thread's carrier
   private final class FetchState:
     val lock                          = ReentrantLock()
-    var validUntil: Long              = Long.MinValue
+    @volatile var validUntil: Long    = Long.MinValue
     /** why the last fetch failed - for the error of a tag that is then not found */
-    var failure: Option[String]       = None
+    @volatile var failure: Option[String] = None // read without the lock (fetchFailure)
   private val fetches = ConcurrentHashMap[os.Path, FetchState]()
 
   /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
-    * the helper), no `--prune` (it would drop tags made in this clone only), a minute at most; a
+    * the helper), no `--prune` (it would drop tags made in this clone only), at most the fetch's timeout; a
     * failure is logged.
     * @param fetch the fetch itself - true if it worked (replaceable for tests)
     * @return true if it fetched now (false: a recent fetch counts)
@@ -244,7 +244,7 @@ object ProjectRepo:
       fetch: os.Path => Boolean = fetchTags(_)
   ): Boolean =
     val state = fetches.computeIfAbsent(repo, _ => FetchState())
-    state.lock.lock()
+    state.lock.lockInterruptibly()
     try
       val start = now
       if start < state.validUntil then false
@@ -258,10 +258,7 @@ object ProjectRepo:
 
   /** Why the last fetch of the repo failed - None if it worked or did not run. */
   private[docs] def fetchFailure(repo: os.Path): Option[String] =
-    Option(fetches.get(repo)).flatMap: s =>
-      s.lock.lock()
-      try s.failure
-      finally s.lock.unlock()
+    Option(fetches.get(repo)).flatMap(_.failure) // volatile - no wait for a fetch that runs
 
   /** `git fetch --tags` (and `more`, e.g. `--all`) - no credential prompt, at most `timeoutMs`; a
     * failure is logged, a release tag moved on origin named. For the single repo and own clones alike.

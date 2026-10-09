@@ -160,4 +160,19 @@ class SiteAssemblerTest extends FunSuite:
     assertEquals(os.read(target / "diagrams" / "order.bpmn"), "<bpmn a/>")
     assert(out.toString.contains("2 diagrams named order.bpmn"), out.toString)
 
+  test("writeApi - the same diagram for both engines: camunda8's, as before, without a warning"):
+    val gitTemp = singleRepoGitTemp()
+    val repo    = gitTemp / "orchescala-acme"
+    val main    = repo / "projects" / "acme-shop" / "src" / "main" / "resources"
+    os.write(main / "camunda" / "pay.bpmn", "<bpmn c7/>", createFolders = true)
+    os.write(main / "camunda8" / "pay.bpmn", "<bpmn c8/>", createFolders = true)
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "both engines")
+    git(repo, "tag", "acme-shop-v1.4.0")
+    val target  = os.temp.dir(prefix = "site") / "acme" / "acme-shop"
+    val out     = java.io.ByteArrayOutputStream()
+    Console.withOut(out)(SiteAssembler.writeApi(ProjectRepo.locate(gitTemp, "acme-shop").get, "acme-shop-v1.4.0", target, "<html/>"))
+    assertEquals(os.read(target / "diagrams" / "pay.bpmn"), "<bpmn c8/>")
+    assert(!out.toString.contains("diagrams named pay.bpmn"), out.toString)
+
 end SiteAssemblerTest

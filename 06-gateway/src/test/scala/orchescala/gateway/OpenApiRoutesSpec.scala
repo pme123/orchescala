@@ -220,29 +220,32 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         held.size == 1 // the worker app did not answer just now: not asked again
       )).ensuring(ZIO.succeed { stuck.close(); held.forEach(_.close()) })
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
-    test("a worker app that answers 503 (restarting): the released file; one that answers 500: passed on (502)") {
+    test("a worker app that answers 503 (restarting): the released file; one that answers 500 or 404: passed on (502)") {
       def server(code: Int) =
         val srv = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress, 0), 0)
         srv.createContext("/", ex => { ex.sendResponseHeaders(code, -1); ex.close() })
         srv.start()
         srv
       def api(port: Int) = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port")))
-      ZIO.acquireRelease(ZIO.succeed(server(503) -> server(500)))((a, b) => ZIO.succeed { a.stop(0); b.stop(0) })
-        .flatMap: (restarting, broken) =>
+      ZIO.acquireRelease(ZIO.succeed((server(503), server(500), server(404))))((a, b, c) => ZIO.succeed { a.stop(0); b.stop(0); c.stop(0) })
+        .flatMap: (restarting, broken, missing) =>
           val restartingApi = api(restarting.getAddress.getPort)
           // a mark from before (its window over): the 503 of an app that answers takes it away
-          restartingApi.docsDown.answered("acme-shop", Status.ServiceUnavailable, java.lang.System.currentTimeMillis - 60000)
+          restartingApi.docsDown.markDown("acme-shop", java.lang.System.currentTimeMillis - 60000)
           for
             released <- restartingApi.routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
             body     <- released.body.asString
             passed   <- api(broken.getAddress.getPort).routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
+            notThere <- api(missing.getAddress.getPort).routes.runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
           yield assertTrue(
             released.status == Status.Ok,
             body.contains("acme-shop (released)"),
             // it answered (503 for this file): not marked down - the next file is asked live
             !restartingApi.docsDown.isDown("acme-shop", java.lang.System.currentTimeMillis),
             restartingApi.docsDown.size == 0, // the old mark is gone, not only expired
-            passed.status == Status.BadGateway
+            passed.status == Status.BadGateway,
+            // its own 404 is its answer (502) - not replaced by the released file
+            notThere.status == Status.BadGateway
           )
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("not reachable: the project marked down - the next file from the site without asking") {
@@ -277,21 +280,18 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("DownList - 503 down for the window, a good answer clears it, at most max projects") {
       val down = OpenApiRoutes.DownList(downForMs = 30000, max = 2)
-      down.answered("shop", Status.ServiceUnavailable, now = 0)
+      down.markDown("shop", now = 0)
       val inWindow  = down.isDown("shop", now = 29999)
       val after     = down.isDown("shop", now = 30000)
-      down.answered("shop", Status.Ok, now = 1000) // it answered: asked again at once
+      down.markUp("shop") // it answered: asked again at once
       val cleared   = !down.isDown("shop", now = 1001)
-      // only 503: a 500 or 502 is not «down»
-      down.answered("cards", Status.InternalServerError, now = 0)
-      down.answered("cards", Status.BadGateway, now = 0)
-      val notDown   = !down.isDown("cards", now = 1)
+      val notDown   = !down.isDown("cards", now = 1) // never marked
       // full: expired ones go first, then the one that ends first - the new project is remembered
-      down.answered("a", Status.ServiceUnavailable, now = 0)
-      down.answered("b", Status.ServiceUnavailable, now = 5)
-      down.answered("c", Status.ServiceUnavailable, now = 10)
+      down.markDown("a", now = 0)
+      down.markDown("b", now = 5)
+      down.markDown("c", now = 10)
       val capped    = down.size == 2 && down.isDown("c", now = 11) && !down.isDown("a", now = 11) && down.isDown("b", now = 11)
-      down.answered("d", Status.ServiceUnavailable, now = 40000) // b and c have expired
+      down.markDown("d", now = 40000) // b and c have expired
       val refreshed = down.isDown("d", now = 40001) && down.size == 1
       assertTrue(inWindow, !after, cleared, notDown, capped, refreshed)
     },

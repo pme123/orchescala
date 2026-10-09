@@ -269,7 +269,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
           result   <- response.body match
                         case Right(body) =>
                           // it answers: not down (any more)
-                          ZIO.succeed(docsDown.answered(projectName, Status.Ok, nowMs)) *>
+                          ZIO.succeed(docsDown.markUp(projectName)) *>
                           ZIO.succeed(
                             Response.text(body)
                               .addHeader(Header.ContentType(contentType))
@@ -280,12 +280,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
                         // answer (502)
                         case Left(err) if response.code.code == 503 =>
                           // it answers - a down mark from before goes
-                          ZIO.succeed(docsDown.answered(projectName, Status.Ok, nowMs)) *>
+                          ZIO.succeed(docsDown.markUp(projectName)) *>
                           ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
                             .as(Response.status(Status.ServiceUnavailable))
                         case Left(err)   =>
                           // it answered (with an error): not down
-                          ZIO.succeed(docsDown.answered(projectName, Status.BadGateway, nowMs)) *>
+                          ZIO.succeed(docsDown.markUp(projectName)) *>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"
                           ).as(Response.status(Status.BadGateway))
@@ -301,10 +301,9 @@ class OpenApiRoutes()(using config: GatewayConfig):
             if docsFailure.status == Status.ServiceUnavailable then
               // marked down only with released files to fall back to (a site folder) - so names a client
               // makes up do not fill the list and push out the real ones
-              ZIO.succeed(
-                if hasSiteFolder(companyName, projectName) then
-                  docsDown.answered(projectName, Status.ServiceUnavailable, nowMs)
-              ) *>
+              // (the classpath lookup is blocking I/O)
+              ZIO.attemptBlocking(hasSiteFolder(companyName, projectName)).orElseSucceed(false)
+                .map(withSite => if withSite then docsDown.markDown(projectName, nowMs)) *>
                 ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
                   .as(Response.status(docsFailure.status))
             else
@@ -873,14 +872,15 @@ object OpenApiRoutes:
 
     def isDown(project: String, now: Long): Boolean = locked(until.get(project).exists(_ > now))
 
-    /** The answer for a project: 503 remembers it as down, any other forgets it. */
-    def answered(project: String, status: Status, now: Long): Unit = locked:
-      if status != Status.ServiceUnavailable then until.remove(project)
-      else
-        if until.size >= max then until.filterInPlace((_, t) => t > now)
-        // still full: the one that ends first goes - a new project is remembered, not asked again each time
-        if until.size >= max && !until.contains(project) then until.remove(until.minBy(_._2)._1)
-        until.update(project, now + downForMs)
+    /** Its worker app did not answer: not asked again for `downForMs`. */
+    def markDown(project: String, now: Long): Unit = locked:
+      if until.size >= max then until.filterInPlace((_, t) => t > now)
+      // still full: the one that ends first goes - a new project is remembered, not asked again each time
+      if until.size >= max && !until.contains(project) then until.remove(until.minBy(_._2)._1)
+      until.update(project, now + downForMs)
+
+    /** Its worker app answered (also with an error): asked again. */
+    def markUp(project: String): Unit = locked(until.remove(project))
 
     def size: Int = locked(until.size)
   end DownList

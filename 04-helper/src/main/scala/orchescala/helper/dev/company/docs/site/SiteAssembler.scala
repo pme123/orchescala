@@ -149,18 +149,22 @@ object SiteAssembler:
         os.write.over(target / "PostmanOpenApi.yml", postman)
         os.write.over(target / "PostmanOpenApi.html", apiPage)
       val diagramDirs = Seq("src/main/resources/camunda", "src/main/resources/camunda8").map(projectRepo.path)
-      val diagrams    = diagramDirs.flatMap: dir =>
+      // the site has one folder of diagrams (the page links them by name). camunda8 over camunda - a
+      // project with both engines has the same diagram in both, as before the later one is shown; the
+      // same name twice within one of them: the first is taken, said
+      val byName = diagramDirs.foldLeft(Map.empty[String, String]): (taken, dir) =>
         // -z: the names as they are (without it git quotes non-ASCII names, and git show finds none)
-        gitOut(repo, "ls-tree", "-r", "-z", "--name-only", ref, "--", dir)
+        val files = gitOut(repo, "ls-tree", "-r", "-z", "--name-only", ref, "--", dir)
           .map(new String(_, java.nio.charset.StandardCharsets.UTF_8)).toSeq
           .flatMap(_.split('\u0000').toSeq.filter(_.nonEmpty))
           .filter(f => f.endsWith(".bpmn") || f.endsWith(".dmn"))
-      // the site has one folder of diagrams (the page links them by name): the same name twice - the first
-      // is taken, said
-      diagrams.groupBy(_.split("/").last).toSeq.sortBy(_._1).foreach: (name, files) =>
-        if files.size > 1 then
-          println(s"  ! ${projectRepo.project}: ${files.size} diagrams named $name - ${files.head} taken (${files.tail.mkString(", ")} not)")
-        gitShow(repo, at(files.head)).foreach(b => os.write.over(target / "diagrams" / name, b))
+        val inDir = files.groupBy(_.split("/").last).toSeq.sortBy(_._1).map: (name, same) =>
+          if same.size > 1 then
+            println(s"  ! ${projectRepo.project}: ${same.size} diagrams named $name - ${same.head} taken (${same.tail.mkString(", ")} not)")
+          name -> same.head
+        taken ++ inDir
+      byName.toSeq.sortBy(_._1).foreach: (name, file) =>
+        gitShow(repo, at(file)).foreach(b => os.write.over(target / "diagrams" / name, b))
       yml
 
   /** The default branch of the clone: `origin/HEAD`, else `origin/main` / `origin/master` (a clone made
