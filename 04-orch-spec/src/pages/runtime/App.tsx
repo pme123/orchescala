@@ -123,8 +123,10 @@ export default function App() {
           <div className="ml-auto flex flex-shrink-0 items-center gap-3">
             {user && (
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
-                <span>{user.profile.name ?? user.profile.preferred_username}</span>
-                <button onClick={() => logout()} title="Abmelden" className={`rounded p-1 transition-colors ${c.icon}`}>
+                {/* der Name erst ab sm, gekürzt - auf dem Handy reicht der Platz neben Logo und Knöpfen nicht */}
+                <span className="hidden max-w-[12rem] truncate sm:inline">{user.profile.name ?? user.profile.preferred_username}</span>
+                <button onClick={() => logout()} title={`Abmelden (${user.profile.name ?? user.profile.preferred_username ?? ''})`}
+                  className={`rounded p-1 transition-colors ${c.icon}`}>
                   <LogOut size={12} />
                 </button>
               </div>
