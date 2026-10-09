@@ -237,7 +237,9 @@ case class ProjectsPerGitRepoConfig(
       ZIO
         .attempt:
           val gitRepo = s"$cloneBaseUrl/orchescala-$companyName.git"
-          updateProject(gitDir / s"orchescala-$companyName", gitRepo)
+          val clone   = gitDir / s"orchescala-$companyName"
+          // the same once as initProject - the docs run after it does not pull again
+          ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, gitRepo))
         .flatMap: _ =>
           ZIO.foreachPar(projects): project =>
             ZIO.attempt:
