@@ -21,7 +21,7 @@ import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
-import { dataBelow, overallStatus, statusParts, stepStatuses, withDataStatus } from '../status';
+import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
@@ -1096,6 +1096,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   findings={findings}
                   interactionOf={id => (spec.interactions ?? []).find(i => i.stepId === id) ?? null}
                   dataBelowOf={s => dataBelow(s, spec)}
+                  startClassesOf={s => startClasses(s, spec)}
                   serviceOf={s => catalogEntry(s, model)}
                   processId={spec.processId ?? ''}
                   hasCatalog={!!model?.services?.length}
@@ -1309,6 +1310,8 @@ interface ListProps {
   dataBelowOf: (step: Step) => { status: Status; typeId: string | null; label: string } | null;
   /** springt ins Datenmodell zu einer Klasse */
   onOpenType: (id: string) => void;
+  /** am Start des Prozesses: In, InitIn, InConfig (und tiefer stehende Klassen) — siehe status.ts */
+  startClassesOf: (step: Step) => Array<{ id: string; name: string; status: Status | null; below: boolean }>;
   /** Katalog-Eintrag eines fremden Services — teal; fehlt er, rot */
   serviceOf: (step: Step) => ServiceDef | null;
   /** springt ins Datenmodell zur Interaktion */
@@ -1460,16 +1463,16 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             {iaBelow && <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[iaBelow].dark : STATUS_META[iaBelow].light}`}>{STATUS_META[iaBelow].label}</span>}
           </button>
         )}
-        {/* der Start des Prozesses: seine Klassen (In, InitIn, …), wenn eine tiefer steht */}
-        {!ia && below && (
-          <button onClick={e => { e.stopPropagation(); if (below.typeId) p.onOpenType(below.typeId); }}
-            title={`Datenmodell des Prozesses: «${below.label}» erst «${STATUS_META[below.status].label}» — zum Datenmodell`}
+        {/* der Start des Prozesses: In, InitIn, InConfig — mit Status, wo er tiefer steht als der Start */}
+        {!ia && p.startClassesOf(step).map(k => (
+          <button key={k.id} onClick={e => { e.stopPropagation(); p.onOpenType(k.id); }}
+            title={`Datenmodell des Prozesses: «${k.name}»${k.below && k.status ? ` erst «${STATUS_META[k.status].label}»` : ''} — zum Datenmodell`}
             className={`hidden md:inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[14rem] ${
               p.isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20' : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
-            <span className="truncate">{below.label}</span>
-            <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[below.status].dark : STATUS_META[below.status].light}`}>{STATUS_META[below.status].label}</span>
+            <span className="truncate">{k.name}</span>
+            {k.below && k.status && <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[k.status].dark : STATUS_META[k.status].light}`}>{STATUS_META[k.status].label}</span>}
           </button>
-        )}
+        ))}
         {/* Pattern am Schritt */}
         {step.patterns?.map((pt, i) => (
           <span key={`${pt.id}-${i}`} className="hidden md:inline-flex"><PatternChip name={p.patternName(pt.id)} params={pt.params} isDark={p.isDark} /></span>

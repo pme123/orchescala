@@ -67,3 +67,20 @@ test('the start carries the classes of the process; a new step status applies to
   assert.equal(overallStatus(next), 'accepted');
   assert.equal(dataBelow(next.steps[1], next), null);
 });
+
+test('at the start: In, InitIn, InConfig always - other classes only when lower', async () => {
+  const { startClasses } = await import('../src/status');
+  const spec = {
+    steps: [step('Start', 'accepted', { kind: 'start' })],
+    types: [
+      { id: 'a', name: 'Address', kind: 'case', status: 'review' },
+      { id: 'c', name: 'InConfig', kind: 'case', status: 'accepted', inConfig: true },
+      { id: 'i', name: 'In', kind: 'case', status: 'changed', root: true },
+      { id: 'n', name: 'InitIn', kind: 'case', status: 'accepted', initIn: true },
+      { id: 'o', name: 'Out', kind: 'case', status: 'accepted', processOut: true },
+    ],
+    interactions: [],
+  } as unknown as ProcessSpec;
+  assert.deepEqual(startClasses(spec.steps[0], spec).map(k => `${k.name}${k.below ? ` [${k.status}]` : ''}`),
+    ['In [changed]', 'InitIn', 'InConfig', 'Address [review]']);
+});
