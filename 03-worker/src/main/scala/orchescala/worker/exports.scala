@@ -182,11 +182,9 @@ object WorkerError:
     val errorCode: ErrorCodes = ErrorCodes.`custom-run-error`
 
   object RefusedRequest:
-    // they belong to the token check, not to the worker
-    private val authStatuses = Set(401, 403, 407)
-
+    // the same rule as for forwarding to a worker app
     private[worker] def isRefusal(status: Int): Boolean =
-      status >= 400 && status < 500 && !authStatuses.contains(status)
+      orchescala.engine.domain.EngineError.ServiceRequestError.isRefusal(status)
 
   case class UnexpectedRunError(
       errorMsg: String

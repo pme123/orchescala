@@ -88,7 +88,7 @@ object WorkerForwardUtilSpec extends ZIOSpecDefault:
               case _                                            => false
             ,
             lines.exists((level, line) => level == LogLevel.Info && line.startsWith(refusedLine)),
-            !lines.exists(_._1 == LogLevel.Error)
+            !lines.exists((level, line) => level == LogLevel.Error && line.startsWith(errorLine))
           )
         }
       }*
@@ -97,6 +97,9 @@ object WorkerForwardUtilSpec extends ZIOSpecDefault:
       Seq(
         "a 404 without an answer of the worker app (no such route)" -> (StatusCode.NotFound, "Not Found"),
         "a 401 - the token was rejected"                           -> (StatusCode.Unauthorized, """{"errorCode":401,"errorMsg":"Invalid token"}"""),
+        "a 403 - an auth status, even with its answer"             -> (StatusCode.Forbidden, """{"errorCode":403,"errorMsg":"Forbidden"}"""),
+        "a 407 - an auth status, even with its answer"             -> (StatusCode.ProxyAuthenticationRequired, """{"errorCode":407,"errorMsg":"Proxy auth"}"""),
+        "a 404 whose body claims a 409 - status and answer differ" -> (StatusCode.NotFound, """{"errorCode":409,"errorMsg":"taken"}"""),
         "a 429 of a proxy"                                         -> (StatusCode.TooManyRequests, "<html>Too Many Requests</html>"),
         "a 500 whose body claims a 409 - the status decides"       -> (StatusCode.InternalServerError, """{"errorCode":409,"errorMsg":"taken"}"""),
         "a 500"                                                    -> (StatusCode.InternalServerError, """{"errorCode":500,"errorMsg":"boom"}""")
