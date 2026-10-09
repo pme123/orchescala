@@ -173,9 +173,10 @@ class OpenApiRoutes()(using config: GatewayConfig):
   /** Why a docs request did not reach the worker app - the status the gateway answers with. */
   private case class DocsFailure(status: Status, message: String)
 
-  /** A worker app that did not answer (503) is not asked again for this long: the rest of the page (yml,
-    * diagrams) comes from the site at once, the same release as its OpenApi.html - not a mix with live
-    * files. Only 503 counts, never 500 or 502.
+  /** A worker app that did not answer at all (not reachable, no answer in time) is not asked again for
+    * this long: the rest of the page (yml, diagrams) comes from the site at once, the same release as its
+    * OpenApi.html. A worker app that answers stays live - also when it gives a 503 of its own for one
+    * file: that file comes from the site, the others stay its own (a page may then mix the two).
     */
   private[gateway] val DocsDownFor = 10.seconds
   // per instance - the gateway makes one (GatewayServer); keyed by project: the docs URL depends on the

@@ -349,7 +349,8 @@ object ProjectsPerGitRepoConfig:
       val start = now // read once
       state.failed match
         // failed just now: the same failure, not another pull per project - a new one per caller (one
-        // instance on many threads would collect their suppressed errors)
+        // instance on many threads would collect their suppressed errors). Only git's failures pass here,
+        // no typed errors of the docs (ReleaseNotFound comes after the clone)
         case Some((at, e)) if start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
         case _ if state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
         case _ =>
