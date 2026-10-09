@@ -231,6 +231,9 @@ test('alphaOf - the opacity itself; the page background check uses it', () => {
   assert.deepEqual(rgb255('hsl(240, 100%, 50%)'), [0, 0, 255]);
   assert.deepEqual(rgb255('hsla(0, 100%, 25%, 1)'), [128, 0, 0]);
   assert.deepEqual(rgb255('rgb(200% 0% 0%)'), [255, 0, 0]); // over 100%: 100%
+  // fewer than three components never reach the conversion: COLOR refuses them
+  for (const c of ['hsl(120)', 'hsl(120, 50%)', 'rgb(1, 2)', 'hsl(120 50%)'])
+    assert.equal(rgbOf(c), null, c);
 });
 
 test('parseThemeFile - a plain object is a theme only with theme keys alone', () => {
@@ -279,7 +282,9 @@ test('parseThemeFile - JSON null is JSON, but no theme', () => {
 });
 
 test('cleanLogo - the SVG walked and cleaned: scripts, handlers and outside links dropped, the rest kept', () => {
-  // the browser's parser and serializer, from linkedom (it has no XMLSerializer: a document's toString is its XML)
+  // the browser's parser and serializer, from linkedom (it has no XMLSerializer: a document's toString is its XML).
+  // So this tests the walk, not the browser's serialization (checked by hand). The globals are set for this test
+  // only - fine while the tests of a file run one after the other (node:test without `concurrency`)
   const g = globalThis as unknown as { DOMParser?: unknown; XMLSerializer?: unknown };
   g.DOMParser = DOMParser;
   g.XMLSerializer = class { serializeToString = (doc: Document) => doc.toString(); };
