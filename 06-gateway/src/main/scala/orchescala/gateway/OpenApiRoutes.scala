@@ -268,6 +268,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
                               .addHeader(Header.ContentType(contentType))
                               .addHeader("X-Content-Type-Options", "nosniff")
                           )
+                        // its own 503 (e.g. restarting): not there, as a timeout - the released file;
+                        // any other error is its answer (502)
+                        case Left(err) if response.code.code == 503 =>
+                          ZIO.logWarning(s"Docs service '$projectName' unavailable (503): $err")
+                            .as(Response.status(Status.ServiceUnavailable))
                         case Left(err)   =>
                           ZIO.logError(
                             s"Error response from docs service '$projectName': $err"

@@ -97,7 +97,9 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val marker = s".${dest.last}.orch-export-"
     // older than an export may take - a younger one may be another run's, at work right now
     val stale  = System.currentTimeMillis - ProjectRepo.ExportTimeoutMs
-    os.list(dest / os.up).filter(p => p.last.startsWith(marker) && os.mtime(p) < stale).foreach(os.remove.all)
+    // (with their .git-archive.err - the same marker); one another export removes meanwhile is no error
+    os.list(dest / os.up).filter(_.last.startsWith(marker))
+      .foreach(p => scala.util.Try(if os.mtime(p) < stale then os.remove.all(p)))
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = marker)
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"

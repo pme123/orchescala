@@ -261,8 +261,11 @@ case class ProjectsPerGitRepoConfig(
       // parallel (DocCreator); then the project is copied from it. (It ran nothing before: the ZIO it
       // built was dropped.)
       val clone      = gitDir / s"orchescala-$companyName"
-      ProjectsPerGitRepoConfig.once(clone):
-        updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")
+      // offline or origin away: the clone that is there still serves (its tags) - only without one it fails
+      scala.util.Try(ProjectsPerGitRepoConfig.once(clone)(updateProject(clone, s"$cloneBaseUrl/orchescala-$companyName.git")))
+        .failed.foreach: e =>
+          if os.exists(clone / ".git") then println(s"  ! $clone not updated (${e.getMessage}) - the clone as it is")
+          else throw e
       val gitTemp    = clone / "projects" / projectName
       val projectGit = gitDir / projectName
       println(s"Copy initProject $gitTemp to $projectGit")
@@ -312,9 +315,10 @@ object ProjectsPerGitRepoConfig:
     val state = updates.computeIfAbsent(clone, _ => Update())
     state.lock.lock()
     try
-      if state.doneAt == Long.MinValue || now - state.doneAt >= UpdateValidMs then
+      val start = now // read once
+      if state.doneAt == Long.MinValue || start - state.doneAt >= UpdateValidMs then
         update
-        state.doneAt = now
+        state.doneAt = start
     finally state.lock.unlock()
 end ProjectsPerGitRepoConfig
 

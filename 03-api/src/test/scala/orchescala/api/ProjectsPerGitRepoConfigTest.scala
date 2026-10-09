@@ -46,6 +46,35 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       assertEquals(os.read(gitTemp / p / "PROJECT.conf"), s"name = $p\n")
       assert(!os.exists(gitTemp / p / ".git")) // a copy - the history is the company clone's
 
+  test("initProject (single repo) - a remote that is not there: an error, nothing copied"):
+    val config  = ProjectsPerGitRepoConfig(
+      cloneBaseUrl = (os.temp.dir(prefix = "remotes") / "none").toString,
+      projects = Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))),
+      singleRepo = true
+    )
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    intercept[Exception]:
+      Console.withOut(java.io.ByteArrayOutputStream())(config.initProject(gitTemp, "acme-shop", "acme"))
+    assert(!os.exists(gitTemp / "acme-shop"))
+
+  test("initProject (single repo) - the remote gone, the clone there: it serves as it is"):
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    val clone   = gitTemp / "orchescala-acme"
+    os.write(clone / ".gitignore", "target/\n", createFolders = true)
+    os.write(clone / "projects" / "acme-shop" / "PROJECT.conf", "name = acme-shop\n", createFolders = true)
+    git(clone, "init", "-q")
+    git(clone, "add", ".")
+    git(clone, "commit", "-q", "-m", "projects")
+    val config  = ProjectsPerGitRepoConfig(
+      cloneBaseUrl = (os.temp.dir(prefix = "remotes") / "none").toString,
+      projects = Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))),
+      singleRepo = true
+    )
+    val out     = java.io.ByteArrayOutputStream()
+    Console.withOut(out)(config.initProject(gitTemp, "acme-shop", "acme"))
+    assert(out.toString.contains("not updated"), out.toString)
+    assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "name = acme-shop\n")
+
   test("once - an update counts UpdateValidMs, then the next run updates again"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0

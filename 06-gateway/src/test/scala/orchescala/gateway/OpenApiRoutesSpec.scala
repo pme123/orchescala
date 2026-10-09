@@ -215,6 +215,25 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         held.size == 1 // the worker app did not answer just now: not asked again
       )).ensuring(ZIO.succeed { stuck.close(); held.forEach(_.close()) })
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
+    test("a worker app that answers 503 (restarting): the released file; one that answers 500: passed on (502)") {
+      def server(code: Int) =
+        val srv = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress, 0), 0)
+        srv.createContext("/", ex => { ex.sendResponseHeaders(code, -1); ex.close() })
+        srv.start()
+        srv
+      def routes(port: Int) = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port"))).routes
+      ZIO.acquireRelease(ZIO.succeed(server(503) -> server(500)))((a, b) => ZIO.succeed { a.stop(0); b.stop(0) })
+        .flatMap: (restarting, broken) =>
+          for
+            released <- routes(restarting.getAddress.getPort).runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
+            body     <- released.body.asString
+            passed   <- routes(broken.getAddress.getPort).runZIO(Request.get(URL.decode("/site/acme/acme-shop/OpenApi.yml").toOption.get))
+          yield assertTrue(
+            released.status == Status.Ok,
+            body.contains("acme-shop (released)"),
+            passed.status == Status.BadGateway
+          )
+    } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("DownList - 503 down for the window, a good answer clears it, at most max projects") {
       val down = OpenApiRoutes.DownList(downForMs = 30000, max = 2)
       down.answered("shop", Status.ServiceUnavailable, now = 0)
