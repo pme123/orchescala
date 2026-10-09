@@ -90,6 +90,21 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     Console.withOut(java.io.ByteArrayOutputStream()):
       intercept[Exception](config.updateSingleRepoClone("acme-shop", gitTemp, "acme"))
 
+  test("initProject (single repo) - a project not (yet) in the company repo: a clear error"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    val work    = os.temp.dir(prefix = "work")
+    os.write(work / ".gitignore", "target/\n")
+    os.write(work / "projects" / "acme-shop" / "PROJECT.conf", "name = acme-shop\n", createFolders = true)
+    git(work, "init", "-q")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "projects")
+    os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / "orchescala-acme.git").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    val config  = ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-later", ProjectGroup("acme"))), singleRepo = true)
+    val err     = Console.withOut(java.io.ByteArrayOutputStream()):
+      intercept[Exception](config.initProject(os.temp.dir(prefix = "git-temp"), "acme-later", "acme"))
+    assert(err.getMessage.contains("acme-later is not in the company repo"), err.getMessage)
+
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0

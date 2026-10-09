@@ -92,7 +92,8 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     // what the machine or the repo lacks - an error of the run, not of the code (require is for those)
     def fail(why: String) = throw new Exception(why)
     if !ProjectRepo.hasTar then
-      fail("exporting a release needs a tar on the PATH with --no-same-owner and --strip-components (GNU tar or bsdtar)")
+      fail("exporting a release needs a tar on the PATH with --no-same-owner and --strip-components " +
+        "(GNU tar or bsdtar - Linux, macOS; not checked on Windows)")
     if repo.startsWith(dest) then fail(s"$dest holds the clone $repo - not emptied")
     if !existsAt(ref) then fail(s"$project is not in $repo at $ref")
     // into a folder next to dest - dest is replaced only when everything is there
@@ -185,11 +186,11 @@ object ProjectRepo:
   /** A tar that takes what exportTo gives it - `--no-same-owner` and `--strip-components` (GNU tar,
     * bsdtar; not e.g. busybox's): tried on an empty archive.
     */
+  @volatile private var tarChecked = false
   private[site] def hasTar: Boolean = tarChecked || {
     tarChecked = checkTar() // only a «yes» is kept - a check that failed by chance is tried again
     tarChecked
   }
-  @volatile private var tarChecked = false
   private def checkTar(): Boolean =
     Try:
       val empty = os.proc("tar", "-c", "-f", "-", "-T", "/dev/null").call(stdout = os.Pipe, stderr = os.Pipe).out.bytes

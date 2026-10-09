@@ -320,8 +320,12 @@ trait DocCreator extends DependencyCreator, Helpers:
           .call(cwd = projectPath, stdout = os.Pipe)
           .out.text()
 
-      candidates.find(c => remoteTags.contains(s"refs/tags/$c"))
-        .getOrElse(throw ReleaseNotFound(s"Tag not found: ${candidates.mkString(" or ")}"))
+      // fetched just now and still not here: on origin it would be a tag git did not take (moved there,
+      // «would clobber») - said clearly, not left to an opaque failing checkout
+      candidates.find(c => remoteTags.contains(s"refs/tags/$c")) match
+        case Some(tag) =>
+          throw ReleaseNotFound(s"Tag $tag is on origin but not in $projectPath after the fetch - moved there? (see above)")
+        case None      => throw ReleaseNotFound(s"Tag not found: ${candidates.mkString(" or ")}")
     }
   end resolveTagRef
 

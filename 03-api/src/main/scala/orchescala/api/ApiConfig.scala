@@ -278,6 +278,8 @@ case class ProjectsPerGitRepoConfig(
       // built was dropped.)
       val clone      = updateClone(gitDir, companyName)
       val gitTemp    = clone / "projects" / projectName
+      if !os.isDir(gitTemp) then
+        throw new Exception(s"$projectName is not in the company repo $clone (no projects/$projectName)")
       val projectGit = gitDir / projectName
       println(s"Copy initProject $gitTemp to $projectGit")
       if os.exists(projectGit) then
@@ -339,11 +341,11 @@ object ProjectsPerGitRepoConfig:
   private[api] val FailedUpdateValidMs = 30 * 1000L
   private val updates = ConcurrentHashMap[os.Path, Update]()
 
-  /** `update` of a clone once per run - a caller at the same time waits for it, then goes on; a failed
-    * update is tried again by the next caller, a successful one counts `UpdateValidMs` (as the tag fetch
-    * of the docs): a process that runs on (an sbt server) pulls again for its next docs run.
+  /** `update` of a clone once per run - a caller at the same time waits for it, then goes on. A successful
+    * update counts `UpdateValidMs` (as the tag fetch of the docs: a process that runs on pulls again for
+    * its next docs run), a failed one `FailedUpdateValidMs` - its callers get that failure again.
+    * @param force read under the lock - e.g. «the clone is gone»: then it updates whatever the last time
     */
-  /** @param force read under the lock - e.g. «the clone is gone»: then it updates whatever the last time */
   private[api] def once(clone: os.Path, now: => Long = System.currentTimeMillis(), force: => Boolean = false)(
       update: => Unit
   ): Unit =
