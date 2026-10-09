@@ -39,7 +39,8 @@ export default function App() {
   const embedded = new URLSearchParams(window.location.search).has('embed');
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  // ein Logo des Themes, das nicht lädt (404, blockiert) - seine Adresse: dann wie ohne Logo
+  // ein Logo des Themes, das nicht lädt (404, blockiert) - seine Adresse: dann wie ohne Logo; ein anderes
+  // Logo wird wieder versucht, dasselbe erst nach dem Neuladen der Seite
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
 
   useEffect(() => {
@@ -132,8 +133,9 @@ export default function App() {
             </button>
             {/* der Name am Link - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
             <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="z9nai GmbH"
-              className={`flex items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
-              {/* ohne eigenes Logo zeigt die App links schon das von z9nai: dann nur der Text, auf jeder Breite */}
+              className={`${logo ? 'flex' : 'hidden sm:flex'} items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
+              {/* ohne eigenes Logo zeigt die App links schon das von z9nai: dann nur der Text, und unter sm
+                  gar nichts - neben Benutzer und Knopf ist dort kein Platz für ihn */}
               <span className={logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
               {logo && <img src={`${base}favicon.png`} alt="" className="h-5 w-5" />}
             </a>
