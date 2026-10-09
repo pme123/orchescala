@@ -17,7 +17,12 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
 
   // the worker apps of the projects: none - a closed port on this machine, refused at once (the default
   // docsAppUrl could reach a real worker app of the developer, e.g. on localhost:5555)
-  private val noWorkerApps = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some("http://127.0.0.1:9")))
+  private val noWorkerApps =
+    // a port taken and closed again - refused at once, without relying on a «well-known closed» port
+    val closed = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress)
+    val port   = closed.getLocalPort
+    closed.close()
+    OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port")))
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("OpenApiRoutes")(
     test("needsCanonicalSiteRedirect only redirects the exact /site path") {
