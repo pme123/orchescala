@@ -68,6 +68,11 @@ opens the public site and downloads its logo. What it produces, the theme file, 
    It picks the primary colour (the most frequent coloured button, else link colour), maps the font to
    a system stack and the corners to `none/sm/md/lg/xl`, chooses the text on the primary colour by
    contrast, and prints the theme and any `WARN` lines (contrast below 4.5:1, no primary colour found).
+   A PNG logo on a white box becomes transparent in light mode (an `INFO` line says so): the box would
+   show on the app's header, which is not pure white. Its edges are unmixed from the white, so no light
+   seam stays. A logo that is already transparent, whose corners are not white, or a theme in dark mode
+   (a dark logo would vanish) stays as it is; `--keep-logo-background` keeps the box. A JPEG/GIF/WebP
+   cannot be cleared (`WARN`) - look for a PNG or SVG.
 
 6. **Check the choice** with the user before they import it: show the colours (hex), font and corners
    and mention any warning. If the primary colour is clearly wrong (e.g. a promo banner colour), rerun
@@ -85,5 +90,6 @@ opens the public site and downloads its logo. What it produces, the theme file, 
 - Background, surfaces and text apply in the theme's own mode (`mode`: `light` from a light site,
   `dark` from a dark one); primary colour, font and corners in both. `mode` is also the default - a
   user who switches gets the z9nai colours of the other mode, with the bank's primary colour.
-- Keep the file next to the project (e.g. `spec/pages/` of the project or the customer's folder) so
-  it can be imported again.
+- Keep the file next to the project so it can be imported again - e.g. `spec/themes/` of the
+  project or the customer's folder, **not** `spec/pages/`: `build:pages` reads every `*.json` there as a
+  page and stops at the theme file.

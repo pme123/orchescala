@@ -8,7 +8,8 @@ taken from it; --primary / --background / --text / --font / --radius override th
 { kind: 'orch-theme', version: 1, name, source, theme }. Before it is written, problems() checks it
 like orch-spec's themeProblem (04-orch-spec/src/pages/runtime/theme.ts) - a stricter subset, for what
 this script writes: colours as #rrggbb, a known radius and mode, a font without CSS syntax, the logo as an image
-data: URI up to 200 KB.
+data: URI up to 200 KB. A PNG logo on a white box becomes transparent in light mode (--keep-logo-background
+leaves it).
 """
 import argparse
 import base64
@@ -242,7 +243,114 @@ def sniff_image(data):
     return None
 
 
-def logo_uri(path, symbol_id=None):
+def png_rgba(data):
+    """A PNG -> (width, height, rows of RGBA bytes); None for what it does not read (16 bit, interlaced,
+    under 8 bit) - pure Python, no Pillow. Types: grey, RGB, palette (with tRNS), grey+alpha, RGBA."""
+    import struct
+    import zlib
+    pos, idat, ihdr, plte, trns = 8, b'', None, b'', b''
+    while pos + 8 <= len(data):
+        n, typ = struct.unpack('>I4s', data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        pos += 12 + n
+        if typ == b'IHDR':
+            ihdr = body
+        elif typ == b'PLTE':
+            plte = body
+        elif typ == b'tRNS':
+            trns = body
+        elif typ == b'IDAT':
+            idat += body
+        elif typ == b'IEND':
+            break
+    if not ihdr or len(ihdr) < 13:
+        return None
+    w, h, depth, ctype, _, _, interlace = struct.unpack('>IIBBBBB', ihdr[:13])
+    bpp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(ctype)
+    if depth != 8 or interlace or bpp is None or (ctype == 3 and not plte):
+        return None
+    try:
+        raw = zlib.decompress(idat)
+    except zlib.error:
+        return None
+    stride = w * bpp
+    if len(raw) < h * (stride + 1):
+        return None
+    rows, prev, i = [], bytearray(stride), 0
+    for _ in range(h):
+        f, line = raw[i], bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        for x in range(stride):
+            a = line[x - bpp] if x >= bpp else 0
+            b = prev[x]
+            if f == 1:
+                line[x] = (line[x] + a) & 255
+            elif f == 2:
+                line[x] = (line[x] + b) & 255
+            elif f == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif f == 4:
+                c = prev[x - bpp] if x >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        prev = line
+        if ctype == 6:
+            rows.append(bytes(line))
+        elif ctype == 2:
+            rows.append(b''.join(bytes(line[3 * x:3 * x + 3]) + b'\xff' for x in range(w)))
+        elif ctype == 0:
+            rows.append(b''.join(bytes((g, g, g, 255)) for g in line))
+        elif ctype == 4:
+            rows.append(b''.join(bytes((line[2 * x],) * 3 + (line[2 * x + 1],)) for x in range(w)))
+        else:
+            rows.append(b''.join(plte[3 * p:3 * p + 3] + bytes((trns[p] if p < len(trns) else 255,)) for p in line))
+    return w, h, rows
+
+
+def png_encode(w, h, rows):
+    """RGBA rows -> a PNG (filter 0 - zlib does the rest)."""
+    import struct
+    import zlib
+    chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    raw = b''.join(b'\x00' + r for r in rows)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
+
+
+def clear_white_png(data):
+    """A PNG logo on a white box -> the same logo on transparent: (png, None). The white is taken out
+    of each pixel ("unmixed"), so the soft edges of the letters keep their colour and leave no light
+    seam on a grey header. Unchanged, with the reason: (data, reason) - a logo that is already
+    transparent, whose corners are not white, or a PNG this script does not read."""
+    img = png_rgba(data)
+    if img is None:
+        return data, 'PNG nicht gelesen (16 Bit oder interlaced)'
+    w, h, rows = img
+    if any(rows[y][x + 3] < 255 for y in range(h) for x in range(0, 4 * w, 4)):
+        return data, None  # already transparent - nothing to do, nothing to say
+    corners = [rows[y][4 * x:4 * x + 3] for y in (0, h - 1) for x in (0, w - 1)]
+    if not all(min(c) >= 245 for c in corners):
+        return data, 'Ecken nicht weiss'
+    out = []
+    for row in rows:
+        line = bytearray()
+        for x in range(0, 4 * w, 4):
+            r, g, b = row[x:x + 3]
+            alpha = 255 - min(r, g, b)
+            if alpha <= 6:  # white, or nearly - compression noise of the box
+                line += b'\x00\x00\x00\x00'
+                continue
+            unmix = lambda v: max(0, min(255, round(255 - (255 - v) * 255 / alpha)))
+            line += bytes((unmix(r), unmix(g), unmix(b), alpha))
+        out.append(bytes(line))
+    return png_encode(w, h, out), None
+
+
+def logo_uri(path, symbol_id=None, clear_white=False, notes=None):
+    """The logo as a data: URI. clear_white: a PNG on a white box becomes transparent (clear_white_png);
+    what happened goes to `notes` (a list), if given."""
+    notes = [] if notes is None else notes
     try:
         with open(path, 'rb') as f:
             data = f.read()
@@ -256,6 +364,15 @@ def logo_uri(path, symbol_id=None):
         data = svg_symbol(data, symbol_id) if symbol_id else ET.tostring(parse_svg(data), encoding='utf-8')
     elif symbol_id:
         sys.exit(f'--logo-id gibt es nur für eine SVG-Sprite-Datei - {path} ist {mime}.')
+    elif clear_white and mime == 'image/png':
+        cleared, reason = clear_white_png(data)
+        if cleared is not data:
+            data = cleared
+            notes.append('INFO Logo: weissen Hintergrund transparent gemacht (--keep-logo-background lässt ihn).')
+        elif reason:
+            notes.append(f'INFO Logo: Hintergrund gelassen - {reason}.')
+    elif clear_white and mime in ('image/jpeg', 'image/gif', 'image/webp'):
+        notes.append(f'WARN Logo ist {mime[6:].upper()} - ein weisser Hintergrund bleibt; ein PNG oder SVG ohne Hintergrund suchen.')
     if len(data) > MAX_LOGO:
         sys.exit(f'Das Logo hat {len(data) // 1024} KB - bis 200 KB (z.B. als SVG oder kleiner skaliert).')
     return f'data:{mime};base64,{base64.b64encode(data).decode()}'
@@ -308,6 +425,8 @@ def main():
     ap.add_argument('--name', required=True)
     ap.add_argument('--logo')
     ap.add_argument('--logo-id', help='the symbol in an SVG sprite file (logoSpriteId of extract.js)')
+    ap.add_argument('--keep-logo-background', action='store_true',
+                    help='a PNG logo on a white box stays as it is (else: transparent, in light mode)')
     ap.add_argument('--primary')
     ap.add_argument('--background')
     ap.add_argument('--text')
@@ -350,8 +469,11 @@ def main():
     unread = unread_colours(ex)
     if unread:
         warnings.append('Farben der Seite nicht gelesen (übergangen): ' + ', '.join(unread[:5]))
+    notes = []
     if a.logo:
-        theme['logo'] = logo_uri(a.logo, a.logo_id)
+        # a white box around the logo shows on any header that is not pure white - in dark mode it stays:
+        # there a dark logo would vanish without it
+        theme['logo'] = logo_uri(a.logo, a.logo_id, clear_white=not a.keep_logo_background and theme['mode'] == 'light', notes=notes)
     theme = {k: v for k, v in theme.items() if v}
     found = problems(theme)
     if found:
@@ -365,6 +487,8 @@ def main():
     print(json.dumps(shown, indent=2, ensure_ascii=False))
     for w in warnings:
         print('WARN', w)
+    for n in notes:
+        print(n)
 
 
 if __name__ == '__main__':
