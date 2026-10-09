@@ -114,10 +114,10 @@ export default function App() {
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
           {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
           {logo
-            ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-40 flex-shrink-0 object-contain" />
+            ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-28 flex-shrink-0 object-contain sm:max-w-40" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 flex-shrink-0 opacity-80" />}
           {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab sm - auf dem Handy ist kein Platz für ihn) -
-              Logo, Knöpfe und Byline behalten ihren Platz */}
+              Logo, Knöpfe und Byline behalten ihren Platz; das Logo auf dem Handy schmaler, damit vom Titel etwas bleibt */}
           <span title={app?.title} className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
           {app?.subtitle && <span title={app.subtitle} className={`hidden min-w-0 truncate text-[10px] sm:inline ${c.muted}`}>{app.subtitle}</span>}
           <div className="ml-auto flex flex-shrink-0 items-center gap-3">
@@ -125,7 +125,7 @@ export default function App() {
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
                 {/* der Name erst ab sm, gekürzt - auf dem Handy reicht der Platz neben Logo und Knöpfen nicht */}
                 <span className="hidden max-w-[12rem] truncate sm:inline">{user.profile.name ?? user.profile.preferred_username}</span>
-                <button onClick={() => logout()} title={`Abmelden (${user.profile.name ?? user.profile.preferred_username ?? ''})`}
+                <button onClick={() => logout()} title={logoutTitle(user.profile.name ?? user.profile.preferred_username)}
                   className={`rounded p-1 transition-colors ${c.icon}`}>
                   <LogOut size={12} />
                 </button>
@@ -149,6 +149,9 @@ export default function App() {
     </div>
   );
 }
+
+/** Der Tooltip des Abmelde-Knopfs - mit dem Namen, wenn es einen gibt (auf dem Handy steht er nur hier). */
+const logoutTitle = (name: string | undefined) => (name ? `Abmelden (${name})` : 'Abmelden');
 
 function Spinner({ isDark }: { isDark: boolean }) {
   return (
