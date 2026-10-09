@@ -101,6 +101,8 @@ case class SiteAssembler(docsDirs: Seq[os.Path], gitTemp: os.Path, out: os.Path)
     SpecCatalog.writeProjectColors(projectColors, out / "spec" / "catalog.generated.json")
     println(s"\nSite assembled in $out")
     println(s"  APIs: $apiOk at their defined version · $apiHead on HEAD (tag missing) · $apiMissing skipped")
+    if apiHead > 0 then
+      println(s"  ! $apiHead API(s) from the default branch, not from a release - tag them before publishing")
     out
   end assemble
 

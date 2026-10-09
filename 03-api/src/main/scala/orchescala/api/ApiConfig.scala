@@ -304,7 +304,9 @@ object ProjectsPerGitRepoConfig:
   private val updates = java.util.concurrent.ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on; a failed
-    * update is tried again by the next caller.
+    * update is tried again by the next caller. Per JVM, never again after it worked: made for the helper
+    * as a one-shot command (`./helper.scala prepareDocs`); a process that runs on (sbt server) pulls
+    * the clone only the first time.
     */
   private[api] def once(clone: os.Path)(update: => Unit): Unit =
     val state = updates.computeIfAbsent(clone, _ => Update())
