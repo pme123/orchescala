@@ -240,6 +240,24 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
             passed.status == Status.BadGateway
           )
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
+    test("not reachable: the project marked down - the next file from the site without asking") {
+      // a port that refuses: «not there» - the first file marks it, the second does not ask again
+      val closed = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress)
+      val port   = closed.getLocalPort
+      closed.close()
+      val api    = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port")))
+      def get(path: String) = api.routes.runZIO(Request.get(URL.decode(path).toOption.get))
+      for
+        first  <- get("/site/acme/acme-shop/OpenApi.yml")
+        marked  = api.docsDown.isDown("acme-shop", java.lang.System.currentTimeMillis)
+        second <- get("/site/acme/acme-shop/diagrams/shop.bpmn")
+      yield assertTrue(
+        first.status == Status.Ok, // the released file
+        marked,
+        second.status == Status.Ok,
+        second.rawHeader(api.DocsSourceHeader).contains("released")
+      )
+    } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("DownList - 503 down for the window, a good answer clears it, at most max projects") {
       val down = OpenApiRoutes.DownList(downForMs = 30000, max = 2)
       down.answered("shop", Status.ServiceUnavailable, now = 0)

@@ -105,6 +105,31 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       intercept[Exception](config.initProject(os.temp.dir(prefix = "git-temp"), "acme-later", "acme"))
     assert(err.getMessage.contains("acme-later is not in the company repo"), err.getMessage)
 
+  test("ProjectsConfig.initProject - one repo for all next to own repos: only the config with the project acts"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    def bare(name: String, files: Map[String, String]) =
+      val work = os.temp.dir(prefix = "work")
+      os.write(work / ".gitignore", "target/\n")
+      files.foreach((f, c) => os.write(work / os.RelPath(f), c, createFolders = true))
+      git(work, "init", "-q")
+      git(work, "add", ".")
+      git(work, "commit", "-q", "-m", "init")
+      os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / s"$name.git").toString)
+        .call(stdout = os.Pipe, stderr = os.Pipe)
+    bare("orchescala-acme", Map("projects/acme-shop/PROJECT.conf" -> "name = acme-shop\n"))
+    bare("acme-own", Map("PROJECT.conf" -> "name = acme-own\n"))
+    val config  = ProjectsConfig(perGitRepoConfigs = Seq(
+      ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-shop", ProjectGroup("acme"))), singleRepo = true),
+      ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-own", ProjectGroup("acme"))))
+    ))
+    val gitTemp = os.temp.dir(prefix = "git-temp")
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      config.initProject("acme-own", gitTemp, "acme") // the single repo config does not know it: no error
+      config.initProject("acme-shop", gitTemp, "acme")
+    assertEquals(os.read(gitTemp / "acme-own" / "PROJECT.conf"), "name = acme-own\n")
+    assert(os.exists(gitTemp / "acme-own" / ".git")) // its own clone
+    assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "name = acme-shop\n")
+
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0

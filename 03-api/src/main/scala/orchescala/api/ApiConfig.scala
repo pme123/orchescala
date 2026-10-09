@@ -253,7 +253,7 @@ case class ProjectsPerGitRepoConfig(
         .attemptBlocking(updateClone(gitDir, companyName)) // git - not on the compute pool
         .flatMap: _ =>
           ZIO.foreachPar(projects): project =>
-            ZIO.attempt:
+            ZIO.attemptBlocking: // copying - not on the compute pool
               val gitTemp    = gitDir / s"orchescala-$companyName" / "projects" / project.name
               val projectGit = project.absGitPath(gitDir)
               println(s"Copy init $gitTemp to $projectGit")
@@ -272,7 +272,8 @@ case class ProjectsPerGitRepoConfig(
     * thread (`ZIO.attemptBlocking`), as DocCreator does.
     */
   def initProject(gitDir: os.Path, projectName: String, companyName: String): Unit =
-    if singleRepo then
+    // ProjectsConfig asks every repo config - only the one with the project acts
+    if singleRepo && containsProject(projectName) then
       // the same clone as init - updated once per run, also when the projects of the company come here in
       // parallel (DocCreator); then the project is copied from it. (It ran nothing before: the ZIO it
       // built was dropped.)
@@ -285,7 +286,7 @@ case class ProjectsPerGitRepoConfig(
       if os.exists(projectGit) then
         os.remove.all(projectGit)
       os.copy(gitTemp, projectGit)
-    else
+    else if !singleRepo then
       projects.find(_.name == projectName)
         .foreach: project =>
           val gitRepo = s"$cloneBaseUrl/${project.name}.git"
