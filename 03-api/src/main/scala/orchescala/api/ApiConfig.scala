@@ -368,13 +368,14 @@ object ProjectsPerGitRepoConfig:
         case Some((at, e)) if !forced && start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
         case _ if !forced && state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
         case _ =>
+          // from its end, as the tag fetch: a slow clone does not use up the window it opens
           try
             update
-            state.doneAt = start
+            state.doneAt = now
             state.failed = None
           catch
             case NonFatal(e) =>
-              state.failed = Some(start -> e)
+              state.failed = Some(now -> e)
               throw e
     finally state.lock.unlock()
 end ProjectsPerGitRepoConfig

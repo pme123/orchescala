@@ -258,6 +258,18 @@ object OpenApiRoutesSpec extends ZIOSpecDefault:
         second.rawHeader(api.DocsSourceHeader).contains("released")
       )
     } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
+    test("not reachable, but no site folder of the project: not marked down (nothing to fall back to)") {
+      val closed = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress)
+      val port   = closed.getLocalPort
+      closed.close()
+      val api    = OpenApiRoutes()(using testConfig.copy(docsAppUrl = _ => Some(s"http://127.0.0.1:$port")))
+      for
+        answer <- api.routes.runZIO(Request.get(URL.decode("/site/acme/made-up-name/OpenApi.yml").toOption.get))
+      yield assertTrue(
+        answer.status == Status.ServiceUnavailable,
+        api.docsDown.size == 0 // a made-up name does not take a place in the list
+      )
+    } @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds),
     test("DownList - 503 down for the window, a good answer clears it, at most max projects") {
       val down = OpenApiRoutes.DownList(downForMs = 30000, max = 2)
       down.answered("shop", Status.ServiceUnavailable, now = 0)

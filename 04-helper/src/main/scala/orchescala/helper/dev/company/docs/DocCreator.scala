@@ -271,6 +271,11 @@ trait DocCreator extends DependencyCreator, Helpers:
                           throw ReleaseNotFound(s"${e.getMessage} - the company clone was not updated: $why")
       _           = exported match
         case Some(tag) => println(s"Exported $project at '$tag'")
+        // one repo for all, but the project not in its clone: said, not the own-clone path on no folder
+        case None if singleRepo =>
+          throw new Exception(
+            s"$project is not in the company repo ${gitBasePath / s"orchescala-${apiConfig.companyName}"} (no projects/$project)"
+          )
         case None =>
           // ensure all tags are present locally - once: resolveTagRef only reads what is there now
           val fetched = fetchAllTags(projectPath)

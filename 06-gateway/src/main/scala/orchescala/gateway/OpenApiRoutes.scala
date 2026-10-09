@@ -107,14 +107,14 @@ class OpenApiRoutes()(using config: GatewayConfig):
       // Rewrites relative "diagrams/" links so they resolve correctly under /docs/openApis/{projectName}/
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.html" -> handler {
         (companyName: String, projectName: String, _: Request) =>
-          forwardDocsRequest(projectName, Seq("docs"), MediaType.text.html)
+          forwardDocsRequest(companyName, projectName, Seq("docs"), MediaType.text.html)
             .flatMap(orSiteFile(companyName, projectName, "OpenApi.html", MediaType.text.html))
       },
 
       // Forward OpenApi.yml for a project worker app
       Method.GET / "site" / string("companyName") / string("projectName") / "OpenApi.yml" -> handler {
         (companyName: String, projectName: String, _: Request) =>
-          forwardDocsRequest(projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
+          forwardDocsRequest(companyName, projectName, Seq("docs", "OpenApi.yml"), MediaType.text.yaml)
             .flatMap(orSiteFile(companyName, projectName, "OpenApi.yml", MediaType.text.yaml))
       },
 
@@ -124,7 +124,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
       ) -> handler {
         (companyName: String, projectName: String, diagramName: String, _: Request) =>
           if isValidDiagramName(diagramName) then
-            forwardDocsRequest(projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
+            forwardDocsRequest(companyName, projectName, Seq("docs", "diagrams", diagramName), MediaType.application.xml)
               .flatMap(orSiteFile(companyName, projectName, s"diagrams/$diagramName", MediaType.application.xml))
           else ZIO.succeed(Response.status(Status.NotFound))
       },
@@ -239,6 +239,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
     * (and for DocsDownFor not asked again); its error answer: 502; a wrong URL: 500.
     */
   private def forwardDocsRequest(
+      companyName: String,
       projectName: String,
       path: Seq[String],
       contentType: MediaType
@@ -298,7 +299,12 @@ class OpenApiRoutes()(using config: GatewayConfig):
             // not reachable or no answer in time: down - the rest of the page from the site at once
             // (a warning: the page is served from the site - an error only for a wrong URL / client, 500)
             if docsFailure.status == Status.ServiceUnavailable then
-              ZIO.succeed(docsDown.answered(projectName, Status.ServiceUnavailable, nowMs)) *>
+              // marked down only with released files to fall back to (a site folder) - so names a client
+              // makes up do not fill the list and push out the real ones
+              ZIO.succeed(
+                if hasSiteFolder(companyName, projectName) then
+                  docsDown.answered(projectName, Status.ServiceUnavailable, nowMs)
+              ) *>
                 ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
                   .as(Response.status(docsFailure.status))
             else
@@ -654,6 +660,11 @@ class OpenApiRoutes()(using config: GatewayConfig):
 
           case _ =>
             Seq.empty
+
+  /** Has the docs site released files of the project (`site/<company>/<project>/`)? */
+  private def hasSiteFolder(companyName: String, projectName: String): Boolean =
+    isValidSiteFolder(companyName) && isValidProjectName(projectName) &&
+      classpathDirectoryExists(siteResourcePath(s"$companyName/$projectName"))
 
   private[gateway] def classpathResourceExists(resourcePath: String): Boolean =
     Option(getClass.getClassLoader.getResource(resourcePath.stripSuffix("/"))).nonEmpty
