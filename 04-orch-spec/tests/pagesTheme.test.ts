@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { homeParams } from '../src/pages/runtime/homeParams';
 import colourCases from '../../.claude/skills/orch-theme-from-site/colour-cases.json';
 import { alphaOf, contrast, svgDropsAttribute, svgDropsElement, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
+import { cleanLogo, decodeBase64, encodeBase64 } from '../src/pages/designer/logo';
 import { appModeKey, isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
@@ -218,6 +219,10 @@ test('alphaOf - the opacity itself; the page background check uses it', () => {
   assert.equal(alphaOf('rgba(0,0,0,0.25)'), 0.25);
   assert.equal(alphaOf('rgb(0 0 0 / 50%)'), 0.5);
   assert.equal(alphaOf('blau'), null);
+  assert.equal(alphaOf('#ff000080'), 0x80 / 255); // #rrggbbaa
+  assert.equal(alphaOf('#f008'), 0x88 / 255); // #rgba
+  assert.equal(alphaOf('hsla(120, 100%, 50%, .5)'), 0.5);
+  assert.equal(alphaOf('rgb(0 0 0 / 200%)'), 1); // at most 1
 });
 
 test('parseThemeFile - a plain object is a theme only with theme keys alone', () => {
@@ -265,8 +270,7 @@ test('parseThemeFile - JSON null is JSON, but no theme', () => {
   assert.ok('error' in broken && broken.error === 'Die Datei ist kein JSON.');
 });
 
-test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, refused before the parser', async () => {
-  const { cleanLogo, decodeBase64, encodeBase64 } = await import('../src/pages/designer/ThemeEditor');
+test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, refused before the parser', () => {
   // the encoding cleanLogo returns its SVG with - umlauts and characters beyond Latin-1 survive the round trip
   assert.equal(decodeBase64(encodeBase64('<svg>Prüfung ä € 銀行</svg>')), '<svg>Prüfung ä € 銀行</svg>');
   assert.equal(encodeBase64('ä'), 'w6Q='); // UTF-8 (c3 a4), not Latin-1
