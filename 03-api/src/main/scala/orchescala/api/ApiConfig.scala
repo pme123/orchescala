@@ -7,6 +7,7 @@ import sttp.apispec.openapi.Contact
 import zio.{Runtime, Unsafe, ZIO}
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantLock
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -346,50 +347,48 @@ case class ProjectsPerGitRepoConfig(
 end ProjectsPerGitRepoConfig
 
 object ProjectsPerGitRepoConfig:
+  /** What is known of a clone's last update - replaced as a whole, never changed. */
+  private final case class Updated(doneAt: Option[Long] = None, failed: Option[(Long, Throwable)] = None)
   // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
-  // doneAt: only under the lock; failed: also read without it (updateFailure) - volatile
   private final class Update:
-    val lock                             = ReentrantLock()
-    var doneAt: Long                     = Long.MinValue
-    @volatile var failed: Option[(Long, Throwable)] = None // read without the lock (updateFailure)
+    val lock  = ReentrantLock()
+    val state = AtomicReference(Updated()) // also read without the lock (updateFailure)
   private[api] val UpdateValidMs       = 5 * 60 * 1000L
   private[api] val FailedUpdateValidMs = 30 * 1000L
 
   /** Why the last update of a clone failed - None if it worked or did not run (for the docs' errors). */
   def updateFailure(clone: os.Path): Option[String] =
-    Option(updates.get(clone)).flatMap(_.failed.map(_._2.getMessage)) // volatile - no wait for an update
+    Option(updates.get(clone)).flatMap(_.state.get.failed.map((_, e) => Option(e.getMessage).getOrElse(e.toString)))
   private val updates = ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on. A successful
-    * update counts `UpdateValidMs` (as the tag fetch of the docs: a process that runs on pulls again for
-    * its next docs run), a failed one `FailedUpdateValidMs` - its callers get that failure again.
-    * @param force read under the lock - e.g. «the clone is gone»: then it updates whatever the last time
+    * update counts `UpdateValidMs` (a process that runs on pulls again for its next docs run), a failed one
+    * `FailedUpdateValidMs` - its callers get that failure again.
+    * @param force read under the lock - e.g. the clone is gone: then it updates whatever the last time
     */
   private[api] def once(clone: os.Path, now: => Long = System.currentTimeMillis(), force: => Boolean = false)(
       update: => Unit
   ): Unit =
-    val state = updates.computeIfAbsent(clone, _ => Update())
-    state.lock.lockInterruptibly()
+    val entry = updates.computeIfAbsent(clone, _ => Update())
+    entry.lock.lockInterruptibly()
     try
       val start  = now // read once
       val forced = force // under the lock: a caller that waited sees what the one before did
-      state.failed match
-        // failed just now: the same failure, not another pull per project - a new one per caller (one
-        // instance on many threads would collect their suppressed errors). Only git's failures pass here,
-        // no typed errors of the docs (ReleaseNotFound comes after the clone)
+      val known  = entry.state.get
+      known.failed match
+        // failed just now: the same failure, not another pull per project - a new exception per caller
         case Some((at, e)) if !forced && start - at < FailedUpdateValidMs => throw new Exception(e.getMessage, e)
-        case _ if !forced && state.doneAt != Long.MinValue && start - state.doneAt < UpdateValidMs => ()
+        case _ if !forced && known.doneAt.exists(start - _ < UpdateValidMs) => ()
         case _ =>
-          // from its end, as the tag fetch: a slow clone does not use up the window it opens
+          // from its end: a slow clone does not use up the window it opens
           try
             update
-            state.doneAt = now
-            state.failed = None
+            entry.state.set(Updated(doneAt = Some(now)))
           catch
             case NonFatal(e) =>
-              state.failed = Some(now -> e)
+              entry.state.set(known.copy(failed = Some(now -> e)))
               throw e
-    finally state.lock.unlock()
+    finally entry.lock.unlock()
 end ProjectsPerGitRepoConfig
 
 case class ProjectConfig(

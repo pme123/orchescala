@@ -1,6 +1,7 @@
 package orchescala.helper.dev.company.docs.site
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.concurrent.locks.ReentrantLock
 import scala.util.Try
 import scala.util.control.NonFatal
@@ -143,33 +144,42 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     val fresh  = os.temp.dir(dir = dest / os.up, prefix = s"$marker${System.currentTimeMillis}-")
     // a file: a noisy stderr does not block git
     val errors = fresh / os.up / s"${fresh.last}.git-archive.err"
-    var archive = Option.empty[os.SubProcess]
     try
       val git = os.proc("git", "-C", repo.toString, "archive", "--format=tar", ref, folder)
         .spawn(stderr = errors)
-      archive = Some(git)
-      val strip   = s"--strip-components=$depth"
-      val tar     =
-        try
-          os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, strip)
-            .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
-        catch
-          case NonFatal(e) =>
-            // tar did not run or finish (the timeout): git stopped too, its message kept, the cause
-            // attached - an interrupt is no NonFatal and goes on as it is
-            git.destroy()
-            throw new Exception(s"tar of $project at $ref failed: ${e.getMessage} (git: ${tail(errors)})", e)
-      // tar gone early: git may block on the closed pipe - not for ever
-      val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
-      if !gitDone then git.destroy()
-      val what    = s"$project at $ref"
-      ProjectRepo.exportFailure(what, gitDone, git.exitCode(), tail(errors), tar.exitCode, tar.err.text().trim.takeRight(4000))
-        .foreach(msg => throw new Exception(msg))
-      ProjectRepo.replace(dest, fresh, old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}")
+      try exportWith(git, ref, dest, fresh, errors, marker)
+      finally if git.isAlive() then git.destroy()
     finally
-      archive.filter(_.isAlive()).foreach(_.destroy())
       os.remove.all(fresh)
       os.remove(errors, checkExists = false)
+
+  /** tar of `git`'s archive into `fresh`, then `fresh` in place of `dest`. */
+  private def exportWith(
+      git: os.SubProcess,
+      ref: String,
+      dest: os.Path,
+      fresh: os.Path,
+      errors: os.Path,
+      marker: String
+  ): Unit =
+    val strip   = s"--strip-components=$depth"
+    val tar     =
+      try
+        os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, strip)
+          .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
+      catch
+        case NonFatal(e) =>
+          // tar did not run or finish (the timeout): git stopped too, its message kept, the cause
+          // attached - an interrupt is no NonFatal and goes on as it is
+          git.destroy()
+          throw new Exception(s"tar of $project at $ref failed: ${e.getMessage} (git: ${tail(errors)})", e)
+    // tar gone early: git may block on the closed pipe - not for ever
+    val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
+    if !gitDone then git.destroy()
+    val what    = s"$project at $ref"
+    ProjectRepo.exportFailure(what, gitDone, git.exitCode(), tail(errors), tar.exitCode, tar.err.text().trim.takeRight(4000))
+      .foreach(msg => throw new Exception(msg))
+    ProjectRepo.replace(dest, fresh, old = dest / os.up / s"${marker}old-${fresh.last.stripPrefix(marker)}")
 
   private[site] def localTags(): Set[String] =
     os.proc("git", "-C", repo.toString, "tag", "-l").call(stdout = os.Pipe, check = false)
@@ -221,11 +231,10 @@ object ProjectRepo:
   /** A tar that takes what exportTo gives it - `--no-same-owner` and `--strip-components` (GNU tar,
     * bsdtar; not e.g. busybox's): tried on an empty archive.
     */
-  @volatile private var tarChecked = false
-  private[docs] def hasTar: Boolean = tarChecked || {
-    tarChecked = checkTar() // only a «yes» is kept - a check that failed by chance is tried again
-    tarChecked
-  }
+  private val tarChecked = AtomicBoolean(false)
+  /** only a «yes» is kept - a check that failed by chance is tried again */
+  private[docs] def hasTar: Boolean =
+    tarChecked.get || { if checkTar() then tarChecked.set(true); tarChecked.get }
   private def checkTar(): Boolean =
     Try:
       val empty = os.proc("tar", "-c", "-f", "-", "-T", "/dev/null").call(stdout = os.Pipe, stderr = os.Pipe).out.bytes
@@ -258,11 +267,11 @@ object ProjectRepo:
     * for the run of the helper.
     */
   // a ReentrantLock, not synchronized: a fetch of up to a minute would pin a virtual thread's carrier
+  /** What is known of a repo's last fetch - replaced as a whole, never changed. */
+  private final case class Fetched(validUntil: Long = Long.MinValue, failure: Option[String] = None)
   private final class FetchState:
-    val lock                          = ReentrantLock()
-    @volatile var validUntil: Long    = Long.MinValue
-    /** why the last fetch failed - for the error of a tag that is then not found */
-    @volatile var failure: Option[String] = None // read without the lock (fetchFailure)
+    val lock  = ReentrantLock()
+    val state = AtomicReference(Fetched()) // also read without the lock (fetchFailure)
   private val fetches = ConcurrentHashMap[os.Path, FetchState]()
 
   /** `git fetch --tags` in a clone, unless a recent fetch counts; no credential prompt (it would hang
@@ -284,18 +293,20 @@ object ProjectRepo:
     state.lock.lockInterruptibly()
     try
       val start = now
-      if start < state.validUntil then false
+      if start < state.state.get.validUntil then false
       else
         val ok = fetch(repo)
         // from its end: a fetch that timed out (60 s) is not already over its 30 s when it returns
-        state.validUntil = now + (if ok then FetchValidMs else FailedFetchValidMs)
-        state.failure = Option.when(!ok)(s"fetching the tags of $repo failed (see above)")
+        state.state.set(Fetched(
+          validUntil = now + (if ok then FetchValidMs else FailedFetchValidMs),
+          failure = Option.when(!ok)(s"fetching the tags of $repo failed (see above)")
+        ))
         true
     finally state.lock.unlock()
 
   /** Why the last fetch of the repo failed - None if it worked or did not run. */
   private[docs] def fetchFailure(repo: os.Path): Option[String] =
-    Option(fetches.get(repo)).flatMap(_.failure) // volatile - no wait for a fetch that runs
+    Option(fetches.get(repo)).flatMap(_.state.get.failure) // no wait for a fetch that runs
 
   /** `git fetch --tags` (and `more`, e.g. `--all`) - no credential prompt, at most `timeoutMs`; a
     * failure is logged, a release tag moved on origin named. For the single repo and own clones alike.

@@ -202,11 +202,11 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
 
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
-    var updates = 0
-    ProjectsPerGitRepoConfig.once(clone, now = 0)(updates += 1)
-    ProjectsPerGitRepoConfig.once(clone, now = 1)(updates += 1)
-    ProjectsPerGitRepoConfig.once(clone, now = 2, force = true)(updates += 1)
-    assertEquals(updates, 2)
+    val updates = java.util.concurrent.atomic.AtomicInteger()
+    ProjectsPerGitRepoConfig.once(clone, now = 0)(updates.incrementAndGet())
+    ProjectsPerGitRepoConfig.once(clone, now = 1)(updates.incrementAndGet())
+    ProjectsPerGitRepoConfig.once(clone, now = 2, force = true)(updates.incrementAndGet())
+    assertEquals(updates.get, 2)
 
   test("once - a caller at the same time waits for the running update, then does not update again"):
     val clone   = os.temp.dir(prefix = "clone")
@@ -221,18 +221,18 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     )
     first.start()
     started.await()
-    @volatile var secondDone = false
-    val second  = Thread(() => { ProjectsPerGitRepoConfig.once(clone)(updates.incrementAndGet()); secondDone = true })
+    val secondDone = java.util.concurrent.atomic.AtomicBoolean(false)
+    val second  = Thread(() => { ProjectsPerGitRepoConfig.once(clone)(updates.incrementAndGet()); secondDone.set(true) })
     second.start()
     // it is parked on the lock (not merely slow): its state says so
     val deadline = System.currentTimeMillis + 5000
     while second.getState != Thread.State.WAITING && System.currentTimeMillis < deadline do Thread.sleep(10)
     assertEquals(second.getState, Thread.State.WAITING)
-    assert(!secondDone) // waits for the first
+    assert(!secondDone.get) // waits for the first
     release.countDown()
     first.join(5000)
     second.join(5000)
-    assert(secondDone)
+    assert(secondDone.get)
     assertEquals(updates.get, 1)
 
   test("updateSingleRepoClone - only for a project in one repo for all, only the clone"):
@@ -258,19 +258,19 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
 
   test("once - an update counts UpdateValidMs, then the next run updates again"):
     val clone   = os.temp.dir(prefix = "clone")
-    var updates = 0
-    ProjectsPerGitRepoConfig.once(clone, now = 1000)(updates += 1)
-    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs - 1)(updates += 1)
-    assertEquals(updates, 1)
-    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs)(updates += 1)
-    assertEquals(updates, 2)
+    val updates = java.util.concurrent.atomic.AtomicInteger()
+    ProjectsPerGitRepoConfig.once(clone, now = 1000)(updates.incrementAndGet())
+    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs - 1)(updates.incrementAndGet())
+    assertEquals(updates.get, 1)
+    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs)(updates.incrementAndGet())
+    assertEquals(updates.get, 2)
     // a failed update: the same failure for FailedUpdateValidMs (not another pull per project), then again
     val other = os.temp.dir(prefix = "clone")
     intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 0)(throw new Exception("no network")))
-    val again = intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 1)(updates += 1))
-    assertEquals((again.getMessage, updates), ("no network", 2))
-    ProjectsPerGitRepoConfig.once(other, now = ProjectsPerGitRepoConfig.FailedUpdateValidMs)(updates += 1)
-    assertEquals(updates, 3)
+    val again = intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 1)(updates.incrementAndGet()))
+    assertEquals((again.getMessage, updates.get), ("no network", 2))
+    ProjectsPerGitRepoConfig.once(other, now = ProjectsPerGitRepoConfig.FailedUpdateValidMs)(updates.incrementAndGet())
+    assertEquals(updates.get, 3)
     assertEquals(ProjectsPerGitRepoConfig.updateFailure(other), None) // it worked again
     intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 10 * ProjectsPerGitRepoConfig.UpdateValidMs)(throw new Exception("offline")))
     assertEquals(ProjectsPerGitRepoConfig.updateFailure(other), Some("offline"))

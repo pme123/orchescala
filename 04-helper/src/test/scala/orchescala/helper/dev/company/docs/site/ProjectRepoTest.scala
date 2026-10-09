@@ -140,14 +140,14 @@ class ProjectRepoTest extends FunSuite:
 
   test("fetchTagsOnce - the window counts from the end of a slow fetch"):
     val repo  = singleRepoGitTemp() / "orchescala-acme"
-    var clock = 0L
+    val clock = java.util.concurrent.atomic.AtomicLong(0)
     def slowFailingFetch(r: os.Path) =
-      clock += 60000 // timed out after a minute
+      clock.addAndGet(60000) // timed out after a minute
       false
     Console.withOut(java.io.ByteArrayOutputStream()):
-      assert(ProjectRepo.fetchTagsOnce(repo, now = clock, fetch = slowFailingFetch))
+      assert(ProjectRepo.fetchTagsOnce(repo, now = clock.get, fetch = slowFailingFetch))
       // the next project, right after: still within the failed window - not another minute
-      assert(!ProjectRepo.fetchTagsOnce(repo, now = clock, fetch = slowFailingFetch))
+      assert(!ProjectRepo.fetchTagsOnce(repo, now = clock.get, fetch = slowFailingFetch))
 
   test("resolveTag - projects of one repo in parallel: the second waits for the fetch of the first"):
     val origin = singleRepoGitTemp() / "orchescala-acme"

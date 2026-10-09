@@ -302,9 +302,10 @@ trait DocCreator extends DependencyCreator, Helpers:
     */
   private def fetchAllTags(projectPath: os.Path): Boolean =
     // once per clone and run, as in the single repo - the BPMN and the worker version share the clone
-    if ProjectRepo.fetchTagsOnce(projectPath, fetch = ProjectRepo.fetchTags(_, more = Seq("--all"), timeoutMs = 120000))
-    then println(s"  fetched the tags of $projectPath (git fetch --all --tags)")
-    ProjectRepo.fetchFailure(projectPath).isEmpty
+    val fetchedNow = ProjectRepo.fetchTagsOnce(projectPath, fetch = ProjectRepo.fetchTags(_, more = Seq("--all"), timeoutMs = 120000))
+    val ok         = ProjectRepo.fetchFailure(projectPath).isEmpty
+    if fetchedNow && ok then println(s"  fetched the tags of $projectPath (git fetch --all --tags)")
+    ok
 
   // Add this helper to resolve tags with/without 'v' and ensure tags are fetched.
   private def resolveTagRef(projectPath: os.Path, version: String, fetched: Boolean): String =
