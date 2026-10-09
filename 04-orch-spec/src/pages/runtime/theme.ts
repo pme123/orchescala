@@ -59,7 +59,8 @@ function hexColor(h: string): ParsedColor {
   };
 }
 
-/** rgb(…)/rgba(…) oder hsl(…)/hsla(…), mit Kommas oder Leerzeichen. */
+/** rgb(…)/rgba(…) oder hsl(…)/hsla(…), mit Kommas oder Leerzeichen - von COLOR geprüft (parseColor): drei
+  * Zahlen sind immer da. */
 function functionColor(c: string): ParsedColor {
   const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
   const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);

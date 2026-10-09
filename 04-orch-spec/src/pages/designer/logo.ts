@@ -13,7 +13,8 @@ const browserDom: SvgDom = {
 };
 
 /** Ein SVG-Logo (data:-URI) gesäubert wie vom Skill (svgDropsElement/-Attribute) - andere Bilder, wie sie
-  * sind. Ein SVG, das der Parser nicht liest, ist null. `dom`: der des Browsers (ein anderer für die Tests). */
+  * sind. Ein SVG, das der Parser nicht liest, ist null; ungültiges UTF-8 darin nicht (U+FFFD, decodeBase64).
+  * `dom`: der des Browsers (ein anderer für die Tests). */
 export function cleanLogo(uri: string, dom: SvgDom = browserDom): string | null {
   if (!uri.startsWith('data:image/svg+xml;base64,')) return uri;
   const text = decodeBase64(uri.slice(uri.indexOf(',') + 1));
