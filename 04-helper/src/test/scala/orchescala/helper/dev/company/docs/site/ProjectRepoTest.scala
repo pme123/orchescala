@@ -337,6 +337,16 @@ class ProjectRepoTest extends FunSuite:
     assertEquals(shop.releaseTags("0.9.0", shop.localTags()), Seq("v0.9.0")) // before its own tags: its own
     assertEquals(shop.releaseTags("2.0.0", shop.localTags()), Seq.empty) // after them: another project's
 
+  test("exportTo - a swap that died between its moves: the old folder back, then the export"):
+    val gitTemp = singleRepoGitTemp()
+    val aside   = gitTemp / s".acme-shop.orch-export-old-${System.currentTimeMillis}-1"
+    os.write(aside / "old.txt", "old", createFolders = true) // dest moved aside, the process gone
+    val shop    = ProjectRepo.locate(gitTemp, "acme-shop").get
+    // the export fails (no such tag) - but dest is back as it was
+    intercept[Exception](shop.exportTo("no-such-tag", gitTemp / "acme-shop"))
+    assertEquals(os.read(gitTemp / "acme-shop" / "old.txt"), "old")
+    assert(!os.exists(aside))
+
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()
     val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")

@@ -24,6 +24,7 @@ class DocCreatorTest extends FunSuite:
     val onlyMissing = DocCreator.failureOf(Seq("acme-shop" -> missing, "acme-cards" -> missing2)).get
     assert(onlyMissing.isInstanceOf[ReleaseNotFound])
     assert(onlyMissing.getCause eq missing)
+    assertEquals(onlyMissing.getSuppressed.toSeq, Seq(missing2)) // the second kept too
     assert(onlyMissing.getMessage.contains("2 version(s)") && onlyMissing.getMessage.contains("acme-cards: no acme-cards-v2.0.0"))
     val broken = new Exception("tar failed")
     val mixed  = DocCreator.failureOf(Seq("acme-shop" -> missing, "acme-cards" -> broken)).get

@@ -198,7 +198,9 @@ trait DocCreator extends DependencyCreator, Helpers:
     // on, unseen); then all failures together. The projects of one repo share its tag fetch (fetchTagsOnce):
     // while it runs, they wait for it on blocking threads - at most its timeout
     // one repo for all needs tar for its exports - said once, before N projects fail on it in parallel
-    if apiConfig.projectsConfig.perGitRepoConfigs.exists(_.singleRepo) && !ProjectRepo.hasTar then
+    val inOneRepo = versions.keys.map(_.stripSuffix("-worker"))
+      .exists(p => apiConfig.projectsConfig.perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(p)))
+    if inOneRepo && !ProjectRepo.hasTar then
       throw new Exception("the docs of a repo for all projects need a tar with --no-same-owner and --strip-components")
     val results = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
@@ -594,20 +596,17 @@ object DocCreator:
     def project: String   = name.stripSuffix("-worker")
 
   /** The error of a run whose versions failed - None if none did. Only releases missing: a
-    * ReleaseNotFound (the first as cause); else an Exception with the first other error as cause and all
-    * others suppressed, with their traces.
+    * ReleaseNotFound, else an Exception; the first (other) error is the cause, all others suppressed.
     */
   def failureOf(failures: Seq[(String, Throwable)]): Option[Throwable] =
     Option.when(failures.nonEmpty):
       val msg    = s"The docs of ${failures.size} version(s) could not be prepared:\n  " +
         failures.map((name, e) => s"$name: ${e.getMessage}").mkString("\n  ")
       val errors = failures.map(_._2)
-      errors.find(!_.isInstanceOf[ReleaseNotFound]) match
-        case None        => ReleaseNotFound(msg, errors.head)
-        case Some(cause) =>
-          val e = new Exception(msg, cause)
-          errors.filterNot(_ eq cause).foreach(e.addSuppressed)
-          e
+      val cause  = errors.find(!_.isInstanceOf[ReleaseNotFound]).getOrElse(errors.head)
+      val e      = if cause.isInstanceOf[ReleaseNotFound] then ReleaseNotFound(msg, cause) else new Exception(msg, cause)
+      errors.filterNot(_ eq cause).foreach(e.addSuppressed) // the others kept, with their traces
+      e
 
   /** The versions per project - its BPMN and its worker version share the project's folder: one after
     * the other (setupConfigs runs the projects in parallel, the versions of one in this order).

@@ -104,6 +104,12 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     * The archive is streamed into tar; `dest` must not be (or hold) the clone itself.
     */
   def exportTo(ref: String, dest: os.Path): Unit =
+    val marker = s".${dest.last}.orch-export-"
+    // a run that died between the two moves of a swap left dest away and the old one aside: back first,
+    // whatever this export then does
+    if os.isDir(dest / os.up) && !os.exists(dest) then
+      os.list(dest / os.up).filter(_.last.startsWith(s"${marker}old-")).sortBy(_.last).lastOption
+        .foreach(aside => Try(os.move(aside, dest)))
     // what the machine or the repo lacks - an error of the run, not of the code (require is for those)
     def fail(why: String) = throw new Exception(why)
     if !ProjectRepo.hasTar then
@@ -116,7 +122,6 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
     // left by a run that was killed midway - only this project's: `.acme.orch-export-…` is no prefix of
     // `.acme-shop.orch-export-…`, which another export may be writing right now (a plain startsWith - no
     // glob or regex, whatever the project's name)
-    val marker = s".${dest.last}.orch-export-"
     // older than an export may take - a younger one may be another run's, at work right now. The age is
     // the start in the name (a folder's mtime changes only with its own entries); with their
     // .git-archive.err; one another export removes meanwhile is no error
@@ -168,7 +173,8 @@ final class ReleaseNotFound(message: String, cause: Throwable = null) extends Ex
 object ProjectRepo:
 
   /** `dest` replaced by `fresh`: the old one aside, the new one in, the old one removed - if the move
-    * fails (a locked file, a full disk), the old one goes back: dest is never gone.
+    * fails (a locked file, a full disk), the old one goes back. Only a process that dies between the two
+    * moves leaves dest away - the next export puts the old one back first.
     */
   private[site] def replace(dest: os.Path, fresh: os.Path, old: os.Path): Unit =
     if os.exists(dest) then os.move(dest, old)

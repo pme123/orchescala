@@ -305,7 +305,7 @@ class OpenApiRoutes()(using config: GatewayConfig):
               ZIO.attemptBlocking(hasSiteFolder(companyName, projectName))
                 .tapError(e => ZIO.logWarning(s"Site folder of '$companyName/$projectName' not readable: ${e.getMessage}"))
                 .orElseSucceed(false)
-                .map(withSite => if withSite then docsDown.markDown(projectName, nowMs)) *>
+                .flatMap(withSite => ZIO.when(withSite)(ZIO.succeed(docsDown.markDown(projectName, nowMs)))) *>
                 ZIO.logWarning(s"Docs of '$projectName' not reachable: ${docsFailure.message}")
                   .as(Response.status(docsFailure.status))
             else
