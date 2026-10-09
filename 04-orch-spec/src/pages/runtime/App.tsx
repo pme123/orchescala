@@ -126,6 +126,11 @@ export default function App() {
             <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} className={`rounded p-1.5 transition-colors ${c.icon}`}>
               {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
+            <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH"
+              className={`flex items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
+              <span className="hidden sm:inline">by z9nai GmbH</span>
+              <img src={`${base}favicon.png`} alt="z9nai" className="h-5 w-5" />
+            </a>
           </div>
         </div>
       )}

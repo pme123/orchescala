@@ -68,6 +68,7 @@ function StandaloneApp() {
           <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH"
             className={`flex items-center gap-2 text-[10px] whitespace-nowrap opacity-70 hover:opacity-100 transition-opacity ${c.muted2}`}>
             <span className="hidden lg:inline">by z9nai GmbH</span>
+            <img src={favicon} alt="z9nai" className="w-5 h-5" />
           </a>
         </div>
       </div>
