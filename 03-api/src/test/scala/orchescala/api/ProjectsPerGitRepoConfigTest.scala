@@ -46,4 +46,18 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
       assertEquals(os.read(gitTemp / p / "PROJECT.conf"), s"name = $p\n")
       assert(!os.exists(gitTemp / p / ".git")) // a copy - the history is the company clone's
 
+  test("once - an update counts UpdateValidMs, then the next run updates again"):
+    val clone   = os.temp.dir(prefix = "clone")
+    var updates = 0
+    ProjectsPerGitRepoConfig.once(clone, now = 1000)(updates += 1)
+    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs - 1)(updates += 1)
+    assertEquals(updates, 1)
+    ProjectsPerGitRepoConfig.once(clone, now = 1000 + ProjectsPerGitRepoConfig.UpdateValidMs)(updates += 1)
+    assertEquals(updates, 2)
+    // a failed update is tried again at once
+    val other = os.temp.dir(prefix = "clone")
+    intercept[Exception](ProjectsPerGitRepoConfig.once(other, now = 0)(throw new Exception("no network")))
+    ProjectsPerGitRepoConfig.once(other, now = 1)(updates += 1)
+    assertEquals(updates, 3)
+
 end ProjectsPerGitRepoConfigTest

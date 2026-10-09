@@ -303,6 +303,19 @@ class ProjectRepoTest extends FunSuite:
     // git stopped after the timeout, tar fine so far
     assertEquals(failure(false, 143, "", 0, ""), Some("git archive of acme-shop at v1 did not finish: "))
 
+  test("replace - the new folder in, the old one gone; a failing move puts the old one back"):
+    val dir   = os.temp.dir(prefix = "swap")
+    val dest  = dir / "acme-shop"
+    os.write(dest / "old.txt", "old", createFolders = true)
+    os.write(dir / "fresh" / "new.txt", "new", createFolders = true)
+    ProjectRepo.replace(dest, dir / "fresh", old = dir / ".old")
+    assertEquals(os.list(dest).map(_.last), IndexedSeq("new.txt"))
+    assert(!os.exists(dir / ".old"))
+    // the new folder is not there (the move fails): dest as before
+    intercept[Exception](ProjectRepo.replace(dest, dir / "gone", old = dir / ".old"))
+    assertEquals(os.read(dest / "new.txt"), "new")
+    assert(!os.exists(dir / ".old"))
+
   test("exportTo - a deeper project folder: as many leading folders stripped"):
     val gitTemp = singleRepoGitTemp()
     val deep    = ProjectRepo(gitTemp / "orchescala-acme", "projects/acme-shop/03-api/", "acme-shop")

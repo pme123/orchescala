@@ -299,22 +299,22 @@ end ProjectsPerGitRepoConfig
 object ProjectsPerGitRepoConfig:
   // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
   private final class Update:
-    val lock = java.util.concurrent.locks.ReentrantLock()
-    var done = false
+    val lock          = java.util.concurrent.locks.ReentrantLock()
+    var doneAt: Long  = Long.MinValue
+  private[api] val UpdateValidMs = 5 * 60 * 1000L
   private val updates = java.util.concurrent.ConcurrentHashMap[os.Path, Update]()
 
   /** `update` of a clone once per run - a caller at the same time waits for it, then goes on; a failed
-    * update is tried again by the next caller. Per JVM, never again after it worked: made for the helper
-    * as a one-shot command (`./helper.scala prepareDocs`); a process that runs on (sbt server) pulls
-    * the clone only the first time.
+    * update is tried again by the next caller, a successful one counts `UpdateValidMs` (as the tag fetch
+    * of the docs): a process that runs on (an sbt server) pulls again for its next docs run.
     */
-  private[api] def once(clone: os.Path)(update: => Unit): Unit =
+  private[api] def once(clone: os.Path, now: => Long = System.currentTimeMillis())(update: => Unit): Unit =
     val state = updates.computeIfAbsent(clone, _ => Update())
     state.lock.lock()
     try
-      if !state.done then
+      if state.doneAt == Long.MinValue || now - state.doneAt >= UpdateValidMs then
         update
-        state.done = true
+        state.doneAt = now
     finally state.lock.unlock()
 end ProjectsPerGitRepoConfig
 

@@ -830,20 +830,26 @@ object OpenApiRoutes:
 
   /** The worker apps that did not answer (503) - for `downForMs` not asked again. At most `max`
     * projects (the request path names them): when full, expired entries go first, beyond that a project
-    * is not remembered. Synchronized - check and change are one step.
+    * is not remembered. Check and change are one step.
     */
   final class DownList(downForMs: Long, max: Int):
+    // a ReentrantLock as the helper's locks - it never blocks long here, but no pinned carrier either
+    private val lock  = java.util.concurrent.locks.ReentrantLock()
     private val until = scala.collection.mutable.HashMap.empty[String, Long]
+    private def locked[A](a: => A): A =
+      lock.lock()
+      try a
+      finally lock.unlock()
 
-    def isDown(project: String, now: Long): Boolean = synchronized(until.get(project).exists(_ > now))
+    def isDown(project: String, now: Long): Boolean = locked(until.get(project).exists(_ > now))
 
     /** The answer for a project: 503 remembers it as down, any other forgets it. */
-    def answered(project: String, status: Status, now: Long): Unit = synchronized:
+    def answered(project: String, status: Status, now: Long): Unit = locked:
       if status != Status.ServiceUnavailable then until.remove(project)
       else
         if until.size >= max then until.filterInPlace((_, t) => t > now)
         if until.size < max || until.contains(project) then until.update(project, now + downForMs)
 
-    def size: Int = synchronized(until.size)
+    def size: Int = locked(until.size)
   end DownList
 end OpenApiRoutes

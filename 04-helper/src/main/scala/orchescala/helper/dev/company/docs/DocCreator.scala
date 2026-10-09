@@ -10,7 +10,7 @@ import orchescala.api.{
   ProjectGroup,
   catalogFileName
 }
-import orchescala.helper.dev.company.docs.site.{LocalSiteServer, ProjectRepo, SiteAssembler}
+import orchescala.helper.dev.company.docs.site.{LocalSiteServer, ProjectRepo, ReleaseNotFound, SiteAssembler}
 import orchescala.helper.dev.publish.SiteWebDAV
 import orchescala.helper.util.{Helpers, PublishConfig}
 import os.Path
@@ -291,7 +291,7 @@ trait DocCreator extends DependencyCreator, Helpers:
     candidates.find(localTags.contains).getOrElse {
       // the tags were just fetched (fetchConf) - re-check against remote; origin not reachable: say so
       if !fetched then
-        throw new Exception(
+        throw ReleaseNotFound(
           s"Tag not found in $projectPath: ${candidates.mkString(" or ")} - fetching the tags failed, not checked on origin"
         )
 
@@ -301,7 +301,7 @@ trait DocCreator extends DependencyCreator, Helpers:
           .out.text()
 
       candidates.find(c => remoteTags.contains(s"refs/tags/$c"))
-        .getOrElse(throw new Exception(s"Tag not found: ${candidates.mkString(" or ")}"))
+        .getOrElse(throw ReleaseNotFound(s"Tag not found: ${candidates.mkString(" or ")}"))
     }
   end resolveTagRef
 

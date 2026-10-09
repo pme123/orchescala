@@ -107,8 +107,13 @@ case class ProjectRepo(repo: os.Path, prefix: String, project: String):
         .spawn(stderr = errors)
       archive = Some(git)
       val strip   = s"--strip-components=$depth"
-      val tar     = os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, strip)
-        .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
+      val tar     = scala.util.Try(
+        os.proc("tar", "-x", "--no-same-owner", "-f", "-", "-C", fresh, strip)
+          .call(stdin = git.stdout, check = false, stderr = os.Pipe, timeout = ProjectRepo.ExportTimeoutMs)
+      ).getOrElse:
+        // tar did not finish (the timeout): git stopped too, its message kept
+        git.destroy()
+        throw new Exception(s"tar of $project at $ref did not finish (git: ${os.read(errors).trim})")
       // tar gone early: git may block on the closed pipe - not for ever
       val gitDone = git.waitFor(ProjectRepo.ExportTimeoutMs)
       if !gitDone then git.destroy()
@@ -136,7 +141,7 @@ object ProjectRepo:
   /** `dest` replaced by `fresh`: the old one aside, the new one in, the old one removed - if the move
     * fails (a locked file, a full disk), the old one goes back: dest is never gone.
     */
-  private def replace(dest: os.Path, fresh: os.Path, old: os.Path): Unit =
+  private[site] def replace(dest: os.Path, fresh: os.Path, old: os.Path): Unit =
     if os.exists(dest) then os.move(dest, old)
     try os.move(fresh, dest)
     catch
