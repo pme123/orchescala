@@ -11,6 +11,9 @@ import scala.util.control.NonFatal
   * (`<project>-v<version>`), as the projects are released one by one; a plain `v<version>` is taken
   * too.
   *
+  * One helper run per git-temp at a time: the locks are of this JVM - a second process on the same
+  * git-temp could meet an export midway.
+  *
   * Needs `git` and `tar` on the PATH - tar with `--strip-components` and `--no-same-owner` (GNU tar or
   * bsdtar; tested on Linux and macOS). exportTo says so if tar is missing.
   *

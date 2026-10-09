@@ -191,17 +191,13 @@ trait DocCreator extends DependencyCreator, Helpers:
     // Use ZIO to run fetchConf in parallel
     import zio.*
 
-    // the BPMN and the worker version of a project share its folder (`-worker` stripped): one after the
-    // other - checkout or export, then reading PROJECT.conf and CHANGELOG.md of exactly that version;
-    // the projects in parallel
-    // every project to its end - one failing does not interrupt the others (their git and tar would run
-    // on, unseen); then all failures together. The projects of one repo share its tag fetch (fetchTagsOnce):
-    // while it runs, they wait for it on blocking threads - at most its timeout
     // one repo for all needs tar for its exports - said once, before N projects fail on it in parallel
     val inOneRepo = versions.keys.map(_.stripSuffix("-worker"))
       .exists(p => apiConfig.projectsConfig.perGitRepoConfigs.exists(c => c.singleRepo && c.containsProject(p)))
     if inOneRepo && !ProjectRepo.hasTar then
       throw new Exception("the docs of a repo for all projects need a tar with --no-same-owner and --strip-components")
+    // the projects in parallel, the BPMN and worker version of one after the other (they share its folder);
+    // every project to its end, then all failures together. Projects of one repo share its tag fetch
     val results = Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
         ZIO.foreachPar(DocCreator.byProject(versions)) { case (project, projectVersions) =>

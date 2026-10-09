@@ -347,6 +347,7 @@ end ProjectsPerGitRepoConfig
 
 object ProjectsPerGitRepoConfig:
   // a ReentrantLock, not synchronized: a clone or pull would pin a virtual thread's carrier
+  // doneAt: only under the lock; failed: also read without it (updateFailure) - volatile
   private final class Update:
     val lock                             = ReentrantLock()
     var doneAt: Long                     = Long.MinValue

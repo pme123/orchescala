@@ -179,6 +179,27 @@ class ProjectsPerGitRepoConfigTest extends FunSuite:
     assertEquals(os.read(gitTemp / "acme-shop" / "PROJECT.conf"), "v2\n") // main pulled
     assert(!os.exists(gitTemp / "acme-shop" / "local.txt")) // the copy is the clone's - replaced
 
+  test("an own repo on main only (no develop): init clones it, the next init pulls main"):
+    val remotes = os.temp.dir(prefix = "remotes")
+    val work    = os.temp.dir(prefix = "work")
+    os.write(work / ".gitignore", "target/\n")
+    os.write(work / "PROJECT.conf", "v1\n")
+    git(work, "init", "-q", "-b", "main")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "v1")
+    os.proc("git", "clone", "-q", "--bare", work.toString, (remotes / "acme-own.git").toString)
+      .call(stdout = os.Pipe, stderr = os.Pipe)
+    val repoConfig = ProjectsPerGitRepoConfig(remotes.toString, Seq(ProjectConfig("acme-own", ProjectGroup("acme"))))
+    val gitTemp    = os.temp.dir(prefix = "git-temp")
+    def init() = zio.Unsafe.unsafe { implicit u => zio.Runtime.default.unsafe.run(repoConfig.init(gitTemp, "acme")).getOrThrow() }
+    Console.withOut(java.io.ByteArrayOutputStream()):
+      init()
+      os.write.over(work / "PROJECT.conf", "v2\n")
+      git(work, "commit", "-q", "-am", "v2")
+      git(work, "push", "-q", (remotes / "acme-own.git").toString, "main")
+      init()
+    assertEquals(os.read(gitTemp / "acme-own" / "PROJECT.conf"), "v2\n")
+
   test("once - force (the clone gone) updates within UpdateValidMs too"):
     val clone   = os.temp.dir(prefix = "clone")
     var updates = 0
