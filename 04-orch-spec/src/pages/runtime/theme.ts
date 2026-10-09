@@ -40,16 +40,18 @@ const COLOR = new RegExp(
 /** Eine Farbe, wie das Theme sie nimmt (#rrggbb, rgb(…), hsl(…)). */
 export const isThemeColor = (v: string): boolean => COLOR.test(v);
 
-/** Rot, Grün, Blau (0…1) einer Theme-Farbe, wie sie auf `over` aussieht (eine halb durchsichtige Farbe
-  * gemischt - wie to_hex des Skills; ohne Angabe auf Weiss) - null, wenn es keine ist. */
-function parseColor(color: string): { rgb: number[]; alpha: number } | null {
+/** Eine gelesene Farbe: Rot, Grün, Blau (0…1) und die Deckkraft (0…1). */
+type ParsedColor = { rgb: number[]; alpha: number };
+
+/** Eine Theme-Farbe gelesen - null, wenn es keine ist. */
+function parseColor(color: string): ParsedColor | null {
   if (!COLOR.test(color)) return null;
   const c = color.trim().toLowerCase();
   return c.startsWith('#') ? hexColor(c.slice(1)) : functionColor(c);
 }
 
 /** #rgb, #rgba, #rrggbb, #rrggbbaa (ohne das #). */
-function hexColor(h: string): { rgb: number[]; alpha: number } {
+function hexColor(h: string): ParsedColor {
   const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
   return {
     rgb: [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255),
@@ -58,7 +60,7 @@ function hexColor(h: string): { rgb: number[]; alpha: number } {
 }
 
 /** rgb(…)/rgba(…) oder hsl(…)/hsla(…), mit Kommas oder Leerzeichen. */
-function functionColor(c: string): { rgb: number[]; alpha: number } {
+function functionColor(c: string): ParsedColor {
   const nums = c.slice(c.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean);
   const part = (v: string, max: number) => (v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v) / max);
   const alpha = nums[3] !== undefined ? Math.min(1, part(nums[3], 1)) : 1;
@@ -70,6 +72,8 @@ function functionColor(c: string): { rgb: number[]; alpha: number } {
   return { rgb: [f(0), f(8), f(4)], alpha };
 }
 
+/** Rot, Grün, Blau (0…1) einer Theme-Farbe, wie sie auf `over` aussieht (eine halb durchsichtige Farbe
+  * gemischt - wie to_hex des Skills; ohne Angabe auf Weiss) - null, wenn es keine ist. */
 export function rgbOf(color: string, over: [number, number, number] = [1, 1, 1]): [number, number, number] | null {
   const c = parseColor(color);
   return c && (c.rgb.map((v, i) => c.alpha * v + (1 - c.alpha) * over[i]) as [number, number, number]);

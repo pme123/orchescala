@@ -285,9 +285,14 @@ test('cleanLogo - the SVG walked and cleaned: scripts, handlers and outside link
   // the browser's parser and serializer, from linkedom (it has no XMLSerializer: a document's toString is its XML).
   // So this tests the walk, not the browser's serialization (checked by hand). The globals are set for this test
   // only - fine while the tests of a file run one after the other (node:test without `concurrency`)
-  const g = globalThis as unknown as { DOMParser?: unknown; XMLSerializer?: unknown };
-  g.DOMParser = DOMParser;
-  g.XMLSerializer = class { serializeToString = (doc: Document) => doc.toString(); };
+  const g = globalThis as unknown as Record<string, unknown>;
+  const stubs: Record<string, unknown> = {
+    DOMParser,
+    XMLSerializer: class { serializeToString = (doc: Document) => doc.toString(); },
+  };
+  // what was there before - put back afterwards, or removed again if nothing was
+  const before = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(g, k)] as const);
+  Object.assign(g, stubs);
   try {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" viewBox="0 0 10 10">'
       + '<defs><linearGradient id="g"/></defs><script>alert(2)</script>'
@@ -301,8 +306,10 @@ test('cleanLogo - the SVG walked and cleaned: scripts, handlers and outside link
       assert.ok(clean.includes(kept), `${kept} not in ${clean}`);
     assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<html><body/></html>')}`), null); // no SVG
   } finally {
-    delete g.DOMParser;
-    delete g.XMLSerializer;
+    for (const [k, d] of before) {
+      if (d) Object.defineProperty(g, k, d);
+      else delete g[k];
+    }
   }
 });
 
