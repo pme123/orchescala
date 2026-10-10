@@ -62,6 +62,9 @@ export const CHOICE_KEY = 'orch-pages.theme';
   * Je App (ihr Pfad `/app/<projekt>/`): auf einem Origin liegen mehrere. */
 export const appModeKey = (base: string): string => `orch-pages.app-mode:${base}`;
 
+/** Der Tooltip des Abmelde-Knopfs - mit dem Namen, wenn es einen gibt (auf dem Handy steht er nur hier). */
+export const logoutTitle = (name: string | undefined): string => (name ? `Abmelden (${name})` : 'Abmelden');
+
 type Mode = 'light' | 'dark';
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
 const store = (): Store | null => {

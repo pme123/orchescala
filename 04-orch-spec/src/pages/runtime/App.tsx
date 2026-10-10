@@ -7,7 +7,7 @@ import { homeParams } from './homeParams';
 import PageView from './PageView';
 import type { Page, Pages } from './spec';
 import { themeStyle } from './theme';
-import { appModeKey, cls, rememberMode, storedMode, useTheme } from './ui';
+import { appModeKey, cls, logoutTitle, rememberMode, storedMode, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
 
@@ -39,6 +39,9 @@ export default function App() {
   const embedded = new URLSearchParams(window.location.search).has('embed');
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // ein Logo des Themes, das nicht lädt (404, blockiert) - seine Adresse: dann wie ohne Logo; ein anderes
+  // Logo wird wieder versucht, dasselbe erst nach dem Neuladen der Seite
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true; // StrictMode: nur der Lauf, der noch gilt, setzt den Zustand
@@ -72,6 +75,7 @@ export default function App() {
 
   const app = loaded?.pages.app;
   const page = loaded?.page;
+  const logo = app?.theme?.logo && app.theme.logo !== failedLogo ? app.theme.logo : undefined;
   const style = themeStyle(app?.theme, isDark);
   // der Hintergrund auch am body - beim Überscrollen und eingebettet ist er sonst der z9nai-Hintergrund
   const bg = (style as Record<string, string | undefined>)['--orch-bg'];
@@ -109,16 +113,20 @@ export default function App() {
       {!embedded && (
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
           {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
-          {app?.theme?.logo
-            ? <img src={app.theme.logo} alt="" className="h-7 max-w-40 object-contain" />
-            : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 opacity-80" />}
-          <span className={`text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
-          {app?.subtitle && <span className={`text-[10px] ${c.muted}`}>{app.subtitle}</span>}
-          <div className="ml-auto flex items-center gap-3">
+          {logo
+            ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-28 flex-shrink-0 object-contain sm:max-w-40" />
+            : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 flex-shrink-0 opacity-80" />}
+          {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab sm - auf dem Handy ist kein Platz für ihn) -
+              Logo, Knöpfe und Byline behalten ihren Platz; das Logo auf dem Handy schmaler, damit vom Titel etwas bleibt */}
+          <span title={app?.title} className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
+          {app?.subtitle && <span title={app.subtitle} className={`hidden min-w-0 truncate text-[10px] sm:inline ${c.muted}`}>{app.subtitle}</span>}
+          <div className="ml-auto flex flex-shrink-0 items-center gap-3">
             {user && (
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
-                <span>{user.profile.name ?? user.profile.preferred_username}</span>
-                <button onClick={() => logout()} title="Abmelden" className={`rounded p-1 transition-colors ${c.icon}`}>
+                {/* der Name erst ab sm, gekürzt - auf dem Handy reicht der Platz neben Logo und Knöpfen nicht */}
+                <span className="hidden max-w-[12rem] truncate sm:inline">{user.profile.name ?? user.profile.preferred_username}</span>
+                <button onClick={() => logout()} title={logoutTitle(user.profile.name ?? user.profile.preferred_username)}
+                  className={`rounded p-1 transition-colors ${c.icon}`}>
                   <LogOut size={12} />
                 </button>
               </div>
@@ -126,6 +134,14 @@ export default function App() {
             <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} className={`rounded p-1.5 transition-colors ${c.icon}`}>
               {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
+            {/* der Name am Link, wie er sichtbar ist - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
+            <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="by z9nai GmbH"
+              className={`${logo ? 'flex' : 'hidden sm:flex'} items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
+              {/* ohne eigenes Logo zeigt die App links schon das von z9nai: dann nur der Text, und unter sm
+                  gar nichts - neben Benutzer und Knopf ist dort kein Platz für ihn */}
+              <span className={logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
+              {logo && <img src={`${base}favicon.png`} alt="" className="h-5 w-5" />}
+            </a>
           </div>
         </div>
       )}
