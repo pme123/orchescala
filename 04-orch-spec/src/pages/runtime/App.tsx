@@ -7,7 +7,7 @@ import { homeParams } from './homeParams';
 import PageView from './PageView';
 import type { Page, Pages } from './spec';
 import { themeStyle } from './theme';
-import { appModeKey, cls, rememberMode, storedMode, useTheme } from './ui';
+import { appModeKey, cls, logoutTitle, rememberMode, storedMode, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
 
@@ -149,9 +149,6 @@ export default function App() {
     </div>
   );
 }
-
-/** Der Tooltip des Abmelde-Knopfs - mit dem Namen, wenn es einen gibt (auf dem Handy steht er nur hier). */
-const logoutTitle = (name: string | undefined) => (name ? `Abmelden (${name})` : 'Abmelden');
 
 function Spinner({ isDark }: { isDark: boolean }) {
   return (
