@@ -126,12 +126,14 @@ export default function App() {
                 {/* der Name erst ab sm, gekürzt - auf dem Handy reicht der Platz neben Logo und Knöpfen nicht */}
                 <span className="hidden max-w-[12rem] truncate sm:inline">{user.profile.name ?? user.profile.preferred_username}</span>
                 <button onClick={() => logout()} title={logoutTitle(user.profile.name ?? user.profile.preferred_username)}
+                  aria-label={logoutTitle(user.profile.name ?? user.profile.preferred_username)}
                   className={`rounded p-1 transition-colors ${c.icon}`}>
                   <LogOut size={12} />
                 </button>
               </div>
             )}
-            <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} className={`rounded p-1.5 transition-colors ${c.icon}`}>
+            <button onClick={toggleTheme} title={isDark ? 'Hell' : 'Dunkel'} aria-label={isDark ? 'Hell' : 'Dunkel'}
+              className={`rounded p-1.5 transition-colors ${c.icon}`}>
               {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
             {/* der Name am Link, wie er sichtbar ist - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
