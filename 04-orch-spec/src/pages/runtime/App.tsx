@@ -7,7 +7,7 @@ import { homeParams } from './homeParams';
 import PageView from './PageView';
 import type { Page, Pages } from './spec';
 import { themeStyle } from './theme';
-import { appModeKey, cls, logoutTitle, rememberMode, storedMode, useTheme } from './ui';
+import { appModeKey, cls, effectiveLogo, logoutTitle, rememberMode, storedMode, useTheme } from './ui';
 
 const base = import.meta.env.BASE_URL;
 
@@ -75,7 +75,7 @@ export default function App() {
 
   const app = loaded?.pages.app;
   const page = loaded?.page;
-  const logo = app?.theme?.logo && app.theme.logo !== failedLogo ? app.theme.logo : undefined;
+  const logo = effectiveLogo(app?.theme?.logo, failedLogo);
   const style = themeStyle(app?.theme, isDark);
   // der Hintergrund auch am body - beim Überscrollen und eingebettet ist er sonst der z9nai-Hintergrund
   const bg = (style as Record<string, string | undefined>)['--orch-bg'];
