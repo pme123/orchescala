@@ -105,7 +105,7 @@ export default function App() {
 function CustomerBrand({ co, isDark }: { co?: CompanyRef; isDark: boolean }) {
   const c = cls(isDark);
   // a logo that does not load (404, blocked) - its address: a different logo is tried again, the same one
-  // only after a reload of the page
+  // when the header is shown anew (a reload, another page of the site)
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
   if (!co) return null;
   const logo = co.logo && co.logo !== failedLogo ? co.logo : undefined;
