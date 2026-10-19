@@ -68,17 +68,37 @@ object WorkerExecutionSpec extends ZIOSpecDefault:
         yield assertTrue(renewals.get == 0) // before: renewed at once - raced the completion
       },
       test("a long job renews its lock when it runs low, then regularly") {
-        val renewals = AtomicInteger(0)
-        val ran      = AtomicBoolean(false)
-        for _ <- ZIO.attemptBlocking(
-                   // lock 1s -> renewed when <500ms are left, then every 500ms; runs 1.7s
-                   TestWorker(lock = 1.second).blocking(
-                     ZIO.succeed(ran.set(true)) *> ZIO.sleep(1700.millis),
-                     renewLock = ZIO.succeed(renewals.incrementAndGet()).unit,
-                     lockExpiresAt = Some(java.lang.System.currentTimeMillis() + 1000)
-                   )
-                 )
-        yield assertTrue(ran.get, renewals.get >= 2) // ~0.5s, ~1s, ~1.5s
+        // lock 1s -> renewed when <500ms are left, then every 500ms. The lock runs out 2.5s from
+        // now - room for a cold start (the first jobs of a run build the HTTP client): with 1s, the
+        // job was skipped on a loaded runner, its lock (almost) ran out before it started.
+        // The job runs until its lock was renewed twice - no fixed sleep; only lower bounds on the
+        // times of the renewals, a loaded runner only makes them later.
+        val ran       = AtomicBoolean(false)
+        val timedOut  = AtomicBoolean(false)
+        val renewedAt = AtomicReference(Vector.empty[Long])
+        val expiresAt = java.lang.System.currentTimeMillis() + 2500
+        val tolerance = 20L // the wall clock vs the scheduler's monotonic clock
+        for
+          renewedTwice <- Promise.make[Nothing, Unit]
+          _            <- ZIO.attemptBlocking(
+                            TestWorker(timeout = 30.seconds, lock = 1.second).blocking(
+                              ZIO.succeed(ran.set(true)) *> renewedTwice.await,
+                              onTimeout = ZIO.succeed(timedOut.set(true)),
+                              renewLock = ZIO
+                                .succeed(renewedAt.updateAndGet(_ :+ java.lang.System.currentTimeMillis()))
+                                .flatMap(times => renewedTwice.succeed(()).when(times.size >= 2))
+                                .unit,
+                              lockExpiresAt = Some(expiresAt)
+                            )
+                          )
+          times         = renewedAt.get
+        yield assertTrue(
+          ran.get,
+          !timedOut.get,
+          times.size >= 2,
+          times.headOption.exists(_ >= expiresAt - 500 - tolerance), // not before it runs low
+          times.lift(1).zip(times.headOption).exists(_ - _ >= 500 - tolerance) // then regularly
+        )
       },
       test("a job that waited long renews at once - its lock runs low") {
         val renewals = AtomicInteger(0)
