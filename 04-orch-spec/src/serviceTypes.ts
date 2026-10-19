@@ -90,7 +90,8 @@ export function deriveObject(serviceId: string): Derived {
 /**
  * Objekt und Package aus dem Domain-Katalog: ein Prozess über seine
  * `processName` (`valiant-vollmacht-loadPoasV1` → `LoadPoas` in
- * `valiant.vollmacht.domain.loadPoas.v1`), ein Service-Objekt über seinen
+ * `valiant.vollmacht.domain.loadPoas.v1`), ein Worker über sein `topicName`
+ * (`valiant-graviton-eventStatus.get` → `GetEventStatus`), ein Service-Objekt über seinen
  * Namen (`valiant-services-tadv2.GetProfileCompletionCustomerId` → in
  * `valiant.services.domain.tad.v2`) — gibt es den Namen mehrfach, das im
  * abgeleiteten Package, sonst keines. Null, wenn der Katalog es nicht kennt.
@@ -100,6 +101,10 @@ export function catalogObject(ref: string, model: Model | null): Derived | null 
   const asObject = (t: DomainType): Derived => ({ object: t.owner!, pkg: t.pkg, uncertain: false });
   const process = all.find(t => t.owner && t.processName === ref);
   if (process) return asObject(process);
+  // ein Worker über sein Topic (`valiant-graviton-eventStatus.get` → `GetEventStatus`) —
+  // der Name lässt sich daraus nicht ableiten
+  const worker = all.filter(t => t.owner && t.topicName === ref);
+  if (worker.length && new Set(worker.map(t => `${t.pkg}.${t.owner}`)).size === 1) return asObject(worker[0]);
   const derived = deriveObject(ref);
   if (!ref.includes('.') || !/^[A-Z]/.test(derived.object)) return null;
   const owners = all.filter(t => t.owner === derived.object);
