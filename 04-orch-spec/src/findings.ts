@@ -171,6 +171,12 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
         const v = variantsOf(next, spec, model, 'outputs', service);
         if (v && chosenVariant(next, 'outputs', v).mixed.length) next = { ...next, outVariant: ALL_VARIANTS };
       }
+      // Eingaben aus mehreren Ausprägungen (so im BPMN): der Worker unterstützt
+      // mehrere Fälle und entscheidet beim Unmarshalling, welcher es ist (`*`)
+      if (next.inVariant == null) {
+        const v = variantsOf(next, spec, model, 'inputs', service);
+        if (v && chosenVariant(next, 'inputs', v).mixed.length) { changed = true; next = { ...next, inVariant: ALL_VARIANTS }; }
+      }
     }
     if (next.children) next = { ...next, children: visit(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: visit(b.steps) })) };
@@ -253,10 +259,10 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     const chosen = chosenVariant(step, list, variants);
     const allowed = (n: string) => variantAllows(variants, chosen, n);
     if (chosen.mixed.length) {
-      warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen.`);
+      warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen oder «alle Ausprägungen», wenn ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.`);
     } else if (variants && !chosen.name && list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
       // der Service bekommt genau einen Fall — ohne Wahl bekäme er keinen
-      warnings.push(`Keine Ausprägung gewählt — der Service erwartet eine davon (${variants.cases.map(c => c.name).join(', ')}).`);
+      warnings.push(`Keine Ausprägung gewählt — der Service erwartet eine davon (${variants.cases.map(c => c.name).join(', ')}); unterstützt der Worker mehrere: «alle Ausprägungen».`);
     }
     const used = rows.filter(m => !m.disabled && m.name.trim() && allowed(m.name));
     const active = used.filter(m => !fromPattern[list].has(m.name));
