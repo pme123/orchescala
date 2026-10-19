@@ -484,12 +484,25 @@ function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
 function giveName(el: Element, name: string) {
   el.setAttribute('name', name);
   const id = el.getAttribute('id');
-  const root = el.ownerDocument?.documentElement;
-  if (!id || !root) return;
-  for (const di of allElements(root)) {
-    if (local(di) !== 'BPMNShape' || di.getAttribute('bpmnElement') !== id) continue;
+  const doc = el.ownerDocument;
+  if (!id || !doc?.documentElement) return;
+  for (const di of shapesOf(doc).get(id) ?? []) {
     for (const label of kids(di).filter(k => local(k) === 'BPMNLabel')) removeEl(label);
   }
+}
+
+/** Die Formen je `bpmnElement` — einmal je Dokument, nicht je benanntem Element */
+const shapeIndexes = new WeakMap<Document, Map<string, Element[]>>();
+function shapesOf(doc: Document): Map<string, Element[]> {
+  let m = shapeIndexes.get(doc);
+  if (m) return m;
+  m = new Map();
+  for (const di of allElements(doc.documentElement)) {
+    const ref = local(di) === 'BPMNShape' ? di.getAttribute('bpmnElement') : null;
+    if (ref) m.set(ref, [...(m.get(ref) ?? []), di]);
+  }
+  shapeIndexes.set(doc, m);
+  return m;
 }
 
 /**
