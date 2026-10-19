@@ -44,9 +44,15 @@ class WorkerReferenceWorkingCopyTest extends munit.FunSuite:
        |""".stripMargin
 
   // git-temp: the pushed state - composed of the old SendEmailWorker; the working copy: of SendMailWorker
-  private lazy val gitDir  = os.temp.dir(deleteOnExit = true)
-  private lazy val ownDir  = os.temp.dir(deleteOnExit = true)
-  private lazy val bareDir = os.temp.dir(deleteOnExit = true)
+  private val gitDir    = os.temp.dir()
+  private val ownDir    = os.temp.dir()
+  private val bareDir   = os.temp.dir()
+  // a working copy with its workers only - the domain (the topics) comes from the clone
+  private val workerDir = os.temp.dir()
+
+  // deleteOnExit does not delete a directory with files in it
+  override def afterAll(): Unit = Seq(gitDir, ownDir, bareDir, workerDir).foreach(os.remove.all)
+
   private lazy val written =
     def write(path: os.Path, content: String) = os.write.over(path, content, createFolders = true)
     val services = gitDir / "test-services"
@@ -62,8 +68,9 @@ class WorkerReferenceWorkingCopyTest extends munit.FunSuite:
         domain("test.own.domain.bookAppointment.v1", "Notify", ownTopic))
     write(gitDir / "test-own" / "03-worker" / "src" / "main" / "scala" / "NotifyWorker.scala",
       ownWorker("test.services.worker.mails.v1.SendEmailWorker", "sendEmailWorker: SendEmailWorker"))
-    write(ownDir / "03-worker" / "src" / "main" / "scala" / "NotifyWorker.scala",
-      ownWorker("test.services.worker.smtp.v1.SendMailWorker", "sendMailWorker: SendMailWorker"))
+    for dir <- Seq(ownDir, workerDir) do
+      write(dir / "03-worker" / "src" / "main" / "scala" / "NotifyWorker.scala",
+        ownWorker("test.services.worker.smtp.v1.SendMailWorker", "sendMailWorker: SendMailWorker"))
 
   private class OwnProject(basePath: os.Path) extends ProcessReferenceCreator:
     override protected def projectName: String = "test-own"
@@ -88,15 +95,25 @@ class WorkerReferenceWorkingCopyTest extends munit.FunSuite:
     assertEquals(own.usedByWorkersOf("test-services-smtpV1-SendMail").map(_.className), Seq("NotifyWorker"))
     assertEquals(own.usedByWorkersOf("test-services-mailsV1-SendEmail"), Seq.empty)
 
+  private lazy val ownConfig = TestProjects.config("test-own").projectConfigs.head
+
   test("without sources in its working copy the own project is read from its clone in git-temp"):
     written
     val own = OwnProject(bareDir)
-    assertEquals(own.sourceDir(TestProjects.config("test-own").projectConfigs.head), gitDir / "test-own")
+    assertEquals(own.sourceDir(ownConfig, "03-worker"), gitDir / "test-own")
     assertEquals(own.usesWorkersOf(ownTopic).map(_.className), Seq("SendEmailWorker"))
+
+  test("per module: only the workers in the working copy - the domain (the topics) from the clone"):
+    written
+    val own = OwnProject(workerDir)
+    assertEquals(own.sourceDir(ownConfig, "03-worker"), workerDir)
+    assertEquals(own.sourceDir(ownConfig, "01-domain"), gitDir / "test-own")
+    // the topic of the own worker is still known - and it is composed of the working copy's worker
+    assertEquals(own.usesWorkersOf(ownTopic).map(_.className), Seq("SendMailWorker"))
 
   test("another project is read from its clone in git-temp"):
     written
     val services = TestProjects.config("test-services").projectConfigs.head
-    assertEquals(OwnProject(ownDir).sourceDir(services), gitDir / "test-services")
+    assertEquals(OwnProject(ownDir).sourceDir(services, "03-worker"), gitDir / "test-services")
 
 end WorkerReferenceWorkingCopyTest

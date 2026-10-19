@@ -25,13 +25,15 @@ trait WorkerReferenceCreator:
   protected def docProjectUrl(project: String): String
   protected def projectName: String
 
-  /** The Scala sources of a project: of the own project its working copy (`basePath`) - the
-    * git-temp clone is the pushed state, so a local change (a worker composed of another one)
-    * showed only after the merge; of the others their clone. As `ProcessReferenceCreator.bpmnDir`.
+  /** Where the Scala sources of a module of a project come from: of the own project its working copy
+    * (`basePath`) - the git-temp clone is the pushed state, so a local change (a worker composed of
+    * another one) showed only after the merge; of the others their clone. Per module: a working
+    * copy with only `03-worker` takes the domain from the clone (and the other way round) - nothing
+    * is lost. As `ProcessReferenceCreator.bpmnDir`.
     */
-  private[api] def sourceDir(pc: ProjectConfig): os.Path =
+  private[api] def sourceDir(pc: ProjectConfig, module: String): os.Path =
     val local = apiConfig.basePath
-    if pc.name == projectName && (os.exists(local / workerModule) || os.exists(local / domainModule)) then local
+    if pc.name == projectName && os.exists(local / module) then local
     else pc.absGitPath(gitBasePath)
 
   // the own project is part of the key: its sources come from its working copy
@@ -148,11 +150,11 @@ trait WorkerReferenceCreator:
   // in its constructor, so other threads would block on its class initialization.
   private lazy val workerSources: Seq[WorkerSource] =
     WorkerReferenceCreator.workerSources(sourcesCacheKey):
-      println(s"Worker Reference Base Directory: $gitBasePath")
+      println(s"Worker Reference Base Directory: $gitBasePath (the own project $projectName from ${apiConfig.basePath})")
       projectConfigs
         .flatMap: pc =>
           println(s"Get Workers in ${pc.name}")
-          scalaFiles(sourceDir(pc), workerModule)
+          scalaFiles(sourceDir(pc, workerModule), workerModule)
             .filter(_.last.endsWith("Worker.scala"))
             .flatMap(parseWorker(pc.name, _))
   end workerSources
@@ -161,7 +163,7 @@ trait WorkerReferenceCreator:
     WorkerReferenceCreator.domainIdentifiers(sourcesCacheKey):
       projectConfigs
         .flatMap: pc =>
-          scalaFiles(sourceDir(pc), domainModule)
+          scalaFiles(sourceDir(pc, domainModule), domainModule)
             .flatMap(parseDomainIdentifiers(pc.name, _))
         .toMap
 
