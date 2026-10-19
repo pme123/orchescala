@@ -1379,6 +1379,12 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           )}
         </div>
       )}
+      {/* dieselbe Warnung wie in findings.ts — hier, wo sie sich beheben lässt */}
+      {needsChoice && (
+        <p className={`text-[10px] mb-1 ${warn}`}>
+          Keine Ausprägung gewählt — der Service erwartet eine davon ({variants!.cases.map(v => v.name).join(', ')}). Ausprägung wählen — oder «alle Ausprägungen», wenn der Worker beim Unmarshalling entscheidet.
+        </p>
+      )}
       {!!chosen.mixed.length && (
         <p className={`text-[10px] mb-1 ${warn}`}>
           Aktive Zeilen aus mehreren Ausprägungen ({chosen.mixed.join(', ')}) — der Service {list === 'inputs' ? 'bekommt' : 'liefert'} nur eine. Ausprägung wählen; die übrigen werden abgewählt — oder «alle Ausprägungen», wenn {list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.
