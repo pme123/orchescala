@@ -895,7 +895,9 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     seen.add(field);
     imports.add(importLine);
     const type = step.mockKind === 'service' ? `MockedServiceResponse[${object}.ServiceOut]` : `${object}.Out`;
-    params.push(`${descriptionLine(`For testing you can mock the Process ${step.name} _${ref}_.`)}\n`
+    // wie in den Projekten: die Beschreibung zeigt ein Beispiel des Mocks als JSON
+    const example = step.mockKind === 'service' ? `${object}.ServiceOut.mock` : `${object}.Out.example`;
+    params.push(`@description(serviceOrProcessMockDescr(${example}))\n`
       + `${field}: Option[${type}] = None`);
   }
   if (!params.length) return '';
