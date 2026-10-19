@@ -15,9 +15,9 @@ test('output mock: the example of the Out', () => {
   assert.match(out, /@description\(serviceOrProcessMockDescr\(GetEventStatus\.Out\.example\)\)\n\s+\w+Mock: Option\[GetEventStatus\.Out\] = None/, out);
 });
 
-test('service mock: the mock of the ServiceOut', () => {
+test('service mock: the service response of its example - every ServiceTask has it', () => {
   const out = renderInConfig(spec('service'), new Set());
-  assert.match(out, /@description\(serviceOrProcessMockDescr\(GetEventStatus\.ServiceOut\.mock\)\)\n\s+\w+Mock: Option\[MockedServiceResponse\[GetEventStatus\.ServiceOut\]\] = None/, out);
+  assert.match(out, /@description\(serviceOrProcessMockDescr\(GetEventStatus\.example\.defaultServiceOutMock\)\)\n\s+\w+Mock: Option\[MockedServiceResponse\[GetEventStatus\.ServiceOut\]\] = None/, out);
 });
 
 test('a worker from the catalog over its topic: GetEventStatus, not a guessed EventStatus', async () => {
