@@ -25,7 +25,7 @@ import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
 interface Props {
@@ -1384,9 +1384,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
       )}
       {/* dieselbe Warnung wie in findings.ts — hier, wo sie sich beheben lässt */}
       {needsChoice && (
-        <p className={`text-[10px] mb-1 ${warn}`}>
-          Keine Ausprägung gewählt — der Service erwartet eine davon ({variants!.cases.map(v => v.name).join(', ')}). Ausprägung wählen — oder «alle Ausprägungen», wenn der Worker beim Unmarshalling entscheidet.
-        </p>
+        <p className={`text-[10px] mb-1 ${warn}`}>{noVariantText(variants!)}</p>
       )}
       {!!chosen.mixed.length && (
         <p className={`text-[10px] mb-1 ${warn}`}>

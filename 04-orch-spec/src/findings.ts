@@ -16,7 +16,7 @@ import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from '.
 import { dmnIssues, packageOf } from './scala';
 import { GENERAL_VARIABLES, isInitWorker, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -267,7 +267,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen oder «alle Ausprägungen», wenn ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.`);
     } else if (variants && !chosen.name && list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
       // der Service bekommt genau einen Fall — ohne Wahl bekäme er keinen
-      warnings.push(`Keine Ausprägung gewählt — der Service erwartet eine davon (${variants.cases.map(c => c.name).join(', ')}); unterstützt der Worker mehrere: «alle Ausprägungen».`);
+      warnings.push(noVariantText(variants));
     }
     const used = rows.filter(m => !m.disabled && m.name.trim() && allowed(m.name));
     const active = used.filter(m => !fromPattern[list].has(m.name));

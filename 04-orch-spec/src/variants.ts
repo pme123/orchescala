@@ -163,6 +163,11 @@ export function routingMissing(v: Variants | null, rows: Mapping[]): string[] | 
   return rows.some(m => !m.disabled && v.routing!.includes(m.name.trim())) ? null : v.routing;
 }
 
+/** Warnung: die Eingaben haben keine Ausprägung — dieselbe in der Übersicht und an der Tabelle */
+export const noVariantText = (v: Variants): string =>
+  `Keine Ausprägung gewählt — der Service erwartet eine davon (${v.cases.map(c => c.name).join(', ')}). `
+  + 'Ausprägung wählen — oder «alle Ausprägungen», wenn der Worker beim Unmarshalling entscheidet.';
+
 /** «useCase» oder «clientType» */
 export const routingText = (routing: string[]): string => routing.map(n => `«${n}»`).join(' oder ');
 
