@@ -41,8 +41,11 @@ object SpecCatalog:
     * activity of such a project in the diagram. The default `#fff` (and `white`, the docs' default)
     * means "no color" and is left out. Works without Node.js: a missing catalog gets a file with just the colors.
     */
+  /** What means "no color" - the default of `ProjectConfig.color` and of the docs */
+  private val noColor = Set("", "#fff", "#ffffff", "white")
+
   def writeProjectColors(colors: Seq[(String, String)], outFile: os.Path): Unit =
-    val set = colors.filter { case (name, color) => name.nonEmpty && !Set("", "#fff", "#ffffff", "white").contains(color.trim.toLowerCase) }
+    val set = colors.filter { case (name, color) => name.nonEmpty && !noColor.contains(color.trim.toLowerCase) }
     if set.nonEmpty then
       val base = Option.when(os.exists(outFile))(os.read(outFile))
         .flatMap(io.circe.parser.parse(_).toOption)
