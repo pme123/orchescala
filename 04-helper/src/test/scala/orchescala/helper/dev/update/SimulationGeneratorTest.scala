@@ -10,7 +10,12 @@ import orchescala.helper.util.DevConfig
   */
 class SimulationGeneratorTest extends FunSuite:
 
-  private def inProject(body: DevConfig ?=> (String => Option[String]) => Unit): Unit =
+  /** The project of a test - its files are only looked up in its own dir, never in the real working dir */
+  private case class Project(dir: os.Path):
+    def path(name: String): Option[os.Path] = os.walk(dir).find(_.last == s"$name.scala")
+    def file(name: String): Option[String]  = path(name).map(os.read(_))
+
+  private def inProject(body: DevConfig ?=> Project => Unit): Unit =
     val dir = os.temp.dir(prefix = "project-simulation-")
     try
       os.dynamicPwd.withValue(dir):
@@ -24,85 +29,83 @@ class SimulationGeneratorTest extends FunSuite:
             ModuleType.projectModules
           )
         )
-        def file(name: String): Option[String] =
-          os.walk(dir).find(_.last == s"$name.scala").map(os.read(_))
-        body(file)
+        body(Project(dir))
     finally os.remove.all(dir)
 
   private def element(using DevConfig) = SetupElement("Process", "order", "OrderCard", Some(1))
 
   test("Camunda 7: one class OrderCardSimulation - as before"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element)
-      val sim = file("OrderCardSimulation").get
+      val sim = project.file("OrderCardSimulation").get
       assert(sim.contains("class OrderCardSimulation extends CompanySimulation:"), sim)
-      assertEquals(file("OrderCardC7Simulation"), None)
+      assertEquals(project.file("OrderCardC7Simulation"), None)
 
   test("Camunda 8: the scenarios in an abstract class, OrderCardC8Simulation on top"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element, c8 = true)
-      val base = file("OrderCardSimulation").get
+      val base = project.file("OrderCardSimulation").get
       assert(base.contains("abstract class OrderCardSimulation extends SimulationRunner:"), base)
       assert(base.contains("scenario(`OrderCard`)"), base)
       assert(!base.contains("./helper.scala deploy"), base)
-      val c8 = file("OrderCardC8Simulation").get
+      val c8 = project.file("OrderCardC8Simulation").get
       assert(c8.contains("class OrderCardC8Simulation extends OrderCardSimulation, CompanyC8Simulation"), c8)
       assert(c8.contains("// ./helper.scala deploy OrderCardC8Simulation"), c8)
-      assertEquals(file("OrderCardC7Simulation"), None)
+      assertEquals(project.file("OrderCardC7Simulation"), None)
 
   test("Camunda 8 next to an existing C7 simulation: it is split - its scenarios stay"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element)
-      val c7Before = file("OrderCardSimulation").get
+      val c7Before = project.file("OrderCardSimulation").get
       SimulationGenerator().createSimulation(element, c8 = true)
-      val base     = file("OrderCardSimulation").get
+      val base     = project.file("OrderCardSimulation").get
       assert(base.contains("abstract class OrderCardSimulation extends SimulationRunner:"), base)
       assertEquals(
         base.linesIterator.dropWhile(!_.startsWith("abstract class")).drop(1).mkString("\n"),
         c7Before.linesIterator.dropWhile(!_.startsWith("class")).drop(1).mkString("\n")
       )
-      val c7 = file("OrderCardC7Simulation").get
+      val c7 = project.file("OrderCardC7Simulation").get
       assert(c7.contains("class OrderCardC7Simulation extends OrderCardSimulation, CompanySimulation"), c7)
-      assert(file("OrderCardC8Simulation").isDefined)
+      assert(project.file("OrderCardC8Simulation").isDefined)
 
   test("a re-run changes nothing - the abstract simulation and both engines stay"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element)
       SimulationGenerator().createSimulation(element, c8 = true)
-      val before = Seq("OrderCardSimulation", "OrderCardC7Simulation", "OrderCardC8Simulation").map(file)
+      val before = Seq("OrderCardSimulation", "OrderCardC7Simulation", "OrderCardC8Simulation").map(project.file)
       SimulationGenerator().createSimulation(element, c8 = true)
       SimulationGenerator().createSimulation(element)
-      assertEquals(Seq("OrderCardSimulation", "OrderCardC7Simulation", "OrderCardC8Simulation").map(file), before)
+      assertEquals(Seq("OrderCardSimulation", "OrderCardC7Simulation", "OrderCardC8Simulation").map(project.file), before)
 
   test("a C7 simulation on CompanyC7Simulation is split - its C7 class keeps CompanyC7Simulation"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element)
-      val sim = os.walk(os.pwd).find(_.last == "OrderCardSimulation.scala").get
+      val sim = project.path("OrderCardSimulation").get
       os.write.over(sim, os.read(sim).replace("extends CompanySimulation:", "extends CompanyC7Simulation:"))
       SimulationGenerator().createSimulation(element, c8 = true)
-      assert(file("OrderCardSimulation").get.contains("abstract class OrderCardSimulation"))
-      val c7 = file("OrderCardC7Simulation").get
+      assert(project.file("OrderCardSimulation").get.contains("abstract class OrderCardSimulation"))
+      val c7 = project.file("OrderCardC7Simulation").get
       assert(c7.contains("class OrderCardC7Simulation extends OrderCardSimulation, CompanyC7Simulation"), c7)
-      assert(file("OrderCardC8Simulation").isDefined)
+      assert(project.file("OrderCardC8Simulation").isDefined)
 
   test("another form (more mixins) is not split - and no C8 class on top of it"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element)
-      val sim = os.walk(os.pwd).find(_.last == "OrderCardSimulation.scala").get
+      val sim = project.path("OrderCardSimulation").get
       os.write.over(sim, os.read(sim).replace("extends CompanySimulation:", "extends CompanySimulation, MyMixin:"))
       SimulationGenerator().createSimulation(element, c8 = true)
-      assert(file("OrderCardSimulation").get.contains("extends CompanySimulation, MyMixin:"))
-      assertEquals(file("OrderCardC8Simulation"), None)
+      assert(project.file("OrderCardSimulation").get.contains("extends CompanySimulation, MyMixin:"))
+      assertEquals(project.file("OrderCardC8Simulation"), None)
 
   test("Camunda 7 next to an existing C8 simulation: it is split the other way round"):
-    inProject: file =>
+    inProject: project =>
       SimulationGenerator().createSimulation(element)
-      val sim = os.walk(os.pwd).find(_.last == "OrderCardSimulation.scala").get
+      val sim = project.path("OrderCardSimulation").get
       os.write.over(sim, os.read(sim).replace("extends CompanySimulation:", "extends CompanyC8Simulation:"))
       SimulationGenerator().createSimulation(element, c8 = false)
-      assert(file("OrderCardSimulation").get.contains("abstract class OrderCardSimulation"))
-      assert(file("OrderCardC8Simulation").get.contains("extends OrderCardSimulation, CompanyC8Simulation"))
-      assert(file("OrderCardC7Simulation").get.contains("extends OrderCardSimulation, CompanySimulation"))
+      assert(project.file("OrderCardSimulation").get.contains("abstract class OrderCardSimulation"))
+      assert(project.file("OrderCardC8Simulation").get.contains("extends OrderCardSimulation, CompanyC8Simulation"))
+      assert(project.file("OrderCardC7Simulation").get.contains("extends OrderCardSimulation, CompanySimulation"))
 
   test("abstractSimulation - the class line and the deploy comments, nothing else"):
     val base =
