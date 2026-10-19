@@ -1090,12 +1090,15 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
     const keep = (list: Mapping[] | undefined) => new Map((list ?? []).map(m => [m.name, m]));
     const oldIn = keep(step.inputs), oldOut = keep(step.outputs);
     // Ausprägungen des neuen Service: eine gewählte bleibt, wenn es sie dort
-    // auch gibt; die Felder der anderen kommen nicht als Zeilen herein
+    // auch gibt; die Felder der anderen kommen nicht als Zeilen herein. «Alle»
+    // bei den Eingaben sagt, dass **dieser** Worker selbst entscheidet — beim
+    // Wechsel des Service gilt es nicht mehr
     const next: Step = { ...step, serviceId: svc.id, topic: svc.topic ?? step.topic, calledProcess: svc.calledProcess ?? step.calledProcess };
     const variantState = (list: 'inputs' | 'outputs') => {
       const v = variantsOf(next, spec, model, list, svc);
       const was = step[variantKey(list)];
-      const name = v && typeof was === 'string' && (v.cases.some(x => x.name === was) || was === ALL_VARIANTS) ? was : null;
+      const keepAll = was === ALL_VARIANTS && (list === 'outputs' || current?.id === svc.id);
+      const name = v && typeof was === 'string' && (v.cases.some(x => x.name === was) || keepAll) ? was : null;
       return { v, name, chosen: { name, inferred: false, mixed: [] } as Chosen };
     };
     const vin = variantState('inputs'), vout = variantState('outputs');
