@@ -591,8 +591,9 @@ function scaladoc(text: string): string {
  */
 const isInConfigField = (f: Field, idx: TypeIndex) => /^Option\[(?:[\w.]+\.)?InConfig\]$/.test(fieldType(f, idx));
 
-/** Die Felder des Beispiels — ohne `inConfig` (siehe oben) */
-const exampleFields = (fields: Field[], idx: TypeIndex) => fields.filter(f => !isInConfigField(f, idx));
+/** Die Felder des Beispiels — ohne `inConfig` (siehe oben), ausser es hat ein eigenes (`Some(InConfig.example)`) */
+const exampleFields = (fields: Field[], idx: TypeIndex) =>
+  fields.filter(f => !isInConfigField(f, idx) || !!f.example?.trim() && f.example.trim() !== 'None');
 
 function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);

@@ -36,3 +36,13 @@ test('enum cases: inConfig = None in each case, not in their examples', () => {
   assert.equal(out.match(/inConfig: Option\[InConfig\] = None/g)?.length, 2, out);
   assert.doesNotMatch(out, /inConfig = /);
 });
+
+test('an own example of inConfig stays in the example', () => {
+  const t = { id: 'in', name: 'In', kind: 'case', fields: [
+    { id: 'f1', name: 'clientKey', type: 'Long' },
+    { ...cfgField, example: 'Some(InConfig.example)' },
+  ] } as unknown as TypeDef;
+  const out = renderType(t, indexTypes([t, inConfig]));
+  assert.match(out, /inConfig: Option\[InConfig\] = None/);
+  assert.match(out, /inConfig = Some\(InConfig\.example\)/, out);
+});
