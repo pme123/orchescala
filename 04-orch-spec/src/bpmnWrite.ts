@@ -472,7 +472,23 @@ function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
       case 'signalEventDefinition': name = nameOfRef(def, 'signalRef'); break;
       case 'escalationEventDefinition': name = nameOfRef(def, 'escalationRef', 'escalationCode'); break;
     }
-    if (name) el.setAttribute('name', name);
+    if (name) giveName(el, name);
+  }
+}
+
+/**
+ * Ein Element bekommt hier erst seinen Namen. Die Position seines Labels im
+ * Diagramm war bisher nie sichtbar — oft ein Rest von früher, irgendwo daneben.
+ * Sie fällt weg; der Modeler setzt das Label neu, unter das Element.
+ */
+function giveName(el: Element, name: string) {
+  el.setAttribute('name', name);
+  const id = el.getAttribute('id');
+  const root = el.ownerDocument?.documentElement;
+  if (!id || !root) return;
+  for (const di of allElements(root)) {
+    if (local(di) !== 'BPMNShape' || di.getAttribute('bpmnElement') !== id) continue;
+    for (const label of kids(di).filter(k => local(k) === 'BPMNLabel')) removeEl(label);
   }
 }
 
@@ -485,7 +501,7 @@ function nameSteps(byId: Map<string, Element>, spec: ProcessSpec) {
   for (const s of allSteps(spec.steps)) {
     if (unnamed(s) || s.kind === 'start' || s.kind === 'end' || s.kind === 'gateway') continue;
     const el = byId.get(s.id);
-    if (el && !el.getAttribute('name')?.trim()) el.setAttribute('name', s.name.trim());
+    if (el && !el.getAttribute('name')?.trim()) giveName(el, s.name.trim());
   }
 }
 
