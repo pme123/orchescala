@@ -1,4 +1,5 @@
 package orchescala.helper.dev.update
+import orchescala.domain.BpmnProcessType
 import orchescala.helper.util.DevConfig
 
 case class SetupGenerator()(using config: DevConfig):
@@ -22,7 +23,11 @@ case class SetupGenerator()(using config: DevConfig):
   def createProcess(setupElement: SetupElement): Unit =
     BpmnGenerator().createProcess(setupElement)
     BpmnProcessGenerator(config.projectBpmnProcessType).createBpmn(setupElement)
-    SimulationGenerator().createSimulation(setupElement)
+    // a Camunda 8 project: the simulation per engine (see SimulationGenerator)
+    SimulationGenerator().createSimulation(
+      setupElement,
+      config.projectBpmnProcessType.isInstanceOf[BpmnProcessType.C8]
+    )
     WorkerGenerator().createProcessWorker(setupElement)
   end createProcess
 
