@@ -122,11 +122,7 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
             println(s"  -> $project > $id -- $color")
             new RuleTransformer(changeColor(project, id)).apply(xmlResult)
     )
-    val xmlDeclaration = """<?xml version="1.0" encoding="UTF-8"?>""" + "\n"
-    os.write.over(
-      bpmnPath,
-      xmlDeclaration + ModelerTemplUpdater.withColorNamespace(CamundaXmlPrinter.toCamundaXmlString(xmlNew)) + "\n"
-    )
+    os.write.over(bpmnPath, ModelerTemplUpdater.toBpmnFile(xmlNew))
   end extractUsesRefs
 
   private def changeColor(project: String, id: String) = new RewriteRule:
@@ -142,34 +138,60 @@ object ModelerTemplUpdater:
   // the grey of BpmnProcessGenerator's template
   val generatedGrey  = "#D5D5D5"
 
-  /** The init worker and the output-mocked / mocked elements in grey - as the template of
-    * `createProcess` has them, so also a BPMN of orch-spec (`processFromSpec`) gets them. An element
-    * with a colour of its own keeps it.
+  /** The ids the template of `createProcess` (BpmnProcessGenerator) and orch-spec's «output-mocked»
+    * give the init worker and the mock elements - exactly these, so an own element (e.g.
+    * `MockedCustomerCheck`) is never greyed.
+    */
+  val generatedIds: Set[String] = Set(
+    "InitProcessTask",
+    "MockedBoundaryEvent",
+    "OutputmockedBoundaryEvent",
+    "OutputmockedEvent",
+    "OutputmockedEvent1",
+    "OutputmockedEndEvent"
+  )
+
+  /** The init worker and the mock elements in grey - as the template of `createProcess` has them,
+    * so also a BPMN of orch-spec (`processFromSpec`) gets them. An element with a colour of its own
+    * keeps it.
     */
   def withGeneratedInGrey(xml: Node): Node =
     new RuleTransformer(greyGenerated).apply(xml)
 
-  private[api] def isGenerated(elementId: String): Boolean =
-    elementId == "InitProcessTask" || elementId.startsWith("Outputmocked") || elementId.startsWith("Mocked")
-
   private val greyGenerated = new RewriteRule:
     override def transform(n: Node): Seq[Node] = n match
       case e: Elem
-          if e.label == "BPMNShape" && isGenerated(e \@ "bpmnElement") &&
+          if e.label == "BPMNShape" && generatedIds(e \@ "bpmnElement") &&
             !e.attributes.exists(_.key == "background-color") =>
         e % Attribute("color", "background-color", Text(generatedGrey), Null)
       case x => x
 
-  /** A colour needs `xmlns:color` on the definitions - a BPMN without it (e.g. of orch-spec) would
-    * not be valid XML. Added to the text: a binding added in scala-xml only on the root is written
-    * again on every child.
+  /** The file `api/run` writes: serialized as the Modeler does, with `xmlns:color` if a colour needs
+    * it - and parsed again first, so a broken BPMN is never written (it throws).
     */
-  def withColorNamespace(xmlStr: String): String =
-    if !xmlStr.contains("color:background-color") || xmlStr.contains("xmlns:color=") then xmlStr
-    else
-      """<((?:\w+:)?definitions)\b""".r
-        // the namespace is a plain URI - no `$` or `\` to quote in the replacement
-        .replaceFirstIn(xmlStr, s"""<$$1 xmlns:color="$colorNamespace"""")
+  def toBpmnFile(xml: Node): String =
+    val body = CamundaXmlPrinter.toCamundaXmlString(xml)
+    val text = if needsColorNamespace(xml) then withColorNamespace(body) else body
+    XML.loadString(text)
+    """<?xml version="1.0" encoding="UTF-8"?>""" + "\n" + text + "\n"
+  end toBpmnFile
+
+  /** A `color:` attribute somewhere, but no `xmlns:color` on the definitions - decided on the XML,
+    * not on its text (comments or documentation do not count).
+    */
+  private[api] def needsColorNamespace(xml: Node): Boolean =
+    Option(xml.scope.getURI("color")).isEmpty &&
+      (xml \\ "_").exists(_.attributes.exists:
+        case a: PrefixedAttribute => a.pre == "color"
+        case _                    => false)
+
+  /** `xmlns:color` on the definitions - added to the text: a binding added in scala-xml only on the
+    * root is written again on every child.
+    */
+  private[api] def withColorNamespace(xmlStr: String): String =
+    // the tag `definitions` itself (not `definitions-foo`); the namespace is a plain URI - no `$` or `\`
+    """<((?:\w+:)?definitions)(?=[\s/>])""".r
+      .replaceFirstIn(xmlStr, s"""<$$1 xmlns:color="$colorNamespace"""")
 end ModelerTemplUpdater
 
 // Serializes the XML the same way the Camunda Modeler does, so re-saving in the

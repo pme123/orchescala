@@ -68,15 +68,21 @@ object SetupGenerator:
   def linkDiagrams(projectDir: os.Path): Unit =
     os.symlink(diagramsLink(projectDir), os.rel / os.up / os.up / os.up / os.up / "src" / "main" / "resources" / "camunda")
 
+  /** What `ensureDiagramsLink` found or did. */
+  enum DiagramsLink:
+    case Linked, Exists, NoDiagrams, NoWorkerResources
+
   /** The link, if there are diagrams and no link yet - a project set up before its first BPMN
-    * (`processFromSpec` later) had none: its diagrams were missing in its docs.
+    * (`processFromSpec` later) had none: its diagrams were missing in its docs. An existing link
+    * (also a broken one) stays - it is the project's.
     */
-  def ensureDiagramsLink(projectDir: os.Path): Boolean =
+  def ensureDiagramsLink(projectDir: os.Path): DiagramsLink =
     val link = diagramsLink(projectDir)
-    val add  = os.exists(projectDir / "src" / "main" / "resources" / "camunda") &&
-      os.exists(projectDir / "03-worker" / "src" / "main" / "resources") &&
-      !os.exists(link, followLinks = false)
-    if add then linkDiagrams(projectDir)
-    add
+    if !os.exists(projectDir / "src" / "main" / "resources" / "camunda") then DiagramsLink.NoDiagrams
+    else if os.exists(link, followLinks = false) then DiagramsLink.Exists
+    else if !os.exists(projectDir / "03-worker" / "src" / "main" / "resources") then DiagramsLink.NoWorkerResources
+    else
+      linkDiagrams(projectDir)
+      DiagramsLink.Linked
   end ensureDiagramsLink
 end SetupGenerator
