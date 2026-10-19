@@ -43,6 +43,10 @@ export interface CatalogIndex {
   byName: Map<string, DomainType[]>;
   /** `Out` → die Typen, deren Name so endet (`GetAccount.Out`), in Katalog-Reihenfolge */
   byLast: Map<string, DomainType[]>;
+  /** Typen mit Besitzer (Prozess- bzw. Worker-Objekt) nach `processName`, `topicName` und Besitzer */
+  byProcess: Map<string, DomainType[]>;
+  byTopic: Map<string, DomainType[]>;
+  byOwner: Map<string, DomainType[]>;
 }
 
 const indexes = new WeakMap<DomainType[], CatalogIndex>();
@@ -55,6 +59,9 @@ export function catalogIndex(types: DomainType[] | undefined): CatalogIndex {
   const byId = new Map<string, DomainType>();
   const byName = new Map<string, DomainType[]>();
   const byLast = new Map<string, DomainType[]>();
+  const byProcess = new Map<string, DomainType[]>();
+  const byTopic = new Map<string, DomainType[]>();
+  const byOwner = new Map<string, DomainType[]>();
   const push = (m: Map<string, DomainType[]>, k: string, t: DomainType) => {
     const l = m.get(k);
     if (l) l.push(t); else m.set(k, [t]);
@@ -64,8 +71,13 @@ export function catalogIndex(types: DomainType[] | undefined): CatalogIndex {
     push(byName, t.name, t);
     const dot = t.name.lastIndexOf('.');
     if (dot >= 0) push(byLast, t.name.slice(dot + 1), t);
+    if (t.owner) {
+      if (t.processName) push(byProcess, t.processName, t);
+      if (t.topicName) push(byTopic, t.topicName, t);
+      push(byOwner, t.owner, t);
+    }
   }
-  const index = { all, byId, byName, byLast };
+  const index = { all, byId, byName, byLast, byProcess, byTopic, byOwner };
   indexes.set(all, index);
   return index;
 }

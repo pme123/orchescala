@@ -97,17 +97,17 @@ export function deriveObject(serviceId: string): Derived {
  * abgeleiteten Package, sonst keines. Null, wenn der Katalog es nicht kennt.
  */
 export function catalogObject(ref: string, model: Model | null): Derived | null {
-  const all = model?.domainTypes ?? [];
+  const idx = catalogIndex(model?.domainTypes);
   const asObject = (t: DomainType): Derived => ({ object: t.owner!, pkg: t.pkg, uncertain: false });
-  const process = all.find(t => t.owner && t.processName === ref);
+  const process = idx.byProcess.get(ref)?.[0];
   if (process) return asObject(process);
   // ein Worker über sein Topic (`valiant-graviton-eventStatus.get` → `GetEventStatus`) —
   // der Name lässt sich daraus nicht ableiten
-  const worker = all.filter(t => t.owner && t.topicName === ref);
+  const worker = idx.byTopic.get(ref) ?? [];
   if (worker.length && new Set(worker.map(t => `${t.pkg}.${t.owner}`)).size === 1) return asObject(worker[0]);
   const derived = deriveObject(ref);
   if (!ref.includes('.') || !/^[A-Z]/.test(derived.object)) return null;
-  const owners = all.filter(t => t.owner === derived.object);
+  const owners = idx.byOwner.get(derived.object) ?? [];
   const pkgs = [...new Set(owners.map(t => t.pkg))];
   if (pkgs.length === 1) return asObject(owners[0]);
   const same = owners.find(t => t.pkg === derived.pkg);
