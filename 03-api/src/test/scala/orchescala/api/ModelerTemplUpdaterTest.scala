@@ -52,7 +52,10 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
     val out = written(generated)
     assert(out.startsWith("""<?xml version="1.0" encoding="UTF-8"?>""" + "\n"), out)
     assertEquals("""xmlns:color="""".r.findAllIn(out).size, 1)
-    XML.loadString(out) // throws if the prefix is unbound
+    // parsed again: the colours are there and bound - nothing more to add
+    val reparsed = XML.loadString(out)
+    assert(!ModelerTemplUpdater.needsColorNamespace(reparsed))
+    assertEquals(colorOf(out, "InitProcessTask"), Some(ModelerTemplUpdater.generatedGrey))
 
   test("no colour - no xmlns:color; already there - not added again"):
     assert(!written(bpmn("SendMailTask")).contains("xmlns:color"))

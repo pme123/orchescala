@@ -98,7 +98,11 @@ case class OrchSpecGenerator()(using config: DevConfig):
         println(
           s"${Console.YELLOW}WARNING: no 03-worker/src/main/resources - the worker app cannot serve the diagrams (its docs answer 404, the gateway 502)${Console.RESET}"
         )
-      case _                                             => ()
+      case SetupGenerator.DiagramsLink.Failed(reason)    =>
+        println(
+          s"${Console.YELLOW}WARNING: 03-worker/src/main/resources/diagrams -> src/main/resources/camunda not linked ($reason) - the docs miss the diagrams${Console.RESET}"
+        )
+      case SetupGenerator.DiagramsLink.Exists | SetupGenerator.DiagramsLink.NoDiagrams => ()
 
     // the tables of the DMN decisions - next to the BPMN (without a BPMN: the engine of the DMN)
     dmns.foreach: (file, xml) =>

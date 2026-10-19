@@ -71,6 +71,8 @@ object SetupGenerator:
   /** What `ensureDiagramsLink` found or did. */
   enum DiagramsLink:
     case Linked, Exists, NoDiagrams, NoWorkerResources
+    // the link could not be created (e.g. no right for symlinks on Windows) - a warning, no abort
+    case Failed(reason: String)
 
   /** The link, if there are diagrams and no link yet - a project set up before its first BPMN
     * (`processFromSpec` later) had none: its diagrams were missing in its docs. An existing link
@@ -82,7 +84,6 @@ object SetupGenerator:
     else if os.exists(link, followLinks = false) then DiagramsLink.Exists
     else if !os.exists(projectDir / "03-worker" / "src" / "main" / "resources") then DiagramsLink.NoWorkerResources
     else
-      linkDiagrams(projectDir)
-      DiagramsLink.Linked
+      scala.util.Try(linkDiagrams(projectDir)).fold(e => DiagramsLink.Failed(e.toString), _ => DiagramsLink.Linked)
   end ensureDiagramsLink
 end SetupGenerator

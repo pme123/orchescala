@@ -13,10 +13,13 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
        |</bpmn:definitions>""".stripMargin
 
   // git-temp: the pushed state with the old topic; the working copy: the new one
-  private lazy val gitDir  = os.temp.dir(deleteOnExit = true)
-  private lazy val ownDir  = os.temp.dir(deleteOnExit = true)
+  private val gitDir  = os.temp.dir()
+  private val ownDir  = os.temp.dir()
   // a working copy without a BPMN of its own (no camunda/) - its clone is used
-  private lazy val bareDir = os.temp.dir(deleteOnExit = true)
+  private val bareDir = os.temp.dir()
+
+  // deleteOnExit does not delete a directory with files in it
+  override def afterAll(): Unit = Seq(gitDir, ownDir, bareDir).foreach(os.remove.all)
   private lazy val written =
     os.write(gitDir / "test-own" / "src" / "main" / "resources" / "camunda" / "book.bpmn",
       bpmn("test-own-bookV1-SendMail"), createFolders = true)

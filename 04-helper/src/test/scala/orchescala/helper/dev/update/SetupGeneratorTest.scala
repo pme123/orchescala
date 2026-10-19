@@ -4,8 +4,15 @@ import SetupGenerator.DiagramsLink
 
 class SetupGeneratorTest extends munit.FunSuite:
 
+  // deleteOnExit does not delete a directory with files in it - removed after the suite
+  private val dirs = scala.collection.concurrent.TrieMap.empty[os.Path, Unit]
+  override def afterAll(): Unit = dirs.keys.foreach: dir =>
+    os.walk(dir).filter(os.isDir(_, followLinks = false)).foreach(os.perms.set(_, "rwxr-xr-x"))
+    os.remove.all(dir)
+
   private def project(withBpmn: Boolean, withWorkerResources: Boolean = true): os.Path =
-    val dir = os.temp.dir(deleteOnExit = true)
+    val dir = os.temp.dir()
+    dirs.put(dir, ())
     if withWorkerResources then os.makeDir.all(dir / "03-worker" / "src" / "main" / "resources")
     if withBpmn then os.write(dir / "src" / "main" / "resources" / "camunda" / "p.bpmn", "<x/>", createFolders = true)
     dir
@@ -38,5 +45,13 @@ class SetupGeneratorTest extends munit.FunSuite:
     val dir = project(withBpmn = true, withWorkerResources = false)
     assertEquals(SetupGenerator.ensureDiagramsLink(dir), DiagramsLink.NoWorkerResources)
     assert(!os.exists(dir / "03-worker"))
+
+  test("the link cannot be created - reported as Failed, processFromSpec warns and goes on"):
+    val dir       = project(withBpmn = true)
+    val resources = dir / "03-worker" / "src" / "main" / "resources"
+    os.perms.set(resources, "r-xr-xr-x") // no right to create the link
+    SetupGenerator.ensureDiagramsLink(dir) match
+      case DiagramsLink.Failed(reason) => assert(reason.nonEmpty)
+      case other                       => fail(s"expected Failed, got $other")
 
 end SetupGeneratorTest
