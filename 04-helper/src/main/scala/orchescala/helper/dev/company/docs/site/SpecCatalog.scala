@@ -38,11 +38,11 @@ object SpecCatalog:
 
   /** Adds the project colors (`ProjectConfig.color`, from all `ProjectsPerGitRepoConfig`s) to the
     * catalog as `projectColors: { "<project>": "#rrggbb" }` - orch-spec colors a worker or call
-    * activity of such a project in the diagram. The default `#fff` means "no color" and is left
-    * out. Works without Node.js: a missing catalog gets a file with just the colors.
+    * activity of such a project in the diagram. The default `#fff` (and `white`, the docs' default)
+    * means "no color" and is left out. Works without Node.js: a missing catalog gets a file with just the colors.
     */
   def writeProjectColors(colors: Seq[(String, String)], outFile: os.Path): Unit =
-    val set = colors.filter { case (name, color) => name.nonEmpty && !Set("", "#fff", "#ffffff").contains(color.trim.toLowerCase) }
+    val set = colors.filter { case (name, color) => name.nonEmpty && !Set("", "#fff", "#ffffff", "white").contains(color.trim.toLowerCase) }
     if set.nonEmpty then
       val base = Option.when(os.exists(outFile))(os.read(outFile))
         .flatMap(io.circe.parser.parse(_).toOption)
