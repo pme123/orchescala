@@ -90,6 +90,9 @@ case class OrchSpecGenerator()(using config: DevConfig):
       case None      =>
         BpmnProcessGenerator(config.projectBpmnProcessType).createBpmn(setupElement)
     end match
+    // the worker app serves the diagrams in its docs - a project set up before its first BPMN has no link yet
+    if SetupGenerator.ensureDiagramsLink(os.pwd) then
+      println(s"${Console.GREEN}Linked 03-worker/src/main/resources/diagrams -> src/main/resources/camunda${Console.RESET}")
 
     // the tables of the DMN decisions - next to the BPMN (without a BPMN: the engine of the DMN)
     dmns.foreach: (file, xml) =>

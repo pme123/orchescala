@@ -110,18 +110,23 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
         println(s"CHANGED decisionRef -> $decisionRef > $id --")
         decisionRef.toString -> id
 
-    val xmlNew = (callActivities ++ businessRuleTasks ++ externalWorkers)
-      .flatMap:
-        case refName -> elemId =>
-          apiConfig.projectsConfig
-            .colorForId(refName, docProjectConfig.projectName)
-            .map(_ -> elemId).toSeq
-      .foldLeft(xml):
-        case (xmlResult, project -> color -> id) =>
-          println(s"  -> $project > $id -- $color")
-          new RuleTransformer(changeColor(project, id)).apply(xmlResult)
+    val xmlNew = ModelerTemplUpdater.withGeneratedInGrey(
+      (callActivities ++ businessRuleTasks ++ externalWorkers)
+        .flatMap:
+          case refName -> elemId =>
+            apiConfig.projectsConfig
+              .colorForId(refName, docProjectConfig.projectName)
+              .map(_ -> elemId).toSeq
+        .foldLeft(xml):
+          case (xmlResult, project -> color -> id) =>
+            println(s"  -> $project > $id -- $color")
+            new RuleTransformer(changeColor(project, id)).apply(xmlResult)
+    )
     val xmlDeclaration = """<?xml version="1.0" encoding="UTF-8"?>""" + "\n"
-    os.write.over(bpmnPath, xmlDeclaration + CamundaXmlPrinter.toCamundaXmlString(xmlNew) + "\n")
+    os.write.over(
+      bpmnPath,
+      xmlDeclaration + ModelerTemplUpdater.withColorNamespace(CamundaXmlPrinter.toCamundaXmlString(xmlNew)) + "\n"
+    )
   end extractUsesRefs
 
   private def changeColor(project: String, id: String) = new RewriteRule:
@@ -130,6 +135,41 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
         e % Attribute("color", "background-color", Text(s"${colorMap(project)}"), Null)
       case x                                                                    => x
 
+end ModelerTemplUpdater
+
+object ModelerTemplUpdater:
+  val colorNamespace = "http://www.omg.org/spec/BPMN/non-normative/color/1.0"
+  // the grey of BpmnProcessGenerator's template
+  val generatedGrey  = "#D5D5D5"
+
+  /** The init worker and the output-mocked / mocked elements in grey - as the template of
+    * `createProcess` has them, so also a BPMN of orch-spec (`processFromSpec`) gets them. An element
+    * with a colour of its own keeps it.
+    */
+  def withGeneratedInGrey(xml: Node): Node =
+    new RuleTransformer(greyGenerated).apply(xml)
+
+  private[api] def isGenerated(elementId: String): Boolean =
+    elementId == "InitProcessTask" || elementId.startsWith("Outputmocked") || elementId.startsWith("Mocked")
+
+  private val greyGenerated = new RewriteRule:
+    override def transform(n: Node): Seq[Node] = n match
+      case e: Elem
+          if e.label == "BPMNShape" && isGenerated(e \@ "bpmnElement") &&
+            !e.attributes.exists(_.key == "background-color") =>
+        e % Attribute("color", "background-color", Text(generatedGrey), Null)
+      case x => x
+
+  /** A colour needs `xmlns:color` on the definitions - a BPMN without it (e.g. of orch-spec) would
+    * not be valid XML. Added to the text: a binding added in scala-xml only on the root is written
+    * again on every child.
+    */
+  def withColorNamespace(xmlStr: String): String =
+    if !xmlStr.contains("color:background-color") || xmlStr.contains("xmlns:color=") then xmlStr
+    else
+      """<((?:\w+:)?definitions)\b""".r
+        // the namespace is a plain URI - no `$` or `\` to quote in the replacement
+        .replaceFirstIn(xmlStr, s"""<$$1 xmlns:color="$colorNamespace"""")
 end ModelerTemplUpdater
 
 // Serializes the XML the same way the Camunda Modeler does, so re-saving in the
