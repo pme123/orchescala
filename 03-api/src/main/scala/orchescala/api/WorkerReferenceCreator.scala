@@ -23,6 +23,21 @@ trait WorkerReferenceCreator:
   protected def apiConfig: ApiConfig
   protected def gitBasePath: os.Path
   protected def docProjectUrl(project: String): String
+  protected def projectName: String
+
+  /** Where the Scala sources of a module of a project come from: of the own project its working copy
+    * (`basePath`) - the git-temp clone is the pushed state, so a local change (a worker composed of
+    * another one) showed only after the merge; of the others their clone. Per module: a working
+    * copy with only `03-worker` takes the domain from the clone (and the other way round) - nothing
+    * is lost. As `ProcessReferenceCreator.bpmnDir`.
+    */
+  private[api] def sourceDir(pc: ProjectConfig, module: String): os.Path =
+    val local = apiConfig.basePath
+    if pc.name == projectName && os.exists(local / module) then local
+    else pc.absGitPath(gitBasePath)
+
+  // the own project is part of the key: its sources come from its working copy
+  private def sourcesCacheKey: String = s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"
 
   /** The Workers the Worker with this `topicName` is composed of. */
   protected def usesWorkers(topicName: String): Seq[WorkerRef] =
@@ -129,25 +144,26 @@ trait WorkerReferenceCreator:
   private lazy val workerSourcesByClassName: Map[String, WorkerSource] =
     workerSources.map(ws => ws.fullClassName -> ws).toMap
 
-  // the Scala sources are the same for all ApiCreators of a run - so they are only read once.
+  // the Scala sources are the same for all ApiCreators of a run - so they are only read once
+  // (per own project: ApiCreators of other projects in the same JVM read them once more each).
   // NO parallelization here - the ApiCreator is usually an object that creates the documentation
   // in its constructor, so other threads would block on its class initialization.
   private lazy val workerSources: Seq[WorkerSource] =
-    WorkerReferenceCreator.workerSources(cacheKey):
-      println(s"Worker Reference Base Directory: $gitBasePath")
+    WorkerReferenceCreator.workerSources(sourcesCacheKey):
+      println(s"Worker Reference Base Directory: $gitBasePath (the own project $projectName from ${apiConfig.basePath})")
       projectConfigs
         .flatMap: pc =>
           println(s"Get Workers in ${pc.name}")
-          scalaFiles(pc.absGitPath(gitBasePath), workerModule)
+          scalaFiles(sourceDir(pc, workerModule), workerModule)
             .filter(_.last.endsWith("Worker.scala"))
             .flatMap(parseWorker(pc.name, _))
   end workerSources
 
   private lazy val domainIdentifiers: Map[String, DomainIdentifier] =
-    WorkerReferenceCreator.domainIdentifiers(cacheKey):
+    WorkerReferenceCreator.domainIdentifiers(sourcesCacheKey):
       projectConfigs
         .flatMap: pc =>
-          scalaFiles(pc.absGitPath(gitBasePath), domainModule)
+          scalaFiles(sourceDir(pc, domainModule), domainModule)
             .flatMap(parseDomainIdentifiers(pc.name, _))
         .toMap
 
