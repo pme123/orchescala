@@ -271,6 +271,8 @@ and `MyProcessC8Simulation extends MyProcessSimulation, CompanyC8Simulation` on 
 Has the process already a simulation for the other engine (a migration from C7 to C8), it is split the same way:
 its scenarios stay in `MyProcessSimulation`, which becomes abstract, and it gets `MyProcessC7Simulation`
 and `MyProcessC8Simulation` - both engines run the same scenarios.
+The C7 class extends `CompanyC7Simulation` if the project uses it (newer company projects), otherwise `CompanySimulation`.
+A simulation of another form (more mixins, another engine) is not split - the helper says so, split it by hand.
 
 `In` gets the `inConfig` (`extends WithConfig[InConfig]`) - an enum `In` in each of its cases.
 It is the one field of the domain classes with a default: `inConfig: Option[InConfig] = None`.

@@ -74,6 +74,26 @@ class SimulationGeneratorTest extends FunSuite:
       SimulationGenerator().createSimulation(element)
       assertEquals(Seq("OrderCardSimulation", "OrderCardC7Simulation", "OrderCardC8Simulation").map(file), before)
 
+  test("a C7 simulation on CompanyC7Simulation is split - its C7 class keeps CompanyC7Simulation"):
+    inProject: file =>
+      SimulationGenerator().createSimulation(element)
+      val sim = os.walk(os.pwd).find(_.last == "OrderCardSimulation.scala").get
+      os.write.over(sim, os.read(sim).replace("extends CompanySimulation:", "extends CompanyC7Simulation:"))
+      SimulationGenerator().createSimulation(element, c8 = true)
+      assert(file("OrderCardSimulation").get.contains("abstract class OrderCardSimulation"))
+      val c7 = file("OrderCardC7Simulation").get
+      assert(c7.contains("class OrderCardC7Simulation extends OrderCardSimulation, CompanyC7Simulation"), c7)
+      assert(file("OrderCardC8Simulation").isDefined)
+
+  test("another form (more mixins) is not split - and no C8 class on top of it"):
+    inProject: file =>
+      SimulationGenerator().createSimulation(element)
+      val sim = os.walk(os.pwd).find(_.last == "OrderCardSimulation.scala").get
+      os.write.over(sim, os.read(sim).replace("extends CompanySimulation:", "extends CompanySimulation, MyMixin:"))
+      SimulationGenerator().createSimulation(element, c8 = true)
+      assert(file("OrderCardSimulation").get.contains("extends CompanySimulation, MyMixin:"))
+      assertEquals(file("OrderCardC8Simulation"), None)
+
   test("abstractSimulation - the class line and the deploy comments, nothing else"):
     val base =
       """package acme

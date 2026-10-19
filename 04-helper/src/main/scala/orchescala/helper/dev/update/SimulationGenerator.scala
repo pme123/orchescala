@@ -20,8 +20,16 @@ case class SimulationGenerator()(using config: DevConfig):
     val name     = setupElement.bpmnName
     val baseFile = simulationTestPath / s"${name}Simulation.scala"
     val pkg      = config.projectPackage
+    // C7 directly (CompanyC7Simulation, newer company projects) - or as before over CompanySimulation;
+    // read before a split rewrites the base
+    val c7Trait =
+      val known = os.list(simulationTestPath).filter(_.ext == "scala").exists(f => os.read(f).contains(C7Trait))
+      if known then C7Trait else "CompanySimulation"
     def engineFile(c8: Boolean): Unit =
-      createIfNotExists(simulationTestPath / s"$name${engineSuffix(c8)}Simulation.scala", engineSimulation(pkg, name, c8))
+      createIfNotExists(
+        simulationTestPath / s"$name${engineSuffix(c8)}Simulation.scala",
+        engineSimulation(pkg, name, c8, c7Trait)
+      )
     if !os.exists(baseFile) then
       if c8 then
         createIfNotExists(baseFile, abstractSimulation(process(setupElement), name).getOrElse(process(setupElement)))
@@ -41,8 +49,12 @@ case class SimulationGenerator()(using config: DevConfig):
             case None               =>
               println(s"${Console.YELLOW}EXISTS: $baseFile - not split for ${engineSuffix(c8)}, do it by hand.${Console.RESET}")
         case None        =>
-          println(s"EXISTS: $baseFile")
-          if isAbstract(base, name) then engineFile(c8)
+          if isAbstract(base, name) then
+            println(s"EXISTS: $baseFile")
+            engineFile(c8)
+          else if c8 then
+            println(s"${Console.YELLOW}EXISTS: $baseFile - unknown form, not split for C8 - do it by hand.${Console.RESET}")
+          else println(s"EXISTS: $baseFile")
       end match
     end if
   end createSimulation
@@ -116,10 +128,15 @@ object SimulationGenerator:
   /** `C7` or `C8` - the part of the class name the deploy takes the engine from */
   def engineSuffix(c8: Boolean): String = if c8 then "C8" else "C7"
 
-  private def classLine(name: String) =
-    s"""(?m)^class ${name}Simulation\\s+extends\\s+(CompanySimulation|CompanyC8Simulation)\\s*:[ \\t]*$$""".r
+  /** The simulation trait of C7 in newer company projects - runs directly against Camunda 7 */
+  val C7Trait = "CompanyC7Simulation"
 
-  /** The engine of a concrete `<Name>Simulation` - None if it is abstract or has another form */
+  private def classLine(name: String) =
+    s"""(?m)^class ${name}Simulation\\s+extends\\s+(CompanySimulation|$C7Trait|CompanyC8Simulation)\\s*:[ \\t]*$$""".r
+
+  /** The engine of a concrete `<Name>Simulation` (C8: true) - None if it is abstract or has another
+    * form (another engine like CompanyOpSimulation, more mixins)
+    */
   def engineOf(base: String, name: String): Option[Boolean] =
     classLine(name).findFirstMatchIn(base).map(_.group(1) == "CompanyC8Simulation")
 
@@ -144,10 +161,10 @@ object SimulationGenerator:
       deployComment.replaceAllIn(withClass, "")
 
   /** `<Name>C7Simulation` / `<Name>C8Simulation` - the scenarios of `<Name>Simulation` on the engine */
-  def engineSimulation(pkg: String, name: String, c8: Boolean): String =
+  def engineSimulation(pkg: String, name: String, c8: Boolean, c7Trait: String = "CompanySimulation"): String =
     val sim         = s"$name${engineSuffix(c8)}Simulation"
     val note        = if c8 then "   (engine C8 from the name, Postman folder deploy_manifest_c8)" else ""
-    val engineTrait = if c8 then "CompanyC8Simulation" else "CompanySimulation"
+    val engineTrait = if c8 then "CompanyC8Simulation" else c7Trait
     s"""package $pkg
        |package simulation
        |
