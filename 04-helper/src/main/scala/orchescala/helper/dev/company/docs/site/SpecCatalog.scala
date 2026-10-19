@@ -36,14 +36,14 @@ object SpecCatalog:
         run(toolsDir / "site2catalog.js", Seq(md.toString, "--out", outFile.toString))
   end generate
 
+  /** What means "no color" - the default of `ProjectConfig.color` and of the docs */
+  private val noColor = Set("", "#fff", "#ffffff", "white")
+
   /** Adds the project colors (`ProjectConfig.color`, from all `ProjectsPerGitRepoConfig`s) to the
     * catalog as `projectColors: { "<project>": "#rrggbb" }` - orch-spec colors a worker or call
     * activity of such a project in the diagram. The default `#fff` (and `white`, the docs' default)
     * means "no color" and is left out. Works without Node.js: a missing catalog gets a file with just the colors.
     */
-  /** What means "no color" - the default of `ProjectConfig.color` and of the docs */
-  private val noColor = Set("", "#fff", "#ffffff", "white")
-
   def writeProjectColors(colors: Seq[(String, String)], outFile: os.Path): Unit =
     val set = colors.filter { case (name, color) => name.nonEmpty && !noColor.contains(color.trim.toLowerCase) }
     if set.nonEmpty then
