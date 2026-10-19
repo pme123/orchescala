@@ -21,9 +21,10 @@ case class SimulationGenerator()(using config: DevConfig):
     val baseFile = simulationTestPath / s"${name}Simulation.scala"
     val pkg      = config.projectPackage
     // C7 directly (CompanyC7Simulation, newer company projects) - or as before over CompanySimulation;
-    // read before a split rewrites the base
-    val c7Trait =
-      val known = os.list(simulationTestPath).filter(_.ext == "scala").exists(f => os.read(f).contains(C7Trait))
+    // only looked up when a C7 class is written, and before a split rewrites the base
+    lazy val c7Trait =
+      val known = os.exists(simulationTestPath) &&
+        os.list(simulationTestPath).filter(_.ext == "scala").exists(f => os.read(f).contains(C7Trait))
       if known then C7Trait else "CompanySimulation"
     def engineFile(c8: Boolean): Unit =
       createIfNotExists(
@@ -32,8 +33,8 @@ case class SimulationGenerator()(using config: DevConfig):
       )
     if !os.exists(baseFile) then
       if c8 then
-        createIfNotExists(baseFile, abstractSimulation(process(setupElement), name).getOrElse(process(setupElement)))
         engineFile(c8 = true)
+        createIfNotExists(baseFile, process(setupElement, asAbstract = true))
       else createIfNotExists(baseFile, process(setupElement))
     else
       val base = os.read(baseFile)
@@ -42,10 +43,11 @@ case class SimulationGenerator()(using config: DevConfig):
         case Some(other) =>
           abstractSimulation(base, name) match
             case Some(abstractBase) =>
-              os.write.over(baseFile, abstractBase)
-              println(s"${Console.BLUE} - SPLIT: $baseFile - scenarios for both engines${Console.RESET}")
+              // the classes of the engines first - the base is only rewritten when they are there
               engineFile(other)
               engineFile(c8)
+              os.write.over(baseFile, abstractBase)
+              println(s"${Console.BLUE} - SPLIT: $baseFile - scenarios for both engines${Console.RESET}")
             case None               =>
               println(s"${Console.YELLOW}EXISTS: $baseFile - not split for ${engineSuffix(c8)}, do it by hand.${Console.RESET}")
         case None        =>
@@ -59,19 +61,26 @@ case class SimulationGenerator()(using config: DevConfig):
     end if
   end createSimulation
 
+  /** The simulation with its scenarios - `asAbstract`: the base of the classes per engine */
   private def process(
-      setupElement: SetupElement
+      setupElement: SetupElement,
+      asAbstract: Boolean = false
   ) =
+    import SimulationGenerator.*
     val SetupElement(_, processName, name, version) = setupElement
+    val header =
+      if asAbstract then abstractHeader(name)
+      else
+        s"""// ./helper.scala deploy ${name}Simulation
+           |// simulation/test
+           |// simulation/testOnly *${name}Simulation
+           |class ${name}Simulation extends CompanySimulation:""".stripMargin
     s"""package ${config.projectPackage}
        |package simulation
        |
        |import ${config.projectPackage}.domain.$processName${version.versionPackage}.$name.*
        |
-       |// ./helper.scala deploy ${name}Simulation
-       |// simulation/test
-       |// simulation/testOnly *${name}Simulation
-       |class ${name}Simulation extends CompanySimulation:
+       |$header
        |
        |  simulate(
        |    scenario(`$name`)(
@@ -131,8 +140,15 @@ object SimulationGenerator:
   /** The simulation trait of C7 in newer company projects - runs directly against Camunda 7 */
   val C7Trait = "CompanyC7Simulation"
 
+  /** The class line of a concrete simulation - a comment behind it stays */
   private def classLine(name: String) =
-    s"""(?m)^class ${name}Simulation\\s+extends\\s+(CompanySimulation|$C7Trait|CompanyC8Simulation)\\s*:[ \\t]*$$""".r
+    s"""(?m)^class ${name}Simulation\\s+extends\\s+(CompanySimulation|$C7Trait|CompanyC8Simulation)\\s*:[ \\t]*(//.*)?$$""".r
+
+  private def abstractHeader(name: String) =
+    s"""// Shared scenarios for both engines; the engine wiring comes from CompanySimulation /
+       |// CompanyC8Simulation on the concrete subclasses (${name}C7Simulation /
+       |// ${name}C8Simulation), not from here.
+       |abstract class ${name}Simulation extends SimulationRunner:""".stripMargin
 
   /** The engine of a concrete `<Name>Simulation` (C8: true) - None if it is abstract or has another
     * form (another engine like CompanyOpSimulation, more mixins)
@@ -148,14 +164,8 @@ object SimulationGenerator:
     */
   def abstractSimulation(base: String, name: String): Option[String] =
     classLine(name).findFirstMatchIn(base).map: m =>
-      val withClass = base.patch(
-        m.start,
-        s"""// Shared scenarios for both engines; the engine wiring comes from CompanySimulation /
-           |// CompanyC8Simulation on the concrete subclasses (${name}C7Simulation /
-           |// ${name}C8Simulation), not from here.
-           |abstract class ${name}Simulation extends SimulationRunner:""".stripMargin,
-        m.end - m.start
-      )
+      val comment   = Option(m.group(2)).map(c => s" $c").getOrElse("")
+      val withClass = base.patch(m.start, abstractHeader(name) + comment, m.end - m.start)
       val deployComment =
         s"(?m)^// (\\./helper\\.scala deploy ${name}Simulation|simulation/test|simulation/testOnly \\*${name}Simulation)[ \\t]*\\n".r
       deployComment.replaceAllIn(withClass, "")

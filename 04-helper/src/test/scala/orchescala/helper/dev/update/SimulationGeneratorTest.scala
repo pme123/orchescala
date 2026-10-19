@@ -94,6 +94,16 @@ class SimulationGeneratorTest extends FunSuite:
       assert(file("OrderCardSimulation").get.contains("extends CompanySimulation, MyMixin:"))
       assertEquals(file("OrderCardC8Simulation"), None)
 
+  test("Camunda 7 next to an existing C8 simulation: it is split the other way round"):
+    inProject: file =>
+      SimulationGenerator().createSimulation(element)
+      val sim = os.walk(os.pwd).find(_.last == "OrderCardSimulation.scala").get
+      os.write.over(sim, os.read(sim).replace("extends CompanySimulation:", "extends CompanyC8Simulation:"))
+      SimulationGenerator().createSimulation(element, c8 = false)
+      assert(file("OrderCardSimulation").get.contains("abstract class OrderCardSimulation"))
+      assert(file("OrderCardC8Simulation").get.contains("extends OrderCardSimulation, CompanyC8Simulation"))
+      assert(file("OrderCardC7Simulation").get.contains("extends OrderCardSimulation, CompanySimulation"))
+
   test("abstractSimulation - the class line and the deploy comments, nothing else"):
     val base =
       """package acme
@@ -114,6 +124,11 @@ class SimulationGeneratorTest extends FunSuite:
     assertEquals(SimulationGenerator.engineOf(base, "OrderCard"), Some(false))
     assertEquals(SimulationGenerator.engineOf(result, "OrderCard"), None)
     assert(SimulationGenerator.isAbstract(result, "OrderCard"))
+
+  test("abstractSimulation - a comment behind the class line stays"):
+    val base   = "class OrderCardSimulation extends CompanySimulation: // TODO more scenarios\n"
+    val result = SimulationGenerator.abstractSimulation(base, "OrderCard").get
+    assert(result.contains("abstract class OrderCardSimulation extends SimulationRunner: // TODO more scenarios"), result)
 
   test("abstractSimulation - another form is not touched"):
     val other = "class OrderCardSimulation extends CompanySimulation, MyMixin:\n"
