@@ -19,7 +19,9 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
   private val bareDir = os.temp.dir()
 
   // deleteOnExit does not delete a directory with files in it
-  override def afterAll(): Unit = Seq(gitDir, ownDir, bareDir).foreach(os.remove.all)
+  override def afterAll(): Unit =
+    Seq(gitDir, ownDir, bareDir).foreach(os.remove.all)
+    super.afterAll()
   private lazy val written =
     os.write(gitDir / "test-own" / "src" / "main" / "resources" / "camunda" / "book.bpmn",
       bpmn("test-own-bookV1-SendMail"), createFolders = true)
