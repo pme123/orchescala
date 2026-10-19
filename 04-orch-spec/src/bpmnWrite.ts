@@ -371,8 +371,10 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
   // Was der Linter des Modelers beanstandet und sich aus dem Diagramm selbst ergibt
   tidyGlobals(defs, issues);
-  nameBoundaryEvents(defs, spec);
-  nameSteps(byId, spec);
+  // die Formen je Element — einmal für das Benennen; es entfernt nur Labels, keine Formen
+  const shapes = shapesOf(defs);
+  nameBoundaryEvents(defs, spec, shapes);
+  nameSteps(byId, spec, shapes);
   checkStartMessage(defs, spec, issues);
 
   // Die Steuerparameter (`_…`) stehen immer am Schluss — Eingaben bleiben vor Ausgaben
@@ -449,7 +451,7 @@ function tidyGlobals(defs: Element, issues: WriteIssue[]) {
  * (`_handledErrors`), sonst «Catch All». Beim nächsten Abgleich wird der Name
  * der Code des Fehlerfalls — bei den behandelten Fehlern derselbe.
  */
-function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
+function nameBoundaryEvents(defs: Element, spec: ProcessSpec, shapes: Map<string, Element[]>) {
   const byId = new Map(allElements(defs).map(el => [el.getAttribute('id') ?? '', el] as [string, Element]));
   const steps = new Map(allSteps(spec.steps).map(s => [s.id, s] as [string, Step]));
   const nameOfRef = (def: Element, ref: string, code?: string): string | undefined => {
@@ -472,7 +474,7 @@ function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
       case 'signalEventDefinition': name = nameOfRef(def, 'signalRef'); break;
       case 'escalationEventDefinition': name = nameOfRef(def, 'escalationRef', 'escalationCode'); break;
     }
-    if (name) giveName(el, name);
+    if (name) giveName(el, name, shapes);
   }
 }
 
@@ -481,27 +483,22 @@ function nameBoundaryEvents(defs: Element, spec: ProcessSpec) {
  * Diagramm war bisher nie sichtbar — oft ein Rest von früher, irgendwo daneben.
  * Sie fällt weg; der Modeler setzt das Label neu, unter das Element.
  */
-function giveName(el: Element, name: string) {
+function giveName(el: Element, name: string, shapes: Map<string, Element[]>) {
   el.setAttribute('name', name);
   const id = el.getAttribute('id');
-  const doc = el.ownerDocument;
-  if (!id || !doc?.documentElement) return;
-  for (const di of shapesOf(doc).get(id) ?? []) {
+  if (!id) return;
+  for (const di of shapes.get(id) ?? []) {
     for (const label of kids(di).filter(k => local(k) === 'BPMNLabel')) removeEl(label);
   }
 }
 
-/** Die Formen je `bpmnElement` — einmal je Dokument, nicht je benanntem Element */
-const shapeIndexes = new WeakMap<Document, Map<string, Element[]>>();
-function shapesOf(doc: Document): Map<string, Element[]> {
-  let m = shapeIndexes.get(doc);
-  if (m) return m;
-  m = new Map();
-  for (const di of allElements(doc.documentElement)) {
+/** Die Formen je `bpmnElement` — einmal gebaut, nicht je benanntem Element */
+function shapesOf(defs: Element): Map<string, Element[]> {
+  const m = new Map<string, Element[]>();
+  for (const di of allElements(defs)) {
     const ref = local(di) === 'BPMNShape' ? di.getAttribute('bpmnElement') : null;
     if (ref) m.set(ref, [...(m.get(ref) ?? []), di]);
   }
-  shapeIndexes.set(doc, m);
   return m;
 }
 
@@ -510,11 +507,11 @@ function shapesOf(doc: Document): Map<string, Element[]> {
  * die Spezifikation ihm gab — sonst hiesse es im Ablauf wie seine ID. Start, Ende
  * und Gateways nicht: ihr Ersatzname («Start», «Verzweigung») ist kein Label.
  */
-function nameSteps(byId: Map<string, Element>, spec: ProcessSpec) {
+function nameSteps(byId: Map<string, Element>, spec: ProcessSpec, shapes: Map<string, Element[]>) {
   for (const s of allSteps(spec.steps)) {
     if (unnamed(s) || s.kind === 'start' || s.kind === 'end' || s.kind === 'gateway') continue;
     const el = byId.get(s.id);
-    if (el && !el.getAttribute('name')?.trim()) giveName(el, s.name.trim());
+    if (el && !el.getAttribute('name')?.trim()) giveName(el, s.name.trim(), shapes);
   }
 }
 

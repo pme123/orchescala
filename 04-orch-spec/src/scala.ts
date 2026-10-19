@@ -589,7 +589,8 @@ function scaladoc(text: string): string {
  * `inConfig: Option[InConfig] = None` — wie in Orchescala (`bpmnDsl.md`): die
  * Vorgabe `None` steht in der Klasse, in `example` und `exampleMinimal` fehlt das Feld.
  */
-const isInConfigField = (f: Field, idx: TypeIndex) => /^Option\[(?:[\w.]+\.)?InConfig\]$/.test(fieldType(f, idx));
+const isInConfigField = (f: Field, idx: TypeIndex) =>
+  f.name === 'inConfig' && /^Option\[(?:[\w.]+\.)?InConfig\]$/.test(fieldType(f, idx));
 
 /** Die Felder des Beispiels — ohne `inConfig` (siehe oben), ausser es hat ein eigenes (`Some(InConfig.example)`) */
 const exampleFields = (fields: Field[], idx: TypeIndex) =>
