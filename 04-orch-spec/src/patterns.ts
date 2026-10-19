@@ -33,6 +33,7 @@ import { uid } from './util';
 import { ORCHESCALA_TYPES } from './orchescalaTypes';
 import { domainRef } from './serviceTypes';
 import { engineLabel } from './engineLabels';
+import { parseErrorList } from './errorCodes';
 
 export const ANCHOR_ID = 'PatternTarget';
 /** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */
@@ -379,9 +380,11 @@ function matchEl(f: Element, t: Element, b: Binding): Binding | null {
   if (local(f) !== local(t)) return null;
   const flow = FLOW_NODES.has(local(f)) || local(f) === 'sequenceFlow';
   let cur: Binding | null = b;
+  const sameErrors = sameErrorList(f, t);
   for (const [k, fv] of attrsOf(f, flow)) {
     let tv = attrOf(t, k);
     if (tv == null) return null;
+    if (k === 'source' && sameErrors) continue;
     let want = fv;
     if (REF_ATTRS.has(k)) { want = refName(f.ownerDocument, fv); tv = refName(t.ownerDocument, tv); }
     cur = matchText(want, tv, cur);
@@ -407,6 +410,25 @@ function matchEl(f: Element, t: Element, b: Binding): Binding | null {
     cur = hit;
   }
   return cur;
+}
+
+/** `_handledErrors` / `_regexHandledErrors` — eine Liste von Fehlern */
+const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
+
+/**
+ * Dieselben behandelten Fehler, nur anders geschrieben? In Camunda 8 ist es
+ * eine Liste (`=["output-mocked"]`, so schreibt sie die Umwandlung), ein
+ * älteres Pattern hat oft einen Text (`="output-mocked"`) — beides meint
+ * dasselbe. Nur ohne Parameter in der Vorlage; mit ihnen gilt der Textvergleich.
+ */
+function sameErrorList(f: Element, t: Element): boolean {
+  if (local(f) !== 'input') return false;
+  const target = attrOf(f, 'target');
+  if (!target || !ERROR_LISTS.has(target) || attrOf(t, 'target') !== target) return false;
+  const fs = attrOf(f, 'source'), ts = attrOf(t, 'source');
+  if (fs == null || ts == null || fs.includes('{{')) return false;
+  const norm = (s: string) => [...new Set(parseErrorList(s).map(e => e.trim().toLowerCase()))].sort().join('\n');
+  return norm(fs) === norm(ts);
 }
 
 // ── Graph eines Scopes ───────────────────────────────────────────────────────
