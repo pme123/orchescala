@@ -1045,7 +1045,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               report: { ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}) },
             };
             // alle Felder der Services als Zeilen, Pflicht-Eingaben angehakt — wie beim Anlegen
-            void commitPlan(withServiceRows(p.spec, model).spec, p.text, p.report, p.renames, origin);
+            void commitPlan(withServiceRows(p.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
           }} />
       )}
 

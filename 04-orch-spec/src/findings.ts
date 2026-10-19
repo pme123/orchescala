@@ -102,8 +102,13 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
  * Workern, dem Init-Worker und Entscheidungen (die lesen bzw. schreiben ihre
  * Variablen direkt) und nicht, wenn ein Pattern den Aufruf festlegt.
  * `added` nennt «Schritt: Feld» der neu angehakten Zeilen.
+ *
+ * `importing`: das BPMN kommt gerade herein (Anlegen, Abgleich). Gibt es den
+ * Eingaben dann Felder mehrerer Ausprägungen mit, entscheidet der Worker — der
+ * Schritt bekommt «alle Ausprägungen». Beim Öffnen nicht: dort ist eine
+ * gemischte Wahl ein Versehen, das die Warnung zeigen soll.
  */
-export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; added: string[]; changed: boolean } {
+export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { importing?: boolean } = {}): { spec: ProcessSpec; added: string[]; changed: boolean } {
   const added: string[] = [];
   let changed = false;
   const processId = spec.processId ?? '';
@@ -173,7 +178,7 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
       }
       // Eingaben aus mehreren Ausprägungen (so im BPMN): der Worker unterstützt
       // mehrere Fälle und entscheidet beim Unmarshalling, welcher es ist (`*`)
-      if (next.inVariant == null) {
+      if (opts.importing && next.inVariant == null) {
         const v = variantsOf(next, spec, model, 'inputs', service);
         if (v && chosenVariant(next, 'inputs', v).mixed.length) { changed = true; next = { ...next, inVariant: ALL_VARIANTS }; }
       }

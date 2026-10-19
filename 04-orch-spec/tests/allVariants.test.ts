@@ -57,7 +57,7 @@ test('without a choice: fields of several cases are mixed', () => {
 
 test('import: inputs of several cases from the BPMN - the worker decides, «alle Ausprägungen»', () => {
   const s = step([row('fileId'), row('folder'), row('archiveKey')]);
-  const r = withServiceRows(spec(s), model);
+  const r = withServiceRows(spec(s), model, { importing: true });
   assert.ok(r.changed);
   const imported = r.spec.steps[0];
   assert.equal(imported.inVariant, ALL_VARIANTS);
@@ -66,7 +66,14 @@ test('import: inputs of several cases from the BPMN - the worker decides, «alle
 
 test('import: inputs of one case keep their inferred case', () => {
   const s = step([row('fileId'), row('folder')]);
-  const imported = withServiceRows(spec(s), model).spec.steps[0];
+  const imported = withServiceRows(spec(s), model, { importing: true }).spec.steps[0];
   assert.equal(imported.inVariant, undefined);
   assert.equal(chosenVariant(imported, 'inputs', variantsOf(imported, spec(imported), model, 'inputs', null)).name, 'ToFolder');
+});
+
+test('open: inputs of several cases stay as they are - the warning shows the mix', () => {
+  const s = step([row('fileId'), row('folder'), row('archiveKey')]);
+  const opened = withServiceRows(spec(s), model).spec.steps[0];
+  assert.equal(opened.inVariant, undefined);
+  assert.ok(messages(opened).some(m => m.includes('aus mehreren Ausprägungen')), messages(opened).join(' / '));
 });

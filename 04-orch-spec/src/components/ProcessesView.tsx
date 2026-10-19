@@ -205,7 +205,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const createPending = async () => {
     if (!pending) return;
     // alle Felder der Services als Zeilen — Pflicht-Eingaben und gebrauchte Ausgaben angehakt
-    const spec = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model).spec;
+    const spec = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
     const res = await createSpec(spec);
     if (!res.ok) { setError(res.message); return; }
     // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich
