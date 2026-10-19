@@ -6,7 +6,7 @@ import { homeParams } from '../src/pages/runtime/homeParams';
 import colourCases from '../../.claude/skills/orch-theme-from-site/colour-cases.json';
 import { alphaOf, contrast, svgDropsAttribute, svgDropsElement, dataUriBytes, FONTS, isFontPreset, isThemeColor, MAX_LOGO_BYTES, parseThemeFile, rgbOf, syncedText, textOn, themeProblem, themeStyle } from '../src/pages/runtime/theme';
 import { cleanLogo, decodeBase64, encodeBase64, type SvgDom } from '../src/pages/designer/logo';
-import { appModeKey, isDarkMode, rememberMode, storedMode } from '../src/pages/runtime/ui';
+import { appModeKey, effectiveLogo, isDarkMode, logoutTitle, rememberMode, storedMode } from '../src/pages/runtime/ui';
 
 test('themeStyle - the variables of a theme', () => {
   const light = themeStyle({ primary: '#0b5cab', background: '#fafafa', font: 'sans', radius: 'md' }, false) as Record<string, string>;
@@ -327,4 +327,18 @@ test('encodeBase64 / decodeBase64 / cleanLogo - UTF-8 text to base64 and back, r
   assert.equal(cleanLogo('data:image/svg+xml;base64,!!!'), null);
   assert.equal(cleanLogo(`data:image/svg+xml;base64,${encodeBase64('<!DOCTYPE svg [<!ENTITY a "a">]><svg/>')}`), null);
   assert.equal(cleanLogo('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA'); // not an SVG: as it is
+});
+
+test('logoutTitle - the name in the tooltip of the logout button, no empty brackets without one', () => {
+  assert.equal(logoutTitle('Anna Beraterin'), 'Abmelden (Anna Beraterin)');
+  assert.equal(logoutTitle(undefined), 'Abmelden');
+  assert.equal(logoutTitle(''), 'Abmelden');
+});
+
+test('effectiveLogo - the theme logo, unless there is none or exactly this one failed to load', () => {
+  assert.equal(effectiveLogo('data:image/png;base64,AAAA', null), 'data:image/png;base64,AAAA');
+  assert.equal(effectiveLogo(undefined, null), undefined); // no logo: the default icon
+  assert.equal(effectiveLogo('', null), undefined);
+  assert.equal(effectiveLogo('a.png', 'a.png'), undefined); // failed: the default icon, the byline as text
+  assert.equal(effectiveLogo('b.png', 'a.png'), 'b.png'); // another logo is tried again
 });
