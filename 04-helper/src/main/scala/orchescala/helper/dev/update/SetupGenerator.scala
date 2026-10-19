@@ -53,11 +53,30 @@ case class SetupGenerator()(using config: DevConfig):
       basePath / "03-api" / "OpenApi.yml"
     )
     if os.exists(os.pwd / "src" / "main" / "resources" / "camunda") then
-      os.remove.all(os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams")
-      os.symlink(
-        os.pwd / "03-worker" / "src" / "main" / "resources" / "diagrams",
-        basePath / "src" / "main" / "resources" / "camunda"
-      )
+      os.remove.all(SetupGenerator.diagramsLink(os.pwd))
+      SetupGenerator.linkDiagrams(os.pwd)
   end addSymLinks
 
+end SetupGenerator
+
+object SetupGenerator:
+  /** The worker app serves its BPMN and DMN from `diagrams/` of its resources (`/docs/diagrams/…`). */
+  def diagramsLink(projectDir: os.Path): os.Path =
+    projectDir / "03-worker" / "src" / "main" / "resources" / "diagrams"
+
+  /** The link `diagrams` -> `src/main/resources/camunda` (relative). */
+  def linkDiagrams(projectDir: os.Path): Unit =
+    os.symlink(diagramsLink(projectDir), os.rel / os.up / os.up / os.up / os.up / "src" / "main" / "resources" / "camunda")
+
+  /** The link, if there are diagrams and no link yet - a project set up before its first BPMN
+    * (`processFromSpec` later) had none: its diagrams were missing in its docs.
+    */
+  def ensureDiagramsLink(projectDir: os.Path): Boolean =
+    val link = diagramsLink(projectDir)
+    val add  = os.exists(projectDir / "src" / "main" / "resources" / "camunda") &&
+      os.exists(projectDir / "03-worker" / "src" / "main" / "resources") &&
+      !os.exists(link, followLinks = false)
+    if add then linkDiagrams(projectDir)
+    add
+  end ensureDiagramsLink
 end SetupGenerator
