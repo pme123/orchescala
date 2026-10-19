@@ -92,6 +92,7 @@ export function readCatalogFile(text: string): { ok: true; data: CatalogFile } |
   const d = (raw ?? {}) as CatalogFile;
   // nur Projektfarben: das schreibt `prepareDocs` auch ohne Node.js
   const colors = d.projectColors && typeof d.projectColors === 'object' && Object.keys(d.projectColors).length > 0;
+  const projectColors = colors ? withoutNoColor(d.projectColors!) : undefined;
   if (!Array.isArray(d.services) && !Array.isArray(d.domainTypes) && !colors) {
     return { ok: false, message: 'Darin steht kein Katalog (weder services noch domainTypes).' };
   }
@@ -101,8 +102,17 @@ export function readCatalogFile(text: string): { ok: true; data: CatalogFile } |
       ...d,
       ...(Array.isArray(d.services) ? { services: withoutGenerated(d.services) } : {}),
       ...(Array.isArray(d.domainTypes) ? { domainTypes: withoutGenerated(d.domainTypes) } : {}),
+      ...(colors ? { projectColors } : {}),
     },
   };
+}
+
+/** Was in Orchescala «keine Farbe» heisst (`ProjectConfig.color` ist `#fff`, die Doku nimmt `white`) */
+const NO_COLOR = new Set(['', '#fff', '#ffffff', 'white']);
+
+/** Projektfarben ohne die, die keine sind — sonst stünde «weiss» als gewählte Farbe da */
+export function withoutNoColor(colors: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(colors).filter(([, c]) => typeof c === 'string' && !NO_COLOR.has(c.trim().toLowerCase())));
 }
 
 /**

@@ -5,9 +5,12 @@
 // alle Felder zugleich. Der Schritt wählt deshalb seine Ausprägung
 // (`inVariant` / `outVariant`). Ohne Wahl gelten nur die gemeinsamen Felder;
 // die Felder der Fälle sind ausgeblendet, nicht Pflicht und werden nicht
-// geprüft. Bei den **Ausgaben** geht auch «alle Ausprägungen» (`*`): der
-// Service liefert zwar nur einen Fall, aber welchen, entscheidet er — die
-// Ausgaben dürfen deshalb die Felder aller Fälle lesen.
+// geprüft. Es geht auch «alle Ausprägungen» (`*`): bei den **Ausgaben**
+// liefert der Service zwar nur einen Fall, aber welchen, entscheidet er — die
+// Ausgaben dürfen deshalb die Felder aller Fälle lesen. Bei den **Eingaben**
+// unterstützt der Worker mehrere Fälle und entscheidet beim Unmarshalling,
+// welcher es ist — die Felder aller Fälle sind erlaubt, Pflicht sind nur die
+// gemeinsamen (wie bei einer Weiche zur Laufzeit).
 //
 // Quelle der Fälle: die eigene In-/Out-Klasse (Interaktion) als enum mit
 // Feldern je Fall, sonst der Domain-Katalog (`cases` des enum), sonst die
@@ -55,7 +58,7 @@ const NONE: Chosen = { name: null, inferred: false, mixed: [] };
 
 export const variantKey = (list: MappingList) => (list === 'inputs' ? 'inVariant' : 'outVariant');
 
-/** Wahl «alle Ausprägungen» — nur bei den Ausgaben */
+/** Wahl «alle Ausprägungen» — der Service bzw. Worker entscheidet, welcher Fall es ist */
 export const ALL_VARIANTS = '*';
 
 function build(cases: VariantCase[], common: string[]): Variants | null {
@@ -118,7 +121,7 @@ export function variantsOf(step: Step, spec: ProcessSpec, model: Model | null, l
 export function chosenVariant(step: Step, list: MappingList, v: Variants | null): Chosen {
   if (!v) return NONE;
   const explicit = step[variantKey(list)];
-  if (list === 'outputs' && explicit === ALL_VARIANTS) return { name: ALL_VARIANTS, inferred: false, mixed: [] };
+  if (explicit === ALL_VARIANTS) return { name: ALL_VARIANTS, inferred: false, mixed: [] };
   if (typeof explicit === 'string' && v.cases.some(c => c.name === explicit)) return { name: explicit, inferred: false, mixed: [] };
   // eine Weiche ausser dem gemeinsamen Feld aktiv: der Decoder wählt den Fall zur Laufzeit
   if (list === 'inputs' && v.routing) {
@@ -145,11 +148,12 @@ export function variantAllows(v: Variants | null, chosen: Chosen, name: string):
 /**
  * Ist das Feld Pflicht, sofern es laut Domain nicht optional ist? Nicht die
  * Weichen (eine genügt — siehe `routingMissing`), und wählt der Decoder den
- * Fall zur Laufzeit, nicht die Felder der Fälle.
+ * Fall erst zur Laufzeit (Weiche oder «alle Ausprägungen»), nicht die Felder
+ * der Fälle.
  */
 export function variantRequires(v: Variants | null, chosen: Chosen, name: string): boolean {
   if (v?.routing?.includes(name)) return false;
-  if (chosen.runtime && v?.specific.has(name)) return false;
+  if (chosen.name === ALL_VARIANTS && v?.specific.has(name)) return false;
   return variantAllows(v, chosen, name);
 }
 
@@ -158,6 +162,11 @@ export function routingMissing(v: Variants | null, rows: Mapping[]): string[] | 
   if (!v?.routing) return null;
   return rows.some(m => !m.disabled && v.routing!.includes(m.name.trim())) ? null : v.routing;
 }
+
+/** Warnung: die Eingaben haben keine Ausprägung — dieselbe in der Übersicht und an der Tabelle */
+export const noVariantText = (v: Variants): string =>
+  `Keine Ausprägung gewählt — der Service erwartet eine davon (${v.cases.map(c => c.name).join(', ')}). `
+  + 'Ausprägung wählen — oder «alle Ausprägungen», wenn der Worker beim Unmarshalling entscheidet.';
 
 /** «useCase» oder «clientType» */
 export const routingText = (routing: string[]): string => routing.map(n => `«${n}»`).join(' oder ');
@@ -175,9 +184,13 @@ export function variantFieldsOf(v: Variants, chosen: string | null): VariantCase
  * kommen dazu), die der anderen abgewählt — nicht entfernt, damit ein
  * Zurückwechseln die erfassten Ausdrücke wiederfindet.
  */
-export function rowsForVariant(rows: Mapping[], v: Variants, chosen: string | null): Mapping[] {
-  // alle Ausprägungen: nichts abgewählt, nichts dazu — fehlende Felder über «+ aus Katalog»
-  if (chosen === ALL_VARIANTS) return rows.map(m => (v.specific.has(m.name) && m.disabled ? (({ disabled: _, ...rest }) => rest)(m) : m));
+export function rowsForVariant(rows: Mapping[], v: Variants, chosen: string | null, list: MappingList): Mapping[] {
+  // alle Ausprägungen: nichts dazu — fehlende Felder über «+ aus Katalog». Die
+  // Ausgaben lesen alles; bei den Eingaben bleibt angehakt, was der Prozess mitgibt
+  if (chosen === ALL_VARIANTS) {
+    if (list === 'inputs') return rows;
+    return rows.map(m => (v.specific.has(m.name) && m.disabled ? (({ disabled: _, ...rest }) => rest)(m) : m));
+  }
   const want = chosen ? v.cases.find(c => c.name === chosen)?.fields ?? [] : [];
   const wanted = new Set(want.map(f => f.name));
   const out = rows.map(m => {

@@ -585,13 +585,24 @@ function scaladoc(text: string): string {
   return lines.length === 1 ? `/** ${lines[0]} */` : `/**\n${lines.map(l => ` * ${l}`).join('\n')}\n */`;
 }
 
+/**
+ * `inConfig: Option[InConfig] = None` — wie in Orchescala (`bpmnDsl.md`): die
+ * Vorgabe `None` steht in der Klasse, in `example` und `exampleMinimal` fehlt das Feld.
+ */
+const isInConfigField = (f: Field, idx: TypeIndex) =>
+  f.name === 'inConfig' && /^Option\[(?:[\w.]+\.)?InConfig\]$/.test(fieldType(f, idx));
+
+/** Die Felder des Beispiels — ohne `inConfig` (siehe oben), ausser es hat ein eigenes (`Some(InConfig.example)`) */
+const exampleFields = (fields: Field[], idx: TypeIndex) =>
+  fields.filter(f => !isInConfigField(f, idx) || !!f.example?.trim() && f.example.trim() !== 'None');
+
 function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
     // ein fester Enum-Fall hat genau einen Wert; InitIn initialisiert Prozessvariablen — Vorgaben wie im InConfig
     const fixed = fixedCaseValue(f, idx);
-    const def = fixed ? ` = ${fixed}` : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
+    const def = fixed ? ` = ${fixed}` : isInConfigField(f, idx) ? ' = None' : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
     return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
@@ -599,7 +610,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 }
 
 function companion(t: TypeDef, idx: TypeIndex): string {
-  const fields = finished(t.fields, idx);
+  const fields = exampleFields(finished(t.fields, idx), idx);
   const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
   // exampleMinimal lässt alles weg, was fehlen darf
   const optional = fields.filter(f => f.optional);
@@ -624,7 +635,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}`;
+    return `${d}${f.name}: ${fieldType(f, idx)}${isInConfigField(f, idx) ? ' = None' : ''}`;
   });
   return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
 }
@@ -652,7 +663,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     return fields.length ? `${d}  case ${v.name}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${v.name}`;
   });
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
-    const fields = fieldsOf(v);
+    const fields = exampleFields(fieldsOf(v), idx);
     const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
     const optional = fields.filter(f => f.optional);
     const minimal = optional.length
@@ -660,7 +671,9 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
       : 'lazy val exampleMinimal = example';
     return [
       `  object ${v.name}:`,
-      `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}(\n${indent(args.join(',\n'), '      ')}\n    )`,
+      args.length
+        ? `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}(\n${indent(args.join(',\n'), '      ')}\n    )`
+        : `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}()`,
       `    ${minimal}`,
       `  end ${v.name}`,
     ].join('\n');
@@ -884,7 +897,10 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     seen.add(field);
     imports.add(importLine);
     const type = step.mockKind === 'service' ? `MockedServiceResponse[${object}.ServiceOut]` : `${object}.Out`;
-    params.push(`${descriptionLine(`For testing you can mock the Process ${step.name} _${ref}_.`)}\n`
+    // wie in den Projekten: die Beschreibung zeigt ein Beispiel des Mocks als JSON — bei einem
+    // Service die Antwort aus seinem `example` (jeder ServiceTask hat sie, `ServiceOut.mock` nicht immer)
+    const example = step.mockKind === 'service' ? `${object}.example.defaultServiceOutMock` : `${object}.Out.example`;
+    params.push(`@description(serviceOrProcessMockDescr(${example}))\n`
       + `${field}: Option[${type}] = None`);
   }
   if (!params.length) return '';

@@ -16,7 +16,7 @@ import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from '.
 import { dmnIssues, packageOf } from './scala';
 import { GENERAL_VARIABLES, isInitWorker, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -102,8 +102,13 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
  * Workern, dem Init-Worker und Entscheidungen (die lesen bzw. schreiben ihre
  * Variablen direkt) und nicht, wenn ein Pattern den Aufruf festlegt.
  * `added` nennt «Schritt: Feld» der neu angehakten Zeilen.
+ *
+ * `importing`: das BPMN kommt gerade herein (Anlegen, Abgleich). Gibt es den
+ * Eingaben dann Felder mehrerer Ausprägungen mit, entscheidet der Worker — der
+ * Schritt bekommt «alle Ausprägungen». Beim Öffnen nicht: dort ist eine
+ * gemischte Wahl ein Versehen, das die Warnung zeigen soll.
  */
-export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; added: string[]; changed: boolean } {
+export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { importing?: boolean } = {}): { spec: ProcessSpec; added: string[]; changed: boolean } {
   const added: string[] = [];
   let changed = false;
   const processId = spec.processId ?? '';
@@ -170,6 +175,12 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null): { spec:
       if (outs && next.outVariant == null) {
         const v = variantsOf(next, spec, model, 'outputs', service);
         if (v && chosenVariant(next, 'outputs', v).mixed.length) next = { ...next, outVariant: ALL_VARIANTS };
+      }
+      // Eingaben aus mehreren Ausprägungen (so im BPMN): der Worker unterstützt
+      // mehrere Fälle und entscheidet beim Unmarshalling, welcher es ist (`*`)
+      if (opts.importing && next.inVariant == null) {
+        const v = variantsOf(next, spec, model, 'inputs', service);
+        if (v && chosenVariant(next, 'inputs', v).mixed.length) { changed = true; next = { ...next, inVariant: ALL_VARIANTS }; }
       }
     }
     if (next.children) next = { ...next, children: visit(next.children) };
@@ -253,10 +264,10 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     const chosen = chosenVariant(step, list, variants);
     const allowed = (n: string) => variantAllows(variants, chosen, n);
     if (chosen.mixed.length) {
-      warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen.`);
+      warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen oder «alle Ausprägungen», wenn ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.`);
     } else if (variants && !chosen.name && list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
       // der Service bekommt genau einen Fall — ohne Wahl bekäme er keinen
-      warnings.push(`Keine Ausprägung gewählt — der Service erwartet eine davon (${variants.cases.map(c => c.name).join(', ')}).`);
+      warnings.push(noVariantText(variants));
     }
     const used = rows.filter(m => !m.disabled && m.name.trim() && allowed(m.name));
     const active = used.filter(m => !fromPattern[list].has(m.name));

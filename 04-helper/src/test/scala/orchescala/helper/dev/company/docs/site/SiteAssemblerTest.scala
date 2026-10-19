@@ -40,13 +40,14 @@ class SiteAssemblerTest extends FunSuite:
     assert(os.exists(out / "spec" / "catalog.generated.json"), "catalog removed")
     assert(os.exists(out / "valiant" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
 
-  test("writeProjectColors adds the colors to the catalog - keeps what is there, leaves out #fff"):
+  test("writeProjectColors adds the colors to the catalog - keeps what is there, leaves out #fff and white"):
     val out = os.temp.dir(prefix = "spec-colors") / "spec" / "catalog.generated.json"
     os.write(out, """{"services": [{"id": "a"}]}""", createFolders = true)
-    SpecCatalog.writeProjectColors(Seq("globex-cards" -> "#c8feda", "globex-services" -> "#fff"), out)
+    SpecCatalog.writeProjectColors(Seq("globex-cards" -> "#c8feda", "globex-services" -> "#fff", "globex-helper" -> "white"), out)
     val json = io.circe.parser.parse(os.read(out)).toOption.get.hcursor
     assertEquals(json.downField("projectColors").downField("globex-cards").as[String], Right("#c8feda"))
     assert(json.downField("projectColors").downField("globex-services").failed, "#fff is no color")
+    assert(json.downField("projectColors").downField("globex-helper").failed, "white is no color")
     assertEquals(json.downField("services").downN(0).downField("id").as[String], Right("a"))
 
   test("writeProjectColors creates the catalog if there is none (no Node.js)"):

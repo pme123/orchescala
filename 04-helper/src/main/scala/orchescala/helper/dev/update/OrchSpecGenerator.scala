@@ -114,8 +114,8 @@ case class OrchSpecGenerator()(using config: DevConfig):
       WorkerGenerator().createWorker(SetupElement("CustomTask", processName, name, version))
     val workers      = objectName +: customTasks
 
-    // simulation
-    SimulationGenerator().createSimulation(setupElement)
+    // simulation - in Camunda 8 (or next to one of the other engine) one class per engine
+    SimulationGenerator().createSimulation(setupElement, bpmn.exists(OrchSpecExport.isC8))
 
     // registration in the WorkerApp and the API documentation - on a re-run the missing entries are added
     val versionPackage = version.versionPackage

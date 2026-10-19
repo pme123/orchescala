@@ -256,12 +256,23 @@ src           - main -> myproject-myProcessV1-MyDecisionDmn.dmn
 // the interactions (UserTasks, CustomTasks, DMN Decisions, Signals, Messages) and the classes in schema/
 01-domain     - main -> mycompany.myproject.domain.myProcess.v1.MyUserTaskUT
                         mycompany.myproject.domain.myProcess.v1.schema.MyClass
-// the Simulation
+// the Simulation - Camunda 8: the scenarios in MyProcessSimulation (abstract), one class per engine on top
 03-simulation - test -> mycompany.myproject.simulation.MyProcessSimulation
+                        mycompany.myproject.simulation.MyProcessC8Simulation
 // the InitWorker and a Worker for each CustomTask, Signal and Message
 03-worker     - main -> mycompany.myproject.worker.myProcess.v1.MyProcessWorker
               - test -> mycompany.myproject.worker.myProcess.v1.MyProcessWorkerTest
 ```
+
+**Simulation per engine.** `deploy` takes the engine from the name of the simulation (`…C8Simulation` -> C8).
+A Camunda 7 process gets one class `MyProcessSimulation extends CompanySimulation`, as before.
+A Camunda 8 process gets the scenarios in `abstract class MyProcessSimulation extends SimulationRunner`
+and `MyProcessC8Simulation extends MyProcessSimulation, CompanyC8Simulation` on top.
+Has the process already a simulation for the other engine (a migration from C7 to C8), it is split the same way:
+its scenarios stay in `MyProcessSimulation`, which becomes abstract, and it gets `MyProcessC7Simulation`
+and `MyProcessC8Simulation` - both engines run the same scenarios.
+The C7 class extends `CompanyC7Simulation` if the project uses it (newer company projects), otherwise `CompanySimulation`.
+A simulation of another form (more mixins, another engine) is not split - the helper says so, split it by hand.
 
 `In` gets the `inConfig` (`extends WithConfig[InConfig]`) - an enum `In` in each of its cases.
 It is the one field of the domain classes with a default: `inConfig: Option[InConfig] = None`.

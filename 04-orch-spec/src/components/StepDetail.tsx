@@ -25,7 +25,7 @@ import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 
 interface Props {
@@ -295,7 +295,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const setVariant = (list: 'inputs' | 'outputs', name: string | null) => {
     const v = variantsFor(list);
     if (!v) return;
-    onPatch(step.id, { [variantKey(list)]: name ?? undefined, [list]: rowsForVariant(step[list] ?? [], v, name) });
+    onPatch(step.id, { [variantKey(list)]: name ?? undefined, [list]: rowsForVariant(step[list] ?? [], v, name, list) });
   };
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
     // ohne gewählte Ausprägung nur die gemeinsamen Felder — bei der eigenen Klasse wie beim Katalog
@@ -1090,12 +1090,15 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
     const keep = (list: Mapping[] | undefined) => new Map((list ?? []).map(m => [m.name, m]));
     const oldIn = keep(step.inputs), oldOut = keep(step.outputs);
     // Ausprägungen des neuen Service: eine gewählte bleibt, wenn es sie dort
-    // auch gibt; die Felder der anderen kommen nicht als Zeilen herein
+    // auch gibt; die Felder der anderen kommen nicht als Zeilen herein. «Alle»
+    // bei den Eingaben sagt, dass **dieser** Worker selbst entscheidet — beim
+    // Wechsel des Service gilt es nicht mehr
     const next: Step = { ...step, serviceId: svc.id, topic: svc.topic ?? step.topic, calledProcess: svc.calledProcess ?? step.calledProcess };
     const variantState = (list: 'inputs' | 'outputs') => {
       const v = variantsOf(next, spec, model, list, svc);
       const was = step[variantKey(list)];
-      const name = v && typeof was === 'string' && (v.cases.some(x => x.name === was) || (list === 'outputs' && was === ALL_VARIANTS)) ? was : null;
+      const keepAll = was === ALL_VARIANTS && (list === 'outputs' || current?.id === svc.id);
+      const name = v && typeof was === 'string' && (v.cases.some(x => x.name === was) || keepAll) ? was : null;
       return { v, name, chosen: { name, inferred: false, mixed: [] } as Chosen };
     };
     const vin = variantState('inputs'), vout = variantState('outputs');
@@ -1358,18 +1361,19 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
       </div>
       {variants && (
         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-          <span className={`text-[10px] ${c.muted}`} title={`${list === 'inputs' ? 'Das In' : 'Das Out'} ist ein enum mit Fällen — der Service bekommt bzw. liefert genau einen davon.`}>
+          <span className={`text-[10px] ${c.muted}`} title={`${list === 'inputs' ? 'Das In' : 'Das Out'} ist ein enum mit Fällen — der Service ${list === 'inputs' ? 'bekommt' : 'liefert'} genau einen davon; bei «alle Ausprägungen» entscheidet ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'er'}, welchen.`}>
             Ausprägung
           </span>
           <select value={chosen.name ?? ''} disabled={!canEdit}
             onChange={e => onVariant(list, e.target.value || null)}
-            title={needsChoice ? 'Der Service erwartet genau eine Ausprägung — ohne Wahl bekommt er keine.' : undefined}
+            title={needsChoice ? 'Der Service erwartet eine Ausprägung — ohne Wahl bekommt er keine. Unterstützt der Worker mehrere: «alle Ausprägungen».' : undefined}
             className={`text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${needsChoice ? warnBox : ''}`}>
             <option value="">— nur gemeinsame Felder —</option>
-            {/* der Service liefert einen Fall — welchen, entscheidet er: die Ausgaben dürfen alle lesen */}
-            {list === 'outputs' && <option value={ALL_VARIANTS}>— alle Ausprägungen —</option>}
+            {/* Ausgaben: der Service liefert einen Fall — welchen, entscheidet er: die Ausgaben dürfen alle lesen.
+                Eingaben: der Worker unterstützt mehrere Fälle und entscheidet beim Unmarshalling */}
+            {!chosen.runtime && <option value={ALL_VARIANTS}>— alle Ausprägungen{list === 'inputs' ? ' (Worker entscheidet)' : ''} —</option>}
             {/* die Weiche wählt den Fall erst zur Laufzeit — erkannt, nicht wählbar */}
-            {list === 'inputs' && chosen.runtime && <option value={ALL_VARIANTS} disabled>— zur Laufzeit über {chosen.runtime} —</option>}
+            {chosen.runtime && <option value={ALL_VARIANTS} disabled>— zur Laufzeit über {chosen.runtime} —</option>}
             {variants.cases.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
           </select>
           {chosen.inferred && <span className={`text-[10px] ${c.muted}`} title="Nicht gewählt, sondern aus den aktiven Zeilen erkannt">erkannt</span>}
@@ -1378,9 +1382,13 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           )}
         </div>
       )}
+      {/* dieselbe Warnung wie in findings.ts — hier, wo sie sich beheben lässt */}
+      {needsChoice && (
+        <p className={`text-[10px] mb-1 ${warn}`}>{noVariantText(variants!)}</p>
+      )}
       {!!chosen.mixed.length && (
         <p className={`text-[10px] mb-1 ${warn}`}>
-          Aktive Zeilen aus mehreren Ausprägungen ({chosen.mixed.join(', ')}) — der Service {list === 'inputs' ? 'bekommt' : 'liefert'} nur eine. Ausprägung wählen; die übrigen werden abgewählt.
+          Aktive Zeilen aus mehreren Ausprägungen ({chosen.mixed.join(', ')}) — der Service {list === 'inputs' ? 'bekommt' : 'liefert'} nur eine. Ausprägung wählen; die übrigen werden abgewählt — oder «alle Ausprägungen», wenn {list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.
         </p>
       )}
       {!!byPattern.length && (
