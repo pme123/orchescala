@@ -26,12 +26,21 @@ trait ProcessReferenceCreator extends WorkerReferenceCreator:
     val companyName = project.split("-").head
     apiConfig.docBaseUrl.map(u => s"$u/site/$companyName/$project").getOrElse("NOT_SET")
 
-  // the BPMNs are the same for all ApiCreators of a run - so they are only read once
+  /** The BPMNs of a project: of the own project its working copy (`basePath`) - the git-temp clone
+    * is the pushed state, so a local change (a new topic) showed only after the merge; of the
+    * others their clone.
+    */
+  private[api] def bpmnDir(pc: ProjectConfig): os.Path =
+    val local = apiConfig.basePath / pc.bpmnProcessType.diagramPath
+    if pc.name == projectName && os.exists(local) then local else pc.absBpmnPath(gitBasePath)
+
+  // the BPMNs are the same for all ApiCreators of a run - so they are only read once (the own
+  // project is part of the key: its BPMNs come from its working copy)
   lazy val allBpmns: Seq[(String, Seq[(os.Path, String)])] =
-    ProcessReferenceCreator.allBpmns(cacheKey):
+    ProcessReferenceCreator.allBpmns(s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"):
       println(s"BPMN Reference Base Directory: $gitBasePath")
       projectConfigs.map: pc =>
-        val absBpmnPath = pc.absBpmnPath(gitBasePath)
+        val absBpmnPath = bpmnDir(pc)
         val paths       =
           if os.exists(absBpmnPath) then
             os.walk(absBpmnPath)
