@@ -691,7 +691,10 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
       existing.boundary = true;
       if (side) existing.side = true;
       if (pattern) existing.pattern = pattern;
-      if (timer) Object.assign(existing, { timer, boundaryId: bid });
+      if (timer) {
+        existing.timer = timer;
+        existing.boundaryId = bid;
+      }
       if (steps?.length) existing.steps = steps;
     } else {
       errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(timer ? { timer, boundaryId: bid } : {}), ...(steps?.length ? { steps } : {}) });
@@ -1148,13 +1151,20 @@ function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSp
 /**
  * Dasselbe Boundary-Event in einer anderen Fassung der Liste (`list`): über
  * seine ID — ohne sie (eine Spezifikation von vor dem Import der IDs) über den
- * Code, bei gleichem Code der Reihe nach. `own` ist die Liste, in der `e` steht.
+ * Code, bei gleichem Code der Reihe nach. Das nur, wenn beide Seiten gleich
+ * viele ohne Gegenstück über die ID haben — sonst ist unklar, welches entfiel.
+ * `own` ist die Liste, in der `e` steht.
  */
 export function sameBoundary(list: ErrorHandling[] | undefined, e: ErrorHandling, own: ErrorHandling[]): ErrorHandling | undefined {
   if (!list) return undefined;
   if (e.boundaryId && list.some(x => x.boundaryId)) return list.find(x => x.boundaryId === e.boundaryId);
+  const ids = (l: ErrorHandling[]) => new Set(l.map(x => x.boundaryId).filter(Boolean));
+  const theirIds = ids(list);
+  const ownIds = ids(own);
   const sameCode = (x: ErrorHandling) => x.boundary && x.code === e.code;
-  return list.filter(sameCode)[own.filter(sameCode).indexOf(e)];
+  const mine = own.filter(x => sameCode(x) && !(x.boundaryId && theirIds.has(x.boundaryId)));
+  const theirs = list.filter(x => sameCode(x) && !(x.boundaryId && ownIds.has(x.boundaryId)));
+  return mine.length === theirs.length ? theirs[mine.indexOf(e)] : undefined;
 }
 
 /**

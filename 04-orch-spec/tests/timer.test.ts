@@ -366,3 +366,52 @@ test('kind clash: a timer on a boundary inside a handling path takes part too', 
     errors: [{ code: 'notify-timeout', boundary: true, timer: { kind: 'cycle', expression: '= timerEscalationCancel', default: 'R3/PT1H' } }] } as Step];
   assert.ok(messages(s).some(m => m.includes('«timerEscalationCancel» ist hier eine Dauer, an einem anderen Timer ein Zyklus')), messages(s).join(' / '));
 });
+
+test('mixed ids: an entry with the id keeps its element, the one without takes the remaining one', () => {
+  const xml = twoInforms(c7('P7D'));
+  const s = imported(xml);
+  const informs = approve(s).errors!.filter(e => e.code === 'inform');
+  delete informs[1].boundaryId;
+  informs[1].timer = { kind: 'duration', expression: '= timerSecond' };
+  // die Reihenfolge darf die Zuordnung nicht verschieben: der ohne ID steht vorne
+  approve(s).errors = [informs[1], informs[0], ...approve(s).errors!.filter(e => e.code !== 'inform')];
+  const out = writeBpmn(xml, s).xml;
+  assert.match(out, /id="InformBoundary"[^]*?\$\{timerEscalationInform\}[^]*?id="InformAgainBoundary"[^]*?\$\{timerSecond\}/);
+  // beim Öffnen bekommt er die ID des übrigen
+  const healed = syncTimers(s, imported(xml))!;
+  assert.deepEqual(approve(healed).errors!.filter(e => e.code === 'inform').map(e => e.boundaryId), ['InformAgainBoundary', 'InformBoundary']);
+});
+
+test('without ids: one of two same-code timers removed in the diagram - no default is moved over', () => {
+  const two = twoInforms(c7('P7D'));
+  const prev = imported(two);
+  for (const e of approve(prev).errors!) delete e.boundaryId;
+  const [a, b] = approve(prev).errors!.filter(e => e.code === 'inform');
+  a.timer = { ...a.timer!, default: 'P1D' };
+  b.timer = { ...b.timer!, default: 'P2D' };
+  // im Diagramm bleibt nur das zweite (timerInformAgain)
+  const one = two.replace(/<bpmn:boundaryEvent id="InformBoundary"[^]*?<\/bpmn:boundaryEvent>/, '');
+  const merged = approve(mergeSpec(imported(one), prev).spec).errors!.filter(e => e.code === 'inform');
+  assert.deepEqual(merged.map(e => [e.timer?.expression, e.timer?.default]), [['= timerInformAgain', undefined]]);
+  // und der Export sagt, dass er nicht weiss, wohin — statt zu raten
+  const s = imported(two);
+  for (const e of approve(s).errors!) delete e.boundaryId;
+  approve(s).errors = approve(s).errors!.filter(e => e.timer?.expression !== '= timerEscalationInform');
+  inform(s).timer = { kind: 'duration', expression: '= timerX' };
+  const r = writeBpmn(two, s);
+  assert.doesNotMatch(r.xml, /timerX/);
+  assert.ok(r.issues.some(i => i.where === 'Timer «inform»' && i.text.includes('unklar, welches')), JSON.stringify(r.issues));
+});
+
+test('boundary export: no timer element any more is reported; a pattern timer is left to the pattern', () => {
+  const xml = c7('P7D');
+  const s = imported(xml);
+  inform(s).timer = { kind: 'duration', expression: '= timerInformLater' };
+  const message = xml.replace(/<bpmn:timerEventDefinition id="t1">[^]*?<\/bpmn:timerEventDefinition>/, '<bpmn:messageEventDefinition id="m1"/>');
+  const r = writeBpmn(message, s);
+  assert.ok(r.issues.some(i => i.where === 'Timer «inform»' && i.text.includes('kein Timer (mehr)')), JSON.stringify(r.issues));
+  inform(s).pattern = 'escalation';
+  const p = writeBpmn(xml, s);
+  assert.doesNotMatch(p.xml, /timerInformLater/);
+  assert.match(p.xml, /\$\{timerEscalationInform\}/);
+});

@@ -646,23 +646,33 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
 /**
  * Die Timer der Boundary-Events am Schritt — ins Element, das der Import sich
  * gemerkt hat; nur eine ältere Spezifikation ohne dessen ID findet es über den
- * Namen bzw. die ID am Schritt. Passt die gemerkte ID nicht (mehr), bleibt das
- * Diagramm, wie es ist — sonst träfe es womöglich ein anderes Boundary-Event.
+ * Namen bzw. die ID am Schritt, bei gleichem Code der Reihe nach (wie der
+ * Import die Einträge anlegt). Passt die gemerkte ID nicht (mehr) oder ist die
+ * Zuordnung unklar, bleibt das Diagramm, wie es ist — sonst träfe es womöglich
+ * ein anderes Boundary-Event. Den Timer eines Patterns setzt das Pattern.
  */
 function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: EngineId, step: Step, issues: WriteIssue[]) {
-  for (const e of step.errors ?? []) {
-    if (!e.boundary || !e.timer) continue;
-    const attached = (b: Element | undefined) => b && local(b) === 'boundaryEvent' && b.getAttribute('attachedToRef') === step.id ? b : undefined;
-    // ohne ID: bei gleichem Code der Reihe nach — wie der Import die Einträge anlegt
-    const nth = (step.errors ?? []).filter(x => x.boundary && x.code === e.code).indexOf(e);
-    const el = e.boundaryId
-      ? attached(byId.get(e.boundaryId))
-      : [...byId.values()].filter(b => attached(b) && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code))[nth];
+  const errors = step.errors ?? [];
+  const claimed = new Set(errors.map(x => x.boundaryId).filter(Boolean));
+  for (const e of errors) {
+    if (!e.boundary || !e.timer || e.pattern) continue;
     const where = `Timer «${e.code}»`;
-    if (!el) {
-      issues.push({ stepId: step.id, where, text: e.boundaryId
-        ? `Boundary-Event «${e.boundaryId}» hängt nicht (mehr) an diesem Schritt — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.`
-        : 'Boundary-Event nicht im Diagramm — Timer nicht geschrieben.' });
+    const missing = (text: string) => issues.push({ stepId: step.id, where, text });
+    const attached = (b: Element | undefined) => b && local(b) === 'boundaryEvent' && b.getAttribute('attachedToRef') === step.id ? b : undefined;
+    let el: Element | undefined;
+    if (e.boundaryId) {
+      el = attached(byId.get(e.boundaryId));
+      if (!el) { missing(`Boundary-Event «${e.boundaryId}» hängt nicht (mehr) an diesem Schritt — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.`); continue; }
+    } else {
+      const mine = errors.filter(x => x.boundary && x.code === e.code && !x.boundaryId);
+      const candidates = [...byId.values()].filter(b => attached(b) && !claimed.has(b.getAttribute('id') ?? '')
+        && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code));
+      if (!candidates.length) { missing('Boundary-Event nicht im Diagramm — Timer nicht geschrieben.'); continue; }
+      if (candidates.length !== mine.length) { missing(`${candidates.length} Boundary-Events heissen «${e.code}» — unklar, welches; Timer nicht geschrieben. Den Abgleich mit dem Diagramm starten.`); continue; }
+      el = candidates[mine.indexOf(e)];
+    }
+    if (!kids(el).some(c => local(c) === 'timerEventDefinition')) {
+      missing('das Boundary-Event im Diagramm ist kein Timer (mehr) — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.');
       continue;
     }
     writeTimer(doc, el, engine, e.timer, step.id, where, issues);
