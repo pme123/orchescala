@@ -343,14 +343,16 @@ export function isFinished(f: Field, idx: TypeIndex): boolean {
   const type = f.type?.trim();
   if (!f.name?.trim() || !type) return false;
   return isScalar(type) || !!parseDomainRef(type) || !!parseServiceRef(type) || !!idx.byId.get(type)?.name?.trim()
-    || isScalaTypeExpression(type);
+    || isScalaTypeExpression(type)
+    // ein einfacher Name, hinter dem ein Typ steht — aus dem Katalog oder eingebaut (`IdentityCorrelation`)
+    || !!idx.domainOf(type);
 }
 
 /**
  * Ein Scala-Typ aus der Domain, den die App nicht auflöst — qualifiziert
  * (`GetClient.Out`) oder generisch (`MockedServiceResponse[GetClient.Out]`):
  * er wird wörtlich übernommen, statt im Export zu fehlen. Ein einfacher Name
- * (`Adresse`) ohne Typ dahinter bleibt unfertig.
+ * (`Adresse`) ohne Typ dahinter bleibt unfertig (siehe isFinished).
  */
 export const isScalaTypeExpression = (type: string): boolean =>
   /^[A-Z]\w*(?:\.\w+)+$/.test(type) || /^[A-Z][\w.]*\[.+\]$/.test(type);

@@ -175,9 +175,13 @@ export function domainTypeOf(ref: string, model: Model | null): DomainType | nul
   // die Typen aus `orchescala.domain` gibt es auch ohne geladenen Katalog
   if (id) return catalogIndex(model?.domainTypes).byId.get(id) ?? null;
   if (!/^[A-Z][\w.]*$/.test(ref)) return null;
-  // genau ein Katalog-Typ mit diesem Namen — die eingebauten zählen hier nicht mit
-  const byName = (catalogIndex(model?.domainTypes).byName.get(ref) ?? []).filter(t => !ORCHESCALA_TYPES.includes(t));
-  return byName.length === 1 ? byName[0] : null;
+  // genau ein Katalog-Typ mit diesem Namen — die eingebauten zählen nur, wenn das
+  // Projekt keinen so nennt (`IdentityCorrelation` aus orchescala.domain)
+  const all = catalogIndex(model?.domainTypes).byName.get(ref) ?? [];
+  const own = all.filter(t => !ORCHESCALA_TYPES.includes(t));
+  if (own.length) return own.length === 1 ? own[0] : null;
+  const builtIn = all.filter(t => ORCHESCALA_TYPES.includes(t));
+  return builtIn.length === 1 ? builtIn[0] : null;
 }
 
 /** Fällt der Katalog weg, bleibt wenigstens der Name lesbar. */
