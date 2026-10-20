@@ -84,7 +84,6 @@ case class GenericFileGenerator()(using config: DevConfig):
        |/.scala-build/
        |/.templUpdate/
        |/.camunda/element-templates/**/dependencies/
-       |/.camunda/element-templates/c8/**
        |
        |/.bsp/
        |/**/.generated/
