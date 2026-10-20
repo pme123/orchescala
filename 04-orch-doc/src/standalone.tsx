@@ -10,7 +10,7 @@ import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 // imported (not `public/`) so the single-file build inlines it — the page ships without assets
 import favicon from './assets/favicon.png';
-import ApiDoc from './components/ApiDoc';
+import ApiDoc, { TAG_OP, safeDecode } from './components/ApiDoc';
 import './index.css';
 import type { CompanyDocs } from './types';
 import { cls } from './ui';
@@ -32,9 +32,9 @@ const docs: CompanyDocs = {
 
 const opFromHash = () => {
   const h = window.location.hash;
-  if (h.startsWith('#operation/')) return decodeURIComponent(h.slice('#operation/'.length));
+  if (h.startsWith('#operation/')) return safeDecode(h.slice('#operation/'.length));
   // a tag (a process) - the first of its operations, see ApiDoc
-  if (h.startsWith('#tag/')) return `tag/${decodeURIComponent(h.slice('#tag/'.length))}`;
+  if (h.startsWith('#tag/')) return `${TAG_OP}${safeDecode(h.slice('#tag/'.length))}`;
   return new URLSearchParams(h.replace(/^#\??/, '')).get('op') ?? undefined;
 };
 

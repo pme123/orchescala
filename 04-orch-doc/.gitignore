@@ -4,3 +4,4 @@ dist/
 /.idea/*
 sample-data/
 dist-site/
+dist-tests/
