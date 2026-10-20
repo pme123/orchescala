@@ -6,11 +6,13 @@ import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
 import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
-import AdminView from './components/AdminView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
 import { AccountChip, Breadcrumb, HeaderButton } from './components/Header';
 import FeelCheatSheet from './components/FeelCheatSheet';
 // die Seiten (E15) kommen erst, wenn jemand sie öffnet - der Designer samt Renderer ist ein eigener Chunk
+// Die Administration (Katalog, Patterns, Theme …) braucht selten jemand — wie die
+// Seiten ein eigener Chunk, der erst beim Öffnen kommt; der Haupt-Chunk bleibt unter der Grenze
+const AdminView = lazy(() => import('./components/AdminView'));
 const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
@@ -404,7 +406,11 @@ export default function App() {
           </Suspense>
         ) : view.kind === 'admin' ? (
           canAdmin
-            ? <AdminView onBack={() => setView({ kind: 'list' })} />
+            ? (
+              <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
+                <AdminView onBack={() => setView({ kind: 'list' })} />
+              </Suspense>
+            )
             : <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : (
           <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} onBack={() => setView({ kind: 'list' })} />
