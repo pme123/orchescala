@@ -3,8 +3,8 @@
 // no company docs.json needed. This is the modern replacement for the Redoc
 // shell that each project uploads as OpenApi.html.
 //
-// Deep links: `#op=<operationId>` — and Redoc-style `#operation/<id>` anchors
-// from existing catalog/site links keep working.
+// Deep links: `#op=<operationId>` — and Redoc-style `#operation/<id>` and `#tag/<Tag>`
+// anchors from existing catalog/site links (Uses / Used by of a process) keep working.
 import { Moon, Sun } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
@@ -33,6 +33,8 @@ const docs: CompanyDocs = {
 const opFromHash = () => {
   const h = window.location.hash;
   if (h.startsWith('#operation/')) return decodeURIComponent(h.slice('#operation/'.length));
+  // a tag (a process) - the first of its operations, see ApiDoc
+  if (h.startsWith('#tag/')) return `tag/${decodeURIComponent(h.slice('#tag/'.length))}`;
   return new URLSearchParams(h.replace(/^#\??/, '')).get('op') ?? undefined;
 };
 

@@ -46,12 +46,24 @@ export function opKind(operationId: string): CatalogKind {
 const opId = (o: Operation, all: Operation[]) =>
   all.some(x => x !== o && x.operationId === o.operationId) ? `${o.tag} · ${o.operationId}` : o.operationId;
 
+/**
+ * `tag/<Tag>` (Redoc `#tag/Identification`, `#tag/General-Cancel`) — the first
+ * operation of that tag: a tag is a process, its first operation the process
+ * start. Blanks are dashes in the anchor, case does not matter.
+ */
+export function tagOperation<T extends { tag: string }>(op: string | undefined, all: T[]): T | undefined {
+  if (!op?.startsWith('tag/')) return undefined;
+  const norm = (s: string) => s.trim().replace(/[\s-]+/g, '-').toLowerCase();
+  const want = norm(decodeURIComponent(op.slice('tag/'.length)));
+  return all.find(o => norm(o.tag) === want);
+}
+
 // The generated markdown links point at the classic site — route them into the
-// app instead: OpenApi pages become the API view (incl. #operation anchors),
-// dependency pages become the dependency view.
-const rewriteLinks = (md: string, company: string) => md
-  .replace(/\(([^()\s]*?\/)?([\w-]+)\/OpenApi\.html(?:#operation\/([^)\s]+))?\)/g,
-    (_, _pre, project, op) => `(#/${company}/api/${project}${op ? `?op=${op}` : ''})`)
+// app instead: OpenApi pages become the API view (incl. #operation and #tag
+// anchors), dependency pages become the dependency view.
+export const rewriteLinks = (md: string, company: string) => md
+  .replace(/\(([^()\s]*?\/)?([\w-]+)\/OpenApi\.html(?:#(operation|tag)\/([^)\s]+))?\)/g,
+    (_, _pre, project, kind, id) => `(#/${company}/api/${project}${id ? `?op=${kind === 'tag' ? 'tag/' : ''}${id}` : ''})`)
   .replace(/\(([^()\s]*?\/)?dependencies\/([\w-]+)\.html\)/g,
     (_, _pre, project) => `(#/${company}/dependencies/${project})`);
 
@@ -636,6 +648,8 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
   const selected = useMemo(() => {
     if (!api) return undefined;
     const all = api.operations;
+    const byTag = tagOperation(op, all);
+    if (byTag) return byTag;
     const exact = all.find(o => opId(o, all) === op) ?? all.find(o => o.operationId === op);
     if (exact || !op) return exact ?? all[0];
     // catalog anchors like `Bpmn: openSavingsV1` name the process, not an operationId
