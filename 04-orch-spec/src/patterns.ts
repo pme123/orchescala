@@ -30,7 +30,7 @@
 import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
 import { uid } from './util';
-import { ORCHESCALA_TYPES } from './orchescalaTypes';
+import { ORCHESCALA_TYPES } from './orchescalaTypes.ts';
 import { domainRef } from './serviceTypes';
 import { engineLabel } from './engineLabels';
 import { parseErrorList } from './errorCodes';

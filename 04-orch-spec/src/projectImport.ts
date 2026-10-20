@@ -32,7 +32,7 @@ import { domainRef } from './serviceTypes';
 import { enumHasCase, splitEnumCase } from './feel';
 import { handleFor, readSources } from './projects';
 import { uid } from './util';
-import { catalogIndex } from './orchescalaTypes';
+import { catalogIndex } from './orchescalaTypes.ts';
 
 export interface ProjectFile { path: string; text: string }
 

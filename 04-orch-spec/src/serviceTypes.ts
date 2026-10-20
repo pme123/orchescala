@@ -19,7 +19,7 @@
 // aufgebauten Namen markiert `uncertain`, dass der Import zu prüfen ist.
 
 import type { DomainType, Model, ServiceDef } from './types';
-import { ORCHESCALA_TYPES, catalogIndex } from './orchescalaTypes';
+import { ORCHESCALA_TYPES, catalogIndex } from './orchescalaTypes.ts';
 
 export type ServiceMember = 'In' | 'Out';
 
