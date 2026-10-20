@@ -40,7 +40,7 @@ trait WorkerReferenceCreator:
     * its working copy - its BPMNs and sources come from there (`bpmnDir`, `sourceDir`). One key for
     * both, so they cannot drift apart.
     */
-  protected def ownCacheKey: String = s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"
+  final protected def ownCacheKey: String = s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"
 
   /** The Workers the Worker with this `topicName` is composed of. */
   protected def usesWorkers(topicName: String): Seq[WorkerRef] =
@@ -314,6 +314,9 @@ object WorkerReferenceCreator:
 
   private lazy val workerSourcesCache     = TrieMap[String, Seq[WorkerSource]]()
   private lazy val domainIdentifiersCache = TrieMap[String, Map[String, DomainIdentifier]]()
+  // the keys read so far - for the tests
+  private[api] def sourceCacheKeys: Set[String] = workerSourcesCache.keySet.toSet
+  private[api] def domainCacheKeys: Set[String] = domainIdentifiersCache.keySet.toSet
 
   private def workerSources(cacheKey: String)(read: => Seq[WorkerSource]): Seq[WorkerSource] =
     workerSourcesCache.getOrElseUpdate(cacheKey, read)
