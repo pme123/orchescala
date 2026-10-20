@@ -86,6 +86,10 @@ The _Init Process Worker_ is a special _Worker_ that is used to start a process.
 It automatically does:
 - validate the input variables
 - merge the _inConfig_ variables with manual overrides
+- _Camunda 8_: set `processInstanceKey` (a String) - there is no `execution` like in _Camunda 7_,
+  so use it in FEEL, e.g. `_idempotentId = processInstanceKey`.
+  Only the _Init Process Worker_ sets it - so a call activity that propagates all its variables
+  overwrites it with the key of the called process.
 
 You can:
 - init input process variables with default values.
