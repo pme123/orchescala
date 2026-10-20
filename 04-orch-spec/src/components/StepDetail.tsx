@@ -518,7 +518,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </Row>
       )}
       {step.eventKind === 'timer' && (
-        <TimerSection timer={step.timer} spec={spec} isDark={isDark} canEdit={canEdit && !ofPattern}
+        <TimerSection timer={step.timer} spec={spec} isDark={isDark} canEdit={canEdit} lockedBy={ofPattern ?? undefined}
           onChange={timer => onPatch(step.id, { timer })} />
       )}
 
@@ -607,11 +607,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 )}
                 {e.boundary && e.timer && (
                   <div className="px-2 pb-1.5 space-y-1">
-                    <TimerSection timer={e.timer} spec={spec} isDark={isDark} canEdit={canEdit && !ofPattern}
-                      lockedBy={e.pattern ? (model?.patterns?.find(d => d.id === e.pattern)?.name ?? e.pattern) : undefined}
+                    <TimerSection timer={e.timer} spec={spec} isDark={isDark} canEdit={canEdit}
+                      lockedBy={e.pattern ? (model?.patterns?.find(d => d.id === e.pattern)?.name ?? e.pattern) : ofPattern ?? undefined}
                       onChange={timer => setErr({ timer })} />
-                    {[...timerIssues.errors.map(t => [t, err]), ...timerIssues.warnings.map(t => [t, warn])].map(([t, tone]) => (
-                      <p key={t} className={`text-[10px] flex items-start gap-1 ${tone}`}>
+                    {[...timerIssues.errors.map(t => [t, err]), ...timerIssues.warnings.map(t => [t, warn])].map(([t, tone], k) => (
+                      <p key={k} className={`text-[10px] flex items-start gap-1 ${tone}`}>
                         <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{t}</span>
                       </p>
                     ))}
