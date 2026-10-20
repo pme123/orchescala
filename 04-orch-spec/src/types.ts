@@ -112,8 +112,10 @@ export interface ErrorHandling {
   side?: boolean;
   /** gehört zu einem Pattern (dessen id) — Verdrahtung, keine eigene Fachlichkeit */
   pattern?: string;
-  /** ein Timer-Boundary-Event: wann es auslöst (aus dem Diagramm) */
+  /** ein Timer-Boundary-Event: wann es auslöst — die Variable dazu steht im `InConfig` */
   timer?: TimerSpec;
+  /** ID des Boundary-Events im Diagramm — dorthin schreibt der Export den Timer */
+  boundaryId?: string;
   steps?: Step[];         // Behandlungspfad
   [key: string]: unknown;
 }

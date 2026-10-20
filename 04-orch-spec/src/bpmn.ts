@@ -682,16 +682,17 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     if (!code) continue;
     const existing = errors.find(e => e.code === code);
     const pattern = ctx.owned.get(bid);
+    // ein Timer samt seinem Element — der Export schreibt ihn dorthin zurück
     const timer = timerOf(b);
     if (existing) {
       existing.interrupting = interrupting;
       existing.boundary = true;
       if (side) existing.side = true;
       if (pattern) existing.pattern = pattern;
-      if (timer) existing.timer = timer;
+      if (timer) Object.assign(existing, { timer, boundaryId: bid });
       if (steps?.length) existing.steps = steps;
     } else {
-      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(timer ? { timer } : {}), ...(steps?.length ? { steps } : {}) });
+      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(timer ? { timer, boundaryId: bid } : {}), ...(steps?.length ? { steps } : {}) });
     }
   }
   if (errors.length) step.errors = errors;
@@ -1132,6 +1133,38 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
 }
 
 /**
+ * Die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
+ * er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe.
+ */
+function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSpec {
+  const name = timerVariable(timer);
+  return prev?.default && !timer.default && timer.kind === prev.kind && name && name === timerVariable(prev)
+    ? { ...timer, default: prev.default }
+    : timer;
+}
+
+/**
+ * Der Timer eines Boundary-Events gehört wie der eines Ereignisses der
+ * Spezifikation (siehe `SPEC_OWNED`): hat das Diagramm ihn nicht geändert,
+ * bleibt er, wie er in ihr steht — und seine Vorgabe fürs InConfig bleibt.
+ * Zugeordnet wird über das Boundary-Event, in einer älteren Spezifikation
+ * ohne dessen ID über den Code.
+ */
+function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdits: boolean) {
+  if (!s.errors?.some(e => e.timer)) return;
+  const match = (list: ErrorHandling[] | undefined, e: ErrorHandling) =>
+    list?.find(x => x.timer && (e.boundaryId && x.boundaryId ? x.boundaryId === e.boundaryId : x.code === e.code));
+  s.errors = s.errors.map(e => {
+    const p = e.timer && match(prev.errors, e);
+    if (!e.timer || !p || !p.timer) return e;
+    const b = base && match(base.errors, e);
+    const diagramUnchanged = (b ? same('timer', e.timer, b.timer) : false) || same('timer', e.timer, p.timer);
+    const timer = keepEdits && diagramUnchanged ? p.timer : withPrevDefault(e.timer, p.timer);
+    return timer === e.timer ? e : { ...e, timer };
+  });
+}
+
+/**
  * Leere Einträge bei den behandelten Fehlern — ein eben hinzugefügter oder
  * geleerter Regex bzw. Fehlercode — kommen nicht ins BPMN. Der Abgleich darf
  * sie darum nicht verwerfen, solange das Diagramm die übrigen unverändert hat.
@@ -1187,12 +1220,8 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     } else {
       const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
-      // die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
-      // er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe
-      if (s.timer && prev.timer?.default && !s.timer.default && s.timer.kind === prev.timer.kind
-        && timerVariable(s.timer) && timerVariable(s.timer) === timerVariable(prev.timer)) {
-        s.timer = { ...s.timer, default: prev.timer.default };
-      }
+      if (s.timer) s.timer = withPrevDefault(s.timer, prev.timer);
+      keepBoundaryTimers(s, prev, base?.get(s.id), !st.mappingsFromBpmn);
       // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
       // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {
@@ -1424,8 +1453,9 @@ export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDif
 
 /**
  * Timer aus dem Diagramm, wo die Spezifikation noch keinen hat — sie stammt von
- * vor dem Import der Timer. Was sie schon hat (samt Vorgabe fürs InConfig),
- * bleibt; geändert wird ein Timer über den Abgleich. Null, wenn nichts fehlt.
+ * vor dem Import der Timer (am Boundary-Event auch nur ohne dessen ID). Was
+ * sie schon hat (samt Vorgabe fürs InConfig), bleibt; geändert wird ein Timer
+ * über den Abgleich. Null, wenn nichts fehlt.
  */
 export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
@@ -1434,10 +1464,15 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     const f = neu.get(s.id);
     let next = s;
     if (!s.timer && f?.timer) { changed = true; next = { ...next, timer: f.timer }; }
-    const timerOfError = (e: ErrorHandling) => (e.boundary && !e.timer ? f?.errors?.find(x => x.code === e.code)?.timer : undefined);
-    if (next.errors?.some(timerOfError)) {
+    // am Boundary-Event der Timer samt dem Element, in das ihn der Export schreibt
+    const fill = (e: ErrorHandling): Partial<ErrorHandling> | undefined => {
+      if (!e.boundary || (e.timer && e.boundaryId)) return undefined;
+      const fe = f?.errors?.find(x => x.code === e.code && x.timer);
+      return fe ? { ...(e.timer ? {} : { timer: fe.timer }), boundaryId: fe.boundaryId } : undefined;
+    };
+    if (next.errors?.some(fill)) {
       changed = true;
-      next = { ...next, errors: next.errors.map(e => { const t = timerOfError(e); return t ? { ...e, timer: t } : e; }) };
+      next = { ...next, errors: next.errors.map(e => { const p = fill(e); return p ? { ...e, ...p } : e; }) };
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };

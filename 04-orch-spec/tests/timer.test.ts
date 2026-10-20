@@ -148,3 +148,47 @@ test('sync of an older spec without timer: the diagram brings it (keepSpecOwned)
   const merged = mergeSpec(imported(xml), old, imported(xml)).spec;
   assert.equal(wait(merged).timer?.expression, '= timerEscalationCancel');
 });
+
+// ── Timer an Boundary-Events ────────────────────────────────────────────────
+const approve = (s: ProcessSpec): Step => allSteps(s.steps).find(x => x.id === 'ApproveTask')!;
+const inform = (s: ProcessSpec) => approve(s).errors!.find(e => e.code === 'inform')!;
+const withInform = (xml: string, expr: string) => xml.replace('${timerEscalationInform}', expr);
+
+test('boundary: the import keeps the id of the boundary event', () => {
+  assert.equal(inform(imported(c7('P7D'))).boundaryId, 'InformBoundary');
+});
+
+test('boundary merge: the default stays for the same variable - not for another one', () => {
+  const xml = c7('P7D');
+  const prev = imported(xml);
+  inform(prev).timer = { ...inform(prev).timer!, default: 'P3D' };
+  assert.equal(inform(mergeSpec(imported(xml), prev).spec).timer?.default, 'P3D');
+  assert.equal(inform(mergeSpec(imported(xml), prev, imported(xml)).spec).timer?.default, 'P3D');
+  const renamed = mergeSpec(imported(withInform(xml, '${timerOther}')), prev, imported(xml)).spec;
+  assert.deepEqual(inform(renamed).timer, { kind: 'duration', expression: '= timerOther' });
+  // eine andere Art (Zeitpunkt statt Dauer) hat ihre eigene Vorgabe
+  const date = mergeSpec(imported(xml.replace(/timeDuration xsi:type="bpmn:tFormalExpression">\$\{timerEscalationInform\}<\/bpmn:timeDuration/,
+    'timeDate xsi:type="bpmn:tFormalExpression">${timerEscalationInform}</bpmn:timeDate')), prev, imported(xml)).spec;
+  assert.equal(inform(date).timer?.kind, 'date');
+  assert.equal(inform(date).timer?.default, undefined);
+});
+
+test('boundary merge: an edit in the spec stays while the diagram has not changed the timer', () => {
+  const xml = c7('P7D');
+  const prev = imported(xml);
+  inform(prev).timer = { kind: 'duration', expression: '= timerInformLater', default: 'P2D' };
+  assert.deepEqual(inform(mergeSpec(imported(xml), prev, imported(xml)).spec).timer, inform(prev).timer);
+  // hat das Diagramm ihn geändert, gilt das Diagramm
+  const changed = mergeSpec(imported(withInform(xml, '${timerOther}')), prev, imported(xml)).spec;
+  assert.equal(inform(changed).timer?.expression, '= timerOther');
+});
+
+test('boundary open: a spec with the timer but without the boundary id gets the id', () => {
+  const xml = c7('P7D');
+  const old = imported(xml);
+  inform(old).timer = { ...inform(old).timer!, default: 'P3D' };
+  delete inform(old).boundaryId;
+  const healed = syncTimers(old, imported(xml))!;
+  assert.equal(inform(healed).boundaryId, 'InformBoundary');
+  assert.equal(inform(healed).timer?.default, 'P3D');
+});
