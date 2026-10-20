@@ -1548,7 +1548,8 @@ sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
 `execution.getProcessInstanceId()` → `processInstanceKey`,
 `getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
 `processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen;
-`processInstanceKey` setzt der InitWorker, als String),
+`processInstanceKey` setzt der InitWorker, als String, ausser er wird mitgegeben —
+ohne InitWorker ist er unbekannt),
 `result.get("k")` → `result.k` und Zeitketten wie
 `dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
 alle globex-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
