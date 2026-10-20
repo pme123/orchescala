@@ -1146,6 +1146,18 @@ function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSp
 }
 
 /**
+ * Dasselbe Boundary-Event in einer anderen Fassung der Liste (`list`): über
+ * seine ID — ohne sie (eine Spezifikation von vor dem Import der IDs) über den
+ * Code, bei gleichem Code der Reihe nach. `own` ist die Liste, in der `e` steht.
+ */
+export function sameBoundary(list: ErrorHandling[] | undefined, e: ErrorHandling, own: ErrorHandling[]): ErrorHandling | undefined {
+  if (!list) return undefined;
+  if (e.boundaryId && list.some(x => x.boundaryId)) return list.find(x => x.boundaryId === e.boundaryId);
+  const sameCode = (x: ErrorHandling) => x.boundary && x.code === e.code;
+  return list.filter(sameCode)[own.filter(sameCode).indexOf(e)];
+}
+
+/**
  * Der Timer eines Boundary-Events gehört wie der eines Ereignisses der
  * Spezifikation (siehe `SPEC_OWNED`): hat das Diagramm ihn nicht geändert,
  * bleibt er, wie er in ihr steht — und seine Vorgabe fürs InConfig bleibt.
@@ -1154,8 +1166,11 @@ function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSp
  */
 function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdits: boolean) {
   if (!s.errors?.some(e => e.timer)) return;
-  const match = (list: ErrorHandling[] | undefined, e: ErrorHandling) =>
-    list?.find(x => x.timer && (e.boundaryId && x.boundaryId ? x.boundaryId === e.boundaryId : x.code === e.code));
+  const own = s.errors;
+  const match = (list: ErrorHandling[] | undefined, e: ErrorHandling) => {
+    const x = sameBoundary(list, e, own);
+    return x?.timer ? x : undefined;
+  };
   s.errors = s.errors.map(e => {
     const p = e.timer && match(prev.errors, e);
     if (!e.timer || !p || !p.timer) return e;
@@ -1467,16 +1482,15 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     let next = s;
     if (!s.timer && f?.timer) { changed = true; next = { ...next, timer: f.timer }; }
     // am Boundary-Event der Timer samt dem Element, in das ihn der Export schreibt
-    // gleicher Code an mehreren Boundary-Events: der Reihe nach
-    const fill = (e: ErrorHandling, i: number, all: ErrorHandling[]): Partial<ErrorHandling> | undefined => {
+    // gleicher Code an mehreren Boundary-Events: der Reihe nach (siehe sameBoundary)
+    const fill = (e: ErrorHandling, all: ErrorHandling[]): Partial<ErrorHandling> | undefined => {
       if (!e.boundary || (e.timer && e.boundaryId)) return undefined;
-      const nth = all.slice(0, i).filter(x => x.boundary && x.code === e.code).length;
-      const fe = f?.errors?.filter(x => x.boundary && x.code === e.code)[nth];
+      const fe = sameBoundary(f?.errors, e, all);
       return fe?.timer ? { ...(e.timer ? {} : { timer: fe.timer }), boundaryId: fe.boundaryId } : undefined;
     };
-    if (next.errors?.some(fill)) {
+    if (next.errors?.some(e => fill(e, next.errors!))) {
       changed = true;
-      next = { ...next, errors: next.errors.map((e, i, all) => { const p = fill(e, i, all); return p ? { ...e, ...p } : e; }) };
+      next = { ...next, errors: next.errors.map((e, _, all) => { const p = fill(e, all); return p ? { ...e, ...p } : e; }) };
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };

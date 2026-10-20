@@ -653,9 +653,11 @@ function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: 
   for (const e of step.errors ?? []) {
     if (!e.boundary || !e.timer) continue;
     const attached = (b: Element | undefined) => b && local(b) === 'boundaryEvent' && b.getAttribute('attachedToRef') === step.id ? b : undefined;
+    // ohne ID: bei gleichem Code der Reihe nach — wie der Import die Einträge anlegt
+    const nth = (step.errors ?? []).filter(x => x.boundary && x.code === e.code).indexOf(e);
     const el = e.boundaryId
       ? attached(byId.get(e.boundaryId))
-      : [...byId.values()].find(b => attached(b) && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code));
+      : [...byId.values()].filter(b => attached(b) && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code))[nth];
     const where = `Timer «${e.code}»`;
     if (!el) {
       issues.push({ stepId: step.id, where, text: e.boundaryId

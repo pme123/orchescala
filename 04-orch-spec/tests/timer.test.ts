@@ -330,3 +330,31 @@ test('ISO 8601 edge cases: P, PT and P1DT are no duration; R/PT1H is an endless 
   for (const d of ['2026-12-31T08:00', '2026-12-31T08:00:00+01:00']) assert.equal(warns(d, 'date'), 0, d);
   for (const d of ['2026-12-31', 'P1D']) assert.equal(warns(d, 'date'), 1, d);
 });
+
+test('without boundary ids, same-code timer boundaries match in order - on export (C7 and C8) and on merge', () => {
+  const xml = twoInforms(c7('P7D'));
+  const s = imported(xml);
+  for (const e of approve(s).errors!) delete e.boundaryId;
+  const informs = approve(s).errors!.filter(e => e.code === 'inform');
+  informs[0].timer = { kind: 'duration', expression: '= timerFirst' };
+  informs[1].timer = { kind: 'duration', expression: '= timerSecond' };
+  assert.match(writeBpmn(xml, s).xml, /id="InformBoundary"[^]*?\$\{timerFirst\}[^]*?id="InformAgainBoundary"[^]*?\$\{timerSecond\}/);
+  assert.match(writeBpmn(xml, { ...s, engine: 'c8' }).xml, /id="InformBoundary"[^]*?>=timerFirst<[^]*?id="InformAgainBoundary"[^]*?>=timerSecond</);
+  // eine Spezifikation von vor den IDs: jede Vorgabe bleibt an ihrem Timer
+  const prev = imported(xml);
+  for (const e of approve(prev).errors!) delete e.boundaryId;
+  const [a, b] = approve(prev).errors!.filter(e => e.code === 'inform');
+  a.timer = { ...a.timer!, default: 'P1D' };
+  b.timer = { ...b.timer!, default: 'P2D' };
+  const merged = approve(mergeSpec(imported(xml), prev).spec).errors!.filter(e => e.code === 'inform');
+  assert.deepEqual(merged.map(e => [e.boundaryId, e.timer?.default]), [['InformBoundary', 'P1D'], ['InformAgainBoundary', 'P2D']]);
+});
+
+test('merge without base: another kind does not take over the default', () => {
+  const xml = c7('P7D');
+  const prev = imported(xml);
+  inform(prev).timer = { ...inform(prev).timer!, default: 'P3D' };
+  const date = xml.replace(/timeDuration xsi:type="bpmn:tFormalExpression">\$\{timerEscalationInform\}<\/bpmn:timeDuration/,
+    'timeDate xsi:type="bpmn:tFormalExpression">${timerEscalationInform}</bpmn:timeDate');
+  assert.deepEqual(inform(mergeSpec(imported(date), prev).spec).timer, { kind: 'date', expression: '= timerEscalationInform' });
+});
