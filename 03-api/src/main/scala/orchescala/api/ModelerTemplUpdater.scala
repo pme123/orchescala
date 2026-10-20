@@ -62,20 +62,25 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
           end if
   end updateTemplates
 
-  private def updateBpmnColors(): Unit =
-    val dirs = ModelerTemplUpdater.diagramDirs(os.pwd)
-    if dirs.isEmpty then println(s"No BPMN Diagrams found in ${BpmnProcessType.diagramPaths.mkString(", ")}")
-    dirs.foreach: dir =>
-      println(s"Adjust Color for ${dir.relativeTo(os.pwd)}:")
-      projectsConfig.projectConfig(docProjectConfig.projectName)
-        .map: pc =>
+  private def updateBpmnColors(): Unit = updateBpmnColors(os.pwd)
+
+  /** Colours the BPMNs of the project in `projectDir` - in every folder of `diagramDirs`. */
+  private[api] def updateBpmnColors(projectDir: os.Path): Unit =
+    val dirs = ModelerTemplUpdater.diagramDirs(projectDir)
+    projectsConfig.projectConfig(docProjectConfig.projectName) match
+      case None                    =>
+        println(s"No colours: ${docProjectConfig.projectName} is not in the projectsConfig")
+      case Some(_) if dirs.isEmpty =>
+        println(s"No BPMN Diagrams found in ${ModelerTemplUpdater.diagramPaths.mkString(", ")}")
+      case Some(_)                 =>
+        dirs.foreach: dir =>
+          println(s"Adjust Color for ${dir.relativeTo(projectDir)}:")
           os.walk(dir)
             .filter:
               _.toString.endsWith(".bpmn")
-            .map: p =>
-              p -> os.read(p)
-            .map:
-              extractUsesRefs
+            .foreach: p =>
+              extractUsesRefs(p, os.read(p))
+    end match
   end updateBpmnColors
 
   private lazy val projectsConfig                     = apiConfig.projectsConfig
@@ -136,12 +141,18 @@ end ModelerTemplUpdater
 object ModelerTemplUpdater:
   val colorNamespace = "http://www.omg.org/spec/BPMN/non-normative/color/1.0"
 
-  /** The BPMNs `api/run` colours: the diagrams of the engine (what is deployed) and - if there - the
-    * copy in the spec of orch-spec (`spec/processes`, what orch-spec shows). Both get the same
-    * colours; before, orch-spec showed the spec's copy without them.
+  /** Where orch-spec keeps its copy of the BPMN in a project - what it shows. */
+  val specProcessesPath: os.RelPath = os.rel / "spec" / "processes"
+
+  /** The folders whose BPMNs `api/run` colours: the diagrams of the engine (what is deployed) and
+    * the copy of orch-spec. Both get the same colours; before, orch-spec showed its copy without.
     */
+  def diagramPaths: Seq[os.RelPath] = BpmnProcessType.diagramPaths :+ specProcessesPath
+
+  /** The folders of `diagramPaths` that the project in `projectDir` has. */
   def diagramDirs(projectDir: os.Path): Seq[os.Path] =
-    (BpmnProcessType.diagramPaths.map(projectDir / _) :+ projectDir / "spec" / "processes").filter(os.exists)
+    diagramPaths.map(projectDir / _).filter(os.exists)
+
   // the grey of BpmnProcessGenerator's template
   val generatedGrey  = "#D5D5D5"
 

@@ -1,5 +1,7 @@
 package orchescala.api
 
+import orchescala.engine.DefaultEngineConfig
+
 import java.io.StringReader
 import scala.xml.XML
 
@@ -80,16 +82,69 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
     val out = ModelerTemplUpdater.withColorNamespace("""<x><definitions-foo /></x><definitions id="d">""")
     assertEquals(out, s"""<x><definitions-foo /></x><definitions xmlns:color="${ModelerTemplUpdater.colorNamespace}" id="d">""")
 
-  test("api/run colours the engine's diagrams and the spec's copy that orch-spec shows - if there"):
-    val dir     = os.temp.dir()
-    val engine  = dir / "src" / "main" / "resources" / "camunda"
-    val spec    = dir / "spec" / "processes"
+  test("the folders api/run colours: the engine's diagrams and the spec's copy that orch-spec shows - if there"):
+    val dir    = os.temp.dir()
+    val engine = dir / "src" / "main" / "resources" / "camunda"
+    val spec   = dir / ModelerTemplUpdater.specProcessesPath
     assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq.empty)
     os.makeDir.all(engine)
     assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq(engine))
     os.makeDir.all(spec)
     assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq(engine, spec))
-    os.remove(engine)
+    os.remove.all(engine)
     assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq(spec))
+    os.remove.all(dir)
+
+  // a process of test-own with a worker of test-services and the init worker
+  private val withWorker =
+    """<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d">
+      |  <bpmn:process id="p">
+      |    <bpmn:serviceTask id="InitProcessTask" camunda:type="external" camunda:topic="test-own-bookV1" />
+      |    <bpmn:serviceTask id="SendMailTask" camunda:type="external" camunda:topic="test-services-smtpV1-SendMail" />
+      |  </bpmn:process>
+      |  <bpmndi:BPMNDiagram id="dia">
+      |    <bpmndi:BPMNPlane id="plane" bpmnElement="p">
+      |      <bpmndi:BPMNShape id="InitProcessTask_di" bpmnElement="InitProcessTask" />
+      |      <bpmndi:BPMNShape id="SendMailTask_di" bpmnElement="SendMailTask" />
+      |    </bpmndi:BPMNPlane>
+      |  </bpmndi:BPMNDiagram>
+      |</bpmn:definitions>""".stripMargin
+
+  private def updater(projects: String*) =
+    ModelerTemplUpdater(
+      ApiConfig(
+        DefaultEngineConfig(),
+        companyName = "test",
+        projectsConfig = ProjectsConfig(perGitRepoConfigs =
+          Seq(ProjectsPerGitRepoConfig(
+            cloneBaseUrl = "https://git.test.com",
+            projects = projects.map(name => ProjectConfig(name, ProjectGroup("test"), color = s"#$name"))
+          ))
+        )
+      ),
+      ApiProjectConfig("test-own", VersionConfig("1.0.0"), Seq.empty, Seq.empty, Seq.empty, Seq.empty, None)
+    )
+
+  // the project with the process in both folders
+  private def project(): (os.Path, Seq[os.Path]) =
+    val dir   = os.temp.dir()
+    val files = ModelerTemplUpdater.diagramPaths.map(dir / _ / "test-own-bookV1.bpmn")
+    files.foreach(os.write(_, withWorker, createFolders = true))
+    dir -> files
+
+  test("api/run colours the spec's copy like the engine's - the worker of the other project, the init worker grey"):
+    val (dir, files) = project()
+    updater("test-own", "test-services").updateBpmnColors(dir)
+    files.foreach: file =>
+      val out = os.read(file)
+      assertEquals(colorOf(out, "SendMailTask"), Some("#test-services"), file)
+      assertEquals(colorOf(out, "InitProcessTask"), Some(ModelerTemplUpdater.generatedGrey), file)
+    os.remove.all(dir)
+
+  test("a project that is not in the projectsConfig - its BPMNs stay as they are"):
+    val (dir, files) = project()
+    updater("test-services").updateBpmnColors(dir)
+    files.foreach(file => assertEquals(os.read(file), withWorker, file))
+    os.remove.all(dir)
 
 end ModelerTemplUpdaterTest
