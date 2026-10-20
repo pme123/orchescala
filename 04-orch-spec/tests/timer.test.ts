@@ -247,3 +247,27 @@ test('boundary export: a boundary id that does not fit is reported - no fallback
   assert.doesNotMatch(r.xml, /timerInformLater/);
   assert.ok(r.issues.some(i => i.where === 'Timer «inform»' && i.text.includes('hängt nicht (mehr) an diesem Schritt')), JSON.stringify(r.issues));
 });
+
+const twoInforms = (xml: string) => xml.replace('<bpmn:intermediateCatchEvent', `<bpmn:boundaryEvent id="InformAgainBoundary" name="inform" cancelActivity="false" attachedToRef="ApproveTask">
+      <bpmn:timerEventDefinition id="t3"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">\${timerInformAgain}</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:intermediateCatchEvent`);
+
+test('boundary: two timer boundaries with the same code stay two entries - and the code is reported twice', () => {
+  const xml = twoInforms(c7('P7D'));
+  const s = imported(xml);
+  const informs = approve(s).errors!.filter(e => e.code === 'inform');
+  assert.deepEqual(informs.map(e => [e.boundaryId, e.timer?.expression]),
+    [['InformBoundary', '= timerEscalationInform'], ['InformAgainBoundary', '= timerInformAgain']]);
+  assert.ok(messages(s).some(m => m.includes('«inform» kommt doppelt vor')), messages(s).join(' / '));
+  // jeder Timer geht in sein Element
+  informs[1].timer = { kind: 'duration', expression: '= timerInformLater' };
+  const out = writeBpmn(xml, s).xml;
+  assert.match(out, /\$\{timerEscalationInform\}/);
+  assert.match(out, /id="InformAgainBoundary"[^]*?\$\{timerInformLater\}/);
+  // eine ältere Spezifikation ohne IDs bekommt sie der Reihe nach
+  const old = imported(xml);
+  for (const e of approve(old).errors!) delete e.boundaryId;
+  assert.deepEqual(approve(syncTimers(old, imported(xml))!).errors!.filter(e => e.code === 'inform').map(e => e.boundaryId),
+    ['InformBoundary', 'InformAgainBoundary']);
+});

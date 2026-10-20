@@ -680,10 +680,12 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const side = !named;
     const code = named || steps?.[0]?.name || bid;
     if (!code) continue;
-    const existing = errors.find(e => e.code === code);
     const pattern = ctx.owned.get(bid);
     // ein Timer samt seinem Element — der Export schreibt ihn dorthin zurück
     const timer = timerOf(b);
+    // zwei Boundary-Events mit demselben Code: mit Timer bleibt jedes ein eigener
+    // Eintrag (sonst ginge ein Timer verloren) — den doppelten Code melden die Befunde
+    const existing = errors.find(e => e.code === code && !(e.boundary && (timer || e.timer)));
     if (existing) {
       existing.interrupting = interrupting;
       existing.boundary = true;
@@ -1465,14 +1467,16 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     let next = s;
     if (!s.timer && f?.timer) { changed = true; next = { ...next, timer: f.timer }; }
     // am Boundary-Event der Timer samt dem Element, in das ihn der Export schreibt
-    const fill = (e: ErrorHandling): Partial<ErrorHandling> | undefined => {
+    // gleicher Code an mehreren Boundary-Events: der Reihe nach
+    const fill = (e: ErrorHandling, i: number, all: ErrorHandling[]): Partial<ErrorHandling> | undefined => {
       if (!e.boundary || (e.timer && e.boundaryId)) return undefined;
-      const fe = f?.errors?.find(x => x.code === e.code && x.timer);
-      return fe ? { ...(e.timer ? {} : { timer: fe.timer }), boundaryId: fe.boundaryId } : undefined;
+      const nth = all.slice(0, i).filter(x => x.boundary && x.code === e.code).length;
+      const fe = f?.errors?.filter(x => x.boundary && x.code === e.code)[nth];
+      return fe?.timer ? { ...(e.timer ? {} : { timer: fe.timer }), boundaryId: fe.boundaryId } : undefined;
     };
     if (next.errors?.some(fill)) {
       changed = true;
-      next = { ...next, errors: next.errors.map(e => { const p = fill(e); return p ? { ...e, ...p } : e; }) };
+      next = { ...next, errors: next.errors.map((e, i, all) => { const p = fill(e, i, all); return p ? { ...e, ...p } : e; }) };
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
