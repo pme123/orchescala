@@ -17,6 +17,25 @@ export const ORCHESCALA_TYPES: DomainType[] = [
     fixedCases: ['succeeded', 'output-mocked', 'failed', 'notValid', 'canceled'],
     generated: true,
   },
+  {
+    // wer einen Prozess gestartet bzw. eine Aufgabe erledigt hat — setzt der Gateway aus dem
+    // Token (signiert, `_identityCorrelation`); ein Teilprozess bekommt sie als Eingabe
+    id: 'orchescala.domain.IdentityCorrelation',
+    name: 'IdentityCorrelation',
+    pkg: 'orchescala.domain',
+    kind: 'case',
+    importPath: 'orchescala.domain.IdentityCorrelation',
+    descr: 'Wer den Prozess gestartet bzw. mit ihm interagiert hat — der Gateway setzt sie aus dem Token und signiert sie (`_identityCorrelation`).',
+    fields: [
+      { name: 'username', type: 'String', description: 'The username of the user that started or interacted with the process' },
+      { name: 'email', type: 'Option[String]', description: 'The email of the user that started or interacted with the process' },
+      { name: 'impersonateProcessValue', type: 'Option[String]', description: 'An optional value that you need to verify the identity. E.g. the id of the customer.' },
+      { name: 'issuedAt', type: 'Long', description: 'The timestamp (milliseconds since epoch) when the identity correlation was created' },
+      { name: 'processInstanceId', type: 'Option[String]', description: 'The process instance ID this correlation is bound to (set after process start)' },
+      { name: 'signature', type: 'Option[String]', description: 'HMAC signature binding the identity to the process instance' },
+    ],
+    generated: true,
+  },
 ];
 
 const withBuiltIn = new WeakMap<DomainType[], DomainType[]>();
