@@ -63,19 +63,19 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
   end updateTemplates
 
   private def updateBpmnColors(): Unit =
-    BpmnProcessType.diagramPaths.foreach: diagramPath =>
-      if os.exists(os.pwd / diagramPath) then
-        println(s"Adjust Color for $diagramPath:")
-        projectsConfig.projectConfig(docProjectConfig.projectName)
-          .map: pc =>
-            os.walk(os.pwd / diagramPath)
-              .filter:
-                _.toString.endsWith(".bpmn")
-              .map: p =>
-                p -> os.read(p)
-              .map:
-                extractUsesRefs
-      else println(s"No BPMN Diagrams found for $diagramPath")
+    val dirs = ModelerTemplUpdater.diagramDirs(os.pwd)
+    if dirs.isEmpty then println(s"No BPMN Diagrams found in ${BpmnProcessType.diagramPaths.mkString(", ")}")
+    dirs.foreach: dir =>
+      println(s"Adjust Color for ${dir.relativeTo(os.pwd)}:")
+      projectsConfig.projectConfig(docProjectConfig.projectName)
+        .map: pc =>
+          os.walk(dir)
+            .filter:
+              _.toString.endsWith(".bpmn")
+            .map: p =>
+              p -> os.read(p)
+            .map:
+              extractUsesRefs
   end updateBpmnColors
 
   private lazy val projectsConfig                     = apiConfig.projectsConfig
@@ -135,6 +135,13 @@ end ModelerTemplUpdater
 
 object ModelerTemplUpdater:
   val colorNamespace = "http://www.omg.org/spec/BPMN/non-normative/color/1.0"
+
+  /** The BPMNs `api/run` colours: the diagrams of the engine (what is deployed) and - if there - the
+    * copy in the spec of orch-spec (`spec/processes`, what orch-spec shows). Both get the same
+    * colours; before, orch-spec showed the spec's copy without them.
+    */
+  def diagramDirs(projectDir: os.Path): Seq[os.Path] =
+    (BpmnProcessType.diagramPaths.map(projectDir / _) :+ projectDir / "spec" / "processes").filter(os.exists)
   // the grey of BpmnProcessGenerator's template
   val generatedGrey  = "#D5D5D5"
 

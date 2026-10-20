@@ -80,4 +80,16 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
     val out = ModelerTemplUpdater.withColorNamespace("""<x><definitions-foo /></x><definitions id="d">""")
     assertEquals(out, s"""<x><definitions-foo /></x><definitions xmlns:color="${ModelerTemplUpdater.colorNamespace}" id="d">""")
 
+  test("api/run colours the engine's diagrams and the spec's copy that orch-spec shows - if there"):
+    val dir     = os.temp.dir()
+    val engine  = dir / "src" / "main" / "resources" / "camunda"
+    val spec    = dir / "spec" / "processes"
+    assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq.empty)
+    os.makeDir.all(engine)
+    assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq(engine))
+    os.makeDir.all(spec)
+    assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq(engine, spec))
+    os.remove(engine)
+    assertEquals(ModelerTemplUpdater.diagramDirs(dir), Seq(spec))
+
 end ModelerTemplUpdaterTest
