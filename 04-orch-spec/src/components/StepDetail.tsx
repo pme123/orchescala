@@ -6,9 +6,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
-import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TypeDef } from '../types';
+import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
-import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
+import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, timerVariable, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
@@ -516,6 +516,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         <Row label="Ereignis" isDark={isDark}>
           <span className="flex items-center gap-1"><Zap size={10} /> {step.eventKind} {step.eventDirection === 'throw' ? '(werfend)' : '(fangend)'}</span>
         </Row>
+      )}
+      {step.eventKind === 'timer' && (
+        <TimerSection timer={step.timer} spec={spec} isDark={isDark} canEdit={canEdit && !ofPattern}
+          onChange={timer => onPatch(step.id, { timer })} />
       )}
 
       {!ofPattern && <>
@@ -1638,6 +1642,56 @@ function Field({ label, children, isDark, action, comment }: {
         {action && <div className="ml-auto">{action}</div>}
       </div>
       {children}
+    </div>
+  );
+}
+
+const TIMER_KIND_LABEL: Record<TimerSpec['kind'], string> = { duration: 'Dauer', date: 'Zeitpunkt', cycle: 'Zyklus' };
+
+/**
+ * Der Timer eines Ereignisses: wie lange bzw. wann. Üblich ist eine Variable
+ * (`= timerEscalationCancel`) — sie kommt als Konstante mit ihrer Vorgabe ins
+ * `InConfig`, so lässt sie sich je Umgebung oder im Test einstellen.
+ */
+function TimerSection({ timer, spec, isDark, canEdit, onChange }: {
+  timer: TimerSpec | undefined; spec: ProcessSpec; isDark: boolean; canEdit: boolean;
+  onChange: (timer: TimerSpec) => void;
+}) {
+  const c = cls(isDark);
+  const t: TimerSpec = timer ?? { kind: 'duration', expression: '' };
+  const name = timerVariable(t);
+  const own = name ? (spec.types ?? []).find(x => x.inConfig)?.fields?.find(f => f.name === name) : undefined;
+  const input = `text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`;
+  return (
+    <div className="space-y-1.5">
+      <div className={`text-[10px] uppercase tracking-widest ${c.text}`}>Timer</div>
+      <div className="flex items-center gap-1.5">
+        <select value={t.kind} disabled={!canEdit} onChange={e => onChange({ ...t, kind: e.target.value as TimerSpec['kind'] })}
+          title="Dauer (timeDuration), Zeitpunkt (timeDate) oder Zyklus (timeCycle)" className={input}>
+          {(Object.keys(TIMER_KIND_LABEL) as TimerSpec['kind'][]).map(k => <option key={k} value={k}>{TIMER_KIND_LABEL[k]}</option>)}
+        </select>
+        <input value={t.expression} disabled={!canEdit} onChange={e => onChange({ ...t, expression: e.target.value })}
+          placeholder="= timerWait — eine Variable aus dem InConfig" title="Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. PT7D)"
+          className={`flex-1 min-w-0 ${input}`} />
+      </div>
+      {name && (
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[10px] ${c.muted} flex-shrink-0`}>Vorgabe im InConfig</span>
+          {own
+            ? <span className={`text-[10px] font-mono ${c.muted2}`} title="Steht schon im eigenen InConfig — dort pflegen">{own.default ? `${name} = ${own.default}` : name} (eigenes Feld)</span>
+            : <input value={t.default ?? ''} disabled={!canEdit} onChange={e => onChange({ ...t, default: e.target.value || undefined })}
+                placeholder={t.kind === 'duration' ? 'z. B. PT7D' : t.kind === 'date' ? 'z. B. 2026-12-31T08:00:00Z' : 'z. B. R3/PT1H'}
+                title={`Konstante «${name}» im InConfig — der Export schreibt sie mit dieser Vorgabe`}
+                className={`w-40 ${input}`} />}
+        </div>
+      )}
+      <p className={`text-[10px] ${c.muted}`}>
+        {name
+          ? <>Der Timer liest <span className="font-mono">{name}</span> — eine Konstante im InConfig; im Test lässt sie sich verkürzen.</>
+          : t.expression.trim()
+            ? 'Fester Wert — besser eine Variable (= timerWait) mit dieser Vorgabe im InConfig.'
+            : 'Noch kein Wert — eine Variable setzen, z. B. = timerWait.'}
+      </p>
     </div>
   );
 }

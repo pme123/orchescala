@@ -88,6 +88,18 @@ export interface Branch {
 }
 
 // Fehlerbehandlung eines Schritts (Boundary-Event bzw. `_handledErrors`).
+/**
+ * Timer eines Ereignisses — wann es auslöst. `expression` wie ein Mapping:
+ * `= timerEscalationCancel` (eine Variable — sie kommt mit `default` ins
+ * `InConfig`) oder fester Text (`PT7D`, ISO 8601).
+ */
+export interface TimerSpec {
+  kind: 'duration' | 'date' | 'cycle';
+  expression: string;
+  /** Vorgabe der Variable im `InConfig`, ISO 8601 (z. B. `PT7D`) */
+  default?: string;
+}
+
 export interface ErrorHandling {
   code: string;           // z. B. `account-not-opened`, `404`
   label?: string;
@@ -100,6 +112,8 @@ export interface ErrorHandling {
   side?: boolean;
   /** gehört zu einem Pattern (dessen id) — Verdrahtung, keine eigene Fachlichkeit */
   pattern?: string;
+  /** ein Timer-Boundary-Event: wann es auslöst (aus dem Diagramm) */
+  timer?: TimerSpec;
   steps?: Step[];         // Behandlungspfad
   [key: string]: unknown;
 }
@@ -182,6 +196,8 @@ export interface Step {
   eventDirection?: 'throw' | 'catch';
   /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
   messageName?: string;
+  /** Timer-Ereignis: wann es auslöst — die Variable dazu steht im `InConfig` */
+  timer?: TimerSpec;
 
 
   // ── Weitere Angaben, die die Spezifikation festlegt ──────────────────────

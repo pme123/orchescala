@@ -877,11 +877,18 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     const def = fixed ? ` = ${fixed}` : defaultClause(f, idx!) || (f.optional ? ' = None' : '');
     return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;
   });
-  for (const { name, kind } of loopSettings(spec)) {
+  for (const { name, kind, default: given, timerKind } of loopSettings(spec)) {
     if (seen.has(name)) continue;
     seen.add(name);
     const d = DEFAULT_BY_KIND[kind];
-    params.push(`${descriptionLine(d.descr)}\n${name}: ${d.type} = ${d.value}`);
+    // ein Timer eines Ereignisses: seine Vorgabe aus der Spezifikation (`PT7D`) — ein
+    // Zeitpunkt oder Zyklus ist keine Dauer, also Text
+    const type = timerKind && timerKind !== 'duration' ? 'String' : d.type;
+    const value = given ? JSON.stringify(given) : d.value;
+    const descr = timerKind
+      ? `${{ duration: 'Wartezeit', date: 'Zeitpunkt', cycle: 'Zyklus' }[timerKind]} des Timers (ISO 8601)${given ? '' : ' — Vorgabe prüfen'}.`
+      : d.descr;
+    params.push(`${descriptionLine(descr)}\n${name}: ${type} = ${value}`);
   }
   for (const step of mockableSteps(spec)) {
     // Nur Schritte mit gewähltem Mock. Der Typ ist das `Out` des gerufenen

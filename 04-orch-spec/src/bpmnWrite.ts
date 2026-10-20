@@ -18,7 +18,7 @@
 // angefasst; abgewählte Zeilen kommen nicht ins BPMN. Steuerparameter
 // (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
 
-import type { EngineId, Mapping, Model, ProcessSpec, Step } from './types';
+import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
 import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel';
@@ -565,6 +565,8 @@ function writeImplementation(
   };
   const missing = (text: string) => issues.push({ stepId: step.id, where: 'Implementierung', text });
 
+  if (step.timer) writeTimer(doc, el, engine, step.timer, step.id, issues);
+
   if (local(el) === 'serviceTask') {
     // der Init-Worker der Vorlage hört auf die Prozess-ID (Orchescala-Konvention)
     const topic = step.topic?.trim() || (el.getAttribute('id') === 'InitProcessTask' ? processId?.trim() : undefined);
@@ -608,6 +610,32 @@ function writeImplementation(
     if (called) el.setAttribute('calledElement', called);
     else if (!el.getAttribute('calledElement')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
   }
+}
+
+const TIMER_TAG: Record<TimerSpec['kind'], string> = { duration: 'timeDuration', date: 'timeDate', cycle: 'timeCycle' };
+
+/**
+ * Der Timer eines Ereignisses — `= timerX` als `${timerX}` (Camunda 7) bzw.
+ * `=timerX` (Camunda 8), fester Text bleibt Text. Steht im Diagramm dasselbe
+ * (gleich bis auf die Schreibweise der Engine), bleibt es unberührt.
+ */
+function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSpec, stepId: string, issues: WriteIssue[]) {
+  const def = kids(el).find(c => local(c) === 'timerEventDefinition');
+  const expression = timer.expression.trim();
+  if (!def || !expression) return;
+  const tag = TIMER_TAG[timer.kind];
+  const current = kids(def).filter(c => Object.values(TIMER_TAG).includes(local(c)));
+  const same = current.length === 1 && local(current[0]) === tag
+    && importExpression((current[0].textContent ?? '').trim()).trim() === expression;
+  if (same) return;
+  const r = engineExpression(expression, engine);
+  if (r.issue) issues.push({ stepId, where: 'Timer', text: `nicht nach JUEL übersetzbar: ${r.issue}` });
+  const prefix = def.tagName.includes(':') ? `${def.tagName.split(':')[0]}:` : '';
+  for (const c of current) removeEl(c);
+  const t = doc.createElementNS(BPMN_NS, `${prefix}${tag}`);
+  t.setAttributeNS(XSI_NS, 'xsi:type', `${prefix}tFormalExpression`);
+  t.textContent = r.text;
+  appendEl(def, t);
 }
 
 // ── Steuerparameter am Schritt ───────────────────────────────────────────────

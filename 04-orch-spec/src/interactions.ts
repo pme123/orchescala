@@ -15,7 +15,7 @@
 
 import type {
   DomainField, DomainType, Field, Interaction, InteractionKind, Mapping, Model,
-  ProcessSpec, ServiceDef, ServiceParam, Step, TypeDef,
+  ProcessSpec, ServiceDef, ServiceParam, Step, TimerSpec, TypeDef,
 } from './types.ts';
 import { INTERACTION_META } from './types.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
@@ -194,7 +194,29 @@ export function initOutputs(spec: ProcessSpec): Mapping[] {
  * Namen, die in Schleifen-Angaben stecken: aus `Tried ${maxOpenAccount} times?`
  * und `wait ${timerWaitOpenAccount}` werden die Felder des `InConfig`.
  */
-export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'timer' | 'max' | 'counter' }> {
+/** Die Variable eines Timers — `= timerEscalationCancel`; null bei festem Text oder einem Ausdruck */
+export function timerVariable(timer: TimerSpec | undefined): string | null {
+  const m = /^=\s*([A-Za-z_]\w*)\s*$/.exec(timer?.expression?.trim() ?? '');
+  return m ? m[1] : null;
+}
+
+/** Die Timer der Ereignisse und Boundary-Events — mit ihrer Variable und Vorgabe */
+export function timerSettings(spec: ProcessSpec): Array<{ name: string; timerKind: TimerSpec['kind']; default?: string }> {
+  const found = new Map<string, { timerKind: TimerSpec['kind']; default?: string }>();
+  const add = (t: TimerSpec | undefined) => {
+    const name = timerVariable(t);
+    if (!name || !t) return;
+    const was = found.get(name);
+    if (!was || (!was.default && t.default?.trim())) found.set(name, { timerKind: t.kind, ...(t.default?.trim() ? { default: t.default.trim() } : {}) });
+  };
+  for (const step of allSteps(spec.steps)) {
+    add(step.timer);
+    for (const e of step.errors ?? []) add(e.timer);
+  }
+  return [...found].map(([name, v]) => ({ name, ...v }));
+}
+
+export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'timer' | 'max' | 'counter'; default?: string; timerKind?: TimerSpec['kind'] }> {
   const found = new Map<string, 'timer' | 'max' | 'counter'>();
   for (const step of allSteps(spec.steps)) {
     if (!step.loop) continue;
@@ -212,7 +234,13 @@ export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'ti
     const counter = `counter${name.slice(3)}`;
     if (!found.has(counter)) found.set(counter, 'counter');
   }
-  return [...found].map(([name, kind]) => ({ name, kind }));
+  // die Timer der Ereignisse: jede Variable eine Konstante im InConfig, mit ihrer Vorgabe
+  const timers = new Map(timerSettings(spec).map(t => [t.name, t]));
+  for (const name of timers.keys()) if (!found.has(name)) found.set(name, 'timer');
+  return [...found].map(([name, kind]) => {
+    const t = timers.get(name);
+    return { name, kind, ...(t?.default ? { default: t.default } : {}), ...(t ? { timerKind: t.timerKind } : {}) };
+  });
 }
 
 /** Schritte, deren Ergebnis sich für Tests überschreiben lässt (`…Mock`). */

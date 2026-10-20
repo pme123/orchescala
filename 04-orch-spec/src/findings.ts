@@ -6,13 +6,13 @@
 // als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
 // ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
 
-import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step } from './types';
+import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
-import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
+import { catalogEntry, interactionKind, interactionOrigin, timerVariable, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
 import { GENERAL_VARIABLES, isInitWorker, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
@@ -192,6 +192,19 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
   return { spec: changed ? { ...spec, steps } : spec, added, changed };
 }
 
+/** Der Timer eines Ereignisses: eine Variable mit Vorgabe — kein fester Wert */
+function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[]) {
+  const expr = timer.expression.trim();
+  if (!expr) { errors.push('Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.'); return; }
+  const name = timerVariable(timer);
+  if (!name) {
+    if (!isFeel(expr)) warnings.push(`Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
+    return;
+  }
+  const own = (spec.types ?? []).find(t => t.inConfig)?.fields?.some(f => f.name === name);
+  if (!timer.default?.trim() && !own) warnings.push(`Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. PT7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
+}
+
 export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps), wiring: Set<string> = wiringSteps(spec)): Finding {
   // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn
   if (step.kind === 'goto' || step.pattern) return NONE;
@@ -205,6 +218,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // ohne Label im BPMN heisst der Schritt wie seine ID — der Name hier geht beim Export hinein
   // (in einem Pattern-Block benennt das Pattern)
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
+  // Timer: die Wartezeit ist eine Konstante im InConfig — sonst lässt sie sich je Umgebung nicht einstellen
+  if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings);
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
