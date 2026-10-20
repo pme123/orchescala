@@ -22,7 +22,7 @@ import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
 import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
-import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, type MergeReport, type MergeStatus } from '../bpmn';
+import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { conversionNote, engineLabel } from '../engineLabels';
@@ -831,8 +831,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const cur = specRef.current;
     if (!loaded || !xml || !cur) return;
     try {
-      const next = syncPatterns(cur, importBpmn(xml, cur.slug, { patterns: patternDefs }).spec);
-      if (next) update(next, { source: 'load', note: 'Pattern-Angaben aus dem Diagramm nachgezogen' });
+      const fresh = importBpmn(xml, cur.slug, { patterns: patternDefs }).spec;
+      const withPatterns = syncPatterns(cur, fresh);
+      // eine Spezifikation von vor dem Import der Timer bekommt sie aus dem Diagramm
+      const withTimers = syncTimers(withPatterns ?? cur, fresh);
+      const next = withTimers ?? withPatterns;
+      const what = [withPatterns && 'Pattern', withTimers && 'Timer'].filter(Boolean).join('- und ');
+      if (next) update(next, { source: 'load', note: `${what}-Angaben aus dem Diagramm nachgezogen` });
     } catch { /* unlesbares BPMN — meldet der Abgleich */ }
   }, [loaded, xml, patternDefs, update]);
 

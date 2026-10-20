@@ -10,7 +10,7 @@
 // werden beim erneuten Import über die stabile BPMN-Element-ID **behalten**
 // (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
 
-import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind } from './types';
+import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
 import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
@@ -115,6 +115,26 @@ function eventKindOf(el: Element): Step['eventKind'] {
     }
   }
   return 'none';
+}
+
+const TIMER_KINDS: Record<string, TimerSpec['kind']> = { timeDuration: 'duration', timeDate: 'date', timeCycle: 'cycle' };
+
+/** Die Variable eines Timers — `= timerEscalationCancel`; null bei festem Text oder einem Ausdruck */
+export function timerVariable(timer: TimerSpec | undefined): string | null {
+  const m = /^=\s*([A-Za-z_]\w*)\s*$/.exec(timer?.expression?.trim() ?? '');
+  return m ? m[1] : null;
+}
+
+
+/** Der Timer eines Ereignisses — als FEEL wie die Mappings: `${timerX}` → `= timerX`, `P7D` bleibt Text */
+function timerOf(el: Element): TimerSpec | undefined {
+  const def = kids(el).find(c => local(c) === 'timerEventDefinition');
+  if (!def) return undefined;
+  for (const c of kids(def)) {
+    const kind = TIMER_KINDS[local(c)];
+    if (kind) return { kind, expression: importExpression(text(c)) };
+  }
+  return { kind: 'duration', expression: '' };
 }
 
 /** Name des Signals bzw. der Nachricht eines Ereignisses — über `signalRef` / `messageRef` */
@@ -554,6 +574,10 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const ref = signalRefOf(el, ctx.signals);
     if (ref) step.messageName = ref;
   }
+  if (step.eventKind === 'timer') {
+    const timer = timerOf(el);
+    if (timer) step.timer = timer;
+  }
   if (kind === 'receive' || kind === 'send') {
     const ref = el.getAttribute('messageRef');
     const name = ref ? ctx.signals.get(ref) : undefined;
@@ -658,14 +682,16 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     if (!code) continue;
     const existing = errors.find(e => e.code === code);
     const pattern = ctx.owned.get(bid);
+    const timer = timerOf(b);
     if (existing) {
       existing.interrupting = interrupting;
       existing.boundary = true;
       if (side) existing.side = true;
       if (pattern) existing.pattern = pattern;
+      if (timer) existing.timer = timer;
       if (steps?.length) existing.steps = steps;
     } else {
-      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(steps?.length ? { steps } : {}) });
+      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(timer ? { timer } : {}), ...(steps?.length ? { steps } : {}) });
     }
   }
   if (errors.length) step.errors = errors;
@@ -1060,7 +1086,7 @@ function sig(s: Step): string {
  * vorige BPMN) — sonst gingen Einstellungen verloren, sobald jemand im
  * Diagramm etwas verschiebt oder die App es angleicht.
  */
-const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind'] as const;
+const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind', 'timer'] as const;
 
 /** Ein Wert unabhängig von seiner Engine-Form: `${x}` wie `=x`, `text` wie `="text"` */
 function normExpr(e: string): string {
@@ -1072,6 +1098,8 @@ function normExpr(e: string): string {
 
 const norm = (k: string, v: unknown): unknown =>
   k === 'mock' && typeof v === 'string' ? normExpr(v)
+    // die Vorgabe fürs InConfig steht nicht im Diagramm
+    : k === 'timer' && v && !Array.isArray(v) ? [(v as TimerSpec).kind, normExpr((v as TimerSpec).expression ?? '')]
     : (k === 'inputs' || k === 'outputs') && Array.isArray(v) ? (v as Mapping[]).map(m => [m.name, normExpr(m.expression)])
       : v;
 
@@ -1097,7 +1125,8 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
     const diagramUnchanged = (base ? same(k, s[k], base[k]) : s[k] == null || same(k, s[k], []))
       || (prev[k] != null && same(k, s[k], inDiagram(k, prev[k])));
     if (!diagramUnchanged) continue;
-    if (prev[k] === undefined) delete s[k];
+    // den Timer liest erst ein neuerer Import — eine ältere Spezifikation ohne ihn bekommt ihn
+    if (prev[k] === undefined) { if (k !== 'timer') delete s[k]; }
     else (s as Record<string, unknown>)[k] = prev[k];
   }
 }
@@ -1158,6 +1187,12 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     } else {
       const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
+      // die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
+      // er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe
+      if (s.timer && prev.timer?.default && !s.timer.default && s.timer.kind === prev.timer.kind
+        && timerVariable(s.timer) && timerVariable(s.timer) === timerVariable(prev.timer)) {
+        s.timer = { ...s.timer, default: prev.timer.default };
+      }
       // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
       // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {
@@ -1385,6 +1420,32 @@ export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDif
   }
   for (const list of vorher.values()) diff.removed.push(...list);
   return diff;
+}
+
+/**
+ * Timer aus dem Diagramm, wo die Spezifikation noch keinen hat — sie stammt von
+ * vor dem Import der Timer. Was sie schon hat (samt Vorgabe fürs InConfig),
+ * bleibt; geändert wird ein Timer über den Abgleich. Null, wenn nichts fehlt.
+ */
+export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
+  const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
+  let changed = false;
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    const f = neu.get(s.id);
+    let next = s;
+    if (!s.timer && f?.timer) { changed = true; next = { ...next, timer: f.timer }; }
+    const timerOfError = (e: ErrorHandling) => (e.boundary && !e.timer ? f?.errors?.find(x => x.code === e.code)?.timer : undefined);
+    if (next.errors?.some(timerOfError)) {
+      changed = true;
+      next = { ...next, errors: next.errors.map(e => { const t = timerOfError(e); return t ? { ...e, timer: t } : e; }) };
+    }
+    if (next.children) next = { ...next, children: walk(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) };
+    return next;
+  });
+  const steps = walk(current.steps);
+  return changed ? { ...current, steps } : null;
 }
 
 /**
