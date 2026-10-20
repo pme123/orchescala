@@ -281,3 +281,52 @@ test('findings: one variable for a duration and a date is warned - the InConfig 
   wait(s).timer = { kind: 'duration', expression: '= timerEscalationInform', default: 'P2D' };
   assert.deepEqual(messages(s).filter(m => m.includes('nur einen Typ')), []);
 });
+
+test('open: a boundary timer in a path (errors[].steps) is filled in too', () => {
+  const xml = c7('P7D')
+    .replace('<bpmn:boundaryEvent id="InformBoundary" name="inform" cancelActivity="false" attachedToRef="ApproveTask">',
+      '<bpmn:boundaryEvent id="InformBoundary" name="inform" cancelActivity="false" attachedToRef="ApproveTask"><bpmn:outgoing>f4</bpmn:outgoing>')
+    .replace('<bpmn:endEvent id="EndEvent"', `<bpmn:userTask id="NotifyTask" name="Notify"><bpmn:incoming>f4</bpmn:incoming><bpmn:outgoing>f5</bpmn:outgoing></bpmn:userTask>
+    <bpmn:boundaryEvent id="NotifyTimeoutBoundary" name="notify-timeout" attachedToRef="NotifyTask"><bpmn:outgoing>f6</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="t4"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">\${timerNotifyTimeout}</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="NotifiedEnd"><bpmn:incoming>f5</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="TimeoutEnd"><bpmn:incoming>f6</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f4" sourceRef="InformBoundary" targetRef="NotifyTask"/>
+    <bpmn:sequenceFlow id="f5" sourceRef="NotifyTask" targetRef="NotifiedEnd"/>
+    <bpmn:sequenceFlow id="f6" sourceRef="NotifyTimeoutBoundary" targetRef="TimeoutEnd"/>
+    <bpmn:endEvent id="EndEvent"`);
+  const notify = (s: ProcessSpec) => allSteps(s.steps).find(x => x.id === 'NotifyTask')!;
+  const timeout = (s: ProcessSpec) => notify(s).errors?.find(e => e.code === 'notify-timeout');
+  assert.ok(inform(imported(xml)).steps?.some(x => x.id === 'NotifyTask'), 'NotifyTask is in the path of inform');
+  assert.deepEqual([timeout(imported(xml))?.boundaryId, timeout(imported(xml))?.timer?.expression], ['NotifyTimeoutBoundary', '= timerNotifyTimeout']);
+  const old = imported(xml);
+  delete timeout(old)!.timer;
+  delete timeout(old)!.boundaryId;
+  const healed = syncTimers(old, imported(xml))!;
+  assert.deepEqual([timeout(healed)?.boundaryId, timeout(healed)?.timer?.expression], ['NotifyTimeoutBoundary', '= timerNotifyTimeout']);
+});
+
+test('merge without the previous BPMN: the diagram wins - for a boundary timer as for the timer of an event', () => {
+  const xml = c7('${timerEscalationCancel}');
+  const prev = imported(xml);
+  wait(prev).timer = { kind: 'duration', expression: '= timerEdited' };
+  inform(prev).timer = { kind: 'duration', expression: '= timerEdited' };
+  const merged = mergeSpec(imported(xml), prev).spec;
+  assert.equal(wait(merged).timer?.expression, '= timerEscalationCancel');
+  assert.equal(inform(merged).timer?.expression, '= timerEscalationInform');
+});
+
+test('ISO 8601 edge cases: P, PT and P1DT are no duration; R/PT1H is an endless cycle', () => {
+  const s = imported(c7('${timerEscalationCancel}'));
+  const warns = (d: string, kind: 'duration' | 'date' | 'cycle') => {
+    inform(s).timer = { kind, expression: '= timerEscalationInform', default: d };
+    return messages(s).filter(m => m.startsWith('Boundary «inform»: ') && m.includes('nach ISO 8601')).length;
+  };
+  for (const d of ['P', 'PT', 'P1DT', 'T1H']) assert.equal(warns(d, 'duration'), 1, d);
+  for (const d of ['P1DT2H', 'PT0.5S', 'P1W']) assert.equal(warns(d, 'duration'), 0, d);
+  for (const d of ['R/PT1H', 'R3/PT1H', 'R2/2026-12-31T08:00:00Z/P1D']) assert.equal(warns(d, 'cycle'), 0, d);
+  for (const d of ['R3/PT', 'R3', 'PT1H']) assert.equal(warns(d, 'cycle'), 1, d);
+  for (const d of ['2026-12-31T08:00', '2026-12-31T08:00:00+01:00']) assert.equal(warns(d, 'date'), 0, d);
+  for (const d of ['2026-12-31', 'P1D']) assert.equal(warns(d, 'date'), 1, d);
+});
