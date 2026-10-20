@@ -5,17 +5,18 @@ import scala.xml.XML
 
 class ModelerTemplUpdaterTest extends munit.FunSuite:
 
-  private val bpmn =
-    """<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" id="d">
-      |  <bpmndi:BPMNDiagram id="dia">
-      |    <bpmndi:BPMNPlane id="plane" bpmnElement="p">
-      |      <bpmndi:BPMNShape id="InitProcessTask_di" bpmnElement="InitProcessTask" />
-      |      <bpmndi:BPMNShape id="OutputmockedBoundaryEvent_di" bpmnElement="OutputmockedBoundaryEvent" />
-      |      <bpmndi:BPMNShape id="MockedBoundaryEvent_di" bpmnElement="MockedBoundaryEvent" />
-      |      <bpmndi:BPMNShape id="SendMailTask_di" bpmnElement="SendMailTask" />
-      |    </bpmndi:BPMNPlane>
-      |  </bpmndi:BPMNDiagram>
-      |</bpmn:definitions>""".stripMargin
+  private def bpmn(shapes: String*) =
+    s"""<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" id="d">
+       |  <bpmndi:BPMNDiagram id="dia">
+       |    <bpmndi:BPMNPlane id="plane" bpmnElement="p">
+       |${shapes.map(id => s"""      <bpmndi:BPMNShape id="${id}_di" bpmnElement="$id" />""").mkString("\n")}
+       |    </bpmndi:BPMNPlane>
+       |  </bpmndi:BPMNDiagram>
+       |</bpmn:definitions>""".stripMargin
+
+  private val generated = bpmn(
+    "InitProcessTask", "OutputmockedBoundaryEvent", "OutputmockedEvent1", "MockedBoundaryEvent", "SendMailTask"
+  )
 
   // the shape's tag - the colour may stand before or after bpmnElement
   private def colorOf(xmlStr: String, elementId: String): Option[String] =
@@ -24,36 +25,59 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
       .flatMap("""color:background-color="([^"]+)"""".r.findFirstMatchIn(_))
       .map(_.group(1))
 
-  private def grey(xmlStr: String): String =
-    ModelerTemplUpdater.withColorNamespace(
-      CamundaXmlPrinter.toCamundaXmlString(
-        ModelerTemplUpdater.withGeneratedInGrey(XML.load(new StringReader(xmlStr)))
-      )
-    )
+  // what api/run writes (extractUsesRefs): grey, then the file
+  private def written(xmlStr: String): String =
+    ModelerTemplUpdater.toBpmnFile(ModelerTemplUpdater.withGeneratedInGrey(XML.load(new StringReader(xmlStr))))
 
-  test("the init worker and the output-mocked / mocked elements are grey - as in the createProcess template"):
-    val out = grey(bpmn)
+  test("the init worker and the mock elements are grey - as in the createProcess template"):
+    val out = written(generated)
     assertEquals(colorOf(out, "InitProcessTask"), Some("#D5D5D5"))
     assertEquals(colorOf(out, "OutputmockedBoundaryEvent"), Some("#D5D5D5"))
+    assertEquals(colorOf(out, "OutputmockedEvent1"), Some("#D5D5D5"))
     assertEquals(colorOf(out, "MockedBoundaryEvent"), Some("#D5D5D5"))
     assertEquals(colorOf(out, "SendMailTask"), None)
 
+  test("only the generated ids - an own element that starts with Mocked or Outputmocked stays"):
+    val out = written(bpmn("MockedCustomerCheck", "OutputmockedSummaryTask"))
+    assertEquals(colorOf(out, "MockedCustomerCheck"), None)
+    assertEquals(colorOf(out, "OutputmockedSummaryTask"), None)
+
   test("an element with a colour of its own keeps it"):
-    val own = bpmn
+    val own = generated
       .replace("""xmlns:bpmndi=""", """xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0" xmlns:bpmndi=""")
       .replace("""bpmnElement="InitProcessTask" />""", """bpmnElement="InitProcessTask" color:background-color="#ffffcc" />""")
-    assertEquals(colorOf(grey(own), "InitProcessTask"), Some("#ffffcc"))
+    assertEquals(colorOf(written(own), "InitProcessTask"), Some("#ffffcc"))
 
-  test("a coloured BPMN without xmlns:color gets it once - and is valid XML"):
-    val out = grey(bpmn)
+  test("the file: the XML declaration, xmlns:color once - and it is valid XML"):
+    val out = written(generated)
+    assert(out.startsWith("""<?xml version="1.0" encoding="UTF-8"?>""" + "\n"), out)
     assertEquals("""xmlns:color="""".r.findAllIn(out).size, 1)
-    assert(out.startsWith("""<bpmn:definitions xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0""""), out)
-    XML.load(new StringReader(out)) // throws if the prefix is unbound
+    // parsed again: the colours are there and bound - nothing more to add
+    val reparsed = XML.loadString(out)
+    assert(!ModelerTemplUpdater.needsColorNamespace(reparsed))
+    assertEquals(colorOf(out, "InitProcessTask"), Some(ModelerTemplUpdater.generatedGrey))
 
-  test("xmlns:color is left as it is - and not added without a colour"):
-    val withNs = """<definitions xmlns:color="x"><a color:background-color="#fff" /></definitions>"""
-    assertEquals(ModelerTemplUpdater.withColorNamespace(withNs), withNs)
-    val noColor = """<definitions><a /></definitions>"""
-    assertEquals(ModelerTemplUpdater.withColorNamespace(noColor), noColor)
+  test("no colour - no xmlns:color; already there - not added again"):
+    assert(!written(bpmn("SendMailTask")).contains("xmlns:color"))
+    val withNs = generated.replace("""xmlns:bpmndi=""", """xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0" xmlns:bpmndi=""")
+    assertEquals("""xmlns:color="""".r.findAllIn(written(withNs)).size, 1)
+
+  test("decided on the XML - a colour only in a documentation needs no namespace"):
+    val node = XML.loadString(
+      """<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d"><bpmn:documentation>color:background-color</bpmn:documentation></bpmn:definitions>"""
+    )
+    assert(!ModelerTemplUpdater.needsColorNamespace(node))
+    assert(!ModelerTemplUpdater.toBpmnFile(node).contains("""xmlns:color="http"""))
+
+  test("decided on the XML - `xmlns:color=` in a documentation is no namespace"):
+    val node = ModelerTemplUpdater.withGeneratedInGrey(XML.loadString(
+      s"""<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" id="d"><bpmn:documentation>xmlns:color=</bpmn:documentation><bpmndi:BPMNShape id="i" bpmnElement="InitProcessTask" /></bpmn:definitions>"""
+    ))
+    assert(ModelerTemplUpdater.needsColorNamespace(node))
+    XML.loadString(ModelerTemplUpdater.toBpmnFile(node)) // valid - the grey has its namespace
+
+  test("the namespace goes on the definitions tag - not on a tag that only starts like it"):
+    val out = ModelerTemplUpdater.withColorNamespace("""<x><definitions-foo /></x><definitions id="d">""")
+    assertEquals(out, s"""<x><definitions-foo /></x><definitions xmlns:color="${ModelerTemplUpdater.colorNamespace}" id="d">""")
 
 end ModelerTemplUpdaterTest

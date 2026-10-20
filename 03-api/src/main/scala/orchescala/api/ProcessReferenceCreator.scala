@@ -34,8 +34,9 @@ trait ProcessReferenceCreator extends WorkerReferenceCreator:
     val local = apiConfig.basePath / pc.bpmnProcessType.diagramPath
     if pc.name == projectName && os.exists(local) then local else pc.absBpmnPath(gitBasePath)
 
-  // the BPMNs are the same for all ApiCreators of a run - so they are only read once (the own
-  // project is part of the key: its BPMNs come from its working copy)
+  // the BPMNs are the same for all ApiCreators of a run - so they are only read once. The own
+  // project is part of the key (its BPMNs come from its working copy): ApiCreators of other projects
+  // in the same JVM read them once more each; the cache lives as long as the JVM - fine for `api/run`.
   lazy val allBpmns: Seq[(String, Seq[(os.Path, String)])] =
     ProcessReferenceCreator.allBpmns(s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"):
       println(s"BPMN Reference Base Directory: $gitBasePath")
