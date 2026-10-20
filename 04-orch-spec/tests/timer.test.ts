@@ -415,3 +415,20 @@ test('boundary export: no timer element any more is reported; a pattern timer is
   assert.doesNotMatch(p.xml, /timerInformLater/);
   assert.match(p.xml, /\$\{timerEscalationInform\}/);
 });
+
+test('without id: an error boundary with the same name does not make the timer ambiguous', () => {
+  const xml = c7('P7D').replace('<bpmn:intermediateCatchEvent', `<bpmn:boundaryEvent id="InformErrorBoundary" name="inform" attachedToRef="ApproveTask">
+      <bpmn:errorEventDefinition id="e1"/>
+    </bpmn:boundaryEvent>
+    <bpmn:intermediateCatchEvent`);
+  const s = imported(xml);
+  for (const e of approve(s).errors!) delete e.boundaryId;
+  const timer = approve(s).errors!.find(e => e.code === 'inform' && e.timer)!;
+  timer.timer = { kind: 'duration', expression: '= timerInformLater' };
+  const r = writeBpmn(xml, s);
+  assert.match(r.xml, /id="InformBoundary"[^]*?\$\{timerInformLater\}/);
+  assert.deepEqual(r.issues.filter(i => i.where === 'Timer «inform»'), []);
+  // ohne Timer-Element im Diagramm: gemeldet, nicht geraten
+  const none = writeBpmn(xml.replace(/<bpmn:timerEventDefinition id="t1">[^]*?<\/bpmn:timerEventDefinition>/, '<bpmn:messageEventDefinition id="m1"/>'), s);
+  assert.ok(none.issues.some(i => i.where === 'Timer «inform»' && i.text.startsWith('kein Timer-Boundary-Event')), JSON.stringify(none.issues));
+});

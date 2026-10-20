@@ -664,10 +664,12 @@ function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: 
       el = attached(byId.get(e.boundaryId));
       if (!el) { missing(`Boundary-Event «${e.boundaryId}» hängt nicht (mehr) an diesem Schritt — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.`); continue; }
     } else {
-      const mine = errors.filter(x => x.boundary && x.code === e.code && !x.boundaryId);
-      const candidates = [...byId.values()].filter(b => attached(b) && !claimed.has(b.getAttribute('id') ?? '')
+      // nur Timer zählen — ein Fehler-Boundary-Event gleichen Namens macht es nicht unklar
+      const isTimer = (b: Element) => kids(b).some(c => local(c) === 'timerEventDefinition');
+      const mine = errors.filter(x => x.boundary && x.timer && x.code === e.code && !x.boundaryId);
+      const candidates = [...byId.values()].filter(b => attached(b) && isTimer(b) && !claimed.has(b.getAttribute('id') ?? '')
         && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code));
-      if (!candidates.length) { missing('Boundary-Event nicht im Diagramm — Timer nicht geschrieben.'); continue; }
+      if (!candidates.length) { missing('kein Timer-Boundary-Event dazu im Diagramm — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.'); continue; }
       if (candidates.length !== mine.length) { missing(`${candidates.length} Boundary-Events heissen «${e.code}» — unklar, welches; Timer nicht geschrieben. Den Abgleich mit dem Diagramm starten.`); continue; }
       el = candidates[mine.indexOf(e)];
     }
