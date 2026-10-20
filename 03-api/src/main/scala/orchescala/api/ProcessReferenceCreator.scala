@@ -38,7 +38,7 @@ trait ProcessReferenceCreator extends WorkerReferenceCreator:
   // project is part of the key (its BPMNs come from its working copy): ApiCreators of other projects
   // in the same JVM read them once more each; the cache lives as long as the JVM - fine for `api/run`.
   lazy val allBpmns: Seq[(String, Seq[(os.Path, String)])] =
-    ProcessReferenceCreator.allBpmns(s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"):
+    ProcessReferenceCreator.allBpmns(ownCacheKey):
       println(s"BPMN Reference Base Directory: $gitBasePath")
       projectConfigs.map: pc =>
         val absBpmnPath = bpmnDir(pc)

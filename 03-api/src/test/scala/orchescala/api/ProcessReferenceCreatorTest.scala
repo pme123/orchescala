@@ -40,6 +40,7 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
         tempGitDir = gitDir,
         scanTempGitDirForUsages = false
       )
+    def key: String = ownCacheKey
   end OwnProjectReferenceCreator
 
   private lazy val withWorkingCopy = OwnProjectReferenceCreator(ownDir)
@@ -62,5 +63,9 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
     written
     val services = TestProjects.config("test-services").projectConfigs.head
     assertEquals(withWorkingCopy.bpmnDir(services), services.absBpmnPath(gitDir))
+
+  test("one cache key for BPMNs and Scala sources - with the own project and its working copy"):
+    assert(withWorkingCopy.key.endsWith(s"own: test-own @ $ownDir"), withWorkingCopy.key)
+    assertNotEquals(withWorkingCopy.key, withoutBpmn.key)
 
 end ProcessReferenceCreatorTest
