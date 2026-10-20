@@ -7,7 +7,7 @@ import { writeBpmn } from '../src/bpmnWrite';
 import { collectFindings } from '../src/findings';
 import { loopSettings } from '../src/interactions';
 import { renderInConfig } from '../src/scala';
-import type { ProcessSpec, Step } from '../src/types';
+import type { ErrorHandling, ProcessSpec, Step } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 (globalThis as unknown as { XMLSerializer: unknown }).XMLSerializer = class { serializeToString(n: Node) { return String(n); } };
@@ -221,4 +221,19 @@ test('boundary export: without the boundary id the element is found by its name;
   const r = writeBpmn(xml, s);
   assert.ok(r.issues.some(i => i.where === 'Timer «inform»' && i.text.startsWith('ohne Wert')), JSON.stringify(r.issues));
   assert.match(r.xml, /\$\{timerEscalationInform\}/);
+});
+
+test('boundary findings: no value is an error; a fixed value, a missing and an invalid default are warnings', () => {
+  const s = imported(c7('${timerEscalationCancel}'));
+  wait(s).timer = { ...wait(s).timer!, default: 'P7D' };
+  const at = (t: NonNullable<ErrorHandling['timer']>) => {
+    inform(s).timer = t;
+    const f = collectFindings(s, null, allSteps(s.steps)).get('ApproveTask');
+    return { errors: f?.errors ?? [], warnings: (f?.warnings ?? []).filter(w => w.startsWith('Boundary «inform»: ')) };
+  };
+  assert.ok(at({ kind: 'duration', expression: '' }).errors.includes('Boundary «inform»: Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.'));
+  assert.ok(at({ kind: 'duration', expression: 'P2D' }).warnings[0]?.startsWith('Boundary «inform»: Fester Timer «P2D»'));
+  assert.ok(at({ kind: 'duration', expression: '= timerEscalationInform' }).warnings[0]?.includes('«timerEscalationInform» ohne Vorgabe'));
+  assert.ok(at({ kind: 'duration', expression: '= timerEscalationInform', default: 'PT2D' }).warnings[0]?.includes('nach ISO 8601'));
+  assert.deepEqual(at({ kind: 'duration', expression: '= timerEscalationInform', default: 'P2D' }), { errors: [], warnings: [] });
 });

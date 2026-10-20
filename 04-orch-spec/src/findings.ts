@@ -192,20 +192,23 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
   return { spec: changed ? { ...spec, steps } : spec, added, changed };
 }
 
-/** Der Timer eines Ereignisses: eine Variable mit Vorgabe — kein fester Wert */
-function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[]) {
+/**
+ * Der Timer eines Ereignisses bzw. Boundary-Events: eine Variable mit Vorgabe —
+ * kein fester Wert. `at` nennt das Boundary-Event (`Boundary «inform»: `).
+ */
+export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[], at = '') {
   const expr = timer.expression.trim();
-  if (!expr) { errors.push('Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.'); return; }
+  if (!expr) { errors.push(`${at}Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.`); return; }
   const name = timerVariable(timer);
   if (!name) {
-    if (!isFeel(expr)) warnings.push(`Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
+    if (!isFeel(expr)) warnings.push(`${at}Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
     return;
   }
   const own = (spec.types ?? []).find(t => t.inConfig)?.fields?.some(f => f.name === name);
   const given = timer.default?.trim();
-  if (!given && !own) warnings.push(`Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. P7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
+  if (!given && !own) warnings.push(`${at}Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. P7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
   if (given && !ISO_TIMER[timer.kind].test(given)) {
-    warnings.push(`Vorgabe «${given}» von «${name}» ist kein${timer.kind === 'duration' ? 'e Dauer' : timer.kind === 'date' ? ' Zeitpunkt' : ' Zyklus'} nach ISO 8601 (z. B. ${ISO_EXAMPLE[timer.kind]}) — der Timer schlüge zur Laufzeit fehl.`);
+    warnings.push(`${at}Vorgabe «${given}» von «${name}» ist kein${timer.kind === 'duration' ? 'e Dauer' : timer.kind === 'date' ? ' Zeitpunkt' : ' Zyklus'} nach ISO 8601 (z. B. ${ISO_EXAMPLE[timer.kind]}) — der Timer schlüge zur Laufzeit fehl.`);
   }
 }
 
@@ -359,6 +362,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   (step.errors ?? []).forEach((e, i, all) => {
     const issue = handledErrorIssue(e, i, all, { variables, engine: spec.engine });
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
+    // der Timer eines Boundary-Events: wie der eines Ereignisses — das Panel zeigt es am Eintrag
+    if (e.boundary && e.timer) timerFindings(e.timer, spec, errors, warnings, `Boundary «${e.code}»: `);
   });
 
   for (const r of step.regexHandledErrors ?? []) {
