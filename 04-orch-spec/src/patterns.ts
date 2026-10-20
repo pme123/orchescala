@@ -28,12 +28,12 @@
 // sein Inhalt sind die Blöcke und die Erweiterungen des Prozesses selbst.
 
 import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types';
-import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
-import { uid } from './util';
+import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
+import { uid } from './util.ts';
 import { ORCHESCALA_TYPES } from './orchescalaTypes.ts';
-import { domainRef } from './serviceTypes';
-import { engineLabel } from './engineLabels';
-import { parseErrorList } from './errorCodes';
+import { domainRef } from './serviceTypes.ts';
+import { engineLabel } from './engineLabels.ts';
+import { parseErrorList } from './errorCodes.ts';
 
 export const ANCHOR_ID = 'PatternTarget';
 /** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */
