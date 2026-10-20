@@ -358,3 +358,11 @@ test('merge without base: another kind does not take over the default', () => {
     'timeDate xsi:type="bpmn:tFormalExpression">${timerEscalationInform}</bpmn:timeDate');
   assert.deepEqual(inform(mergeSpec(imported(date), prev).spec).timer, { kind: 'date', expression: '= timerEscalationInform' });
 });
+
+test('kind clash: a timer on a boundary inside a handling path takes part too', () => {
+  const s = imported(c7('${timerEscalationCancel}'));
+  wait(s).timer = { ...wait(s).timer!, default: 'P7D' };
+  inform(s).steps = [{ id: 'NotifyTask', name: 'Notify', kind: 'user', status: 'implemented',
+    errors: [{ code: 'notify-timeout', boundary: true, timer: { kind: 'cycle', expression: '= timerEscalationCancel', default: 'R3/PT1H' } }] } as Step];
+  assert.ok(messages(s).some(m => m.includes('«timerEscalationCancel» ist hier eine Dauer, an einem anderen Timer ein Zyklus')), messages(s).join(' / '));
+});

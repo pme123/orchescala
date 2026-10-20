@@ -15,7 +15,7 @@ import { epicsOf, toggleEpic } from '../epics';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings } from '../findings';
+import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -344,7 +344,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
   const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
   // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
-  const finding = stepFindings(step, spec, model, baseVariables);
+  // die Arten je Timer-Variable — für die Befunde am Schritt und an seinen Boundary-Timern
+  const kinds = useMemo(() => timerKinds(spec.steps), [spec.steps]);
+  const finding = stepFindings(step, spec, model, baseVariables, undefined, undefined, kinds);
   // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
   const inline = new Set(finding.inline ?? []);
   const shownErrors = finding.errors.filter(t => !inline.has(t));
@@ -571,7 +573,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               const handled = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
               // der Timer eines Boundary-Events: dieselben Befunde wie in der Liste oben
               const timerIssues = { errors: [] as string[], warnings: [] as string[] };
-              if (e.boundary && e.timer) timerFindings(e.timer, spec, timerIssues.errors, timerIssues.warnings);
+              if (e.boundary && e.timer) timerFindings(e.timer, spec, timerIssues.errors, timerIssues.warnings, '', kinds);
               const issue = handled?.level === 'error' || timerIssues.errors.length ? { level: 'error' as const }
                 : handled ?? (timerIssues.warnings.length ? { level: 'warn' as const } : null);
               return (
