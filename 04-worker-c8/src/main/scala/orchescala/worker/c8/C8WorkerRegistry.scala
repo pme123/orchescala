@@ -37,7 +37,10 @@ class C8WorkerRegistry(c8Client: C8Client)
         .newWorker()
         .jobType(worker.topic)
         .handler((jobClient, job) => worker.handleJob(jobClient, job, Some(client)))
-        .fetchVariables((worker.worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey").asJava)
+        .fetchVariables(
+          (worker.worker.variableNames ++ GeneralVariables.variableNames ++
+            C8Worker.engineVariableNames(worker.worker) :+ "businessKey").asJava
+        )
         // short, so the job of a crashed worker app is handed out again soon - a running job
         // renews it (BaseWorker.lockTimeout)
         .timeout(worker.lockTimeout.toMillis)
