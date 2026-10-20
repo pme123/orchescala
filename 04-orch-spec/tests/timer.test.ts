@@ -237,3 +237,13 @@ test('boundary findings: no value is an error; a fixed value, a missing and an i
   assert.ok(at({ kind: 'duration', expression: '= timerEscalationInform', default: 'PT2D' }).warnings[0]?.includes('nach ISO 8601'));
   assert.deepEqual(at({ kind: 'duration', expression: '= timerEscalationInform', default: 'P2D' }), { errors: [], warnings: [] });
 });
+
+test('boundary export: a boundary id that does not fit is reported - no fallback to another boundary by name', () => {
+  const xml = c7('P7D');
+  const s = imported(xml);
+  inform(s).timer = { kind: 'duration', expression: '= timerInformLater' };
+  inform(s).boundaryId = 'Wait7DaysEvent';
+  const r = writeBpmn(xml, s);
+  assert.doesNotMatch(r.xml, /timerInformLater/);
+  assert.ok(r.issues.some(i => i.where === 'Timer «inform»' && i.text.includes('hängt nicht (mehr) an diesem Schritt')), JSON.stringify(r.issues));
+});

@@ -645,18 +645,22 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
 
 /**
  * Die Timer der Boundary-Events am Schritt — ins Element, das der Import sich
- * gemerkt hat; eine ältere Spezifikation ohne dessen ID findet es über den
- * Namen bzw. die ID am Schritt.
+ * gemerkt hat; nur eine ältere Spezifikation ohne dessen ID findet es über den
+ * Namen bzw. die ID am Schritt. Passt die gemerkte ID nicht (mehr), bleibt das
+ * Diagramm, wie es ist — sonst träfe es womöglich ein anderes Boundary-Event.
  */
 function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: EngineId, step: Step, issues: WriteIssue[]) {
   for (const e of step.errors ?? []) {
     if (!e.boundary || !e.timer) continue;
     const attached = (b: Element | undefined) => b && local(b) === 'boundaryEvent' && b.getAttribute('attachedToRef') === step.id ? b : undefined;
-    const el = attached(e.boundaryId ? byId.get(e.boundaryId) : undefined)
-      ?? [...byId.values()].find(b => attached(b) && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code));
+    const el = e.boundaryId
+      ? attached(byId.get(e.boundaryId))
+      : [...byId.values()].find(b => attached(b) && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code));
     const where = `Timer «${e.code}»`;
     if (!el) {
-      issues.push({ stepId: step.id, where, text: 'Boundary-Event nicht im Diagramm — Timer nicht geschrieben.' });
+      issues.push({ stepId: step.id, where, text: e.boundaryId
+        ? `Boundary-Event «${e.boundaryId}» hängt nicht (mehr) an diesem Schritt — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.`
+        : 'Boundary-Event nicht im Diagramm — Timer nicht geschrieben.' });
       continue;
     }
     writeTimer(doc, el, engine, e.timer, step.id, where, issues);
