@@ -74,7 +74,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
                               ))
         _                <- logDebug(s"generalVariables: $generalVariables")
-        _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
+        givenKey          = C8Worker.engineVariableNames(worker).flatMap(json.hcursor.downField(_).focus)
+                              .find(!_.isNull)
+        _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables, givenKey)
                               .executeWorker()
         _                <-
           logInfo(
@@ -87,7 +89,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       job: ActivatedJob,
       businessKey: String,
       generalVariables: GeneralVariables,
-      processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
+      processVariables: Seq[IO[BadVariableError, (String, Option[Json])]],
+      // the processInstanceKey given from outside - for the InitWorker
+      givenKey: Option[Json]
   ):
 
     def executeWorker(): ZIO[SttpClientBackend, Throwable, Unit] =
@@ -192,7 +196,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             logDebug(s"handleSuccess BEFORE complete: ${orchescala.engine.LogSafe.names(variablesMap)}") *>
             attemptBlocking:
               client.newCompleteCommand(job)
-                .variables((variablesMap + ("processInstanceKey" -> job.getProcessInstanceKey)).asJava)
+                .variables(
+                  (variablesMap ++ C8Worker.engineVariables(worker, job.getProcessInstanceKey, givenKey)).asJava
+                )
                 .send().join()
             .catchAll: err =>
               handleFailure(
@@ -255,10 +261,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 .retries(retries)
                                 .retryBackoff(retryBackoff(error))
                                 .variables(Map(
-                                  "errorCode"          -> error.errorCode.toString,
-                                  "errorMsg"           -> error.toString,
-                                  "businessKey"        -> businessKey,
-                                  "processInstanceKey" -> job.getProcessInstanceKey
+                                  "errorCode"   -> error.errorCode.toString,
+                                  "errorMsg"    -> error.toString,
+                                  "businessKey" -> businessKey
                                 ).asJava)
                                 .errorMessage(error.causeMsg)
                                 .send().join()
@@ -360,5 +365,37 @@ object C8Worker:
     )
     if worthTryingAgain then (jobRetries - 1).max(0) else 0
   end retriesAfter
+
+  /** What C7 has in `execution` - C8 has no `execution`: the InitWorker puts `processInstanceKey`
+    * into the process variables (in FEEL `= processInstanceKey`, e.g. `_idempotentId`).
+    *
+    * Only the InitWorker: it runs in the scope of the process - another worker (e.g. in a call
+    * activity) must not overwrite it. A String: a key exceeds JavaScript's safe integers (the
+    * partition is in its upper bits) - and `_idempotentId` is a String.
+    *
+    * A key given from outside (a start variable, the input of a call activity) wins - a number
+    * becomes a String.
+    */
+  def engineVariables(
+      worker: Worker[?, ?, ?],
+      processInstanceKey: Long,
+      givenKey: Option[Json]
+  ): Map[String, String] =
+    worker match
+      case _: InitWorker[?, ?, ?] =>
+        val key = givenKey
+          .flatMap(json => json.asString.orElse(json.asNumber.map(_.toString)))
+          .filter(_.nonEmpty)
+          .getOrElse(processInstanceKey.toString)
+        Map(processInstanceKeyName -> key)
+      case _                      => Map.empty
+
+  /** The engine variables a worker reads - the InitWorker a given `processInstanceKey`. */
+  def engineVariableNames(worker: Worker[?, ?, ?]): Seq[String] =
+    worker match
+      case _: InitWorker[?, ?, ?] => Seq(processInstanceKeyName)
+      case _                      => Seq.empty
+
+  private val processInstanceKeyName = "processInstanceKey"
 
 end C8Worker
