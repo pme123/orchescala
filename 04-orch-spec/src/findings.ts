@@ -14,7 +14,7 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, isInitWorker, timerVariable, unnamed } from './bpmn';
+import { GENERAL_VARIABLES, allSteps, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
@@ -41,8 +41,9 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
   const variables = processVariables(spec, model);
   const scopes = multiInstanceScopes(spec.steps);
   const wiring = wiringSteps(spec);
+  const kinds = timerKinds(spec.steps);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables, scopes, wiring);
+    const f = stepFindings(step, spec, model, variables, { scopes, wiring, kinds });
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
@@ -192,20 +193,29 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
   return { spec: changed ? { ...spec, steps } : spec, added, changed };
 }
 
-/** Der Timer eines Ereignisses: eine Variable mit Vorgabe — kein fester Wert */
-function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[]) {
+/**
+ * Der Timer eines Ereignisses bzw. Boundary-Events: eine Variable mit Vorgabe —
+ * kein fester Wert. `at` nennt das Boundary-Event (`Boundary «inform»: `),
+ * `kinds` die Arten je Timer-Variable (sonst gerechnet).
+ */
+export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[], opts: { at?: string; kinds?: Map<string, Set<TimerSpec['kind']>> } = {}) {
+  const at = opts.at ?? '';
+  const kinds = opts.kinds ?? timerKinds(spec.steps);
   const expr = timer.expression.trim();
-  if (!expr) { errors.push('Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.'); return; }
+  if (!expr) { errors.push(`${at}Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.`); return; }
   const name = timerVariable(timer);
   if (!name) {
-    if (!isFeel(expr)) warnings.push(`Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
+    if (!isFeel(expr)) warnings.push(`${at}Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
     return;
   }
+  // eine Konstante hat im InConfig nur einen Typ — eine Dauer ist kein Zeitpunkt
+  const other = [...kinds.get(name) ?? []].find(k => k !== timer.kind);
+  if (other) warnings.push(`${at}«${name}» ist hier ${KIND_TEXT[timer.kind]}, an einem anderen Timer ${KIND_TEXT[other]} — im InConfig hat sie nur einen Typ; eine eigene Variable je Art nehmen.`);
   const own = (spec.types ?? []).find(t => t.inConfig)?.fields?.some(f => f.name === name);
   const given = timer.default?.trim();
-  if (!given && !own) warnings.push(`Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. P7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
+  if (!given && !own) warnings.push(`${at}Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. P7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
   if (given && !ISO_TIMER[timer.kind].test(given)) {
-    warnings.push(`Vorgabe «${given}» von «${name}» ist kein${timer.kind === 'duration' ? 'e Dauer' : timer.kind === 'date' ? ' Zeitpunkt' : ' Zyklus'} nach ISO 8601 (z. B. ${ISO_EXAMPLE[timer.kind]}) — der Timer schlüge zur Laufzeit fehl.`);
+    warnings.push(`${at}Vorgabe «${given}» von «${name}» ist kein${timer.kind === 'duration' ? 'e Dauer' : timer.kind === 'date' ? ' Zeitpunkt' : ' Zyklus'} nach ISO 8601 (z. B. ${ISO_EXAMPLE[timer.kind]}) — der Timer schlüge zur Laufzeit fehl.`);
   }
 }
 
@@ -216,9 +226,33 @@ const ISO_TIMER: Record<TimerSpec['kind'], RegExp> = {
   date: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/,
   cycle: new RegExp(`^R\\d*/(?:[^/]+/)?${DURATION}$`),
 };
+/** Die Arten je Timer-Variable im ganzen Prozess — `collectFindings` rechnet sie einmal */
+export function timerKinds(steps: Step[]): Map<string, Set<TimerSpec['kind']>> {
+  const kinds = new Map<string, Set<TimerSpec['kind']>>();
+  for (const s of allSteps(steps)) {
+    for (const t of [s.timer, ...(s.errors ?? []).map(e => e.timer)]) {
+      const name = timerVariable(t);
+      if (name && t) kinds.set(name, (kinds.get(name) ?? new Set()).add(t.kind));
+    }
+  }
+  return kinds;
+}
+
+const KIND_TEXT: Record<TimerSpec['kind'], string> = { duration: 'eine Dauer', date: 'ein Zeitpunkt', cycle: 'ein Zyklus' };
 const ISO_EXAMPLE: Record<TimerSpec['kind'], string> = { duration: 'P7D', date: '2026-12-31T08:00:00Z', cycle: 'R3/PT1H' };
 
-export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps), wiring: Set<string> = wiringSteps(spec)): Finding {
+/** Was für alle Schritte gleich ist — `collectFindings` rechnet es einmal; fehlt es, rechnet es `stepFindings` */
+export interface ProcessContext {
+  scopes?: Map<string, MultiInstanceSpec[]>;
+  wiring?: Set<string>;
+  /** die Arten je Timer-Variable (siehe timerKinds) */
+  kinds?: Map<string, Set<TimerSpec['kind']>>;
+}
+
+export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], ctx: ProcessContext = {}): Finding {
+  const scopes = ctx.scopes ?? multiInstanceScopes(spec.steps);
+  const wiring = ctx.wiring ?? wiringSteps(spec);
+  const kinds = ctx.kinds ?? timerKinds(spec.steps);
   // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn
   if (step.kind === 'goto' || step.pattern) return NONE;
   // in einer Mehrfachausführung kommen `loopCounter` und das Element dazu
@@ -232,7 +266,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // (in einem Pattern-Block benennt das Pattern)
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // Timer: die Wartezeit ist eine Konstante im InConfig — sonst lässt sie sich je Umgebung nicht einstellen
-  if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings);
+  if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings, { kinds });
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
@@ -359,6 +393,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   (step.errors ?? []).forEach((e, i, all) => {
     const issue = handledErrorIssue(e, i, all, { variables, engine: spec.engine });
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
+    // der Timer eines Boundary-Events: wie der eines Ereignisses — das Panel zeigt es am Eintrag
+    if (e.boundary && e.timer) timerFindings(e.timer, spec, errors, warnings, { at: `Boundary «${e.code}»: `, kinds });
   });
 
   for (const r of step.regexHandledErrors ?? []) {

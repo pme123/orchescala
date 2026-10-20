@@ -256,6 +256,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
     }
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
+    if (el) writeBoundaryTimers(doc, byId, engine, step, issues);
 
     // Der Init-Worker gibt das InitIn zurück — ohne Filter und ohne Mapping
     if (el && step.kind === 'service' && isInitWorker(step, spec.processId)) {
@@ -565,7 +566,7 @@ function writeImplementation(
   };
   const missing = (text: string) => issues.push({ stepId: step.id, where: 'Implementierung', text });
 
-  if (step.timer) writeTimer(doc, el, engine, step.timer, step.id, issues);
+  if (step.timer) writeTimer(doc, el, engine, step.timer, step.id, 'Timer', issues);
 
   if (local(el) === 'serviceTask') {
     // der Init-Worker der Vorlage hört auf die Prozess-ID (Orchescala-Konvention)
@@ -619,12 +620,12 @@ const TIMER_TAG: Record<TimerSpec['kind'], string> = { duration: 'timeDuration',
  * `=timerX` (Camunda 8), fester Text bleibt Text. Steht im Diagramm dasselbe
  * (gleich bis auf die Schreibweise der Engine), bleibt es unberührt.
  */
-function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSpec, stepId: string, issues: WriteIssue[]) {
+function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSpec, stepId: string, where: string, issues: WriteIssue[]) {
   const def = kids(el).find(c => local(c) === 'timerEventDefinition');
   const expression = timer.expression.trim();
   if (!def) return;
   if (!expression) {
-    issues.push({ stepId, where: 'Timer', text: 'ohne Wert — im Diagramm bleibt der bisherige; im Schritt eine Variable setzen, z. B. = timerWait.' });
+    issues.push({ stepId, where, text: 'ohne Wert — im Diagramm bleibt der bisherige; im Schritt eine Variable setzen, z. B. = timerWait.' });
     return;
   }
   const tag = TIMER_TAG[timer.kind];
@@ -633,13 +634,51 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
     && importExpression((current[0].textContent ?? '').trim()).trim() === expression;
   if (same) return;
   const r = engineExpression(expression, engine);
-  if (r.issue) issues.push({ stepId, where: 'Timer', text: `nicht nach JUEL übersetzbar: ${r.issue}` });
+  if (r.issue) issues.push({ stepId, where, text: `nicht nach JUEL übersetzbar: ${r.issue}` });
   const prefix = def.tagName.includes(':') ? `${def.tagName.split(':')[0]}:` : '';
   for (const c of current) removeEl(c);
   const t = doc.createElementNS(BPMN_NS, `${prefix}${tag}`);
   t.setAttributeNS(XSI_NS, 'xsi:type', `${prefix}tFormalExpression`);
   t.textContent = r.text;
   appendEl(def, t);
+}
+
+/**
+ * Die Timer der Boundary-Events am Schritt — ins Element, das der Import sich
+ * gemerkt hat; nur eine ältere Spezifikation ohne dessen ID findet es über den
+ * Namen bzw. die ID am Schritt, bei gleichem Code der Reihe nach (wie der
+ * Import die Einträge anlegt). Passt die gemerkte ID nicht (mehr) oder ist die
+ * Zuordnung unklar, bleibt das Diagramm, wie es ist — sonst träfe es womöglich
+ * ein anderes Boundary-Event. Den Timer eines Patterns setzt das Pattern.
+ */
+function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: EngineId, step: Step, issues: WriteIssue[]) {
+  const errors = step.errors ?? [];
+  const claimed = new Set(errors.map(x => x.boundaryId).filter(Boolean));
+  for (const e of errors) {
+    if (!e.boundary || !e.timer || e.pattern) continue;
+    const where = `Timer «${e.code}»`;
+    const missing = (text: string) => issues.push({ stepId: step.id, where, text });
+    const attached = (b: Element | undefined) => b && local(b) === 'boundaryEvent' && b.getAttribute('attachedToRef') === step.id ? b : undefined;
+    let el: Element | undefined;
+    if (e.boundaryId) {
+      el = attached(byId.get(e.boundaryId));
+      if (!el) { missing(`Boundary-Event «${e.boundaryId}» hängt nicht (mehr) an diesem Schritt — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.`); continue; }
+    } else {
+      // nur Timer zählen — ein Fehler-Boundary-Event gleichen Namens macht es nicht unklar
+      const isTimer = (b: Element) => kids(b).some(c => local(c) === 'timerEventDefinition');
+      const mine = errors.filter(x => x.boundary && x.timer && x.code === e.code && !x.boundaryId);
+      const candidates = [...byId.values()].filter(b => attached(b) && isTimer(b) && !claimed.has(b.getAttribute('id') ?? '')
+        && (b.getAttribute('name')?.trim() === e.code || b.getAttribute('id') === e.code));
+      if (!candidates.length) { missing('kein Timer-Boundary-Event dazu im Diagramm — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.'); continue; }
+      if (candidates.length !== mine.length) { missing(`${candidates.length} Boundary-Events heissen «${e.code}» — unklar, welches; Timer nicht geschrieben. Den Abgleich mit dem Diagramm starten.`); continue; }
+      el = candidates[mine.indexOf(e)];
+    }
+    if (!kids(el).some(c => local(c) === 'timerEventDefinition')) {
+      missing('das Boundary-Event im Diagramm ist kein Timer (mehr) — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.');
+      continue;
+    }
+    writeTimer(doc, el, engine, e.timer, step.id, where, issues);
+  }
 }
 
 // ── Steuerparameter am Schritt ───────────────────────────────────────────────

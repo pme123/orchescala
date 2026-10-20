@@ -680,18 +680,24 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const side = !named;
     const code = named || steps?.[0]?.name || bid;
     if (!code) continue;
-    const existing = errors.find(e => e.code === code);
     const pattern = ctx.owned.get(bid);
+    // ein Timer samt seinem Element — der Export schreibt ihn dorthin zurück
     const timer = timerOf(b);
+    // zwei Boundary-Events mit demselben Code: mit Timer bleibt jedes ein eigener
+    // Eintrag (sonst ginge ein Timer verloren) — den doppelten Code melden die Befunde
+    const existing = errors.find(e => e.code === code && !(e.boundary && (timer || e.timer)));
     if (existing) {
       existing.interrupting = interrupting;
       existing.boundary = true;
       if (side) existing.side = true;
       if (pattern) existing.pattern = pattern;
-      if (timer) existing.timer = timer;
+      if (timer) {
+        existing.timer = timer;
+        existing.boundaryId = bid;
+      }
       if (steps?.length) existing.steps = steps;
     } else {
-      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(timer ? { timer } : {}), ...(steps?.length ? { steps } : {}) });
+      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...(timer ? { timer, boundaryId: bid } : {}), ...(steps?.length ? { steps } : {}) });
     }
   }
   if (errors.length) step.errors = errors;
@@ -1132,6 +1138,60 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
 }
 
 /**
+ * Die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
+ * er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe.
+ */
+function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSpec {
+  const name = timerVariable(timer);
+  return prev?.default && !timer.default && timer.kind === prev.kind && name && name === timerVariable(prev)
+    ? { ...timer, default: prev.default }
+    : timer;
+}
+
+/**
+ * Dasselbe Boundary-Event in einer anderen Fassung der Liste (`list`): über
+ * seine ID — ohne sie (eine Spezifikation von vor dem Import der IDs) über den
+ * Code, bei gleichem Code der Reihe nach. Das nur, wenn beide Seiten gleich
+ * viele ohne Gegenstück über die ID haben — sonst ist unklar, welches entfiel.
+ * `own` ist die Liste, in der `e` steht.
+ */
+export function sameBoundary(list: ErrorHandling[] | undefined, e: ErrorHandling, own: ErrorHandling[]): ErrorHandling | undefined {
+  if (!list) return undefined;
+  if (e.boundaryId && list.some(x => x.boundaryId)) return list.find(x => x.boundaryId === e.boundaryId);
+  const ids = (l: ErrorHandling[]) => new Set(l.map(x => x.boundaryId).filter(Boolean));
+  const theirIds = ids(list);
+  const ownIds = ids(own);
+  const sameCode = (x: ErrorHandling) => x.boundary && x.code === e.code;
+  const mine = own.filter(x => sameCode(x) && !(x.boundaryId && theirIds.has(x.boundaryId)));
+  const theirs = list.filter(x => sameCode(x) && !(x.boundaryId && ownIds.has(x.boundaryId)));
+  return mine.length === theirs.length ? theirs[mine.indexOf(e)] : undefined;
+}
+
+/**
+ * Der Timer eines Boundary-Events gehört wie der eines Ereignisses der
+ * Spezifikation (siehe `SPEC_OWNED`): hat das Diagramm ihn nicht geändert,
+ * bleibt er, wie er in ihr steht — und seine Vorgabe fürs InConfig bleibt.
+ * Zugeordnet wird über das Boundary-Event, in einer älteren Spezifikation
+ * ohne dessen ID über den Code.
+ */
+function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdits: boolean) {
+  if (!s.errors?.some(e => e.timer)) return;
+  const own = s.errors;
+  const match = (list: ErrorHandling[] | undefined, e: ErrorHandling) => {
+    const x = sameBoundary(list, e, own);
+    return x?.timer ? x : undefined;
+  };
+  s.errors = s.errors.map(e => {
+    const p = e.timer && match(prev.errors, e);
+    if (!e.timer || !p || !p.timer) return e;
+    const b = base && match(base.errors, e);
+    const diagramUnchanged = (b ? same('timer', e.timer, b.timer) : false) || same('timer', e.timer, p.timer);
+    const timer = keepEdits && diagramUnchanged ? p.timer : withPrevDefault(e.timer, p.timer);
+    return timer === e.timer ? e : { ...e, timer };
+  });
+}
+
+/**
  * Leere Einträge bei den behandelten Fehlern — ein eben hinzugefügter oder
  * geleerter Regex bzw. Fehlercode — kommen nicht ins BPMN. Der Abgleich darf
  * sie darum nicht verwerfen, solange das Diagramm die übrigen unverändert hat.
@@ -1187,12 +1247,8 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     } else {
       const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
-      // die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
-      // er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe
-      if (s.timer && prev.timer?.default && !s.timer.default && s.timer.kind === prev.timer.kind
-        && timerVariable(s.timer) && timerVariable(s.timer) === timerVariable(prev.timer)) {
-        s.timer = { ...s.timer, default: prev.timer.default };
-      }
+      if (s.timer) s.timer = withPrevDefault(s.timer, prev.timer);
+      keepBoundaryTimers(s, prev, base?.get(s.id), !st.mappingsFromBpmn);
       // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
       // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {
@@ -1424,8 +1480,9 @@ export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDif
 
 /**
  * Timer aus dem Diagramm, wo die Spezifikation noch keinen hat — sie stammt von
- * vor dem Import der Timer. Was sie schon hat (samt Vorgabe fürs InConfig),
- * bleibt; geändert wird ein Timer über den Abgleich. Null, wenn nichts fehlt.
+ * vor dem Import der Timer (am Boundary-Event auch nur ohne dessen ID). Was
+ * sie schon hat (samt Vorgabe fürs InConfig), bleibt; geändert wird ein Timer
+ * über den Abgleich. Null, wenn nichts fehlt.
  */
 export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
@@ -1434,10 +1491,16 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     const f = neu.get(s.id);
     let next = s;
     if (!s.timer && f?.timer) { changed = true; next = { ...next, timer: f.timer }; }
-    const timerOfError = (e: ErrorHandling) => (e.boundary && !e.timer ? f?.errors?.find(x => x.code === e.code)?.timer : undefined);
-    if (next.errors?.some(timerOfError)) {
+    // am Boundary-Event der Timer samt dem Element, in das ihn der Export schreibt
+    // gleicher Code an mehreren Boundary-Events: der Reihe nach (siehe sameBoundary)
+    const fill = (e: ErrorHandling, all: ErrorHandling[]): Partial<ErrorHandling> | undefined => {
+      if (!e.boundary || (e.timer && e.boundaryId)) return undefined;
+      const fe = sameBoundary(f?.errors, e, all);
+      return fe?.timer ? { ...(e.timer ? {} : { timer: fe.timer }), boundaryId: fe.boundaryId } : undefined;
+    };
+    if (next.errors?.some(e => fill(e, next.errors!))) {
       changed = true;
-      next = { ...next, errors: next.errors.map(e => { const t = timerOfError(e); return t ? { ...e, timer: t } : e; }) };
+      next = { ...next, errors: next.errors.map((e, _, all) => { const p = fill(e, all); return p ? { ...e, ...p } : e; }) };
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
