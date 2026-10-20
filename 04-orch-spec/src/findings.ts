@@ -14,7 +14,7 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, isInitWorker, timerVariable, unnamed } from './bpmn';
+import { GENERAL_VARIABLES, allSteps, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
@@ -204,6 +204,10 @@ export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: strin
     if (!isFeel(expr)) warnings.push(`${at}Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
     return;
   }
+  // eine Konstante hat im InConfig nur einen Typ — eine Dauer ist kein Zeitpunkt
+  const other = allSteps(spec.steps).flatMap(s => [s.timer, ...(s.errors ?? []).map(e => e.timer)])
+    .find(t => t && t.kind !== timer.kind && timerVariable(t) === name);
+  if (other) warnings.push(`${at}«${name}» ist hier ${KIND_TEXT[timer.kind]}, an einem anderen Timer ${KIND_TEXT[other.kind]} — im InConfig hat sie nur einen Typ; eine eigene Variable je Art nehmen.`);
   const own = (spec.types ?? []).find(t => t.inConfig)?.fields?.some(f => f.name === name);
   const given = timer.default?.trim();
   if (!given && !own) warnings.push(`${at}Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. P7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
@@ -219,6 +223,7 @@ const ISO_TIMER: Record<TimerSpec['kind'], RegExp> = {
   date: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/,
   cycle: new RegExp(`^R\\d*/(?:[^/]+/)?${DURATION}$`),
 };
+const KIND_TEXT: Record<TimerSpec['kind'], string> = { duration: 'eine Dauer', date: 'ein Zeitpunkt', cycle: 'ein Zyklus' };
 const ISO_EXAMPLE: Record<TimerSpec['kind'], string> = { duration: 'P7D', date: '2026-12-31T08:00:00Z', cycle: 'R3/PT1H' };
 
 export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps), wiring: Set<string> = wiringSteps(spec)): Finding {

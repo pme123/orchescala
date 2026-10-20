@@ -271,3 +271,13 @@ test('boundary: two timer boundaries with the same code stay two entries - and t
   assert.deepEqual(approve(syncTimers(old, imported(xml))!).errors!.filter(e => e.code === 'inform').map(e => e.boundaryId),
     ['InformBoundary', 'InformAgainBoundary']);
 });
+
+test('findings: one variable for a duration and a date is warned - the InConfig has one type', () => {
+  const s = imported(c7('${timerEscalationInform}'));
+  wait(s).timer = { kind: 'date', expression: '= timerEscalationInform', default: '2026-12-31T08:00:00Z' };
+  inform(s).timer = { ...inform(s).timer!, default: 'P2D' };
+  const clash = messages(s).filter(m => m.includes('im InConfig hat sie nur einen Typ'));
+  assert.equal(clash.length, 2, clash.join(' / '));
+  wait(s).timer = { kind: 'duration', expression: '= timerEscalationInform', default: 'P2D' };
+  assert.deepEqual(messages(s).filter(m => m.includes('nur einen Typ')), []);
+});
