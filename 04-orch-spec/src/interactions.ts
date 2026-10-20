@@ -18,7 +18,7 @@ import type {
   ProcessSpec, ServiceDef, ServiceParam, Step, TimerSpec, TypeDef,
 } from './types.ts';
 import { INTERACTION_META } from './types.ts';
-import { allSteps, isInitWorker } from './bpmn.ts';
+import { allSteps, isInitWorker, timerVariable } from './bpmn.ts';
 import { enumHasCase, exampleOf, isFixedCaseDefault, splitEnumCase, typeShape } from './scalaTypes.ts';
 import { domainRef, parseDomainRef, parseServiceRef } from './serviceTypes.ts';
 import { SCALA_TYPES } from './types.ts';
@@ -190,16 +190,6 @@ export function initOutputs(spec: ProcessSpec): Mapping[] {
   return (spec.initOutputs ?? []).filter(o => !o.disabled);
 }
 
-/**
- * Namen, die in Schleifen-Angaben stecken: aus `Tried ${maxOpenAccount} times?`
- * und `wait ${timerWaitOpenAccount}` werden die Felder des `InConfig`.
- */
-/** Die Variable eines Timers — `= timerEscalationCancel`; null bei festem Text oder einem Ausdruck */
-export function timerVariable(timer: TimerSpec | undefined): string | null {
-  const m = /^=\s*([A-Za-z_]\w*)\s*$/.exec(timer?.expression?.trim() ?? '');
-  return m ? m[1] : null;
-}
-
 /** Die Timer der Ereignisse und Boundary-Events — mit ihrer Variable und Vorgabe */
 export function timerSettings(spec: ProcessSpec): Array<{ name: string; timerKind: TimerSpec['kind']; default?: string }> {
   const found = new Map<string, { timerKind: TimerSpec['kind']; default?: string }>();
@@ -216,6 +206,11 @@ export function timerSettings(spec: ProcessSpec): Array<{ name: string; timerKin
   return [...found].map(([name, v]) => ({ name, ...v }));
 }
 
+/**
+ * Namen, die in Schleifen-Angaben stecken: aus `Tried ${maxOpenAccount} times?`
+ * und `wait ${timerWaitOpenAccount}` werden die Felder des `InConfig` — dazu die
+ * Variablen der Timer an Ereignissen (siehe timerSettings), mit ihrer Vorgabe.
+ */
 export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'timer' | 'max' | 'counter'; default?: string; timerKind?: TimerSpec['kind'] }> {
   const found = new Map<string, 'timer' | 'max' | 'counter'>();
   for (const step of allSteps(spec.steps)) {

@@ -622,7 +622,11 @@ const TIMER_TAG: Record<TimerSpec['kind'], string> = { duration: 'timeDuration',
 function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSpec, stepId: string, issues: WriteIssue[]) {
   const def = kids(el).find(c => local(c) === 'timerEventDefinition');
   const expression = timer.expression.trim();
-  if (!def || !expression) return;
+  if (!def) return;
+  if (!expression) {
+    issues.push({ stepId, where: 'Timer', text: 'ohne Wert — im Diagramm bleibt der bisherige; im Schritt eine Variable setzen, z. B. = timerWait.' });
+    return;
+  }
   const tag = TIMER_TAG[timer.kind];
   const current = kids(def).filter(c => Object.values(TIMER_TAG).includes(local(c)));
   const same = current.length === 1 && local(current[0]) === tag

@@ -836,7 +836,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       // eine Spezifikation von vor dem Import der Timer bekommt sie aus dem Diagramm
       const withTimers = syncTimers(withPatterns ?? cur, fresh);
       const next = withTimers ?? withPatterns;
-      if (next) update(next, { source: 'load', note: withTimers ? 'Pattern- und Timer-Angaben aus dem Diagramm nachgezogen' : 'Pattern-Angaben aus dem Diagramm nachgezogen' });
+      const what = [withPatterns && 'Pattern', withTimers && 'Timer'].filter(Boolean).join('- und ');
+      if (next) update(next, { source: 'load', note: `${what}-Angaben aus dem Diagramm nachgezogen` });
     } catch { /* unlesbares BPMN — meldet der Abgleich */ }
   }, [loaded, xml, patternDefs, update]);
 

@@ -81,3 +81,45 @@ test('merge keeps the default; an older spec without timers gets them on open', 
   assert.equal(wait(healed!).timer?.expression, '= timerEscalationCancel');
   assert.equal(syncTimers(imported(xml), imported(xml)), null);
 });
+
+const c8 = (duration: string) => c7(duration)
+  .replace('xmlns:camunda="http://camunda.org/schema/1.0/bpmn"', 'xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud"')
+  .replace('${timerEscalationInform}', '=timerEscalationInform');
+
+test('import from Camunda 8: =timerX is the same variable', () => {
+  const s = imported(c8('=timerEscalationCancel'));
+  assert.deepEqual(wait(s).timer, { kind: 'duration', expression: '= timerEscalationCancel' });
+  // unverändert bleibt das Diagramm, wie es ist
+  assert.match(writeBpmn(c8('=timerEscalationCancel'), { ...s, engine: 'c8' }).xml, />=timerEscalationCancel</);
+});
+
+test('a timer without value is an error - and the export says it keeps the old one', () => {
+  const xml = c7('${timerEscalationCancel}');
+  const s = imported(xml);
+  wait(s).timer = { kind: 'duration', expression: '' };
+  assert.ok(messages(s).some(m => m.startsWith('Timer ohne Wert')), messages(s).join(' / '));
+  assert.ok(writeBpmn(xml, s).issues.some(i => i.where === 'Timer' && i.text.startsWith('ohne Wert')));
+});
+
+test('a date or cycle timer is a String in the InConfig', () => {
+  const s = imported(c7('${timerEscalationCancel}'));
+  wait(s).timer = { kind: 'date', expression: '= timerEscalationCancel', default: '2026-12-31T08:00:00Z' };
+  assert.match(renderInConfig(s, new Set()), /timerEscalationCancel: String = "2026-12-31T08:00:00Z"/);
+});
+
+test('merge: another variable does not take over the default of the former one', () => {
+  const prev = imported(c7('${timerEscalationCancel}'));
+  wait(prev).timer = { ...wait(prev).timer!, default: 'PT7D' };
+  const renamed = mergeSpec(imported(c7('${timerOther}')), prev, imported(c7('${timerEscalationCancel}'))).spec;
+  assert.equal(wait(renamed).timer?.expression, '= timerOther');
+  assert.equal(wait(renamed).timer?.default, undefined);
+});
+
+test('open: a boundary timer is filled in too', () => {
+  const xml = c7('${timerEscalationCancel}');
+  const old = imported(xml);
+  const approve = (s: ProcessSpec) => allSteps(s.steps).find(x => x.id === 'ApproveTask')!;
+  for (const e of approve(old).errors ?? []) delete e.timer;
+  const healed = syncTimers(old, imported(xml))!;
+  assert.equal(approve(healed).errors?.find(e => e.code === 'inform')?.timer?.expression, '= timerEscalationInform');
+});

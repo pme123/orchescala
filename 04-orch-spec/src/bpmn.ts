@@ -119,6 +119,13 @@ function eventKindOf(el: Element): Step['eventKind'] {
 
 const TIMER_KINDS: Record<string, TimerSpec['kind']> = { timeDuration: 'duration', timeDate: 'date', timeCycle: 'cycle' };
 
+/** Die Variable eines Timers — `= timerEscalationCancel`; null bei festem Text oder einem Ausdruck */
+export function timerVariable(timer: TimerSpec | undefined): string | null {
+  const m = /^=\s*([A-Za-z_]\w*)\s*$/.exec(timer?.expression?.trim() ?? '');
+  return m ? m[1] : null;
+}
+
+
 /** Der Timer eines Ereignisses — als FEEL wie die Mappings: `${timerX}` → `= timerX`, `PT7D` bleibt Text */
 function timerOf(el: Element): TimerSpec | undefined {
   const def = kids(el).find(c => local(c) === 'timerEventDefinition');
@@ -1180,8 +1187,12 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     } else {
       const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
-      // die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt
-      if (s.timer && prev.timer?.default && !s.timer.default) s.timer = { ...s.timer, default: prev.timer.default };
+      // die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
+      // er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe
+      if (s.timer && prev.timer?.default && !s.timer.default && s.timer.kind === prev.timer.kind
+        && timerVariable(s.timer) && timerVariable(s.timer) === timerVariable(prev.timer)) {
+        s.timer = { ...s.timer, default: prev.timer.default };
+      }
       // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
       // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {
@@ -1412,11 +1423,6 @@ export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDif
 }
 
 /**
- * Nur die Pattern-Angaben aus einem frischen Import übernehmen — für eine
- * gespeicherte Spezifikation, deren Pattern sich im Admin geändert haben.
- * Alles andere bleibt, wie es ist. `null`: nichts zu tun.
- */
-/**
  * Timer aus dem Diagramm, wo die Spezifikation noch keinen hat — sie stammt von
  * vor dem Import der Timer. Was sie schon hat (samt Vorgabe fürs InConfig),
  * bleibt; geändert wird ein Timer über den Abgleich. Null, wenn nichts fehlt.
@@ -1442,6 +1448,11 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
   return changed ? { ...current, steps } : null;
 }
 
+/**
+ * Nur die Pattern-Angaben aus einem frischen Import übernehmen — für eine
+ * gespeicherte Spezifikation, deren Pattern sich im Admin geändert haben.
+ * Alles andere bleibt, wie es ist. `null`: nichts zu tun.
+ */
 export function syncPatterns(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
   const key = (s: Step | undefined) => JSON.stringify([s?.patterns ?? null, s?.pattern ?? null, (s?.errors ?? []).map(e => [e.code, e.pattern ?? null])]);

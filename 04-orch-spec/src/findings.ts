@@ -12,9 +12,9 @@ import { INTERACTION_META } from './types';
 import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
-import { catalogEntry, interactionKind, interactionOrigin, timerVariable, wiringSteps } from './interactions';
+import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, isInitWorker, unnamed } from './bpmn';
+import { GENERAL_VARIABLES, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
