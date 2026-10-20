@@ -36,8 +36,11 @@ trait WorkerReferenceCreator:
     if pc.name == projectName && os.exists(local / module) then local
     else pc.absGitPath(gitBasePath)
 
-  // the own project is part of the key: its sources come from its working copy
-  private def sourcesCacheKey: String = s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"
+  /** The key of the caches of a run (BPMNs, Scala sources): the projects, plus the own project and
+    * its working copy - its BPMNs and sources come from there (`bpmnDir`, `sourceDir`). One key for
+    * both, so they cannot drift apart.
+    */
+  final protected def ownCacheKey: String = s"$cacheKey - own: $projectName @ ${apiConfig.basePath}"
 
   /** The Workers the Worker with this `topicName` is composed of. */
   protected def usesWorkers(topicName: String): Seq[WorkerRef] =
@@ -149,7 +152,7 @@ trait WorkerReferenceCreator:
   // NO parallelization here - the ApiCreator is usually an object that creates the documentation
   // in its constructor, so other threads would block on its class initialization.
   private lazy val workerSources: Seq[WorkerSource] =
-    WorkerReferenceCreator.workerSources(sourcesCacheKey):
+    WorkerReferenceCreator.workerSources(ownCacheKey):
       println(s"Worker Reference Base Directory: $gitBasePath (the own project $projectName from ${apiConfig.basePath})")
       projectConfigs
         .flatMap: pc =>
@@ -160,7 +163,7 @@ trait WorkerReferenceCreator:
   end workerSources
 
   private lazy val domainIdentifiers: Map[String, DomainIdentifier] =
-    WorkerReferenceCreator.domainIdentifiers(sourcesCacheKey):
+    WorkerReferenceCreator.domainIdentifiers(ownCacheKey):
       projectConfigs
         .flatMap: pc =>
           scalaFiles(sourceDir(pc, domainModule), domainModule)
@@ -311,6 +314,9 @@ object WorkerReferenceCreator:
 
   private lazy val workerSourcesCache     = TrieMap[String, Seq[WorkerSource]]()
   private lazy val domainIdentifiersCache = TrieMap[String, Map[String, DomainIdentifier]]()
+  // the keys read so far - for the tests
+  private[api] def sourceCacheKeys: Set[String] = workerSourcesCache.keySet.toSet
+  private[api] def domainCacheKeys: Set[String] = domainIdentifiersCache.keySet.toSet
 
   private def workerSources(cacheKey: String)(read: => Seq[WorkerSource]): Seq[WorkerSource] =
     workerSourcesCache.getOrElseUpdate(cacheKey, read)

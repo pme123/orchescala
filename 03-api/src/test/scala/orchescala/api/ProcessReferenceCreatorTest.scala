@@ -27,6 +27,23 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
       bpmn("test-own-bookV1-SendMail"), createFolders = true)
     os.write(ownDir / "src" / "main" / "resources" / "camunda" / "book.bpmn",
       bpmn("test-services-smtpV1-SendMail"), createFolders = true)
+    // a worker and its domain object - so the domain identifiers are read too
+    os.write(ownDir / "01-domain" / "src" / "main" / "scala" / "Book.scala",
+      """package test.own.domain
+        |
+        |object Book:
+        |  final val topicName = "test-own-bookV1"
+        |end Book
+        |""".stripMargin, createFolders = true)
+    os.write(ownDir / "03-worker" / "src" / "main" / "scala" / "BookWorker.scala",
+      """package test.own.worker
+        |
+        |import test.own.domain.Book.*
+        |
+        |class BookWorker extends CompanyCustomWorkerDsl[In, Out]:
+        |  lazy val customTask = example
+        |end BookWorker
+        |""".stripMargin, createFolders = true)
 
   private class OwnProjectReferenceCreator(basePath: os.Path) extends ProcessReferenceCreator:
     override protected def projectName: String = "test-own"
@@ -40,6 +57,11 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
         tempGitDir = gitDir,
         scanTempGitDirForUsages = false
       )
+    def key: String = ownCacheKey
+    // reads the BPMNs, the worker sources and the domain identifiers
+    def readAll(): Unit =
+      allBpmns
+      usesWorkers("test-own-bookV1")
   end OwnProjectReferenceCreator
 
   private lazy val withWorkingCopy = OwnProjectReferenceCreator(ownDir)
@@ -62,5 +84,18 @@ class ProcessReferenceCreatorTest extends munit.FunSuite:
     written
     val services = TestProjects.config("test-services").projectConfigs.head
     assertEquals(withWorkingCopy.bpmnDir(services), services.absBpmnPath(gitDir))
+
+  test("the BPMNs, the worker sources and the domain identifiers are cached under the one key"):
+    written
+    withWorkingCopy.readAll()
+    val key = withWorkingCopy.key
+    assert(ProcessReferenceCreator.bpmnCacheKeys.contains(key), ProcessReferenceCreator.bpmnCacheKeys.toString)
+    assert(WorkerReferenceCreator.sourceCacheKeys.contains(key), WorkerReferenceCreator.sourceCacheKeys.toString)
+    assert(WorkerReferenceCreator.domainCacheKeys.contains(key), WorkerReferenceCreator.domainCacheKeys.toString)
+
+  test("the key carries the own project and its working copy - another working copy, another key"):
+    assert(withWorkingCopy.key.endsWith(s"own: test-own @ $ownDir"), withWorkingCopy.key)
+    // the same project and git-temp, only the working copy differs
+    assertNotEquals(OwnProjectReferenceCreator(ownDir).key, OwnProjectReferenceCreator(bareDir).key)
 
 end ProcessReferenceCreatorTest
