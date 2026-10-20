@@ -15,7 +15,7 @@ import { epicsOf, toggleEpic } from '../epics';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings } from '../findings';
+import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -539,7 +539,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       </>}
 
       {(!!step.errors?.length || !!step.regexHandledErrors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
-        <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side).length} isDark={isDark}
+        <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side || e.timer).length} isDark={isDark}
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
             <span className="flex items-center gap-2">
@@ -563,11 +563,17 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           </p>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
-              if (e.side) return null; // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste
+              // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste — ausser mit Timer
+              if (e.side && !e.timer) return null;
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // behandelt ist der Normalfall — gelb/rot nur, wenn am Eintrag etwas nicht stimmt
-              const issue = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
+              const handled = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
+              // der Timer eines Boundary-Events: dieselben Befunde wie in der Liste oben
+              const timerIssues = { errors: [] as string[], warnings: [] as string[] };
+              if (e.boundary && e.timer) timerFindings(e.timer, spec, timerIssues.errors, timerIssues.warnings);
+              const issue = handled?.level === 'error' || timerIssues.errors.length ? { level: 'error' as const }
+                : handled ?? (timerIssues.warnings.length ? { level: 'warn' as const } : null);
               return (
                 <div key={i} data-cframe={e.code ? sub(stepTarget(step.id), `error:${e.code}`) : undefined}
                   className={`rounded border ${
@@ -594,10 +600,22 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                       title="Fehler entfernen" className={`p-0.5 ${c.muted}`}><Trash2 size={10} /></button>
                   )}
                 </div>
-                {issue && (
-                  <p className={`text-[10px] flex items-start gap-1 px-2 pb-1 ${issue.level === 'error' ? err : warn}`}>
-                    <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{issue.text}</span>
+                {handled && (
+                  <p className={`text-[10px] flex items-start gap-1 px-2 pb-1 ${handled.level === 'error' ? err : warn}`}>
+                    <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{handled.text}</span>
                   </p>
+                )}
+                {e.boundary && e.timer && (
+                  <div className="px-2 pb-1.5 space-y-1">
+                    <TimerSection timer={e.timer} spec={spec} isDark={isDark} canEdit={canEdit && !ofPattern}
+                      lockedBy={e.pattern ? (model?.patterns?.find(d => d.id === e.pattern)?.name ?? e.pattern) : undefined}
+                      onChange={timer => setErr({ timer })} />
+                    {[...timerIssues.errors.map(t => [t, err]), ...timerIssues.warnings.map(t => [t, warn])].map(([t, tone]) => (
+                      <p key={t} className={`text-[10px] flex items-start gap-1 ${tone}`}>
+                        <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{t}</span>
+                      </p>
+                    ))}
+                  </div>
                 )}
                 </div>
               );
@@ -1649,12 +1667,15 @@ function Field({ label, children, isDark, action, comment }: {
 const TIMER_KIND_LABEL: Record<TimerSpec['kind'], string> = { duration: 'Dauer', date: 'Zeitpunkt', cycle: 'Zyklus' };
 
 /**
- * Der Timer eines Ereignisses: wie lange bzw. wann. Üblich ist eine Variable
- * (`= timerEscalationCancel`) — sie kommt als Konstante mit ihrer Vorgabe ins
- * `InConfig`, so lässt sie sich je Umgebung oder im Test einstellen.
+ * Der Timer eines Ereignisses bzw. Boundary-Events: wie lange bzw. wann. Üblich
+ * ist eine Variable (`= timerEscalationCancel`) — sie kommt als Konstante mit
+ * ihrer Vorgabe ins `InConfig`, so lässt sie sich je Umgebung oder im Test
+ * einstellen. Gehört das Boundary-Event zu einem Pattern (`lockedBy`), setzt
+ * dieses den Timer — hier bleibt nur die Vorgabe.
  */
-function TimerSection({ timer, spec, isDark, canEdit, onChange }: {
+function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
   timer: TimerSpec | undefined; spec: ProcessSpec; isDark: boolean; canEdit: boolean;
+  lockedBy?: string;
   onChange: (timer: TimerSpec) => void;
 }) {
   const c = cls(isDark);
@@ -1666,12 +1687,13 @@ function TimerSection({ timer, spec, isDark, canEdit, onChange }: {
     <div className="space-y-1.5">
       <div className={`text-[10px] uppercase tracking-widest ${c.text}`}>Timer</div>
       <div className="flex items-center gap-1.5">
-        <select value={t.kind} disabled={!canEdit} onChange={e => onChange({ ...t, kind: e.target.value as TimerSpec['kind'] })}
+        <select value={t.kind} disabled={!canEdit || !!lockedBy} onChange={e => onChange({ ...t, kind: e.target.value as TimerSpec['kind'] })}
           title="Dauer (timeDuration), Zeitpunkt (timeDate) oder Zyklus (timeCycle)" className={input}>
           {(Object.keys(TIMER_KIND_LABEL) as TimerSpec['kind'][]).map(k => <option key={k} value={k}>{TIMER_KIND_LABEL[k]}</option>)}
         </select>
-        <input value={t.expression} disabled={!canEdit} onChange={e => onChange({ ...t, expression: e.target.value })}
-          placeholder="= timerWait — eine Variable aus dem InConfig" title="Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. P7D)"
+        <input value={t.expression} disabled={!canEdit || !!lockedBy} onChange={e => onChange({ ...t, expression: e.target.value })}
+          placeholder="= timerWait — eine Variable aus dem InConfig"
+          title={lockedBy ? `Setzt das Pattern «${lockedBy}»` : 'Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. P7D)'}
           className={`flex-1 min-w-0 ${input}`} />
       </div>
       {name && (
