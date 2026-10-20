@@ -192,3 +192,33 @@ test('boundary open: a spec with the timer but without the boundary id gets the 
   assert.equal(inform(healed).boundaryId, 'InformBoundary');
   assert.equal(inform(healed).timer?.default, 'P3D');
 });
+
+test('boundary export: a changed timer is written per engine - unchanged and fixed text stay as they are', () => {
+  const xml = c7('P7D');
+  const s = imported(xml);
+  inform(s).timer = { kind: 'duration', expression: '= timerInformLater', default: 'P2D' };
+  const out = writeBpmn(xml, s).xml;
+  assert.match(out, /<bpmn:timeDuration xsi:type="bpmn:tFormalExpression">\$\{timerInformLater\}<\/bpmn:timeDuration>/);
+  // der Timer des Ereignisses bleibt dabei unberührt
+  assert.match(out, />P7D<\/bpmn:timeDuration>/);
+  assert.match(writeBpmn(xml, { ...s, engine: 'c8' }).xml, /<bpmn:timeDuration xsi:type="bpmn:tFormalExpression">=timerInformLater<\/bpmn:timeDuration>/);
+  // ein fester Wert bleibt Text, eine andere Art ein anderes Element
+  inform(s).timer = { kind: 'cycle', expression: 'R3/PT1H' };
+  assert.match(writeBpmn(xml, s).xml, /<bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R3\/PT1H<\/bpmn:timeCycle>\s*<\/bpmn:timerEventDefinition>\s*<\/bpmn:boundaryEvent>/);
+  assert.match(writeBpmn(xml, { ...s, engine: 'c8' }).xml, />R3\/PT1H<\/bpmn:timeCycle>/);
+  // unverändert bleibt das Diagramm, wie es ist — auch in der Schreibweise von Camunda 8
+  assert.match(writeBpmn(xml, imported(xml)).xml, />\$\{timerEscalationInform\}</);
+  assert.match(writeBpmn(c8('P7D'), { ...imported(c8('P7D')), engine: 'c8' }).xml, />=timerEscalationInform</);
+});
+
+test('boundary export: without the boundary id the element is found by its name; without value it says so', () => {
+  const xml = c7('P7D');
+  const s = imported(xml);
+  inform(s).timer = { kind: 'duration', expression: '= timerInformLater' };
+  delete inform(s).boundaryId;
+  assert.match(writeBpmn(xml, s).xml, /\$\{timerInformLater\}/);
+  inform(s).timer = { kind: 'duration', expression: '' };
+  const r = writeBpmn(xml, s);
+  assert.ok(r.issues.some(i => i.where === 'Timer «inform»' && i.text.startsWith('ohne Wert')), JSON.stringify(r.issues));
+  assert.match(r.xml, /\$\{timerEscalationInform\}/);
+});
