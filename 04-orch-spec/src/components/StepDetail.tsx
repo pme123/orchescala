@@ -346,7 +346,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
   // die Arten je Timer-Variable — für die Befunde am Schritt und an seinen Boundary-Timern
   const kinds = useMemo(() => timerKinds(spec.steps), [spec.steps]);
-  const finding = stepFindings(step, spec, model, baseVariables, undefined, undefined, kinds);
+  const finding = stepFindings(step, spec, model, baseVariables, { kinds });
   // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
   const inline = new Set(finding.inline ?? []);
   const shownErrors = finding.errors.filter(t => !inline.has(t));
@@ -573,7 +573,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               const handled = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
               // der Timer eines Boundary-Events: dieselben Befunde wie in der Liste oben
               const timerIssues = { errors: [] as string[], warnings: [] as string[] };
-              if (e.boundary && e.timer) timerFindings(e.timer, spec, timerIssues.errors, timerIssues.warnings, '', kinds);
+              if (e.boundary && e.timer) timerFindings(e.timer, spec, timerIssues.errors, timerIssues.warnings, { kinds });
               const issue = handled?.level === 'error' || timerIssues.errors.length ? { level: 'error' as const }
                 : handled ?? (timerIssues.warnings.length ? { level: 'warn' as const } : null);
               return (

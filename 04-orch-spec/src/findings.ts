@@ -43,7 +43,7 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
   const wiring = wiringSteps(spec);
   const kinds = timerKinds(spec.steps);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables, scopes, wiring, kinds);
+    const f = stepFindings(step, spec, model, variables, { scopes, wiring, kinds });
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
@@ -195,9 +195,12 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
 
 /**
  * Der Timer eines Ereignisses bzw. Boundary-Events: eine Variable mit Vorgabe —
- * kein fester Wert. `at` nennt das Boundary-Event (`Boundary «inform»: `).
+ * kein fester Wert. `at` nennt das Boundary-Event (`Boundary «inform»: `),
+ * `kinds` die Arten je Timer-Variable (sonst gerechnet).
  */
-export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[], at = '', kinds = timerKinds(spec.steps)) {
+export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[], opts: { at?: string; kinds?: Map<string, Set<TimerSpec['kind']>> } = {}) {
+  const at = opts.at ?? '';
+  const kinds = opts.kinds ?? timerKinds(spec.steps);
   const expr = timer.expression.trim();
   if (!expr) { errors.push(`${at}Timer ohne Wert — eine Variable aus dem InConfig setzen, z. B. = timerWait.`); return; }
   const name = timerVariable(timer);
@@ -238,7 +241,18 @@ export function timerKinds(steps: Step[]): Map<string, Set<TimerSpec['kind']>> {
 const KIND_TEXT: Record<TimerSpec['kind'], string> = { duration: 'eine Dauer', date: 'ein Zeitpunkt', cycle: 'ein Zyklus' };
 const ISO_EXAMPLE: Record<TimerSpec['kind'], string> = { duration: 'P7D', date: '2026-12-31T08:00:00Z', cycle: 'R3/PT1H' };
 
-export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps), wiring: Set<string> = wiringSteps(spec), kinds: Map<string, Set<TimerSpec['kind']>> = timerKinds(spec.steps)): Finding {
+/** Was für alle Schritte gleich ist — `collectFindings` rechnet es einmal; fehlt es, rechnet es `stepFindings` */
+export interface ProcessContext {
+  scopes?: Map<string, MultiInstanceSpec[]>;
+  wiring?: Set<string>;
+  /** die Arten je Timer-Variable (siehe timerKinds) */
+  kinds?: Map<string, Set<TimerSpec['kind']>>;
+}
+
+export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], ctx: ProcessContext = {}): Finding {
+  const scopes = ctx.scopes ?? multiInstanceScopes(spec.steps);
+  const wiring = ctx.wiring ?? wiringSteps(spec);
+  const kinds = ctx.kinds ?? timerKinds(spec.steps);
   // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn
   if (step.kind === 'goto' || step.pattern) return NONE;
   // in einer Mehrfachausführung kommen `loopCounter` und das Element dazu
@@ -252,7 +266,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // (in einem Pattern-Block benennt das Pattern)
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // Timer: die Wartezeit ist eine Konstante im InConfig — sonst lässt sie sich je Umgebung nicht einstellen
-  if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings, '', kinds);
+  if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings, { kinds });
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
@@ -380,7 +394,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     const issue = handledErrorIssue(e, i, all, { variables, engine: spec.engine });
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
     // der Timer eines Boundary-Events: wie der eines Ereignisses — das Panel zeigt es am Eintrag
-    if (e.boundary && e.timer) timerFindings(e.timer, spec, errors, warnings, `Boundary «${e.code}»: `, kinds);
+    if (e.boundary && e.timer) timerFindings(e.timer, spec, errors, warnings, { at: `Boundary «${e.code}»: `, kinds });
   });
 
   for (const r of step.regexHandledErrors ?? []) {
