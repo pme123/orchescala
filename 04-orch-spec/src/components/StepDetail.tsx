@@ -1671,7 +1671,7 @@ function TimerSection({ timer, spec, isDark, canEdit, onChange }: {
           {(Object.keys(TIMER_KIND_LABEL) as TimerSpec['kind'][]).map(k => <option key={k} value={k}>{TIMER_KIND_LABEL[k]}</option>)}
         </select>
         <input value={t.expression} disabled={!canEdit} onChange={e => onChange({ ...t, expression: e.target.value })}
-          placeholder="= timerWait — eine Variable aus dem InConfig" title="Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. PT7D)"
+          placeholder="= timerWait — eine Variable aus dem InConfig" title="Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. P7D)"
           className={`flex-1 min-w-0 ${input}`} />
       </div>
       {name && (
@@ -1680,7 +1680,7 @@ function TimerSection({ timer, spec, isDark, canEdit, onChange }: {
           {own
             ? <span className={`text-[10px] font-mono ${c.muted2}`} title="Steht schon im eigenen InConfig — dort pflegen">{own.default ? `${name} = ${own.default}` : name} (eigenes Feld)</span>
             : <input value={t.default ?? ''} disabled={!canEdit} onChange={e => onChange({ ...t, default: e.target.value || undefined })}
-                placeholder={t.kind === 'duration' ? 'z. B. PT7D' : t.kind === 'date' ? 'z. B. 2026-12-31T08:00:00Z' : 'z. B. R3/PT1H'}
+                placeholder={t.kind === 'duration' ? 'z. B. P7D' : t.kind === 'date' ? 'z. B. 2026-12-31T08:00:00Z' : 'z. B. R3/PT1H'}
                 title={`Konstante «${name}» im InConfig — der Export schreibt sie mit dieser Vorgabe`}
                 className={`w-40 ${input}`} />}
         </div>

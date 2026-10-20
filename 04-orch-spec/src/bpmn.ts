@@ -126,7 +126,7 @@ export function timerVariable(timer: TimerSpec | undefined): string | null {
 }
 
 
-/** Der Timer eines Ereignisses — als FEEL wie die Mappings: `${timerX}` → `= timerX`, `PT7D` bleibt Text */
+/** Der Timer eines Ereignisses — als FEEL wie die Mappings: `${timerX}` → `= timerX`, `P7D` bleibt Text */
 function timerOf(el: Element): TimerSpec | undefined {
   const def = kids(el).find(c => local(c) === 'timerEventDefinition');
   if (!def) return undefined;

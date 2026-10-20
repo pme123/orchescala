@@ -91,12 +91,12 @@ export interface Branch {
 /**
  * Timer eines Ereignisses — wann es auslöst. `expression` wie ein Mapping:
  * `= timerEscalationCancel` (eine Variable — sie kommt mit `default` ins
- * `InConfig`) oder fester Text (`PT7D`, ISO 8601).
+ * `InConfig`) oder fester Text (`P7D`, ISO 8601).
  */
 export interface TimerSpec {
   kind: 'duration' | 'date' | 'cycle';
   expression: string;
-  /** Vorgabe der Variable im `InConfig`, ISO 8601 (z. B. `PT7D`) */
+  /** Vorgabe der Variable im `InConfig`, ISO 8601 (z. B. `P7D`) */
   default?: string;
 }
 

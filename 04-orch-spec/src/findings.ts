@@ -202,8 +202,21 @@ function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], wa
     return;
   }
   const own = (spec.types ?? []).find(t => t.inConfig)?.fields?.some(f => f.name === name);
-  if (!timer.default?.trim() && !own) warnings.push(`Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. PT7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
+  const given = timer.default?.trim();
+  if (!given && !own) warnings.push(`Timer «${name}» ohne Vorgabe — im Schritt setzen (z. B. P7D), sonst steht im InConfig eine Platzhalter-Dauer.`);
+  if (given && !ISO_TIMER[timer.kind].test(given)) {
+    warnings.push(`Vorgabe «${given}» von «${name}» ist kein${timer.kind === 'duration' ? 'e Dauer' : timer.kind === 'date' ? ' Zeitpunkt' : ' Zyklus'} nach ISO 8601 (z. B. ${ISO_EXAMPLE[timer.kind]}) — der Timer schlüge zur Laufzeit fehl.`);
+  }
 }
+
+/** ISO 8601, wie Camunda es für Timer liest: Dauer `P7D`, Zeitpunkt `2026-12-31T08:00:00Z`, Zyklus `R3/PT1H` */
+const DURATION = 'P(?!$)(?:\\d+Y)?(?:\\d+M)?(?:\\d+W)?(?:\\d+D)?(?:T(?=\\d)(?:\\d+H)?(?:\\d+M)?(?:\\d+(?:[.,]\\d+)?S)?)?';
+const ISO_TIMER: Record<TimerSpec['kind'], RegExp> = {
+  duration: new RegExp(`^${DURATION}$`),
+  date: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/,
+  cycle: new RegExp(`^R\\d*/(?:[^/]+/)?${DURATION}$`),
+};
+const ISO_EXAMPLE: Record<TimerSpec['kind'], string> = { duration: 'P7D', date: '2026-12-31T08:00:00Z', cycle: 'R3/PT1H' };
 
 export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null, baseVariables: VarNode[], scopes: Map<string, MultiInstanceSpec[]> = multiInstanceScopes(spec.steps), wiring: Set<string> = wiringSteps(spec)): Finding {
   // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn

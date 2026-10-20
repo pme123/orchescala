@@ -881,7 +881,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     if (seen.has(name)) continue;
     seen.add(name);
     const d = DEFAULT_BY_KIND[kind];
-    // ein Timer eines Ereignisses: seine Vorgabe aus der Spezifikation (`PT7D`) — ein
+    // ein Timer eines Ereignisses: seine Vorgabe aus der Spezifikation (`P7D`) — ein
     // Zeitpunkt oder Zyklus ist keine Dauer, also Text
     const type = timerKind && timerKind !== 'duration' ? 'String' : d.type;
     const value = given ? JSON.stringify(given) : d.value;

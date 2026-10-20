@@ -43,24 +43,24 @@ test('import: the timer of an event and of a boundary event - as FEEL', () => {
 
 test('InConfig: each timer variable is a constant - with the default of the step', () => {
   const s = imported(c7('${timerEscalationCancel}'));
-  wait(s).timer = { ...wait(s).timer!, default: 'PT7D' };
+  wait(s).timer = { ...wait(s).timer!, default: 'P7D' };
   assert.deepEqual(loopSettings(s).map(l => [l.name, l.kind, l.default ?? '']).sort(),
-    [['timerEscalationCancel', 'timer', 'PT7D'], ['timerEscalationInform', 'timer', '']]);
+    [['timerEscalationCancel', 'timer', 'P7D'], ['timerEscalationInform', 'timer', '']]);
   const out = renderInConfig(s, new Set());
-  assert.match(out, /timerEscalationCancel: Iso8601Duration = "PT7D"/);
+  assert.match(out, /timerEscalationCancel: Iso8601Duration = "P7D"/);
   assert.match(out, /timerEscalationInform: Iso8601Duration = "PT1M"/);
 });
 
 test('findings: a fixed value and a variable without default are warned', () => {
-  assert.ok(messages(imported(c7('PT7D'))).some(m => m.startsWith('Fester Timer «PT7D»')), messages(imported(c7('PT7D'))).join(' / '));
+  assert.ok(messages(imported(c7('P7D'))).some(m => m.startsWith('Fester Timer «P7D»')), messages(imported(c7('P7D'))).join(' / '));
   const s = imported(c7('${timerEscalationCancel}'));
   assert.ok(messages(s).some(m => m.includes('«timerEscalationCancel» ohne Vorgabe')));
-  wait(s).timer = { ...wait(s).timer!, default: 'PT7D' };
+  wait(s).timer = { ...wait(s).timer!, default: 'P7D' };
   assert.ok(!messages(s).some(m => m.includes('timerEscalationCancel')), messages(s).join(' / '));
 });
 
 test('export: a changed timer is written per engine - unchanged stays as it is', () => {
-  const xml = c7('PT7D');
+  const xml = c7('P7D');
   const s = imported(xml);
   wait(s).timer = { kind: 'duration', expression: '= timerWait' };
   assert.match(writeBpmn(xml, s).xml, /<bpmn:timeDuration xsi:type="bpmn:tFormalExpression">\$\{timerWait\}<\/bpmn:timeDuration>/);
@@ -73,8 +73,8 @@ test('export: a changed timer is written per engine - unchanged stays as it is',
 test('merge keeps the default; an older spec without timers gets them on open', () => {
   const xml = c7('${timerEscalationCancel}');
   const prev = imported(xml);
-  wait(prev).timer = { ...wait(prev).timer!, default: 'PT7D' };
-  assert.equal(wait(mergeSpec(imported(xml), prev).spec).timer?.default, 'PT7D');
+  wait(prev).timer = { ...wait(prev).timer!, default: 'P7D' };
+  assert.equal(wait(mergeSpec(imported(xml), prev).spec).timer?.default, 'P7D');
   const old = imported(xml);
   delete wait(old).timer;
   const healed = syncTimers(old, imported(xml));
@@ -109,7 +109,7 @@ test('a date or cycle timer is a String in the InConfig', () => {
 
 test('merge: another variable does not take over the default of the former one', () => {
   const prev = imported(c7('${timerEscalationCancel}'));
-  wait(prev).timer = { ...wait(prev).timer!, default: 'PT7D' };
+  wait(prev).timer = { ...wait(prev).timer!, default: 'P7D' };
   const renamed = mergeSpec(imported(c7('${timerOther}')), prev, imported(c7('${timerEscalationCancel}'))).spec;
   assert.equal(wait(renamed).timer?.expression, '= timerOther');
   assert.equal(wait(renamed).timer?.default, undefined);
@@ -122,4 +122,29 @@ test('open: a boundary timer is filled in too', () => {
   for (const e of approve(old).errors ?? []) delete e.timer;
   const healed = syncTimers(old, imported(xml))!;
   assert.equal(approve(healed).errors?.find(e => e.code === 'inform')?.timer?.expression, '= timerEscalationInform');
+});
+
+test('the default must be ISO 8601 - otherwise the timer fails at runtime', () => {
+  const s = imported(c7('${timerEscalationCancel}'));
+  const warns = (d: string, kind: 'duration' | 'date' | 'cycle' = 'duration') => {
+    wait(s).timer = { kind, expression: '= timerEscalationCancel', default: d };
+    return messages(s).filter(m => m.includes('nach ISO 8601'));
+  };
+  assert.deepEqual(warns('P7D'), []);
+  assert.equal(warns('PT7D').length, 1, 'days stand before the T');
+  assert.deepEqual(warns('PT1.5S'), []);
+  assert.equal(warns('7 days').length, 1);
+  assert.equal(warns('P').length, 1);
+  assert.deepEqual(warns('2026-12-31T08:00:00Z', 'date'), []);
+  assert.equal(warns('31.12.2026', 'date').length, 1);
+  assert.deepEqual(warns('R3/PT1H', 'cycle'), []);
+  assert.equal(warns('PT1H', 'cycle').length, 1);
+});
+
+test('sync of an older spec without timer: the diagram brings it (keepSpecOwned)', () => {
+  const xml = c7('${timerEscalationCancel}');
+  const old = imported(xml);
+  delete wait(old).timer;
+  const merged = mergeSpec(imported(xml), old, imported(xml)).spec;
+  assert.equal(wait(merged).timer?.expression, '= timerEscalationCancel');
 });
