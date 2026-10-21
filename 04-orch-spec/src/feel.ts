@@ -830,6 +830,9 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         } else if (new RegExp(`\\b(?:for|some|every)\\s+${re}\\s+in\\b[^\\]]*\\[[^\\]]*(?<![\\w.])${re}\\s*\\.`).test(body)) {
           // `for i in items[i.active = true]` — die Schleifenvariable gilt erst nach dem `in`
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
+        } else if (name === 'processInstanceKey') {
+          // der alte Name aus Camunda 8 — Orchescala setzt die eigene ID heute engine-agnostisch
+          issues.push({ level: 'error', text: '«processInstanceKey» ist der alte Name — der InitWorker setzt heute «processInstanceId».' });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }

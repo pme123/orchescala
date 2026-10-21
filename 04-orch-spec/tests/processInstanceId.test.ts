@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
-import { processVariables } from '../src/feel';
+import { checkFeel, processVariables } from '../src/feel';
 import type { ProcessSpec } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -40,4 +40,10 @@ test('Camunda 8: without an InitWorker processInstanceId is unknown - nobody set
 
 test('Camunda 7: processInstanceId is always known - the export uses execution.processInstanceId', () => {
   assert.ok(knowsKey('acme-other-topic', 'c7'));
+});
+
+test('Camunda 8: the old name processInstanceKey is reported with the new one', () => {
+  const spec = { ...importBpmn(bpmn(PID), 'key.bpmn').spec, engine: 'c8' as const };
+  const r = checkFeel('= processInstanceKey', processVariables(spec, null));
+  assert.ok(r.issues.some(i => i.level === 'error' && i.text.includes('processInstanceId')));
 });
