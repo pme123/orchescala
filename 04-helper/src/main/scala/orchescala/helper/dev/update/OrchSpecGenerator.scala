@@ -765,7 +765,11 @@ case class OrchSpecProcessObject(
         val merged = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
         lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
-      case Some(e) => lines.patch(e.from, replacement, e.until - e.from)
+      case Some(e) =>
+        // the parameters and examples from Orch Spec - the implementation of the class stays
+        val merged = TypeImplementation.merge(e.lines(lines), replacement, g.name)
+        if compact(e.lines(lines)) == compact(merged) then lines
+        else lines.patch(e.from, merged, e.until - e.from)
       case None    =>
         // after the type that comes before it - otherwise before the first type, or before the
         // examples of the process
@@ -1113,7 +1117,7 @@ object CaseClassParams:
     if last < 0 then ls else ls.updated(last, ls(last).stripSuffix(","))
 
   // the line with the `)` that closes the parameter list - on the same indentation as the start
-  private def closing(section: Seq[String], start: Int): Int =
+  private[update] def closing(section: Seq[String], start: Int): Int =
     if start < 0 || section(start).matches("""\s*(?:final\s+)?case class \w+\(\).*""") then -1
     else
       val indent = section(start).indexWhere(_ != ' ')
@@ -1123,13 +1127,91 @@ object CaseClassParams:
     params.zipWithIndex.flatMap: (ls, i) =>
       if i == params.size - 1 then ls else ls.init :+ (ls.last + ",")
 
-  private def isCode(l: String) = !l.isBlank && !l.trim.startsWith("//")
+  private[update] def isCode(l: String) = !l.isBlank && !l.trim.startsWith("//")
 
   // parentheses and brackets outside of strings
   private def balance(l: String): Int =
     l.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "").takeWhile(_ => true).split("//").head
       .foldLeft(0)((d, c) => if "([".contains(c) then d + 1 else if ")]".contains(c) then d - 1 else d)
 end CaseClassParams
+
+/** The implementation of a case class in an existing process object - the body of the class (after
+  * its parameters: `lazy val defaultConfig`, own `def`s) and its companion (type aliases, own
+  * givens and codecs). Orch Spec knows neither: from it come the parameters with the `extends`
+  * and the examples (`example`, `exampleMinimal`). A member Orch Spec needs and the existing code
+  * does not have (`defaultConfig` for `WithConfig`, the givens) is added.
+  */
+object TypeImplementation:
+  import CaseClassParams.{closing, isCode}
+
+  private case class Parts(head: Seq[String], body: Seq[String], companion: Seq[String])
+
+  private val member =
+    """\s*(?:(?:override|private|protected|final|implicit)\s+)*(?:lazy\s+val|val|def|given)\s+([\w\[\]]+).*""".r
+
+  def merge(own: Seq[String], generated: Seq[String], name: String): Seq[String] =
+    (parts(own, name), parts(generated, name)) match
+      case (Some(o), Some(g)) =>
+        val body      = if o.body.exists(isCode) then withMembers(o.body, g.body) else g.body
+        // a body needs the colon after the parameters - Orch Spec writes one only with `extends`
+        val head      =
+          if body.exists(l => isCode(l) && !l.trim.startsWith("end ")) && !g.head.last.trim.endsWith(":")
+          then g.head.init :+ (g.head.last + ":")
+          else g.head
+        val companion =
+          if o.companion.exists(isCode) then withExamples(withMembers(o.companion, g.companion), g.companion, name)
+          else g.companion
+        head ++ body ++ companion
+      case _                  => generated
+
+  /** The class up to the end of its parameters, its body, its companion `object X`. */
+  private def parts(section: Seq[String], name: String): Option[Parts] =
+    val start = section.indexWhere(_.matches(s"""\\s*(?:final\\s+)?case class $name\\b.*"""))
+    if start < 0 then None
+    else
+      val close   = closing(section, start)
+      val headEnd = (if close < 0 then start else close) + 1
+      val obj     = section.indexWhere(_.matches(s"""\\s*object $name\\b.*"""), headEnd)
+      val until   = if obj < 0 then section.size else obj
+      Some(Parts(section.take(headEnd), section.slice(headEnd, until), if obj < 0 then Seq.empty else section.drop(obj)))
+
+  // the members of `generated` the own lines lack - after the first line (`object X:`) of a
+  // companion, at the start of a body
+  private def withMembers(own: Seq[String], generated: Seq[String]): Seq[String] =
+    val names   = own.collect { case member(n) => n }.toSet
+    val missing = generated.filter:
+      case l @ member(n) => !names.contains(n) && !l.trim.startsWith("lazy val example")
+      case _             => false
+    if missing.isEmpty then own
+    else if own.headOption.exists(_.trim.startsWith("object ")) then own.head +: (missing ++ own.tail)
+    else missing ++ own
+
+  // `lazy val example` / `exampleMinimal` of `generated` replace the own ones - missing ones go
+  // before `end X`
+  private def withExamples(own: Seq[String], generated: Seq[String], name: String): Seq[String] =
+    Seq("example", "exampleMinimal").foldLeft(own): (lines, ex) =>
+      block(generated, ex) match
+        case None               => lines
+        case Some((gFrom, gTo)) =>
+          val replacement = generated.slice(gFrom, gTo)
+          block(lines, ex) match
+            case Some((from, to)) => lines.patch(from, replacement, to - from)
+            case None             =>
+              val end = lines.lastIndexWhere(_.trim == s"end $name")
+              if end < 0 then lines ++ replacement else lines.patch(end, replacement, 0)
+
+  // the lines of `lazy val <name> = …`: the start and what is indented deeper, the closing `)`
+  private def block(lines: Seq[String], name: String): Option[(Int, Int)] =
+    val start = lines.indexWhere(_.matches(s"""\\s*lazy val $name\\b.*"""))
+    if start < 0 then None
+    else
+      val indent = lines(start).indexWhere(_ != ' ')
+      val end    = Iterator.from(start + 1).takeWhile: j =>
+        j < lines.size && !lines(j).isBlank &&
+          (lines(j).indexWhere(_ != ' ') > indent || lines(j).trim.startsWith(")"))
+      .toSeq.lastOption.getOrElse(start)
+      Some(start -> (end + 1))
+end TypeImplementation
 
 /** The imports a file already has - an import is not added again, nor one for a name that is
   * already imported (from somewhere else - that one wins) or visible through the package clause.

@@ -882,6 +882,124 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("processTypeOf - a C7 export in a C8 project goes to the C7 path"):
     assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.C8(), c8 = false), BpmnProcessType.C7())
 
+  test("merge - the implementation of In stays: body of the class and companion, only parameters and examples from Orch Spec"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |  val descr: String = ""
+        |
+        |  case class In(
+        |      receivingSystems: In.ReceivingSystems,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |
+        |    def containsGraviton =
+        |      receivingSystems match
+        |      case Some(rs) => rs.contains("GRAVITON")
+        |      case _        => true
+        |
+        |  end In
+        |
+        |  object In:
+        |    type ReceivingSystems = Option[String] | Seq[String]
+        |
+        |    given InOutCodec[ReceivingSystems] = CirceCodec.from(c => c.as[Option[String]], _ => Json.Null)
+        |
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = customCodec
+        |
+        |    lazy val example        = In(
+        |      receivingSystems = None
+        |    )
+        |    lazy val exampleMinimal = example
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      @description("where it goes")
+        |      receivingSystems: Proc.In.ReceivingSystems,
+        |      amount: Int,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      receivingSystems = None,
+        |      amount = 1
+        |    )
+        |    lazy val exampleMinimal = example.copy(
+        |      receivingSystems = None
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the parameters from Orch Spec
+    assert(m.contains("      amount: Int,\n      inConfig: Option[InConfig] = None\n  ) extends WithConfig[InConfig]:"), m)
+    // the body of the class stays - its own defaultConfig, not the generated one
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assert(!m.contains("InConfig()"), m)
+    assert(m.contains("    def containsGraviton =\n"), m)
+    // the companion stays - the alias, the own codecs
+    assert(m.contains("    type ReceivingSystems = Option[String] | Seq[String]\n"), m)
+    assert(m.contains("    given InOutCodec[In] = customCodec\n"), m)
+    assert(!m.contains("deriveInOutCodec"), m)
+    // the examples from Orch Spec
+    assert(m.contains("    lazy val example = In(\n      receivingSystems = None,\n      amount = 1\n    )\n"), m)
+    assert(m.contains("    lazy val exampleMinimal = example.copy(\n      receivingSystems = None\n    )\n  end In\nend Proc"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - a class without body gets the generated one, a companion without givens gets them"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      amount: Int
+        |  )
+        |
+        |  object In:
+        |    type Amount = Int
+        |    lazy val example = In(amount = 1)
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains("  ) extends WithConfig[InConfig]:\n    lazy val defaultConfig = InConfig()\n  end In\n"), m)
+    assert(m.contains("  object In:\n    given ApiSchema[In]  = deriveApiSchema\n    given InOutCodec[In] = deriveInOutCodec\n    type Amount = Int\n"), m)
+    assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In"), m)
+
   test("processTypeOf - a C8 export in a C8 project keeps the project's path"):
     val custom = BpmnProcessType.C8(os.rel / "bpmn8")
     assertEquals(OrchSpecGenerator.processTypeOf(custom, c8 = true), custom)
