@@ -1584,8 +1584,33 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
 | `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
 | `camunda:modelerTemplate` | `zeebe:modelerTemplate` (der Service-Verweis bleibt) |
-| Listener `execution.setVariable("x", v)` am End-Event | Output-Mapping `x` |
+| Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
+| … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |
+| … sonst (Gateway, End-Event mit Definition, `event="start"`, Aufgabe ohne Ausgaben) | ein **None-Throw-Event** «set x» auf jedem Fluss davor (bzw. danach bei `end`) mit dem Output-Mapping — je Fluss eines, ein Join wartet so weiter auf alle Zweige |
+| … an einem parallelen Fork mit einem Eingang (`event="end"`) | ein None-Throw-Event davor — er verzweigt sofort, so nicht je Zweig gleichzeitig |
+| … an einem Sequenzfluss (`event="take"`) | ein None-Throw-Event «set x» auf dem Fluss |
 | `${…}` in Bedingungen, Timern, Mappings | `=…` |
+
+**Warum ein Throw-Event:** ein Output-Mapping greift beim Abschluss eines
+Elements — an einem None-Event sofort, an einer Aufgabe erst, wenn sie fertig
+ist (der Listener setzte die Variable beim Betreten). An einem Event-Based
+Gateway und an einem Error-End-Event nimmt Camunda 8 das Mapping an und
+**ignoriert es** (am Cluster geprüft). Und das erste Output-Mapping einer
+Aufgabe nähme ihr die übrigen Ergebnisse — nur noch die gemappten gingen in den
+Prozess. Das Throw-Event steht im Diagramm auf dem Fluss davor bzw. danach
+(Lage prüfen, der Dialog meldet es); Bedingungen bleiben am Fluss. Typisch:
+`readyForEvents` am Event-Based Gateway, auf das die Simulation wartet.
+
+**Nicht übernommen** (und so gemeldet, die Variable fehlt dann; der Listener
+bleibt als Kommentar am Element, für die Handarbeit): wo kein Fluss
+davor bzw. danach ist, nach einem Event-Based Gateway (dort darf nur ein
+Catch-Event folgen — also kein `end`-Listener am Gateway, kein `start`-Listener
+an seinen Catch-Events) und bei einem unbekannten Listener-Event. Bei einer
+Mehrfachausführung läuft das Event einmal, der Listener lief je Instanz; bei
+mehreren Flüssen wird die Variable mehrmals gesetzt; bricht ein Boundary-Event
+die Aufgabe ab, lief der `end`-Listener auch, das Event danach nicht — der
+Dialog weist jeweils darauf hin. Ist ein Fluss-Stück kürzer als das Event,
+bleibt es ohne Diagramm-Eintrag (gemeldet).
 
 Ohne Gegenstück fallen still weg: `async…`, `exclusive`, Job-Prioritäten,
 Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
