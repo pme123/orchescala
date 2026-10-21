@@ -6,10 +6,10 @@ import type { EngineId, ProcessSpec, Step } from './types';
 // `processInstanceId` als Query-Parameter — die beiden Wege zu korrelieren; am
 // Schritt wird einer gewählt. Camunda 8 hat dafür den Korrelationsschlüssel der
 // Nachricht (`zeebe:subscription`): `=businessKey` bzw. `=processInstanceKey`
-// (die ID der Instanz, gesetzt vom InitWorker) — das Gateway gibt ihm den
-// `businessKey`, sonst die `processInstanceId`. Camunda 7 korreliert direkt über
-// einen der beiden; die Wahl steht dort nur in der Spezifikation (Doku und die
-// Umstellung auf Camunda 8).
+// (die ID der Instanz, gesetzt vom InitWorker) — das Gateway gibt ihm die
+// `processInstanceId`, sonst den `businessKey` (wie in Camunda 7: die ID gewinnt).
+// Camunda 7 korreliert direkt über einen der beiden; die Wahl steht dort nur in
+// der Spezifikation (Doku und die Umstellung auf Camunda 8).
 
 export type CorrelationChoice = 'businessKey' | 'processInstanceId';
 

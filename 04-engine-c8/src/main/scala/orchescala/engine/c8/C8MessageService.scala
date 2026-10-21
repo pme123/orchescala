@@ -20,7 +20,7 @@ class C8MessageService(using
       variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
-      val correlationKey = businessKey.orElse(processInstanceId)
+      val correlationKey = C8MessageService.correlationKey(businessKey, processInstanceId)
       val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)
       for
         _      <-
@@ -94,4 +94,14 @@ class C8MessageService(using
       ))
       .map: resp =>
         MessageCorrelationResult.ProcessInstance(resp.messageKey, resp.messageKey, EngineType.C8)
+end C8MessageService
+
+object C8MessageService:
+
+  /** The correlation key - like in C7, the `processInstanceId` wins over the `businessKey`. The BPMN
+    * takes it with `correlationKey="=processInstanceKey"` resp. `"=businessKey"`.
+    */
+  def correlationKey(businessKey: Option[String], processInstanceId: Option[String]): Option[String] =
+    processInstanceId.orElse(businessKey)
+
 end C8MessageService

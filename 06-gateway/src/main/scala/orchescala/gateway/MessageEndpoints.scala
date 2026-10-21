@@ -29,10 +29,14 @@ object MessageEndpoints:
       .description(
         """Sends a message that can be received by process instances waiting for this message.
           |
-          |The message will be correlated to:
-          |1. the `businessKey` if set (in C8 you can use this for any variable you specified the correlationKey in the bpmn)
-          |2. `processInstanceId` if set
-          |3. Nothing - only for start events.
+          |The message is correlated - the same for all engines:
+          |1. to the `processInstanceId` if set - it wins, a `businessKey` is then ignored.
+          |2. else to the `businessKey` if set.
+          |3. else to nothing - only for start events.
+          |
+          |In C8 the BPMN decides with the correlation key of the message (`zeebe:subscription`):
+          |`correlationKey="=processInstanceKey"` for the `processInstanceId` (set by the InitWorker),
+          |`correlationKey="=businessKey"` for the `businessKey` - or any variable whose value you send as `businessKey`.
           |""".stripMargin
       )
       .tag("Message")
