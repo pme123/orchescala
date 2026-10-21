@@ -471,7 +471,7 @@ test('an element in a subprocess: the event goes into the subprocess, on its flo
   assert.equal(byId(doc, 'g1')?.getAttribute('targetRef'), 'gw_SetBefore');
 });
 
-test('an end listener on a parallel fork: an event on each branch - the hint says they run at the same time', () => {
+test('an end listener on a parallel fork with one incoming flow: one event before it - not one per branch at the same time', () => {
   const xml = c7(`
     <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:parallelGateway id="fork">${listener('forked', 'true', 'end')}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing></bpmn:parallelGateway>
@@ -480,8 +480,22 @@ test('an end listener on a parallel fork: an event on each branch - the hint say
   `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="fork" />
     <bpmn:sequenceFlow id="f2" sourceRef="fork" targetRef="e1" />
     <bpmn:sequenceFlow id="f3" sourceRef="fork" targetRef="e2" />`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.equal(named(doc, 'intermediateThrowEvent').length, 1);
+  assert.deepEqual(outputsOf(byId(doc, 'fork_SetBefore')), ['forked==true']);
+});
+
+test('an end listener on a task with two unconditional outgoing flows: an event on each - the hint says they run at the same time', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="u">${listener('done', 'true', 'end')}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="e1"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="e2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="u" />
+    <bpmn:sequenceFlow id="f2" sourceRef="u" targetRef="e1" />
+    <bpmn:sequenceFlow id="f3" sourceRef="u" targetRef="e2" />`);
   const r = convertBpmn(xml, 'c8');
-  assert.ok(byId(parse(r.xml), 'fork_SetAfter_2'));
+  assert.ok(byId(parse(r.xml), 'u_SetAfter_2'));
   assert.ok(r.issues.some(i => /bis zu 2-mal gesetzt, auf parallelen Zweigen gleichzeitig/.test(i.text)), JSON.stringify(r.issues));
 });
 
@@ -552,4 +566,72 @@ test('an end listener on a message catch event without outputs: an event after i
   const doc = parse(convertBpmn(xml, 'c8').xml);
   assert.deepEqual(outputsOf(byId(doc, 'w')), []);
   assert.deepEqual(outputsOf(byId(doc, 'w_SetAfter')), ['answered==true']);
+});
+
+test('an edge with a label: the waypoints stay before it - waypoint*, then BPMNLabel', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
+  '<bpmn:sequenceFlow id="f1" name="go" sourceRef="s" targetRef="gw" />',
+  '<bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="136" y="118" /><di:waypoint x="300" y="118" /><bpmndi:BPMNLabel><dc:Bounds x="200" y="90" width="20" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>');
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  const children = Array.from(byId(doc, 'f1_di')?.children ?? []).map(c => c.tagName);
+  assert.deepEqual(children, ['di:waypoint', 'di:waypoint', 'bpmndi:BPMNLabel']);
+});
+
+test('a waypoint without coordinates: no diagram entry - no NaN', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />',
+  '<bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="136" /><di:waypoint x="300" y="118" /></bpmndi:BPMNEdge>');
+  const r = convertBpmn(xml, 'c8');
+  assert.ok(!r.xml.includes('NaN'));
+  assert.ok(r.issues.some(i => /Ohne Diagramm-Eintrag \(dem Fluss fehlt die Kante\)/.test(i.text)), JSON.stringify(r.issues));
+});
+
+test('a take listener on a flow leaving an event-based gateway: NOT inserted, reported, kept as a comment', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="t"><bpmn:incoming>f2</bpmn:incoming><bpmn:timerEventDefinition><bpmn:timeDuration>PT1H</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:intermediateCatchEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />
+    <bpmn:sequenceFlow id="f2" sourceRef="gw" targetRef="t">${listener('picked', 'true', 'take')}</bpmn:sequenceFlow>`);
+  const r = convertBpmn(xml, 'c8');
+  assert.equal(named(parse(r.xml), 'intermediateThrowEvent').length, 0);
+  assert.ok(r.issues.some(i => /NICHT übernommen auf «f2» — nach einem Event-Based Gateway/.test(i.text)), JSON.stringify(r.issues));
+  assert.match(r.xml, /nicht übernommen: camunda:executionListener event="take"/);
+});
+
+test('some flows taken over, some not: the comment names the flows that were not', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f9</bpmn:outgoing></bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="t">${listener('waiting', 'true')}<bpmn:incoming>f2</bpmn:incoming><bpmn:incoming>f4</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing><bpmn:timerEventDefinition><bpmn:timeDuration>PT1H</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="t9"><bpmn:incoming>f9</bpmn:incoming><bpmn:timerEventDefinition><bpmn:timeDuration>PT9H</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:intermediateCatchEvent>
+    <bpmn:userTask id="retry"><bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing></bpmn:userTask>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />
+    <bpmn:sequenceFlow id="f2" sourceRef="gw" targetRef="t" />
+    <bpmn:sequenceFlow id="f9" sourceRef="gw" targetRef="t9" />
+    <bpmn:sequenceFlow id="f3" sourceRef="t" targetRef="retry" />
+    <bpmn:sequenceFlow id="f4" sourceRef="retry" targetRef="t" />`);
+  const r = convertBpmn(xml, 'c8');
+  const doc = parse(r.xml);
+  assert.equal(byId(doc, 'f4')?.getAttribute('targetRef'), 't_SetBefore', 'the flow from the task gets the event');
+  assert.equal(byId(doc, 'f2')?.getAttribute('targetRef'), 't', 'the flow from the event-based gateway does not');
+  assert.match(r.xml, /nicht übernommen auf «f2»: camunda:executionListener event="start"/);
+});
+
+test('a diagram without any shape: the events are inserted without diagram entries, reported', () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d" targetNamespace="x">
+  <bpmn:process id="p" isExecutable="true">
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>
+    <bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />
+  </bpmn:process>
+</bpmn:definitions>`;
+  const r = convertBpmn(xml, 'c8');
+  assert.ok(byId(parse(r.xml), 'gw_SetBefore'));
+  assert.ok(r.issues.some(i => /Ohne Diagramm-Eintrag/.test(i.text)), JSON.stringify(r.issues));
 });

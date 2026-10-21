@@ -677,10 +677,11 @@ interface SetEvent { el: Element; place: EventPlacement; outputs: Element[]; lis
 const listenerText = (l: Element) => `camunda:executionListener event="${l.getAttribute('event') ?? 'start'}" expression="${l.getAttribute('expression') ?? ''}"`;
 
 /** Was nicht übernommen wurde, bleibt als Kommentar am Element — für die Handarbeit */
-function keepAsComment(el: Element, listeners: string[]) {
+function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {
+  const where = flows.length ? ` auf ${flows.map(f => `«${f}»`).join(', ')}` : '';
   for (const text of listeners) {
     // `--` darf in einem XML-Kommentar nicht stehen
-    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen: ${text.replace(/--/g, '- -')} `) as unknown as Element);
+    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen${where}: ${text.replace(/--/g, '- -')} `) as unknown as Element);
   }
 }
 
@@ -698,10 +699,15 @@ function placementOf(el: Element, event: string, hasOutputs: boolean): Placement
   if (name === 'startEvent' || name === 'boundaryEvent') return 'here';
   if (NONE_EVENTS.has(name) && definitions.every(d => d === 'linkEventDefinition')) return 'here';
   if (name === 'endEvent' || event === 'start') return 'before';
+  // ein paralleler Fork verzweigt sofort: ein Event davor statt eines je Zweig (gleichzeitig)
+  if (name === 'parallelGateway' && incomingOf(el).length === 1) return 'before';
   // ein Gateway hat nie ein wirksames Output-Mapping, auch mit Ausgaben nicht
   if (name.endsWith('Gateway')) return 'after';
   return hasOutputs ? 'here' : 'after';
 }
+
+const incomingOf = (el: Element) => (el.parentElement ? kids(el.parentElement) : [])
+  .filter(k => local(k) === 'sequenceFlow' && k.getAttribute('targetRef') === el.getAttribute('id'));
 
 function setEventReason(el: Element, place: EventPlacement): string {
   const name = local(el);
@@ -734,23 +740,25 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, u
     // ein Listener je Instanz wird ein Event für die ganze Mehrfachausführung
     firstNamed(el, 'multiInstanceLoopCharacteristics') ? 'Mehrfachausführung: das Event läuft einmal, der Listener lief je Instanz — prüfen.' : '',
     flows.length > 1 ? `Ein Event je Fluss: die Variable wird bis zu ${flows.length}-mal gesetzt${
-      place === 'after' && ['parallelGateway', 'inclusiveGateway'].includes(local(el)) ? ', auf parallelen Zweigen gleichzeitig' : ''
+      // mehr als ein Fluss ohne Bedingung (ausser am exklusiven Gateway): sie laufen parallel
+      place === 'after' && local(el) !== 'exclusiveGateway' && flows.filter(f => !firstNamed(f, 'conditionExpression')).length > 1
+        ? ', auf parallelen Zweigen gleichzeitig' : ''
     } — bei einem nicht festen Wert (Zähler, Zeit) prüfen.` : '',
     place === 'after' ? interruptedBy(parent, id) : '',
   ].filter(Boolean).map(h => ` ${h}`).join('');
   let first = true;
-  let skipped = false;
+  const skipped: string[] = [];
   for (const flow of flows) {
     const source = sourceOf(flow);
     if (!source) {
       issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — die Quelle des Flusses fehlt: von Hand umsetzen.`);
-      skipped = true;
+      skipped.push(flow.getAttribute('id') ?? '');
       continue;
     }
     if (local(source) === 'eventBasedGateway') {
       // nach einem Event-Based Gateway darf nur ein Catch-Event folgen
       issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — nach einem Event-Based Gateway darf nur ein Catch-Event stehen: von Hand umsetzen (z. B. als Output-Mapping am Catch-Event).`);
-      skipped = true;
+      skipped.push(flow.getAttribute('id') ?? '');
       continue;
     }
     const evId = uniqueId(`${id}_Set${place === 'before' ? 'Before' : place === 'after' ? 'After' : ''}`);
@@ -760,7 +768,8 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, u
     const drawn: Drawn = di?.place(evId, nfId, flow.getAttribute('id') ?? '', place === 'before', uniqueId) ?? 'none';
     issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${side} eingefügt: ${setEventReason(el, place)}.${hints} ${DRAWN_TEXT[drawn]}`);
   }
-  if (skipped) keepAsComment(el, listeners);
+  // alle ausgelassen: der Listener ist nicht übernommen, sonst nur auf diesen Flüssen
+  if (skipped.length) keepAsComment(el, listeners, skipped.length < flows.length ? skipped : []);
 }
 
 const DRAWN_TEXT: Record<Drawn, string> = {
@@ -829,10 +838,14 @@ function diagramOf(defs: Element) {
     return e;
   };
   const pointsOf = (edge: Element): Point[] =>
-    kids(edge).filter(k => local(k) === 'waypoint').map(w => ({ x: Number(w.getAttribute('x')), y: Number(w.getAttribute('y')) }));
+    // parseFloat: ein fehlender Wert ist NaN (Number(null) wäre 0)
+    kids(edge).filter(k => local(k) === 'waypoint').map(w => ({ x: parseFloat(w.getAttribute('x') ?? ''), y: parseFloat(w.getAttribute('y') ?? '') }));
   const setPoints = (edge: Element, points: Point[]) => {
-    for (const w of kids(edge).filter(k => local(k) === 'waypoint')) removeEl(w);
+    // die Wegpunkte vor dem Label — so will es das Schema (waypoint*, BPMNLabel?)
+    const rest = kids(edge).filter(k => local(k) !== 'waypoint');
+    for (const k of kids(edge)) removeEl(k);
     for (const p of points) appendEl(edge, make(wp0, 'waypoint', { x: Math.round(p.x), y: Math.round(p.y) }));
+    for (const k of rest) appendEl(edge, k);
   };
   return {
     /** `none`: keine (brauchbare) Kante, `short`: das Stück ist kürzer als das Event —
@@ -845,6 +858,8 @@ function diagramOf(defs: Element) {
       const at = atEnd ? points.length - 2 : 0;
       const [a, b] = [points[at], points[at + 1]];
       const len = Math.hypot(b.x - a.x, b.y - a.y);
+      // ein Wegpunkt ohne Koordinate: nichts zeichnen statt NaN
+      if (!Number.isFinite(len)) return 'none';
       // kürzer als das Event: die gekürzten Kanten liefen rückwärts
       if (len < 36) return 'short';
       const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };

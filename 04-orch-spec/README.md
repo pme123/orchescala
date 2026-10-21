@@ -1587,6 +1587,7 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
 | … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |
 | … sonst (Gateway, End-Event mit Definition, `event="start"`, Aufgabe ohne Ausgaben) | ein **None-Throw-Event** «set x» auf jedem Fluss davor (bzw. danach bei `end`) mit dem Output-Mapping — je Fluss eines, ein Join wartet so weiter auf alle Zweige |
+| … an einem parallelen Fork mit einem Eingang (`event="end"`) | ein None-Throw-Event davor — er verzweigt sofort, so nicht je Zweig gleichzeitig |
 | … an einem Sequenzfluss (`event="take"`) | ein None-Throw-Event «set x» auf dem Fluss |
 | `${…}` in Bedingungen, Timern, Mappings | `=…` |
 
