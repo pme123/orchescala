@@ -47,8 +47,11 @@ export const waitsForMessage = (step: Step): boolean =>
 
 /** Nur wer auf eine Nachricht wartet — sonst `null`. */
 export function messageCorrelation(step: Step, engine: EngineId | undefined): MessageCorrelation | null {
-  if (!waitsForMessage(step)) return null;
-  const expression = step.correlationKey;
+  return waitsForMessage(step) ? correlationOf(step.correlationKey, engine) : null;
+}
+
+/** Ein Korrelationsschlüssel — am wartenden Schritt oder an einer Nachricht am Rand (Boundary-Event). */
+export function correlationOf(expression: string | undefined, engine: EngineId | undefined): MessageCorrelation {
   const of = (choice: CorrelationChoice) => ({ choice, param: choice, value: `{{${choice}}}`, expression });
   if (!expression?.trim()) {
     return (engine ?? 'c7') === 'c7'
@@ -74,6 +77,10 @@ export function correlationKeysOf(spec: Pick<ProcessSpec, 'steps'>): Record<stri
   const walk = (steps: Step[]) => {
     for (const s of steps) {
       if (waitsForMessage(s) && s.correlationKey?.trim()) out[s.id] = s.correlationKey.trim();
+      // eine Nachricht am Rand wartet auch — ihr Element ist das Boundary-Event
+      for (const e of s.errors ?? []) {
+        if (e.eventKind === 'message' && e.boundaryId && e.correlationKey?.trim()) out[e.boundaryId] = e.correlationKey.trim();
+      }
       walk([...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])]);
     }
   };

@@ -8,7 +8,7 @@
 import { overallStatus } from './status.ts';
 import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
 import { STATUS_META } from './types.ts';
-import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
+import { blockGroups, blockStart, boundaryLabel, isEventBoundary, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
 import { C7_LABEL, C8_LABEL, engineLabel } from './engineLabels.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
@@ -116,7 +116,7 @@ function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out:
     }
     for (const e of s.errors ?? []) {
       if (!e.steps?.length || e.pattern) continue;
-      out.push(`${bullet(depth + 1)} *${e.side ? 'Nebenpfad' : 'Fehlerfall'} «${e.code}»*`);
+      out.push(`${bullet(depth + 1)} *${isEventBoundary(e) ? boundaryLabel(e) : e.side ? 'Nebenpfad' : 'Fehlerfall'} «${e.code}»*`);
       fachlichSteps(spec, e.steps, depth + 2, out, pn);
     }
     if (s.children?.length) fachlichSteps(spec, s.children, depth + 1, out, pn);
@@ -199,7 +199,7 @@ function outlineFlat(steps: Step[], depth: number, out: string[]) {
     }
     for (const e of s.errors ?? []) {
       if (!e.steps?.length) continue;
-      out.push(`${bullet(depth + 1)} [${e.pattern ? `Pattern ${e.pattern}: ` : ''}${e.side ? 'Nebenpfad' : 'Fehler'} ${e.code}]`);
+      out.push(`${bullet(depth + 1)} [${e.pattern ? `Pattern ${e.pattern}: ` : ''}${boundaryLabel(e)} ${e.code}]`);
       outline(e.steps, depth + 2, out);
     }
     if (s.children?.length) outline(s.children, depth + 1, out);
@@ -342,7 +342,9 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       out.push('**Fehler und Nebenpfade**', '');
       out.push(...table(s.errors.map((e: ErrorHandling) => [
         `\`${e.code}\``,
-        (e.side ? 'Nebenpfad' : e.interrupting === false ? 'Fehler, nicht unterbrechend' : 'Fehler, unterbrechend') + (e.pattern ? ` — Pattern ${pn(e.pattern)}` : ''),
+        (isEventBoundary(e)
+          ? `${boundaryLabel(e)}${e.messageName ? ` \`${e.messageName}\`` : ''}${e.interrupting === false ? ', nicht unterbrechend' : ', unterbrechend'}`
+          : e.side ? 'Nebenpfad' : e.interrupting === false ? 'Fehler, nicht unterbrechend' : 'Fehler, unterbrechend') + (e.pattern ? ` — Pattern ${pn(e.pattern)}` : ''),
         e.steps?.length ? e.steps.map(x => `\`${x.id}\``).join(' → ') : '',
       ]), ['Fehler', 'Art', 'Behandlung']));
     }

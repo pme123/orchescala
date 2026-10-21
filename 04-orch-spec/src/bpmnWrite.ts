@@ -20,7 +20,7 @@
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels';
-import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
+import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
 import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel';
 import { catalogEntry } from './interactions';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
@@ -257,6 +257,11 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
     if (el) writeBoundaryTimers(doc, byId, engine, step, issues);
+    // Signal bzw. Nachricht der Ereignisse am Rand — in ihr Boundary-Event
+    for (const e of step.errors ?? []) {
+      const b = isEventBoundary(e) && e.boundaryId && !e.pattern ? byId.get(e.boundaryId) : undefined;
+      if (b) writeMessage(doc, b, engine, { id: e.boundaryId!, messageName: e.messageName, correlationKey: e.correlationKey });
+    }
 
     // Der Init-Worker gibt das InitIn zurück — ohne Filter und ohne Mapping
     if (el && step.kind === 'service' && isInitWorker(step, spec.processId)) {
@@ -627,7 +632,7 @@ function writeImplementation(
  * können: nur dieses Element zeigt dann auf eine andere — eine schon vorhandene
  * mit dem Namen, sonst eine Kopie. Was niemand mehr braucht, räumt `tidyGlobals` weg.
  */
-function writeMessage(doc: Document, el: Element, engine: EngineId, step: Step) {
+function writeMessage(doc: Document, el: Element, engine: EngineId, step: Pick<Step, 'id' | 'messageName' | 'correlationKey'>) {
   const name = step.messageName?.trim();
   if (!name) return;
   const holder = local(el) === 'receiveTask' || local(el) === 'sendTask' ? el
@@ -638,7 +643,7 @@ function writeMessage(doc: Document, el: Element, engine: EngineId, step: Step) 
   const defs = doc.documentElement;
   const globals = kids(defs).filter(g => local(g) === tag);
   const users = (id: string) => allElements(defs).filter(x => x.getAttribute(refAttr) === id).length;
-  const key = engine === 'c8' && tag === 'message' && (local(el) === 'receiveTask' || local(el) === 'intermediateCatchEvent')
+  const key = engine === 'c8' && tag === 'message' && ['receiveTask', 'intermediateCatchEvent', 'boundaryEvent'].includes(local(el))
     ? step.correlationKey?.trim() : undefined;
   const keyOf = (g: Element) => {
     const ext = firstNamed(g, 'extensionElements');

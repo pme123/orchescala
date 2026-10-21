@@ -137,6 +137,25 @@ function timerOf(el: Element): TimerSpec | undefined {
   return { kind: 'duration', expression: '' };
 }
 
+/** Boundary-Events, die keine Fehler sind — sie haben einen eigenen Abschnitt am Schritt */
+const EVENT_BOUNDARY_KINDS = new Set<string>(['signal', 'message', 'escalation']);
+
+/** Ein Boundary-Event, das kein Fehler ist (Signal, Nachricht, Eskalation)? */
+export const isEventBoundary = (e: ErrorHandling): boolean =>
+  !!e.boundary && EVENT_BOUNDARY_KINDS.has(e.eventKind ?? 'none');
+
+/** Wie ein Eintrag heisst — Fehler, Nebenpfad oder die Art des Ereignisses */
+export function boundaryLabel(e: ErrorHandling): string {
+  if (isEventBoundary(e)) return EVENT_LABEL[e.eventKind!];
+  return e.side ? 'Nebenpfad' : 'Fehler';
+}
+
+/** Der Korrelationsschlüssel der Nachricht, auf die das Element wartet (Camunda 8) */
+function correlationKeyOf(el: Element, ctx: Pick<BuildCtx, 'correlationKeys'>): string | undefined {
+  const def = local(el) === 'receiveTask' ? el : kids(el).find(c => local(c) === 'messageEventDefinition');
+  return ctx.correlationKeys.get(def?.getAttribute('messageRef') ?? '');
+}
+
 /** Name des Signals bzw. der Nachricht eines Ereignisses — über `signalRef` / `messageRef` */
 function signalRefOf(el: Element, defs: Map<string, string>): string | undefined {
   for (const c of kids(el)) {
@@ -587,8 +606,7 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
   }
   // wer auf eine Nachricht wartet, wird in Camunda 8 über ihren Schlüssel gefunden
   if (kind === 'receive' || (kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch')) {
-    const def = kind === 'receive' ? el : kids(el).find(c => local(c) === 'messageEventDefinition');
-    const key = ctx.correlationKeys.get(def?.getAttribute('messageRef') ?? '');
+    const key = correlationKeyOf(el, ctx);
     if (key) step.correlationKey = key;
   }
 
@@ -689,6 +707,18 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const code = named || steps?.[0]?.name || bid;
     if (!code) continue;
     const pattern = ctx.owned.get(bid);
+    // Signal, Nachricht, Eskalation: kein Fehler — mit Art, Name und (wartende Nachricht) Schlüssel
+    const ev = eventKindOf(b);
+    const event: Partial<ErrorHandling> = EVENT_BOUNDARY_KINDS.has(ev ?? 'none') ? {
+      eventKind: ev,
+      boundaryId: bid,
+      ...(signalRefOf(b, ctx.signals) ? { messageName: signalRefOf(b, ctx.signals) } : {}),
+      ...(correlationKeyOf(b, ctx) ? { correlationKey: correlationKeyOf(b, ctx) } : {}),
+    } : {};
+    if (event.eventKind) {
+      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...event, ...(steps?.length ? { steps } : {}) });
+      continue;
+    }
     // ein Timer samt seinem Element — der Export schreibt ihn dorthin zurück
     const timer = timerOf(b);
     // zwei Boundary-Events mit demselben Code: mit Timer bleibt jedes ein eigener
@@ -1209,6 +1239,59 @@ function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdi
 }
 
 /**
+ * Signal bzw. Nachricht eines Boundary-Events (Name, Korrelationsschlüssel)
+ * gehören wie am Ereignis der Spezifikation: hat das Diagramm sie gegenüber dem
+ * vorigen BPMN nicht geändert, bleibt, was in ihr steht.
+ */
+function keepBoundaryMessages(s: Step, prev: Step, base: Step | undefined) {
+  if (!s.errors?.some(isEventBoundary)) return;
+  const own = s.errors;
+  s.errors = s.errors.map(e => {
+    if (!isEventBoundary(e)) return e;
+    const p = sameBoundary(prev.errors, e, own);
+    if (!p) return e;
+    const b = base ? sameBoundary(base.errors, e, own) : undefined;
+    let next = e;
+    for (const k of ['messageName', 'correlationKey'] as const) {
+      const diagramUnchanged = b ? same(k, e[k], b[k]) : same(k, e[k], p[k]);
+      if (diagramUnchanged && p[k] !== undefined && p[k] !== e[k]) next = { ...next, [k]: p[k] };
+    }
+    return next;
+  });
+}
+
+/**
+ * Art, Signal bzw. Nachricht der Boundary-Events — eine Spezifikation von vor
+ * ihrem Import führt sie als Fehler; sie bekommt sie aus dem Diagramm. Was sie
+ * schon hat, bleibt. Null, wenn nichts fehlt.
+ */
+export function syncBoundaryEvents(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
+  const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
+  let changed = false;
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    let next = s;
+    const theirs = neu.get(s.id)?.errors;
+    if (s.errors?.some(e => e.boundary && !e.eventKind) && theirs?.some(isEventBoundary)) {
+      const errors = s.errors.map(e => {
+        if (!e.boundary || e.eventKind) return e;
+        const f = sameBoundary(theirs, e, s.errors!);
+        if (!f || !isEventBoundary(f)) return e;
+        changed = true;
+        const { eventKind, boundaryId, messageName, correlationKey } = f;
+        return { ...e, eventKind, boundaryId, ...(messageName ? { messageName } : {}), ...(correlationKey ? { correlationKey } : {}) };
+      });
+      next = { ...next, errors };
+    }
+    if (next.children) next = { ...next, children: walk(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) };
+    return next;
+  });
+  const steps = walk(current.steps);
+  return changed ? { ...current, steps } : null;
+}
+
+/**
  * Leere Einträge bei den behandelten Fehlern — ein eben hinzugefügter oder
  * geleerter Regex bzw. Fehlercode — kommen nicht ins BPMN. Der Abgleich darf
  * sie darum nicht verwerfen, solange das Diagramm die übrigen unverändert hat.
@@ -1266,6 +1349,7 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
       if (s.timer) s.timer = withPrevDefault(s.timer, prev.timer);
       keepBoundaryTimers(s, prev, base?.get(s.id), !st.mappingsFromBpmn);
+      keepBoundaryMessages(s, prev, base?.get(s.id));
       // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
       // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {

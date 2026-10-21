@@ -13,7 +13,7 @@ import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
-import { GENERAL_VARIABLES, blockIndex, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
+import { GENERAL_VARIABLES, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
@@ -27,7 +27,7 @@ import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
-import { CORRELATION_KEY, carriesMessage, messageCorrelation, withMessageName } from '../messageCall';
+import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
 
 interface Props {
   step: Step | null;
@@ -533,47 +533,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </div>
       )}
       {correlation && (
-        <>
-          {/* die beiden Wege des Gateways — einer wird gewählt; den Aufruf zeigt die Doku (Export) */}
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className={`${c.muted} w-24 flex-shrink-0`}>Korrelation</span>
-            <div className="flex gap-1">
-              {(['businessKey', 'processInstanceId'] as const).map(choice => (
-                <button key={choice} disabled={!canEdit || !!ofPattern}
-                  onClick={() => onPatch(step.id, { correlationKey: CORRELATION_KEY[choice] })}
-                  title={spec.engine === 'c8'
-                    ? `Korrelationsschlüssel ${CORRELATION_KEY[choice]} — gesendet wird mit ${choice}`
-                    : `${C7_LABEL} korreliert direkt über ${choice} — die Wahl gilt für die Doku und die Umstellung auf ${C8_LABEL} (${CORRELATION_KEY[choice]})`}
-                  className={`px-2 py-0.5 rounded border font-mono ${correlation.choice === choice
-                    ? (isDark ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200' : 'border-indigo-400 bg-indigo-50 text-indigo-700')
-                    : `${c.border2} ${c.muted2}`} ${!canEdit || ofPattern ? 'cursor-default' : ''}`}>
-                  {choice}
-                </button>
-              ))}
-            </div>
-          </div>
-          {!correlation.choice && correlation.expression && (
-            <Row label="" isDark={isDark}>im Diagramm: <span className="font-mono">{correlation.expression}</span></Row>
-          )}
-          {correlation.missing && (
-            <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
-              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span>Noch nicht gewählt — ohne Korrelationsschlüssel findet die Nachricht in {C8_LABEL} keine wartende Instanz.</span>
-            </p>
-          )}
-          {correlation.misnamed && (
-            <p className={`text-[10px] flex items-start gap-1 ${err}`}>
-              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span><span className="font-mono">processInstanceKey</span> ist der alte Name — der InitWorker setzt heute <span className="font-mono">processInstanceId</span>. So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
-            </p>
-          )}
-          {correlation.fixed && (
-            <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
-              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span>Fester Wert — alle Instanzen warten auf denselben Schlüssel. Einen der beiden Wege wählen.</span>
-            </p>
-          )}
-        </>
+        <CorrelationChoice corr={correlation} engine={spec.engine} isDark={isDark} disabled={!canEdit || !!ofPattern}
+          onChoose={key => onPatch(step.id, { correlationKey: key })} />
       )}
       {step.eventKind === 'timer' && (
         <TimerSection timer={step.timer} spec={spec} isDark={isDark} canEdit={canEdit} lockedBy={ofPattern ?? undefined}
@@ -596,8 +557,56 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       </>}
 
-      {(!!step.errors?.length || !!step.regexHandledErrors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
-        <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !e.side || e.timer).length} isDark={isDark}
+      {/* Signal, Nachricht, Eskalation am Rand: keine Fehler — Name (und Korrelation) bearbeitbar, der Export schreibt sie ins Diagramm */}
+      {(step.errors ?? []).some(isEventBoundary) && (
+        <Section id="events" label="Ereignisse am Rand" count={(step.errors ?? []).filter(isEventBoundary).length} isDark={isDark}>
+          <div className="space-y-1">
+            {(step.errors ?? []).map((e, i) => {
+              if (!isEventBoundary(e)) return null;
+              const setErr = (patch: Partial<typeof e>) =>
+                onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
+              const locked = !canEdit || !!e.pattern || !!ofPattern;
+              const handled = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
+              return (
+                <div key={i} className={`rounded border px-2 py-1.5 space-y-1 ${handled ? warnBox : c.border2}`}>
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    <Zap size={10} className={`flex-shrink-0 ${c.muted}`} />
+                    <span className="font-semibold">{boundaryLabel(e)}</span>
+                    <span className="truncate">«{e.code}»</span>
+                    {e.interrupting === false && <span className={`text-[9px] ${c.muted}`}>nicht unterbrechend</span>}
+                    <span className="flex-1" />
+                    {!!e.steps?.length && (
+                      <button onClick={() => onGoto(e.steps![0].id)} className={`text-[9px] ${c.muted} hover:underline`}>Pfad →</button>
+                    )}
+                  </div>
+                  {(e.eventKind === 'signal' || e.eventKind === 'message') && (
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className={`${c.muted} w-24 flex-shrink-0`}>{e.eventKind === 'signal' ? 'Signal' : 'Nachricht'}</span>
+                      <input value={e.messageName ?? ''} disabled={locked}
+                        onChange={ev => setErr({ messageName: ev.target.value })}
+                        title={e.pattern ? 'Legt das Pattern fest' : 'Der Name, unter dem gesendet bzw. korreliert wird — ein Ausdruck mit = (FEEL)'}
+                        placeholder={e.eventKind === 'signal' ? 'Name des Signals' : 'Name der Nachricht'}
+                        className={`flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input}`} />
+                    </div>
+                  )}
+                  {e.eventKind === 'message' && (
+                    <CorrelationChoice corr={correlationOf(e.correlationKey, spec.engine)} engine={spec.engine} isDark={isDark} disabled={locked}
+                      onChoose={key => setErr({ correlationKey: key })} />
+                  )}
+                  {handled && (
+                    <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
+                      <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{handled.text}</span>
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {((step.errors ?? []).some(e => !isEventBoundary(e)) || !!step.regexHandledErrors?.length || (canEdit && (step.kind === 'service' || step.kind === 'call'))) && (
+        <Section id="errors" label="Behandelte Fehler" count={(step.errors ?? []).filter(e => !isEventBoundary(e) && (!e.side || e.timer)).length} isDark={isDark}
           openFor={sub(stepTarget(step.id), 'error:')}
           action={canEdit ? (
             <span className="flex items-center gap-2">
@@ -621,8 +630,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           </p>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
-              // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste — ausser mit Timer
-              if (e.side && !e.timer) return null;
+              // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste — ausser mit Timer;
+              // Signal, Nachricht, Eskalation stehen oben unter «Ereignisse am Rand»
+              if (isEventBoundary(e) || (e.side && !e.timer)) return null;
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
               // behandelt ist der Normalfall — gelb/rot nur, wenn am Eintrag etwas nicht stimmt
@@ -1773,6 +1783,57 @@ function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
             : 'Noch kein Wert — eine Variable setzen, z. B. = timerWait.'}
       </p>
     </div>
+  );
+}
+
+/** Die beiden Wege des Gateways (businessKey / processInstanceId) — einer wird gewählt; den Aufruf zeigt die Doku (Export) */
+function CorrelationChoice({ corr, engine, isDark, disabled, onChoose }: {
+  corr: MessageCorrelation; engine?: EngineId; isDark: boolean; disabled: boolean; onChoose: (key: string) => void;
+}) {
+  const c = cls(isDark);
+  const { warn, err } = tones(isDark);
+  return (
+    <>
+      {/* die beiden Wege des Gateways — einer wird gewählt; den Aufruf zeigt die Doku (Export) */}
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className={`${c.muted} w-24 flex-shrink-0`}>Korrelation</span>
+        <div className="flex gap-1">
+          {(['businessKey', 'processInstanceId'] as const).map(choice => (
+            <button key={choice} disabled={disabled}
+              onClick={() => onChoose(CORRELATION_KEY[choice])}
+              title={engine === 'c8'
+                ? `Korrelationsschlüssel ${CORRELATION_KEY[choice]} — gesendet wird mit ${choice}`
+                : `${C7_LABEL} korreliert direkt über ${choice} — die Wahl gilt für die Doku und die Umstellung auf ${C8_LABEL} (${CORRELATION_KEY[choice]})`}
+              className={`px-2 py-0.5 rounded border font-mono ${corr.choice === choice
+                ? (isDark ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200' : 'border-indigo-400 bg-indigo-50 text-indigo-700')
+                : `${c.border2} ${c.muted2}`} ${disabled ? 'cursor-default' : ''}`}>
+              {choice}
+            </button>
+          ))}
+        </div>
+      </div>
+      {!corr.choice && corr.expression && (
+        <Row label="" isDark={isDark}>im Diagramm: <span className="font-mono">{corr.expression}</span></Row>
+      )}
+      {corr.missing && (
+        <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>Noch nicht gewählt — ohne Korrelationsschlüssel findet die Nachricht in {C8_LABEL} keine wartende Instanz.</span>
+        </p>
+      )}
+      {corr.misnamed && (
+        <p className={`text-[10px] flex items-start gap-1 ${err}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span><span className="font-mono">processInstanceKey</span> ist der alte Name — der InitWorker setzt heute <span className="font-mono">processInstanceId</span>. So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
+        </p>
+      )}
+      {corr.fixed && (
+        <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>Fester Wert — alle Instanzen warten auf denselben Schlüssel. Einen der beiden Wege wählen.</span>
+        </p>
+      )}
+    </>
   );
 }
 

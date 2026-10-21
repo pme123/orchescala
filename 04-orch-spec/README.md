@@ -1624,7 +1624,9 @@ Name der Nachricht (bzw. des Signals) steht am Schritt und lässt sich dort
 ändern — wie Topic oder Timer gehört er der Spezifikation, der BPMN-Export
 schreibt ihn in die `<bpmn:message>`. Nutzt ein anderes Element dieselbe
 Nachricht, bekommt der Schritt eine eigene (bzw. die schon vorhandene mit dem
-neuen Namen).
+neuen Namen). Dasselbe gilt für Signal und Nachricht an einem Boundary-Event:
+sie sind keine behandelten Fehler, sondern stehen am Schritt unter «Ereignisse
+am Rand» — mit Name und, bei einer Nachricht, der Korrelation.
 
 Bei einer wartenden Nachricht wählt man unter «Korrelation» einen der beiden
 Wege des Gateways: `businessKey` oder `processInstanceId`. In Camunda 8 wird
