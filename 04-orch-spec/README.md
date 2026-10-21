@@ -1586,7 +1586,7 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | `camunda:modelerTemplate` | `zeebe:modelerTemplate` (der Service-Verweis bleibt) |
 | Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
 | … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |
-| … sonst (Gateway, End-Event mit Definition, `event="start"`, Aufgabe ohne Ausgaben) | ein **None-Throw-Event** «set x» davor (bzw. danach bei `end`) mit dem Output-Mapping |
+| … sonst (Gateway, End-Event mit Definition, `event="start"`, Aufgabe ohne Ausgaben) | ein **None-Throw-Event** «set x» auf jedem Fluss davor (bzw. danach bei `end`) mit dem Output-Mapping — je Fluss eines, ein Join wartet so weiter auf alle Zweige |
 | `${…}` in Bedingungen, Timern, Mappings | `=…` |
 
 **Warum ein Throw-Event:** ein Output-Mapping greift beim Abschluss eines
