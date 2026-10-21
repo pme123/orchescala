@@ -313,6 +313,8 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
         ? `Korreliert über \`businessKey\` oder \`processInstanceId\` — der Sender wählt.`
         : corr.missing
           ? 'Kein Korrelationsschlüssel im BPMN — die Nachricht findet so keine wartende Instanz.'
+          : corr.misnamed
+            ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: in ${C8_LABEL} heisst die Variable \`processInstanceKey\`.`
           : `Korrelationsschlüssel \`${corr.expression}\` — also \`${corr.param}\`.`, '');
       out.push('```http', messageRequest(s, corr, spec), '```', '');
     }

@@ -41,6 +41,9 @@ test('C8: the key decides the gateway parameter', () => {
   assert.deepEqual(messageCorrelation(step('=processInstanceKey'), 'c8'), { param: 'processInstanceId', value: '{{processInstanceId}}', expression: '=processInstanceKey' });
   assert.deepEqual(messageCorrelation(step('=businessKey'), 'c8'), { param: 'businessKey', value: '{{businessKey}}', expression: '=businessKey' });
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.value, '{{id}}');
+  // die Variable heisst in Camunda 8 processInstanceKey
+  assert.equal(messageCorrelation(step('=processInstanceId'), 'c8')?.misnamed, true);
+  assert.equal(messageCorrelation(step('=processInstanceId'), 'c8')?.param, 'processInstanceId');
   assert.equal(messageCorrelation(step(), 'c8')?.missing, true);
   // Camunda 7: der Sender wählt
   assert.deepEqual(messageCorrelation(step(), 'c7'), { param: 'businessKey', value: '{{businessKey}}', either: true });

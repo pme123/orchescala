@@ -22,7 +22,15 @@ export interface MessageCorrelation {
   either?: boolean;
   /** Camunda 8: ein fester Wert statt `= …` — alle Instanzen teilen ihn */
   fixed?: boolean;
+  /**
+   * Camunda 8: `= processInstanceId` — die Variable gibt es dort nicht (der
+   * InitWorker setzt `processInstanceKey`); gemeint ist sicher diese
+   */
+  misnamed?: boolean;
 }
+
+/** Der Schlüssel, wenn mit der ID der Instanz korreliert wird */
+export const INSTANCE_KEY = '=processInstanceKey';
 
 /** Nur wer auf eine Nachricht wartet (Zwischenereignis, Empfangsaufgabe) — sonst `null`. */
 export function messageCorrelation(step: Step, engine: EngineId | undefined): MessageCorrelation | null {
@@ -34,6 +42,7 @@ export function messageCorrelation(step: Step, engine: EngineId | undefined): Me
   if (!expression.trim().startsWith('=')) return { param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
   if (body === 'processInstanceKey') return { param: 'processInstanceId', value: '{{processInstanceId}}', expression };
+  if (body === 'processInstanceId') return { param: 'processInstanceId', value: '{{processInstanceId}}', expression, misnamed: true };
   // eine Variable: ihr Wert ist der Schlüssel; sonst ein Ausdruck, den der Sender ausrechnet
   const value = /^[A-Za-z_][\w.]*$/.test(body) ? `{{${body.split('.').pop()}}}` : `<${body}>`;
   return { param: 'businessKey', value, expression };

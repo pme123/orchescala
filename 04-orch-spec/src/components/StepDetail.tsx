@@ -27,7 +27,7 @@ import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
-import { carriesMessage, messageCorrelation, messageRequest, withMessageName } from '../messageCall';
+import { INSTANCE_KEY, carriesMessage, messageCorrelation, messageRequest, withMessageName } from '../messageCall';
 
 interface Props {
   step: Step | null;
@@ -555,6 +555,17 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
               <span>Kein Korrelationsschlüssel — in {C8_LABEL} findet die Nachricht so keine wartende Instanz.</span>
+            </p>
+          )}
+          {correlation.misnamed && (
+            <p className={`text-[10px] flex items-start gap-1 ${err}`}>
+              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+              <span>
+                <span className="font-mono">processInstanceId</span> gibt es in {C8_LABEL} nicht — die Variable heisst <span className="font-mono">processInstanceKey</span> (setzt der InitWorker). So bleibt der Schlüssel leer und das Event erzeugt einen Incident.
+                {canEdit && !ofPattern && (
+                  <> <button onClick={() => onPatch(step.id, { correlationKey: INSTANCE_KEY })} className="underline">Auf <span className="font-mono">{INSTANCE_KEY}</span> ändern</button></>
+                )}
+              </span>
             </p>
           )}
           {correlation.fixed && (
