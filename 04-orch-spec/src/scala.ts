@@ -396,7 +396,8 @@ const LITERAL = /^(".*"|-?\d+(\.\d+)?L?)$/s;
  * aus der Domain, wenn es sich nicht auf einen inneren Wert bringen lässt.
  */
 function isWholeExample(f: Field, example: string): boolean {
-  if (f.optional) return /^(None\b|Some\s*\()/.test(example);
+  // `Option("…")` ist schon die Hülle — sonst `Some(Option("…"))`
+  if (f.optional) return /^(None\b|Some\s*\(|Option\s*\(|Option\.empty\b)/.test(example);
   if (f.collection) return /^(Seq|List|Vector|Set)\b/.test(example);
   if (f.map) return /^Map\b/.test(example);
   return false;
@@ -461,7 +462,8 @@ export function looksLikeScala(text: string, kind: 'example' | 'description'): b
   const t = text.trim();
   if (kind === 'example' ? /^(s|f|raw)?"/.test(t) : /^s".*\$/.test(t)) return true;
   if (kind === 'example' ? /^default[A-Z]\w*$/.test(t) : /^[a-z]\w*Descr$/.test(t)) return true;
-  return /^([A-Z]\w*|[a-z]+[A-Z]\w*)(\.\w+(\(\))?)+$/.test(t)
+  // auch mit Backticks: `SubStatusKeyDocuments.\`documents-prepared\`.toString`
+  return /^([A-Z]\w*|[a-z]+[A-Z]\w*)(\.(\w+|`[^`]+`)(\(\))?)+$/.test(t)
     || /^[A-Za-z_][\w.]*\(.*\)$/.test(t);
 }
 
