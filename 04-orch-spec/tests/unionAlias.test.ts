@@ -37,7 +37,8 @@ object SendEvent extends CompanyBpmnProcessDsl:
       id: In.Id,
       both: In.Both,
       range: In.Range,
-      pid: In.ProcessInstanceId
+      pid: In.ProcessInstanceId,
+      commented: In.Commented
   )
   object In:
     type ReceivingSystems = Option[String] | Seq[ReceivingSystem]
@@ -45,6 +46,7 @@ object SendEvent extends CompanyBpmnProcessDsl:
     type Both = Named & Dated
     type Range = Int :| (Greater[0] & Less[10])
     type ProcessInstanceId = String :| ValidUUID | Long
+    type Commented = String // C7: a | b - C8: c & d
     object Nested:
       type Deep = String
     end Nested
@@ -118,6 +120,8 @@ test('import: other aliases in the companion still resolve to their target - an 
   assert.deepEqual([field('range').type, field('range').constraint], ['Int', '(Greater[0] & Less[10])']);
   // String :| ValidUUID | Long — eine Union: der Alias bleibt, ohne Einschränkung (kein .refineUnsafe im Beispiel)
   assert.deepEqual([field('pid').type, field('pid').constraint], ['SendEvent.In.ProcessInstanceId', undefined]);
+  // ein Kommentar hinter dem Alias zählt nicht — `| b` darin macht keine Union
+  assert.equal(field('commented').type, 'String');
   assert.equal(field('both').type, 'SendEvent.In.Both');
 });
 
@@ -130,7 +134,7 @@ test('export: the union alias is written as it was imported', () => {
 test('import: a union alias at the top of the file is reported as unresolved - its simple name is no Scala path', () => {
   const top = source
     .replace('object SendEvent extends', 'type TopUnion = String | Int\n\nobject SendEvent extends')
-    .replace('      pid: In.ProcessInstanceId\n', '      pid: In.ProcessInstanceId,\n      top: TopUnion\n');
+    .replace('      commented: In.Commented\n', '      commented: In.Commented,\n      top: TopUnion\n');
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, scanScala(top, 'SendEvent.scala'), null)!;
   assert.ok(r.unresolved.includes('TopUnion'));
 });

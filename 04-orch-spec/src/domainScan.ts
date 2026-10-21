@@ -47,6 +47,15 @@ const END = /^(\s*)end\s+(\w+)/;
 const SERVICE_MARK = /^\s+(?:(?:final|override)\s+)*(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 /** Ein verschachtelter Bereich für Typ-Namen: `object`, `trait`, `class`, `enum` (eingerückt) */
 const NESTED_SCOPE = /^(\s*)(?:(?:sealed|final|abstract|private|protected|case|open)\s+)*(?:object|trait|class|enum)\s+(\w+)/;
+/** Ohne Kommentar am Zeilenende (`type Id = String // a | b`) — ausserhalb von Text */
+function withoutComment(text: string): string {
+  let inString = false;
+  for (let i = 0; i < text.length - 1; i++) {
+    if (text[i] === '"' && text[i - 1] !== '\\') inString = !inString;
+    else if (!inString && text[i] === '/' && text[i + 1] === '/') return text.slice(0, i);
+  }
+  return text;
+}
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
 /**
  * `lazy val example = In(` bzw. `lazy val example: In.Standard = In.Standard(` im
@@ -485,7 +494,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
     // das Ziel kann über mehrere Zeilen gehen (`any.In[(\n 11,\n 15 )]`)
     const tt = !owner ? TYPE_TOP.exec(line) : null;
     if (tt) {
-      let target = tt[2].trim();
+      let target = withoutComment(tt[2]).trim();
       let depth = balance(target, 0);
       while (depth > 0 && i + 1 < lines.length) {
         i++;
@@ -501,7 +510,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (tm && owner) {
       // im Begleitobjekt (`object In:` ⏎ `type ReceivingSystems = …`) heisst er `In.ReceivingSystems`
       const path = typeScopes.map(sc => sc.name).filter(n => n !== owner);
-      add([...path, tm[2]].join('.'), 'alias', { target: line.slice(line.indexOf('=') + 1).trim() });
+      add([...path, tm[2]].join('.'), 'alias', { target: withoutComment(line.slice(line.indexOf('=') + 1)).trim() });
       continue;
     }
 
