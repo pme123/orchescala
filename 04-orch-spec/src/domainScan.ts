@@ -311,6 +311,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
   let owner: string | null = null;
   /** das zuletzt geöffnete Objekt — der Companion, in dem ein `exampleMinimal.copy(` steht */
   let companion: string | null = null;
+  /** Einrückung von `companion` — ein `type` tiefer darin gehört ihm (`object In:` ⏎ `type X = …`) */
+  let companionIndent = 0;
   let doc = '';
 
   const add = (name: string, kind: DomainType['kind'], extra: Partial<DomainType> = {}) => {
@@ -346,6 +348,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const o = OBJECT.exec(line);
     if (o) {
       companion = o[2];
+      companionIndent = o[1].length;
       // Nur ein Objekt auf oberster Ebene trägt Member wie `In` / `Out`.
       if (o[1].length === 0) {
         owner = o[2];
@@ -484,7 +487,12 @@ export function scanScala(source: string, path = ''): DomainType[] {
 
     // `type Out = Seq[Account]` — ebenfalls ein verwendbarer Typ (mit Ziel)
     const tm = TYPE_MEMBER.exec(line);
-    if (tm && owner) { add(tm[2], 'alias', { target: line.slice(line.indexOf('=') + 1).trim() }); continue; }
+    if (tm && owner) {
+      // im Begleitobjekt (`object In:` ⏎ `type ReceivingSystems = …`) heisst er `In.ReceivingSystems`
+      const inCompanion = companion && companionIndent > 0 && companion !== owner && tm[1].length > companionIndent;
+      add(inCompanion ? `${companion}.${tm[2]}` : tm[2], 'alias', { target: line.slice(line.indexOf('=') + 1).trim() });
+      continue;
+    }
 
     const cc = CASE_CLASS.exec(line);
     if (cc) {

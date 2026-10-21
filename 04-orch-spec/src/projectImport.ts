@@ -24,7 +24,7 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types.ts';
 import { isDomainSource, scanFiles } from './domainScan.ts';
 import { allSteps } from './bpmn.ts';
-import { exampleOf, importsForExpression, isFixedCaseDefault, typeShape } from './scalaTypes.ts';
+import { exampleOf, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape } from './scalaTypes.ts';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
 import { packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
@@ -229,6 +229,9 @@ class Converter {
     if (own) {
       if (own.kind === 'alias') {
         if (!own.target) { this.unresolved.add(base); return { type: base }; }
+        // `type ReceivingSystems = Option[String] | Seq[X]` — ein Union-Typ hat in der App
+        // kein Gegenstück: das Feld behält den Alias (voll qualifiziert, der Export übernimmt ihn wörtlich)
+        if (isCompoundType(own.target)) return { type: own.name };
         const shape = typeShape(own.target);
         const inner = this.fieldType(shape.base, own.pkg, depth + 1);
         return shape.constraint ? { ...inner, constraint: inner.constraint ?? shape.constraint } : inner;
