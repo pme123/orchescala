@@ -1,6 +1,8 @@
 // linkedom parst XML ohne Namensräume (namespaceURI, getAttributeNS …) — der
 // Engine-Konverter braucht sie (camunda: / zeebe:). Für die Tests reicht es, sie
 // aus den xmlns-Deklarationen der Vorfahren aufzulösen, wie der Browser es tut.
+// Es ändert die Prototypen von linkedom global — unbedenklich, weil `node --test`
+// jede Testdatei in einem eigenen Prozess ausführt.
 import { DOMParser } from 'linkedom';
 
 const XMLNS = 'http://www.w3.org/2000/xmlns/';

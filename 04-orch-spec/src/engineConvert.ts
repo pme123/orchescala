@@ -658,7 +658,13 @@ const EVENTS = new Set(['startEvent', 'endEvent', 'boundaryEvent']);
 /** `on`: auf dem Fluss selbst (ein take-Listener an einem Sequenzfluss) */
 type Placement = 'here' | 'before' | 'after' | 'on';
 
-interface SetEvent { el: Element; place: Exclude<Placement, 'here'>; outputs: Element[] }
+/** wo ein eigenes Event die Variable setzt */
+type EventPlacement = Exclude<Placement, 'here'>;
+
+interface SetEvent { el: Element; place: EventPlacement; outputs: Element[] }
+
+/** wie das Event ins Diagramm kam */
+type Drawn = 'ok' | 'tight' | 'short' | 'none';
 
 /** Ereignisse, die abschliessen, sobald sie eintreten */
 const NONE_EVENTS = new Set(['intermediateThrowEvent', 'intermediateCatchEvent', 'endEvent']);
@@ -676,7 +682,7 @@ function placementOf(el: Element, event: string, hasOutputs: boolean): Placement
   return hasOutputs ? 'here' : 'after';
 }
 
-function setEventReason(el: Element, place: Exclude<Placement, 'here'>): string {
+function setEventReason(el: Element, place: EventPlacement): string {
   const name = local(el);
   if (place === 'on') return 'der take-Listener lief beim Durchlaufen des Flusses';
   if (name.endsWith('Gateway') || name === 'endEvent') return `ein Output-Mapping am ${name} ignoriert ${C8_LABEL}`;
@@ -704,12 +710,21 @@ function insertSetEvent(defs: Element, ctx: Ctx, { el, place, outputs }: SetEven
   const uniqueId = (base: string) => { let n = base; for (let i = 2; ids.has(n); i++) n = `${base}_${i}`; ids.add(n); return n; };
   const di = diagramOf(defs);
   const sourceOf = (flow: Element) => kids(parent).find(k => k.getAttribute('id') === flow.getAttribute('sourceRef'));
-  // ein Listener je Instanz wird ein Event für die ganze Mehrfachausführung
-  const multi = firstNamed(el, 'multiInstanceLoopCharacteristics')
-    ? ' Mehrfachausführung: das Event läuft einmal, der Listener lief je Instanz — prüfen.' : '';
+  // was anders läuft als der Listener — im Dialog sagen
+  const hints = [
+    // ein Listener je Instanz wird ein Event für die ganze Mehrfachausführung
+    firstNamed(el, 'multiInstanceLoopCharacteristics') ? 'Mehrfachausführung: das Event läuft einmal, der Listener lief je Instanz — prüfen.' : '',
+    flows.length > 1 ? `Ein Event je Fluss: die Variable wird bis zu ${flows.length}-mal gesetzt — bei einem nicht festen Wert (Zähler, Zeit) prüfen.` : '',
+    place === 'after' ? interruptedBy(parent, id) : '',
+  ].filter(Boolean).map(h => ` ${h}`).join('');
   let first = true;
   for (const flow of flows) {
-    if (local(sourceOf(flow) ?? flow) === 'eventBasedGateway') {
+    const source = sourceOf(flow);
+    if (!source) {
+      issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — die Quelle des Flusses fehlt: von Hand umsetzen.`);
+      continue;
+    }
+    if (local(source) === 'eventBasedGateway') {
       // nach einem Event-Based Gateway darf nur ein Catch-Event folgen
       issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — nach einem Event-Based Gateway darf nur ein Catch-Event stehen: von Hand umsetzen (z. B. als Output-Mapping am Catch-Event).`);
       continue;
@@ -718,11 +733,25 @@ function insertSetEvent(defs: Element, ctx: Ctx, { el, place, outputs }: SetEven
     const nfId = uniqueId(`${evId}_Flow`);
     insertOnFlow(ctx, parent, flow, evId, nfId, `set ${names}`, first ? outputs : outputs.map(o => o.cloneNode(true) as Element));
     first = false;
-    const drawn = di?.place(evId, nfId, flow.getAttribute('id') ?? '', place === 'before', uniqueId) ?? false;
-    issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${side} eingefügt: ${setEventReason(el, place)}.${multi} `
-      + (!drawn ? 'Ohne Diagramm-Eintrag (dem Fluss fehlt die Kante) — im Modeler einzeichnen.'
-        : drawn === 'tight' ? 'Lage im Diagramm prüfen (wenig Platz auf dem Fluss).' : 'Lage im Diagramm prüfen.'));
+    const drawn: Drawn = di?.place(evId, nfId, flow.getAttribute('id') ?? '', place === 'before', uniqueId) ?? 'none';
+    issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${side} eingefügt: ${setEventReason(el, place)}.${hints} ${DRAWN_TEXT[drawn]}`);
   }
+}
+
+const DRAWN_TEXT: Record<Drawn, string> = {
+  ok: 'Lage im Diagramm prüfen.',
+  tight: 'Lage im Diagramm prüfen (wenig Platz auf dem Fluss).',
+  short: 'Ohne Diagramm-Eintrag (zu wenig Platz auf dem Fluss) — im Modeler einzeichnen.',
+  none: 'Ohne Diagramm-Eintrag (dem Fluss fehlt die Kante) — im Modeler einzeichnen.',
+};
+
+/** Ein unterbrechendes Boundary-Event: dann lief der end-Listener auch, das Event danach nicht */
+function interruptedBy(parent: Element, id: string): string {
+  const boundaries = kids(parent).filter(k => local(k) === 'boundaryEvent' && k.getAttribute('attachedToRef') === id
+    && k.getAttribute('cancelActivity') !== 'false');
+  return boundaries.length
+    ? `Abbruch über ${boundaries.map(b => `«${b.getAttribute('name') || b.getAttribute('id')}»`).join(', ')}: dort lief der Listener auch, das Event nicht — dort ergänzen.`
+    : '';
 }
 
 /** Das Event auf den Fluss setzen: der Fluss (mit seiner Bedingung) endet am
@@ -779,16 +808,18 @@ function diagramOf(defs: Element) {
     for (const p of points) appendEl(edge, make(wp0, 'waypoint', { x: Math.round(p.x), y: Math.round(p.y) }));
   };
   return {
-    /** false: der Fluss hat keine (brauchbare) Kante — das Event bleibt ohne Diagramm-Eintrag;
-     *  `tight`: das Stück ist kürzer als das Event mit etwas Luft */
-    place(evId: string, nfId: string, flowId: string, atEnd: boolean, uniqueId: (base: string) => string): boolean | 'tight' {
+    /** `none`: keine (brauchbare) Kante, `short`: das Stück ist kürzer als das Event —
+     *  beide ohne Diagramm-Eintrag; `tight`: kaum Luft neben dem Event */
+    place(evId: string, nfId: string, flowId: string, atEnd: boolean, uniqueId: (base: string) => string): Drawn {
       const flowEdge = edges.find(e => e.getAttribute('bpmnElement') === flowId);
       const points = flowEdge ? pointsOf(flowEdge) : [];
       const plane = flowEdge?.parentElement;
-      if (!flowEdge || !plane || points.length < 2) return false;
+      if (!flowEdge || !plane || points.length < 2) return 'none';
       const at = atEnd ? points.length - 2 : 0;
       const [a, b] = [points[at], points[at + 1]];
-      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      // kürzer als das Event: die gekürzten Kanten liefen rückwärts
+      if (len < 36) return 'short';
       const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
       const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       const shape = make(shape0, 'BPMNShape', { id: uniqueId(`${evId}_di`), bpmnElement: evId });
@@ -799,7 +830,7 @@ function diagramOf(defs: Element) {
       // die Kante des Flusses endet am Event, die neue führt weiter auf dem alten Weg
       setPoints(flowEdge, [...points.slice(0, at + 1), { x: c.x - d.x * 18, y: c.y - d.y * 18 }]);
       setPoints(edge, [{ x: c.x + d.x * 18, y: c.y + d.y * 18 }, ...points.slice(at + 1)]);
-      return len < 56 ? 'tight' : true;
+      return len < 56 ? 'tight' : 'ok';
     },
   };
 }

@@ -1604,8 +1604,11 @@ Prozess. Das Throw-Event steht im Diagramm auf dem Fluss davor bzw. danach
 davor bzw. danach ist, nach einem Event-Based Gateway (dort darf nur ein
 Catch-Event folgen — also kein `end`-Listener am Gateway, kein `start`-Listener
 an seinen Catch-Events) und bei einem unbekannten Listener-Event. Bei einer
-Mehrfachausführung läuft das Event einmal, der Listener lief je Instanz — der
-Dialog weist darauf hin.
+Mehrfachausführung läuft das Event einmal, der Listener lief je Instanz; bei
+mehreren Flüssen wird die Variable mehrmals gesetzt; bricht ein Boundary-Event
+die Aufgabe ab, lief der `end`-Listener auch, das Event danach nicht — der
+Dialog weist jeweils darauf hin. Ist ein Fluss-Stück kürzer als das Event,
+bleibt es ohne Diagramm-Eintrag (gemeldet).
 
 Ohne Gegenstück fallen still weg: `async…`, `exclusive`, Job-Prioritäten,
 Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
