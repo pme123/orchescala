@@ -36,13 +36,15 @@ object SendEvent extends CompanyBpmnProcessDsl:
       tags: Option[Seq[String]],
       id: In.Id,
       both: In.Both,
-      range: In.Range
+      range: In.Range,
+      pid: In.ProcessInstanceId
   )
   object In:
     type ReceivingSystems = Option[String] | Seq[ReceivingSystem]
     type Id = String :| MinLength[1]
     type Both = Named & Dated
-    type Range = Int :| Greater[0] & Less[10]
+    type Range = Int :| (Greater[0] & Less[10])
+    type ProcessInstanceId = String :| ValidUUID | Long
     object Nested:
       type Deep = String
     end Nested
@@ -69,8 +71,10 @@ test('typeShape: a union is no wrapper - Option[…] only when its bracket close
   assert.deepEqual(typeShape('Option[Seq[String]]'), { base: 'String', optional: true, collection: true, map: false });
   assert.ok(isCompoundType('Option[String] | Seq[X]'));
   assert.ok(isCompoundType('A & B'));
-  // `&` im Iron-Refinement verbindet Einschränkungen — kein Schnitt-Typ
-  assert.ok(!isCompoundType('Int :| Greater[0] & Less[10]'));
+  // `:|` bindet stärker: ohne Klammern ist es eine Union bzw. ein Schnitt-Typ, mit Klammern ein Refinement
+  assert.ok(isCompoundType('String :| ValidUUID | Long'));
+  assert.ok(isCompoundType('Int :| Greater[0] & Less[10]'));
+  assert.ok(!isCompoundType('Int :| (Greater[0] & Less[10])'));
   assert.ok(!isCompoundType('String :| ValidEmail'));
   assert.ok(!isCompoundType('Seq[A | B]'));
 });
@@ -111,7 +115,9 @@ test('scan: a type after the companion object has ended is not named after it', 
 test('import: other aliases in the companion still resolve to their target - an intersection is kept', () => {
   const { field } = imported();
   assert.deepEqual([field('id').type, field('id').constraint], ['String', 'MinLength[1]']);
-  assert.deepEqual([field('range').type, field('range').constraint], ['Int', 'Greater[0] & Less[10]']);
+  assert.deepEqual([field('range').type, field('range').constraint], ['Int', '(Greater[0] & Less[10])']);
+  // String :| ValidUUID | Long — eine Union: der Alias bleibt, ohne Einschränkung (kein .refineUnsafe im Beispiel)
+  assert.deepEqual([field('pid').type, field('pid').constraint], ['SendEvent.In.ProcessInstanceId', undefined]);
   assert.equal(field('both').type, 'SendEvent.In.Both');
 });
 
@@ -124,7 +130,7 @@ test('export: the union alias is written as it was imported', () => {
 test('import: a union alias at the top of the file is reported as unresolved - its simple name is no Scala path', () => {
   const top = source
     .replace('object SendEvent extends', 'type TopUnion = String | Int\n\nobject SendEvent extends')
-    .replace('      range: In.Range\n', '      range: In.Range,\n      top: TopUnion\n');
+    .replace('      pid: In.ProcessInstanceId\n', '      pid: In.ProcessInstanceId,\n      top: TopUnion\n');
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, scanScala(top, 'SendEvent.scala'), null)!;
   assert.ok(r.unresolved.includes('TopUnion'));
 });
