@@ -311,8 +311,11 @@ export function scanScala(source: string, path = ''): DomainType[] {
   let owner: string | null = null;
   /** das zuletzt geöffnete Objekt — der Companion, in dem ein `exampleMinimal.copy(` steht */
   let companion: string | null = null;
-  /** Einrückung von `companion` — ein `type` tiefer darin gehört ihm (`object In:` ⏎ `type X = …`) */
-  let companionIndent = 0;
+  /**
+   * Das verschachtelte Objekt, in dem die Zeile steht (`object In:` ⏎ `type X = …` → `In.X`) —
+   * es endet mit der ersten Zeile, die nicht tiefer eingerückt ist (`end In`, `}`, das Nächste)
+   */
+  let typeScope: { name: string; indent: number } | null = null;
   let doc = '';
 
   const add = (name: string, kind: DomainType['kind'], extra: Partial<DomainType> = {}) => {
@@ -338,6 +341,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
+    if (typeScope && line.search(/\S/) <= typeScope.indent) typeScope = null;
 
     const d = SCALADOC.exec(line);
     if (d) { doc = d[1]; continue; }
@@ -348,7 +352,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const o = OBJECT.exec(line);
     if (o) {
       companion = o[2];
-      companionIndent = o[1].length;
+      typeScope = o[1].length > 0 ? { name: o[2], indent: o[1].length } : null;
       // Nur ein Objekt auf oberster Ebene trägt Member wie `In` / `Out`.
       if (o[1].length === 0) {
         owner = o[2];
@@ -489,8 +493,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const tm = TYPE_MEMBER.exec(line);
     if (tm && owner) {
       // im Begleitobjekt (`object In:` ⏎ `type ReceivingSystems = …`) heisst er `In.ReceivingSystems`
-      const inCompanion = companion && companionIndent > 0 && companion !== owner && tm[1].length > companionIndent;
-      add(inCompanion ? `${companion}.${tm[2]}` : tm[2], 'alias', { target: line.slice(line.indexOf('=') + 1).trim() });
+      add(typeScope && typeScope.name !== owner ? `${typeScope.name}.${tm[2]}` : tm[2], 'alias', { target: line.slice(line.indexOf('=') + 1).trim() });
       continue;
     }
 
