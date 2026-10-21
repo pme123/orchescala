@@ -89,7 +89,12 @@ It automatically does:
 - _Camunda 8_: set `processInstanceId` (a String, the key of the process instance) - there is no
   `execution` like in _Camunda 7_, so use it in FEEL, e.g. `_idempotentId = processInstanceId`.
   The name is engine agnostic - the same as in the Gateway API and in _Camunda 7_.
-  - A `processInstanceId` given from outside (a start variable, the input of a call activity) wins.
+  - Always the own one - like `execution.processInstanceId` in _Camunda 7_: a `processInstanceId`
+    from outside (a start variable, the input of a call activity) is overwritten.
+    Name a field of your `In` differently if it holds the id of another process (e.g. `mainProcessInstanceId`).
+  - It is set when the _Init Process Worker_ completes - not yet in its own input mapping.
+    A worker that needs the own id takes `EngineRunContext.processInstance` (the same in all engines) -
+    in an _Init Process Worker_ override `customInitZIO`: `summon[EngineRunContext].processInstance.map(_.id)`.
   - Only the _Init Process Worker_ sets it - a process without one has no `processInstanceId`.
   - Orchescala maps the variables of a call activity explicitly (`propagateAllParentVariables` and
     `propagateAllChildVariables` are `false`) - so a called process has its own `processInstanceId`.

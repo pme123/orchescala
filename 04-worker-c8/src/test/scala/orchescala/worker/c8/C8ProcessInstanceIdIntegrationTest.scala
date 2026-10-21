@@ -84,14 +84,9 @@ object C8ProcessInstanceIdIntegrationTest extends ZIOSpecDefault:
       for (key, variable) <- run(JsonObject())
       yield assertTrue(variable.contains(Json.fromString(key)))
     },
-    test("a key given from outside wins - a number becomes a String") {
-      for
-        (_, givenString) <- run(JsonObject("processInstanceId" -> Json.fromString("outside-key")))
-        (_, givenNumber) <- run(JsonObject("processInstanceId" -> Json.fromLong(4711L)))
-      yield assertTrue(
-        givenString.contains(Json.fromString("outside-key")),
-        givenNumber.contains(Json.fromString("4711"))
-      )
+    test("an id from outside is overwritten - always the own one, like execution.processInstanceId in C7") {
+      for (key, variable) <- run(JsonObject("processInstanceId" -> Json.fromString("outside-id")))
+      yield assertTrue(variable.contains(Json.fromString(key)))
     }
   ) @@ TestAspect.sequential @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@
     TestAspect.timeout(3.minutes)
