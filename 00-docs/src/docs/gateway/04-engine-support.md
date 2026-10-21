@@ -76,14 +76,14 @@ So the BPMN decides which of the two it takes:
 <bpmn:message id="Message_Reset" name="my-process-reset">
   <bpmn:extensionElements>
     <!-- sent with processInstanceId -->
-    <zeebe:subscription correlationKey="=processInstanceKey" />
+    <zeebe:subscription correlationKey="=processInstanceId" />
     <!-- or sent with businessKey -->
     <!-- <zeebe:subscription correlationKey="=businessKey" /> -->
   </bpmn:extensionElements>
 </bpmn:message>
 ```
 
-- `processInstanceKey` is set by the _Init Process Worker_ - a process without one has none.
+- `processInstanceId` is set by the _Init Process Worker_ - a process without one has none.
 - `businessKey` is a process variable, set by the Gateway when the process is started with one.
 - Any other variable works too: send its value as `businessKey`.
 

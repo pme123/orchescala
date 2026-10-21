@@ -99,7 +99,7 @@ end C8MessageService
 object C8MessageService:
 
   /** The correlation key - like in C7, the `processInstanceId` wins over the `businessKey`. The BPMN
-    * takes it with `correlationKey="=processInstanceKey"` resp. `"=businessKey"`.
+    * takes it with `correlationKey="=processInstanceId"` resp. `"=businessKey"`.
     */
   def correlationKey(businessKey: Option[String], processInstanceId: Option[String]): Option[String] =
     processInstanceId.orElse(businessKey)

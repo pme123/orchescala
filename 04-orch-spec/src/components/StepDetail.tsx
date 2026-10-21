@@ -564,7 +564,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           {correlation.misnamed && (
             <p className={`text-[10px] flex items-start gap-1 ${err}`}>
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span><span className="font-mono">processInstanceId</span> gibt es in {C8_LABEL} nicht — die Variable heisst <span className="font-mono">processInstanceKey</span> (setzt der InitWorker). So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
+              <span><span className="font-mono">processInstanceKey</span> ist der alte Name — der InitWorker setzt heute <span className="font-mono">processInstanceId</span>. So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
             </p>
           )}
           {correlation.fixed && (

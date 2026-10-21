@@ -314,7 +314,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
         : corr.missing
           ? 'Kein Korrelationsschlüssel — die Nachricht findet so keine wartende Instanz.'
           : corr.misnamed
-            ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: in ${C8_LABEL} heisst die Variable \`processInstanceKey\`.`
+            ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: der alte Name, die Variable heisst heute \`processInstanceId\`.`
             : corr.choice
               ? `Korreliert über \`${corr.param}\`${spec.engine === 'c8' ? ` (Korrelationsschlüssel \`${corr.expression}\`)` : ''}.`
               : `Korrelationsschlüssel \`${corr.expression}\` — gesendet mit \`${corr.param}\`.`, '');

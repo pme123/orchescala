@@ -9,13 +9,13 @@ import orchescala.worker.*
 import zio.*
 import zio.test.*
 
-/** The InitWorker puts `processInstanceKey` into the process variables - only if `C8_REST_IT` is
+/** The InitWorker puts `processInstanceId` into the process variables - only if `C8_REST_IT` is
   * set (and `C8_GRPC_IT`, default `http://localhost:26500`), e.g. a local c8run:
   * {{{
-  * C8_REST_IT=http://localhost:8181 sbt "workerC8/testOnly orchescala.worker.c8.C8ProcessInstanceKeyIntegrationTest"
+  * C8_REST_IT=http://localhost:8181 sbt "workerC8/testOnly orchescala.worker.c8.C8ProcessInstanceIdIntegrationTest"
   * }}}
   */
-object C8ProcessInstanceKeyIntegrationTest extends ZIOSpecDefault:
+object C8ProcessInstanceIdIntegrationTest extends ZIOSpecDefault:
 
   private val processId = "orchescala-it-process-instance-key"
 
@@ -46,7 +46,7 @@ object C8ProcessInstanceKeyIntegrationTest extends ZIOSpecDefault:
     override protected def customInit(in: NoInput): NoInput = NoInput()
   end InitKeyWorker
 
-  /** Starts the process and returns its key and its variable `processInstanceKey` once completed. */
+  /** Starts the process and returns its key and its variable `processInstanceId` once completed. */
   private def run(variables: JsonObject): ZIO[Scope, Throwable, (String, Option[Json])] =
     val restAddress = sys.env("C8_REST_IT")
     val grpcAddress = sys.env.getOrElse("C8_GRPC_IT", "http://localhost:26500")
@@ -72,22 +72,22 @@ object C8ProcessInstanceKeyIntegrationTest extends ZIOSpecDefault:
                     )
                     .retry(Schedule.spaced(2.seconds) && Schedule.recurs(30))
       variable <- engine.historicVariableService
-                    .getVariables(Some("processInstanceKey"), Some(started.processInstanceId), None)
-                    .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no processInstanceKey yet"))
+                    .getVariables(Some("processInstanceId"), Some(started.processInstanceId), None)
+                    .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no processInstanceId yet"))
                     .retry(Schedule.spaced(2.seconds) && Schedule.recurs(15))
     yield started.processInstanceId -> variable.head.value
     end for
   end run
 
-  def spec = suite("C8 processInstanceKey against a real cluster")(
+  def spec = suite("C8 processInstanceId against a real cluster")(
     test("the InitWorker sets the key of the process instance - as a String") {
       for (key, variable) <- run(JsonObject())
       yield assertTrue(variable.contains(Json.fromString(key)))
     },
     test("a key given from outside wins - a number becomes a String") {
       for
-        (_, givenString) <- run(JsonObject("processInstanceKey" -> Json.fromString("outside-key")))
-        (_, givenNumber) <- run(JsonObject("processInstanceKey" -> Json.fromLong(4711L)))
+        (_, givenString) <- run(JsonObject("processInstanceId" -> Json.fromString("outside-key")))
+        (_, givenNumber) <- run(JsonObject("processInstanceId" -> Json.fromLong(4711L)))
       yield assertTrue(
         givenString.contains(Json.fromString("outside-key")),
         givenNumber.contains(Json.fromString("4711"))
@@ -95,4 +95,4 @@ object C8ProcessInstanceKeyIntegrationTest extends ZIOSpecDefault:
     }
   ) @@ TestAspect.sequential @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@
     TestAspect.timeout(3.minutes)
-end C8ProcessInstanceKeyIntegrationTest
+end C8ProcessInstanceIdIntegrationTest

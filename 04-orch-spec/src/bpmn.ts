@@ -210,7 +210,7 @@ export const TECHNICAL = new Set([
 /**
  * Die allgemeinen Variablen von Orchescala (`GeneralVariables`): jeder Worker
  * nimmt sie entgegen, sie dürfen in jedem Schritt überschrieben werden — z. B.
- * `_idempotentId = processInstanceKey`. Darum keine Erweiterung des Katalogs,
+ * `_idempotentId = processInstanceId`. Darum keine Erweiterung des Katalogs,
  * auch wenn sie nicht im In des Services stehen.
  * `_identityCorrelationPending` fehlt bewusst: das setzt nur die Engine.
  */

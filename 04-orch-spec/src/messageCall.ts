@@ -5,7 +5,7 @@ import type { EngineId, ProcessSpec, Step } from './types';
 // Das Gateway nimmt `POST /message/{messageName}` mit `businessKey` oder
 // `processInstanceId` als Query-Parameter — die beiden Wege zu korrelieren; am
 // Schritt wird einer gewählt. Camunda 8 hat dafür den Korrelationsschlüssel der
-// Nachricht (`zeebe:subscription`): `=businessKey` bzw. `=processInstanceKey`
+// Nachricht (`zeebe:subscription`): `=businessKey` bzw. `=processInstanceId`
 // (die ID der Instanz, gesetzt vom InitWorker) — das Gateway gibt ihm die
 // `processInstanceId`, sonst den `businessKey` (wie in Camunda 7: die ID gewinnt).
 // Camunda 7 korreliert direkt über einen der beiden; die Wahl steht dort nur in
@@ -16,7 +16,7 @@ export type CorrelationChoice = 'businessKey' | 'processInstanceId';
 /** Der Korrelationsschlüssel je Wahl — so steht er in Camunda 8 im BPMN */
 export const CORRELATION_KEY: Record<CorrelationChoice, string> = {
   businessKey: '=businessKey',
-  processInstanceId: '=processInstanceKey',
+  processInstanceId: '=processInstanceId',
 };
 
 export interface MessageCorrelation {
@@ -35,8 +35,8 @@ export interface MessageCorrelation {
   /** ein fester Wert statt `= …` — alle Instanzen teilen ihn */
   fixed?: boolean;
   /**
-   * `= processInstanceId` — die Variable gibt es in Camunda 8 nicht (der
-   * InitWorker setzt `processInstanceKey`); gemeint ist sicher diese
+   * `= processInstanceKey` — der alte Name der Variable; der InitWorker setzt
+   * heute `processInstanceId` (engine-agnostisch, wie das Gateway)
    */
   misnamed?: boolean;
 }
@@ -58,8 +58,8 @@ export function messageCorrelation(step: Step, engine: EngineId | undefined): Me
   if (!expression.trim().startsWith('=')) return { choice: null, param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
   if (body === 'businessKey') return of('businessKey');
-  if (body === 'processInstanceKey') return of('processInstanceId');
-  if (body === 'processInstanceId') return { ...of('processInstanceId'), choice: null, misnamed: true };
+  if (body === 'processInstanceId') return of('processInstanceId');
+  if (body === 'processInstanceKey') return { ...of('processInstanceId'), choice: null, misnamed: true };
   // eine andere Variable: ihr Wert ist der Schlüssel; sonst ein Ausdruck, den der Sender ausrechnet
   const value = /^[A-Za-z_][\w.]*$/.test(body) ? `{{${body.split('.').pop()}}}` : `<${body}>`;
   return { choice: null, param: 'businessKey', value, expression };

@@ -19,31 +19,31 @@ class C8EngineVariablesTest extends FunSuite:
     ValidationHandler(Right(_))
   )
 
-  test("the InitWorker puts the processInstanceKey into the process variables - as a String"):
+  test("the InitWorker puts the processInstanceId into the process variables - as a String"):
     assertEquals(
       C8Worker.engineVariables(initWorker, processInstanceKey, None),
-      Map("processInstanceKey" -> "9007199254741234")
+      Map("processInstanceId" -> "9007199254741234")
     )
 
   test("a key given from outside wins - a number becomes a String, an empty one does not count"):
     assertEquals(
       C8Worker.engineVariables(initWorker, processInstanceKey, Some(Json.fromString("outside-key"))),
-      Map("processInstanceKey" -> "outside-key")
+      Map("processInstanceId" -> "outside-key")
     )
     assertEquals(
       C8Worker.engineVariables(initWorker, processInstanceKey, Some(Json.fromLong(9007199254741299L))),
-      Map("processInstanceKey" -> "9007199254741299")
+      Map("processInstanceId" -> "9007199254741299")
     )
     assertEquals(
       C8Worker.engineVariables(initWorker, processInstanceKey, Some(Json.fromString(""))),
-      Map("processInstanceKey" -> "9007199254741234")
+      Map("processInstanceId" -> "9007199254741234")
     )
 
   test("another worker does not - e.g. one of a called process must not overwrite it"):
     assertEquals(C8Worker.engineVariables(customWorker, processInstanceKey, None), Map.empty[String, String])
     assertEquals(C8Worker.engineVariableNames(customWorker), Seq.empty)
 
-  test("only the InitWorker fetches a given processInstanceKey"):
-    assertEquals(C8Worker.engineVariableNames(initWorker), Seq("processInstanceKey"))
+  test("only the InitWorker fetches a given processInstanceId"):
+    assertEquals(C8Worker.engineVariableNames(initWorker), Seq("processInstanceId"))
 
 end C8EngineVariablesTest

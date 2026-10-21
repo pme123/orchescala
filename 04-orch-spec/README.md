@@ -1545,11 +1545,11 @@ mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
 Dazu die Camunda-7-Eigenheiten, die in FEEL schlicht Pfade oder Variablen
 sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
 `.hasProp`, `.jsonPath("$.a")`), `execution.getVariable("x")` → `x`,
-`execution.getProcessInstanceId()` → `processInstanceKey`,
+`execution.getProcessInstanceId()` → `processInstanceId`,
 `getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
 `processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen;
-`processInstanceKey` setzt der InitWorker, als String, ausser er wird mitgegeben —
-ohne InitWorker ist er unbekannt),
+`processInstanceId` setzt der InitWorker, als String, ausser sie wird mitgegeben —
+ohne InitWorker ist sie unbekannt),
 `result.get("k")` → `result.k` und Zeitketten wie
 `dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
 alle globex-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
@@ -1627,9 +1627,9 @@ neuen Namen).
 
 Bei einer wartenden Nachricht wählt man unter «Korrelation» einen der beiden
 Wege des Gateways: `businessKey` oder `processInstanceId`. In Camunda 8 wird
-daraus der Korrelationsschlüssel `=businessKey` bzw. `=processInstanceKey` (die
-ID der Instanz, gesetzt vom InitWorker — `processInstanceId` gibt es dort
-nicht). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
+daraus der Korrelationsschlüssel `=businessKey` bzw. `=processInstanceId` (die
+ID der Instanz, gesetzt vom InitWorker; der alte Name `processInstanceKey` wird
+gemeldet). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
 Doku und für die Umstellung auf Camunda 8, die sie statt des Vorschlags
 `=businessKey` übernimmt. Den Aufruf am Gateway
 (`POST {{baseUrl}}/message/<name>?…`, wie in Postman) zeigt der

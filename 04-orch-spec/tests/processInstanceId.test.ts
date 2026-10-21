@@ -1,5 +1,5 @@
-// `processInstanceKey`: in Camunda 8 setzt ihn der InitWorker — ohne InitWorker fehlt er,
-// darum ist er dort unbekannt (und sein Gebrauch wird gemeldet).
+// `processInstanceId`: in Camunda 8 setzt sie der InitWorker — ohne InitWorker fehlt sie,
+// darum ist sie dort unbekannt (und ihr Gebrauch wird gemeldet).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -27,17 +27,17 @@ const bpmn = (topic: string) => `<?xml version="1.0" encoding="UTF-8"?>
 
 const knowsKey = (topic: string, engine: ProcessSpec['engine']): boolean => {
   const spec = { ...importBpmn(bpmn(topic), 'key.bpmn').spec, engine };
-  return processVariables(spec, null).some(v => v.name === 'processInstanceKey');
+  return processVariables(spec, null).some(v => v.name === 'processInstanceId');
 };
 
-test('Camunda 8: processInstanceKey is known with an InitWorker - it sets it', () => {
+test('Camunda 8: processInstanceId is known with an InitWorker - it sets it', () => {
   assert.ok(knowsKey(PID, 'c8'));
 });
 
-test('Camunda 8: without an InitWorker processInstanceKey is unknown - nobody sets it', () => {
+test('Camunda 8: without an InitWorker processInstanceId is unknown - nobody sets it', () => {
   assert.ok(!knowsKey('acme-other-topic', 'c8'));
 });
 
-test('Camunda 7: processInstanceKey is always known - the export uses execution.processInstanceId', () => {
+test('Camunda 7: processInstanceId is always known - the export uses execution.processInstanceId', () => {
   assert.ok(knowsKey('acme-other-topic', 'c7'));
 });

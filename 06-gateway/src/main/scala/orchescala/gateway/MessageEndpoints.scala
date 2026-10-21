@@ -35,7 +35,7 @@ object MessageEndpoints:
           |3. else to nothing - only for start events.
           |
           |In C8 the BPMN decides with the correlation key of the message (`zeebe:subscription`):
-          |`correlationKey="=processInstanceKey"` for the `processInstanceId` (set by the InitWorker),
+          |`correlationKey="=processInstanceId"` for the `processInstanceId` (set by the InitWorker),
           |`correlationKey="=businessKey"` for the `businessKey` - or any variable whose value you send as `businessKey`.
           |""".stripMargin
       )

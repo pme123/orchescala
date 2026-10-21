@@ -90,7 +90,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       businessKey: String,
       generalVariables: GeneralVariables,
       processVariables: Seq[IO[BadVariableError, (String, Option[Json])]],
-      // the processInstanceKey given from outside - for the InitWorker
+      // the processInstanceId given from outside - for the InitWorker
       givenKey: Option[Json]
   ):
 
@@ -366,14 +366,15 @@ object C8Worker:
     if worthTryingAgain then (jobRetries - 1).max(0) else 0
   end retriesAfter
 
-  /** What C7 has in `execution` - C8 has no `execution`: the InitWorker puts `processInstanceKey`
-    * into the process variables (in FEEL `= processInstanceKey`, e.g. `_idempotentId`).
+  /** What C7 has in `execution` - C8 has no `execution`: the InitWorker puts the key of the process
+    * instance as `processInstanceId` into the process variables (in FEEL `= processInstanceId`, e.g.
+    * `_idempotentId`) - engine agnostic, the name of the Gateway API and of C7.
     *
     * Only the InitWorker: it runs in the scope of the process - another worker (e.g. in a call
     * activity) must not overwrite it. A String: a key exceeds JavaScript's safe integers (the
     * partition is in its upper bits) - and `_idempotentId` is a String.
     *
-    * A key given from outside (a start variable, the input of a call activity) wins - a number
+    * An id given from outside (a start variable, the input of a call activity) wins - a number
     * becomes a String.
     */
   def engineVariables(
@@ -387,15 +388,15 @@ object C8Worker:
           .flatMap(json => json.asString.orElse(json.asNumber.map(_.toString)))
           .filter(_.nonEmpty)
           .getOrElse(processInstanceKey.toString)
-        Map(processInstanceKeyName -> key)
+        Map(processInstanceIdName -> key)
       case _                      => Map.empty
 
-  /** The engine variables a worker reads - the InitWorker a given `processInstanceKey`. */
+  /** The engine variables a worker reads - the InitWorker a given `processInstanceId`. */
   def engineVariableNames(worker: Worker[?, ?, ?]): Seq[String] =
     worker match
-      case _: InitWorker[?, ?, ?] => Seq(processInstanceKeyName)
+      case _: InitWorker[?, ?, ?] => Seq(processInstanceIdName)
       case _                      => Seq.empty
 
-  private val processInstanceKeyName = "processInstanceKey"
+  private val processInstanceIdName = "processInstanceId"
 
 end C8Worker
