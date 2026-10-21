@@ -13,7 +13,7 @@
 //
 // Beide Formen werden wieder zur Liste der Einträge gelesen.
 
-import type { EngineId } from './types';
+import type { EngineId } from './types.ts';
 import { feelBody, feelToJuel } from './feelJuel.ts';
 import { importExpression } from './juelFeel.ts';
 

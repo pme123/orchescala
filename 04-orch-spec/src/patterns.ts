@@ -27,7 +27,7 @@
 // Ein Pattern am **Prozess** (`appliesTo: ['process']`) hat keinen Anker:
 // sein Inhalt sind die Blöcke und die Erweiterungen des Prozesses selbst.
 
-import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types';
+import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import { uid } from './util.ts';
 import { ORCHESCALA_TYPES } from './orchescalaTypes.ts';

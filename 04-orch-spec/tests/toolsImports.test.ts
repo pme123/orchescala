@@ -45,7 +45,7 @@ function unloadable(dir = root): string[] {
       const path = resolve(dirname(file), target);
       const at = `${relative(dir, file)}: '${target}'`;
       if (!target.endsWith('.ts')) {
-        problems.push(`${at} - without .ts`);
+        problems.push(`${at} - ${/\.[a-z]+$/.test(target) ? 'not a .ts file' : 'without .ts'}`);
         if (existsSync(`${path}.ts`)) stack.push(`${path}.ts`);
       } else if (!existsSync(path)) problems.push(`${at} - no such file`);
       else stack.push(path);
@@ -60,15 +60,19 @@ test('the tools run in Node: every value import they reach carries its .ts', () 
   assert.deepEqual(unloadable(), []);
 });
 
-// without arguments every tool only says how to call it - so it loaded, with all it imports
+// without arguments every tool only says how to call it and exits with 1 - so it loaded, with all
+// it imports. Node strips the types from 22.18 on (package.json `engines`).
 test('the tools run in Node: each one starts and shows its usage', () => {
   for (const tool of tools) {
-    const run = spawnSync(process.execPath, [join(root, 'tools', tool)], { encoding: 'utf8' });
-    assert.match(`${run.stdout}${run.stderr}`, /Aufruf: node tools\//, `${tool}:\n${run.stderr}`);
+    const run = spawnSync(process.execPath, [join(root, 'tools', tool)], { encoding: 'utf8', timeout: 10_000 });
+    const out = `${tool}:\n${run.stderr}`;
+    assert.equal(run.status, 1, out);
+    assert.match(`${run.stdout}${run.stderr}`, /Aufruf: node tools\//, out);
+    assert.doesNotMatch(run.stderr, /ERR_|Error:/, out);
   }
 });
 
-test('what Node cannot load: without .ts (also .tsx, followed), a missing file - not a type import', () => {
+test('what Node cannot load: without .ts, not a .ts file (.tsx), a missing file - not a type import', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tools-unloadable-'));
   const write = (path: string, content: string) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -87,7 +91,7 @@ test('what Node cannot load: without .ts (also .tsx, followed), a missing file -
     assert.deepEqual(unloadable(dir).sort(), [
       "src/a.ts: './c' - without .ts",
       "src/c.ts: './d' - without .ts",
-      "tools/t.ts: '../src/b.tsx' - without .ts",
+      "tools/t.ts: '../src/b.tsx' - not a .ts file",
       "tools/t.ts: '../src/gone.ts' - no such file",
     ]);
   } finally {
@@ -106,6 +110,7 @@ test('the imports of a file: one per statement, both quotes, export from and imp
     "import './e.ts';",
     "const f = () => import('./f');",
     "import { type G } from './g';",
+    'import {\n  h1,\n  h2,\n} from "./h";',
   ].join('\n'));
   try {
     assert.deepEqual(imports(file), [
@@ -114,6 +119,7 @@ test('the imports of a file: one per statement, both quotes, export from and imp
       { target: './d.ts', loaded: true },
       { target: './e.ts', loaded: true },
       { target: './g', loaded: true },
+      { target: './h', loaded: true },
       { target: './f', loaded: true },
     ]);
   } finally {

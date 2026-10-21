@@ -21,12 +21,12 @@
 // einer Meldung: Listener, Skripte, Korrelationsschlüssel, nicht
 // übersetzbare Ausdrücke. Lieber sichtbar offen als still falsch.
 
-import type { EngineId } from './types';
+import type { EngineId } from './types.ts';
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 import { feelBody, feelToJuel } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
-import type { WriteIssue, WriteResult } from './bpmnWrite';
+import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import { errorListSource, parseErrorList } from './errorCodes.ts';
 
 /** `_handledErrors` / `_regexHandledErrors`: Liste in Camunda 8, Text mit Kommas in Camunda 7 */
