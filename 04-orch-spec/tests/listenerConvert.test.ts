@@ -415,8 +415,9 @@ test('an end listener on a task with an interrupting boundary event: a hint - on
     <bpmn:sequenceFlow id="f2" sourceRef="u" targetRef="e" />
     <bpmn:sequenceFlow id="f3" sourceRef="timeout" targetRef="e" />`);
   const r = convertBpmn(xml, 'c8');
-  const hint = r.issues.find(i => /Abbruch über/.test(i.text))?.text ?? '';
-  assert.match(hint, /Abbruch über «too late»: dort lief der Listener auch, das Event nicht/);
+  // an issue of its own - on that path the variable is missing
+  const hint = r.issues.find(i => /fehlt bei Abbruch oder Fehler/.test(i.text))?.text ?? '';
+  assert.match(hint, /setVariable «closed» fehlt bei Abbruch oder Fehler über «too late»: dort lief der Listener auch, das Event nicht/);
   assert.ok(!hint.includes('remind'), 'a non-interrupting boundary event does not end the task');
 });
 
@@ -634,4 +635,14 @@ test('a diagram without any shape: the events are inserted without diagram entri
   const r = convertBpmn(xml, 'c8');
   assert.ok(byId(parse(r.xml), 'gw_SetBefore'));
   assert.ok(r.issues.some(i => /Ohne Diagramm-Eintrag/.test(i.text)), JSON.stringify(r.issues));
+});
+
+test('an end event with a link definition is not a None event - BPMN has no link end event: an event before it', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:endEvent id="e">${listener('x', 'true')}<bpmn:incoming>f1</bpmn:incoming><bpmn:linkEventDefinition name="l" /></bpmn:endEvent>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="e" />');
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.deepEqual(outputsOf(byId(doc, 'e')), []);
+  assert.ok(byId(doc, 'e_SetBefore'));
 });

@@ -688,8 +688,8 @@ function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {
 /** wie das Event ins Diagramm kam */
 type Drawn = 'ok' | 'tight' | 'short' | 'none';
 
-/** Ereignisse, die abschliessen, sobald sie eintreten */
-const NONE_EVENTS = new Set(['intermediateThrowEvent', 'intermediateCatchEvent', 'endEvent']);
+/** Zwischen-Ereignisse — ohne Definition oder als Link schliessen sie ab, sobald sie eintreten */
+const INTERMEDIATE_EVENTS = new Set(['intermediateThrowEvent', 'intermediateCatchEvent']);
 
 function placementOf(el: Element, event: string, hasOutputs: boolean): Placement | null {
   const name = local(el);
@@ -697,7 +697,8 @@ function placementOf(el: Element, event: string, hasOutputs: boolean): Placement
   if (event !== 'start' && event !== 'end') return null;
   const definitions = kids(el).map(local).filter(n => n.endsWith('EventDefinition'));
   if (name === 'startEvent' || name === 'boundaryEvent') return 'here';
-  if (NONE_EVENTS.has(name) && definitions.every(d => d === 'linkEventDefinition')) return 'here';
+  if (name === 'endEvent' && !definitions.length) return 'here';
+  if (INTERMEDIATE_EVENTS.has(name) && definitions.every(d => d === 'linkEventDefinition')) return 'here';
   if (name === 'endEvent' || event === 'start') return 'before';
   // ein paralleler Fork verzweigt sofort: ein Event davor statt eines je Zweig (gleichzeitig)
   if (name === 'parallelGateway' && incomingOf(el).length === 1) return 'before';
@@ -744,8 +745,10 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, u
       place === 'after' && local(el) !== 'exclusiveGateway' && flows.filter(f => !firstNamed(f, 'conditionExpression')).length > 1
         ? ', auf parallelen Zweigen gleichzeitig' : ''
     } — bei einem nicht festen Wert (Zähler, Zeit) prüfen.` : '',
-    place === 'after' ? interruptedBy(parent, id) : '',
   ].filter(Boolean).map(h => ` ${h}`).join('');
+  // eine eigene Meldung: an diesem Weg fehlt die Variable
+  const interrupted = place === 'after' ? interruptedBy(parent, id) : '';
+  if (interrupted) issue('Listener', `setVariable «${names}» fehlt bei ${interrupted}`);
   let first = true;
   const skipped: string[] = [];
   for (const flow of flows) {
@@ -779,12 +782,12 @@ const DRAWN_TEXT: Record<Drawn, string> = {
   none: 'Ohne Diagramm-Eintrag (dem Fluss fehlt die Kante) — im Modeler einzeichnen.',
 };
 
-/** Ein unterbrechendes Boundary-Event: dann lief der end-Listener auch, das Event danach nicht */
+/** Ein unterbrechendes Boundary-Event (auch ein Fehler): dann lief der end-Listener auch, das Event danach nicht */
 function interruptedBy(parent: Element, id: string): string {
   const boundaries = kids(parent).filter(k => local(k) === 'boundaryEvent' && k.getAttribute('attachedToRef') === id
     && k.getAttribute('cancelActivity') !== 'false');
   return boundaries.length
-    ? `Abbruch über ${boundaries.map(b => `«${b.getAttribute('name') || b.getAttribute('id')}»`).join(', ')}: dort lief der Listener auch, das Event nicht — dort ergänzen.`
+    ? `Abbruch oder Fehler über ${boundaries.map(b => `«${b.getAttribute('name') || b.getAttribute('id')}»`).join(', ')}: dort lief der Listener auch, das Event nicht — dort ergänzen.`
     : '';
 }
 
