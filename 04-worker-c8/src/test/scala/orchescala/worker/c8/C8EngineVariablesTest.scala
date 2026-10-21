@@ -28,4 +28,11 @@ class C8EngineVariablesTest extends FunSuite:
   test("another worker does not - e.g. one of a called process must not overwrite it"):
     assertEquals(C8Worker.engineVariables(customWorker, processInstanceKey), Map.empty[String, String])
 
+  test("an id from outside that is not the own one is reported - only for the InitWorker"):
+    val outside = Json.obj("processInstanceId" -> Json.fromString("b28def14-dd03-11ed-b268-0242ac120006"))
+    assertEquals(C8Worker.foreignProcessInstanceId(initWorker, outside, processInstanceKey), Some("b28def14-dd03-11ed-b268-0242ac120006"))
+    assertEquals(C8Worker.foreignProcessInstanceId(initWorker, Json.obj("processInstanceId" -> Json.fromString("9007199254741234")), processInstanceKey), None)
+    assertEquals(C8Worker.foreignProcessInstanceId(initWorker, Json.obj("processInstanceId" -> Json.Null), processInstanceKey), None)
+    assertEquals(C8Worker.foreignProcessInstanceId(customWorker, outside, processInstanceKey), None)
+
 end C8EngineVariablesTest
