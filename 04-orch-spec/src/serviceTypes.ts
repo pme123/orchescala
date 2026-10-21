@@ -18,8 +18,8 @@
 // Sonst ist die Ableitung eine gute Vermutung, kein Beweis — bei ungewöhnlich
 // aufgebauten Namen markiert `uncertain`, dass der Import zu prüfen ist.
 
-import type { DomainType, Model, ServiceDef } from './types';
-import { ORCHESCALA_TYPES, catalogIndex } from './orchescalaTypes';
+import type { DomainType, Model, ServiceDef } from './types.ts';
+import { ORCHESCALA_TYPES, catalogIndex } from './orchescalaTypes.ts';
 
 export type ServiceMember = 'In' | 'Out';
 

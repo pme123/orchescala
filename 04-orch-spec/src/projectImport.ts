@@ -20,19 +20,19 @@
 // gemeldet.
 
 import { unzipSync } from 'fflate';
-import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, Step, TypeDef } from './types';
-import { SCALA_TYPES } from './types';
-import { isDomainSource, scanFiles } from './domainScan';
-import { allSteps } from './bpmn';
-import { exampleOf, importsForExpression, isFixedCaseDefault, typeShape } from './scalaTypes';
-import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions';
-import { packageOf, referencedClass } from './scala';
-import { INTERACTION_META } from './types';
-import { domainRef } from './serviceTypes';
-import { enumHasCase, splitEnumCase } from './feel';
-import { handleFor, readSources } from './projects';
-import { uid } from './util';
-import { catalogIndex } from './orchescalaTypes';
+import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, Step, TypeDef } from './types.ts';
+import { SCALA_TYPES } from './types.ts';
+import { isDomainSource, scanFiles } from './domainScan.ts';
+import { allSteps } from './bpmn.ts';
+import { exampleOf, importsForExpression, isFixedCaseDefault, typeShape } from './scalaTypes.ts';
+import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
+import { packageOf, referencedClass } from './scala.ts';
+import { INTERACTION_META } from './types.ts';
+import { domainRef } from './serviceTypes.ts';
+import { enumHasCase, splitEnumCase } from './feel.ts';
+import { handleFor, readSources } from './projects.ts';
+import { uid } from './util.ts';
+import { catalogIndex } from './orchescalaTypes.ts';
 
 export interface ProjectFile { path: string; text: string }
 

@@ -13,9 +13,9 @@
 //
 // Beide Formen werden wieder zur Liste der Einträge gelesen.
 
-import type { EngineId } from './types';
-import { feelBody, feelToJuel } from './feelJuel';
-import { importExpression } from './juelFeel';
+import type { EngineId } from './types.ts';
+import { feelBody, feelToJuel } from './feelJuel.ts';
+import { importExpression } from './juelFeel.ts';
 
 /** Ein FEEL-Text: `"…"` mit maskiertem `\` und `"` */
 export const feelString = (v: string): string => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
