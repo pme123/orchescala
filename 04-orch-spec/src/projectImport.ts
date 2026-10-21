@@ -231,7 +231,11 @@ class Converter {
         if (!own.target) { this.unresolved.add(base); return { type: base }; }
         // `type ReceivingSystems = Option[String] | Seq[X]` — ein Union-Typ hat in der App
         // kein Gegenstück: das Feld behält den Alias (voll qualifiziert, der Export übernimmt ihn wörtlich)
-        if (isCompoundType(own.target)) return { type: own.name };
+        if (isCompoundType(own.target)) {
+          // ohne Objekt ist der Name kein Scala-Pfad, der sich ohne Import auflöst — melden
+          if (!own.owner) { this.unresolved.add(base); return { type: base }; }
+          return { type: own.name };
+        }
         const shape = typeShape(own.target);
         const inner = this.fieldType(shape.base, own.pkg, depth + 1);
         return shape.constraint ? { ...inner, constraint: inner.constraint ?? shape.constraint } : inner;
