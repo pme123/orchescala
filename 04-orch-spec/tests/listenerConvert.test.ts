@@ -657,3 +657,28 @@ test('the comment of a listener not taken over is a valid XML comment - "--" in 
   assert.ok(!comment.includes('--'), comment);
   assert.match(comment, /counter- -1/);
 });
+
+test('end on A, take on its flow, start on B: the events in the order of Camunda 7 - end, take, start', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="a">${listener('aDone', 'true', 'end')}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:userTask id="b">${listener('bOpen', 'true')}<bpmn:incoming>f2</bpmn:incoming></bpmn:userTask>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="a" />
+    <bpmn:sequenceFlow id="f2" sourceRef="a" targetRef="b">${listener('taken', 'true', 'take')}</bpmn:sequenceFlow>`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  const next = (id: string) => Array.from(doc.querySelectorAll('*'))
+    .find(e => e.tagName === 'bpmn:sequenceFlow' && e.getAttribute('sourceRef') === id)?.getAttribute('targetRef');
+  assert.deepEqual([next('a'), next('a_SetAfter'), next('f2_Set'), next('b_SetBefore')], ['a_SetAfter', 'f2_Set', 'b_SetBefore', 'b']);
+});
+
+test('an element that already has the id of the event: the event gets the next free one', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>
+    <bpmn:task id="gw_SetBefore" />`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />');
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.equal(byId(doc, 'f1')?.getAttribute('targetRef'), 'gw_SetBefore_2');
+  assert.deepEqual(outputsOf(byId(doc, 'gw_SetBefore_2')), ['readyForEvents==true']);
+  assert.equal(byId(doc, 'gw_SetBefore')?.tagName, 'bpmn:task');
+});

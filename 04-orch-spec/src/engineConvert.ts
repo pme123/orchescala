@@ -281,9 +281,9 @@ function toC8(defs: Element, ctx: Ctx) {
     //    Muster an End-Events: `execution.setVariable("processStatus", "…")`) —
     //    am Element oder an einem None-Throw-Event davor/danach (placementOf)
     const cio = ext0 ? firstNamed(ext0, 'inputOutput', CAMUNDA_NS) : null;
-    // nur Ausgaben, die ein zeebe:output werden (ein Skript, eine Liste, eine Map nicht)
-    const hasOutputs = io.some(p => local(p) === 'output') || (!!cio && kids(cio).some(p =>
-      local(p) === 'outputParameter' && !kids(p).some(k => ['script', 'list', 'map'].includes(local(k)))));
+    // nur Ausgaben, die ein zeebe:output werden (complexParam: ein Skript, eine Liste, eine Map nicht)
+    const hasOutputs = io.some(p => local(p) === 'output')
+      || (!!cio && kids(cio).some(p => local(p) === 'outputParameter' && !complexParam(p)));
     const listeners = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'executionListener') : [];
     // nach den eigenen Ausgaben — in Camunda 7 lief der end-Listener nach dem Output-Mapping
     const listenerOutputs: Element[] = [];
@@ -314,7 +314,7 @@ function toC8(defs: Element, ctx: Ctx) {
         const tag = local(p) === 'inputParameter' ? 'input' : 'output';
         const target = p.getAttribute('name') ?? '';
         const where = `${tag === 'input' ? 'Eingabe' : 'Ausgabe'} «${target}»`;
-        const complex = kids(p).find(k => ['script', 'list', 'map'].includes(local(k)));
+        const complex = complexParam(p);
         if (complex) {
           issue(where, local(complex) === 'script'
             ? `ist ein Skript — in ${C8_LABEL} als FEEL-Ausdruck neu schreiben.`
@@ -473,7 +473,10 @@ function toC8(defs: Element, ctx: Ctx) {
     const ids = new Set(descendants(defs).map(e => e.getAttribute('id')).filter(Boolean));
     const uniqueId = (base: string) => { let n = base; for (let i = 2; ids.has(n); i++) n = `${base}_${i}`; ids.add(n); return n; };
     const di = diagramOf(defs);
-    for (const e of setEvents) insertSetEvent(ctx, e, uniqueId, di);
+    // die take-Listener zuerst: so steht ihr Event hinter dem eines end-Listeners an der Quelle
+    // (Camunda 7: erst end, dann take, dann start am Ziel)
+    const ordered = [...setEvents.filter(e => e.place === 'on'), ...setEvents.filter(e => e.place !== 'on')];
+    for (const e of ordered) insertSetEvent(ctx, e, uniqueId, di);
   }
 }
 
@@ -885,6 +888,9 @@ function diagramOf(defs: Element) {
     },
   };
 }
+
+/** Ein Parameter mit Skript, Liste oder Map — wird kein zeebe:input/output */
+const complexParam = (p: Element): Element | undefined => kids(p).find(k => ['script', 'list', 'map'].includes(local(k)));
 
 /** `${execution.setVariable("x", v)}` → { name: x, value: v } */
 function setVariableOf(expression: string): { name: string; value: string } | null {
