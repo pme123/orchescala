@@ -31,7 +31,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       camundaClient: Option[CamundaClient]
   ): Unit =
     executeBlocking(job.getKey.toString)(
-      execution = runJob(client, job),
+      execution = runJob(client, job, camundaClient),
       onTimeout = failJob(client, job, s"Worker ${job.getType} timed out after $workerTimeout"),
       // an error before the worker ran (variables, business key) or an exception of the worker's
       // code: only logged - the job stayed activated until its timeout, then again, without end
@@ -59,7 +59,11 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
     .catchAll(err => logError(s"Problem failing the job ${job.getKey} ($message): $err"))
     .unit
 
-  private def runJob(client: JobClient, job: ActivatedJob): ZIO[SttpClientBackend, Throwable, Unit] =
+  private def runJob(
+      client: JobClient,
+      job: ActivatedJob,
+      camundaClient: Option[CamundaClient]
+  ): ZIO[SttpClientBackend, Throwable, Unit] =
       for
         startDate        <- succeed(new Date())
         json             <- extractJson(job)
@@ -74,7 +78,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
                               ))
         _                <- logDebug(s"generalVariables: $generalVariables")
-        _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
+        _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables, camundaClient)
                               .executeWorker()
         _                <-
           logInfo(
@@ -87,7 +91,9 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       job: ActivatedJob,
       businessKey: String,
       generalVariables: GeneralVariables,
-      processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
+      processVariables: Seq[IO[BadVariableError, (String, Option[Json])]],
+      // for the commands a JobClient does not have (set the variables of a BPMN error)
+      camundaClient: Option[CamundaClient] = None
   ):
 
     def executeWorker(): ZIO[SttpClientBackend, Throwable, Unit] =
@@ -215,18 +221,32 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
         "errorCode" -> error.errorCode.toString,
         "errorMsg"  -> error.toString
       )
+      // engine values, not circe's Json - Zeebe would serialize a Json as a bean ({"number":false,...})
       val variables =
-        (filteredGeneralVariables ++
-          errorVars +
-          ("businessKey" -> businessKey)).asJava
-      attemptBlocking:
-        // joined: without, a failed command was lost - the job neither threw the error nor failed
-        client.newThrowErrorCommand(job)
-          .errorCode(error.errorCode.toString)
-          .errorMessage(error.toString)
-          .variables(variables)
-          .send()
-          .join()
+        C8Worker.bpmnErrorVariables(filteredGeneralVariables ++ errorVars + ("businessKey" -> businessKey))
+      // C8 sets the variables of a thrown error locally at the catching error event - in C7 they
+      // reach the process (e.g. the output of a mock). So first set them like a job completion
+      // does (propagated to the upper scopes), then throw the error.
+      val setVariables = camundaClient match
+        case Some(cc) =>
+          attemptBlocking:
+            cc.newSetVariablesCommand(job.getElementInstanceKey)
+              .variables(variables.asJava)
+              .local(false)
+              .send()
+              .join()
+        case None     =>
+          logWarning(s"No CamundaClient - the variables of BPMN error ${error.errorCode} stay at the catching event.")
+      (setVariables *>
+        attemptBlocking:
+          // joined: without, a failed command was lost - the job neither threw the error nor failed
+          client.newThrowErrorCommand(job)
+            .errorCode(error.errorCode.toString)
+            .errorMessage(error.toString)
+            .variables(variables.asJava)
+            .send()
+            .join()
+      )
       .catchAll: err =>
         handleFailure(
           UnexpectedError(s"Problem handling BpmnError to C8: $err."),
@@ -384,5 +404,9 @@ object C8Worker:
       case _                      => Map.empty
 
   private val processInstanceIdName = "processInstanceId"
+
+  /** The variables of a BPMN error as engine values - a circe `Json` (e.g. a mocked output) too. */
+  def bpmnErrorVariables(variables: Map[String, Any]): Map[String, Any] =
+    jsonToVariablesMap(variables)
 
 end C8Worker
