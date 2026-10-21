@@ -660,85 +660,79 @@ function placementOf(el: Element, event: string, hasOutputs: boolean): Placement
   if (name === 'startEvent' || name === 'boundaryEvent') return 'here';
   if (NONE_EVENTS.has(name) && definitions.every(d => d === 'linkEventDefinition')) return 'here';
   if (name === 'endEvent' || event === 'start') return 'before';
+  // ein Gateway hat nie ein wirksames Output-Mapping, auch mit Ausgaben nicht
+  if (name.endsWith('Gateway')) return 'after';
   return hasOutputs ? 'here' : 'after';
 }
 
-const SET_EVENT_REASON = (el: Element, place: Exclude<Placement, 'here'>): string => {
+function setEventReason(el: Element, place: Exclude<Placement, 'here'>): string {
   const name = local(el);
   if (name.endsWith('Gateway') || name === 'endEvent') return `ein Output-Mapping am ${name} ignoriert ${C8_LABEL}`;
   return place === 'before'
     ? 'ein Output-Mapping griffe erst beim Abschluss, der Listener setzte die Variable beim Betreten'
     : 'ein erstes Output-Mapping nähme dem Element seine übrigen Ergebnisse';
-};
+}
 
-/** Fügt das None-Throw-Event mit den Output-Mappings ein — davor eines für alle
- *  eingehenden Flüsse, danach eines je ausgehendem (Bedingungen bleiben am Fluss). */
+/** Ein None-Throw-Event mit den Output-Mappings auf jedem Fluss davor bzw. danach —
+ *  je Fluss eines, so wartet ein Join-Gateway weiter auf alle Zweige. */
 function insertSetEvent(defs: Element, ctx: Ctx, { el, place, outputs }: SetEvent) {
   const id = el.getAttribute('id') ?? '';
   const parent = el.parentElement;
   const issue = issueAt(ctx, el);
   const names = outputs.map(o => o.getAttribute('target')).join(', ');
+  const side = place === 'before' ? 'davor' : 'danach';
   const ref = place === 'before' ? 'targetRef' : 'sourceRef';
   const flows = parent ? kids(parent).filter(k => local(k) === 'sequenceFlow' && k.getAttribute(ref) === id) : [];
   if (!parent || !flows.length) {
-    issue('Listener', `setVariable «${names}» — ${SET_EVENT_REASON(el, place)}, und es gibt keinen Fluss ${place === 'before' ? 'davor' : 'danach'}: von Hand umsetzen.`);
+    issue('Listener', `setVariable «${names}» — ${setEventReason(el, place)}, und es gibt keinen Fluss ${side}: von Hand umsetzen.`);
     return;
   }
-  const all = descendants(defs);
-  const ids = new Set(all.map(e => e.getAttribute('id')).filter(Boolean));
+  const ids = new Set(descendants(defs).map(e => e.getAttribute('id')).filter(Boolean));
   const uniqueId = (base: string) => { let n = base; for (let i = 2; ids.has(n); i++) n = `${base}_${i}`; ids.add(n); return n; };
-  const byId = (fid: string | null) => (parent ? kids(parent).find(k => k.getAttribute('id') === fid) : undefined);
-  const zeebe = (name: string, attrs: Record<string, string> = {}) => create(ctx, ZEEBE_NS, 'zeebe', name, attrs);
-  const ref1 = (tag: 'incoming' | 'outgoing', text: string) => { const r = ctx.bpmnEl(tag); r.textContent = text; return r; };
-  const dropRef = (node: Element | undefined, tag: string, text: string) => {
-    const r = node && kids(node).find(k => local(k) === tag && k.textContent?.trim() === text);
-    if (r) removeEl(r);
-  };
   const di = diagramOf(defs);
-
-  for (const group of place === 'before' ? [flows] : flows.map(f => [f])) {
+  flows.forEach((flow, i) => {
     const evId = uniqueId(`${id}_Set${place === 'before' ? 'Before' : 'After'}`);
     const nfId = uniqueId(`${evId}_Flow`);
-    const ev = ctx.bpmnEl('intermediateThrowEvent');
-    ev.setAttribute('id', evId);
-    ev.setAttribute('name', `set ${names}`);
-    const nf = ctx.bpmnEl('sequenceFlow');
-    nf.setAttribute('id', nfId);
-    if (place === 'before') {
-      // die eingehenden Flüsse enden am Event, ein neuer führt zum Element
-      nf.setAttribute('sourceRef', evId);
-      nf.setAttribute('targetRef', id);
-      for (const f of group) { f.setAttribute('targetRef', evId); dropRef(el, 'incoming', f.getAttribute('id') ?? ''); }
-      appendEl(el, ref1('incoming', nfId));
-    } else {
-      // der ausgehende Fluss (mit Bedingung) endet am Event, ein neuer führt weiter
-      const f = group[0];
-      const next = byId(f.getAttribute('targetRef'));
-      nf.setAttribute('sourceRef', evId);
-      nf.setAttribute('targetRef', f.getAttribute('targetRef') ?? '');
-      f.setAttribute('targetRef', evId);
-      dropRef(next, 'incoming', f.getAttribute('id') ?? '');
-      if (next) appendEl(next, ref1('incoming', nfId));
-    }
-    appendEl(parent, ev);
-    appendEl(parent, nf);
-    const ext = ctx.bpmnEl('extensionElements');
-    appendEl(ev, ext);
-    const io = zeebe('ioMapping');
-    appendEl(ext, io);
-    fill(io, place === 'before' ? outputs : outputs.map(o => o.cloneNode(true) as Element));
-    for (const f of place === 'before' ? group : []) appendEl(ev, ref1('incoming', f.getAttribute('id') ?? ''));
-    if (place === 'after') appendEl(ev, ref1('incoming', group[0].getAttribute('id') ?? ''));
-    appendEl(ev, ref1('outgoing', nfId));
-    di?.place(evId, nfId, group.map(f => f.getAttribute('id') ?? ''), place);
-    issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${place === 'before' ? 'davor' : 'danach'} eingefügt: ${SET_EVENT_REASON(el, place)}. Lage im Diagramm prüfen.`);
-  }
+    insertOnFlow(ctx, parent, flow, evId, nfId, `set ${names}`, i === 0 ? outputs : outputs.map(o => o.cloneNode(true) as Element));
+    const drawn = di?.place(evId, nfId, flow.getAttribute('id') ?? '', place) ?? false;
+    issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${side} eingefügt: ${setEventReason(el, place)}. `
+      + (drawn ? 'Lage im Diagramm prüfen.' : 'Ohne Diagramm-Eintrag (dem Fluss fehlt die Kante) — im Modeler einzeichnen.'));
+  });
+}
+
+/** Das Event auf den Fluss setzen: der Fluss (mit seiner Bedingung) endet am
+ *  Event, ein neuer führt zum bisherigen Ziel. */
+function insertOnFlow(ctx: Ctx, parent: Element, flow: Element, evId: string, nfId: string, name: string, outputs: Element[]) {
+  const ref = (tag: 'incoming' | 'outgoing', text: string) => { const r = ctx.bpmnEl(tag); r.textContent = text; return r; };
+  const flowId = flow.getAttribute('id') ?? '';
+  const targetId = flow.getAttribute('targetRef') ?? '';
+  const target = kids(parent).find(k => k.getAttribute('id') === targetId);
+  const ev = ctx.bpmnEl('intermediateThrowEvent');
+  ev.setAttribute('id', evId);
+  ev.setAttribute('name', name);
+  const nf = ctx.bpmnEl('sequenceFlow');
+  nf.setAttribute('id', nfId);
+  nf.setAttribute('sourceRef', evId);
+  nf.setAttribute('targetRef', targetId);
+  flow.setAttribute('targetRef', evId);
+  const old = target && kids(target).find(k => local(k) === 'incoming' && k.textContent?.trim() === flowId);
+  if (old) removeEl(old);
+  if (target) appendEl(target, ref('incoming', nfId));
+  appendEl(parent, ev);
+  appendEl(parent, nf);
+  const ext = ctx.bpmnEl('extensionElements');
+  appendEl(ev, ext);
+  const io = create(ctx, ZEEBE_NS, 'zeebe', 'ioMapping');
+  appendEl(ext, io);
+  fill(io, outputs);
+  appendEl(ev, ref('incoming', flowId));
+  appendEl(ev, ref('outgoing', nfId));
 }
 
 interface Point { x: number; y: number }
 
-/** Das Diagramm: Shape und Kanten fürs eingefügte Event — auf dem letzten Stück
- *  des (ersten) eingehenden bzw. dem ersten Stück des ausgehenden Flusses */
+/** Das Diagramm: Shape und Kante fürs eingefügte Event — auf dem letzten Stück
+ *  des Flusses davor bzw. dem ersten des Flusses danach */
 function diagramOf(defs: Element) {
   const all = descendants(defs);
   const edges = all.filter(e => local(e) === 'BPMNEdge');
@@ -753,7 +747,6 @@ function diagramOf(defs: Element) {
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
     return e;
   };
-  const edgeOf = (flowId: string) => edges.find(e => e.getAttribute('bpmnElement') === flowId);
   const pointsOf = (edge: Element): Point[] =>
     kids(edge).filter(k => local(k) === 'waypoint').map(w => ({ x: Number(w.getAttribute('x')), y: Number(w.getAttribute('y')) }));
   const setPoints = (edge: Element, points: Point[]) => {
@@ -761,34 +754,26 @@ function diagramOf(defs: Element) {
     for (const p of points) appendEl(edge, make(wp0, 'waypoint', { x: Math.round(p.x), y: Math.round(p.y) }));
   };
   return {
-    place(evId: string, nfId: string, flowIds: string[], place: 'before' | 'after') {
-      const first = edgeOf(flowIds[0]);
-      const points = first ? pointsOf(first) : [];
-      if (!first || points.length < 2) return;
-      const [a, b] = place === 'before' ? points.slice(-2) : points.slice(0, 2);
+    /** false: der Fluss hat keine (brauchbare) Kante — das Event bleibt ohne Diagramm-Eintrag */
+    place(evId: string, nfId: string, flowId: string, place: 'before' | 'after'): boolean {
+      const flowEdge = edges.find(e => e.getAttribute('bpmnElement') === flowId);
+      const points = flowEdge ? pointsOf(flowEdge) : [];
+      const plane = flowEdge?.parentElement;
+      if (!flowEdge || !plane || points.length < 2) return false;
+      const at = place === 'before' ? points.length - 2 : 0;
+      const [a, b] = [points[at], points[at + 1]];
       const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
       const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const entry = { x: c.x - d.x * 18, y: c.y - d.y * 18 };
-      const exit = { x: c.x + d.x * 18, y: c.y + d.y * 18 };
-      const plane = first.parentElement;
-      if (!plane) return;
       const shape = make(shape0, 'BPMNShape', { id: `${evId}_di`, bpmnElement: evId });
       appendEl(plane, shape);
       appendEl(shape, make(bounds0, 'Bounds', { x: Math.round(c.x - 18), y: Math.round(c.y - 18), width: 36, height: 36 }));
-      const edge = make(first, 'BPMNEdge', { id: `${nfId}_di`, bpmnElement: nfId });
+      const edge = make(flowEdge, 'BPMNEdge', { id: `${nfId}_di`, bpmnElement: nfId });
       appendEl(plane, edge);
-      if (place === 'before') {
-        // die eingehenden Kanten enden am Event, die neue führt zum Element
-        for (const fid of flowIds) {
-          const e = edgeOf(fid);
-          if (e) setPoints(e, [...pointsOf(e).slice(0, -1), entry]);
-        }
-        setPoints(edge, [exit, b]);
-      } else {
-        setPoints(first, [a, entry]);
-        setPoints(edge, [exit, ...points.slice(1)]);
-      }
+      // die Kante des Flusses endet am Event, die neue führt weiter auf dem alten Weg
+      setPoints(flowEdge, [...points.slice(0, at + 1), { x: c.x - d.x * 18, y: c.y - d.y * 18 }]);
+      setPoints(edge, [{ x: c.x + d.x * 18, y: c.y + d.y * 18 }, ...points.slice(at + 1)]);
+      return true;
     },
   };
 }

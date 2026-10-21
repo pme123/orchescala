@@ -136,3 +136,113 @@ test('a start listener on a task: a None-Throw-Event before it - an output mappi
   assert.deepEqual(outputsOf(byId(doc, 'u')), []);
   assert.deepEqual(outputsOf(byId(doc, 'u_SetBefore')), ['opened==true']);
 });
+
+const refs = (doc: Document, id: string, tag: string) =>
+  Array.from(byId(doc, id)?.children ?? []).filter(c => c.tagName === `bpmn:${tag}`).map(c => c.textContent);
+
+test('a join gateway keeps all its incoming flows: one None-Throw-Event per flow - it still waits for every branch', () => {
+  for (const gateway of ['parallelGateway', 'exclusiveGateway']) {
+    const xml = c7(`
+      <bpmn:startEvent id="s"><bpmn:outgoing>f0</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:parallelGateway id="fork"><bpmn:incoming>f0</bpmn:incoming><bpmn:outgoing>f1</bpmn:outgoing><bpmn:outgoing>f2</bpmn:outgoing></bpmn:parallelGateway>
+      <bpmn:${gateway} id="join">${listener('joined', 'true')}<bpmn:incoming>f1</bpmn:incoming><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:${gateway}>
+      <bpmn:endEvent id="e"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`,
+    `<bpmn:sequenceFlow id="f0" sourceRef="s" targetRef="fork" />
+      <bpmn:sequenceFlow id="f1" sourceRef="fork" targetRef="join" />
+      <bpmn:sequenceFlow id="f2" sourceRef="fork" targetRef="join" />
+      <bpmn:sequenceFlow id="f3" sourceRef="join" targetRef="e" />`,
+    `<bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="200" y="50" /><di:waypoint x="300" y="50" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2"><di:waypoint x="200" y="150" /><di:waypoint x="300" y="150" /></bpmndi:BPMNEdge>`);
+    const doc = parse(convertBpmn(xml, 'c8').xml);
+    assert.deepEqual(refs(doc, 'join', 'incoming'), ['join_SetBefore_Flow', 'join_SetBefore_2_Flow'], gateway);
+    assert.equal(byId(doc, 'f1')?.getAttribute('targetRef'), 'join_SetBefore');
+    assert.equal(byId(doc, 'f2')?.getAttribute('targetRef'), 'join_SetBefore_2');
+    assert.deepEqual(outputsOf(byId(doc, 'join_SetBefore_2')), ['joined==true']);
+    // each event on its own flow in the diagram
+    const y = (id: string) => byId(doc, `${id}_di`)?.firstElementChild?.getAttribute('y');
+    assert.deepEqual([y('join_SetBefore'), y('join_SetBefore_2')], ['32', '132'], gateway);
+  }
+});
+
+test('an end listener on a gateway with outputs: still a None-Throw-Event after it - the gateway ignores any output mapping', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:exclusiveGateway id="gw"><bpmn:extensionElements>
+      <camunda:inputOutput><camunda:outputParameter name="route">\${route}</camunda:outputParameter></camunda:inputOutput>
+      <camunda:executionListener expression="\${execution.setVariable(&#34;decided&#34;, true)}" event="end" />
+    </bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />
+    <bpmn:sequenceFlow id="f2" sourceRef="gw" targetRef="e" />`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.ok(!outputsOf(byId(doc, 'gw')).includes('decided==true'));
+  assert.deepEqual(outputsOf(byId(doc, 'gw_SetAfter')), ['decided==true']);
+});
+
+test('no flow to put the event on: reported - nothing inserted', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s" />
+    <bpmn:userTask id="u">${listener('opened', 'true')}</bpmn:userTask>`, '');
+  const r = convertBpmn(xml, 'c8');
+  const doc = parse(r.xml);
+  assert.equal(named(doc, 'intermediateThrowEvent').length, 0);
+  assert.ok(r.issues.some(i => i.stepId === 'u' && /keinen Fluss davor: von Hand umsetzen/.test(i.text)), JSON.stringify(r.issues));
+});
+
+test('a start and an end listener on one task: an event before and one after it', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="u"><bpmn:extensionElements>
+      <camunda:executionListener expression="\${execution.setVariable(&#34;opened&#34;, true)}" event="start" />
+      <camunda:executionListener expression="\${execution.setVariable(&#34;closed&#34;, true)}" event="end" />
+    </bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="u" />
+    <bpmn:sequenceFlow id="f2" sourceRef="u" targetRef="e" />`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.deepEqual(outputsOf(byId(doc, 'u_SetBefore')), ['opened==true']);
+  assert.deepEqual(outputsOf(byId(doc, 'u_SetAfter')), ['closed==true']);
+  assert.deepEqual(refs(doc, 'u', 'incoming'), ['u_SetBefore_Flow']);
+  assert.equal(byId(doc, 'f2')?.getAttribute('targetRef'), 'u_SetAfter');
+});
+
+test('several listeners on one element: one event with all output mappings', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw"><bpmn:extensionElements>
+      <camunda:executionListener expression="\${execution.setVariable(&#34;readyForEvents&#34;, true)}" event="start" />
+      <camunda:executionListener expression="\${execution.setVariable(&#34;waitingFor&#34;, &#34;events&#34;)}" event="start" />
+    </bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />');
+  const r = convertBpmn(xml, 'c8');
+  const doc = parse(r.xml);
+  assert.equal(named(doc, 'intermediateThrowEvent').length, 1);
+  assert.deepEqual(outputsOf(byId(doc, 'gw_SetBefore')), ['readyForEvents==true', 'waitingFor=="events"']);
+  assert.equal(byId(doc, 'gw_SetBefore')?.getAttribute('name'), 'set readyForEvents, waitingFor');
+});
+
+test('a flow without an edge in the diagram: the event is inserted, reported as not drawn', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />');
+  const r = convertBpmn(xml, 'c8');
+  const doc = parse(r.xml);
+  assert.ok(byId(doc, 'gw_SetBefore'));
+  assert.ok(!byId(doc, 'gw_SetBefore_di'));
+  assert.ok(r.issues.some(i => /Ohne Diagramm-Eintrag/.test(i.text)), JSON.stringify(r.issues));
+  assert.ok(!r.issues.some(i => /Lage im Diagramm prüfen/.test(i.text)));
+});
+
+test('back to Camunda 7: the inserted event keeps setting the variable (inputOutput on the throw event)', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />');
+  const back = parse(convertBpmn(convertBpmn(xml, 'c8').xml, 'c7').xml);
+  const ev = byId(back, 'gw_SetBefore');
+  const out = ev && Array.from(ev.querySelectorAll('*')).find(e => e.tagName === 'camunda:outputParameter');
+  assert.equal(out?.getAttribute('name'), 'readyForEvents');
+  assert.equal(out?.textContent?.trim(), '${true}');
+  assert.equal(byId(back, 'f1')?.getAttribute('targetRef'), 'gw_SetBefore');
+});
