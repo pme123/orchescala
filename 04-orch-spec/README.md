@@ -1587,6 +1587,7 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
 | … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |
 | … sonst (Gateway, End-Event mit Definition, `event="start"`, Aufgabe ohne Ausgaben) | ein **None-Throw-Event** «set x» auf jedem Fluss davor (bzw. danach bei `end`) mit dem Output-Mapping — je Fluss eines, ein Join wartet so weiter auf alle Zweige |
+| … an einem Sequenzfluss (`event="take"`) | ein None-Throw-Event «set x» auf dem Fluss |
 | `${…}` in Bedingungen, Timern, Mappings | `=…` |
 
 **Warum ein Throw-Event:** ein Output-Mapping greift beim Abschluss eines
@@ -1598,6 +1599,13 @@ Aufgabe nähme ihr die übrigen Ergebnisse — nur noch die gemappten gingen in 
 Prozess. Das Throw-Event steht im Diagramm auf dem Fluss davor bzw. danach
 (Lage prüfen, der Dialog meldet es); Bedingungen bleiben am Fluss. Typisch:
 `readyForEvents` am Event-Based Gateway, auf das die Simulation wartet.
+
+**Nicht übernommen** (und so gemeldet, die Variable fehlt dann): wo kein Fluss
+davor bzw. danach ist, nach einem Event-Based Gateway (dort darf nur ein
+Catch-Event folgen — also kein `end`-Listener am Gateway, kein `start`-Listener
+an seinen Catch-Events) und bei einem unbekannten Listener-Event. Bei einer
+Mehrfachausführung läuft das Event einmal, der Listener lief je Instanz — der
+Dialog weist darauf hin.
 
 Ohne Gegenstück fallen still weg: `async…`, `exclusive`, Job-Prioritäten,
 Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
