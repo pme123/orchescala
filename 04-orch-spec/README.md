@@ -1584,8 +1584,20 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
 | `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
 | `camunda:modelerTemplate` | `zeebe:modelerTemplate` (der Service-Verweis bleibt) |
-| Listener `execution.setVariable("x", v)` am End-Event | Output-Mapping `x` |
+| Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
+| … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |
+| … sonst (Gateway, End-Event mit Definition, `event="start"`, Aufgabe ohne Ausgaben) | ein **None-Throw-Event** «set x» davor (bzw. danach bei `end`) mit dem Output-Mapping |
 | `${…}` in Bedingungen, Timern, Mappings | `=…` |
+
+**Warum ein Throw-Event:** ein Output-Mapping greift beim Abschluss eines
+Elements — an einem None-Event sofort, an einer Aufgabe erst, wenn sie fertig
+ist (der Listener setzte die Variable beim Betreten). An einem Event-Based
+Gateway und an einem Error-End-Event nimmt Camunda 8 das Mapping an und
+**ignoriert es** (am Cluster geprüft). Und das erste Output-Mapping einer
+Aufgabe nähme ihr die übrigen Ergebnisse — nur noch die gemappten gingen in den
+Prozess. Das Throw-Event steht im Diagramm auf dem Fluss davor bzw. danach
+(Lage prüfen, der Dialog meldet es); Bedingungen bleiben am Fluss. Typisch:
+`readyForEvents` am Event-Based Gateway, auf das die Simulation wartet.
 
 Ohne Gegenstück fallen still weg: `async…`, `exclusive`, Job-Prioritäten,
 Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
