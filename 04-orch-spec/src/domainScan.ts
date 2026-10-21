@@ -345,7 +345,9 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const line = lines[i];
     if (!line.trim()) continue;
     const lineIndent = line.search(/\S/);
-    while (typeScopes.length && lineIndent <= typeScopes[typeScopes.length - 1].indent) typeScopes.pop();
+    // ein Kommentar (auch ganz links) beendet keinen Bereich
+    const comment = /^\s*(\/\/|\/\*|\*)/.test(line);
+    while (!comment && typeScopes.length && lineIndent <= typeScopes[typeScopes.length - 1].indent) typeScopes.pop();
     const scope = NESTED_SCOPE.exec(line);
     if (scope && scope[1].length > 0) typeScopes.push({ name: scope[2], indent: scope[1].length });
 

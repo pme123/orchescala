@@ -48,6 +48,7 @@ object SendEvent extends CompanyBpmnProcessDsl:
     end Nested
     trait Inside:
       type Local = Int
+// a comment at column 0 does not end the companion
     type After = Long
     lazy val example = In(receivingSystems = None, tags = None, id = "1", both = ???, range = 1)
   end In
