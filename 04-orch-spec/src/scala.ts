@@ -658,7 +658,12 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
   });
   const commonBare = common.map(f => ({ ...f, description: undefined, descriptionExpr: undefined }));
-  const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))];
+  // in der Reihenfolge des Codes (`order`) — was dort fehlt (in Orch Spec dazugekommen), danach
+  const fieldsOf = (v: EnumValue): Field[] => {
+    const all = [...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))];
+    const at = (f: Field) => { const i = v.order?.indexOf(f.name) ?? -1; return i < 0 ? Number.MAX_SAFE_INTEGER : i; };
+    return v.order?.length ? all.map((f, i) => ({ f, i })).sort((a, b) => at(a.f) - at(b.f) || a.i - b.i).map(x => x.f) : all;
+  };
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);

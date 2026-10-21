@@ -384,6 +384,12 @@ export interface EnumValue {
   name: string;
   description?: string;
   fields?: Field[];
+  /**
+   * Die Reihenfolge der Parameter des Falls im Code — gemeinsame und eigene Felder
+   * zusammen (`case Graviton(subStatusKey, subStatusScore, subStatusNr, …)`). Der
+   * Export hält sie ein; ohne (in Orch Spec angelegt) stehen die gemeinsamen zuerst.
+   */
+  order?: string[];
   [key: string]: unknown;
 }
 
