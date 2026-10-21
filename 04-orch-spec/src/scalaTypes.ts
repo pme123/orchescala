@@ -345,6 +345,9 @@ function balanced(text: string): boolean {
  * Ebene — die App bildet ihn nicht ab (ein Feld hat einen Grundtyp); `:|` (Iron) zählt nicht.
  */
 export function isCompoundType(text: string): boolean {
+  // `Int :| Greater[0] & Less[10]` — ein `&` im Refinement verbindet Einschränkungen, keine Typen
+  const refine = topLevelRefine(text);
+  if (refine >= 0) return isCompoundType(text.slice(0, refine));
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
