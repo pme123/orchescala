@@ -74,6 +74,13 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
                               ))
         _                <- logDebug(s"generalVariables: $generalVariables")
+        // the InitWorker overwrites a processInstanceId from outside with the own one - say so
+        _                <- ZIO.foreachDiscard(C8Worker.foreignProcessInstanceId(worker, json, job.getProcessInstanceKey)):
+                              foreign =>
+                                logWarning(
+                                  s"Worker: ${job.getType} - processInstanceId '$foreign' (from outside) is overwritten with " +
+                                    s"the own '${job.getProcessInstanceKey}' - name a field that holds another process's id differently."
+                                )
         _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
                               .executeWorker()
         _                <-
@@ -384,5 +391,14 @@ object C8Worker:
       case _                      => Map.empty
 
   private val processInstanceIdName = "processInstanceId"
+
+  /** A `processInstanceId` the InitWorker got from outside that is not its own - it overwrites it. */
+  def foreignProcessInstanceId(worker: Worker[?, ?, ?], json: Json, processInstanceKey: Long): Option[String] =
+    worker match
+      case _: InitWorker[?, ?, ?] =>
+        json.hcursor.downField(processInstanceIdName).focus
+          .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
+          .filter(id => id.nonEmpty && id != processInstanceKey.toString)
+      case _                      => None
 
 end C8Worker
