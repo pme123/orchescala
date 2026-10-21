@@ -420,9 +420,11 @@ function toC8(defs: Element, ctx: Ctx) {
         }
       }
     }
-    if (name === 'message') {
+    // Namen von Nachricht und Signal: ein Ausdruck (`…-${mainProcessInstanceId}`) wird FEEL —
+    // sonst nähme Camunda 8 ihn wörtlich, und nichts käme an
+    if (name === 'message' || name === 'signal') {
       const n = el.getAttribute('name');
-      if (n && isJuel(n)) el.setAttribute('name', toFeel(n, 'Nachrichtenname', issue));
+      if (n && isJuel(n)) el.setAttribute('name', toFeel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
     }
 
     // ── Element-Template: der Verweis auf den Service bleibt
@@ -611,9 +613,9 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     // die Hülle `(…) = true` braucht Camunda 7 nicht — dort ist `null` ohnehin `false`
     if (name === 'conditionExpression') el.textContent = toJuel(stripNullSafe(el.textContent ?? '').replace(/^= /, '='), 'Bedingung', issue);
     if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) el.textContent = toJuel(el.textContent ?? '', 'Timer', issue);
-    if (name === 'message') {
+    if (name === 'message' || name === 'signal') {
       const n = el.getAttribute('name');
-      if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, 'Nachrichtenname', issue));
+      if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
     }
 
     // ── Prozess

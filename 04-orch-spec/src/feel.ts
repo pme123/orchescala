@@ -312,7 +312,7 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   // in Camunda 8 setzt sie der InitWorker — als String (der Key ist zu gross für JavaScript);
   // ohne InitWorker fehlt sie: dann unbekannt, damit ihr Gebrauch gemeldet wird
   if (spec.engine !== 'c8' || allSteps(spec.steps).some(s => isInitWorker(s, spec.processId)))
-    add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der Prozess-Instanz, vom InitWorker gesetzt, ausser sie wird mitgegeben — ${C7_LABEL}: execution.processInstanceId` });
+    add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz, gesetzt vom InitWorker, wenn er fertig ist — ${C7_LABEL}: execution.processInstanceId` });
   add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
   add({ name: 'processDefinitionKey', type: 'any', label: 'Prozess', source: 'Engine', description: `der Prozess — ${C7_LABEL}: execution.getProcessDefinition().getKey()` });
   return out;

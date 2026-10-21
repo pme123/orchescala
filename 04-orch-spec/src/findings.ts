@@ -270,6 +270,14 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
+  // Camunda 8: die eigene processInstanceId setzt der InitWorker erst, wenn er fertig ist —
+  // an seinem eigenen Task ist sie leer (in Camunda 7 war `execution.processInstanceId` schon da)
+  if (initWorker && spec.engine === 'c8') {
+    const reads = (step.inputs ?? []).filter(m => !m.disabled && referencedVariables(m.expression).includes('processInstanceId'));
+    for (const m of reads) {
+      warnings.push(`Eingabe «${m.name}» liest processInstanceId — in ${C8_LABEL} setzt sie der InitWorker erst, wenn er fertig ist; hier ist sie leer. Die eigene ID nimmt der InitWorker aus EngineRunContext.processInstance (customInitZIO).`);
+    }
+  }
 
   // ── Interaktion: was der DSL verlangt ────────────────────────────────────
   if (ia) {
