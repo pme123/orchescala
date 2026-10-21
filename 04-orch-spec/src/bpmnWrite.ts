@@ -658,6 +658,8 @@ function writeMessage(doc: Document, el: Element, engine: EngineId, step: Pick<S
     else if (!current || users(current.getAttribute('id') ?? '') > 1) {
       // eine eigene: Kopie der bisherigen (samt Erweiterungen) oder neu
       const fresh = current ? (current.cloneNode(true) as Element) : doc.createElementNS(BPMN_NS, `${defs.prefix ? `${defs.prefix}:` : ''}${tag}`);
+      // eine Kopie: was darin eine ID trägt, hätte sie sonst doppelt
+      for (const d of allElements(fresh).slice(1)) d.removeAttribute('id');
       const ids = new Set(allElements(defs).map(x => x.getAttribute('id')));
       let i = 1;
       while (ids.has(`${tag === 'signal' ? 'Signal' : 'Message'}_${step.id}${i > 1 ? `_${i}` : ''}`)) i++;
