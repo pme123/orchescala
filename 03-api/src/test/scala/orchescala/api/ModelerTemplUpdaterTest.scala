@@ -82,17 +82,19 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
     val out = ModelerTemplUpdater.withColorNamespace("""<x><definitions-foo /></x><definitions id="d">""")
     assertEquals(out, s"""<x><definitions-foo /></x><definitions xmlns:color="${ModelerTemplUpdater.colorNamespace}" id="d">""")
 
-  // a process of test-own with a worker of test-services and the init worker
+  // a process of test-own with a worker and a process of test-services and the init worker
   private val withWorker =
     """<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d">
       |  <bpmn:process id="p">
       |    <bpmn:serviceTask id="InitProcessTask" camunda:type="external" camunda:topic="test-own-bookV1" />
       |    <bpmn:serviceTask id="SendMailTask" camunda:type="external" camunda:topic="test-services-smtpV1-SendMail" />
+      |    <bpmn:callActivity id="ArchiveTask" calledElement="test-services-archiveV1" />
       |  </bpmn:process>
       |  <bpmndi:BPMNDiagram id="dia">
       |    <bpmndi:BPMNPlane id="plane" bpmnElement="p">
       |      <bpmndi:BPMNShape id="InitProcessTask_di" bpmnElement="InitProcessTask" />
       |      <bpmndi:BPMNShape id="SendMailTask_di" bpmnElement="SendMailTask" />
+      |      <bpmndi:BPMNShape id="ArchiveTask_di" bpmnElement="ArchiveTask" />
       |    </bpmndi:BPMNPlane>
       |  </bpmndi:BPMNDiagram>
       |</bpmn:definitions>""".stripMargin
@@ -127,19 +129,33 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
   private def assertColoured(file: os.Path)(using munit.Location): Unit =
     val out = os.read(file)
     assertEquals(colorOf(out, "SendMailTask"), Some("#test-services"), file)
+    assertEquals(colorOf(out, "ArchiveTask"), Some("#test-services"), file)
     assertEquals(colorOf(out, "InitProcessTask"), Some(ModelerTemplUpdater.generatedGrey), file)
+    assertEquals(os.list(file / os.up).map(_.last), Seq(file.last), "no temp file left")
 
   test("the folders api/run colours: the engine's diagrams and the spec's copy that orch-spec shows"):
     assertEquals(ModelerTemplUpdater.colouredPaths, Seq(engine, spec))
 
   projectDir.test("both copies get the colours - the worker of the other project, the init worker grey"): dir =>
     val files = Seq(write(dir, engine), write(dir, spec))
-    configured.updateBpmnColors(dir)
+    assertEquals(configured.colourProject(dir), Seq.empty)
     files.foreach(assertColoured)
+
+  projectDir.test("a second run changes nothing - the spec's copy is coloured on every run"): dir =>
+    val file  = write(dir, spec)
+    configured.colourProject(dir)
+    val first = os.read(file)
+    configured.colourProject(dir)
+    assertEquals(os.read(file), first)
+    assertEquals("""xmlns:color="""".r.findAllIn(first).size, 1)
+
+  projectDir.test("neither folder - nothing to colour, nothing created"): dir =>
+    assertEquals(configured.colourProject(dir), Seq.empty)
+    assertEquals(os.list(dir), Seq.empty)
 
   projectDir.test("only the spec's copy (orch-spec, nothing deployed yet) - it gets the colours"): dir =>
     val file = write(dir, spec)
-    configured.updateBpmnColors(dir)
+    configured.colourProject(dir)
     assertColoured(file)
     assert(!os.exists(dir / engine))
 
@@ -151,19 +167,19 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
         |  </bpmn:process>""".stripMargin
     )
     val file  = write(dir, spec, draft)
-    configured.updateBpmnColors(dir)
+    configured.colourProject(dir)
     assertColoured(file)
 
   projectDir.test("a file that cannot be read is left as it is - the others are coloured all the same"): dir =>
     val broken = write(dir, engine, "<bpmn:definitions")
     val file   = write(dir, spec)
-    configured.updateBpmnColors(dir)
+    assertEquals(configured.colourProject(dir), Seq(broken))
     assertEquals(os.read(broken), "<bpmn:definitions")
     assertColoured(file)
 
   projectDir.test("a project that is not in the projectsConfig - its BPMNs stay as they are"): dir =>
     val files = Seq(write(dir, engine), write(dir, spec))
-    updater("test-services").updateBpmnColors(dir)
+    updater("test-services").colourProject(dir)
     files.foreach(file => assertEquals(os.read(file), withWorker, file))
 
 end ModelerTemplUpdaterTest

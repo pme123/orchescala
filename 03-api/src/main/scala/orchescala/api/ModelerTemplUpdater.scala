@@ -63,28 +63,37 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
           end if
   end updateTemplates
 
-  private def updateBpmnColors(): Unit = updateBpmnColors(os.pwd)
+  private def updateBpmnColors(): Unit = colourProject(os.pwd)
 
   /** Colours the BPMNs of the project in `projectDir` - in every folder of `colouredPaths`. A file
-    * that cannot be coloured is reported and left as it is; the others are coloured all the same.
+    * that cannot be coloured is reported and left as it is; the others are coloured all the same -
+    * a draft must not stop the docs. Returns the files not coloured (summed up in a warning).
     */
-  private[api] def updateBpmnColors(projectDir: os.Path): Unit =
+  private[api] def colourProject(projectDir: os.Path): Seq[os.Path] =
     projectsConfig.projectConfig(docProjectConfig.projectName) match
       case None    =>
         println(s"No colours: ${docProjectConfig.projectName} is not in the projectsConfig")
+        Seq.empty
       case Some(_) =>
-        ModelerTemplUpdater.colouredPaths.foreach: path =>
+        val notColoured = ModelerTemplUpdater.colouredPaths.flatMap: path =>
           if os.exists(projectDir / path) then
             println(s"Adjust Color for $path:")
             os.walk(projectDir / path)
               .filter:
                 _.ext == "bpmn"
-              .foreach: p =>
-                Try(extractUsesRefs(p, os.read(p))).failed.foreach: ex =>
+              .flatMap: p =>
+                Try(extractUsesRefs(p, os.read(p))).failed.toOption.map: ex =>
                   println(s" - ${p.last}: not coloured - $ex")
-          else println(s"No BPMN Diagrams found in $path")
+                  p
+          else
+            println(s"No BPMN Diagrams found in $path")
+            Seq.empty
+        if notColoured.nonEmpty then
+          val files = notColoured.map(_.relativeTo(projectDir)).mkString(", ")
+          println(s"WARNING: ${notColoured.size} BPMN(s) not coloured: $files")
+        notColoured
     end match
-  end updateBpmnColors
+  end colourProject
 
   private lazy val projectsConfig                     = apiConfig.projectsConfig
   private lazy val docProjectConfig: DocProjectConfig = DocProjectConfig(apiProjectConfig)
@@ -127,7 +136,10 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
             println(s"  -> $project > $id -- $color")
             new RuleTransformer(changeColor(project, id)).apply(xmlResult)
     )
-    os.write.over(bpmnPath, ModelerTemplUpdater.toBpmnFile(xmlNew))
+    // next to it, then moved over it - orch-spec may open the file meanwhile, never half written
+    val tmp = bpmnPath / os.up / s".${bpmnPath.last}.tmp"
+    os.write.over(tmp, ModelerTemplUpdater.toBpmnFile(xmlNew))
+    os.move(tmp, bpmnPath, replaceExisting = true, atomicMove = true)
   end extractUsesRefs
 
   private def changeColor(project: String, id: String) = new RewriteRule:
