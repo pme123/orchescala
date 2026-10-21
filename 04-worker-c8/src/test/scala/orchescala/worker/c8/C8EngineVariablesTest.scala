@@ -35,4 +35,9 @@ class C8EngineVariablesTest extends FunSuite:
     assertEquals(C8Worker.foreignProcessInstanceId(initWorker, Json.obj("processInstanceId" -> Json.Null), processInstanceKey), None)
     assertEquals(C8Worker.foreignProcessInstanceId(customWorker, outside, processInstanceKey), None)
 
+  test("the InitWorker fetches a processInstanceId from outside - so it can report overwriting it"):
+    assert(C8Worker.variablesToFetch(initWorker).contains("processInstanceId"))
+    assert(!C8Worker.variablesToFetch(customWorker).contains("processInstanceId"))
+    assert(C8Worker.variablesToFetch(customWorker).contains("businessKey"))
+
 end C8EngineVariablesTest
