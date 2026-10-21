@@ -3,7 +3,7 @@ package orchescala.engine.c8
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
-import zio.ZIO.logInfo
+import zio.ZIO.{logInfo, logWarning}
 import zio.{IO, ZIO}
 
 class C8MessageService(using
@@ -20,9 +20,14 @@ class C8MessageService(using
       variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
-      val correlationKey = C8MessageService.correlationKey(businessKey, processInstanceId)
+      // like C7: the processInstanceId wins - the BPMN takes it with correlationKey="=processInstanceId"
+      val correlationKey = processInstanceId.orElse(businessKey)
       val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)
       for
+        _      <- ZIO.when(processInstanceId.isDefined && businessKey.exists(bk => !processInstanceId.contains(bk))):
+                    logWarning(
+                      s"Message '$name': processInstanceId and businessKey given - correlated with the processInstanceId, the businessKey is ignored."
+                    )
         _      <-
           logInfo(
             s"""Correlate Message:
@@ -64,7 +69,8 @@ class C8MessageService(using
         )
       )
       .mapError(withContext(
-        s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")})"
+        s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}) - the correlationKey " +
+          "of the message in the BPMN (zeebe:subscription) must give this value: =processInstanceId resp. =businessKey"
       ))
       .map: resp =>
         val processInstanceId = resp.processInstanceKey.getOrElse(resp.messageKey)
@@ -96,12 +102,3 @@ class C8MessageService(using
         MessageCorrelationResult.ProcessInstance(resp.messageKey, resp.messageKey, EngineType.C8)
 end C8MessageService
 
-object C8MessageService:
-
-  /** The correlation key - like in C7, the `processInstanceId` wins over the `businessKey`. The BPMN
-    * takes it with `correlationKey="=processInstanceId"` resp. `"=businessKey"`.
-    */
-  def correlationKey(businessKey: Option[String], processInstanceId: Option[String]): Option[String] =
-    processInstanceId.orElse(businessKey)
-
-end C8MessageService

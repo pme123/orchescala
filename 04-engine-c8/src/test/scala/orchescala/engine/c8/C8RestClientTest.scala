@@ -261,6 +261,22 @@ object C8RestClientTest extends ZIOSpecDefault:
             )
           )
       },
+      test("send message: the processInstanceId wins over the businessKey - like in C7") {
+        val cluster = StubCluster(_ => 200 -> """{"messageKey":"9","processInstanceKey":"4711"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        val service = C8MessageService()
+        for
+          _ <- service.sendMessage("reset", None, None, Some("bk-1"), Some("4711"), None)
+          _ <- service.sendMessage("reset", None, None, Some("bk-1"), None, None)
+          _ <- service.sendMessage("reset", None, Some(5), Some("bk-1"), Some("4711"), None)
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assertTrue(
+            cluster.paths == Seq("v2/messages/correlation", "v2/messages/correlation", "v2/messages/publication"),
+            keys == Seq(Some("4711"), Some("bk-1"), Some("4711"))
+          )
+      },
       test("a caller supplied _identityCorrelation is removed before the process starts") {
         val cluster = StubCluster(_ => 200 -> """{"processInstanceKey":"1"}""")
         given C8RestClient = cluster.client()
