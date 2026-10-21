@@ -412,6 +412,15 @@ object C8Worker:
 
   private val processInstanceIdName = "processInstanceId"
 
+  /** The variables a worker fetches with its job - the InitWorker also a `processInstanceId` from
+    * outside, to report that it overwrites it (see `foreignProcessInstanceId`).
+    */
+  def variablesToFetch(worker: Worker[?, ?, ?]): Seq[String] =
+    val own = worker match
+      case _: InitWorker[?, ?, ?] => Seq(processInstanceIdName)
+      case _                      => Seq.empty
+    (worker.variableNames ++ GeneralVariables.variableNames ++ own :+ "businessKey").distinct
+
   /** A `processInstanceId` the InitWorker got from outside that is not its own - it overwrites it. */
   def foreignProcessInstanceId(worker: Worker[?, ?, ?], json: Json, processInstanceKey: Long): Option[String] =
     worker match

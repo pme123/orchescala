@@ -68,10 +68,16 @@ class C8MessageService(using
           "tenantId"       -> tenantId.asJson
         )
       )
-      .mapError(withContext(
-        s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")}) - the correlationKey " +
-          "of the message in the BPMN (zeebe:subscription) must give this value: =processInstanceId resp. =businessKey"
-      ))
+      .mapError: err =>
+        val failed = withContext(
+          s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")})"
+        )(err)
+        // no waiting subscription: the hint where the key comes from - not for auth, network …
+        failed match
+          case e: EngineError.ServiceRequestError if e.errorCode == 404 =>
+            e.copy(errorMsg = s"${e.errorMsg} - the correlationKey of the message in the BPMN " +
+              "(zeebe:subscription) must give this value: =processInstanceId resp. =businessKey")
+          case e                                                       => e
       .map: resp =>
         val processInstanceId = resp.processInstanceKey.getOrElse(resp.messageKey)
         MessageCorrelationResult.ProcessInstance(processInstanceId, processInstanceId, EngineType.C8)
@@ -101,4 +107,3 @@ class C8MessageService(using
       .map: resp =>
         MessageCorrelationResult.ProcessInstance(resp.messageKey, resp.messageKey, EngineType.C8)
 end C8MessageService
-
