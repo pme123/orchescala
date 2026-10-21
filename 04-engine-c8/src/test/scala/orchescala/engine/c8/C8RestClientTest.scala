@@ -278,8 +278,9 @@ object C8RestClientTest extends ZIOSpecDefault:
           )
       },
       test("send message: the hint on the correlation key only when no subscription matches") {
-        val notFound  = StubCluster(_ => 404 -> """{"status":404,"title":"NOT_FOUND","detail":"no subscription"}""")
+        val notFound  = StubCluster(_ => 404 -> """{"status":404,"title":"NOT_FOUND","detail":"Command 'CORRELATE' rejected with code 'NOT_FOUND': Expected to find subscription for message with name 'reset' and correlation key '4711', but none was found."}""")
         val forbidden = StubCluster(_ => 403 -> """{"status":403,"title":"FORBIDDEN","detail":"no access"}""")
+        val noTenant  = StubCluster(_ => 404 -> """{"status":404,"title":"NOT_FOUND","detail":"tenant 'x' not found"}""")
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
         val send = (cluster: StubCluster) =>
           given C8RestClient = cluster.client()
@@ -287,7 +288,12 @@ object C8RestClientTest extends ZIOSpecDefault:
         for
           missing <- send(notFound)
           denied  <- send(forbidden)
-        yield assertTrue(missing.contains("zeebe:subscription"), !denied.contains("zeebe:subscription"))
+          tenant  <- send(noTenant)
+        yield assertTrue(
+          missing.contains("zeebe:subscription"),
+          !denied.contains("zeebe:subscription"),
+          !tenant.contains("zeebe:subscription")
+        )
       },
       test("a caller supplied _identityCorrelation is removed before the process starts") {
         val cluster = StubCluster(_ => 200 -> """{"processInstanceKey":"1"}""")

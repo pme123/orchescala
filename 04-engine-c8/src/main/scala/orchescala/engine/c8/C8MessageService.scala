@@ -72,12 +72,13 @@ class C8MessageService(using
         val failed = withContext(
           s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")})"
         )(err)
-        // no waiting subscription: the hint where the key comes from - not for auth, network …
+        // no waiting subscription (Zeebe: "Expected to find subscription … but none was found"): the hint
+        // where the key comes from - not for another 404 (tenant, path), auth or network
         failed match
-          case e: EngineError.ServiceRequestError if e.errorCode == 404 =>
+          case e: EngineError.ServiceRequestError if e.errorCode == 404 && e.errorMsg.contains("subscription") =>
             e.copy(errorMsg = s"${e.errorMsg} - the correlationKey of the message in the BPMN " +
               "(zeebe:subscription) must give this value: =processInstanceId resp. =businessKey")
-          case e                                                       => e
+          case e => e
       .map: resp =>
         val processInstanceId = resp.processInstanceKey.getOrElse(resp.messageKey)
         MessageCorrelationResult.ProcessInstance(processInstanceId, processInstanceId, EngineType.C8)
