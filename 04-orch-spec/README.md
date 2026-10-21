@@ -1619,8 +1619,12 @@ Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
 Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 (vorgeschlagen: `=businessKey`).
 
-Der Korrelationsschlüssel steht am Schritt unter «Korrelation», samt dem
-Aufruf am Gateway (`POST {{baseUrl}}/message/<name>?…`, wie in Postman). Das
+Name der Nachricht (bzw. des Signals) und Korrelationsschlüssel stehen am
+Schritt und lassen sich dort ändern — wie Topic oder Timer gehören sie der
+Spezifikation, der BPMN-Export schreibt sie in die `<bpmn:message>`. Nutzt ein
+anderes Element dieselbe Nachricht, bekommt der Schritt eine eigene (bzw. die
+schon vorhandene mit dem neuen Namen). Darunter der Aufruf am Gateway
+(`POST {{baseUrl}}/message/<name>?…`, wie in Postman). Das
 Gateway gibt ihn aus `businessKey`, sonst aus `processInstanceId`: bei
 `=processInstanceKey` sendet man also mit `processInstanceId`, sonst mit
 `businessKey`. In Camunda 7 steht kein Schlüssel im BPMN — dort wählt der

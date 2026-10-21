@@ -27,7 +27,7 @@ import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
-import { messageCorrelation, messageRequest } from '../messageCall';
+import { carriesMessage, messageCorrelation, messageRequest, withMessageName } from '../messageCall';
 
 interface Props {
   step: Step | null;
@@ -521,25 +521,46 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           <span className="flex items-center gap-1"><Zap size={10} /> {step.eventKind} {step.eventDirection === 'throw' ? '(werfend)' : '(fangend)'}</span>
         </Row>
       )}
-      {/* der Name aus `messageRef` / `signalRef` — über ihn wird korreliert */}
-      {step.messageName && (
-        <Row label={step.eventKind === 'signal' ? 'Signal' : 'Nachricht'} isDark={isDark}><span className="font-mono break-all">{step.messageName}</span></Row>
+      {/* der Name aus `messageRef` / `signalRef` — über ihn wird korreliert; der Export schreibt ihn ins Diagramm */}
+      {carriesMessage(step) && (
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className={`${c.muted} w-24 flex-shrink-0`}>{step.eventKind === 'signal' ? 'Signal' : 'Nachricht'}</span>
+          <input value={step.messageName ?? ''} disabled={!canEdit || !!ofPattern}
+            onChange={e => onSpecChange(withMessageName(spec, step.id, e.target.value))}
+            title={ofPattern ? `Legt das Pattern «${ofPattern}» fest` : 'Der Name, unter dem gesendet und korreliert wird'}
+            placeholder={step.eventKind === 'signal' ? 'Name des Signals' : 'Name der Nachricht'}
+            className={`flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input}`} />
+        </div>
       )}
       {correlation && (
         <>
-          <Row label="Korrelation" isDark={isDark}>
-            <span title={correlation.either
-              ? `${C7_LABEL} korreliert über businessKey oder processInstanceId — der Sender wählt.`
-              : `${C8_LABEL}: der Korrelationsschlüssel der Nachricht — das Gateway setzt ihn aus businessKey, sonst aus processInstanceId.`}>
-              <span className="font-mono">{correlation.param}</span>
-              {correlation.either && <> oder <span className="font-mono">processInstanceId</span></>}
-              {correlation.expression && <> ← <span className="font-mono">{correlation.expression}</span></>}
-            </span>
-          </Row>
+          {correlation.either ? (
+            <Row label="Korrelation" isDark={isDark}>
+              <span title={`${C7_LABEL} korreliert über businessKey oder processInstanceId — der Sender wählt.`}>
+                <span className="font-mono">businessKey</span> oder <span className="font-mono">processInstanceId</span>
+              </span>
+            </Row>
+          ) : (
+            <div className="flex items-center gap-2 text-[10px]">
+              <span className={`${c.muted} w-24 flex-shrink-0`}>Korrelation</span>
+              <FeelInput value={step.correlationKey ?? ''} disabled={!canEdit || !!ofPattern} isDark={isDark} variables={variables}
+                onChange={v => onPatch(step.id, { correlationKey: v.trim() ? v : undefined })}
+                title={`${C8_LABEL}: der Korrelationsschlüssel der Nachricht — das Gateway setzt ihn aus businessKey, sonst aus processInstanceId. = processInstanceKey → mit processInstanceId senden.`}
+                placeholder="= businessKey oder = processInstanceKey"
+                className="flex-1 min-w-0" />
+              {!correlation.missing && <span className={`${c.muted} flex-shrink-0`}>→ <span className="font-mono">{correlation.param}</span></span>}
+            </div>
+          )}
           {correlation.missing && (
             <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
               <span>Kein Korrelationsschlüssel — in {C8_LABEL} findet die Nachricht so keine wartende Instanz.</span>
+            </p>
+          )}
+          {correlation.fixed && (
+            <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
+              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+              <span>Fester Wert — alle Instanzen warten auf denselben Schlüssel. Meist ist eine Variable gemeint: = businessKey.</span>
             </p>
           )}
           <pre className={`text-[10px] font-mono whitespace-pre-wrap break-all px-2 py-1.5 rounded border ${c.border2} ${c.muted2}`}>{messageRequest(step, correlation, spec)}</pre>

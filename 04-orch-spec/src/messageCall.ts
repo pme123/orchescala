@@ -20,6 +20,8 @@ export interface MessageCorrelation {
   missing?: boolean;
   /** Camunda 7: statt `businessKey` geht auch `processInstanceId` */
   either?: boolean;
+  /** Camunda 8: ein fester Wert statt `= …` — alle Instanzen teilen ihn */
+  fixed?: boolean;
 }
 
 /** Nur wer auf eine Nachricht wartet (Zwischenereignis, Empfangsaufgabe) — sonst `null`. */
@@ -29,6 +31,7 @@ export function messageCorrelation(step: Step, engine: EngineId | undefined): Me
   if ((engine ?? 'c7') === 'c7') return { param: 'businessKey', value: '{{businessKey}}', either: true };
   const expression = step.correlationKey;
   if (!expression) return { param: 'businessKey', value: '{{businessKey}}', missing: true };
+  if (!expression.trim().startsWith('=')) return { param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
   if (body === 'processInstanceKey') return { param: 'processInstanceId', value: '{{processInstanceId}}', expression };
   // eine Variable: ihr Wert ist der Schlüssel; sonst ein Ausdruck, den der Sender ausrechnet
@@ -53,4 +56,31 @@ export function messageRequest(step: Step, corr: MessageCorrelation, spec: Pick<
     '',
     body,
   ].join('\n');
+}
+
+/** Kann der Schritt eine Nachricht bzw. ein Signal tragen? */
+export const carriesMessage = (step: Step): boolean =>
+  step.messageName !== undefined || step.eventKind === 'message' || step.eventKind === 'signal'
+  || step.kind === 'receive' || step.kind === 'send';
+
+/**
+ * Die Nachricht des Schritts umbenennen — das Objekt der Interaktion, das sie
+ * unter dem alten Namen führt (`val messageName`), zieht mit.
+ */
+export function withMessageName(spec: ProcessSpec, stepId: string, name: string): ProcessSpec {
+  let old: string | undefined;
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    let next = s;
+    if (s.id === stepId) {
+      old = s.messageName;
+      next = { ...s, messageName: name };
+    }
+    if (next.children) next = { ...next, children: walk(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) };
+    return next;
+  });
+  const steps = walk(spec.steps);
+  const interactions = spec.interactions?.map(i => (i.stepId === stepId && old !== undefined && i.key === old ? { ...i, key: name } : i));
+  return { ...spec, steps, ...(interactions ? { interactions } : {}) };
 }

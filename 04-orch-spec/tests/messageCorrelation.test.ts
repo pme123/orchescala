@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn, mergeSpec, syncCorrelationKeys } from '../src/bpmn';
-import { messageCorrelation, messageRequest } from '../src/messageCall';
+import { writeBpmn } from '../src/bpmnWrite';
+import { messageCorrelation, messageRequest, withMessageName } from '../src/messageCall';
 import type { ProcessSpec, Step } from '../src/types';
+import { installXmlNamespaces } from './xmlNamespaces';
 
-(globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
+const g = globalThis as unknown as Record<string, unknown>;
+g.DOMParser ??= DOMParser;
+g.XMLSerializer ??= class { serializeToString(doc: { toString(): string }) { return doc.toString(); } };
+installXmlNamespaces();
 
 const bpmn = (subscription: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud" id="d" targetNamespace="x">
@@ -55,8 +60,55 @@ test('the request: like in Postman - with the fields of the In', () => {
 
 test('a saved spec gets the key from the diagram - on load and on merge', () => {
   const fresh = importBpmn(bpmn(sub('=businessKey')), 'kube').spec;
-  const saved: ProcessSpec = { ...fresh, steps: fresh.steps.map(s => ({ ...s, correlationKey: undefined })) };
+  const saved: ProcessSpec = { ...fresh, steps: fresh.steps.map(s => {
+    const { correlationKey: _, ...rest } = s;
+    return rest;
+  }) };
   assert.equal(reset(syncCorrelationKeys(saved, fresh)!).correlationKey, '=businessKey');
   assert.equal(syncCorrelationKeys(fresh, fresh), null);
   assert.equal(reset(mergeSpec(fresh, saved).spec).correlationKey, '=businessKey');
+});
+
+/** die Spezifikation des Diagramms, mit geändertem Schritt `ResetEvent` */
+const edited = (xml: string, patch: Partial<Step>, name?: string): ProcessSpec => {
+  let spec = importBpmn(xml, 'kube').spec;
+  if (name !== undefined) spec = withMessageName(spec, 'ResetEvent', name);
+  const walk = (steps: Step[]): Step[] => steps.map(s => (s.id === 'ResetEvent' ? { ...s, ...patch } : s));
+  return { ...spec, steps: walk(spec.steps) };
+};
+
+test('an edit in the app survives a merge with the unchanged diagram', () => {
+  const xml = bpmn(sub('=businessKey'));
+  const base = importBpmn(xml, 'kube').spec;
+  const mine = edited(xml, { correlationKey: '=processInstanceKey' }, 'acme-demo-kube-restart');
+  const merged = mergeSpec(importBpmn(xml, 'kube').spec, mine, base).spec;
+  assert.equal(reset(merged).correlationKey, '=processInstanceKey');
+  assert.equal(reset(merged).messageName, 'acme-demo-kube-restart');
+});
+
+test('export: name and key go into the message', () => {
+  const xml = bpmn(sub('=businessKey'));
+  const out = writeBpmn(xml, edited(xml, { correlationKey: '=processInstanceKey' }, 'acme-demo-kube-restart')).xml;
+  const back = importBpmn(out, 'kube').spec;
+  assert.equal(reset(back).messageName, 'acme-demo-kube-restart');
+  assert.equal(reset(back).correlationKey, '=processInstanceKey');
+  assert.equal(out.match(/<bpmn:message /g)?.length, 1);
+  // nichts geändert — nichts geschrieben
+  assert.equal(writeBpmn(xml, importBpmn(xml, 'kube').spec).xml.match(/correlationKey="=businessKey"/g)?.length, 1);
+});
+
+test('export: a message shared with another element is not renamed under its feet', () => {
+  const shared = bpmn(sub('=businessKey')).replace('<bpmn:endEvent id="EndEvent"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>',
+    '<bpmn:endEvent id="EndEvent"><bpmn:incoming>f2</bpmn:incoming><bpmn:messageEventDefinition id="md2" messageRef="Msg"/></bpmn:endEvent>');
+  const out = writeBpmn(shared, edited(shared, {}, 'acme-demo-kube-restart')).xml;
+  const back = importBpmn(out, 'kube').spec;
+  assert.equal(reset(back).messageName, 'acme-demo-kube-restart');
+  assert.equal(reset(back).correlationKey, '=businessKey');
+  assert.equal(allSteps(back.steps).find(s => s.id === 'EndEvent')?.messageName, 'acme-demo-kube-reset');
+});
+
+test('rename: the interaction keeping the old name follows', () => {
+  const spec = importBpmn(bpmn(''), 'kube').spec;
+  const withIa = { ...spec, interactions: [{ id: 'i', stepId: 'ResetEvent', kind: 'message' as const, name: 'ResetME', key: 'acme-demo-kube-reset' }] };
+  assert.equal(withMessageName(withIa, 'ResetEvent', 'acme-x').interactions?.[0].key, 'acme-x');
 });

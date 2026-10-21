@@ -567,6 +567,7 @@ function writeImplementation(
   const missing = (text: string) => issues.push({ stepId: step.id, where: 'Implementierung', text });
 
   if (step.timer) writeTimer(doc, el, engine, step.timer, step.id, 'Timer', issues);
+  writeMessage(doc, el, engine, step);
 
   if (local(el) === 'serviceTask') {
     // der Init-Worker der Vorlage hört auf die Prozess-ID (Orchescala-Konvention)
@@ -610,6 +611,65 @@ function writeImplementation(
     }
     if (called) el.setAttribute('calledElement', called);
     else if (!el.getAttribute('calledElement')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
+  }
+}
+
+/**
+ * Nachricht bzw. Signal des Schritts — Name und (Camunda 8, wartend) der
+ * Korrelationsschlüssel, so wie die Spezifikation sie kennt. Beides hängt an der
+ * globalen `<bpmn:message>` / `<bpmn:signal>`, die andere Elemente mit nutzen
+ * können: nur dieses Element zeigt dann auf eine andere — eine schon vorhandene
+ * mit dem Namen, sonst eine Kopie. Was niemand mehr braucht, räumt `tidyGlobals` weg.
+ */
+function writeMessage(doc: Document, el: Element, engine: EngineId, step: Step) {
+  const name = step.messageName?.trim();
+  if (!name) return;
+  const holder = local(el) === 'receiveTask' || local(el) === 'sendTask' ? el
+    : kids(el).find(c => local(c) === 'messageEventDefinition' || local(c) === 'signalEventDefinition');
+  if (!holder) return;
+  const tag = local(holder) === 'signalEventDefinition' ? 'signal' : 'message';
+  const refAttr = `${tag}Ref`;
+  const defs = doc.documentElement;
+  const globals = kids(defs).filter(g => local(g) === tag);
+  const users = (id: string) => allElements(defs).filter(x => x.getAttribute(refAttr) === id).length;
+  const key = engine === 'c8' && tag === 'message' && (local(el) === 'receiveTask' || local(el) === 'intermediateCatchEvent')
+    ? step.correlationKey?.trim() : undefined;
+  const keyOf = (g: Element) => {
+    const ext = firstNamed(g, 'extensionElements');
+    return (ext && firstNamed(ext, 'subscription')?.getAttribute('correlationKey')) ?? undefined;
+  };
+  const fits = (g: Element) => g.getAttribute('name') === name && (!key || keyOf(g) === key);
+
+  let current = globals.find(g => g.getAttribute('id') === holder.getAttribute(refAttr));
+  if (!current || !fits(current)) {
+    const other = globals.find(g => g !== current && fits(g));
+    if (other) current = other;
+    else if (!current || users(current.getAttribute('id') ?? '') > 1) {
+      // eine eigene: Kopie der bisherigen (samt Erweiterungen) oder neu
+      const fresh = current ? (current.cloneNode(true) as Element) : doc.createElementNS(BPMN_NS, `${defs.prefix ? `${defs.prefix}:` : ''}${tag}`);
+      const ids = new Set(allElements(defs).map(x => x.getAttribute('id')));
+      let i = 1;
+      while (ids.has(`${tag === 'signal' ? 'Signal' : 'Message'}_${step.id}${i > 1 ? `_${i}` : ''}`)) i++;
+      fresh.setAttribute('id', `${tag === 'signal' ? 'Signal' : 'Message'}_${step.id}${i > 1 ? `_${i}` : ''}`);
+      const diagram = kids(defs).find(g => local(g) === 'BPMNDiagram');
+      if (diagram) defs.insertBefore(fresh, diagram); else appendEl(defs, fresh);
+      current = fresh;
+    }
+    holder.setAttribute(refAttr, current.getAttribute('id')!);
+    current.setAttribute('name', name);
+  }
+  if (key && keyOf(current) !== key) {
+    let ext = firstNamed(current, 'extensionElements');
+    if (!ext) {
+      ext = doc.createElementNS(BPMN_NS, `${defs.prefix ? `${defs.prefix}:` : ''}extensionElements`);
+      prependEl(current, ext);
+    }
+    let sub = firstNamed(ext, 'subscription');
+    if (!sub) {
+      sub = doc.createElementNS(ZEEBE_NS, 'zeebe:subscription');
+      appendEl(ext, sub);
+    }
+    sub.setAttribute('correlationKey', key);
   }
 }
 

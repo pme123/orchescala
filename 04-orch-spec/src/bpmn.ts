@@ -1107,7 +1107,9 @@ function sig(s: Step): string {
  * vorige BPMN) — sonst gingen Einstellungen verloren, sobald jemand im
  * Diagramm etwas verschiebt oder die App es angleicht.
  */
-const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind', 'timer'] as const;
+const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind', 'timer', 'messageName', 'correlationKey'] as const;
+/** liest erst ein neuerer Import — eine ältere Spezifikation ohne sie bekommt sie aus dem Diagramm */
+const LATER_READ = new Set<string>(['timer', 'messageName', 'correlationKey']);
 
 /** Ein Wert unabhängig von seiner Engine-Form: `${x}` wie `=x`, `text` wie `="text"` */
 function normExpr(e: string): string {
@@ -1118,7 +1120,7 @@ function normExpr(e: string): string {
 }
 
 const norm = (k: string, v: unknown): unknown =>
-  k === 'mock' && typeof v === 'string' ? normExpr(v)
+  (k === 'mock' || k === 'correlationKey') && typeof v === 'string' ? normExpr(v)
     // die Vorgabe fürs InConfig steht nicht im Diagramm
     : k === 'timer' && v && !Array.isArray(v) ? [(v as TimerSpec).kind, normExpr((v as TimerSpec).expression ?? '')]
     : (k === 'inputs' || k === 'outputs') && Array.isArray(v) ? (v as Mapping[]).map(m => [m.name, normExpr(m.expression)])
@@ -1147,7 +1149,7 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
       || (prev[k] != null && same(k, s[k], inDiagram(k, prev[k])));
     if (!diagramUnchanged) continue;
     // den Timer liest erst ein neuerer Import — eine ältere Spezifikation ohne ihn bekommt ihn
-    if (prev[k] === undefined) { if (k !== 'timer') delete s[k]; }
+    if (prev[k] === undefined) { if (!LATER_READ.has(k)) delete s[k]; }
     else (s as Record<string, unknown>)[k] = prev[k];
   }
 }
@@ -1527,9 +1529,10 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
 }
 
 /**
- * Der Korrelationsschlüssel einer wartenden Nachricht gehört dem Diagramm
- * (`zeebe:subscription`) — eine Spezifikation von vor seinem Import bekommt ihn
- * von dort. Null, wenn alles stimmt.
+ * Der Korrelationsschlüssel einer wartenden Nachricht (`zeebe:subscription`):
+ * eine Spezifikation von vor seinem Import bekommt ihn aus dem Diagramm. Was sie
+ * schon hat, bleibt — geändert wird er am Schritt, der Export schreibt ihn.
+ * Null, wenn nichts fehlt.
  */
 export function syncCorrelationKeys(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s.correlationKey]));
@@ -1537,10 +1540,9 @@ export function syncCorrelationKeys(current: ProcessSpec, fresh: ProcessSpec): P
   const walk = (steps: Step[]): Step[] => steps.map(s => {
     let next = s;
     const key = neu.get(s.id);
-    if (neu.has(s.id) && key !== s.correlationKey) {
+    if (key && s.correlationKey === undefined) {
       changed = true;
       next = { ...next, correlationKey: key };
-      if (!key) delete next.correlationKey;
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
