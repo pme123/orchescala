@@ -8,6 +8,7 @@ import templates.*
 
 import java.io.StringReader
 import scala.language.postfixOps
+import scala.util.Try
 import scala.util.matching.Regex
 import scala.xml.*
 import scala.xml.transform.{RewriteRule, RuleTransformer}
@@ -62,21 +63,37 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
           end if
   end updateTemplates
 
-  private def updateBpmnColors(): Unit =
-    BpmnProcessType.diagramPaths.foreach: diagramPath =>
-      if os.exists(os.pwd / diagramPath) then
-        println(s"Adjust Color for $diagramPath:")
-        projectsConfig.projectConfig(docProjectConfig.projectName)
-          .map: pc =>
-            os.walk(os.pwd / diagramPath)
+  private def updateBpmnColors(): Unit = colourProject(os.pwd)
+
+  /** Colours the BPMNs of the project in `projectDir` - in every folder of `colouredPaths`. A file
+    * that cannot be coloured is reported and left as it is; the others are coloured all the same -
+    * a draft must not stop the docs. Returns the files not coloured (summed up in a warning).
+    */
+  private[api] def colourProject(projectDir: os.Path): Seq[os.Path] =
+    projectsConfig.projectConfig(docProjectConfig.projectName) match
+      case None    =>
+        println(s"No colours: ${docProjectConfig.projectName} is not in the projectsConfig")
+        Seq.empty
+      case Some(_) =>
+        val notColoured = ModelerTemplUpdater.colouredPaths.flatMap: path =>
+          if os.exists(projectDir / path) then
+            println(s"Adjust Color for $path:")
+            os.walk(projectDir / path)
               .filter:
-                _.toString.endsWith(".bpmn")
-              .map: p =>
-                p -> os.read(p)
-              .map:
-                extractUsesRefs
-      else println(s"No BPMN Diagrams found for $diagramPath")
-  end updateBpmnColors
+                _.ext == "bpmn"
+              .flatMap: p =>
+                Try(extractUsesRefs(p, os.read(p))).failed.toOption.map: ex =>
+                  println(s" - ${p.last}: not coloured - $ex")
+                  p
+          else
+            println(s"No BPMN Diagrams found in $path")
+            Seq.empty
+        if notColoured.nonEmpty then
+          val files = notColoured.map(_.relativeTo(projectDir)).mkString(", ")
+          println(s"WARNING: ${notColoured.size} BPMN(s) not coloured: $files")
+        notColoured
+    end match
+  end colourProject
 
   private lazy val projectsConfig                     = apiConfig.projectsConfig
   private lazy val docProjectConfig: DocProjectConfig = DocProjectConfig(apiProjectConfig)
@@ -92,23 +109,20 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
         println(s"CHANGED  -> $calledElement > $id --")
         calledElement -> id
 
+    // without a topic or a decisionRef (e.g. a step in orch-spec without a service yet) - no colour
     val externalWorkers = (xml \\ "serviceTask")
-      .map: br =>
-        val workerRef = br
-          .attribute("http://camunda.org/schema/1.0/bpmn", "topic")
-          .get
-        val id        = br \@ "id"
-        println(s"CHANGED workerRef -> $workerRef > $id --")
-        workerRef.toString -> id
+      .flatMap: st =>
+        st.attribute("http://camunda.org/schema/1.0/bpmn", "topic").map: workerRef =>
+          val id = st \@ "id"
+          println(s"CHANGED workerRef -> $workerRef > $id --")
+          workerRef.toString -> id
 
     val businessRuleTasks = (xml \\ "businessRuleTask")
-      .map: br =>
-        val decisionRef = br
-          .attribute("http://camunda.org/schema/1.0/bpmn", "decisionRef")
-          .get
-        val id          = br \@ "id"
-        println(s"CHANGED decisionRef -> $decisionRef > $id --")
-        decisionRef.toString -> id
+      .flatMap: br =>
+        br.attribute("http://camunda.org/schema/1.0/bpmn", "decisionRef").map: decisionRef =>
+          val id = br \@ "id"
+          println(s"CHANGED decisionRef -> $decisionRef > $id --")
+          decisionRef.toString -> id
 
     val xmlNew = ModelerTemplUpdater.withGeneratedInGrey(
       (callActivities ++ businessRuleTasks ++ externalWorkers)
@@ -122,7 +136,10 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
             println(s"  -> $project > $id -- $color")
             new RuleTransformer(changeColor(project, id)).apply(xmlResult)
     )
-    os.write.over(bpmnPath, ModelerTemplUpdater.toBpmnFile(xmlNew))
+    // next to it, then moved over it - orch-spec may open the file meanwhile, never half written
+    val tmp = bpmnPath / os.up / s".${bpmnPath.last}.tmp"
+    os.write.over(tmp, ModelerTemplUpdater.toBpmnFile(xmlNew))
+    os.move(tmp, bpmnPath, replaceExisting = true, atomicMove = true)
   end extractUsesRefs
 
   private def changeColor(project: String, id: String) = new RewriteRule:
@@ -135,6 +152,15 @@ end ModelerTemplUpdater
 
 object ModelerTemplUpdater:
   val colorNamespace = "http://www.omg.org/spec/BPMN/non-normative/color/1.0"
+
+  /** Where orch-spec keeps its copy of the BPMN in a project - what it shows. */
+  val specProcessesPath: os.RelPath = os.rel / "spec" / "processes"
+
+  /** The folders whose BPMNs `api/run` colours: the diagrams of the engine (what is deployed) and
+    * the copy of orch-spec. Both get the same colours; before, orch-spec showed its copy without.
+    */
+  def colouredPaths: Seq[os.RelPath] = BpmnProcessType.diagramPaths :+ specProcessesPath
+
   // the grey of BpmnProcessGenerator's template
   val generatedGrey  = "#D5D5D5"
 
