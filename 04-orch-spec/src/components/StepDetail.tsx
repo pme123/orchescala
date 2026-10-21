@@ -519,6 +519,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           <span className="flex items-center gap-1"><Zap size={10} /> {step.eventKind} {step.eventDirection === 'throw' ? '(werfend)' : '(fangend)'}</span>
         </Row>
       )}
+      {/* der Name aus `messageRef` / `signalRef` — über ihn wird korreliert */}
+      {step.messageName && (
+        <Row label={step.eventKind === 'signal' ? 'Signal' : 'Nachricht'} isDark={isDark}><span className="font-mono break-all">{step.messageName}</span></Row>
+      )}
       {step.eventKind === 'timer' && (
         <TimerSection timer={step.timer} spec={spec} isDark={isDark} canEdit={canEdit} lockedBy={ofPattern ?? undefined}
           onChange={timer => onPatch(step.id, { timer })} />
