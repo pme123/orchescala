@@ -646,3 +646,14 @@ test('an end event with a link definition is not a None event - BPMN has no link
   assert.deepEqual(outputsOf(byId(doc, 'e')), []);
   assert.ok(byId(doc, 'e_SetBefore'));
 });
+
+test('the comment of a listener not taken over is a valid XML comment - "--" in the expression is broken up', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s" />
+    <bpmn:userTask id="u">${listener('counter', 'counter--1')}</bpmn:userTask>`, '');
+  const r = convertBpmn(xml, 'c8');
+  const comment = /<!--([\s\S]*?)-->/.exec(r.xml)?.[1] ?? '';
+  assert.match(comment, /nicht übernommen: camunda:executionListener event="start"/);
+  assert.ok(!comment.includes('--'), comment);
+  assert.match(comment, /counter- -1/);
+});

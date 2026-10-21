@@ -282,8 +282,8 @@ function toC8(defs: Element, ctx: Ctx) {
     //    am Element oder an einem None-Throw-Event davor/danach (placementOf)
     const cio = ext0 ? firstNamed(ext0, 'inputOutput', CAMUNDA_NS) : null;
     // nur Ausgaben, die ein zeebe:output werden (ein Skript, eine Liste, eine Map nicht)
-    const hasOutputs = io.some(p => local(p) === 'output') || !!cio && kids(cio).some(p =>
-      local(p) === 'outputParameter' && !kids(p).some(k => ['script', 'list', 'map'].includes(local(k))));
+    const hasOutputs = io.some(p => local(p) === 'output') || (!!cio && kids(cio).some(p =>
+      local(p) === 'outputParameter' && !kids(p).some(k => ['script', 'list', 'map'].includes(local(k)))));
     const listeners = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'executionListener') : [];
     // nach den eigenen Ausgaben — in Camunda 7 lief der end-Listener nach dem Output-Mapping
     const listenerOutputs: Element[] = [];
@@ -822,6 +822,10 @@ function insertOnFlow(ctx: Ctx, parent: Element, flow: Element, evId: string, nf
 
 interface Point { x: number; y: number }
 
+/** Grösse eines Events im Diagramm (Breite = Höhe) — und die Luft, ab der es nicht eng ist */
+const EVENT_SIZE = 36;
+const EVENT_ROOM = EVENT_SIZE + 20;
+
 type Diagram = NonNullable<ReturnType<typeof diagramOf>>;
 
 /** Das Diagramm: Shape und Kante fürs eingefügte Event — auf dem letzten Stück
@@ -864,19 +868,20 @@ function diagramOf(defs: Element) {
       // ein Wegpunkt ohne Koordinate: nichts zeichnen statt NaN
       if (!Number.isFinite(len)) return 'none';
       // kürzer als das Event: die gekürzten Kanten liefen rückwärts
-      if (len < 36) return 'short';
+      if (len < EVENT_SIZE) return 'short';
       const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
       const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       const shape = make(shape0, 'BPMNShape', { id: uniqueId(`${evId}_di`), bpmnElement: evId });
       appendEl(plane, shape);
-      appendEl(shape, make(bounds0, 'Bounds', { x: Math.round(c.x - 18), y: Math.round(c.y - 18), width: 36, height: 36 }));
+      const r = EVENT_SIZE / 2;
+      appendEl(shape, make(bounds0, 'Bounds', { x: Math.round(c.x - r), y: Math.round(c.y - r), width: EVENT_SIZE, height: EVENT_SIZE }));
       const edge = make(flowEdge, 'BPMNEdge', { id: uniqueId(`${nfId}_di`), bpmnElement: nfId });
       appendEl(plane, edge);
       edges.push(edge); // ein weiteres Event kann auf dem neuen Fluss landen
       // die Kante des Flusses endet am Event, die neue führt weiter auf dem alten Weg
-      setPoints(flowEdge, [...points.slice(0, at + 1), { x: c.x - d.x * 18, y: c.y - d.y * 18 }]);
-      setPoints(edge, [{ x: c.x + d.x * 18, y: c.y + d.y * 18 }, ...points.slice(at + 1)]);
-      return len < 56 ? 'tight' : 'ok';
+      setPoints(flowEdge, [...points.slice(0, at + 1), { x: c.x - d.x * r, y: c.y - d.y * r }]);
+      setPoints(edge, [{ x: c.x + d.x * r, y: c.y + d.y * r }, ...points.slice(at + 1)]);
+      return len < EVENT_ROOM ? 'tight' : 'ok';
     },
   };
 }
