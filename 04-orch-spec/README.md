@@ -1619,6 +1619,13 @@ Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
 Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 (vorgeschlagen: `=businessKey`).
 
+Der Korrelationsschlüssel steht am Schritt unter «Korrelation», samt dem
+Aufruf am Gateway (`POST {{baseUrl}}/message/<name>?…`, wie in Postman). Das
+Gateway gibt ihn aus `businessKey`, sonst aus `processInstanceId`: bei
+`=processInstanceKey` sendet man also mit `processInstanceId`, sonst mit
+`businessKey`. In Camunda 7 steht kein Schlüssel im BPMN — dort wählt der
+Sender einen der beiden.
+
 **On the fly** geht es auch ohne Umstellen: **Export → BPMN** hat die Wahl
 «für Camunda 7 | Camunda 8». Die andere Engine wird beim Export umgewandelt
 (`…-bpmn-c8.bpmn`), Spezifikation und Diagramm bleiben, wie sie sind.
@@ -1628,7 +1635,7 @@ Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 | Export | für wen | Inhalt |
 | --- | --- | --- |
 | **Fachlich** | Fachbereich, Review, Abnahme | Ablauf in Prosa, Beschreibungen, offene Punkte — ohne technische Ausdrücke |
-| **Orchescala** | Umsetzung und KI | Überblick als Baum, danach je Schritt ein Abschnitt mit stabiler ID: Topic, Service, Mappings, Fehler, Mocks, Zweige |
+| **Orchescala** | Umsetzung und KI | Überblick als Baum, danach je Schritt ein Abschnitt mit stabiler ID: Topic, Service, Mappings, Fehler, Mocks, Zweige — bei einer wartenden Nachricht der Aufruf am Gateway |
 | **Scala** | Umsetzung | das Datenmodell als Orchescala-Domain, dateiweise |
 | **BPMN** | Umsetzung, Import | das Diagramm im Stand des Editors — für Camunda 7 oder 8 |
 | **JSON** | Sicherung / Weiterverarbeitung | die Spezifikation selbst |

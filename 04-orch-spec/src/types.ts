@@ -198,6 +198,11 @@ export interface Step {
   eventDirection?: 'throw' | 'catch';
   /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
   messageName?: string;
+  /**
+   * Fangende Nachricht: der Korrelationsschlüssel (FEEL), in Camunda 8 aus
+   * `zeebe:subscription` der `<bpmn:message>` — Camunda 7 kennt ihn nicht im BPMN
+   */
+  correlationKey?: string;
   /** Timer-Ereignis: wann es auslöst — die Variable dazu steht im `InConfig` */
   timer?: TimerSpec;
 

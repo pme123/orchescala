@@ -27,6 +27,7 @@ import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
+import { messageCorrelation, messageRequest } from '../messageCall';
 
 interface Props {
   step: Step | null;
@@ -251,6 +252,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const confirm = useConfirm();
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
+  const correlation = messageCorrelation(step, spec.engine);
   // Ein aus dem BPMN gelesener Schritt trägt oft kein Template, aber ein
   // Topic — und im OpenAPI-Katalog **ist** das Topic die Kennung. Deshalb
   // beide Wege probieren, sonst bleibt der Eintrag ungenutzt.
@@ -522,6 +524,26 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       {/* der Name aus `messageRef` / `signalRef` — über ihn wird korreliert */}
       {step.messageName && (
         <Row label={step.eventKind === 'signal' ? 'Signal' : 'Nachricht'} isDark={isDark}><span className="font-mono break-all">{step.messageName}</span></Row>
+      )}
+      {correlation && (
+        <>
+          <Row label="Korrelation" isDark={isDark}>
+            <span title={correlation.either
+              ? `${C7_LABEL} korreliert über businessKey oder processInstanceId — der Sender wählt.`
+              : `${C8_LABEL}: der Korrelationsschlüssel der Nachricht — das Gateway setzt ihn aus businessKey, sonst aus processInstanceId.`}>
+              <span className="font-mono">{correlation.param}</span>
+              {correlation.either && <> oder <span className="font-mono">processInstanceId</span></>}
+              {correlation.expression && <> ← <span className="font-mono">{correlation.expression}</span></>}
+            </span>
+          </Row>
+          {correlation.missing && (
+            <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
+              <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+              <span>Kein Korrelationsschlüssel — in {C8_LABEL} findet die Nachricht so keine wartende Instanz.</span>
+            </p>
+          )}
+          <pre className={`text-[10px] font-mono whitespace-pre-wrap break-all px-2 py-1.5 rounded border ${c.border2} ${c.muted2}`}>{messageRequest(step, correlation, spec)}</pre>
+        </>
       )}
       {step.eventKind === 'timer' && (
         <TimerSection timer={step.timer} spec={spec} isDark={isDark} canEdit={canEdit} lockedBy={ofPattern ?? undefined}

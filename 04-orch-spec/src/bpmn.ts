@@ -500,6 +500,8 @@ interface BuildCtx {
   errors: Map<string, string>;
   /** <bpmn:signal> / <bpmn:message> id → name */
   signals: Map<string, string>;
+  /** <bpmn:message> id → Korrelationsschlüssel (Camunda 8: `zeebe:subscription`) */
+  correlationKeys: Map<string, string>;
   /** alle Knoten aller Ebenen — für die Meldung «nicht erreichbar» */
   allNodes: Map<string, string>;
   /** Element-ID → Pattern, zu dem es gehört (Pfade und Blöcke eines Patterns) */
@@ -582,6 +584,12 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const ref = el.getAttribute('messageRef');
     const name = ref ? ctx.signals.get(ref) : undefined;
     if (name) step.messageName = name;
+  }
+  // wer auf eine Nachricht wartet, wird in Camunda 8 über ihren Schlüssel gefunden
+  if (kind === 'receive' || (kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch')) {
+    const def = kind === 'receive' ? el : kids(el).find(c => local(c) === 'messageEventDefinition');
+    const key = ctx.correlationKeys.get(def?.getAttribute('messageRef') ?? '');
+    if (key) step.correlationKey = key;
   }
 
   const ext = firstNamed(el, 'extensionElements');
@@ -958,13 +966,20 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
       if (id && name) signalDefs.set(id, name);
     }
   }
+  const correlationKeys = new Map<string, string>();
+  for (const m of elementsNamed(doc.documentElement, 'message')) {
+    const ext = firstNamed(m, 'extensionElements');
+    const key = ext ? firstNamed(ext, 'subscription')?.getAttribute('correlationKey') : null;
+    const id = m.getAttribute('id');
+    if (id && key?.trim()) correlationKeys.set(id, key.trim());
+  }
   // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
   const engine = detectEngine(xml);
   // Pattern zuerst: was zu einem gehört, wird im Baum als Pattern gezeigt
   const detected = detectPatterns(doc, opts.patterns, engine);
   const ctx: BuildCtx = {
     doc, processId, initOutputs: [],
-    byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, allNodes: new Map(), succ: new Map(),
+    byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, correlationKeys, allNodes: new Map(), succ: new Map(),
     owned: detected.owned,
   };
   register(ctx, scope);
@@ -1501,6 +1516,31 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     if (next.errors?.some(e => fill(e, next.errors!))) {
       changed = true;
       next = { ...next, errors: next.errors.map((e, _, all) => { const p = fill(e, all); return p ? { ...e, ...p } : e; }) };
+    }
+    if (next.children) next = { ...next, children: walk(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) };
+    return next;
+  });
+  const steps = walk(current.steps);
+  return changed ? { ...current, steps } : null;
+}
+
+/**
+ * Der Korrelationsschlüssel einer wartenden Nachricht gehört dem Diagramm
+ * (`zeebe:subscription`) — eine Spezifikation von vor seinem Import bekommt ihn
+ * von dort. Null, wenn alles stimmt.
+ */
+export function syncCorrelationKeys(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
+  const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s.correlationKey]));
+  let changed = false;
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    let next = s;
+    const key = neu.get(s.id);
+    if (neu.has(s.id) && key !== s.correlationKey) {
+      changed = true;
+      next = { ...next, correlationKey: key };
+      if (!key) delete next.correlationKey;
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };

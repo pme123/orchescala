@@ -18,6 +18,7 @@ import { engineExpression } from './feelJuel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
+import { messageCorrelation, messageRequest } from './messageCall.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -305,6 +306,16 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     out.push(...table(meta, ['Feld', 'Wert']));
 
     if (s.description) out.push(s.description, '');
+    const corr = messageCorrelation(s, spec.engine);
+    if (corr) {
+      out.push('**Nachricht senden**', '');
+      out.push(corr.either
+        ? `Korreliert über \`businessKey\` oder \`processInstanceId\` — der Sender wählt.`
+        : corr.missing
+          ? 'Kein Korrelationsschlüssel im BPMN — die Nachricht findet so keine wartende Instanz.'
+          : `Korrelationsschlüssel \`${corr.expression}\` — also \`${corr.param}\`.`, '');
+      out.push('```http', messageRequest(s, corr, spec), '```', '');
+    }
     // Abgewählte Zeilen kommen in diesem Prozess nicht vor — sie stehen nicht
     // im Vertrag, werden aber gezählt, damit klar ist, was der Service könnte.
     const used = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => !m.disabled);
