@@ -43,6 +43,12 @@ object SendEvent extends CompanyBpmnProcessDsl:
     type Id = String :| MinLength[1]
     type Both = Named & Dated
     type Range = Int :| Greater[0] & Less[10]
+    object Nested:
+      type Deep = String
+    end Nested
+    trait Inside:
+      type Local = Int
+    type After = Long
     lazy val example = In(receivingSystems = None, tags = None, id = "1", both = ???, range = 1)
   end In
 
@@ -93,8 +99,12 @@ const imported = () => {
 test('scan: a type after the companion object has ended is not named after it', () => {
   const names = imported().domain.map(t => t.name);
   assert.ok(names.includes('SendEvent.In.ReceivingSystems'));
-  assert.ok(names.includes('SendEvent.Local'));
+  assert.ok(names.includes('SendEvent.Helper.Local'));
   assert.ok(!names.includes('SendEvent.In.Local'));
+  // nested: the path through all scopes - and back in the outer one after the inner has ended
+  assert.ok(names.includes('SendEvent.In.Nested.Deep'));
+  assert.ok(names.includes('SendEvent.In.Inside.Local'));
+  assert.ok(names.includes('SendEvent.In.After'));
 });
 
 test('import: other aliases in the companion still resolve to their target - an intersection is kept', () => {

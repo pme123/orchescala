@@ -45,6 +45,8 @@ const SCALADOC = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
 const END = /^(\s*)end\s+(\w+)/;
 // Woran ein Service- oder Prozess-Objekt zu erkennen ist
 const SERVICE_MARK = /^\s+(?:(?:final|override)\s+)*(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
+/** Ein verschachtelter Bereich für Typ-Namen: `object`, `trait`, `class`, `enum` (eingerückt) */
+const NESTED_SCOPE = /^(\s*)(?:(?:sealed|final|abstract|private|protected|case|open)\s+)*(?:object|trait|class|enum)\s+(\w+)/;
 const TYPE_MEMBER = /^(\s+)type\s+(\w+)\s*=/;
 /**
  * `lazy val example = In(` bzw. `lazy val example: In.Standard = In.Standard(` im
@@ -312,10 +314,11 @@ export function scanScala(source: string, path = ''): DomainType[] {
   /** das zuletzt geöffnete Objekt — der Companion, in dem ein `exampleMinimal.copy(` steht */
   let companion: string | null = null;
   /**
-   * Das verschachtelte Objekt, in dem die Zeile steht (`object In:` ⏎ `type X = …` → `In.X`) —
-   * es endet mit der ersten Zeile, die nicht tiefer eingerückt ist (`end In`, `}`, das Nächste)
+   * Die verschachtelten Objekte, Klassen, Traits und Enums, in denen die Zeile steht
+   * (`object In:` ⏎ `type X = …` → `In.X`, darin `trait H:` ⏎ `type Y` → `In.H.Y`) — jedes
+   * endet mit der ersten Zeile, die nicht tiefer eingerückt ist (`end In`, `}`, das Nächste)
    */
-  let typeScope: { name: string; indent: number } | null = null;
+  const typeScopes: Array<{ name: string; indent: number }> = [];
   let doc = '';
 
   const add = (name: string, kind: DomainType['kind'], extra: Partial<DomainType> = {}) => {
@@ -341,7 +344,10 @@ export function scanScala(source: string, path = ''): DomainType[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
-    if (typeScope && line.search(/\S/) <= typeScope.indent) typeScope = null;
+    const lineIndent = line.search(/\S/);
+    while (typeScopes.length && lineIndent <= typeScopes[typeScopes.length - 1].indent) typeScopes.pop();
+    const scope = NESTED_SCOPE.exec(line);
+    if (scope && scope[1].length > 0) typeScopes.push({ name: scope[2], indent: scope[1].length });
 
     const d = SCALADOC.exec(line);
     if (d) { doc = d[1]; continue; }
@@ -352,7 +358,6 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const o = OBJECT.exec(line);
     if (o) {
       companion = o[2];
-      typeScope = o[1].length > 0 ? { name: o[2], indent: o[1].length } : null;
       // Nur ein Objekt auf oberster Ebene trägt Member wie `In` / `Out`.
       if (o[1].length === 0) {
         owner = o[2];
@@ -493,7 +498,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     const tm = TYPE_MEMBER.exec(line);
     if (tm && owner) {
       // im Begleitobjekt (`object In:` ⏎ `type ReceivingSystems = …`) heisst er `In.ReceivingSystems`
-      add(typeScope && typeScope.name !== owner ? `${typeScope.name}.${tm[2]}` : tm[2], 'alias', { target: line.slice(line.indexOf('=') + 1).trim() });
+      const path = typeScopes.map(sc => sc.name).filter(n => n !== owner);
+      add([...path, tm[2]].join('.'), 'alias', { target: line.slice(line.indexOf('=') + 1).trim() });
       continue;
     }
 
