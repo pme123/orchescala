@@ -187,6 +187,8 @@ test('no flow to put the event on: reported - nothing inserted', () => {
   const doc = parse(r.xml);
   assert.equal(named(doc, 'intermediateThrowEvent').length, 0);
   assert.ok(r.issues.some(i => i.stepId === 'u' && /keinen Fluss davor: von Hand umsetzen/.test(i.text)), JSON.stringify(r.issues));
+  // the C7 listener stays as a comment on the element - for the manual fix
+  assert.match(r.xml, /<!-- Camunda 7[^>]*nicht übernommen: camunda:executionListener event="start" expression="\$\{execution.setVariable\(&quot;opened&quot;|<!-- Camunda 7[^>]*nicht übernommen: camunda:executionListener event="start" expression="\$\{execution.setVariable\("opened"/);
 });
 
 test('a start and an end listener on one task: an event before and one after it', () => {
@@ -266,6 +268,7 @@ test('an end listener on an event-based gateway: NOT inserted - only catch event
   assert.equal(named(doc, 'intermediateThrowEvent').length, 0);
   assert.equal(byId(doc, 'f2')?.getAttribute('targetRef'), 't1');
   assert.equal(r.issues.filter(i => /NICHT übernommen auf «f[23]» — nach einem Event-Based Gateway/.test(i.text)).length, 2, JSON.stringify(r.issues));
+  assert.match(r.xml, /nicht übernommen: camunda:executionListener event="end"/);
 });
 
 test('a start listener on a catch event after an event-based gateway: NOT inserted, reported', () => {
@@ -466,4 +469,87 @@ test('an element in a subprocess: the event goes into the subprocess, on its flo
   assert.equal(ev?.parentElement?.getAttribute('id'), 'sub');
   assert.equal(byId(doc, 'gw_SetBefore_Flow')?.parentElement?.getAttribute('id'), 'sub');
   assert.equal(byId(doc, 'g1')?.getAttribute('targetRef'), 'gw_SetBefore');
+});
+
+test('an end listener on a parallel fork: an event on each branch - the hint says they run at the same time', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:parallelGateway id="fork">${listener('forked', 'true', 'end')}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing></bpmn:parallelGateway>
+    <bpmn:endEvent id="e1"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="e2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="fork" />
+    <bpmn:sequenceFlow id="f2" sourceRef="fork" targetRef="e1" />
+    <bpmn:sequenceFlow id="f3" sourceRef="fork" targetRef="e2" />`);
+  const r = convertBpmn(xml, 'c8');
+  assert.ok(byId(parse(r.xml), 'fork_SetAfter_2'));
+  assert.ok(r.issues.some(i => /bis zu 2-mal gesetzt, auf parallelen Zweigen gleichzeitig/.test(i.text)), JSON.stringify(r.issues));
+});
+
+test('an edge with bends: before - the event on its last stretch, after - on its first', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="u"><bpmn:extensionElements>
+      <camunda:executionListener expression="\${execution.setVariable(&#34;opened&#34;, true)}" event="start" />
+      <camunda:executionListener expression="\${execution.setVariable(&#34;closed&#34;, true)}" event="end" />
+    </bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="u" />
+    <bpmn:sequenceFlow id="f2" sourceRef="u" targetRef="e" />`,
+  `<bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="118" y="136" /><di:waypoint x="118" y="300" /><di:waypoint x="400" y="300" /></bpmndi:BPMNEdge>
+    <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2"><di:waypoint x="500" y="300" /><di:waypoint x="700" y="300" /><di:waypoint x="700" y="500" /></bpmndi:BPMNEdge>`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  const points = (id: string) => Array.from(byId(doc, id)?.children ?? []).map(w => `${w.getAttribute('x')},${w.getAttribute('y')}`);
+  const at = (id: string) => { const b = byId(doc, id)?.firstElementChild; return `${b?.getAttribute('x')},${b?.getAttribute('y')}`; };
+  // before: on the last stretch (118,300 → 400,300), the bend stays on f1
+  assert.equal(at('u_SetBefore_di'), '241,282');
+  assert.deepEqual(points('f1_di'), ['118,136', '118,300', '241,300']);
+  assert.deepEqual(points('u_SetBefore_Flow_di'), ['277,300', '400,300']);
+  // after: on the first stretch (500,300 → 700,300), the bend moves to the new flow
+  assert.equal(at('u_SetAfter_di'), '582,282');
+  assert.deepEqual(points('f2_di'), ['500,300', '582,300']);
+  assert.deepEqual(points('u_SetAfter_Flow_di'), ['618,300', '700,300', '700,500']);
+});
+
+test('after with a condition and a default: there and back again - both stay on the flow from the gateway', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:exclusiveGateway id="gw" default="f3">${listener('decided', 'true', 'end')}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:endEvent id="e1"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="e2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />
+    <bpmn:sequenceFlow id="f2" sourceRef="gw" targetRef="e1"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">\${ok}</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f3" sourceRef="gw" targetRef="e2" />`);
+  const back = parse(convertBpmn(convertBpmn(xml, 'c8').xml, 'c7').xml);
+  assert.equal(byId(back, 'gw')?.getAttribute('default'), 'f3');
+  assert.equal(byId(back, 'f2')?.getAttribute('sourceRef'), 'gw');
+  assert.match(byId(back, 'f2')?.textContent ?? '', /ok/);
+  assert.equal(byId(back, 'f2')?.getAttribute('targetRef'), 'gw_SetAfter');
+});
+
+test('an end listener on a call activity with outputs: one more output mapping on it', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:callActivity id="c" calledElement="child"><bpmn:extensionElements>
+      <camunda:out source="result" target="result" />
+      <camunda:executionListener expression="\${execution.setVariable(&#34;called&#34;, true)}" event="end" />
+    </bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:callActivity>
+    <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="c" />
+    <bpmn:sequenceFlow id="f2" sourceRef="c" targetRef="e" />`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.deepEqual(outputsOf(byId(doc, 'c')), ['result==result', 'called==true']);
+  assert.equal(named(doc, 'intermediateThrowEvent').length, 0);
+});
+
+test('an end listener on a message catch event without outputs: an event after it - its message variables stay', () => {
+  const xml = c7(`
+    <bpmn:message id="m" name="answer" />
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:intermediateCatchEvent id="w">${listener('answered', 'true', 'end')}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:messageEventDefinition messageRef="m" /></bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="w" />
+    <bpmn:sequenceFlow id="f2" sourceRef="w" targetRef="e" />`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.deepEqual(outputsOf(byId(doc, 'w')), []);
+  assert.deepEqual(outputsOf(byId(doc, 'w_SetAfter')), ['answered==true']);
 });

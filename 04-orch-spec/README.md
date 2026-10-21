@@ -1600,7 +1600,8 @@ Prozess. Das Throw-Event steht im Diagramm auf dem Fluss davor bzw. danach
 (Lage prüfen, der Dialog meldet es); Bedingungen bleiben am Fluss. Typisch:
 `readyForEvents` am Event-Based Gateway, auf das die Simulation wartet.
 
-**Nicht übernommen** (und so gemeldet, die Variable fehlt dann): wo kein Fluss
+**Nicht übernommen** (und so gemeldet, die Variable fehlt dann; der Listener
+bleibt als Kommentar am Element, für die Handarbeit): wo kein Fluss
 davor bzw. danach ist, nach einem Event-Based Gateway (dort darf nur ein
 Catch-Event folgen — also kein `end`-Listener am Gateway, kein `start`-Listener
 an seinen Catch-Events) und bei einem unbekannten Listener-Event. Bei einer

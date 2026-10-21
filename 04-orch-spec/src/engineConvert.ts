@@ -294,6 +294,7 @@ function toC8(defs: Element, ctx: Ctx) {
       const place = placementOf(el, event, hasOutputs);
       if (!place) {
         issue('Listener', `setVariable «${sv.name}» NICHT übernommen — Listener-Event «${event}» hier unbekannt: von Hand umsetzen.`);
+        keepAsComment(el, [listenerText(l)]);
         removeEl(l);
         continue;
       }
@@ -301,8 +302,8 @@ function toC8(defs: Element, ctx: Ctx) {
       if (place === 'here') listenerOutputs.push(output);
       else {
         const known = setEvents.find(x => x.el === el && x.place === place);
-        if (known) known.outputs.push(output);
-        else setEvents.push({ el, place, outputs: [output] });
+        if (known) { known.outputs.push(output); known.listeners.push(listenerText(l)); }
+        else setEvents.push({ el, place, outputs: [output], listeners: [listenerText(l)] });
       }
       removeEl(l);
     }
@@ -670,7 +671,18 @@ type Placement = 'here' | 'before' | 'after' | 'on';
 /** wo ein eigenes Event die Variable setzt */
 type EventPlacement = Exclude<Placement, 'here'>;
 
-interface SetEvent { el: Element; place: EventPlacement; outputs: Element[] }
+/** `listeners`: die Camunda-7-Listener, als Text — bleibt einer ohne Event, steht er als Kommentar am Element */
+interface SetEvent { el: Element; place: EventPlacement; outputs: Element[]; listeners: string[] }
+
+const listenerText = (l: Element) => `camunda:executionListener event="${l.getAttribute('event') ?? 'start'}" expression="${l.getAttribute('expression') ?? ''}"`;
+
+/** Was nicht übernommen wurde, bleibt als Kommentar am Element — für die Handarbeit */
+function keepAsComment(el: Element, listeners: string[]) {
+  for (const text of listeners) {
+    // `--` darf in einem XML-Kommentar nicht stehen
+    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen: ${text.replace(/--/g, '- -')} `) as unknown as Element);
+  }
+}
 
 /** wie das Event ins Diagramm kam */
 type Drawn = 'ok' | 'tight' | 'short' | 'none';
@@ -702,7 +714,7 @@ function setEventReason(el: Element, place: EventPlacement): string {
 
 /** Ein None-Throw-Event mit den Output-Mappings auf jedem Fluss davor bzw. danach —
  *  je Fluss eines, so wartet ein Join-Gateway weiter auf alle Zweige. */
-function insertSetEvent(ctx: Ctx, { el, place, outputs }: SetEvent, uniqueId: (base: string) => string, di: Diagram | null) {
+function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, uniqueId: (base: string) => string, di: Diagram | null) {
   const id = el.getAttribute('id') ?? '';
   const parent = el.parentElement;
   const issue = issueAt(ctx, el);
@@ -713,6 +725,7 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs }: SetEvent, uniqueId: (b
   const flows = parent ? flowsOf(parent) : [];
   if (!parent || !flows.length) {
     issue('Listener', `setVariable «${names}» NICHT übernommen — ${setEventReason(el, place)}, und es gibt keinen Fluss ${side}: von Hand umsetzen.`);
+    keepAsComment(el, listeners);
     return;
   }
   const sourceOf = (flow: Element) => kids(parent).find(k => k.getAttribute('id') === flow.getAttribute('sourceRef'));
@@ -720,19 +733,24 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs }: SetEvent, uniqueId: (b
   const hints = [
     // ein Listener je Instanz wird ein Event für die ganze Mehrfachausführung
     firstNamed(el, 'multiInstanceLoopCharacteristics') ? 'Mehrfachausführung: das Event läuft einmal, der Listener lief je Instanz — prüfen.' : '',
-    flows.length > 1 ? `Ein Event je Fluss: die Variable wird bis zu ${flows.length}-mal gesetzt — bei einem nicht festen Wert (Zähler, Zeit) prüfen.` : '',
+    flows.length > 1 ? `Ein Event je Fluss: die Variable wird bis zu ${flows.length}-mal gesetzt${
+      place === 'after' && ['parallelGateway', 'inclusiveGateway'].includes(local(el)) ? ', auf parallelen Zweigen gleichzeitig' : ''
+    } — bei einem nicht festen Wert (Zähler, Zeit) prüfen.` : '',
     place === 'after' ? interruptedBy(parent, id) : '',
   ].filter(Boolean).map(h => ` ${h}`).join('');
   let first = true;
+  let skipped = false;
   for (const flow of flows) {
     const source = sourceOf(flow);
     if (!source) {
       issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — die Quelle des Flusses fehlt: von Hand umsetzen.`);
+      skipped = true;
       continue;
     }
     if (local(source) === 'eventBasedGateway') {
       // nach einem Event-Based Gateway darf nur ein Catch-Event folgen
       issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — nach einem Event-Based Gateway darf nur ein Catch-Event stehen: von Hand umsetzen (z. B. als Output-Mapping am Catch-Event).`);
+      skipped = true;
       continue;
     }
     const evId = uniqueId(`${id}_Set${place === 'before' ? 'Before' : place === 'after' ? 'After' : ''}`);
@@ -742,6 +760,7 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs }: SetEvent, uniqueId: (b
     const drawn: Drawn = di?.place(evId, nfId, flow.getAttribute('id') ?? '', place === 'before', uniqueId) ?? 'none';
     issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${side} eingefügt: ${setEventReason(el, place)}.${hints} ${DRAWN_TEXT[drawn]}`);
   }
+  if (skipped) keepAsComment(el, listeners);
 }
 
 const DRAWN_TEXT: Record<Drawn, string> = {
