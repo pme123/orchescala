@@ -1619,16 +1619,21 @@ Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
 Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 (vorgeschlagen: `=businessKey`).
 
-Name der Nachricht (bzw. des Signals) und Korrelationsschlüssel stehen am
-Schritt und lassen sich dort ändern — wie Topic oder Timer gehören sie der
-Spezifikation, der BPMN-Export schreibt sie in die `<bpmn:message>`. Nutzt ein
-anderes Element dieselbe Nachricht, bekommt der Schritt eine eigene (bzw. die
-schon vorhandene mit dem neuen Namen). Darunter der Aufruf am Gateway
-(`POST {{baseUrl}}/message/<name>?…`, wie in Postman). Das
-Gateway gibt ihn aus `businessKey`, sonst aus `processInstanceId`: bei
-`=processInstanceKey` sendet man also mit `processInstanceId`, sonst mit
-`businessKey`. In Camunda 7 steht kein Schlüssel im BPMN — dort wählt der
-Sender einen der beiden.
+Name der Nachricht (bzw. des Signals) steht am Schritt und lässt sich dort
+ändern — wie Topic oder Timer gehört er der Spezifikation, der BPMN-Export
+schreibt ihn in die `<bpmn:message>`. Nutzt ein anderes Element dieselbe
+Nachricht, bekommt der Schritt eine eigene (bzw. die schon vorhandene mit dem
+neuen Namen).
+
+Bei einer wartenden Nachricht wählt man unter «Korrelation» einen der beiden
+Wege des Gateways: `businessKey` oder `processInstanceId`. In Camunda 8 wird
+daraus der Korrelationsschlüssel `=businessKey` bzw. `=processInstanceKey` (die
+ID der Instanz, gesetzt vom InitWorker — `processInstanceId` gibt es dort
+nicht). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
+Doku und für die Umstellung auf Camunda 8, die sie statt des Vorschlags
+`=businessKey` übernimmt. Den Aufruf am Gateway
+(`POST {{baseUrl}}/message/<name>?…`, wie in Postman) zeigt der
+Orchescala-Export.
 
 **On the fly** geht es auch ohne Umstellen: **Export → BPMN** hat die Wahl
 «für Camunda 7 | Camunda 8». Die andere Engine wird beim Export umgewandelt

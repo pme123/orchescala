@@ -3,49 +3,82 @@ import type { EngineId, ProcessSpec, Step } from './types';
 // ── Eine fangende Nachricht senden ───────────────────────────────────────────
 //
 // Das Gateway nimmt `POST /message/{messageName}` mit `businessKey` oder
-// `processInstanceId` als Query-Parameter. Camunda 7 korreliert direkt über einen
-// der beiden — der Sender wählt. Camunda 8 hat nur den Korrelationsschlüssel der
-// Nachricht (`zeebe:subscription`); das Gateway gibt ihm den `businessKey`, sonst
-// die `processInstanceId`. Welcher passt, sagt also der Ausdruck im BPMN:
-// `=processInstanceKey` → `processInstanceId`, alles andere → `businessKey`.
+// `processInstanceId` als Query-Parameter — die beiden Wege zu korrelieren; am
+// Schritt wird einer gewählt. Camunda 8 hat dafür den Korrelationsschlüssel der
+// Nachricht (`zeebe:subscription`): `=businessKey` bzw. `=processInstanceKey`
+// (die ID der Instanz, gesetzt vom InitWorker) — das Gateway gibt ihm den
+// `businessKey`, sonst die `processInstanceId`. Camunda 7 korreliert direkt über
+// einen der beiden; die Wahl steht dort nur in der Spezifikation (Doku und die
+// Umstellung auf Camunda 8).
+
+export type CorrelationChoice = 'businessKey' | 'processInstanceId';
+
+/** Der Korrelationsschlüssel je Wahl — so steht er in Camunda 8 im BPMN */
+export const CORRELATION_KEY: Record<CorrelationChoice, string> = {
+  businessKey: '=businessKey',
+  processInstanceId: '=processInstanceKey',
+};
 
 export interface MessageCorrelation {
+  /** einer der beiden Wege — `null`: keiner gewählt bzw. ein anderer Ausdruck */
+  choice: CorrelationChoice | null;
   /** Query-Parameter des Gateways */
-  param: 'businessKey' | 'processInstanceId';
+  param: CorrelationChoice;
   /** Platzhalter für den Wert, z. B. `{{businessKey}}` */
   value: string;
-  /** Camunda 8: der Ausdruck aus dem BPMN */
+  /** der Ausdruck, wie er am Schritt steht */
   expression?: string;
   /** Camunda 8 ohne Schlüssel — die Nachricht findet keine wartende Instanz */
   missing?: boolean;
-  /** Camunda 7: statt `businessKey` geht auch `processInstanceId` */
+  /** Camunda 7 ohne Wahl: der Sender nimmt einen der beiden */
   either?: boolean;
-  /** Camunda 8: ein fester Wert statt `= …` — alle Instanzen teilen ihn */
+  /** ein fester Wert statt `= …` — alle Instanzen teilen ihn */
   fixed?: boolean;
   /**
-   * Camunda 8: `= processInstanceId` — die Variable gibt es dort nicht (der
+   * `= processInstanceId` — die Variable gibt es in Camunda 8 nicht (der
    * InitWorker setzt `processInstanceKey`); gemeint ist sicher diese
    */
   misnamed?: boolean;
 }
 
-/** Der Schlüssel, wenn mit der ID der Instanz korreliert wird */
-export const INSTANCE_KEY = '=processInstanceKey';
+/** Wartet der Schritt auf eine Nachricht (Zwischenereignis, Empfangsaufgabe)? */
+export const waitsForMessage = (step: Step): boolean =>
+  step.kind === 'receive' || (step.kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch');
 
-/** Nur wer auf eine Nachricht wartet (Zwischenereignis, Empfangsaufgabe) — sonst `null`. */
+/** Nur wer auf eine Nachricht wartet — sonst `null`. */
 export function messageCorrelation(step: Step, engine: EngineId | undefined): MessageCorrelation | null {
-  const waits = step.kind === 'receive' || (step.kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch');
-  if (!waits || !step.messageName) return null;
-  if ((engine ?? 'c7') === 'c7') return { param: 'businessKey', value: '{{businessKey}}', either: true };
+  if (!waitsForMessage(step)) return null;
   const expression = step.correlationKey;
-  if (!expression) return { param: 'businessKey', value: '{{businessKey}}', missing: true };
-  if (!expression.trim().startsWith('=')) return { param: 'businessKey', value: expression.trim(), expression, fixed: true };
+  const of = (choice: CorrelationChoice) => ({ choice, param: choice, value: `{{${choice}}}`, expression });
+  if (!expression?.trim()) {
+    return (engine ?? 'c7') === 'c7'
+      ? { choice: null, param: 'businessKey', value: '{{businessKey}}', either: true }
+      : { choice: null, param: 'businessKey', value: '{{businessKey}}', missing: true };
+  }
+  if (!expression.trim().startsWith('=')) return { choice: null, param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
-  if (body === 'processInstanceKey') return { param: 'processInstanceId', value: '{{processInstanceId}}', expression };
-  if (body === 'processInstanceId') return { param: 'processInstanceId', value: '{{processInstanceId}}', expression, misnamed: true };
-  // eine Variable: ihr Wert ist der Schlüssel; sonst ein Ausdruck, den der Sender ausrechnet
+  if (body === 'businessKey') return of('businessKey');
+  if (body === 'processInstanceKey') return of('processInstanceId');
+  if (body === 'processInstanceId') return { ...of('processInstanceId'), choice: null, misnamed: true };
+  // eine andere Variable: ihr Wert ist der Schlüssel; sonst ein Ausdruck, den der Sender ausrechnet
   const value = /^[A-Za-z_][\w.]*$/.test(body) ? `{{${body.split('.').pop()}}}` : `<${body}>`;
-  return { param: 'businessKey', value, expression };
+  return { choice: null, param: 'businessKey', value, expression };
+}
+
+/**
+ * Die gewählten Schlüssel je Schritt — für die Umstellung auf Camunda 8, die
+ * sonst `=businessKey` vorschlägt.
+ */
+export function correlationKeysOf(spec: Pick<ProcessSpec, 'steps'>): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (steps: Step[]) => {
+    for (const s of steps) {
+      if (waitsForMessage(s) && s.correlationKey?.trim()) out[s.id] = s.correlationKey.trim();
+      walk([...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])]);
+    }
+  };
+  walk(spec.steps ?? []);
+  return out;
 }
 
 /** Die Felder des `In` der Nachricht — leer, wenn sie kein eigenes Objekt hat. */

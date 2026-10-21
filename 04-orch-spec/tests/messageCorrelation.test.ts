@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn, mergeSpec, syncCorrelationKeys } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
-import { messageCorrelation, messageRequest, withMessageName } from '../src/messageCall';
+import { CORRELATION_KEY, correlationKeysOf, messageCorrelation, messageRequest, withMessageName } from '../src/messageCall';
+import { convertBpmn } from '../src/engineConvert';
 import type { ProcessSpec, Step } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -36,19 +37,36 @@ test('import: the correlation key of a waiting message - from zeebe:subscription
   assert.equal(reset(s).correlationKey, '=processInstanceKey');
 });
 
-test('C8: the key decides the gateway parameter', () => {
+test('one of the two ways is chosen - in C8 as the key of the message', () => {
   const step = (correlationKey?: string): Step => ({ id: 'E', kind: 'event', name: 'E', status: 'implemented', eventKind: 'message', eventDirection: 'catch', messageName: 'm', correlationKey });
-  assert.deepEqual(messageCorrelation(step('=processInstanceKey'), 'c8'), { param: 'processInstanceId', value: '{{processInstanceId}}', expression: '=processInstanceKey' });
-  assert.deepEqual(messageCorrelation(step('=businessKey'), 'c8'), { param: 'businessKey', value: '{{businessKey}}', expression: '=businessKey' });
+  assert.deepEqual(messageCorrelation(step('=processInstanceKey'), 'c8'), { choice: 'processInstanceId', param: 'processInstanceId', value: '{{processInstanceId}}', expression: '=processInstanceKey' });
+  assert.deepEqual(messageCorrelation(step('=businessKey'), 'c8'), { choice: 'businessKey', param: 'businessKey', value: '{{businessKey}}', expression: '=businessKey' });
+  assert.equal(messageCorrelation(step(CORRELATION_KEY.processInstanceId), 'c8')?.choice, 'processInstanceId');
+  // ein anderer Ausdruck aus dem Diagramm: keiner der beiden
+  assert.equal(messageCorrelation(step('=order.id'), 'c8')?.choice, null);
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.value, '{{id}}');
   // die Variable heisst in Camunda 8 processInstanceKey
   assert.equal(messageCorrelation(step('=processInstanceId'), 'c8')?.misnamed, true);
-  assert.equal(messageCorrelation(step('=processInstanceId'), 'c8')?.param, 'processInstanceId');
+  assert.equal(messageCorrelation(step('=processInstanceId'), 'c8')?.choice, null);
   assert.equal(messageCorrelation(step(), 'c8')?.missing, true);
-  // Camunda 7: der Sender wählt
-  assert.deepEqual(messageCorrelation(step(), 'c7'), { param: 'businessKey', value: '{{businessKey}}', either: true });
+  // Camunda 7: ohne Wahl nimmt der Sender einen der beiden — mit Wahl gilt sie
+  assert.equal(messageCorrelation(step(), 'c7')?.either, true);
+  assert.equal(messageCorrelation(step('=processInstanceKey'), 'c7')?.choice, 'processInstanceId');
   // ein werfendes Ereignis wartet auf nichts
   assert.equal(messageCorrelation({ ...step('=businessKey'), eventDirection: 'throw' }, 'c8'), null);
+});
+
+test('C7 -> C8: the chosen key goes into the message - instead of the proposal', () => {
+  const c7 = bpmn('').replace(/ xmlns:zeebe="[^"]*"| xmlns:modeler="[^"]*"| modeler:executionPlatform="[^"]*"/g, '');
+  const spec = importBpmn(c7, 'kube').spec;
+  const chosen = { ...spec, steps: spec.steps.map(s => (s.id === 'ResetEvent' ? { ...s, correlationKey: CORRELATION_KEY.processInstanceId } : s)) };
+  const conv = convertBpmn(c7, 'c8', { correlationKeys: correlationKeysOf(chosen) });
+  assert.equal(reset(importBpmn(conv.xml, 'kube').spec).correlationKey, '=processInstanceKey');
+  assert.ok(!conv.issues.some(i => i.where === 'Nachricht'));
+  // ohne Wahl: der Vorschlag, gemeldet
+  const proposed = convertBpmn(c7, 'c8');
+  assert.equal(reset(importBpmn(proposed.xml, 'kube').spec).correlationKey, '=businessKey');
+  assert.ok(proposed.issues.some(i => i.where === 'Nachricht'));
 });
 
 test('the request: like in Postman - with the fields of the In', () => {

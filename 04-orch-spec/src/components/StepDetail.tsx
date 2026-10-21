@@ -27,7 +27,7 @@ import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
-import { INSTANCE_KEY, carriesMessage, messageCorrelation, messageRequest, withMessageName } from '../messageCall';
+import { CORRELATION_KEY, carriesMessage, messageCorrelation, withMessageName } from '../messageCall';
 
 interface Props {
   step: Step | null;
@@ -534,47 +534,45 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       )}
       {correlation && (
         <>
-          {correlation.either ? (
-            <Row label="Korrelation" isDark={isDark}>
-              <span title={`${C7_LABEL} korreliert über businessKey oder processInstanceId — der Sender wählt.`}>
-                <span className="font-mono">businessKey</span> oder <span className="font-mono">processInstanceId</span>
-              </span>
-            </Row>
-          ) : (
-            <div className="flex items-center gap-2 text-[10px]">
-              <span className={`${c.muted} w-24 flex-shrink-0`}>Korrelation</span>
-              <FeelInput value={step.correlationKey ?? ''} disabled={!canEdit || !!ofPattern} isDark={isDark} variables={variables}
-                onChange={v => onPatch(step.id, { correlationKey: v.trim() ? v : undefined })}
-                title={`${C8_LABEL}: der Korrelationsschlüssel der Nachricht — das Gateway setzt ihn aus businessKey, sonst aus processInstanceId. = processInstanceKey → mit processInstanceId senden.`}
-                placeholder="= businessKey oder = processInstanceKey"
-                className="flex-1 min-w-0" />
-              {!correlation.missing && <span className={`${c.muted} flex-shrink-0`}>→ <span className="font-mono">{correlation.param}</span></span>}
+          {/* die beiden Wege des Gateways — einer wird gewählt; den Aufruf zeigt die Doku (Export) */}
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className={`${c.muted} w-24 flex-shrink-0`}>Korrelation</span>
+            <div className="flex gap-1">
+              {(['businessKey', 'processInstanceId'] as const).map(choice => (
+                <button key={choice} disabled={!canEdit || !!ofPattern}
+                  onClick={() => onPatch(step.id, { correlationKey: CORRELATION_KEY[choice] })}
+                  title={spec.engine === 'c8'
+                    ? `Korrelationsschlüssel ${CORRELATION_KEY[choice]} — gesendet wird mit ${choice}`
+                    : `${C7_LABEL} korreliert direkt über ${choice} — die Wahl gilt für die Doku und die Umstellung auf ${C8_LABEL} (${CORRELATION_KEY[choice]})`}
+                  className={`px-2 py-0.5 rounded border font-mono ${correlation.choice === choice
+                    ? (isDark ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200' : 'border-indigo-400 bg-indigo-50 text-indigo-700')
+                    : `${c.border2} ${c.muted2}`} ${!canEdit || ofPattern ? 'cursor-default' : ''}`}>
+                  {choice}
+                </button>
+              ))}
             </div>
+          </div>
+          {!correlation.choice && correlation.expression && (
+            <Row label="" isDark={isDark}>im Diagramm: <span className="font-mono">{correlation.expression}</span></Row>
           )}
           {correlation.missing && (
             <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span>Kein Korrelationsschlüssel — in {C8_LABEL} findet die Nachricht so keine wartende Instanz.</span>
+              <span>Noch nicht gewählt — ohne Korrelationsschlüssel findet die Nachricht in {C8_LABEL} keine wartende Instanz.</span>
             </p>
           )}
           {correlation.misnamed && (
             <p className={`text-[10px] flex items-start gap-1 ${err}`}>
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span>
-                <span className="font-mono">processInstanceId</span> gibt es in {C8_LABEL} nicht — die Variable heisst <span className="font-mono">processInstanceKey</span> (setzt der InitWorker). So bleibt der Schlüssel leer und das Event erzeugt einen Incident.
-                {canEdit && !ofPattern && (
-                  <> <button onClick={() => onPatch(step.id, { correlationKey: INSTANCE_KEY })} className="underline">Auf <span className="font-mono">{INSTANCE_KEY}</span> ändern</button></>
-                )}
-              </span>
+              <span><span className="font-mono">processInstanceId</span> gibt es in {C8_LABEL} nicht — die Variable heisst <span className="font-mono">processInstanceKey</span> (setzt der InitWorker). So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
             </p>
           )}
           {correlation.fixed && (
             <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-              <span>Fester Wert — alle Instanzen warten auf denselben Schlüssel. Meist ist eine Variable gemeint: = businessKey.</span>
+              <span>Fester Wert — alle Instanzen warten auf denselben Schlüssel. Einen der beiden Wege wählen.</span>
             </p>
           )}
-          <pre className={`text-[10px] font-mono whitespace-pre-wrap break-all px-2 py-1.5 rounded border ${c.border2} ${c.muted2}`}>{messageRequest(step, correlation, spec)}</pre>
         </>
       )}
       {step.eventKind === 'timer' && (

@@ -18,7 +18,7 @@ import { engineExpression } from './feelJuel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
-import { messageCorrelation, messageRequest } from './messageCall.ts';
+import { correlationKeysOf, messageCorrelation, messageRequest } from './messageCall.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -307,15 +307,17 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
 
     if (s.description) out.push(s.description, '');
     const corr = messageCorrelation(s, spec.engine);
-    if (corr) {
-      out.push('**Nachricht senden**', '');
+    if (corr && s.messageName) {
+      out.push('**Nachricht senden** (Gateway)', '');
       out.push(corr.either
-        ? `Korreliert über \`businessKey\` oder \`processInstanceId\` — der Sender wählt.`
+        ? `Korreliert über \`businessKey\` oder \`processInstanceId\` — noch nicht festgelegt.`
         : corr.missing
-          ? 'Kein Korrelationsschlüssel im BPMN — die Nachricht findet so keine wartende Instanz.'
+          ? 'Kein Korrelationsschlüssel — die Nachricht findet so keine wartende Instanz.'
           : corr.misnamed
             ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: in ${C8_LABEL} heisst die Variable \`processInstanceKey\`.`
-          : `Korrelationsschlüssel \`${corr.expression}\` — also \`${corr.param}\`.`, '');
+            : corr.choice
+              ? `Korreliert über \`${corr.param}\`${spec.engine === 'c8' ? ` (Korrelationsschlüssel \`${corr.expression}\`)` : ''}.`
+              : `Korrelationsschlüssel \`${corr.expression}\` — gesendet mit \`${corr.param}\`.`, '');
       out.push('```http', messageRequest(s, corr, spec), '```', '');
     }
     // Abgewählte Zeilen kommen in diesem Prozess nicht vor — sie stehen nicht
@@ -398,7 +400,7 @@ export function exportBpmn(spec: ProcessSpec, bpmn: string, model: Model | null 
 export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7', model: Model | null = null): WriteResult {
   const written = exportBpmn(spec, bpmn, model);
   if (!bpmn || engine === (spec.engine ?? 'c7')) return written;
-  const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive });
+  const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec) });
   return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
 }
 

@@ -127,7 +127,11 @@ const plainVar = (source: string): string | null => {
  * Das Diagramm in die Form der Ziel-Engine bringen. Liegt es schon in dieser
  * Form vor, kommt es unverändert zurück.
  */
-export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string } = {}): WriteResult & { changed: boolean } {
+/**
+ * `correlationKeys`: der am Schritt gewählte Korrelationsschlüssel je Element-ID —
+ * eine wartende Nachricht ohne bekommt in Camunda 8 den Vorschlag `=businessKey`.
+ */
+export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string> } = {}): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
   if (detectEngine(xml) === target) return { xml, issues, changed: false };
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -137,7 +141,7 @@ export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: 
   }
   const bpmnPrefix = defs.prefix ? `${defs.prefix}:` : '';
   const ctx: Ctx = {
-    doc, issues, later: [],
+    doc, issues, later: [], correlationKeys: opts.correlationKeys ?? {},
     bpmnEl: name => doc.createElementNS(defs.namespaceURI, `${bpmnPrefix}${name}`),
   };
 
@@ -175,6 +179,8 @@ interface Ctx {
   bpmnEl: (name: string) => Element;
   /** Kinder, die erst eingerückt werden können, wenn ihr Elternteil hängt */
   later: Array<[Element, Element[]]>;
+  /** Element-ID → gewählter Korrelationsschlüssel (siehe convertBpmn) */
+  correlationKeys: Record<string, string>;
 }
 
 function usesNs(root: Element, ns: string): boolean {
@@ -405,8 +411,9 @@ function toC8(defs: Element, ctx: Ctx) {
       if (waits && msg) {
         const mext = extOf(ctx, msg);
         if (!firstNamed(mext, 'subscription', ZEEBE_NS)) {
-          appendEl(mext, zeebe('subscription', { correlationKey: '=businessKey' }));
-          issueAt(ctx, holder)('Nachricht', `«${msg.getAttribute('name') ?? ref}» — Korrelationsschlüssel «=businessKey» vorgeschlagen, prüfen.`);
+          const chosen = ctx.correlationKeys[holder.getAttribute('id') ?? ''];
+          appendEl(mext, zeebe('subscription', { correlationKey: chosen ?? '=businessKey' }));
+          if (!chosen) issueAt(ctx, holder)('Nachricht', `«${msg.getAttribute('name') ?? ref}» — Korrelationsschlüssel «=businessKey» vorgeschlagen, prüfen.`);
         }
       }
     }
