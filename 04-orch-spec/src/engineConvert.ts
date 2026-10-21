@@ -259,11 +259,14 @@ function toC8(defs: Element, ctx: Ctx) {
       const ins = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'in') : [];
       const outs = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'out') : [];
       const all = (xs: Element[]) => xs.some(x => x.getAttribute('variables') === 'all');
+      // Orchescala mappt explizit — nie alle Variablen, in keine Richtung
       add.push(zeebe('calledElement', {
         processId: called ? toFeel(called, 'Aufgerufener Prozess', issue) : undefined,
-        propagateAllChildVariables: all(outs) ? 'true' : 'false',
-        propagateAllParentVariables: all(ins) ? 'true' : 'false',
+        propagateAllChildVariables: 'false',
+        propagateAllParentVariables: 'false',
       }));
+      if (all(ins)) issue('Teilprozess', 'camunda:in variables="all" — Orchescala gibt nur explizit gemappte Eingaben weiter; die gebrauchten als Eingaben mappen.');
+      if (all(outs)) issue('Teilprozess', 'camunda:out variables="all" — Orchescala übernimmt nur explizit gemappte Ausgaben; die gebrauchten als Ausgaben mappen.');
       if (called) el.removeAttribute('calledElement');
       for (const [xs, tag] of [[ins, 'input'], [outs, 'output']] as const) {
         for (const x of xs) {

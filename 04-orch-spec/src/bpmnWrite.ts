@@ -604,9 +604,15 @@ function writeImplementation(
   if (local(el) === 'callActivity') {
     const called = step.calledProcess?.trim();
     if (engine === 'c8') {
-      // Orchescala: die Variablen des Teilprozesses kommen über die Ausgaben zurück, nicht alle
-      if (called) zeebeOrNew('calledElement', { propagateAllChildVariables: 'false' }).setAttribute('processId', called);
-      else if (!zeebe('calledElement')?.getAttribute('processId')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
+      // Orchescala mappt explizit: hinein nur die Eingaben, zurück nur die Ausgaben — nie alle
+      // Variablen (sonst sähe der Teilprozess z. B. die processInstanceId des Elternprozesses)
+      const ce = called ? zeebeOrNew('calledElement') : zeebe('calledElement');
+      if (called) ce!.setAttribute('processId', called);
+      else if (!ce?.getAttribute('processId')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
+      if (ce) {
+        ce.setAttribute('propagateAllChildVariables', 'false');
+        ce.setAttribute('propagateAllParentVariables', 'false');
+      }
       return;
     }
     if (called) el.setAttribute('calledElement', called);

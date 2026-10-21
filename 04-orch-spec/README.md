@@ -1486,7 +1486,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
 | Service (kein eigener Worker) mit eigenen Ausgaben, aber ohne `_manualOutMapping` und `_outputVariables` im Diagramm (z. B. neu gezeichnet) | wie in der Spezifikation angelegt: `_manualOutMapping` und `_outputVariables` — sonst schriebe der Worker sein ganzes `Out` als Prozessvariablen (und überschriebe etwa ein `accountKey` des Prozesses) | ebenso |
 | Init-Worker | nie `_outputVariables` oder `_manualOutMapping` — er gibt das `InitIn` zurück | ebenso |
-| Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — nur mit `propagateAllParentVariables="false"`, sonst sieht der Teilprozess sie ohnehin | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer; dazu `impersonateUserId` (der alte Weg zur Identität — BPF/MAP starten noch ohne `_identityCorrelation`, ohne ihn riefe der Teilprozess die Services mit dem technischen Benutzer) |
+| Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — immer; der Export setzt `propagateAllParentVariables="false"` (Orchescala mappt explizit) | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer; dazu `impersonateUserId` (der alte Weg zur Identität — BPF/MAP starten noch ohne `_identityCorrelation`, ohne ihn riefe der Teilprozess die Services mit dem technischen Benutzer) |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` (am Teilprozess `source="createContractMock"`) |
 | Service-Task | keine Mock-Steuerung — der Worker liest `_servicesMocked` selbst aus den Prozessvariablen; eine blosse Weitergabe im Diagramm fällt weg, ein fester Wert (`= true`) bleibt | ebenso |
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
@@ -1579,7 +1579,7 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | --- | --- |
 | `camunda:type="external"` `camunda:topic` | `zeebe:taskDefinition type` |
 | `camunda:inputOutput` | `zeebe:ioMapping` (fester Text wird `="…"`) |
-| `calledElement` + `camunda:in`/`out` (`variables="all"`) | `zeebe:calledElement` (`propagateAll…`) + `zeebe:ioMapping` |
+| `calledElement` + `camunda:in`/`out` | `zeebe:calledElement` (`propagateAll…="false"` — Orchescala mappt explizit; `variables="all"` wird gemeldet) + `zeebe:ioMapping` |
 | `camunda:decisionRef` / `resultVariable` | `zeebe:calledDecision` |
 | `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
 | `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
