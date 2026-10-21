@@ -110,7 +110,7 @@ test('an end listener on a task without outputs: a None-Throw-Event after each o
   assert.deepEqual(incoming, ['t_SetAfter_Flow']);
 });
 
-test('an end listener on a task with outputs: one more output mapping on the task', () => {
+test('an end listener on a task with outputs: one more output mapping on the task - after its own (C7 ran the listener after the output mapping)', () => {
   const xml = c7(`
     <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:serviceTask id="t" camunda:type="external" camunda:topic="my-topic"><bpmn:extensionElements>
@@ -121,7 +121,7 @@ test('an end listener on a task with outputs: one more output mapping on the tas
   `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="t" />
     <bpmn:sequenceFlow id="f2" sourceRef="t" targetRef="e" />`);
   const doc = parse(convertBpmn(xml, 'c8').xml);
-  assert.deepEqual(outputsOf(byId(doc, 't')).sort(), ['done==true', 'result==answer']);
+  assert.deepEqual(outputsOf(byId(doc, 't')), ['result==answer', 'done==true']);
   assert.equal(named(doc, 'intermediateThrowEvent').length, 0);
 });
 
@@ -351,18 +351,27 @@ test('an output parameter that does not become an output mapping (a script) does
   assert.deepEqual(outputsOf(byId(doc, 't_SetAfter')), ['done==true']);
 });
 
-test('a short stretch of flow: drawn, reported as tight; diagram ids stay unique', () => {
+test('a stretch between the event size and 56px: drawn, reported as tight', () => {
   const xml = c7(`
     <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
   '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />',
-  `<bpmndi:BPMNShape id="gw_SetBefore_di" bpmnElement="gw"><dc:Bounds x="182" y="93" width="50" height="50" /></bpmndi:BPMNShape>
-    <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="136" y="118" /><di:waypoint x="182" y="118" /></bpmndi:BPMNEdge>`);
+  '<bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="136" y="118" /><di:waypoint x="182" y="118" /></bpmndi:BPMNEdge>');
   const r = convertBpmn(xml, 'c8');
-  const doc = parse(r.xml);
+  assert.ok(byId(parse(r.xml), 'gw_SetBefore_di'));
+  assert.ok(r.issues.some(i => /Lage im Diagramm prüfen \(wenig Platz auf dem Fluss\)/.test(i.text)), JSON.stringify(r.issues));
+});
+
+test('diagram ids stay unique - an existing id is not reused', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>f1</bpmn:incoming></bpmn:eventBasedGateway>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="gw" />',
+  `<bpmndi:BPMNShape id="gw_SetBefore_di" bpmnElement="gw"><dc:Bounds x="300" y="93" width="50" height="50" /></bpmndi:BPMNShape>
+    <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="136" y="118" /><di:waypoint x="300" y="118" /></bpmndi:BPMNEdge>`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
   const shapes = named(doc, 'BPMNShape').filter(e => e.getAttribute('bpmnElement') === 'gw_SetBefore');
   assert.deepEqual(shapes.map(e => e.getAttribute('id')), ['gw_SetBefore_di_2']);
-  assert.ok(r.issues.some(i => /wenig Platz auf dem Fluss/.test(i.text)), JSON.stringify(r.issues));
 });
 
 test('a stretch shorter than the event: no diagram entry - the shortened edges would run backwards', () => {
@@ -416,11 +425,45 @@ test('an end listener on A and a start listener on the next B: both events on th
     <bpmn:endEvent id="e"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`,
   `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="a" />
     <bpmn:sequenceFlow id="f2" sourceRef="a" targetRef="b" />
-    <bpmn:sequenceFlow id="f3" sourceRef="b" targetRef="e" />`);
+    <bpmn:sequenceFlow id="f3" sourceRef="b" targetRef="e" />`,
+  '<bpmndi:BPMNEdge id="f2_di" bpmnElement="f2"><di:waypoint x="200" y="118" /><di:waypoint x="400" y="118" /></bpmndi:BPMNEdge>');
   const doc = parse(convertBpmn(xml, 'c8').xml);
+  // both drawn - the second on the flow the first one created
+  assert.ok(byId(doc, 'a_SetAfter_di') && byId(doc, 'b_SetBefore_di'));
   const next = (id: string) => {
     const out = Array.from(doc.querySelectorAll('*')).find(e => e.tagName === 'bpmn:sequenceFlow' && e.getAttribute('sourceRef') === id);
     return out?.getAttribute('targetRef');
   };
   assert.deepEqual([next('a'), next('a_SetAfter'), next('b_SetBefore')], ['a_SetAfter', 'b_SetBefore', 'b']);
+});
+
+test('typed start and boundary events keep the output mapping on the event - checked on a cluster: message/signal start, timer/error boundary', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s">${listener('startedBy', '&#34;message&#34;')}<bpmn:outgoing>f1</bpmn:outgoing><bpmn:messageEventDefinition messageRef="m" /></bpmn:startEvent>
+    <bpmn:userTask id="u"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:boundaryEvent id="b" attachedToRef="u">${listener('timedOut', 'true')}<bpmn:outgoing>f3</bpmn:outgoing><bpmn:timerEventDefinition><bpmn:timeDuration>PT1H</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+    <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`,
+  `<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="u" />
+    <bpmn:sequenceFlow id="f2" sourceRef="u" targetRef="e" />
+    <bpmn:sequenceFlow id="f3" sourceRef="b" targetRef="e" />`);
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  assert.deepEqual(outputsOf(byId(doc, 's')), ['startedBy=="message"']);
+  assert.deepEqual(outputsOf(byId(doc, 'b')), ['timedOut==true']);
+  assert.equal(named(doc, 'intermediateThrowEvent').length, 0);
+});
+
+test('an element in a subprocess: the event goes into the subprocess, on its flow', () => {
+  const xml = c7(`
+    <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:subProcess id="sub"><bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:startEvent id="ss"><bpmn:outgoing>g1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:eventBasedGateway id="gw">${listener('readyForEvents', 'true')}<bpmn:incoming>g1</bpmn:incoming></bpmn:eventBasedGateway>
+      <bpmn:sequenceFlow id="g1" sourceRef="ss" targetRef="gw" />
+    </bpmn:subProcess>`,
+  '<bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="sub" />');
+  const doc = parse(convertBpmn(xml, 'c8').xml);
+  const ev = byId(doc, 'gw_SetBefore');
+  assert.equal(ev?.parentElement?.getAttribute('id'), 'sub');
+  assert.equal(byId(doc, 'gw_SetBefore_Flow')?.parentElement?.getAttribute('id'), 'sub');
+  assert.equal(byId(doc, 'g1')?.getAttribute('targetRef'), 'gw_SetBefore');
 });

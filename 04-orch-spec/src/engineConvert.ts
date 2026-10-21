@@ -285,6 +285,8 @@ function toC8(defs: Element, ctx: Ctx) {
     const hasOutputs = io.some(p => local(p) === 'output') || !!cio && kids(cio).some(p =>
       local(p) === 'outputParameter' && !kids(p).some(k => ['script', 'list', 'map'].includes(local(k))));
     const listeners = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'executionListener') : [];
+    // nach den eigenen Ausgaben — in Camunda 7 lief der end-Listener nach dem Output-Mapping
+    const listenerOutputs: Element[] = [];
     for (const l of listeners) {
       const sv = setVariableOf(l.getAttribute('expression') ?? '');
       if (!sv) continue;
@@ -296,7 +298,7 @@ function toC8(defs: Element, ctx: Ctx) {
         continue;
       }
       const output = zeebe('output', { source: toFeelSource(`\${${sv.value}}`, `Ausgabe «${sv.name}»`, issue), target: sv.name });
-      if (place === 'here') io.push(output);
+      if (place === 'here') listenerOutputs.push(output);
       else {
         const known = setEvents.find(x => x.el === el && x.place === place);
         if (known) known.outputs.push(output);
@@ -322,6 +324,7 @@ function toC8(defs: Element, ctx: Ctx) {
         io.push(zeebe(tag, { source: toFeelSource(p.textContent ?? '', where, issue), target }));
       }
     }
+    io.push(...listenerOutputs);
     if (io.length) {
       const m = zeebe('ioMapping');
       add.push(m);
@@ -464,7 +467,13 @@ function toC8(defs: Element, ctx: Ctx) {
 
   for (const [parent, children] of ctx.later) fill(parent, children);
   for (const el of touched) dropEmptyExt(el);
-  for (const e of setEvents) insertSetEvent(defs, ctx, e);
+  if (setEvents.length) {
+    // einmal für alle Events: die vergebenen Ids und das Diagramm
+    const ids = new Set(descendants(defs).map(e => e.getAttribute('id')).filter(Boolean));
+    const uniqueId = (base: string) => { let n = base; for (let i = 2; ids.has(n); i++) n = `${base}_${i}`; ids.add(n); return n; };
+    const di = diagramOf(defs);
+    for (const e of setEvents) insertSetEvent(ctx, e, uniqueId, di);
+  }
 }
 
 // ── Camunda 8 → Camunda 7 ────────────────────────────────────────────────────
@@ -693,7 +702,7 @@ function setEventReason(el: Element, place: EventPlacement): string {
 
 /** Ein None-Throw-Event mit den Output-Mappings auf jedem Fluss davor bzw. danach —
  *  je Fluss eines, so wartet ein Join-Gateway weiter auf alle Zweige. */
-function insertSetEvent(defs: Element, ctx: Ctx, { el, place, outputs }: SetEvent) {
+function insertSetEvent(ctx: Ctx, { el, place, outputs }: SetEvent, uniqueId: (base: string) => string, di: Diagram | null) {
   const id = el.getAttribute('id') ?? '';
   const parent = el.parentElement;
   const issue = issueAt(ctx, el);
@@ -706,9 +715,6 @@ function insertSetEvent(defs: Element, ctx: Ctx, { el, place, outputs }: SetEven
     issue('Listener', `setVariable «${names}» NICHT übernommen — ${setEventReason(el, place)}, und es gibt keinen Fluss ${side}: von Hand umsetzen.`);
     return;
   }
-  const ids = new Set(descendants(defs).map(e => e.getAttribute('id')).filter(Boolean));
-  const uniqueId = (base: string) => { let n = base; for (let i = 2; ids.has(n); i++) n = `${base}_${i}`; ids.add(n); return n; };
-  const di = diagramOf(defs);
   const sourceOf = (flow: Element) => kids(parent).find(k => k.getAttribute('id') === flow.getAttribute('sourceRef'));
   // was anders läuft als der Listener — im Dialog sagen
   const hints = [
@@ -785,6 +791,8 @@ function insertOnFlow(ctx: Ctx, parent: Element, flow: Element, evId: string, nf
 
 interface Point { x: number; y: number }
 
+type Diagram = NonNullable<ReturnType<typeof diagramOf>>;
+
 /** Das Diagramm: Shape und Kante fürs eingefügte Event — auf dem letzten Stück
  *  des Flusses davor bzw. dem ersten des Flusses danach */
 function diagramOf(defs: Element) {
@@ -827,6 +835,7 @@ function diagramOf(defs: Element) {
       appendEl(shape, make(bounds0, 'Bounds', { x: Math.round(c.x - 18), y: Math.round(c.y - 18), width: 36, height: 36 }));
       const edge = make(flowEdge, 'BPMNEdge', { id: uniqueId(`${nfId}_di`), bpmnElement: nfId });
       appendEl(plane, edge);
+      edges.push(edge); // ein weiteres Event kann auf dem neuen Fluss landen
       // die Kante des Flusses endet am Event, die neue führt weiter auf dem alten Weg
       setPoints(flowEdge, [...points.slice(0, at + 1), { x: c.x - d.x * 18, y: c.y - d.y * 18 }]);
       setPoints(edge, [{ x: c.x + d.x * 18, y: c.y + d.y * 18 }, ...points.slice(at + 1)]);
