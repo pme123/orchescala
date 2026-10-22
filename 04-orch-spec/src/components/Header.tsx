@@ -1,7 +1,8 @@
 // Building blocks of the header: a ghost-style button (below 900 px only the
 // icon, the text in the tooltip) and the account chip with initials, name and
-// role — sign-out appears on hover.
-import { ChevronRight, LogOut, ShieldCheck } from 'lucide-react';
+// role — sign-out appears on hover, on touch screens it is always visible
+// (its space is always reserved, so the header does not shift).
+import { LogOut, ShieldCheck } from 'lucide-react';
 import { LEVEL_LABELS, type AccessLevel, type AuthUser } from '../auth';
 import { cls } from '../ui';
 import { initialsOf } from './StartCard';
@@ -44,26 +45,9 @@ export function AccountChip({ isDark, user, level, onLogout }: {
         {level === 'admin' && <ShieldCheck size={9} />}{LEVEL_SHORT[level]}
       </span>
       <button onClick={onLogout} title="Abmelden"
-        className={`p-0.5 rounded transition-all w-0 opacity-0 overflow-hidden group-hover/acct:w-auto group-hover/acct:opacity-100 focus:w-auto focus:opacity-100 ${c.muted} hover:opacity-100`}>
+        className={`p-0.5 rounded transition-opacity opacity-0 group-hover/acct:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100 ${c.muted} hover:opacity-100`}>
         <LogOut size={12} />
       </button>
-    </span>
-  );
-}
-
-/** The location in the header: «Prozesse › Titel». Segments with onClick lead back. */
-export function Breadcrumb({ isDark, items }: { isDark: boolean; items: Array<{ label: string; onClick?: () => void }> }) {
-  const c = cls(isDark);
-  return (
-    <span className="flex items-center gap-1 min-w-0 text-[11px]">
-      {items.map((it, i) => (
-        <span key={i} className="flex items-center gap-1 min-w-0">
-          <ChevronRight size={11} className={`flex-shrink-0 ${c.muted}`} />
-          {it.onClick
-            ? <button onClick={it.onClick} className={`truncate hover:underline ${c.muted2}`}>{it.label}</button>
-            : <span className={`truncate max-w-[16rem] ${i === items.length - 1 ? c.text : c.muted2}`} title={it.label}>{it.label}</span>}
-        </span>
-      ))}
     </span>
   );
 }
