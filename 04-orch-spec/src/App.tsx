@@ -177,58 +177,58 @@ export default function App() {
 
   return (
     <div className={`flex flex-col h-screen ${bg} ${textBase}`}>
-      {/* Header in three columns: the middle one is as wide as the content below
+      {/* Header in three parts: the middle one is as wide as the content below
           (max-w-5xl, px-6) — logo and customer on the left, the navigation of the
           app (Prozesse, Seiten, Admin) and the references (FEEL, docs) right-aligned
-          with it. Everything else — folder, account, display — stands at the right window edge
-          (the origin is in the footer). Columns: margin as next to the content |
-          up to 64rem | the rest, at least as wide as the right group — if the
-          margin cannot hold the group, the middle gets narrower instead of
-          overlapping. The process view and the page editor have no margins:
-          there the middle takes the whole width. */}
-      {/* The same scrollbar track as the content below — otherwise it shifts by
-          half a scrollbar as soon as it scrolls */}
+          with it. Everything else — folder, account, display — stands at the right
+          window edge (the origin is in the footer). Parts: margin as next to the
+          content | up to 64rem | the rest, at least as wide as the right group — if
+          the margin cannot hold the group, the middle gets narrower; if the
+          navigation and the right group do not fit side by side, the right group
+          wraps to a second row instead of overlapping. The process view and the
+          page editor have no margins: there the middle takes the whole width.
+          The same scrollbar track as the content below — otherwise the header
+          shifts by half a scrollbar as soon as the content scrolls. */}
       <div className={`border-b ${border} ${topBg} flex-shrink-0 overflow-hidden ${fullWidth ? '' : '[scrollbar-gutter:stable]'}`}>
-        <div className="grid items-center py-2"
-          style={{ gridTemplateColumns: fullWidth
-            ? '0px minmax(0, 1fr) max-content'
-            : 'max(0px, calc((100% - 64rem) / 2)) minmax(0, 64rem) minmax(max-content, 1fr)' }}>
-          <div />
-          <div className={`flex items-center gap-2 min-w-0 ${fullWidth ? 'px-3' : 'px-6'}`}>
-            {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip */}
-            {/* on a narrow window the word mark gives way first (the name is cut) — not the navigation */}
-            <button onClick={() => setView({ kind: 'list' })} className="flex items-center gap-2 min-w-0 mr-2"
-              title={`Orch Spec · Stand ${APP_VERSION} — zur Prozessliste`}>
-              {model?.logo && (
-                <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
-              )}
-              <span className={`text-xs font-bold tracking-widest truncate ${isDark ? 'text-white/80' : 'text-black/80'}`}>
-                {model?.company || 'Orch Spec'}
-              </span>
-              {model?.company && (
-                <span className={`text-[10px] tracking-widest hidden sm:inline ${textMuted}`}>Orch Spec</span>
-              )}
-            </button>
+        <div className="flex flex-wrap items-center gap-y-1 py-2">
+          {!fullWidth && <div className="flex-shrink-0 w-[max(0px,calc((100%_-_64rem)/2))]" />}
+          <div className={`flex items-center gap-2 min-w-0 flex-[1000_1_auto] ${fullWidth ? 'px-3' : 'max-w-[64rem] px-6'}`}>
+            {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip.
+                On a narrow window it gives way first (the name is cut, down to 6rem) — not the navigation. */}
+            <div className="flex-1 w-0 min-w-24 overflow-hidden mr-2">
+              <button onClick={() => setView({ kind: 'list' })} className="flex items-center gap-2 min-w-0 max-w-full"
+                title={`Orch Spec · Stand ${APP_VERSION} — zur Prozessliste`}>
+                {model?.logo && (
+                  <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
+                )}
+                <span className={`text-xs font-bold tracking-widest truncate ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                  {model?.company || 'Orch Spec'}
+                </span>
+                {model?.company && (
+                  <span className={`text-[10px] tracking-widest hidden sm:inline ${textMuted}`}>Orch Spec</span>
+                )}
+              </button>
+            </div>
 
             {/* Navigation, then the references (FEEL cheat sheet, docs) — always there */}
-            <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-            {!gated && !denied && dirHandle && model && (
-              <>
-                <HeaderButton isDark={isDark} icon={<Workflow size={12} />} label="Prozesse"
-                  active={view.kind === 'list' || view.kind === 'spec'}
-                  title="Prozesse — alle Prozess-Spezifikationen"
-                  onClick={() => setView({ kind: 'list' })} />
-                <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
-                  title="Seiten der App - öffentlich oder mit Login, mit Live-Vorschau (pages/*.json)"
-                  onClick={() => setView({ kind: 'pages' })} />
-                {canAdmin && (
-                  <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
-                    title="Admin — Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen"
-                    onClick={() => setView({ kind: 'admin' })} />
-                )}
-                <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
-              </>
-            )}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {!gated && !denied && dirHandle && model && (
+                <>
+                  <HeaderButton isDark={isDark} icon={<Workflow size={12} />} label="Prozesse"
+                    active={view.kind === 'list' || view.kind === 'spec'}
+                    title="Prozesse — alle Prozess-Spezifikationen"
+                    onClick={() => setView({ kind: 'list' })} />
+                  <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
+                    title="Seiten der App - öffentlich oder mit Login, mit Live-Vorschau (pages/*.json)"
+                    onClick={() => setView({ kind: 'pages' })} />
+                  {canAdmin && (
+                    <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
+                      title="Admin — Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen"
+                      onClick={() => setView({ kind: 'admin' })} />
+                  )}
+                  <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
+                </>
+              )}
               <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
                 title={`FEEL-Spickzettel — Syntax, Funktionen, ${C7_LABEL} → ${C8_LABEL}`} onClick={() => setFeelOpen(true)} />
               {docHref && (
@@ -238,7 +238,7 @@ export default function App() {
           </div>
 
           {/* Context on the right: folder, account, display */}
-          <div className="flex justify-end px-4">
+          <div className="flex flex-[1_0_auto] justify-end px-4">
             <div className="flex items-center gap-2">
               {!gated && !denied && dirHandle && (
                 <HeaderButton isDark={isDark} label={dirHandle.name}
