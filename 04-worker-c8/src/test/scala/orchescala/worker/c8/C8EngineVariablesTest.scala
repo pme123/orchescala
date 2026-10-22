@@ -19,31 +19,25 @@ class C8EngineVariablesTest extends FunSuite:
     ValidationHandler(Right(_))
   )
 
-  test("the InitWorker puts the processInstanceKey into the process variables - as a String"):
+  test("the InitWorker puts the own processInstanceId into the process variables - as a String"):
     assertEquals(
-      C8Worker.engineVariables(initWorker, processInstanceKey, None),
-      Map("processInstanceKey" -> "9007199254741234")
-    )
-
-  test("a key given from outside wins - a number becomes a String, an empty one does not count"):
-    assertEquals(
-      C8Worker.engineVariables(initWorker, processInstanceKey, Some(Json.fromString("outside-key"))),
-      Map("processInstanceKey" -> "outside-key")
-    )
-    assertEquals(
-      C8Worker.engineVariables(initWorker, processInstanceKey, Some(Json.fromLong(9007199254741299L))),
-      Map("processInstanceKey" -> "9007199254741299")
-    )
-    assertEquals(
-      C8Worker.engineVariables(initWorker, processInstanceKey, Some(Json.fromString(""))),
-      Map("processInstanceKey" -> "9007199254741234")
+      C8Worker.engineVariables(initWorker, processInstanceKey),
+      Map("processInstanceId" -> "9007199254741234")
     )
 
   test("another worker does not - e.g. one of a called process must not overwrite it"):
-    assertEquals(C8Worker.engineVariables(customWorker, processInstanceKey, None), Map.empty[String, String])
-    assertEquals(C8Worker.engineVariableNames(customWorker), Seq.empty)
+    assertEquals(C8Worker.engineVariables(customWorker, processInstanceKey), Map.empty[String, String])
 
-  test("only the InitWorker fetches a given processInstanceKey"):
-    assertEquals(C8Worker.engineVariableNames(initWorker), Seq("processInstanceKey"))
+  test("an id from outside that is not the own one is reported - only for the InitWorker"):
+    val outside = Json.obj("processInstanceId" -> Json.fromString("b28def14-dd03-11ed-b268-0242ac120006"))
+    assertEquals(C8Worker.foreignProcessInstanceId(initWorker, outside, processInstanceKey), Some("b28def14-dd03-11ed-b268-0242ac120006"))
+    assertEquals(C8Worker.foreignProcessInstanceId(initWorker, Json.obj("processInstanceId" -> Json.fromString("9007199254741234")), processInstanceKey), None)
+    assertEquals(C8Worker.foreignProcessInstanceId(initWorker, Json.obj("processInstanceId" -> Json.Null), processInstanceKey), None)
+    assertEquals(C8Worker.foreignProcessInstanceId(customWorker, outside, processInstanceKey), None)
+
+  test("the InitWorker fetches a processInstanceId from outside - so it can report overwriting it"):
+    assert(C8Worker.variablesToFetch(initWorker).contains("processInstanceId"))
+    assert(!C8Worker.variablesToFetch(customWorker).contains("processInstanceId"))
+    assert(C8Worker.variablesToFetch(customWorker).contains("businessKey"))
 
 end C8EngineVariablesTest

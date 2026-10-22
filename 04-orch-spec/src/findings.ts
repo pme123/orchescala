@@ -14,7 +14,8 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, allSteps, isInitWorker, timerVariable, unnamed } from './bpmn';
+import { GENERAL_VARIABLES, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
+import { correlationOf } from './messageCall';
 import { patternMappings } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
@@ -270,6 +271,14 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
+  // Camunda 8: die eigene processInstanceId setzt der InitWorker erst, wenn er fertig ist —
+  // an seinem eigenen Task ist sie leer (in Camunda 7 war `execution.processInstanceId` schon da)
+  if (initWorker && spec.engine === 'c8') {
+    const reads = (step.inputs ?? []).filter(m => !m.disabled && referencedVariables(m.expression).includes('processInstanceId'));
+    for (const m of reads) {
+      warnings.push(`Eingabe «${m.name}» liest processInstanceId — in ${C8_LABEL} setzt sie der InitWorker erst, wenn er fertig ist; hier ist sie leer. Die eigene ID nimmt der InitWorker aus EngineRunContext.processInstance (customInitZIO).`);
+    }
+  }
 
   // ── Interaktion: was der DSL verlangt ────────────────────────────────────
   if (ia) {
@@ -395,6 +404,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
     // der Timer eines Boundary-Events: wie der eines Ereignisses — das Panel zeigt es am Eintrag
     if (e.boundary && e.timer) timerFindings(e.timer, spec, errors, warnings, { at: `Boundary «${e.code}»: `, kinds });
+    // eine Nachricht am Rand wartet — wie am Ereignis: Schlüssel gewählt, alter Name gemeldet
+    if (isEventBoundary(e) && e.eventKind === 'message' && !e.pattern) {
+      const corr = correlationOf(e.correlationKey, spec.engine);
+      if (corr.missing) warnings.push(`Nachricht «${e.code}»: kein Korrelationsschlüssel — in ${C8_LABEL} findet sie keine wartende Instanz.`);
+      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: processInstanceKey ist der alte Name — «processInstanceId» wählen.`);
+    }
   });
 
   for (const r of step.regexHandledErrors ?? []) {
@@ -460,9 +475,11 @@ export function newErrorCode(existing: ErrorHandling[]): string {
 export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHandling[], ctx: FeelCtx = {}): { level: 'error' | 'warn'; text: string } | null {
   // Ein Nebenpfad braucht keinen Code — nur ein Pfad, der nirgends hinführt, ist ein Fehler im Diagramm
   if (e.side) return e.steps?.length ? null : { level: 'warn', text: 'Der Pfad am Boundary-Event führt nirgends hin.' };
+  // Signal, Nachricht, Eskalation am Rand: kein Fehlercode — ihr Name ist das Label im Diagramm
+  if (isEventBoundary(e)) return e.steps?.length ? null : { level: 'warn', text: `Der Pfad von «${e.code}» am Boundary-Event führt nirgends hin.` };
   const code = e.code.trim();
   if (!code) return { level: 'error', text: 'Behandelter Fehler ohne Code.' };
-  if (all.findIndex(x => !x.side && x.code.trim() === code) !== index) return { level: 'error', text: `Behandelter Fehler «${code}» kommt doppelt vor.` };
+  if (all.findIndex(x => !x.side && !isEventBoundary(x) && x.code.trim() === code) !== index) return { level: 'error', text: `Behandelter Fehler «${code}» kommt doppelt vor.` };
   if (e.boundary && !e.steps?.length) return { level: 'warn', text: `Der Pfad des Fehlers «${code}» am Boundary-Event führt nirgends hin.` };
   if (code.startsWith(NEW_ERROR_CODE)) return { level: 'warn', text: `Behandelter Fehler «${code}»: noch der Platzhalter — den echten Code eintragen.` };
   return feelEntryIssue(code, `Behandelter Fehler «${code}»`, { ...ctx, alone: all.filter(x => x.code.trim() && (x.declared || !x.boundary)).length <= 1 });

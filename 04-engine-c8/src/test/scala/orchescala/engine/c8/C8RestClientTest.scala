@@ -261,6 +261,40 @@ object C8RestClientTest extends ZIOSpecDefault:
             )
           )
       },
+      test("send message: the processInstanceId wins over the businessKey - like in C7") {
+        val cluster = StubCluster(_ => 200 -> """{"messageKey":"9","processInstanceKey":"4711"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        val service = C8MessageService()
+        for
+          _ <- service.sendMessage("reset", None, None, Some("bk-1"), Some("4711"), None)
+          _ <- service.sendMessage("reset", None, None, Some("bk-1"), None, None)
+          _ <- service.sendMessage("reset", None, Some(5), Some("bk-1"), Some("4711"), None)
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assertTrue(
+            cluster.paths == Seq("v2/messages/correlation", "v2/messages/correlation", "v2/messages/publication"),
+            keys == Seq(Some("4711"), Some("bk-1"), Some("4711"))
+          )
+      },
+      test("send message: the hint on the correlation key only when no subscription matches") {
+        val notFound  = StubCluster(_ => 404 -> """{"status":404,"title":"NOT_FOUND","detail":"Command 'CORRELATE' rejected with code 'NOT_FOUND': Expected to find subscription for message with name 'reset' and correlation key '4711', but none was found."}""")
+        val forbidden = StubCluster(_ => 403 -> """{"status":403,"title":"FORBIDDEN","detail":"no access"}""")
+        val noTenant  = StubCluster(_ => 404 -> """{"status":404,"title":"NOT_FOUND","detail":"tenant 'x' not found"}""")
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        val send = (cluster: StubCluster) =>
+          given C8RestClient = cluster.client()
+          C8MessageService().sendMessage("reset", None, None, None, Some("4711"), None).flip.map(_.errorMsg)
+        for
+          missing <- send(notFound)
+          denied  <- send(forbidden)
+          tenant  <- send(noTenant)
+        yield assertTrue(
+          missing.contains("zeebe:subscription"),
+          !denied.contains("zeebe:subscription"),
+          !tenant.contains("zeebe:subscription")
+        )
+      },
       test("a caller supplied _identityCorrelation is removed before the process starts") {
         val cluster = StubCluster(_ => 200 -> """{"processInstanceKey":"1"}""")
         given C8RestClient = cluster.client()

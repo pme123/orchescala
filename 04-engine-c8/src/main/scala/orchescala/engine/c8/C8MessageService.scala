@@ -3,7 +3,7 @@ package orchescala.engine.c8
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
-import zio.ZIO.logInfo
+import zio.ZIO.{logInfo, logWarning}
 import zio.{IO, ZIO}
 
 class C8MessageService(using
@@ -20,9 +20,14 @@ class C8MessageService(using
       variables: Option[JsonObject]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
-      val correlationKey = businessKey.orElse(processInstanceId)
+      // like C7: the processInstanceId wins - the BPMN takes it with correlationKey="=processInstanceId"
+      val correlationKey = processInstanceId.orElse(businessKey)
       val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)
       for
+        _      <- ZIO.when(processInstanceId.isDefined && businessKey.exists(bk => !processInstanceId.contains(bk))):
+                    logWarning(
+                      s"Message '$name': processInstanceId and businessKey given - correlated with the processInstanceId, the businessKey is ignored."
+                    )
         _      <-
           logInfo(
             s"""Correlate Message:
@@ -63,9 +68,17 @@ class C8MessageService(using
           "tenantId"       -> tenantId.asJson
         )
       )
-      .mapError(withContext(
-        s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")})"
-      ))
+      .mapError: err =>
+        val failed = withContext(
+          s"Problem sending Message '$name' (correlationKey: ${correlationKey.getOrElse("-")})"
+        )(err)
+        // no waiting subscription (Zeebe: "Expected to find subscription … but none was found"): the hint
+        // where the key comes from - not for another 404 (tenant, path), auth or network
+        failed match
+          case e: EngineError.ServiceRequestError if e.errorCode == 404 && e.errorMsg.contains("subscription") =>
+            e.copy(errorMsg = s"${e.errorMsg} - the correlationKey of the message in the BPMN " +
+              "(zeebe:subscription) must give this value: =processInstanceId resp. =businessKey")
+          case e => e
       .map: resp =>
         val processInstanceId = resp.processInstanceKey.getOrElse(resp.messageKey)
         MessageCorrelationResult.ProcessInstance(processInstanceId, processInstanceId, EngineType.C8)

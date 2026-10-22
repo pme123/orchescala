@@ -63,6 +63,30 @@ object MyC8Client extends C8BearerTokenClient:
   val zeebeRest = "http://localhost:8080"
 ```
 
+**Messages - correlation:**
+
+`POST /message/{messageName}` takes the `processInstanceId` or the `businessKey` -
+the same for all engines: the `processInstanceId` wins, a `businessKey` is then ignored.
+Without both only a message start event can be triggered.
+
+Camunda 8 has no business key and correlates only by the correlation key of the message.
+So the BPMN decides which of the two it takes:
+
+```xml
+<bpmn:message id="Message_Reset" name="my-process-reset">
+  <bpmn:extensionElements>
+    <!-- sent with processInstanceId -->
+    <zeebe:subscription correlationKey="=processInstanceId" />
+    <!-- or sent with businessKey -->
+    <!-- <zeebe:subscription correlationKey="=businessKey" /> -->
+  </bpmn:extensionElements>
+</bpmn:message>
+```
+
+- `processInstanceId` is set by the _Init Process Worker_ - a process without one has none.
+- `businessKey` is a process variable, set by the Gateway when the process is started with one.
+- Any other variable works too: send its value as `businessKey`.
+
 ### Operaton
 
 [Operaton](https://operaton.org/) is the open-source fork of Camunda 7, maintained by the community.

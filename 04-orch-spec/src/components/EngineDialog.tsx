@@ -6,6 +6,7 @@
 import { useMemo } from 'react';
 import { AlertTriangle, ArrowRightLeft, Check, X } from 'lucide-react';
 import { convertBpmn } from '../engineConvert';
+import { correlationKeysOf } from '../messageCall';
 import { engineLabel } from '../engineLabels';
 import type { EngineId, ProcessSpec } from '../types';
 import { cls } from '../ui';
@@ -21,7 +22,7 @@ export default function EngineDialog({ spec, bpmn, isDark, onConvert, onClose }:
   const c = cls(isDark);
   const from: EngineId = spec.engine ?? 'c7';
   const target: EngineId = from === 'c7' ? 'c8' : 'c7';
-  const probe = useMemo(() => (bpmn ? convertBpmn(bpmn, target, { timeToLive: spec.timeToLive }) : null), [bpmn, target, spec.timeToLive]);
+  const probe = useMemo(() => (bpmn ? convertBpmn(bpmn, target, { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec) }) : null), [bpmn, target, spec]);
   const issues = probe?.issues ?? [];
 
   return (

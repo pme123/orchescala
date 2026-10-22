@@ -59,7 +59,7 @@ class Unsupported extends Error {}
 
 /** Variablen von Camunda 8, die Camunda 7 an der Ausführung hat — Gegenstück zum Import (juelFeel.ts) */
 const EXECUTION_JUEL: Record<string, string> = {
-  processInstanceKey: 'execution.processInstanceId',
+  processInstanceId: 'execution.processInstanceId',
   businessKey: 'execution.processBusinessKey',
   processDefinitionKey: 'execution.getProcessDefinition().getKey()',
 };

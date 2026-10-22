@@ -86,12 +86,18 @@ The _Init Process Worker_ is a special _Worker_ that is used to start a process.
 It automatically does:
 - validate the input variables
 - merge the _inConfig_ variables with manual overrides
-- _Camunda 8_: set `processInstanceKey` (a String) - there is no `execution` like in _Camunda 7_,
-  so use it in FEEL, e.g. `_idempotentId = processInstanceKey`.
-  - A `processInstanceKey` given from outside (a start variable, the input of a call activity) wins.
-    So a called process with `propagateAllParentVariables` keeps the key of its parent.
-  - Only the _Init Process Worker_ sets it - a process without one has no `processInstanceKey`,
-    and a call activity with `propagateAllChildVariables` overwrites it with the key of the called process.
+- _Camunda 8_: set `processInstanceId` (a String, the key of the process instance) - there is no
+  `execution` like in _Camunda 7_, so use it in FEEL, e.g. `_idempotentId = processInstanceId`.
+  The name is engine agnostic - the same as in the Gateway API and in _Camunda 7_.
+  - Always the own one - like `execution.processInstanceId` in _Camunda 7_: a `processInstanceId`
+    from outside (a start variable, the input of a call activity) is overwritten.
+    Name a field of your `In` differently if it holds the id of another process (e.g. `mainProcessInstanceId`).
+  - It is set when the _Init Process Worker_ completes - not yet in its own input mapping.
+    A worker that needs the own id takes `EngineRunContext.processInstance` (the same in all engines) -
+    in an _Init Process Worker_ override `customInitZIO`: `summon[EngineRunContext].processInstance.map(_.id)`.
+  - Only the _Init Process Worker_ sets it - a process without one has no `processInstanceId`.
+  - Orchescala maps the variables of a call activity explicitly (`propagateAllParentVariables` and
+    `propagateAllChildVariables` are `false`) - so a called process has its own `processInstanceId`.
 
 You can:
 - init input process variables with default values.

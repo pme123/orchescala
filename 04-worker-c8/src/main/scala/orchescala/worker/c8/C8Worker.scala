@@ -74,9 +74,14 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
                               ))
         _                <- logDebug(s"generalVariables: $generalVariables")
-        givenKey          = C8Worker.engineVariableNames(worker).flatMap(json.hcursor.downField(_).focus)
-                              .find(!_.isNull)
-        _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables, givenKey)
+        // the InitWorker overwrites a processInstanceId from outside with the own one - say so
+        _                <- ZIO.foreachDiscard(C8Worker.foreignProcessInstanceId(worker, json, job.getProcessInstanceKey)):
+                              foreign =>
+                                logWarning(
+                                  s"Worker: ${job.getType} - processInstanceId '$foreign' (from outside) is overwritten with " +
+                                    s"the own '${job.getProcessInstanceKey}' - name a field that holds another process's id differently."
+                                )
+        _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables)
                               .executeWorker()
         _                <-
           logInfo(
@@ -89,9 +94,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       job: ActivatedJob,
       businessKey: String,
       generalVariables: GeneralVariables,
-      processVariables: Seq[IO[BadVariableError, (String, Option[Json])]],
-      // the processInstanceKey given from outside - for the InitWorker
-      givenKey: Option[Json]
+      processVariables: Seq[IO[BadVariableError, (String, Option[Json])]]
   ):
 
     def executeWorker(): ZIO[SttpClientBackend, Throwable, Unit] =
@@ -197,7 +200,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             attemptBlocking:
               client.newCompleteCommand(job)
                 .variables(
-                  (variablesMap ++ C8Worker.engineVariables(worker, job.getProcessInstanceKey, givenKey)).asJava
+                  (variablesMap ++ C8Worker.engineVariables(worker, job.getProcessInstanceKey)).asJava
                 )
                 .send().join()
             .catchAll: err =>
@@ -366,36 +369,45 @@ object C8Worker:
     if worthTryingAgain then (jobRetries - 1).max(0) else 0
   end retriesAfter
 
-  /** What C7 has in `execution` - C8 has no `execution`: the InitWorker puts `processInstanceKey`
-    * into the process variables (in FEEL `= processInstanceKey`, e.g. `_idempotentId`).
+  /** What C7 has in `execution` - C8 has no `execution`: the InitWorker puts the key of the process
+    * instance as `processInstanceId` into the process variables (in FEEL `= processInstanceId`, e.g.
+    * `_idempotentId`) - engine agnostic, the name of the Gateway API and of C7.
     *
-    * Only the InitWorker: it runs in the scope of the process - another worker (e.g. in a call
-    * activity) must not overwrite it. A String: a key exceeds JavaScript's safe integers (the
-    * partition is in its upper bits) - and `_idempotentId` is a String.
+    * Always the own one - like `execution.processInstanceId` in C7: a `processInstanceId` from
+    * outside (a start variable, the input of a call activity) is overwritten. Only the InitWorker:
+    * it runs in the scope of the process - another worker (e.g. in a call activity) must not
+    * overwrite it. A String: a key exceeds JavaScript's safe integers (the partition is in its
+    * upper bits) - and `_idempotentId` is a String.
     *
-    * A key given from outside (a start variable, the input of a call activity) wins - a number
-    * becomes a String.
+    * A worker that needs the own id before (e.g. the InitWorker itself) takes
+    * `EngineRunContext.processInstance` - the same in all engines.
     */
   def engineVariables(
       worker: Worker[?, ?, ?],
-      processInstanceKey: Long,
-      givenKey: Option[Json]
+      processInstanceKey: Long
   ): Map[String, String] =
     worker match
-      case _: InitWorker[?, ?, ?] =>
-        val key = givenKey
-          .flatMap(json => json.asString.orElse(json.asNumber.map(_.toString)))
-          .filter(_.nonEmpty)
-          .getOrElse(processInstanceKey.toString)
-        Map(processInstanceKeyName -> key)
+      case _: InitWorker[?, ?, ?] => Map(processInstanceIdName -> processInstanceKey.toString)
       case _                      => Map.empty
 
-  /** The engine variables a worker reads - the InitWorker a given `processInstanceKey`. */
-  def engineVariableNames(worker: Worker[?, ?, ?]): Seq[String] =
-    worker match
-      case _: InitWorker[?, ?, ?] => Seq(processInstanceKeyName)
-      case _                      => Seq.empty
+  private val processInstanceIdName = "processInstanceId"
 
-  private val processInstanceKeyName = "processInstanceKey"
+  /** The variables a worker fetches with its job - the InitWorker also a `processInstanceId` from
+    * outside, to report that it overwrites it (see `foreignProcessInstanceId`).
+    */
+  def variablesToFetch(worker: Worker[?, ?, ?]): Seq[String] =
+    val own = worker match
+      case _: InitWorker[?, ?, ?] => Seq(processInstanceIdName)
+      case _                      => Seq.empty
+    (worker.variableNames ++ GeneralVariables.variableNames ++ own :+ "businessKey").distinct
+
+  /** A `processInstanceId` the InitWorker got from outside that is not its own - it overwrites it. */
+  def foreignProcessInstanceId(worker: Worker[?, ?, ?], json: Json, processInstanceKey: Long): Option[String] =
+    worker match
+      case _: InitWorker[?, ?, ?] =>
+        json.hcursor.downField(processInstanceIdName).focus
+          .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
+          .filter(id => id.nonEmpty && id != processInstanceKey.toString)
+      case _                      => None
 
 end C8Worker

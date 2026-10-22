@@ -127,7 +127,11 @@ const plainVar = (source: string): string | null => {
  * Das Diagramm in die Form der Ziel-Engine bringen. Liegt es schon in dieser
  * Form vor, kommt es unverändert zurück.
  */
-export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string } = {}): WriteResult & { changed: boolean } {
+/**
+ * `correlationKeys`: der am Schritt gewählte Korrelationsschlüssel je Element-ID —
+ * eine wartende Nachricht ohne bekommt in Camunda 8 den Vorschlag `=businessKey`.
+ */
+export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string> } = {}): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
   if (detectEngine(xml) === target) return { xml, issues, changed: false };
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -137,7 +141,7 @@ export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: 
   }
   const bpmnPrefix = defs.prefix ? `${defs.prefix}:` : '';
   const ctx: Ctx = {
-    doc, issues, later: [],
+    doc, issues, later: [], correlationKeys: opts.correlationKeys ?? {},
     bpmnEl: name => doc.createElementNS(defs.namespaceURI, `${bpmnPrefix}${name}`),
   };
 
@@ -175,6 +179,8 @@ interface Ctx {
   bpmnEl: (name: string) => Element;
   /** Kinder, die erst eingerückt werden können, wenn ihr Elternteil hängt */
   later: Array<[Element, Element[]]>;
+  /** Element-ID → gewählter Korrelationsschlüssel (siehe convertBpmn) */
+  correlationKeys: Record<string, string>;
 }
 
 function usesNs(root: Element, ns: string): boolean {
@@ -253,11 +259,14 @@ function toC8(defs: Element, ctx: Ctx) {
       const ins = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'in') : [];
       const outs = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'out') : [];
       const all = (xs: Element[]) => xs.some(x => x.getAttribute('variables') === 'all');
+      // Orchescala mappt explizit — nie alle Variablen, in keine Richtung
       add.push(zeebe('calledElement', {
         processId: called ? toFeel(called, 'Aufgerufener Prozess', issue) : undefined,
-        propagateAllChildVariables: all(outs) ? 'true' : 'false',
-        propagateAllParentVariables: all(ins) ? 'true' : 'false',
+        propagateAllChildVariables: 'false',
+        propagateAllParentVariables: 'false',
       }));
+      if (all(ins)) issue('Teilprozess', 'camunda:in variables="all" — Orchescala gibt nur explizit gemappte Eingaben weiter; die gebrauchten als Eingaben mappen.');
+      if (all(outs)) issue('Teilprozess', 'camunda:out variables="all" — Orchescala übernimmt nur explizit gemappte Ausgaben; die gebrauchten als Ausgaben mappen.');
       if (called) el.removeAttribute('calledElement');
       for (const [xs, tag] of [[ins, 'input'], [outs, 'output']] as const) {
         for (const x of xs) {
@@ -405,14 +414,17 @@ function toC8(defs: Element, ctx: Ctx) {
       if (waits && msg) {
         const mext = extOf(ctx, msg);
         if (!firstNamed(mext, 'subscription', ZEEBE_NS)) {
-          appendEl(mext, zeebe('subscription', { correlationKey: '=businessKey' }));
-          issueAt(ctx, holder)('Nachricht', `«${msg.getAttribute('name') ?? ref}» — Korrelationsschlüssel «=businessKey» vorgeschlagen, prüfen.`);
+          const chosen = ctx.correlationKeys[holder.getAttribute('id') ?? ''];
+          appendEl(mext, zeebe('subscription', { correlationKey: chosen ?? '=businessKey' }));
+          if (!chosen) issueAt(ctx, holder)('Nachricht', `«${msg.getAttribute('name') ?? ref}» — Korrelationsschlüssel «=businessKey» vorgeschlagen, prüfen.`);
         }
       }
     }
-    if (name === 'message') {
+    // Namen von Nachricht und Signal: ein Ausdruck (`…-${mainProcessInstanceId}`) wird FEEL —
+    // sonst nähme Camunda 8 ihn wörtlich, und nichts käme an
+    if (name === 'message' || name === 'signal') {
       const n = el.getAttribute('name');
-      if (n && isJuel(n)) el.setAttribute('name', toFeel(n, 'Nachrichtenname', issue));
+      if (n && isJuel(n)) el.setAttribute('name', toFeel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
     }
 
     // ── Element-Template: der Verweis auf den Service bleibt
@@ -601,9 +613,9 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     // die Hülle `(…) = true` braucht Camunda 7 nicht — dort ist `null` ohnehin `false`
     if (name === 'conditionExpression') el.textContent = toJuel(stripNullSafe(el.textContent ?? '').replace(/^= /, '='), 'Bedingung', issue);
     if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) el.textContent = toJuel(el.textContent ?? '', 'Timer', issue);
-    if (name === 'message') {
+    if (name === 'message' || name === 'signal') {
       const n = el.getAttribute('name');
-      if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, 'Nachrichtenname', issue));
+      if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
     }
 
     // ── Prozess

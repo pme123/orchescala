@@ -137,6 +137,25 @@ function timerOf(el: Element): TimerSpec | undefined {
   return { kind: 'duration', expression: '' };
 }
 
+/** Boundary-Events, die keine Fehler sind — sie haben einen eigenen Abschnitt am Schritt */
+const EVENT_BOUNDARY_KINDS = new Set<string>(['signal', 'message', 'escalation']);
+
+/** Ein Boundary-Event, das kein Fehler ist (Signal, Nachricht, Eskalation)? */
+export const isEventBoundary = (e: ErrorHandling): boolean =>
+  !!e.boundary && EVENT_BOUNDARY_KINDS.has(e.eventKind ?? 'none');
+
+/** Wie ein Eintrag heisst — Fehler, Nebenpfad oder die Art des Ereignisses */
+export function boundaryLabel(e: ErrorHandling): string {
+  if (isEventBoundary(e)) return EVENT_LABEL[e.eventKind!];
+  return e.side ? 'Nebenpfad' : 'Fehler';
+}
+
+/** Der Korrelationsschlüssel der Nachricht, auf die das Element wartet (Camunda 8) */
+function correlationKeyOf(el: Element, ctx: Pick<BuildCtx, 'correlationKeys'>): string | undefined {
+  const def = local(el) === 'receiveTask' ? el : kids(el).find(c => local(c) === 'messageEventDefinition');
+  return ctx.correlationKeys.get(def?.getAttribute('messageRef') ?? '');
+}
+
 /** Name des Signals bzw. der Nachricht eines Ereignisses — über `signalRef` / `messageRef` */
 function signalRefOf(el: Element, defs: Map<string, string>): string | undefined {
   for (const c of kids(el)) {
@@ -210,7 +229,7 @@ export const TECHNICAL = new Set([
 /**
  * Die allgemeinen Variablen von Orchescala (`GeneralVariables`): jeder Worker
  * nimmt sie entgegen, sie dürfen in jedem Schritt überschrieben werden — z. B.
- * `_idempotentId = processInstanceKey`. Darum keine Erweiterung des Katalogs,
+ * `_idempotentId = processInstanceId`. Darum keine Erweiterung des Katalogs,
  * auch wenn sie nicht im In des Services stehen.
  * `_identityCorrelationPending` fehlt bewusst: das setzt nur die Engine.
  */
@@ -500,6 +519,8 @@ interface BuildCtx {
   errors: Map<string, string>;
   /** <bpmn:signal> / <bpmn:message> id → name */
   signals: Map<string, string>;
+  /** <bpmn:message> id → Korrelationsschlüssel (Camunda 8: `zeebe:subscription`) */
+  correlationKeys: Map<string, string>;
   /** alle Knoten aller Ebenen — für die Meldung «nicht erreichbar» */
   allNodes: Map<string, string>;
   /** Element-ID → Pattern, zu dem es gehört (Pfade und Blöcke eines Patterns) */
@@ -582,6 +603,11 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const ref = el.getAttribute('messageRef');
     const name = ref ? ctx.signals.get(ref) : undefined;
     if (name) step.messageName = name;
+  }
+  // wer auf eine Nachricht wartet, wird in Camunda 8 über ihren Schlüssel gefunden
+  if (kind === 'receive' || (kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch')) {
+    const key = correlationKeyOf(el, ctx);
+    if (key) step.correlationKey = key;
   }
 
   const ext = firstNamed(el, 'extensionElements');
@@ -681,6 +707,18 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const code = named || steps?.[0]?.name || bid;
     if (!code) continue;
     const pattern = ctx.owned.get(bid);
+    // Signal, Nachricht, Eskalation: kein Fehler — mit Art, Name und (wartende Nachricht) Schlüssel
+    const ev = eventKindOf(b);
+    const event: Partial<ErrorHandling> = EVENT_BOUNDARY_KINDS.has(ev ?? 'none') ? {
+      eventKind: ev,
+      boundaryId: bid,
+      ...(signalRefOf(b, ctx.signals) ? { messageName: signalRefOf(b, ctx.signals) } : {}),
+      ...(correlationKeyOf(b, ctx) ? { correlationKey: correlationKeyOf(b, ctx) } : {}),
+    } : {};
+    if (event.eventKind) {
+      errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...event, ...(steps?.length ? { steps } : {}) });
+      continue;
+    }
     // ein Timer samt seinem Element — der Export schreibt ihn dorthin zurück
     const timer = timerOf(b);
     // zwei Boundary-Events mit demselben Code: mit Timer bleibt jedes ein eigener
@@ -958,13 +996,20 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
       if (id && name) signalDefs.set(id, name);
     }
   }
+  const correlationKeys = new Map<string, string>();
+  for (const m of elementsNamed(doc.documentElement, 'message')) {
+    const ext = firstNamed(m, 'extensionElements');
+    const key = ext ? firstNamed(ext, 'subscription')?.getAttribute('correlationKey') : null;
+    const id = m.getAttribute('id');
+    if (id && key?.trim()) correlationKeys.set(id, key.trim());
+  }
   // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
   const engine = detectEngine(xml);
   // Pattern zuerst: was zu einem gehört, wird im Baum als Pattern gezeigt
   const detected = detectPatterns(doc, opts.patterns, engine);
   const ctx: BuildCtx = {
     doc, processId, initOutputs: [],
-    byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, allNodes: new Map(), succ: new Map(),
+    byId: new Map(), order: [], errors: errorDefs, signals: signalDefs, correlationKeys, allNodes: new Map(), succ: new Map(),
     owned: detected.owned,
   };
   register(ctx, scope);
@@ -1092,7 +1137,9 @@ function sig(s: Step): string {
  * vorige BPMN) — sonst gingen Einstellungen verloren, sobald jemand im
  * Diagramm etwas verschiebt oder die App es angleicht.
  */
-const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind', 'timer'] as const;
+const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind', 'timer', 'messageName', 'correlationKey'] as const;
+/** liest erst ein neuerer Import — eine ältere Spezifikation ohne sie bekommt sie aus dem Diagramm */
+const LATER_READ = new Set<string>(['timer', 'messageName', 'correlationKey']);
 
 /** Ein Wert unabhängig von seiner Engine-Form: `${x}` wie `=x`, `text` wie `="text"` */
 function normExpr(e: string): string {
@@ -1103,7 +1150,7 @@ function normExpr(e: string): string {
 }
 
 const norm = (k: string, v: unknown): unknown =>
-  k === 'mock' && typeof v === 'string' ? normExpr(v)
+  (k === 'mock' || k === 'correlationKey') && typeof v === 'string' ? normExpr(v)
     // die Vorgabe fürs InConfig steht nicht im Diagramm
     : k === 'timer' && v && !Array.isArray(v) ? [(v as TimerSpec).kind, normExpr((v as TimerSpec).expression ?? '')]
     : (k === 'inputs' || k === 'outputs') && Array.isArray(v) ? (v as Mapping[]).map(m => [m.name, normExpr(m.expression)])
@@ -1132,7 +1179,7 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
       || (prev[k] != null && same(k, s[k], inDiagram(k, prev[k])));
     if (!diagramUnchanged) continue;
     // den Timer liest erst ein neuerer Import — eine ältere Spezifikation ohne ihn bekommt ihn
-    if (prev[k] === undefined) { if (k !== 'timer') delete s[k]; }
+    if (prev[k] === undefined) { if (!LATER_READ.has(k)) delete s[k]; }
     else (s as Record<string, unknown>)[k] = prev[k];
   }
 }
@@ -1189,6 +1236,59 @@ function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdi
     const timer = keepEdits && diagramUnchanged ? p.timer : withPrevDefault(e.timer, p.timer);
     return timer === e.timer ? e : { ...e, timer };
   });
+}
+
+/**
+ * Signal bzw. Nachricht eines Boundary-Events (Name, Korrelationsschlüssel)
+ * gehören wie am Ereignis der Spezifikation: hat das Diagramm sie gegenüber dem
+ * vorigen BPMN nicht geändert, bleibt, was in ihr steht.
+ */
+function keepBoundaryMessages(s: Step, prev: Step, base: Step | undefined) {
+  if (!s.errors?.some(isEventBoundary)) return;
+  const own = s.errors;
+  s.errors = s.errors.map(e => {
+    if (!isEventBoundary(e)) return e;
+    const p = sameBoundary(prev.errors, e, own);
+    if (!p) return e;
+    const b = base ? sameBoundary(base.errors, e, own) : undefined;
+    let next = e;
+    for (const k of ['messageName', 'correlationKey'] as const) {
+      const diagramUnchanged = b ? same(k, e[k], b[k]) : same(k, e[k], p[k]);
+      if (diagramUnchanged && p[k] !== undefined && p[k] !== e[k]) next = { ...next, [k]: p[k] };
+    }
+    return next;
+  });
+}
+
+/**
+ * Art, Signal bzw. Nachricht der Boundary-Events — eine Spezifikation von vor
+ * ihrem Import führt sie als Fehler; sie bekommt sie aus dem Diagramm. Was sie
+ * schon hat, bleibt. Null, wenn nichts fehlt.
+ */
+export function syncBoundaryEvents(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
+  const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
+  let changed = false;
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    let next = s;
+    const theirs = neu.get(s.id)?.errors;
+    if (s.errors?.some(e => e.boundary && !e.eventKind) && theirs?.some(isEventBoundary)) {
+      const errors = s.errors.map(e => {
+        if (!e.boundary || e.eventKind) return e;
+        const f = sameBoundary(theirs, e, s.errors!);
+        if (!f || !isEventBoundary(f)) return e;
+        changed = true;
+        const { eventKind, boundaryId, messageName, correlationKey } = f;
+        return { ...e, eventKind, boundaryId, ...(messageName ? { messageName } : {}), ...(correlationKey ? { correlationKey } : {}) };
+      });
+      next = { ...next, errors };
+    }
+    if (next.children) next = { ...next, children: walk(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) };
+    return next;
+  });
+  const steps = walk(current.steps);
+  return changed ? { ...current, steps } : null;
 }
 
 /**
@@ -1249,6 +1349,7 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
       if (s.timer) s.timer = withPrevDefault(s.timer, prev.timer);
       keepBoundaryTimers(s, prev, base?.get(s.id), !st.mappingsFromBpmn);
+      keepBoundaryMessages(s, prev, base?.get(s.id));
       // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
       // als `number(…)` — liest das Diagramm es heute richtig, gilt das
       for (const list of ['inputs', 'outputs'] as const) {
@@ -1501,6 +1602,31 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     if (next.errors?.some(e => fill(e, next.errors!))) {
       changed = true;
       next = { ...next, errors: next.errors.map((e, _, all) => { const p = fill(e, all); return p ? { ...e, ...p } : e; }) };
+    }
+    if (next.children) next = { ...next, children: walk(next.children) };
+    if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };
+    if (next.errors) next = { ...next, errors: next.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) };
+    return next;
+  });
+  const steps = walk(current.steps);
+  return changed ? { ...current, steps } : null;
+}
+
+/**
+ * Der Korrelationsschlüssel einer wartenden Nachricht (`zeebe:subscription`):
+ * eine Spezifikation von vor seinem Import bekommt ihn aus dem Diagramm. Was sie
+ * schon hat, bleibt — geändert wird er am Schritt, der Export schreibt ihn.
+ * Null, wenn nichts fehlt.
+ */
+export function syncCorrelationKeys(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
+  const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s.correlationKey]));
+  let changed = false;
+  const walk = (steps: Step[]): Step[] => steps.map(s => {
+    let next = s;
+    const key = neu.get(s.id);
+    if (key && s.correlationKey === undefined) {
+      changed = true;
+      next = { ...next, correlationKey: key };
     }
     if (next.children) next = { ...next, children: walk(next.children) };
     if (next.branches) next = { ...next, branches: next.branches.map(b => ({ ...b, steps: walk(b.steps) })) };

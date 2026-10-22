@@ -114,8 +114,17 @@ export interface ErrorHandling {
   pattern?: string;
   /** ein Timer-Boundary-Event: wann es auslöst — die Variable dazu steht im `InConfig` */
   timer?: TimerSpec;
-  /** ID des Boundary-Events im Diagramm — dorthin schreibt der Export den Timer */
+  /** ID des Boundary-Events im Diagramm — dorthin schreibt der Export Timer, Signal bzw. Nachricht */
   boundaryId?: string;
+  /**
+   * Art des Boundary-Events. Signal, Nachricht und Eskalation sind keine Fehler —
+   * sie stehen am Schritt unter «Ereignisse am Rand» (siehe `isEventBoundary`)
+   */
+  eventKind?: Step['eventKind'];
+  /** Name des Signals bzw. der Nachricht — wie `Step.messageName` */
+  messageName?: string;
+  /** wartende Nachricht: der Korrelationsschlüssel — wie `Step.correlationKey` */
+  correlationKey?: string;
   steps?: Step[];         // Behandlungspfad
   [key: string]: unknown;
 }
@@ -198,6 +207,11 @@ export interface Step {
   eventDirection?: 'throw' | 'catch';
   /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
   messageName?: string;
+  /**
+   * Fangende Nachricht: der Korrelationsschlüssel (FEEL), in Camunda 8 aus
+   * `zeebe:subscription` der `<bpmn:message>` — Camunda 7 kennt ihn nicht im BPMN
+   */
+  correlationKey?: string;
   /** Timer-Ereignis: wann es auslöst — die Variable dazu steht im `InConfig` */
   timer?: TimerSpec;
 

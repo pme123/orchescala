@@ -8,7 +8,7 @@
 import { overallStatus } from './status.ts';
 import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
 import { STATUS_META } from './types.ts';
-import { blockGroups, blockStart, statusCounts } from './bpmn.ts';
+import { blockGroups, blockStart, boundaryLabel, isEventBoundary, statusCounts } from './bpmn.ts';
 import { scalaBundle } from './scala.ts';
 import { C7_LABEL, C8_LABEL, engineLabel } from './engineLabels.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
@@ -18,6 +18,7 @@ import { engineExpression } from './feelJuel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
+import { correlationKeysOf, messageCorrelation, messageRequest } from './messageCall.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -115,7 +116,7 @@ function fachlichStepsFlat(spec: ProcessSpec, steps: Step[], depth: number, out:
     }
     for (const e of s.errors ?? []) {
       if (!e.steps?.length || e.pattern) continue;
-      out.push(`${bullet(depth + 1)} *${e.side ? 'Nebenpfad' : 'Fehlerfall'} «${e.code}»*`);
+      out.push(`${bullet(depth + 1)} *${isEventBoundary(e) ? boundaryLabel(e) : e.side ? 'Nebenpfad' : 'Fehlerfall'} «${e.code}»*`);
       fachlichSteps(spec, e.steps, depth + 2, out, pn);
     }
     if (s.children?.length) fachlichSteps(spec, s.children, depth + 1, out, pn);
@@ -198,7 +199,7 @@ function outlineFlat(steps: Step[], depth: number, out: string[]) {
     }
     for (const e of s.errors ?? []) {
       if (!e.steps?.length) continue;
-      out.push(`${bullet(depth + 1)} [${e.pattern ? `Pattern ${e.pattern}: ` : ''}${e.side ? 'Nebenpfad' : 'Fehler'} ${e.code}]`);
+      out.push(`${bullet(depth + 1)} [${e.pattern ? `Pattern ${e.pattern}: ` : ''}${boundaryLabel(e)} ${e.code}]`);
       outline(e.steps, depth + 2, out);
     }
     if (s.children?.length) outline(s.children, depth + 1, out);
@@ -305,6 +306,20 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     out.push(...table(meta, ['Feld', 'Wert']));
 
     if (s.description) out.push(s.description, '');
+    const corr = messageCorrelation(s, spec.engine);
+    if (corr && s.messageName) {
+      out.push('**Nachricht senden** (Gateway)', '');
+      out.push(corr.either
+        ? `Korreliert über \`businessKey\` oder \`processInstanceId\` — noch nicht festgelegt.`
+        : corr.missing
+          ? 'Kein Korrelationsschlüssel — die Nachricht findet so keine wartende Instanz.'
+          : corr.misnamed
+            ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: der alte Name, die Variable heisst heute \`processInstanceId\`.`
+            : corr.choice
+              ? `Korreliert über \`${corr.param}\`${spec.engine === 'c8' ? ` (Korrelationsschlüssel \`${corr.expression}\`)` : ''}.`
+              : `Korrelationsschlüssel \`${corr.expression}\` — gesendet mit \`${corr.param}\`.`, '');
+      out.push('```http', messageRequest(s, corr, spec), '```', '');
+    }
     // Abgewählte Zeilen kommen in diesem Prozess nicht vor — sie stehen nicht
     // im Vertrag, werden aber gezählt, damit klar ist, was der Service könnte.
     const used = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => !m.disabled);
@@ -327,7 +342,9 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
       out.push('**Fehler und Nebenpfade**', '');
       out.push(...table(s.errors.map((e: ErrorHandling) => [
         `\`${e.code}\``,
-        (e.side ? 'Nebenpfad' : e.interrupting === false ? 'Fehler, nicht unterbrechend' : 'Fehler, unterbrechend') + (e.pattern ? ` — Pattern ${pn(e.pattern)}` : ''),
+        (isEventBoundary(e)
+          ? `${boundaryLabel(e)}${e.messageName ? ` \`${e.messageName}\`` : ''}${e.interrupting === false ? ', nicht unterbrechend' : ', unterbrechend'}`
+          : e.side ? 'Nebenpfad' : e.interrupting === false ? 'Fehler, nicht unterbrechend' : 'Fehler, unterbrechend') + (e.pattern ? ` — Pattern ${pn(e.pattern)}` : ''),
         e.steps?.length ? e.steps.map(x => `\`${x.id}\``).join(' → ') : '',
       ]), ['Fehler', 'Art', 'Behandlung']));
     }
@@ -385,7 +402,7 @@ export function exportBpmn(spec: ProcessSpec, bpmn: string, model: Model | null 
 export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7', model: Model | null = null): WriteResult {
   const written = exportBpmn(spec, bpmn, model);
   if (!bpmn || engine === (spec.engine ?? 'c7')) return written;
-  const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive });
+  const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec) });
   return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
 }
 

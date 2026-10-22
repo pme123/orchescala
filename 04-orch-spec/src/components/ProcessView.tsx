@@ -8,7 +8,7 @@ import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useR
 import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
-  AlertTriangle, ShieldCheck, GitFork, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
+  AlertTriangle, ShieldCheck, GitFork, Zap, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
   MessageSquare, Puzzle, History, Database, ClipboardPaste,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -22,7 +22,7 @@ import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
 import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
-import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, healJuel, importBpmn, mergeSpec, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
+import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { conversionNote, engineLabel } from '../engineLabels';
@@ -835,8 +835,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       const withPatterns = syncPatterns(cur, fresh);
       // eine Spezifikation von vor dem Import der Timer bekommt sie aus dem Diagramm
       const withTimers = syncTimers(withPatterns ?? cur, fresh);
-      const next = withTimers ?? withPatterns;
-      const what = [withPatterns && 'Pattern', withTimers && 'Timer'].filter(Boolean).join('- und ');
+      // ebenso die Korrelationsschlüssel der wartenden Nachrichten
+      const withKeys = syncCorrelationKeys(withTimers ?? withPatterns ?? cur, fresh);
+      // und Signal / Nachricht an Boundary-Events — eine ältere führte sie als Fehler
+      const withEvents = syncBoundaryEvents(withKeys ?? withTimers ?? withPatterns ?? cur, fresh);
+      const next = withEvents ?? withKeys ?? withTimers ?? withPatterns;
+      const what = [withPatterns && 'Pattern', withTimers && 'Timer', withKeys && 'Korrelations', withEvents && 'Ereignis'].filter(Boolean).join('- und ');
       if (next) update(next, { source: 'load', note: `${what}-Angaben aus dem Diagramm nachgezogen` });
     } catch { /* unlesbares BPMN — meldet der Abgleich */ }
   }, [loaded, xml, patternDefs, update]);
@@ -1508,7 +1512,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           <CommentBubble target={stepTarget(step.id)} aggregate quiet />
           <BlockChip step={step} isDark={p.isDark} />
           <LoopChip step={step} isDark={p.isDark} />
-          {!!step.errors?.filter(e => !e.side && !e.pattern).length && <ErrorChip n={step.errors.filter(e => !e.side && !e.pattern).length} isDark={p.isDark} />}
+          {!!step.errors?.filter(e => !e.side && !e.pattern && !isEventBoundary(e)).length && <ErrorChip n={step.errors.filter(e => !e.side && !e.pattern && !isEventBoundary(e)).length} isDark={p.isDark} />}
           <StatusChip status={step.status} isDark={p.isDark} muted={step.status === 'implemented'}
             onClick={p.onStatus ? () => p.onStatus!(step.id, nextStatus(step.status)) : undefined} />
         </div>
@@ -1522,7 +1526,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
 
           {/* Fehler- und Nebenpfade */}
           {step.errors?.filter(e => e.steps?.length && e.pattern && shows(e.steps)).map(e => (
-            <PatternFold key={e.code} pattern={e.pattern!} what={e.side ? `Nebenpfad «${e.code}»` : `Fehler «${e.code}»`} steps={e.steps!} p={p} />
+            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} p={p} />
           ))}
           {step.errors?.filter(e => e.steps?.length && !e.pattern && shows(e.steps)).map(e => (
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${
@@ -1533,8 +1537,8 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
                 e.side
                   ? (p.isDark ? 'text-indigo-300' : 'text-indigo-700')
                   : (p.isDark ? 'text-white/60' : 'text-black/60')}`}>
-                {e.side ? <GitFork size={10} /> : <ShieldCheck size={10} />}
-                <span className="font-semibold">{e.side ? 'Nebenpfad' : 'Fehler'}</span> «{e.code}»
+                {isEventBoundary(e) ? <Zap size={10} /> : e.side ? <GitFork size={10} /> : <ShieldCheck size={10} />}
+                <span className="font-semibold">{boundaryLabel(e)}</span> «{e.code}»
                 {!e.side && e.interrupting === false && <span className={c.muted}>· nicht unterbrechend</span>}
                 <span className={`ml-auto ${c.muted}`}>{countSteps(e.steps)} Schritt{countSteps(e.steps) === 1 ? '' : 'e'}</span>
               </div>

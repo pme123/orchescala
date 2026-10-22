@@ -1486,7 +1486,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Service (aus dem BPMN) | wie er war: `_manualOutMapping` bleibt; `_outputVariables` nur geändert, wenn Ausgaben an- oder abgewählt wurden; fehlte es (= alles), bleibt es weg | ebenso |
 | Service (kein eigener Worker) mit eigenen Ausgaben, aber ohne `_manualOutMapping` und `_outputVariables` im Diagramm (z. B. neu gezeichnet) | wie in der Spezifikation angelegt: `_manualOutMapping` und `_outputVariables` — sonst schriebe der Worker sein ganzes `Out` als Prozessvariablen (und überschriebe etwa ein `accountKey` des Prozesses) | ebenso |
 | Init-Worker | nie `_outputVariables` oder `_manualOutMapping` — er gibt das `InitIn` zurück | ebenso |
-| Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — nur mit `propagateAllParentVariables="false"`, sonst sieht der Teilprozess sie ohnehin | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer; dazu `impersonateUserId` (der alte Weg zur Identität — BPF/MAP starten noch ohne `_identityCorrelation`, ohne ihn riefe der Teilprozess die Services mit dem technischen Benutzer) |
+| Mock-Steuerung (nur am Teilprozess) | `_servicesMocked`, `_mockedWorkers`, `_identityCorrelation` = `=_servicesMocked` … — immer; der Export setzt `propagateAllParentVariables="false"` (Orchescala mappt explizit) | `<camunda:in source="_servicesMocked" target="_servicesMocked"/>` … — immer; dazu `impersonateUserId` (der alte Weg zur Identität — BPF/MAP starten noch ohne `_identityCorrelation`, ohne ihn riefe der Teilprozess die Services mit dem technischen Benutzer) |
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` (am Teilprozess `source="createContractMock"`) |
 | Service-Task | keine Mock-Steuerung — der Worker liest `_servicesMocked` selbst aus den Prozessvariablen; eine blosse Weitergabe im Diagramm fällt weg, ein fester Wert (`= true`) bleibt | ebenso |
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
@@ -1545,11 +1545,12 @@ mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
 Dazu die Camunda-7-Eigenheiten, die in FEEL schlicht Pfade oder Variablen
 sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
 `.hasProp`, `.jsonPath("$.a")`), `execution.getVariable("x")` → `x`,
-`execution.getProcessInstanceId()` → `processInstanceKey`,
+`execution.getProcessInstanceId()` → `processInstanceId`,
 `getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
 `processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen;
-`processInstanceKey` setzt der InitWorker, als String, ausser er wird mitgegeben —
-ohne InitWorker ist er unbekannt),
+`processInstanceId` setzt der InitWorker, als String, immer die eigene — erst wenn
+er fertig ist, an seinem eigenen Task ist sie noch leer (gemeldet); ohne InitWorker
+ist sie unbekannt),
 `result.get("k")` → `result.k` und Zeitketten wie
 `dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
 alle globex-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
@@ -1579,7 +1580,7 @@ Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
 | --- | --- |
 | `camunda:type="external"` `camunda:topic` | `zeebe:taskDefinition type` |
 | `camunda:inputOutput` | `zeebe:ioMapping` (fester Text wird `="…"`) |
-| `calledElement` + `camunda:in`/`out` (`variables="all"`) | `zeebe:calledElement` (`propagateAll…`) + `zeebe:ioMapping` |
+| `calledElement` + `camunda:in`/`out` | `zeebe:calledElement` (`propagateAll…="false"` — Orchescala mappt explizit; `variables="all"` wird gemeldet) + `zeebe:ioMapping` |
 | `camunda:decisionRef` / `resultVariable` | `zeebe:calledDecision` |
 | `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
 | `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
@@ -1619,6 +1620,24 @@ Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
 Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 (vorgeschlagen: `=businessKey`).
 
+Name der Nachricht (bzw. des Signals) steht am Schritt und lässt sich dort
+ändern — wie Topic oder Timer gehört er der Spezifikation, der BPMN-Export
+schreibt ihn in die `<bpmn:message>`. Nutzt ein anderes Element dieselbe
+Nachricht, bekommt der Schritt eine eigene (bzw. die schon vorhandene mit dem
+neuen Namen). Dasselbe gilt für Signal und Nachricht an einem Boundary-Event:
+sie sind keine behandelten Fehler, sondern stehen am Schritt unter «Ereignisse
+am Rand» — mit Name und, bei einer Nachricht, der Korrelation.
+
+Bei einer wartenden Nachricht wählt man unter «Korrelation» einen der beiden
+Wege des Gateways: `businessKey` oder `processInstanceId`. In Camunda 8 wird
+daraus der Korrelationsschlüssel `=businessKey` bzw. `=processInstanceId` (die
+ID der Instanz, gesetzt vom InitWorker; der alte Name `processInstanceKey` wird
+gemeldet). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
+Doku und für die Umstellung auf Camunda 8, die sie statt des Vorschlags
+`=businessKey` übernimmt. Den Aufruf am Gateway
+(`POST {{baseUrl}}/message/<name>?…`, wie in Postman) zeigt der
+Orchescala-Export.
+
 **On the fly** geht es auch ohne Umstellen: **Export → BPMN** hat die Wahl
 «für Camunda 7 | Camunda 8». Die andere Engine wird beim Export umgewandelt
 (`…-bpmn-c8.bpmn`), Spezifikation und Diagramm bleiben, wie sie sind.
@@ -1628,7 +1647,7 @@ Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 | Export | für wen | Inhalt |
 | --- | --- | --- |
 | **Fachlich** | Fachbereich, Review, Abnahme | Ablauf in Prosa, Beschreibungen, offene Punkte — ohne technische Ausdrücke |
-| **Orchescala** | Umsetzung und KI | Überblick als Baum, danach je Schritt ein Abschnitt mit stabiler ID: Topic, Service, Mappings, Fehler, Mocks, Zweige |
+| **Orchescala** | Umsetzung und KI | Überblick als Baum, danach je Schritt ein Abschnitt mit stabiler ID: Topic, Service, Mappings, Fehler, Mocks, Zweige — bei einer wartenden Nachricht der Aufruf am Gateway |
 | **Scala** | Umsetzung | das Datenmodell als Orchescala-Domain, dateiweise |
 | **BPMN** | Umsetzung, Import | das Diagramm im Stand des Editors — für Camunda 7 oder 8 |
 | **JSON** | Sicherung / Weiterverarbeitung | die Spezifikation selbst |

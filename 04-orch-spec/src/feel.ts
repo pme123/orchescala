@@ -312,7 +312,7 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   // in Camunda 8 setzt sie der InitWorker — als String (der Key ist zu gross für JavaScript);
   // ohne InitWorker fehlt sie: dann unbekannt, damit ihr Gebrauch gemeldet wird
   if (spec.engine !== 'c8' || allSteps(spec.steps).some(s => isInitWorker(s, spec.processId)))
-    add({ name: 'processInstanceKey', type: 'string', label: 'String', source: 'Engine', description: `Kennung der Prozess-Instanz, vom InitWorker gesetzt, ausser sie wird mitgegeben — ${C7_LABEL}: execution.processInstanceId` });
+    add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz, gesetzt vom InitWorker, wenn er fertig ist — ${C7_LABEL}: execution.processInstanceId` });
   add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
   add({ name: 'processDefinitionKey', type: 'any', label: 'Prozess', source: 'Engine', description: `der Prozess — ${C7_LABEL}: execution.getProcessDefinition().getKey()` });
   return out;
@@ -830,6 +830,9 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         } else if (new RegExp(`\\b(?:for|some|every)\\s+${re}\\s+in\\b[^\\]]*\\[[^\\]]*(?<![\\w.])${re}\\s*\\.`).test(body)) {
           // `for i in items[i.active = true]` — die Schleifenvariable gilt erst nach dem `in`
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
+        } else if (name === 'processInstanceKey') {
+          // der alte Name aus Camunda 8 — Orchescala setzt die eigene ID heute engine-agnostisch
+          issues.push({ level: 'error', text: '«processInstanceKey» ist der alte Name — der InitWorker setzt heute «processInstanceId».' });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }
