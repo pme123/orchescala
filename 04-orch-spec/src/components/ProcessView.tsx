@@ -31,6 +31,7 @@ import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, ty
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
+import { withProjectDmns } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -135,7 +136,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 };
 
 export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
-  const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, knownUsers, searchDirectory, storage } = useStore();
+  const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit } = usePermissions();
   const author = useAuthor();
@@ -1043,18 +1044,23 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       {sync && canEdit && (
         <SyncPanel raw={sync.raw} from={sync.from} mode={sync.mode} current={spec} model={model} isDark={isDark} plan={planXml}
           onClose={() => setSync(null)}
-          onApply={p => {
+          onApply={async p => {
             setSync(null);
             setShowDiagram(true);
+            // die Tabellen der zugeordneten Decisions gleich aus dem Projekt — am Schritt dann bearbeitbar
+            const dmns = await withProjectDmns(p.spec, model, saveDmn);
             // fürs Protokoll: Ablauf und Datenmodell getrennt berichtet
             const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
             const origin: AuditOrigin = {
               source: sync.mode === 'domain' ? 'domain-sync' : 'bpmn-sync',
               note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
-              report: { ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}) },
+              report: {
+                ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}),
+                ...(dmns.loaded.length ? { 'DMN-Tabelle aus dem Projekt': dmns.loaded } : {}),
+              },
             };
             // alle Felder der Services als Zeilen, Pflicht-Eingaben angehakt — wie beim Anlegen
-            void commitPlan(withServiceRows(p.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
+            void commitPlan(withServiceRows(dmns.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
           }} />
       )}
 

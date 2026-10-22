@@ -36,6 +36,7 @@ import { EpicChip, PatternSummary, StatusChip, cls, epicTone } from '../ui';
 import { epicsOf } from '../epics';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
+import { withProjectDmns } from '../dmnProject';
 
 /** Balkenfarbe je Status — kräftig, weil der Balken keine Schrift trägt. */
 const BAR: Record<Status, string> = {
@@ -60,7 +61,7 @@ function relativeTime(iso: string | undefined): string {
 }
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, specs, specsLoading, createSpec, saveBpmn, deleteSpec, model } = useStore();
+  const { isDark, specs, specsLoading, createSpec, saveBpmn, saveDmn, deleteSpec, model } = useStore();
   const { canEdit, canDelete } = usePermissions();
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -205,7 +206,11 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const createPending = async () => {
     if (!pending) return;
     // alle Felder der Services als Zeilen — Pflicht-Eingaben und gebrauchte Ausgaben angehakt
-    const spec = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
+    const rows = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
+    // die Tabellen der zugeordneten Decisions gleich aus dem Projekt — am Schritt dann bearbeitbar
+    setBusy('DMN-Tabellen werden gesucht …');
+    const { spec } = await withProjectDmns(rows, model, saveDmn, setBusy);
+    setBusy(null);
     const res = await createSpec(spec);
     if (!res.ok) { setError(res.message); return; }
     // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich

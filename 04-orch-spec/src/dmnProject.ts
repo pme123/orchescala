@@ -2,7 +2,7 @@
 // findDomain in projectImport.ts): in den gemerkten Projekt-Ordnern, der eigene
 // zuerst (sein Name ist der Anfang der Prozess-ID). Die Tabellen liegen neben
 // den BPMN: `src/main/resources/camunda`, für Camunda 8 `…/camunda8`.
-import type { EngineId, Model, ProjectFolder } from './types';
+import type { EngineId, Model, ProcessSpec, ProjectFolder } from './types';
 import { handleFor } from './projects';
 import { findDecision } from './dmn';
 
@@ -42,12 +42,14 @@ async function inFolder(dir: FileSystemDirectoryHandle, decisionId: string): Pro
 export async function findDmnInProject(
   decisionId: string, processId: string, model: Model | null, engine: EngineId | undefined,
   onProgress?: (text: string) => void,
+  /** `ownOnly`: nur der eigene Projekt-Ordner; `roots`: die Wurzeln über mehrere Aufrufe teilen */
+  opts: { ownOnly?: boolean; roots?: Map<string, FileSystemDirectoryHandle | null> } = {},
 ): Promise<DmnHit | null> {
   const folders: ProjectFolder[] = model?.projects ?? [];
   const own = folders.filter(p => processId.startsWith(`${p.name}-`));
-  const ordered = [...own, ...folders.filter(p => !own.includes(p))];
+  const ordered = opts.ownOnly ? own : [...own, ...folders.filter(p => !own.includes(p))];
   const sub = engine === 'c8' ? 'camunda8' : 'camunda';
-  const roots = new Map<string, FileSystemDirectoryHandle | null>();
+  const roots = opts.roots ?? new Map<string, FileSystemDirectoryHandle | null>();
   for (const p of ordered) {
     onProgress?.(`${p.name} wird durchsucht …`);
     const handle = await handleFor(p, roots);
@@ -58,4 +60,33 @@ export async function findDmnInProject(
     if (hit) return { ...hit, project: p.name };
   }
   return null;
+}
+
+/**
+ * Beim Anlegen und beim Abgleich: die Tabellen der zugeordneten Decisions,
+ * die die Spezifikation noch nicht führt, aus dem eigenen Projekt-Ordner
+ * holen — dann lässt sich die Tabelle am Schritt gleich bearbeiten. In und
+ * Out bleiben, wie sie aus der Domain kamen. Was sich nicht findet oder nicht
+ * speichern lässt, bleibt ohne Tabelle (am Schritt nachzuholen).
+ */
+export async function withProjectDmns(
+  spec: ProcessSpec, model: Model | null,
+  saveDmn: (slug: string, decisionId: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>,
+  onProgress?: (text: string) => void,
+): Promise<{ spec: ProcessSpec; loaded: string[] }> {
+  const open = (spec.interactions ?? []).filter(i => i.kind === 'decision' && !i.dmnFile && i.key);
+  if (!open.length) return { spec, loaded: [] };
+  const roots = new Map<string, FileSystemDirectoryHandle | null>();
+  const files = new Map<string, string>();
+  for (const ia of open) {
+    try {
+      const hit = await findDmnInProject(ia.key, spec.processId ?? '', model, spec.engine, onProgress, { ownOnly: true, roots });
+      if (hit && (await saveDmn(spec.slug, ia.key, hit.xml)).ok) files.set(ia.id, hit.file);
+    } catch { /* kein Zugriff — die Tabelle wird am Schritt geholt */ }
+  }
+  if (!files.size) return { spec, loaded: [] };
+  return {
+    spec: { ...spec, interactions: (spec.interactions ?? []).map(i => (files.has(i.id) ? { ...i, dmnFile: files.get(i.id) } : i)) },
+    loaded: open.filter(i => files.has(i.id)).map(i => i.name),
+  };
 }
