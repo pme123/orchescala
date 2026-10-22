@@ -1399,7 +1399,8 @@ export function renameEnumValue(types: TypeDef[], typeId: string, index: number,
   const bad = !name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name) || name === '_';
   if (bad || en.values!.some((v, k) => k !== index && caseName(v.name) === name)) return types;
   // a default or example naming the value: FEEL (`= "ONLY GAMIFICATION"`) or Scala (`ReceivingSystem.\`ONLY GAMIFICATION\``)
-  const path = new RegExp(`${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`, 'g');
+  // not inside a longer path (`MyIn.Foo` when renaming in `In`)
+  const path = new RegExp(`(?<![\\w.\`])${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`, 'g');
   const rewrite = (expr: string | undefined) => {
     if (!expr) return expr;
     return expr.trim().startsWith('=')

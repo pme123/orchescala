@@ -429,3 +429,16 @@ test('an error of an enum value stands at the value, like its warning - also for
   const issues = checkTypes([{ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'a`b' }, { name: '' }, { name: 'ONLY GAMIFICATION' }] }] as never);
   assert.deepEqual(issues.filter(i => i.value !== undefined).map(i => [i.value, !!i.warn]), [['a`b', false], ['', false], ['ONLY GAMIFICATION', true]]);
 });
+
+test('renaming an enum value: a longer path with the same ending stays', () => {
+  const types = [
+    { id: 'e', name: 'In', kind: 'enum', values: [{ name: 'Foo' }, { name: 'Bar' }] },
+    { id: 'c', name: 'Uses', kind: 'case', fields: [
+      { id: 'f', name: 'a', type: 'e', example: 'MyIn.Foo' },
+      { id: 'g', name: 'b', type: 'e', example: 'In.Foo' },
+      { id: 'h', name: 'c', type: 'e', example: 'X.In.Foo' },
+    ] },
+  ];
+  const next = renameEnumValue(types as never, 'e', 0, 'Baz');
+  assert.deepEqual(next[1].fields?.map(f => f.example), ['MyIn.Foo', 'In.Baz', 'X.In.Foo']);
+});
