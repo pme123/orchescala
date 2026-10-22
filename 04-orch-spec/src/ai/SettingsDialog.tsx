@@ -1,0 +1,46 @@
+// The personal settings of this browser - for now only the key of the Claude API, the switch of the
+// AI mode (E20). Without a key this field is the only trace of AI in orch-spec.
+import { KeyRound, Save, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { StartDialog } from '../components/StartCard';
+import { cls } from '../ui';
+import { aiEnabled, looksLikeKey, maskKey, useAiKey, writeKey } from './key';
+
+export function SettingsDialog({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+  const c = cls(isDark);
+  const key = useAiKey();
+  const [input, setInput] = useState('');
+  const value = input.trim();
+  return (
+    <StartDialog isDark={isDark} icon={<KeyRound size={14} />} title="Persönliche Einstellungen" onClose={onClose}
+      lead="Gilt nur für dich und nur in diesem Browser – nichts davon kommt in den Ordner der Spezifikationen."
+      primary={{ label: 'Speichern', icon: <Save size={12} />, disabled: !value, onClick: () => { writeKey(value); onClose(); } }}>
+      <div>
+        <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.text}`}>API-Key der Claude API (KI-Modus)</label>
+        {aiEnabled(key) && (
+          <div className={`flex items-center gap-2 mb-2 text-[11px] ${c.muted2}`}>
+            <span className="font-mono">{maskKey(key)}</span>
+            <span className={c.muted}>– KI-Modus an</span>
+            <button onClick={() => writeKey('')} title="Key löschen – der KI-Modus ist sofort aus"
+              className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn} hover:text-rose-500`}>
+              <Trash2 size={11} /> Löschen
+            </button>
+          </div>
+        )}
+        <input type="password" value={input} autoFocus spellCheck={false} autoComplete="off"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && value) { writeKey(value); onClose(); } }}
+          placeholder={aiEnabled(key) ? 'neuen Key eingeben' : 'sk-ant-…'}
+          className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono ${c.input}`} />
+        {value && !looksLikeKey(value) && (
+          <p className={`text-[10px] mt-1 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Sieht nicht nach einem Key der Claude API aus (sk-ant-…).</p>
+        )}
+        <p className={`text-[10px] mt-2 leading-relaxed ${c.muted}`}>
+          Mit einem Key ändert Claude auf Wunsch Seiten als Entwurf; du übernimmst oder verwirfst. Der Key wird nur
+          in diesem Browser gespeichert, die Kosten trägt, wem der Key gehört. An Anthropic gehen nur die Spezifikation
+          (Seiten, Datenmodell, Service-Katalog) und der Chat – keine Kundendaten. Ohne Key bleibt orch-spec vollständig nutzbar.
+        </p>
+      </div>
+    </StartDialog>
+  );
+}
