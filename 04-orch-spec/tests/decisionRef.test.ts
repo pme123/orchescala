@@ -8,6 +8,8 @@ import { allSteps, importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { collectFindings } from '../src/findings';
 import { enrichSpec } from '../src/projectImport';
+import { foreignOrigin } from '../src/interactions';
+import type { Step } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -89,4 +91,13 @@ test('a rule step with another decisionRef stays unmatched', () => {
   const r = enriched('acme-demo-other');
   assert.deepEqual(r.matched, []);
   assert.deepEqual(r.unmatched, ['MapActionsDmn']);
+});
+
+test('a foreign decision shows where it comes from - domain object, package and project', () => {
+  const domain = scanScala(decisionSource('acme-demo-subStatus-all'), 'MapActionsDmn.scala')
+    .map(t => ({ ...t, pkg: 'acme.demo.domain.subStatusAll.v1' }));
+  const step = { id: 'S', name: 'all', kind: 'rule', topic: 'acme-demo-subStatus-all' } as Step;
+  assert.deepEqual(foreignOrigin(step, { domainTypes: domain } as never),
+    { object: 'MapActionsDmn', pkg: 'acme.demo.domain.subStatusAll.v1', project: 'acme-demo' });
+  assert.equal(foreignOrigin({ ...step, topic: 'acme-demo-unknown' }, { domainTypes: domain } as never), null);
 });

@@ -8,7 +8,7 @@ import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
-import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
+import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
@@ -342,6 +342,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       ? (isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800')
       : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50');
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== (spec.processId ?? '') ? (step.serviceId ?? step.topic ?? '') : '';
+  // where the foreign service comes from: its domain object, else the catalog group
+  const origin = foreign ? foreignOrigin(step, model) : null;
   // Inputs and outputs contributed by a pattern: implementation — hidden
   const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
   const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
@@ -376,6 +378,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             )}
             <CommentBubble target={stepTarget(step.id)} title={`Kommentare zu «${step.name || step.id}»`} />
           </div>
+          {!ia && foreign && (origin || service?.group) && (
+            <div className={`mt-1 text-[10px] truncate ${c.muted}`}
+              title={origin ? `Domain-Objekt ${origin.object} in ${origin.pkg}` : `Katalog, Gruppe ${service?.group}`}>
+              {origin
+                ? <>aus <span className="font-mono">{origin.project}</span> · <span className="font-mono">{origin.object}</span></>
+                : <>aus dem Katalog · <span className="font-mono">{String(service?.group)}</span></>}
+            </div>
+          )}
           {block && (
             <button onClick={() => onGoto(block.head.id)}
               title={`${block.eventSub ? 'Ereignis-Subprozess — läuft neben dem Hauptablauf' : `Eigener Block — ${blockStart(block.head)}`}. Klick zeigt den Block im Ablauf.`}
