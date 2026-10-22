@@ -1,13 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
 import ProcessesView from './components/ProcessesView';
 import ProcessView from './components/ProcessView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
-import { AccountChip, Breadcrumb, HeaderButton } from './components/Header';
+import { AccountChip, HeaderButton } from './components/Header';
 import FeelCheatSheet from './components/FeelCheatSheet';
 // the pages (E15) only load when someone opens them - the designer including the renderer is a separate chunk
 // The administration (catalog, patterns, theme …) is rarely needed — like the
@@ -46,7 +46,7 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 export default function App() {
   const [feelOpen, setFeelOpen] = useState(false);
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, specs, pages, previousStorage, resumePrevious } = useStore();
+    savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -172,97 +172,101 @@ export default function App() {
   const topBg = isDark ? 'bg-[#0c0d0f]' : 'bg-[#eae9e5]';
   const textBase = isDark ? 'text-white' : 'text-black';
   const textMuted = isDark ? 'text-white/40' : 'text-black/40';
+  // the process view and the page editor use the whole width — no margins, no scrollbar track
+  const fullWidth = view.kind === 'spec' || view.kind === 'page';
 
   return (
     <div className={`flex flex-col h-screen ${bg} ${textBase}`}>
-      {/* Header. On the left the customer, on the right the tools — they share
-          the width with the content below, so that they line up with the panels
-          (the process view is the only one without margins). The origin
-          stays unaffected at the far right at the window edge; the space for it
-          is reserved where the row would otherwise run up to there. */}
-      <div className={`relative border-b ${border} ${topBg} flex-shrink-0`}>
-        <div className={`flex items-center gap-3 py-2 ${
-          view.kind === 'spec' || view.kind === 'page' ? 'pl-3 pr-[9.5rem] max-xl:pr-14' : 'max-w-5xl mx-auto px-6 max-xl:pr-14'}`}>
-          {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip */}
-          <span className="flex items-center gap-2 flex-shrink-0" title={`Orch Spec · Stand ${APP_VERSION}`}>
-            {model?.logo && (
-              <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
+      {/* Header in three columns: the middle one is as wide as the content below
+          (max-w-5xl, px-6) — logo and customer on the left, the navigation of the
+          app (Prozesse, Seiten, Admin) and the references (FEEL, docs) right-aligned
+          with it. Everything else — folder, account, display — stands at the right window edge
+          (the origin is in the footer). Columns: margin as next to the content |
+          up to 64rem | the rest, at least as wide as the right group — if the
+          margin cannot hold the group, the middle gets narrower instead of
+          overlapping. The process view and the page editor have no margins:
+          there the middle takes the whole width. */}
+      {/* The same scrollbar track as the content below — otherwise it shifts by
+          half a scrollbar as soon as it scrolls */}
+      <div className={`border-b ${border} ${topBg} flex-shrink-0 overflow-hidden ${fullWidth ? '' : '[scrollbar-gutter:stable]'}`}>
+        <div className="grid items-center py-2"
+          style={{ gridTemplateColumns: fullWidth
+            ? '0px minmax(0, 1fr) max-content'
+            : 'max(0px, calc((100% - 64rem) / 2)) minmax(0, 64rem) minmax(max-content, 1fr)' }}>
+          <div />
+          <div className={`flex items-center gap-2 min-w-0 ${fullWidth ? 'px-3' : 'px-6'}`}>
+            {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip */}
+            {/* on a narrow window the word mark gives way first (the name is cut) — not the navigation */}
+            <button onClick={() => setView({ kind: 'list' })} className="flex items-center gap-2 min-w-0 mr-2"
+              title={`Orch Spec · Stand ${APP_VERSION} — zur Prozessliste`}>
+              {model?.logo && (
+                <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
+              )}
+              <span className={`text-xs font-bold tracking-widest truncate ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                {model?.company || 'Orch Spec'}
+              </span>
+              {model?.company && (
+                <span className={`text-[10px] tracking-widest hidden sm:inline ${textMuted}`}>Orch Spec</span>
+              )}
+            </button>
+
+            {/* Navigation, then the references (FEEL cheat sheet, docs) — always there */}
+            <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+            {!gated && !denied && dirHandle && model && (
+              <>
+                <HeaderButton isDark={isDark} icon={<Workflow size={12} />} label="Prozesse"
+                  active={view.kind === 'list' || view.kind === 'spec'}
+                  title="Prozesse — alle Prozess-Spezifikationen"
+                  onClick={() => setView({ kind: 'list' })} />
+                <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
+                  title="Seiten der App - öffentlich oder mit Login, mit Live-Vorschau (pages/*.json)"
+                  onClick={() => setView({ kind: 'pages' })} />
+                {canAdmin && (
+                  <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
+                    title="Admin — Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen"
+                    onClick={() => setView({ kind: 'admin' })} />
+                )}
+                <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
+              </>
             )}
-            <span className={`text-xs font-bold tracking-widest ${isDark ? 'text-white/80' : 'text-black/80'}`}>
-              {model?.company || 'Orch Spec'}
-            </span>
-            {model?.company && (
-              <span className={`text-[10px] tracking-widest hidden sm:inline ${textMuted}`}>Orch Spec</span>
-            )}
-          </span>
+              <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
+                title={`FEEL-Spickzettel — Syntax, Funktionen, ${C7_LABEL} → ${C8_LABEL}`} onClick={() => setFeelOpen(true)} />
+              {docHref && (
+                <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
+              )}
+            </div>
+          </div>
 
-          {/* Location: Prozesse › title or Administration — the segments lead back */}
-          {!gated && !denied && dirHandle && model && (
-            <Breadcrumb isDark={isDark} items={[
-              { label: 'Prozesse', onClick: view.kind !== 'list' ? () => setView({ kind: 'list' }) : undefined },
-              ...(view.kind === 'admin' ? [{ label: 'Administration' }] : []),
-              ...(view.kind === 'pages' ? [{ label: 'Seiten' }] : []),
-              ...(view.kind === 'page' ? [{ label: 'Seiten', onClick: () => setView({ kind: 'pages' }) },
-                { label: pages.find(x => x.slug === view.slug)?.data.title || view.slug }] : []),
-              ...(view.kind === 'spec' ? [{ label: specs.find(x => x.slug === view.slug)?.data.title || view.slug }] : []),
-            ]} />
-          )}
+          {/* Context on the right: folder, account, display */}
+          <div className="flex justify-end px-4">
+            <div className="flex items-center gap-2">
+              {!gated && !denied && dirHandle && (
+                <HeaderButton isDark={isDark} label={dirHandle.name}
+                  icon={dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}
+                  title={dirHandle.kind === 'sharepoint'
+                    ? `SharePoint-Ordner «${dirHandle.name}»\n${dirHandle.webUrl ?? ''}\n\nKlick: anderen Ordner wählen`
+                    : `Lokaler Ordner «${dirHandle.name}»\n\nKlick: anderen Ordner wählen`}
+                  onClick={() => { disconnect(); setView({ kind: 'list' }); }} />
+              )}
+              {auth.status === 'signedIn' && auth.user && (
+                <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
+              )}
 
-        <div className="ml-auto flex items-center gap-2">
-          {/* Navigation: FEEL cheat sheet, docs, admin */}
-          <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
-            title={`FEEL-Spickzettel — Syntax, Funktionen, ${C7_LABEL} → ${C8_LABEL}`} onClick={() => setFeelOpen(true)} />
-          {docHref && (
-            <HeaderButton isDark={isDark} href={docHref} icon={<BookOpen size={12} />} label="Doc" title="Zur Dokumentation" />
-          )}
-          {dirHandle && model && (
-            <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
-              title="Seiten der App - öffentlich oder mit Login, mit Live-Vorschau (pages/*.json)"
-              onClick={() => setView(v => v.kind === 'pages' ? { kind: 'list' } : { kind: 'pages' })} />
-          )}
-          {dirHandle && model && canAdmin && (
-            <HeaderButton isDark={isDark} icon={<Wrench size={12} />} label="Admin" active={view.kind === 'admin'}
-              title="Admin — Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen"
-              onClick={() => setView(v => v.kind === 'admin' ? { kind: 'list' } : { kind: 'admin' })} />
-          )}
-
-          {/* Context: folder, account */}
-          {((!gated && !denied && dirHandle) || (auth.status === 'signedIn' && auth.user)) && (
-            <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
-          )}
-          {!gated && !denied && dirHandle && (
-            <HeaderButton isDark={isDark} label={dirHandle.name}
-              icon={dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}
-              title={dirHandle.kind === 'sharepoint'
-                ? `SharePoint-Ordner «${dirHandle.name}»\n${dirHandle.webUrl ?? ''}\n\nKlick: anderen Ordner wählen`
-                : `Lokaler Ordner «${dirHandle.name}»\n\nKlick: anderen Ordner wählen`}
-              onClick={() => { disconnect(); setView({ kind: 'list' }); }} />
-          )}
-          {auth.status === 'signedIn' && auth.user && (
-            <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
-          )}
-
-          {/* Display */}
-          <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
-          <button onClick={toggleTheme} title={isDark ? 'Helle Darstellung' : 'Dunkle Darstellung'}
-            className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
-            {isDark ? <Sun size={13} /> : <Moon size={13} />}
-          </button>
+              {/* Display */}
+              <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
+              <button onClick={toggleTheme} title={isDark ? 'Helle Darstellung' : 'Dunkle Darstellung'}
+                className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
+                {isDark ? <Sun size={13} /> : <Moon size={13} />}
+              </button>
+            </div>
+          </div>
         </div>
-        </div>
-
-        <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer"
-          title="Z9nAI GmbH — zur Webseite"
-          className={`absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 ${textMuted} opacity-80 hover:opacity-100 transition-opacity`}>
-          <span className="text-[10px] whitespace-nowrap hidden xl:inline">by z9nai GmbH</span>
-          <img src="favicon.png" alt="" className="w-5 h-5" />
-        </a>
       </div>
 
       {feelOpen && <FeelCheatSheet isDark={isDark} onClose={() => setFeelOpen(false)} />}
 
       {/* Main content */}
-      <div className={`flex-1 ${view.kind === 'spec' || view.kind === 'page' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+      <div className={`flex-1 ${fullWidth ? 'overflow-hidden' : 'overflow-y-auto [scrollbar-gutter:stable]'}`}>
         {gated ? (
           // Login (Microsoft Entra ID) — before everything else
           <StartCard isDark={isDark} model={model} icon={<LogIn size={20} />} tone={auth.status === 'error' ? 'red' : 'blue'}
@@ -416,6 +420,18 @@ export default function App() {
           <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} onBack={() => setView({ kind: 'list' })} />
         )}
       </div>
+
+      {/* Footer: the origin, far right at the window edge */}
+      <footer className={`border-t ${border} ${topBg} flex-shrink-0 overflow-hidden ${fullWidth ? '' : '[scrollbar-gutter:stable]'}`}>
+        <div className="px-4 py-1.5 flex justify-end">
+          <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer"
+            title="Z9nAI GmbH — zur Webseite"
+            className={`flex items-center gap-1.5 ${textMuted} opacity-80 hover:opacity-100 transition-opacity`}>
+            <span className="text-[10px] whitespace-nowrap">by z9nai GmbH</span>
+            <img src="favicon.png" alt="" className="w-4 h-4" />
+          </a>
+        </div>
+      </footer>
 
       {/* Setup: Microsoft login for this browser (one-time) */}
       {setupOpen && (
