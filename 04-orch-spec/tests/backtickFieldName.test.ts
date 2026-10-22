@@ -261,3 +261,34 @@ test('duplicates: a name with and without backticks is the same', () => {
   assert.ok(errors({ id: 'a', name: 'Doc', kind: 'enum', values: [{ name: 'Brief', fields: [{ id: 'x', name: 'a', type: 'String' }] }, { name: '`Brief`', fields: [{ id: 'y', name: 'b', type: 'String' }] }] }).some(m => /Doppelte Werte/.test(m)));
   assert.equal(errors({ id: 'e', name: 'Channel', kind: 'enum', values: [{ name: 'Foo' }, { name: '`Ohne Angabe`' }] }).length, 0);
 });
+
+test('no suggestion for a name that is already taken', () => {
+  const issues = checkTypes([
+    { id: 'c', name: 'meine Klasse', kind: 'case', fields: [{ id: 'f', name: 'display name', type: 'String' }, { id: 'g', name: 'displayName', type: 'String' }] },
+    { id: 'k', name: 'MeineKlasse', kind: 'case', fields: [{ id: 'h', name: 'a', type: 'String' }] },
+    { id: 'e', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }, { name: 'ONLY_GAMIFICATION' }] },
+    { id: 'a', name: 'Doc', kind: 'enum', fields: [{ id: 'x', name: 'brief nr', type: 'String' }],
+      values: [{ name: 'Brief', fields: [{ id: 'y', name: 'briefNr', type: 'String' }] }, { name: 'Mail', fields: [{ id: 'z', name: 'to', type: 'String' }] }] },
+  ] as never);
+  assert.equal(issues.find(i => i.typeId === 'c' && !i.field)?.suggestion, undefined);
+  assert.equal(issues.find(i => i.field === 'f')?.suggestion, undefined);
+  assert.equal(issues.find(i => i.value === 'ONLY GAMIFICATION')?.suggestion, undefined);
+  // a common field stands in every case — its suggestion must be free there too
+  assert.equal(issues.find(i => i.field === 'x')?.suggestion, undefined);
+});
+
+test('a suggestion taken over leaves no issue behind', () => {
+  const before = [
+    { id: 'c', name: 'meine Klasse', kind: 'case', fields: [{ id: 'f', name: 'Mein value', type: 'String' }] },
+    { id: 'e', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }, { name: 'GRAVITON' }] },
+  ];
+  const issues = checkTypes(before as never);
+  const typeName = issues.find(i => i.typeId === 'c' && !i.field)!.suggestion!;
+  const fieldName = issues.find(i => i.field === 'f')!.suggestion!;
+  const valueName = issues.find(i => i.value === 'ONLY GAMIFICATION')!.suggestion!;
+  const after = [
+    { ...before[0], name: typeName, fields: [{ id: 'f', name: fieldName, type: 'String' }] },
+    { ...before[1], values: [{ name: valueName }, { name: 'GRAVITON' }] },
+  ];
+  assert.deepEqual(checkTypes(after as never), []);
+});
