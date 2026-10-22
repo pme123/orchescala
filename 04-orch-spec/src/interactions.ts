@@ -293,6 +293,32 @@ export function catalogEntry(step: Step, model: Model | null): ServiceDef | null
     ?? (ref ? decisionFromDomain(ref, model) : null);
 }
 
+export interface ForeignOrigin {
+  /** the domain object, e.g. `SubStatusAllDmn` */
+  object: string;
+  pkg: string;
+  /** the project after the package convention: `valiant.bpmn.domain…` → `valiant-bpmn` */
+  project: string;
+}
+
+/**
+ * Where a foreign service of a step comes from: the domain object with its
+ * key — `decisionId` (DMN), `topicName` (worker), `processName` (called
+ * process). `null` if the domain does not know it.
+ */
+export function foreignOrigin(step: Step, model: Model | null): ForeignOrigin | null {
+  const ref = step.topic?.toLowerCase();
+  const hit = (model?.domainTypes ?? []).find(t => t.owner && (
+    step.kind === 'rule' ? !!ref && t.keyName === 'decisionId' && t.key?.toLowerCase() === ref
+      : step.kind === 'call' ? !!step.calledProcess && t.processName === step.calledProcess
+        : !!step.topic && t.topicName === step.topic));
+  if (!hit?.owner) return null;
+  // the part before `.domain` (as a whole segment) — without it the package itself
+  const m = /^(.*?)\.domain(\.|$)/.exec(hit.pkg);
+  const project = m ? m[1].replace(/\./g, '-') : hit.pkg;
+  return { object: hit.owner, pkg: hit.pkg, project };
+}
+
 /** A catalog entry from a domain object of kind Decision (`decisionId`, `In`, `Out`). */
 function decisionFromDomain(ref: string, model: Model | null): ServiceDef | null {
   const types = model?.domainTypes ?? [];

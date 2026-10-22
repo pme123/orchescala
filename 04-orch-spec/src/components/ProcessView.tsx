@@ -31,6 +31,7 @@ import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, ty
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
+import { findProjectDmns, saveProjectDmns, withDmnFiles } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -135,7 +136,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 };
 
 export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
-  const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, knownUsers, searchDirectory, storage } = useStore();
+  const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit } = usePermissions();
   const author = useAuthor();
@@ -742,7 +743,37 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (r) setReport(r);
     const w = await saveBpmn(slug, text);
     if (!w.ok) setSaveState({ error: w.message });
+    return w.ok;
   }, [update, saveBpmn, slug]);
+
+  /**
+   * After a sync: the tables of the matched decisions without one, right from
+   * the own project folder — editable at the step then. Written create-only
+   * (a table already stored beside the spec stays as it is) and only then
+   * linked, on the spec as it is by now.
+   */
+  const linkProjectDmns = useCallback(async (from: ProcessSpec) => {
+    const { found, failed } = await findProjectDmns(from, model);
+    const saved = await saveProjectDmns(from.slug, found, saveDmn, { createOnly: true });
+    const linked = [...saved.saved, ...saved.kept];
+    // `latest` is what `update` set last (also before its debounced save) — the
+    // interaction ids of `from` are those of the committed spec: withServiceRows only adds rows to steps
+    const now = latest.current ?? specRef.current;
+    // meanwhile another spec in this view: its tables are stored, linked by the next sync of it
+    if (now && now.slug !== from.slug) return;
+    if (linked.length && now) {
+      // the problems go into the log entry too — the autosave of this update replaces the save state
+      const report: AuditReport = {
+        ...(saved.saved.length ? { 'aus dem Projekt': saved.saved.map(d => d.name) } : {}),
+        ...(saved.kept.length ? { 'vorhanden, verknüpft': saved.kept.map(d => d.name) } : {}),
+        ...(failed.length ? { 'nicht gelesen': failed } : {}),
+        ...(saved.failed.length ? { 'nicht gespeichert': saved.failed } : {}),
+      };
+      update(withDmnFiles(now, linked), { source: 'domain-sync', note: 'DMN-Tabellen aus dem Projekt', report });
+    }
+    const problems = [...failed.map(f => `nicht gelesen: ${f}`), ...saved.failed.map(f => `nicht gespeichert: ${f}`)];
+    if (problems.length) setSaveState({ error: `DMN-Tabelle ${problems.join('; ')}` });
+  }, [model, saveDmn, update]);
 
   /**
    * `quiet`: report only on changes; `silent`: none at all (patterns report themselves).
@@ -1043,7 +1074,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       {sync && canEdit && (
         <SyncPanel raw={sync.raw} from={sync.from} mode={sync.mode} current={spec} model={model} isDark={isDark} plan={planXml}
           onClose={() => setSync(null)}
-          onApply={p => {
+          onApply={async p => {
             setSync(null);
             setShowDiagram(true);
             // for the log: flow and data model reported separately
@@ -1053,8 +1084,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
               report: { ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}) },
             };
-            // all fields of the services as rows, required inputs checked — as when creating
-            void commitPlan(withServiceRows(p.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
+            try {
+              // all fields of the services as rows, required inputs checked — as when creating
+              const ok = await commitPlan(withServiceRows(p.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
+              // the tables of the matched decisions — only once the plan is taken over
+              if (ok) await linkProjectDmns(p.spec);
+            } catch (e) {
+              setSaveState({ error: e instanceof Error ? e.message : String(e) });
+            }
           }} />
       )}
 

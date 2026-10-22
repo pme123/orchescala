@@ -36,6 +36,7 @@ import { EpicChip, PatternSummary, StatusChip, cls, epicTone } from '../ui';
 import { epicsOf } from '../epics';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
+import { findProjectDmns, saveProjectDmns, withDmnFiles, type FoundDmn } from '../dmnProject';
 
 /** Bar colour per status — strong, because the bar carries no text. */
 const BAR: Record<Status, string> = {
@@ -60,7 +61,7 @@ function relativeTime(iso: string | undefined): string {
 }
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, specs, specsLoading, createSpec, saveBpmn, deleteSpec, model } = useStore();
+  const { isDark, specs, specsLoading, createSpec, saveBpmn, saveDmn, deleteSpec, model } = useStore();
   const { canEdit, canDelete } = usePermissions();
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -205,16 +206,41 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const createPending = async () => {
     if (!pending) return;
     // all fields of the services as rows — mandatory inputs and used outputs checked
-    const spec = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
-    const res = await createSpec(spec);
-    if (!res.ok) { setError(res.message); return; }
-    // The BPMN stays next to the specification — so it can be
-    // edited directly in the process view.
-    const w = await saveBpmn(spec.slug, pending.xml);
-    if (!w.ok) setError(w.message);
-    console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
-    setPending(null);
-    onOpen(spec.slug);
+    const rows = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
+    try {
+      // the tables of the matched decisions right from the project — editable at the step then.
+      // Written only when there is no spec with this name, and create-only: a table already
+      // stored under this name is never overwritten, it is linked as it is. Referenced only
+      // when it is there — nothing points to a table that was not written. Accepted: if createSpec
+      // fails after all, the table stays behind unreferenced and a later spec of that name links it
+      const problems: string[] = [];
+      let saved: FoundDmn[] = [];
+      if (!specs.some(s => s.slug === rows.slug)) {
+        setBusy('DMN-Tabellen werden gesucht …');
+        const r = await findProjectDmns(rows, model, setBusy);
+        const w = await saveProjectDmns(rows.slug, r.found, saveDmn, { createOnly: true });
+        saved = [...w.saved, ...w.kept];
+        problems.push(...r.failed.map(f => `DMN-Tabelle nicht gelesen: ${f}`), ...w.failed.map(f => `DMN-Tabelle nicht gespeichert: ${f}`));
+      }
+      const spec = withDmnFiles(rows, saved);
+      // busy until the end (the finally clears it) — the button stays disabled, no second run
+      setBusy('Wird angelegt …');
+      const res = await createSpec(spec);
+      if (!res.ok) { setError(res.message); return; }
+      // The BPMN stays next to the specification — so it can be
+      // edited directly in the process view.
+      const w = await saveBpmn(spec.slug, pending.xml);
+      if (!w.ok) problems.push(w.message);
+      console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
+      setPending(null);
+      // something went wrong: stay in the list so the message is seen — the spec is there
+      if (problems.length) { setError(`«${spec.title || spec.slug}» angelegt — ${problems.join('; ')}`); return; }
+      onOpen(spec.slug);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   // Both come from the template: the diagram and the tree from it. So

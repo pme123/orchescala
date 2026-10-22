@@ -8,7 +8,7 @@ import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
-import { catalogEntry, createMemberType, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
+import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { epicsOf, toggleEpic } from '../epics';
@@ -342,6 +342,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       ? (isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800')
       : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50');
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== (spec.processId ?? '') ? (step.serviceId ?? step.topic ?? '') : '';
+  // where the foreign service comes from: its domain object, else the catalog group
+  const origin = foreign ? foreignOrigin(step, model) : null;
   // Inputs and outputs contributed by a pattern: implementation — hidden
   const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
   const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
@@ -376,6 +378,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             )}
             <CommentBubble target={stepTarget(step.id)} title={`Kommentare zu «${step.name || step.id}»`} />
           </div>
+          {!ia && foreign && (origin || service?.group) && (
+            <div className={`mt-1 text-[10px] truncate ${c.muted}`}
+              title={origin ? `Domain-Objekt ${origin.object} in ${origin.pkg}` : `Katalog, Gruppe ${service?.group}`}>
+              {origin
+                ? <>aus <span className="font-mono">{origin.project}</span> · <span className="font-mono">{origin.object}</span></>
+                : <>aus dem Katalog · <span className="font-mono">{String(service?.group)}</span></>}
+            </div>
+          )}
           {block && (
             <button onClick={() => onGoto(block.head.id)}
               title={`${block.eventSub ? 'Ereignis-Subprozess — läuft neben dem Hauptablauf' : `Eigener Block — ${blockStart(block.head)}`}. Klick zeigt den Block im Ablauf.`}
@@ -508,8 +518,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && !ofPattern && (
         <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} onSyncId={onSyncId} current={service} />
       )}
-      {/* DMN decision of this process: the table itself — In and Out follow it */}
-      {step.kind === 'rule' && !ofPattern && interactionKind(step, spec.processId ?? '') === 'decision' && (
+      {/* DMN decision of this process: the table itself — In and Out follow it.
+          A matched decision counts even without the process ID in its decisionRef */}
+      {step.kind === 'rule' && !ofPattern && ownKind === 'decision' && (
         <DmnTableSection step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onSpecChange={onSpecChange} />
       )}
 
@@ -1022,13 +1033,13 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
   onEditType: (typeId: string) => void;
 }) {
   const c = cls(isDark);
-  const kind = step.id === spec.steps.find(s => s.kind === 'start')?.id
-    ? null
-    : interactionKind(step, spec.processId ?? '');
-  if (!kind) return null;
-
   const interactions = spec.interactions ?? [];
   const ia = interactions.find(i => i.stepId === step.id) ?? null;
+  const kind = step.id === spec.steps.find(s => s.kind === 'start')?.id
+    ? null
+    : ia?.kind ?? interactionKind(step, spec.processId ?? '');
+  if (!kind) return null;
+
   const meta = INTERACTION_META[kind];
   const types = spec.types ?? [];
 
