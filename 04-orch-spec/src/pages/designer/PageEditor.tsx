@@ -9,6 +9,7 @@ import { changedKeys, pageDiff } from '../../ai/diff';
 import { useAiKey } from '../../ai/key';
 import type { PageDraft } from '../../ai/pageTools';
 import { usePermissions } from '../../auth';
+import { knownPrefixes } from '../../stepIds';
 import { useStore } from '../../store';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
@@ -218,6 +219,13 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
     [shown, targets, pages, slug],
   );
   const drafted = useMemo(() => (draft ? changedKeys(pageDiff(draft.base, draft.page)) : new Set<string>()), [draft]);
+  // company/project: the known prefixes - catalog, processes and the other pages
+  const prefixes = useMemo(() => knownPrefixes(model, [...specs.map((s) => s.data.project), ...pages.map((p) => p.data.spec?.project)]), [model, specs, pages]);
+  // the project most processes of this folder belong to - the first choice for a page
+  const preferred = useMemo(() => {
+    const counts = specs.reduce<Record<string, number>>((acc, s) => (s.data.project ? { ...acc, [s.data.project]: (acc[s.data.project] ?? 0) + 1 } : acc), {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  }, [specs]);
   const queryParams = useMemo(() => Object.fromEntries(new URLSearchParams(query)), [query]);
   const data = useMemo(() => (shown ? dataOf(shown, targets) : []), [shown, targets]);
   const usedServices = useMemo(
@@ -496,7 +504,8 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
                 onChange={(b) => setBody(updateBlock(body(), selected, () => b), coalesceKey(`props:${selected}`, blockAt(body(), selected), b))} />
             </>
           ) : (
-            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))}
+              meta={{ model, prefixes, preferred, canEdit: editable }} />
           )}
         </div>
       </div>

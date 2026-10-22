@@ -29,8 +29,11 @@ export function epicState(model: Model): { tone: AdminTone; label: string; detai
   };
 }
 
-export default function EpicAdmin({ model, specs, isDark, onSave, state }: {
-  model: Model; specs: ProcessSpec[]; isDark: boolean; onSave: Save; state: React.ReactNode;
+export default function EpicAdmin({ model, specs, pages = [], isDark, onSave, state }: {
+  model: Model; specs: ProcessSpec[];
+  /** the epics of the pages - they carry them like processes */
+  pages?: { epics?: string[] }[];
+  isDark: boolean; onSave: Save; state: React.ReactNode;
 }) {
   const c = cls(isDark);
   const confirm = useConfirm();
@@ -38,6 +41,7 @@ export default function EpicAdmin({ model, specs, isDark, onSave, state }: {
   const [neu, setNeu] = useState('');
   const [flash, setFlash] = useFlash();
   const uses = (id: string) => specs.filter(s => s.epics?.includes(id)).length;
+  const pageUses = (id: string) => pages.filter(p => p.epics?.includes(id)).length;
   const set = (id: string, patch: Partial<EpicDef>) => {
     setDraft(d => d.map(e => (e.id === id ? { ...e, ...patch } : e)));
     setFlash(null);
@@ -47,7 +51,7 @@ export default function EpicAdmin({ model, specs, isDark, onSave, state }: {
     const name = neu.trim();
     if (!name) return;
     // IDs of deleted epics that are still in specifications are taken too
-    const taken = [...draft.map(e => e.id), ...specs.flatMap(s => s.epics ?? [])];
+    const taken = [...draft.map(e => e.id), ...specs.flatMap(s => s.epics ?? []), ...pages.flatMap(p => p.epics ?? [])];
     setDraft(d => [...d, { id: newEpicId(name, taken), name }]);
     setNeu('');
     setFlash(null);
@@ -55,9 +59,11 @@ export default function EpicAdmin({ model, specs, isDark, onSave, state }: {
 
   const loeschen = async (e: EpicDef) => {
     const n = uses(e.id);
+    const p = pageUses(e.id);
+    const carriers = [n ? `${n} Prozess${n === 1 ? '' : 'e'}` : '', p ? `${p} Seite${p === 1 ? '' : 'n'}` : ''].filter(Boolean).join(' und ');
     const ok = await confirm({
       title: `Epic «${e.name}» löschen?`,
-      ...(n ? { text: `${n} Prozess${n === 1 ? ' trägt' : 'e tragen'} es. Dort wird es nicht mehr gezeigt — «abgeschlossen» behält die Zuordnung.` } : {}),
+      ...(carriers ? { text: `${carriers} ${n + p === 1 ? 'trägt' : 'tragen'} es. Dort wird es nicht mehr gezeigt — «abgeschlossen» behält die Zuordnung.` } : {}),
     });
     if (ok) { setDraft(d => d.filter(x => x.id !== e.id)); setFlash(null); }
   };
@@ -90,7 +96,7 @@ export default function EpicAdmin({ model, specs, isDark, onSave, state }: {
               <div className="flex items-center gap-2">
                 <EpicChip name={e.name || e.id} closed={e.closed} isDark={isDark} />
                 <span className={`text-[10px] font-mono ${c.muted}`}>{e.id}</span>
-                <span className={`text-[10px] ${c.muted}`}>· {n} Prozess{n === 1 ? '' : 'e'}</span>
+                <span className={`text-[10px] ${c.muted}`}>· {n} Prozess{n === 1 ? '' : 'e'}{pageUses(e.id) ? ` · ${pageUses(e.id)} Seite${pageUses(e.id) === 1 ? '' : 'n'}` : ''}</span>
                 <label className={`ml-auto flex items-center gap-1 text-[10px] ${c.muted2}`}
                   title="Nicht mehr zuweisbar — bleibt am Prozess und im Filter">
                   <input type="checkbox" checked={!!e.closed} onChange={ev => set(e.id, { closed: ev.target.checked })} />

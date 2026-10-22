@@ -1,17 +1,20 @@
 // The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
-import { AlertTriangle, AppWindow, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
+import { AlertTriangle, AppWindow, Flag, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { aiEnabled, useAiKey } from '../../ai/key';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
 import { useStore } from '../../store';
-import { cls } from '../../ui';
+import { EpicChip, cls, epicTone } from '../../ui';
+import { epicsOf } from '../../epics';
 import type { App, Page } from '../runtime/spec';
 import { JsonField, SelectField, TextField } from './fields';
 import { flatten, pageFindings, slugOf, targetsOf } from './model';
 import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
 import { ThemeEditor } from './ThemeEditor';
+
+const EPIC_FILTER_KEY = 'orch-spec.pageEpicFilter';
 
 export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?: string) => void }) {
   const { isDark, model, specs, pages, pagesApp, pagesUnreadable, createPage, deletePage, savePagesApp } = useStore();
@@ -22,6 +25,17 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
   const [appOpen, setAppOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : null), [model, specs]);
+  // the epics as a filter - like the list of processes: those that pages carry
+  const [listEpic, setListEpic] = useState<string | null>(() => { try { return localStorage.getItem(EPIC_FILTER_KEY); } catch { return null; } });
+  const pickEpic = (id: string | null) => {
+    setListEpic(id);
+    try { if (id) localStorage.setItem(EPIC_FILTER_KEY, id); else localStorage.removeItem(EPIC_FILTER_KEY); } catch { /* ignore */ }
+  };
+  const epicFilter = (model?.epics ?? [])
+    .map((e) => ({ ...e, n: pages.filter((p) => p.data.spec?.epics?.includes(e.id)).length }))
+    .filter((e) => e.n > 0);
+  const activeEpic = listEpic && epicFilter.some((e) => e.id === listEpic) ? listEpic : null;
+  const shown = activeEpic ? pages.filter((p) => p.data.spec?.epics?.includes(activeEpic)) : pages;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-6">
@@ -57,6 +71,20 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
         onCreate={async (slug, page, aiPrompt) => { const r = await createPage(slug, page); if (r.ok) { setCreating(false); onOpen(slug, aiPrompt); } return r; }}
         onClose={() => setCreating(false)} />}
 
+      {epicFilter.length > 0 && (
+        <div className="mb-2 flex items-center gap-1 flex-wrap">
+          <Flag size={10} className={c.muted} />
+          {epicFilter.map((e) => (
+            <button key={e.id} onClick={() => pickEpic(activeEpic === e.id ? null : e.id)}
+              title={`Nur Seiten im Epic «${e.name}»${e.description ? ` — ${e.description}` : ''}${e.closed ? ' (abgeschlossen)' : ''}`}
+              className={`text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${epicTone(isDark)} ${
+                e.closed ? 'border-dashed' : ''} ${activeEpic && activeEpic !== e.id ? 'opacity-30' : ''} ${activeEpic === e.id ? 'ring-1 ring-current' : ''}`}>
+              {e.name} {e.n}
+            </button>
+          ))}
+          {activeEpic && <button onClick={() => pickEpic(null)} className={`ml-1 text-[10px] ${c.muted} hover:underline`}>Filter aus</button>}
+        </div>
+      )}
       {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
       {/* e.g. after deleting the start page - the app would find no page for / */}
       {pagesApp?.data.home && !pages.some((p) => p.data.path === pagesApp.data.home) && (
@@ -82,7 +110,7 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
         </div>
       ) : (
         <div className="space-y-1.5">
-          {pages.map(({ slug, data, version }) => {
+          {shown.map(({ slug, data, version }) => {
             const findings = targets ? pageFindings(data, targets, pages.map((p) => p.data)).filter((f) => f.level !== 'info') : [];
             const errors = findings.filter((f) => f.level === 'error').length;
             return (
@@ -91,8 +119,9 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
                   <AppWindow size={14} className={c.muted} />
                   <div className="min-w-0 flex-1">
                     <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
-                    <div className={`text-[10px] font-mono truncate ${c.muted}`}>/{data.path}</div>
+                    <div className={`text-[10px] font-mono truncate ${c.muted}`}>/{data.path}{data.spec?.project ? ` · ${data.spec.project}` : ''}</div>
                   </div>
+                  {epicsOf({ epics: data.spec?.epics }, model).map((e) => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
                   <span className={`hidden sm:inline text-[9px] ${c.muted}`}>{flatten(data.body).length} Bausteine</span>
                   <AccessChip isDark={isDark} page={data} />
                   {findings.length > 0 ? (
