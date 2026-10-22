@@ -77,7 +77,13 @@ test('a reserved word as field name is no error - and the export writes it in ba
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain(), null)!;
   const link = (r.spec.types ?? []).find(t => t.name === 'IdentityLink')!;
   assert.ok(link.fields?.some(f => f.name === 'type'));
-  assert.deepEqual(checkTypes(r.spec.types).filter(i => i.typeId === link.id).map(i => i.message), []);
+  const issues = checkTypes(r.spec.types).filter(i => i.typeId === link.id);
+  assert.deepEqual(issues.filter(i => !i.warn).map(i => i.message), []);
+  // valid — but a warning for each name that needs backticks
+  assert.deepEqual(issues.filter(i => i.warn).map(i => i.message), [
+    '«type» steht in Scala in Backticks (`type`) — ein Scala-Schlüsselwort. Wenn möglich einen einfachen Namen wählen.',
+    '«display name» steht in Scala in Backticks (`display name`) — mit Leer- oder Sonderzeichen. Wenn möglich einen einfachen Namen wählen.',
+  ]);
   const code = scalaFiles(r.spec, { domainTypes: domain() } as never).map(f => f.content).join('\n');
   assert.match(code, /`type`: IdentityLinkType/);
   assert.match(code, /`display name`: Option\[String\]/);
@@ -96,11 +102,16 @@ test('scalaName: reserved words and odd names in backticks, plain names as they 
 });
 
 test('field names: plain ones follow the convention, quoted ones only must be writable in backticks', () => {
-  const issues = (name: string) => checkTypes([{ id: 't', name: 'X', kind: 'case', fields: [{ id: 'f', name, type: 'String' }] }] as never)
-    .filter(i => i.field === 'f').map(i => i.message);
+  const all = (name: string) => checkTypes([{ id: 't', name: 'X', kind: 'case', fields: [{ id: 'f', name, type: 'String' }] }] as never)
+    .filter(i => i.field === 'f');
+  const issues = (name: string) => all(name).filter(i => !i.warn).map(i => i.message);
+  const warns = (name: string) => all(name).filter(i => i.warn).length;
   assert.deepEqual(issues('display name'), []);
   assert.deepEqual(issues('QI-Deklaration'), []);
   assert.deepEqual(issues('type'), []);
+  // a warning only where backticks are needed
+  assert.deepEqual([warns('display name'), warns('QI-Deklaration'), warns('type'), warns('groupId')], [1, 1, 1, 0]);
+  assert.equal(warns(' name'), 0);
   assert.equal(issues('GroupId').length, 1);
   assert.equal(issues(' name').length, 1);
   assert.equal(issues('a`b').length, 1);

@@ -1305,7 +1305,11 @@ export function scalaBundle(spec: ProcessSpec, model: Model | null = null): stri
 }
 
 // ── Checks ───────────────────────────────────────────────────────────────────
-export interface TypeIssue { typeId: string; field?: string; message: string }
+export interface TypeIssue {
+  typeId: string; field?: string; message: string;
+  /** a hint, not a defect — shown amber, does not mark the type as faulty */
+  warn?: boolean;
+}
 
 const SCALA_NAME = /^[a-z][A-Za-z0-9]*$/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
@@ -1425,6 +1429,9 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       const quoted = !/^[A-Za-z_]\w*$/.test(f.name);
       if (quoted ? !f.name.trim() || f.name !== f.name.trim() || f.name.includes('`') : !SCALA_NAME.test(f.name)) {
         issues.push({ typeId: t.id, field: f.id, message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick und ohne Leerzeichen am Rand).` });
+      } else if (scalaName(f.name) !== f.name) {
+        // valid, but every use in Scala needs the backticks — and FEEL cannot name it plainly
+        issues.push({ typeId: t.id, field: f.id, warn: true, message: `«${f.name}» steht in Scala in Backticks (${scalaName(f.name)}) — ${RESERVED.has(f.name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
       }
       // in an ADT the same field name may appear in several cases
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });

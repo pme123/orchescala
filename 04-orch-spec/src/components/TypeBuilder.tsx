@@ -389,7 +389,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                     t && selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                   {t?.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
                   <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${t ? c.text : c.muted}`}>{label}</span>
-                  {t && !!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+                  {t && issuesOf(t.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
                   {t && <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />}
                   {/* Every process has In and Out — if they are missing or empty, that is orange.
                       The InitIn results from the init worker; without it there is none, which is not a defect. */}
@@ -410,7 +410,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 showConfig || (inConfig && selected === inConfig.id) ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
               <Braces size={11} className={c.muted} />
               <span className={`flex-1 truncate text-[11px] font-mono ${inConfig ? `font-semibold ${c.text}` : c.muted2}`}>InConfig</span>
-              {inConfig && !!issuesOf(inConfig.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+              {inConfig && issuesOf(inConfig.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
               {inConfig && <CommentBubble target={typeTarget(inConfig.id)} aggregate quiet inButton />}
               <span className={`text-[9px] ${c.muted}`}>{inConfig && !isEmptyType(inConfig) ? `${contentLabel(inConfig)} + erzeugt` : 'erzeugt'}</span>
             </button>
@@ -917,7 +917,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
   /** all types — to see who points to one */
   all: TypeDef[];
   selected: string | null; isDark: boolean;
-  onSelect: (id: string) => void; issuesOf: (id: string) => unknown[];
+  onSelect: (id: string) => void; issuesOf: (id: string) => Array<{ warn?: boolean }>;
 }) {
   const c = cls(isDark);
   if (!types.length) return null;
@@ -936,7 +936,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
           {/* bold what is used; gray and italic what nothing points to */}
           <span className={`flex-1 truncate text-[11px] font-mono ${used ? `font-semibold ${c.text}` : `italic ${c.muted}`}`}>{t.name}</span>
           {leer && <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title="leer — Felder fehlen"><AlertTriangle size={9} /> leer</span>}
-          {!!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+          {issuesOf(t.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
           <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />
           <span className={`text-[9px] ${c.muted}`}>
             {leer ? '' : contentLabel(t)}{used ? ` · ${used}×` : ' · ungenutzt'}
@@ -952,7 +952,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   isDark: boolean; canEdit: boolean; model: Model | null;
-  issues: { field?: string; message: string }[];
+  issues: { field?: string; message: string; warn?: boolean }[];
   idx: ReturnType<typeof indexTypes>;
   onPatch: (patch: Partial<TypeDef>) => void;
   onRemove: () => void;
@@ -980,7 +980,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
     onPatch({ fields: next });
   };
 
-  const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId)?.message;
+  // the error first; a warning only if there is none
+  const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId && !i.warn) ?? issues.find(i => i.field === fieldId);
   const typeIssues = issues.filter(i => !i.field);
   // via the name in the catalog: a class of another domain is imported, not exported
   const origin = referencedClass(t, model, packageOf(spec, model));
@@ -1102,7 +1103,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 // ── Field ────────────────────────────────────────────────────────────────────
 function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType, onOpenType }: {
   field: Field; index: number; last: boolean; types: TypeDef[]; selfId: string;
-  isDark: boolean; canEdit: boolean; issue?: string; model: Model | null;
+  isDark: boolean; canEdit: boolean; issue?: { message: string; warn?: boolean }; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
   onChange: (patch: Partial<Field>) => void;
   onRemove: () => void;
@@ -1149,7 +1150,9 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   const box = `text-[11px] leading-[18px] px-2 py-1 rounded border outline-none ${c.input}`;
   return (
     <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
-      className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
+      className={`group rounded border px-2 py-2 space-y-1.5 ${!issue ? c.border2
+        : issue.warn ? (isDark ? 'border-amber-500/40' : 'border-amber-400')
+          : (isDark ? 'border-rose-500/40' : 'border-rose-400')}`}>
       {/* 1 · the name across the full width; on the right the result as a Scala type, comment and buttons */}
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
@@ -1292,7 +1295,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           className="flex-1 min-w-[10rem]" />
       </div>
 
-      {issue && <div className={`text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue}</div>}
+      {issue && <div className={`text-[10px] ${issue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue.message}</div>}
     </div>
   );
 }
@@ -1369,7 +1372,7 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
-  issues: { field?: string; message: string }[];
+  issues: { field?: string; message: string; warn?: boolean }[];
   onPatch: (patch: Partial<TypeDef>) => void;
   onAddType: (kind: 'case' | 'enum') => string;
   onOpenType: (id: string) => void;
@@ -1387,7 +1390,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
   const fieldRows = (fields: Field[], setAll: (next: Field[]) => void) => fields.map((f, k) => (
     <FieldRow key={f.id} field={f} index={k} last={k === fields.length - 1}
       types={types} selfId={t.id} isDark={isDark} canEdit={canEdit} idx={idx} model={model}
-      issue={issues.find(x => x.field === f.id)?.message}
+      issue={issues.find(x => x.field === f.id && !x.warn) ?? issues.find(x => x.field === f.id)}
       onChange={patch => setAll(fields.map((x, m) => (m === k ? { ...x, ...patch } : x)))}
       onRemove={() => setAll(fields.filter((_, m) => m !== k))}
       onMove={by => {
