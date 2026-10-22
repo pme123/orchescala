@@ -607,7 +607,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
     // a fixed enum case has exactly one value; InitIn initializes process variables — defaults as in the InConfig
     const fixed = fixedCaseValue(f, idx);
     const def = fixed ? ` = ${fixed}` : isInConfigField(f, idx) ? ' = None' : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
+    return `${d}${scalaName(f.name)}: ${fieldType(f, idx)}${def}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
   return `case class ${t.name}(${body})`;
@@ -615,11 +615,11 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 
 function companion(t: TypeDef, idx: TypeIndex): string {
   const fields = exampleFields(finished(t.fields, idx), idx);
-  const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
+  const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
   // exampleMinimal leaves out everything that may be missing
   const optional = fields.filter(f => f.optional);
   const minimal = optional.length
-    ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${f.name} = None`).join(',\n'), '    ')}\n  )`
+    ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '    ')}\n  )`
     : 'lazy val exampleMinimal = example';
 
   return [
@@ -639,7 +639,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${isInConfigField(f, idx) ? ' = None' : ''}`;
+    return `${d}${scalaName(f.name)}: ${fieldType(f, idx)}${isInConfigField(f, idx) ? ' = None' : ''}`;
   });
   return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
 }
@@ -679,7 +679,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   // again in every case
   const commonDefs = common.map(f => {
     const d = fieldDescription(f) ? `${indent(fieldDescription(f), '  ')}\n` : '';
-    return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
+    return `${d}  def ${scalaName(f.name)}: ${fieldType(f, idx)}`;
   });
   const commonBare = common.map(f => ({ ...f, description: undefined, descriptionExpr: undefined }));
   const fieldsOf = (v: EnumValue): Field[] =>
@@ -691,10 +691,10 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   });
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
     const fields = exampleFields(fieldsOf(v), idx);
-    const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
+    const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
     const optional = fields.filter(f => f.optional);
     const minimal = optional.length
-      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${f.name} = None`).join(',\n'), '      ')}\n    )`
+      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '      ')}\n    )`
       : 'lazy val exampleMinimal = example';
     return [
       `  object ${v.name}:`,
@@ -900,7 +900,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
     const fixed = fixedCaseValue(f, idx!);
     const def = fixed ? ` = ${fixed}` : defaultClause(f, idx!) || (f.optional ? ' = None' : '');
-    return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;
+    return `${d}${scalaName(f.name)}: ${fieldType(f, idx!)}${def}`;
   });
   for (const { name, kind, default: given, timerKind } of loopSettings(spec)) {
     if (seen.has(name)) continue;
@@ -998,7 +998,7 @@ export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | nu
   const args = fromIn.map(f => {
     const r = scalaDefault(f, idx);
     const value = r.scala ?? `??? /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
-    return `  ${f.name} = in.${f.name}.getOrElse(${value})`;
+    return `  ${scalaName(f.name)} = in.${scalaName(f.name)}.getOrElse(${value})`;
   });
   // the worker computes the other fields of the InitIn — `???` instead of the example values:
   // so it fails until it is implemented
@@ -1309,6 +1309,15 @@ export interface TypeIssue { typeId: string; field?: string; message: string }
 
 const SCALA_NAME = /^[a-z][A-Za-z0-9]*$/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
+/**
+ * A field name as written in Scala: a reserved word (`type`) or a name that is
+ * no plain identifier goes in backticks — the domain writes it so, the import
+ * reads it without them.
+ */
+export function scalaName(name: string): string {
+  return RESERVED.has(name) || !/^[A-Za-z_]\w*$/.test(name) ? `\`${name}\`` : name;
+}
+
 const RESERVED = new Set(['type', 'val', 'var', 'def', 'class', 'object', 'case', 'match', 'new', 'with', 'given', 'end', 'for', 'if', 'else', 'true', 'false', 'null', 'import', 'package', 'extends', 'lazy', 'implicit', 'private', 'sealed', 'trait', 'enum', 'then', 'do', 'while', 'yield', 'return', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'abstract', 'final', 'override', 'protected', 'forSome']);
 
 /** What would break the generated Scala code — directly in the UI. */
@@ -1413,9 +1422,6 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     for (const f of fields) {
       if (!SCALA_NAME.test(f.name)) {
         issues.push({ typeId: t.id, field: f.id, message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang).` });
-      }
-      if (RESERVED.has(f.name)) {
-        issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist ein Scala-Schlüsselwort.` });
       }
       // in an ADT the same field name may appear in several cases
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });

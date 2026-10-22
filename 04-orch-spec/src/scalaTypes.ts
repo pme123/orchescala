@@ -214,13 +214,24 @@ export function cleanText(raw: string): string {
   return t.replace(/\\n/g, '\n').replace(/\\"/g, '"').trim();
 }
 
+/**
+ * A name as written in Scala — plain (`groupId`) or in backticks (`` `type` ``,
+ * a reserved word): without the backticks. `null` if it is no name.
+ */
+export function scalaIdentifier(raw: string): string | null {
+  const text = raw.trim();
+  const quoted = /^`([^`]+)`$/.exec(text);
+  if (quoted) return quoted[1];
+  return /^[A-Za-z_]\w*$/.test(text) ? text : null;
+}
+
 /** A parameter: `name: Type = default`. */
 export function parseParam(param: string): ScalaParam | null {
   const { rest, description, descriptionExpr } = stripAnnotations(stripComments(param));
   const colon = topLevelIndex(rest, ':');
   if (colon < 0) return null;
-  const name = rest.slice(0, colon).trim().replace(/^(?:val|var)\s+/, '');
-  if (!/^[A-Za-z_]\w*$/.test(name)) return null;
+  const name = scalaIdentifier(rest.slice(0, colon).trim().replace(/^(?:val|var)\s+/, ''));
+  if (!name) return null;
   const after = rest.slice(colon + 1);
   const eq = topLevelAssign(after);
   const type = (eq < 0 ? after : after.slice(0, eq)).trim();
@@ -448,9 +459,9 @@ export function exampleArgs(raw: string, fieldNames: string[]): Map<string, stri
     const text = part.trim();
     if (!text) return;
     const eq = topLevelAssign(text);
-    const named = eq > 0 && /^[A-Za-z_]\w*$/.test(text.slice(0, eq).trim());
-    const name = named ? text.slice(0, eq).trim() : fieldNames[i];
-    const value = (named ? text.slice(eq + 1) : text).trim();
+    const named = eq > 0 ? scalaIdentifier(text.slice(0, eq)) : null;
+    const name = named ?? fieldNames[i];
+    const value = (named !== null ? text.slice(eq + 1) : text).trim();
     if (!name || !value) return;
     out.set(name, value.includes('"""') ? value : value.replace(/\s*\n\s*/g, ' '));
   });
