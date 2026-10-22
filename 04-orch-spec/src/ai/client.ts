@@ -8,9 +8,13 @@ import type { Send } from './agent';
 export const MODEL = 'claude-opus-5-5';
 
 /** `send` for the agent: one request, the fixed settings here. Without streaming - the answers are
-  * short (a block, a few sentences); the API validates the tool inputs before it returns them. */
-export function claudeSender(apiKey: string): Send {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  * short (a block, a few sentences); the API validates the tool inputs before it returns them.
+  * `workspaceId` only for a key that is not scoped to a workspace - the API then wants it in a header. */
+export function claudeSender(apiKey: string, workspaceId?: string | null): Send {
+  const client = new Anthropic({
+    apiKey, dangerouslyAllowBrowser: true,
+    ...(workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId } } : {}),
+  });
   return (request, signal) =>
     client.beta.messages.create({
       model: MODEL,
@@ -35,6 +39,8 @@ export function errorText(e: unknown): string {
   if (e instanceof Anthropic.AuthenticationError) return 'Der API-Key wird nicht angenommen – in den Einstellungen prüfen.';
   if (e instanceof Anthropic.PermissionDeniedError) return 'Der API-Key darf das Modell nicht verwenden (403).';
   if (e instanceof Anthropic.RateLimitError) return 'Zu viele Anfragen oder Guthaben aufgebraucht (429) – später nochmals versuchen.';
+  if (e instanceof Anthropic.BadRequestError && e.message.includes('anthropic-workspace-id'))
+    return 'Der Key ist keinem Workspace zugeordnet – im KI-Dialog (✦ oben rechts) die Workspace-ID eintragen oder einen Key in einem Workspace erstellen.';
   if (e instanceof Anthropic.BadRequestError) return `Die Anfrage wurde abgelehnt (400): ${e.message}`;
   if (e instanceof Anthropic.APIConnectionError) return 'Keine Verbindung zur Claude API.';
   if (e instanceof Anthropic.APIError) return `Fehler der Claude API (${e.status ?? '?'}): ${e.message}`;

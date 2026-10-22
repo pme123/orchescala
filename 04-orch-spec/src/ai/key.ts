@@ -7,6 +7,8 @@
 import { useSyncExternalStore } from 'react';
 
 export const KEY_STORAGE = 'orch-spec.anthropicKey';
+/** only for a key without a workspace: the API then wants the workspace in a header */
+export const WORKSPACE_STORAGE = 'orch-spec.anthropicWorkspace';
 /** the event within this tab - `storage` only fires in the other tabs */
 const CHANGED = 'orch-spec:anthropic-key';
 
@@ -32,6 +34,21 @@ export function writeKey(key: string, store: KeyStore | null = browserStore()): 
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGED));
 }
 
+/** The workspace for a key that is not scoped to one - null if not needed. */
+export function readWorkspace(store: KeyStore | null = browserStore()): string | null {
+  try { return store?.getItem(WORKSPACE_STORAGE)?.trim() || null; } catch { return null; }
+}
+
+/** Saves the workspace - an empty one deletes it. */
+export function writeWorkspace(id: string, store: KeyStore | null = browserStore()): void {
+  const value = id.trim();
+  try {
+    if (value) store?.setItem(WORKSPACE_STORAGE, value);
+    else store?.removeItem(WORKSPACE_STORAGE);
+  } catch { /* blocked storage */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGED));
+}
+
 /** The switch: with a key the AI mode is on. */
 export const aiEnabled = (key: string | null | undefined): key is string => !!key?.trim();
 
@@ -42,7 +59,7 @@ export const looksLikeKey = (key: string) => /^sk-ant-[\w-]{20,}$/.test(key.trim
 export const maskKey = (key: string) => `${key.slice(0, 7)}…${key.slice(-4)}`;
 
 const subscribe = (onChange: () => void) => {
-  const onStorage = (e: StorageEvent) => { if (e.key === null || e.key === KEY_STORAGE) onChange(); };
+  const onStorage = (e: StorageEvent) => { if (e.key === null || e.key === KEY_STORAGE || e.key === WORKSPACE_STORAGE) onChange(); };
   window.addEventListener(CHANGED, onChange);
   window.addEventListener('storage', onStorage);
   return () => {
@@ -54,4 +71,9 @@ const subscribe = (onChange: () => void) => {
 /** The key of this browser - every component that shows something of AI asks this. */
 export function useAiKey(): string | null {
   return useSyncExternalStore(subscribe, () => readKey(), () => null);
+}
+
+/** The workspace of this browser (see WORKSPACE_STORAGE). */
+export function useAiWorkspace(): string | null {
+  return useSyncExternalStore(subscribe, () => readWorkspace(), () => null);
 }

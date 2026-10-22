@@ -14,6 +14,7 @@ import { claudeSender, errorText } from './client';
 import { pagePrompt, pageSystem } from './context';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
 import { pageDiff, type PageChange } from './diff';
+import { useAiWorkspace } from './key';
 import { draftChanged, pageToolKit, startDraft, type PageDraft } from './pageTools';
 
 type Entry =
@@ -51,6 +52,7 @@ export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft
   initialPrompt?: string;
 }) {
   const c = cls(isDark);
+  const workspace = useAiWorkspace();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -89,7 +91,7 @@ export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft
       else setLive(e.usage);
     };
     const r = await runTurn({
-      send: claudeSender(apiKey), system: sys, kit: pageToolKit({ targets, others: [...others, { slug, page }] }),
+      send: claudeSender(apiKey, workspace), system: sys, kit: pageToolKit({ targets, others: [...others, { slug, page }] }),
       history: history.current, prompt, draft: draft ?? startDraft(slug, page), onEvent, signal: controller.signal,
     });
     history.current = r.history;
