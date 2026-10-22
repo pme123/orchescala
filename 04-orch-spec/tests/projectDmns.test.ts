@@ -164,7 +164,10 @@ test('linking keeps a table the spec references meanwhile - and skips a vanished
   assert.equal(withDmnFiles(gone, found), gone);
 });
 
-test('no own project folder recognised is said as such - not «keine Tabelle»', () => {
+test('no own project folder: still «keine Tabelle» (all folders were searched) - with the hint and the folders without access', () => {
   // the remembered folders exist, but none is the start of the process ID
-  assert.match(notFoundMessage('acme-bpmn-map-actions', 'other-sendEvent', model, 'c8', []), /Kein eigener Projekt-Ordner erkannt/);
+  const msg = notFoundMessage('acme-bpmn-map-actions', 'other-sendEvent', model, 'c8', ['acme-other']);
+  assert.match(msg, /keine Tabelle «acme-bpmn-map-actions»/);
+  assert.match(msg, /Keiner der Ordner ist der Anfang der Prozess-ID «other-sendEvent»/);
+  assert.match(msg, /Ohne Zugriff, nicht durchsucht: acme-other/);
 });

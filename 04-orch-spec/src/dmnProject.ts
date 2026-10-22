@@ -150,13 +150,12 @@ export function notFoundMessage(decisionId: string, processId: string, model: Mo
   const sub = engine === 'c8' ? 'camunda8' : 'camunda';
   if (!folders.length) return 'Keine Projekt-Ordner gemerkt — unter Admin → Katalog die Projekte verbinden, oder Datei wählen.';
   const own = folders.filter(p => processId.startsWith(`${p.name}-`)).map(p => p.name);
-  if (!own.length) {
-    return `Kein eigener Projekt-Ordner erkannt — keiner der gemerkten Ordner (Admin → Katalog) ist der Anfang der Prozess-ID «${processId}». Datei wählen oder neu anlegen.`;
-  }
   const blocked = own.filter(n => noAccess.includes(n));
   if (blocked.length) {
     return `Kein Zugriff auf den Projekt-Ordner «${blocked.join('», «')}» in diesem Browser — unter Admin → Katalog verbinden (der Zugriff gilt je Adresse, auch je Port), oder Datei wählen.`;
   }
   const others = noAccess.length ? ` Ohne Zugriff, nicht durchsucht: ${noAccess.join(', ')}.` : '';
-  return `In den gemerkten Projekt-Ordnern (Admin → Katalog) liegt unter src/main/resources/${sub} keine Tabelle «${decisionId}» — Datei wählen oder neu anlegen.${others}`;
+  // all readable folders were searched — that no folder matches the process ID is only a hint
+  const noOwn = own.length ? '' : ` Keiner der Ordner ist der Anfang der Prozess-ID «${processId}».`;
+  return `In den gemerkten Projekt-Ordnern (Admin → Katalog) liegt unter src/main/resources/${sub} keine Tabelle «${decisionId}» — Datei wählen oder neu anlegen.${noOwn}${others}`;
 }
