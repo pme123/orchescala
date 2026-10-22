@@ -338,6 +338,8 @@ class Converter {
       const cases = new Map((dom.cases ?? []).map(c => [c.name, c.fields]));
       const perCase = (dom.values ?? []).map(v => ({
         name: v, fields: toFields((cases.get(v) ?? []).filter(p => !commonNames.has(p.name)), dom.pkg),
+        // die Reihenfolge im Code — der Export schreibt die Parameter wieder so
+        order: (cases.get(v) ?? []).map(p => p.name),
       }));
       // Was in **allen** Fällen mit gleichem Namen und gleichem Typ steht, ist
       // ebenfalls gemeinsam — auch wenn die Domain es nicht als `def` führt
@@ -348,7 +350,11 @@ class Converter {
         this.notes.push(`${name}: ${shared.length} gemeinsame Feld${shared.length === 1 ? '' : 'er'} erkannt (${shared.map(f => f.name).join(', ')}) — stehen in jedem Fall gleich.`);
       }
       if (common.length || shared.length) t.fields = [...common, ...shared];
-      t.values = perCase.map(c => (c.fields.length ? { name: c.name, fields: c.fields } : { name: c.name }));
+      t.values = perCase.map(c => ({
+        name: c.name,
+        ...(c.fields.length ? { fields: c.fields } : {}),
+        ...(c.order.length ? { order: c.order } : {}),
+      }));
     } else {
       t.fields = toFields(dom.fields, dom.pkg);
     }

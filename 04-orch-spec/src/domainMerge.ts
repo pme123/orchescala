@@ -262,6 +262,9 @@ function mergeType(prev: TypeDef, fresh: TypeDef, stale: string[], removeStale: 
       before.delete(v.name);
       const fs = mergeFields(p.fields, v.fields, `${v.name}.`, stale, removeStale, wasImpl);
       changed ||= fs.changed;
+      // nur umgestellt im Code — auch das ist eine Änderung (die Reihenfolge der Parameter); eine
+      // Spezifikation ohne `order` (von vorher) kennt sie nicht — das allein ist keine Änderung
+      changed ||= !!p.order && JSON.stringify(p.order) !== JSON.stringify(v.order ?? null);
       return {
         ...v,
         ...(p.description || v.description ? { description: p.description || v.description } : {}),

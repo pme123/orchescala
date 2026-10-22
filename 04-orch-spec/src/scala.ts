@@ -643,6 +643,28 @@ function paramList(fields: Field[], idx: TypeIndex, by: string): string {
 }
 
 /**
+ * Die Felder eines Falls: die eigenen in der Reihenfolge von Orch Spec (dort lassen sie sich
+ * umstellen), die gemeinsamen dazwischen an ihrer Stelle im Code (`order`) — ohne `order`
+ * zuerst. Ein eigenes Feld, das dort nicht steht, nimmt den Platz eines Namens, den es nicht
+ * mehr gibt (umbenannt); sonst gilt es als neu, nach den anderen.
+ */
+export function inCodeOrder(common: Field[], own: Field[], order: string[] | undefined): Field[] {
+  if (!order?.length) return [...common, ...own];
+  const pos = new Map(order.map((n, i) => [n, i] as const));
+  const names = new Set([...common, ...own].map(f => f.name));
+  const free = order.filter(n => !names.has(n)).map(n => pos.get(n)!);
+  let k = 0;
+  const ownAt = new Map(own.map(f => [f.name, pos.get(f.name) ?? (k < free.length ? free[k++] : Infinity)] as const));
+  const commonAt = (f: Field) => pos.get(f.name) ?? -1;
+  const out: Field[] = [...own];
+  for (const c of [...common].sort((a, b) => commonAt(a) - commonAt(b))) {
+    const at = out.findIndex(e => (ownAt.has(e.name) ? ownAt.get(e.name)! : commonAt(e)) > commonAt(c));
+    out.splice(at < 0 ? out.length : at, 0, c);
+  }
+  return out;
+}
+
+/**
  * Auswahl mit Feldern je Fall — wie `enum In` der Depot-Domain: jeder Fall
  * eine Klasse, das Companion mit `example` je Fall und einem für den Typ.
  */
@@ -658,7 +680,8 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
   });
   const commonBare = common.map(f => ({ ...f, description: undefined, descriptionExpr: undefined }));
-  const fieldsOf = (v: EnumValue): Field[] => [...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))];
+  const fieldsOf = (v: EnumValue): Field[] =>
+    inCodeOrder(commonBare, finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name)), v.order);
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);
