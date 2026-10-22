@@ -1236,11 +1236,11 @@ object TypeImplementation:
 
   // the lines of `lazy val <name> = …`: the start and what is indented deeper, the closing `)`
   private def block(lines: Seq[String], name: String): Option[(Int, Int)] =
-    // also `val example`, `override lazy val example`, `lazy val example: In` - on the member level only
+    // also `val example`, `def example`, `override lazy val example`, `lazy val example: In` - on the member level only
     val at    = memberIndent(lines)
     val start = lines.indexWhere(l =>
       indentOf(l) == at &&
-        l.matches(s"""\\s*(?:(?:override|final|private|protected)\\s+)*(?:lazy\\s+)?val\\s+$name\\b.*""")
+        l.matches(s"""\\s*(?:(?:override|final|private|protected)\\s+)*(?:(?:lazy\\s+)?val|def)\\s+$name\\b.*""")
     )
     Option.when(start >= 0)(start -> extent(lines, start))
 
@@ -1250,7 +1250,8 @@ object TypeImplementation:
     val indent  = indentOf(lines(start))
     def belongs(j: Int) = indentOf(lines(j)) > indent || lines(j).trim.startsWith(")")
     val next    = Iterator.from(start + 1).takeWhile(_ < lines.size)
-    val inside  = next.takeWhile(j => if lines(j).isBlank then lines.indices.drop(j).find(k => !lines(k).isBlank).exists(belongs) else belongs(j))
+    val inside  = next.takeWhile: j =>
+      if lines(j).isBlank then Some(lines.indexWhere(!_.isBlank, j)).filter(_ >= 0).exists(belongs) else belongs(j)
     inside.toSeq.lastOption.getOrElse(start) + 1
 end TypeImplementation
 

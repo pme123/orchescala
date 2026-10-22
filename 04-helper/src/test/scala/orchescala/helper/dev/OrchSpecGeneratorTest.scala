@@ -1133,9 +1133,9 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |    )
         |  end In
         |""".stripMargin
-    for example <- Seq("val example = In(1)", "override lazy val example = In(1)", "lazy val example: In = In(1)") do
+    for example <- Seq("val example = In(1)", "override lazy val example = In(1)", "lazy val example: In = In(1)", "def example = In(1)") do
       val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing(example))
-      assertEquals("""(?m)^    (?:\w+\s+)*val example\b""".r.findAllIn(m).size, 1, m)
+      assertEquals("""(?m)^    (?:\w+\s+)*(?:val|def) example\b""".r.findAllIn(m).size, 1, m)
       assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In"), m)
       // the nested one in `build` stays
       assert(m.contains("      lazy val example = In(n)\n"), m)
