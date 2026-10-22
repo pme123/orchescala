@@ -19,7 +19,7 @@ import {
   aliasMemberType, catalogEntry, catalogMembers, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction, withOrigin,
 } from '../interactions';
 import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
-import { caseName, casesOf, isSimpleEnum, looksLikeScala, renderInConfig } from '../scala';
+import { caseName, casesOf, isSimpleEnum, looksLikeScala, renameEnumValue, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
@@ -622,6 +622,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             isDark={isDark} canEdit={canEdit}
             issues={issuesOf(current.id)} idx={idx} model={model}
             onPatch={patch => patchType(current.id, patch)}
+            onRenameValue={(index, name) => setTypes(renameEnumValue(types, current.id, index, name))}
             onRemove={() => removeType(current.id)}
             onAddType={addType}
             onOpenType={pickType}
@@ -960,12 +961,14 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 }
 
 // ── Type editor ──────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
+function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRenameValue, onRemove, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   idx: ReturnType<typeof indexTypes>;
   onPatch: (patch: Partial<TypeDef>) => void;
+  /** rename an enum value — the fields that use it as a fixed case follow */
+  onRenameValue: (index: number, name: string) => void;
   onRemove: () => void;
   onAddType: (kind: 'case' | 'enum') => string;
   /** jump to an own type (click on the type chip) */
@@ -994,11 +997,9 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   // the error first; a warning only if there is none
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId && !i.warn) ?? issues.find(i => i.field === fieldId);
   const typeIssues = issues.filter(i => !i.field && !i.value);
-  // the suggested name for the type — or for one of its enum values
-  const suggest = (i: { suggestion?: string; value?: string }) => i.suggestion && canEdit && (
-    <SuggestButton name={i.suggestion} isDark={isDark} onTake={() => onPatch(i.value
-      ? { values: (t.values ?? []).map(v => (v.name === i.value ? { ...v, name: i.suggestion! } : v)) }
-      : { name: i.suggestion! })} />
+  // the suggested name for the type (an enum value has its own, at the value)
+  const suggest = (i: { suggestion?: string }) => i.suggestion && canEdit && (
+    <SuggestButton name={i.suggestion} isDark={isDark} onTake={() => onPatch({ name: i.suggestion! })} />
   );
   // via the name in the catalog: a class of another domain is imported, not exported
   const origin = referencedClass(t, model, packageOf(spec, model));
@@ -1080,7 +1081,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
       )}
 
       {t.kind === 'enum'
-        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onAddType={onAddType} onOpenType={onOpenType} />
+        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onRenameValue={onRenameValue} onAddType={onAddType} onOpenType={onOpenType} />
         : (
           <div className="space-y-2">
             {fields.map((f, i) => (
@@ -1397,11 +1398,12 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 // `enum In: case Standard(clientKey: Long, …) case VermoegensVerwaltung(…)`:
 // each case its own class, together one type. The fields are edited with
 // the same row as in a class.
-function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
+function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onRenameValue, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
   issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   onPatch: (patch: Partial<TypeDef>) => void;
+  onRenameValue: (index: number, name: string) => void;
   onAddType: (kind: 'case' | 'enum') => string;
   onOpenType: (id: string) => void;
 }) {
@@ -1519,7 +1521,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
             {valueIssue && (
               <div className={`text-[10px] ${valueIssue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>
                 {valueIssue.message}
-                {valueIssue.suggestion && canEdit && <SuggestButton name={valueIssue.suggestion} isDark={isDark} onTake={() => set(i, { name: valueIssue.suggestion! })} />}
+                {valueIssue.suggestion && canEdit && <SuggestButton name={valueIssue.suggestion} isDark={isDark} onTake={() => onRenameValue(i, valueIssue.suggestion!)} />}
               </div>
             )}
             {!!fields.length && (

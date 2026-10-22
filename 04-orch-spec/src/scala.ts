@@ -1382,6 +1382,25 @@ export function fixedCaseValue(f: Field, idx: TypeIndex): string | null {
   return `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`;
 }
 
+/**
+ * Rename the value or case `index` of the enum `typeId` — and the fields that use it
+ * as a fixed case (`enumCase`), so that they keep pointing to it.
+ */
+export function renameEnumValue(types: TypeDef[], typeId: string, index: number, name: string): TypeDef[] {
+  const old = types.find(t => t.id === typeId)?.values?.[index]?.name;
+  if (old == null) return types;
+  const follow = (fs: Field[] | undefined) => fs?.map(f =>
+    f.type === typeId && f.enumCase && caseName(f.enumCase) === caseName(old) ? { ...f, enumCase: name } : f);
+  return types.map(t => {
+    const values = t.id === typeId ? t.values!.map((v, k) => (k === index ? { ...v, name } : v)) : t.values;
+    return {
+      ...t,
+      ...(t.fields ? { fields: follow(t.fields) } : {}),
+      ...(values ? { values: values.map(v => (v.fields ? { ...v, fields: follow(v.fields) } : v)) } : {}),
+    };
+  });
+}
+
 /** The cases of an own enum that some field uses as a fixed type. */
 function fixedCasesOf(typeId: string, idx: TypeIndex): string[] {
   const out = new Set<string>();

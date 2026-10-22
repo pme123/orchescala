@@ -7,7 +7,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
-import { checkTypes, nameSuggestion, scalaFiles, scalaName } from '../src/scala';
+import { checkTypes, nameSuggestion, renameEnumValue, scalaFiles, scalaName } from '../src/scala';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -291,4 +291,18 @@ test('a suggestion taken over leaves no issue behind', () => {
     { ...before[1], values: [{ name: valueName }, { name: 'GRAVITON' }] },
   ];
   assert.deepEqual(checkTypes(after as never), []);
+});
+
+test('renaming an enum value: the fields that use it as a fixed case follow', () => {
+  const types = [
+    { id: 'e', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }, { name: 'GRAVITON' }] },
+    { id: 'c', name: 'Target', kind: 'case', fields: [
+      { id: 'f', name: 'system', type: 'e', enumCase: '`ONLY GAMIFICATION`' },
+      { id: 'g', name: 'other', type: 'e', enumCase: 'GRAVITON' },
+    ] },
+  ];
+  const next = renameEnumValue(types as never, 'e', 0, 'ONLY_GAMIFICATION');
+  assert.deepEqual(next[0].values?.map(v => v.name), ['ONLY_GAMIFICATION', 'GRAVITON']);
+  assert.deepEqual(next[1].fields?.map(f => f.enumCase), ['ONLY_GAMIFICATION', 'GRAVITON']);
+  assert.deepEqual(checkTypes(next).filter(i => !i.warn), []);
 });
