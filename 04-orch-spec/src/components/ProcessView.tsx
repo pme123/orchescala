@@ -759,6 +759,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     // `latest` is what `update` set last (also before its debounced save) — the
     // interaction ids of `from` are those of the committed spec: withServiceRows only adds rows to steps
     const now = latest.current ?? specRef.current;
+    // meanwhile another spec in this view: its tables are stored, linked by the next sync of it
+    if (now && now.slug !== from.slug) return;
     if (linked.length && now) {
       // the problems go into the log entry too — the autosave of this update replaces the save state
       const report: AuditReport = {

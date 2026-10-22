@@ -223,7 +223,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         problems.push(...r.failed.map(f => `DMN-Tabelle nicht gelesen: ${f}`), ...w.failed.map(f => `DMN-Tabelle nicht gespeichert: ${f}`));
       }
       const spec = withDmnFiles(rows, saved);
-      setBusy(null);
+      // busy until the end (the finally clears it) — the button stays disabled, no second run
+      setBusy('Wird angelegt …');
       const res = await createSpec(spec);
       if (!res.ok) { setError(res.message); return; }
       // The BPMN stays next to the specification — so it can be
