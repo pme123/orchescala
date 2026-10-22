@@ -39,6 +39,20 @@ const CLOSE = ')]}';
 export const CHAR_LITERAL = /^'(?:\\u[0-9a-fA-F]{4}|\\.|[^'\\])'/;
 
 /**
+ * The end of a name in backticks (`` `Brief (neu)` ``, `` `a:b` ``) that starts at `start` —
+ * what is inside is no bracket, comma, `:` or `=`. -1 if none starts there (a backtick
+ * name ends on the same line).
+ */
+export function skipBackticks(text: string, start: number): number {
+  if (text[start] !== '`') return -1;
+  for (let i = start + 1; i < text.length; i++) {
+    if (text[i] === '`') return i > start + 1 ? i + 1 : -1;
+    if (text[i] === '\n') return -1;
+  }
+  return -1;
+}
+
+/**
  * Walk one bracket level, skipping strings along the way.
  * Returns the position after the closing bracket.
  */
@@ -61,6 +75,11 @@ function skipBalanced(text: string, start: number): number {
     const char = ch === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
     if (char) {
       i += char[0].length;
+      continue;
+    }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) {
+      i = bt;
       continue;
     }
     if (OPEN.includes(ch)) depth++;
@@ -96,6 +115,11 @@ export function splitParams(raw: string): string[] {
     const char = ch === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
     if (char) {
       i += char[0].length;
+      continue;
+    }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) {
+      i = bt;
       continue;
     }
     if (OPEN.includes(ch)) depth++;
@@ -137,6 +161,12 @@ export function stripComments(text: string): string {
     if (char) {
       out += char[0];
       i += char[0].length;
+      continue;
+    }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) {
+      out += text.slice(i, bt);
+      i = bt;
       continue;
     }
     if (text.startsWith('//', i)) {
@@ -252,6 +282,8 @@ function topLevelIndex(text: string, ch: string): number {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (c === ch && depth === 0) return i;
@@ -265,6 +297,8 @@ function topLevelAssign(text: string): number {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (c === '=' && depth === 0) {
@@ -363,6 +397,8 @@ function balanced(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c) && --depth < 0) return false;
   }
@@ -381,6 +417,8 @@ export function isCompoundType(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (depth === 0 && (c === '&' || (c === '|' && text[i - 1] !== ':'))) return true;
@@ -394,6 +432,8 @@ function topLevelRefine(text: string): number {
   for (let i = 0; i < text.length - 1; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (c === ':' && text[i + 1] === '|' && depth === 0) return i;

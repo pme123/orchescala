@@ -211,3 +211,46 @@ test('the issues carry the suggestion - for the field, the type and the enum val
   assert.equal(of(i => i.field === 'f'), 'meinValue');
   assert.equal(of(i => i.value === 'ONLY GAMIFICATION'), 'ONLY_GAMIFICATION');
 });
+
+test('names in backticks with brackets, colon, equals or comma are read whole', () => {
+  const src = `package ${PKG}.schema
+
+case class Odd(
+    \`a:b\`: String,
+    \`x=y\`: Int = 1,
+    \`Brief (neu)\`: Option[String],
+    last: Boolean
+)
+
+object Odd:
+  lazy val example = Odd(
+    \`a:b\` = "ab",
+    \`x=y\` = 2,
+    \`Brief (neu)\` = Some("neu"),
+    last = true
+  )
+end Odd
+
+enum Kind:
+  case A, \`x, y\`, \`[z]\`
+end Kind
+
+enum Doc:
+  case \`Brief (neu)\`(
+      empfaenger: String
+  )
+  case Mail(to: String)
+end Doc
+`;
+  const scanned = scanScala(src, 'Odd.scala');
+  const odd = scanned.find(t => t.name === 'Odd')!;
+  assert.deepEqual(odd.fields?.map(f => [f.name, f.type, f.default, f.example]), [
+    ['a:b', 'String', undefined, '"ab"'],
+    ['x=y', 'Int', '1', '2'],
+    ['Brief (neu)', 'Option[String]', undefined, 'Some("neu")'],
+    ['last', 'Boolean', undefined, 'true'],
+  ]);
+  assert.deepEqual(scanned.find(t => t.name === 'Kind')!.values, ['A', '`x, y`', '`[z]`']);
+  const doc = scanned.find(t => t.name === 'Doc')!;
+  assert.deepEqual(doc.cases?.map(c => [c.name, c.fields?.map(f => f.name)]), [['`Brief (neu)`', ['empfaenger']], ['Mail', ['to']]]);
+});
