@@ -302,7 +302,8 @@ export function typeShape(expr: string): TypeShape {
 
   for (let guard = 0; guard < 6; guard++) {
     const m = /^([A-Za-z_]\w*)\s*\[([\s\S]*)\]$/.exec(t);
-    if (!m) break;
+    // die Klammer am Ende muss die nach der Hülle schliessen — `Option[String] | Seq[X]` ist keine Hülle
+    if (!m || !balanced(m[2])) break;
     const [, wrapper, inner] = m;
     if (WRAPPERS_OPTIONAL.includes(wrapper)) { optional = true; t = inner.trim(); continue; }
     if (WRAPPERS_COLLECTION.includes(wrapper)) { collection = true; t = inner.trim(); continue; }
@@ -325,6 +326,37 @@ export function typeShape(expr: string): TypeShape {
   }
 
   return { base: t, optional, collection, map, ...(constraint ? { constraint } : {}) };
+}
+
+/** Klammern ausgeglichen, ohne je unter null zu fallen? */
+function balanced(text: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') { i = skipString(text, i) - 1; continue; }
+    if (OPEN.includes(c)) depth++;
+    else if (CLOSE.includes(c) && --depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+/**
+ * Ein Union- oder Schnitt-Typ (`Option[String] | Seq[X]`, `A & B`) auf oberster
+ * Ebene — die App bildet ihn nicht ab (ein Feld hat einen Grundtyp); `:|` (Iron) zählt nicht.
+ */
+export function isCompoundType(text: string): boolean {
+  // `:|` bindet stärker als `|` und `&` (Scala: Vorrang nach dem ersten Zeichen) — also ist
+  // `String :| ValidUUID | Long` eine Union `(String :| ValidUUID) | Long`; mehrere
+  // Einschränkungen stehen darum in Klammern: `Int :| (Greater[0] & Less[10])`
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') { i = skipString(text, i) - 1; continue; }
+    if (OPEN.includes(c)) depth++;
+    else if (CLOSE.includes(c)) depth--;
+    else if (depth === 0 && (c === '&' || (c === '|' && text[i - 1] !== ':'))) return true;
+  }
+  return false;
 }
 
 /** Position von `:|` auf oberster Klammerebene. */
