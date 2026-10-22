@@ -28,6 +28,13 @@ export const draftChanged = (d: PageDraft) => JSON.stringify(d.base) !== JSON.st
 /** What the tools know besides the draft - the targets (services …) and the other pages, read only. */
 export type PageContext = { targets: Targets; others: { slug: string; page: Page }[] };
 
+/** What Claude reads of a page: without its spec part - the comments name people (E19: only the spec
+  * of the app and the chat go to Anthropic); project and epics do not matter for the page. */
+export const forClaude = (page: Page): Page => {
+  const { spec: _spec, ...rest } = page;
+  return rest;
+};
+
 /** The outline with the keys - what Claude needs to address a building block. */
 export function outlineOf(page: Page): string {
   const line = ({ key, block, depth }: { key: BlockKey; block: Component; depth: number }) => {
@@ -142,7 +149,7 @@ export function runPageTool(name: string, input: unknown, d: PageDraft, ctx: Pag
       const other = slug ? ctx.others.find((o) => o.slug === slug) : null;
       if (slug && !other) return failed(d, `Eine Seite «${slug}» gibt es nicht. Seiten: ${ctx.others.map((o) => o.slug).join(', ')}`);
       const page = other?.page ?? d.page;
-      return { draft: d, content: `${json(page)}\nAufbau:\n${outlineOf(page)}`, summary: `Seite «${slug ?? d.slug}» gelesen` };
+      return { draft: d, content: `${json(forClaude(page))}\nAufbau:\n${outlineOf(page)}`, summary: `Seite «${slug ?? d.slug}» gelesen` };
     }
     case 'insert_block': {
       if (!isObject(args.block)) return failed(d, '«block» fehlt oder ist kein Objekt.');

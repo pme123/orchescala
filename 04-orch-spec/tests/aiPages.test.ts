@@ -151,6 +151,13 @@ test('newErrors - only the errors the draft brought, not those the page already 
   assert.equal(newErrors(worse, ctx).length, 1);
 });
 
+test('read_page - the comments of a page (names, e-mails) never go to Claude', () => {
+  const commented: Page = { ...book, spec: { project: 'acme-shop', comments: [{ id: 'ct', target: 'page', entries: [{ id: 'ce', author: 'Anna Muster', email: 'anna@bank.ch', at: '2026-10-22T10:00:00+02:00', text: 'Geheim' }] }] } };
+  const r = runPageTool('read_page', {}, startDraft('book', commented), ctx);
+  assert.doesNotMatch(r.content, /Anna|anna@bank|Geheim|acme-shop/);
+  assert.match(r.content, /"title":"Termin buchen"/);
+});
+
 test('outlineOf - one line per block with its key, sections without their content', () => {
   assert.equal(outlineOf(book).split('\n')[1], '1 {"type":"section","label":"Kontakt"}');
   assert.equal(outlineOf({ ...book, body: [] }), '(keine Bausteine)');
