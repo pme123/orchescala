@@ -127,6 +127,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
   private def post(publicAccess: PublicAccess, path: String, body: String): ZIO[Any, Response, Response] =
     Ref.make(Option.empty[(Option[String], Option[JsonObject])]).flatMap(got => post(routes(publicAccess, got), path, body))
 
+  /** At most `d` - without waiting for a stuck effect to stop (`disconnect`): a wait fails the test, it
+    * does not hang it.
+    */
+  private def bounded[R, E, A](d: Duration)(zio: ZIO[R, E, A]): ZIO[R, E, Option[A]] = zio.disconnect.timeout(d)
+
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PublicAccess")(
     suite("PublicGuard")(
       test("only what is listed - per kind"):
@@ -421,15 +426,19 @@ object PublicAccessSpec extends ZIOSpecDefault:
           one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
           r       = routes(one, got, answer, Some(token))
           first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
-          _      <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
-          _      <- first.interrupt                 // the caller is gone
-          second <- (ZIO.sleep(50.millis) *> post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}"))
-                      .repeatUntil(_.status == Status.Ok)
-                      .timeout(10.seconds)
-                      .timed
+          inside <- bounded(5.seconds)(got.get.repeatUntil(_.nonEmpty)) // the first one is in the engine
+          // the caller is gone - not waited for here (an unbounded wait hung CI); that it stops is checked below
+          _      <- first.interruptFork
+          second <- bounded(10.seconds):
+                      (ZIO.sleep(50.millis) *> post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}"))
+                        .repeatUntil(_.status == Status.Ok)
+                    .timed
+          gone   <- bounded(5.seconds)(first.await)
+          _      <- ZIO.when(gone.isEmpty):
+                      first.dump.flatMap(_.prettyPrint).flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n$d"))
         // freed by the timeout of the call - not only much later or never (the bound is wide for a slow
         // CI machine; the status is in the message when it fails)
-        yield assertTrue(second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds)
+        yield assertTrue(inside.isDefined, second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds, gone.isDefined)
       @@ TestAspect.withLiveClock,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =
@@ -574,5 +583,5 @@ object PublicAccessSpec extends ZIOSpecDefault:
           forbidden <- calls(403)
         yield assertTrue(rejected == (503 -> 2), forbidden == (400 -> 1)) // a message: 400, the token kept
     )
-  )
+  ) @@ TestAspect.timeout(60.seconds) // a runaway test fails - it does not block CI
 end PublicAccessSpec
