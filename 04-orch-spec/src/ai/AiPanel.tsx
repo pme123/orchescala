@@ -9,7 +9,7 @@ import { pagePrompt, pageSystem } from './context';
 import { pageDiff } from './diff';
 import { draftChanged, pageToolKit, startDraft, type PageDraft } from './pageTools';
 
-export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft, onDraft, onAccept, onSelect, initialPrompt }: {
+export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft, onDraft, onAccept, onSelect, initialPrompt, onInitialPrompt }: {
   isDark: boolean;
   apiKey: string;
   slug: string;
@@ -25,11 +25,12 @@ export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft
   onSelect: (key: BlockKey) => void;
   /** a request that starts at once - from «Neue Seite» with a description */
   initialPrompt?: string;
+  onInitialPrompt?: () => void;
 }) {
   const changes = useMemo(() => (draft ? pageDiff(draft.base, draft.page) : []), [draft]);
   const all = [...pages.filter((p) => p.slug !== slug), { slug, page }];
   return (
-    <AiChat<PageDraft> isDark={isDark} apiKey={apiKey} draft={draft} onDraft={onDraft} initialPrompt={initialPrompt}
+    <AiChat<PageDraft> isDark={isDark} apiKey={apiKey} draft={draft} onDraft={onDraft} initialPrompt={initialPrompt} onInitialPrompt={onInitialPrompt}
       system={() => pageSystem(specSource, targets, all, app)}
       kit={pageToolKit({ targets, others: all })}
       start={() => startDraft(slug, page)}

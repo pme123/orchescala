@@ -157,7 +157,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   /** the state before the last accepted draft - for undo, as long as nothing else changed */
   const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedSpec: ProcessSpec | null; acceptedXml: string } | null>(null);
   // deleting the key turns the AI off at once - the draft is gone too
-  useEffect(() => { if (!aiKey) { setAiDraft(null); setAiOpen(false); } }, [aiKey]);
+  // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
+  useEffect(() => { if (!aiKey || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiKey, mayEdit]);
   const canEdit = mayEdit && !aiDraft;
   const author = useAuthor();
   const authorRef = useRef(author);
@@ -974,7 +975,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   };
   const aiUndoable = !!aiUndo && xml === aiUndo.acceptedXml && spec === aiUndo.acceptedSpec;
   const undoAi = async (): Promise<AcceptOutcome> => {
-    if (!aiUndo) return;
+    if (!aiUndo) return { refused: 'Es gibt nichts mehr rückgängig zu machen.' };
     setAiUndo(null);
     const ok = await commitPlan(aiUndo.spec, aiUndo.xml, null, [], { source: 'ai', note: 'KI-Änderung rückgängig gemacht' });
     return ok ? undefined : { saveError: 'das Diagramm (BPMN) – siehe Speicherstatus oben' };

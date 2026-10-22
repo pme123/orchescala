@@ -25,6 +25,7 @@ const STOP_TEXT: Partial<Record<Stop, string>> = {
   max_tokens: 'Die Antwort war zu lang und wurde abgeschnitten.',
   refusal: 'Claude hat die Anfrage abgelehnt.',
   cancelled: 'Abgebrochen.',
+  context: 'Das Gespräch ist zu lang geworden – mit «Neues Gespräch» (oben im Chat) neu beginnen.',
 };
 
 /** What came of «Übernehmen»: nothing (taken over and saved), refused (the draft stays - e.g. the spec
@@ -57,6 +58,8 @@ export type AiChatProps<D> = {
   placeholder: string;
   /** a request that starts at once */
   initialPrompt?: string;
+  /** the request from outside was started - the parent drops it, so a later mount does not send it again */
+  onInitialPrompt?: () => void;
 };
 
 export function AiChat<D>(p: AiChatProps<D>) {
@@ -84,6 +87,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
   const [accepting, setAccepting] = useState(false);
   // the same as a ref: two clicks in one tick see the state of the last render
   const acceptingNow = useRef(false);
+  const undoingNow = useRef(false);
   // the request from outside (a new page with a description) - started once
   const started = useRef(false);
   const end = useRef<HTMLDivElement>(null);
@@ -150,7 +154,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
 
   // a request from outside (a new page with a description): start right away, once
   useEffect(() => {
-    if (p.initialPrompt && !started.current) { started.current = true; void ask(p.initialPrompt); }
+    if (p.initialPrompt && !started.current) { started.current = true; p.onInitialPrompt?.(); void ask(p.initialPrompt); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.initialPrompt]);
 
@@ -179,12 +183,15 @@ export function AiChat<D>(p: AiChatProps<D>) {
   };
   // undo of the last accepted draft: like accepting, a failed save is said as such
   const undoLast = async () => {
-    if (!p.undo) return;
+    if (!p.undo || undoingNow.current) return;
+    undoingNow.current = true;
     let r: AcceptOutcome;
     try {
       r = await p.undo.run();
     } catch (e) {
       r = { refused: `Rückgängig fehlgeschlagen: ${errorText(e)}` };
+    } finally {
+      undoingNow.current = false;
     }
     if (r && 'refused' in r) { add({ kind: 'note', text: r.refused, tone: 'error' }); return; }
     note.current = 'Der RE hat deine letzte übernommene Änderung rückgängig gemacht.';

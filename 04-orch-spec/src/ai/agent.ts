@@ -23,7 +23,8 @@ export type AgentEvent =
   /** after every request: the usage of the whole turn so far */
   | { kind: 'usage'; usage: Usage };
 
-export type Stop = 'done' | 'max_steps' | 'max_tokens' | 'refusal' | 'cancelled' | 'error';
+/** `context`: the conversation no longer fits the context window of the model */
+export type Stop = 'done' | 'max_steps' | 'max_tokens' | 'context' | 'refusal' | 'cancelled' | 'error';
 
 export type TurnResult<D> = {
   history: BetaMessageParam[];
@@ -123,6 +124,7 @@ export async function runTurn<D>(o: {
     // keep the history without that answer (a tool_use without its result would break the next request)
     if (response.stop_reason === 'refusal') return end(next, 'refusal');
     if (response.stop_reason === 'max_tokens') return end(calls.length ? next : { ...next, history: [...s.history, assistant] }, 'max_tokens');
+    if (response.stop_reason === 'model_context_window_exceeded') return end(calls.length ? next : { ...next, history: [...s.history, assistant] }, 'context');
     if (response.stop_reason === 'pause_turn') return step({ ...next, history: [...s.history, assistant] });
 
     if (calls.length) {

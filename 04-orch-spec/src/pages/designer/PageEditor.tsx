@@ -103,8 +103,11 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
   const aiKey = useAiKey();
   const [draft, setDraft] = useState<PageDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(!!aiPrompt);
+  // the description of a new page for Claude - sent once, then dropped (a later mount of the chat does not send it again)
+  const [pendingPrompt, setPendingPrompt] = useState(aiPrompt);
   // deleting the key turns the AI off at once - the draft is gone too
-  useEffect(() => { if (!aiKey) { setDraft(null); setAiOpen(false); } }, [aiKey]);
+  // also without the right to edit (another role after a new login): the chat panel is gone, so is the draft
+  useEffect(() => { if (!aiKey || !canEdit) { setDraft(null); setAiOpen(false); } }, [aiKey, canEdit]);
   const shown = draft?.page ?? page;
   const editable = canEdit && !draft;
 
@@ -463,7 +466,7 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
               pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
               draft={draft} onDraft={setDraft} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
               onAccept={(next) => { update(next); setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null)); }}
-              initialPrompt={aiPrompt} />
+              initialPrompt={pendingPrompt} onInitialPrompt={() => setPendingPrompt(undefined)} />
             </Suspense>
           </div>
         )}

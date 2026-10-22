@@ -21,7 +21,7 @@ export function ProcessAiPanel({ isDark, apiKey, spec, xml, model, specs, draft,
   draft: ProcessDraft | null;
   onDraft: (d: ProcessDraft | null) => void;
   onAccept: (d: ProcessDraft, requests: string[]) => Promise<AcceptOutcome>;
-  undo: { label: string; run: () => void } | null;
+  undo: { label: string; run: () => AcceptOutcome | Promise<AcceptOutcome> } | null;
   onSelect: (id: string) => void;
 }) {
   const changes = useMemo(() => (draft ? processDiff(draft.base.spec, draft.spec) : []), [draft]);

@@ -319,6 +319,12 @@ test('runTurn - the history after refusal, cut off and pause_turn; a follow-up k
   assert.equal(cut.stop, 'max_tokens');
   assert.deepEqual(roles(cut.history), ['user', 'assistant']);
 
+  // the conversation no longer fits the context window: an early stop of its own, the call does not run
+  const full = await runTurn({ send: scripted([message([toolUse('t1', 'remove_block', { key: '0' })], 'model_context_window_exceeded')]).send, system, kit, history: [], prompt: 'x', draft });
+  assert.equal(full.stop, 'context');
+  assert.equal(full.draft, draft);
+  assert.deepEqual(roles(full.history), ['user']);
+
   // pause_turn: the paused answer goes into the history and the same turn goes on
   const paused = scripted([message([text('…')], 'pause_turn'), message([text('fertig')], 'end_turn')]);
   const p = await runTurn({ send: paused.send, system, kit, history: [], prompt: 'x', draft });
