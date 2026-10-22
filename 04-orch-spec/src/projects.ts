@@ -113,11 +113,6 @@ export interface RebuildResult {
 }
 
 /**
- * Build the catalog from the projects **anew** — not extend it. Only this way
- * does reordering take effect: when extending, what was read earlier would
- * stay, no matter what the list looks like by now.
- */
-/**
  * The readable folder of a project. If it came from a folder above, its
  * access is used (confirmed once, applies to all below); otherwise
  * its own. `roots` remembers per root whether access is granted — so that a
@@ -152,6 +147,11 @@ export async function intoProject(dir: FileSystemDirectoryHandle, name: string):
   try { return await dir.getDirectoryHandle(name); } catch { return dir; }
 }
 
+/**
+ * Build the catalog from the projects **anew** — not extend it. Only this way
+ * does reordering take effect: when extending, what was read earlier would
+ * stay, no matter what the list looks like by now.
+ */
 export async function rebuild(
   projects: ProjectFolder[],
   onProgress: (text: string) => void,
