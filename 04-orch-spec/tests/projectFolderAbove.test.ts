@@ -127,3 +127,18 @@ test('granting access to a project with the folder above it remembers the projec
   }
   assert.equal((handles['project:p-cards'] as FileSystemDirectoryHandle).name, 'acme-cards');
 });
+
+test('granting access fails when the project inside the folder above is denied - nothing remembered', async () => {
+  const handles: Record<string, unknown> = {};
+  fakeIndexedDb(handles);
+  const w = globalThis as unknown as { window?: unknown };
+  const realWindow = w.window;
+  const above = dir('projects', { 'acme-cards': project('cards', 'Card') }, ['acme-cards']);
+  w.window = { showDirectoryPicker: async () => above };
+  try {
+    assert.equal(await grantAccess({ project: { id: 'p-cards', name: 'acme-cards' } }), false);
+  } finally {
+    w.window = realWindow;
+  }
+  assert.equal(handles['project:p-cards'], undefined);
+});
