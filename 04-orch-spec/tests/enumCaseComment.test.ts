@@ -41,3 +41,16 @@ test('an enum value with underscores is a valid name - one with a hyphen is not'
   assert.ok(messages('QI-Deklaration').some(m => m.includes('kein gültiger Name')));
   assert.deepEqual(messages('`QI-Deklaration`'), []);
 });
+
+test('a char literal or a triple-quoted string does not hide the comment', () => {
+  const src = `package acme.demo
+
+enum Sep:
+  case Quote(c: Char = '"') // - a quote
+  case Text(s: String = """a "b" // c""") // - multi
+  case Plain // - plain
+end Sep
+`;
+  const sep = scanScala(src, 'X.scala').find(t => t.name === 'Sep')!;
+  assert.deepEqual(sep.values, ['Quote', 'Text', 'Plain']);
+});

@@ -49,10 +49,18 @@ const SERVICE_MARK = /^\s+(?:(?:final|override)\s+)*(?:val|lazy val|def)\s+(topi
 const NESTED_SCOPE = /^(\s*)(?:(?:sealed|final|abstract|private|protected|case|open)\s+)*(?:object|trait|class|enum)\s+(\w+)/;
 /** Without a comment at the end of the line (`type Id = String // a | b`) — outside of text */
 function withoutComment(text: string): string {
-  let inString = false;
+  /** the open string's delimiter: `"` or `"""` */
+  let open = '';
   for (let i = 0; i < text.length - 1; i++) {
-    if (text[i] === '"' && text[i - 1] !== '\\') inString = !inString;
-    else if (!inString && text[i] === '/' && text[i + 1] === '/') return text.slice(0, i);
+    if (open) {
+      if (open === '"' && text[i] === '\\') i++;
+      else if (text.startsWith(open, i)) { i += open.length - 1; open = ''; }
+      continue;
+    }
+    if (text[i] === '"') { open = text.startsWith('"""', i) ? '"""' : '"'; i += open.length - 1; }
+    // a char literal (`'"'`, `'\''`) does not open a string
+    else if (text[i] === "'") i += (/^'(?:\\.|[^'\\])'/.exec(text.slice(i))?.[0].length ?? 1) - 1;
+    else if (text[i] === '/' && text[i + 1] === '/') return text.slice(0, i);
   }
   return text;
 }
@@ -113,6 +121,9 @@ function balance(line: string, depth: number, state: { triple: boolean } = { tri
     }
     if (line.startsWith('"""', i)) { state.triple = true; i += 2; continue; }
     if (ch === '"') { inString = true; continue; }
+    // a char literal (`'"'`, `'('`) neither opens a string nor counts as a bracket
+    const char = ch === "'" ? /^'(?:\\.|[^'\\])'/.exec(line.slice(i)) : null;
+    if (char) { i += char[0].length - 1; continue; }
     if (ch === '/' && line[i + 1] === '/') break; // line comment
     if (ch === '(' || ch === '[') d++;
     if (ch === ')' || ch === ']') d--;
