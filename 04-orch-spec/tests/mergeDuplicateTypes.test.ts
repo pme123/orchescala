@@ -26,3 +26,29 @@ test('of two types with the same name, the used one gets the domain - wherever i
   assert.deepEqual(byId('t-unused')?.values ?? [], []);
   assert.ok(report.stale.includes('CProcessState'));
 });
+
+const merge = (previous: TypeDef[]) => {
+  const fresh = spec([root('t-fresh'), enumType('t-fresh', ['ACTIVE', 'COMPLETED'])]);
+  const { spec: merged } = mergeDomain(spec(previous), fresh, { status: { added: 'implemented', changed: 'changed' } });
+  return (id: string) => merged.types?.find(t => t.id === id)?.values?.map(v => v.name) ?? [];
+};
+
+test('the used copy wins also when it stands first', () => {
+  const values = merge([root('t-used'), enumType('t-used'), enumType('t-unused')]);
+  assert.deepEqual(values('t-used'), ['ACTIVE', 'COMPLETED']);
+  assert.deepEqual(values('t-unused'), []);
+});
+
+test('a reference from a stale type does not count - only what the root reaches', () => {
+  // `Old.state` points to the unused copy, but `Old` is not reachable from `In`
+  const old = { id: 't-old', name: 'Old', kind: 'case', status: 'implemented', fields: [{ id: 'f-old', name: 'state', type: 't-unused' }] } as TypeDef;
+  const values = merge([root('t-used'), old, enumType('t-unused'), enumType('t-used')]);
+  assert.deepEqual(values('t-used'), ['ACTIVE', 'COMPLETED']);
+  assert.deepEqual(values('t-unused'), []);
+});
+
+test('no field points to either copy: the first one gets the domain', () => {
+  const values = merge([root('t-other'), enumType('t-first'), enumType('t-second')]);
+  assert.deepEqual(values('t-first'), ['ACTIVE', 'COMPLETED']);
+  assert.deepEqual(values('t-second'), []);
+});
